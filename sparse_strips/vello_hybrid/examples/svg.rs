@@ -4,17 +4,21 @@
 //! SVG example for sparse strips hybrid CPU/GPU renderer
 //!
 //! This example demonstrates loading and rendering an SVG file using the hybrid renderer.
-//! It creates a window and continuously renders the SVG using CPU-side path processing
+//! It creates a window and renders the SVG using CPU-side path processing
 //! and GPU-accelerated compositing.
 
 mod common;
 
 use std::sync::Arc;
 
-use common::render_svg;
+use common::{create_vello_renderer, create_winit_window, render_svg};
+use peniko::color::palette;
 use vello_common::pico_svg::PicoSvg;
 use vello_hybrid::{
-    DimensionConstraints, RenderContext, RenderData, RenderTarget, Renderer, SurfaceTarget,
+    Renderer,
+    render::RenderParams,
+    scene::Scene,
+    util::{RenderContext, RenderSurface},
 };
 use winit::{
     application::ApplicationHandler,
@@ -24,128 +28,181 @@ use winit::{
 };
 
 /// Main entry point for the SVG GPU renderer example.
-/// Creates a window and continuously renders the SVG using the hybrid CPU/GPU renderer.
+/// Creates a window and renders the SVG using the hybrid CPU/GPU renderer.
 fn main() {
     let mut app = SvgVelloApp {
-        context: None,
-        parsed_svg: None,
-        render_scale: 5.0,
-        state: None,
+        context: RenderContext::new(),
+        renderers: vec![],
+        state: RenderState::Suspended(None),
+        scene: Scene::new(1600, 1200),
     };
 
-    let event_loop = EventLoop::new().unwrap();
+    let event_loop = EventLoop::new().expect("Couldn't create event loop");
     event_loop
         .run_app(&mut app)
         .expect("Couldn't run event loop");
 }
 
-/// State for active rendering
-struct SvgRenderState {
-    // The window for presenting the rendered content
-    window: Arc<Window>,
-    // The renderer for handling GPU operations
-    renderer: Renderer,
-    // The processed data ready to be sent to the GPU
-    render_data: RenderData,
+#[derive(Debug)]
+enum RenderState<'s> {
+    /// `RenderSurface` and `Window` for active rendering.
+    Active {
+        // The `RenderSurface` and the `Window` must be in this order, so that the surface is dropped first.
+        surface: Box<RenderSurface<'s>>,
+        window: Arc<Window>,
+    },
+    /// Cache a window so that it can be reused when the app is resumed after being suspended.
+    Suspended(Option<Arc<Window>>),
 }
 
-/// Main application state
-struct SvgVelloApp {
-    // The vello RenderContext which contains rendering state
-    context: Option<RenderContext>,
-    // The SVG that we'll be rendering
-    parsed_svg: Option<PicoSvg>,
-    // Rendering scale factor
-    render_scale: f64,
-    // Active render state (either active or none)
-    state: Option<SvgRenderState>,
+struct SvgVelloApp<'s> {
+    // The vello RenderContext which is a global context that lasts for the
+    // lifetime of the application
+    context: RenderContext,
+
+    // An array of renderers, one per wgpu device
+    renderers: Vec<Option<Renderer>>,
+
+    // State for our example where we store the winit Window and the wgpu Surface
+    state: RenderState<'s>,
+
+    // A vello Scene which is a data structure which allows one to build up a
+    // description a scene to be drawn (with paths, fills, images, text, etc)
+    // which is then passed to a renderer for rendering
+    scene: Scene,
 }
 
-impl ApplicationHandler for SvgVelloApp {
-    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        self.state = None;
-    }
-
+impl ApplicationHandler for SvgVelloApp<'_> {
     #[allow(
         clippy::cast_possible_truncation,
         reason = "Width and height are expected to fit within u16 range"
     )]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.state.is_none() {
-            let svg_filename = std::env::args().nth(1).expect("svg filename is first arg");
-            let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
-            let parsed_svg = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
-            self.parsed_svg = Some(parsed_svg);
+        let RenderState::Suspended(cached_window) = &mut self.state else {
+            return;
+        };
 
-            let parsed = self.parsed_svg.as_ref().unwrap();
-            let constraints = DimensionConstraints::default();
-            let svg_width = parsed.size.width * self.render_scale;
-            let svg_height = parsed.size.height * self.render_scale;
-            let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
+        let window = cached_window.take().unwrap_or_else(|| {
+            create_winit_window(
+                event_loop,
+                self.scene.width() as u32,
+                self.scene.height() as u32,
+                true,
+            )
+        });
 
-            let window = create_winit_window(event_loop, width as u32, height as u32, false);
+        let size = window.inner_size();
+        let surface = pollster::block_on(self.context.create_surface(
+            window.clone(),
+            size.width,
+            size.height,
+            wgpu::PresentMode::AutoVsync,
+            wgpu::TextureFormat::Bgra8Unorm,
+        ));
 
-            let mut context = RenderContext::new(width as u16, height as u16);
-            render_svg(&mut context, self.render_scale, &parsed.items);
-            let render_data = context.prepare_render_data();
-            self.context = Some(context);
+        // Create a vello Renderer for the surface (using its device id)
+        self.renderers
+            .resize_with(self.context.devices.len(), || None);
+        self.renderers[surface.dev_id]
+            .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
-            let mut renderer = pollster::block_on(async {
-                Renderer::new(RenderTarget::Surface {
-                    target: Arc::clone(&window) as Arc<dyn SurfaceTarget>,
-                    width: width as u32,
-                    height: height as u32,
-                })
-                .await
-            });
+        // Save the Window and Surface to a state variable
+        self.state = RenderState::Active {
+            surface: Box::new(surface),
+            window,
+        };
+    }
 
-            renderer.prepare(&render_data);
-
-            window.set_visible(true);
-            window.focus_window();
-            window.request_redraw();
-
-            self.state = Some(SvgRenderState {
-                window,
-                renderer,
-                render_data,
-            });
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        if let RenderState::Active { window, .. } = &self.state {
+            self.state = RenderState::Suspended(Some(window.clone()));
         }
     }
 
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        _window_id: WindowId,
+        window_id: WindowId,
         event: WindowEvent,
     ) {
-        if let Some(state) = &self.state {
-            match event {
-                WindowEvent::RedrawRequested => {
-                    state.renderer.render_to_surface(&state.render_data);
-                    state.window.request_redraw();
-                }
-                WindowEvent::CloseRequested => {
-                    event_loop.exit();
-                }
-                _ => {}
+        // Only process events for our window, and only when we have a surface.
+        let surface = match &mut self.state {
+            RenderState::Active { surface, window } if window.id() == window_id => surface,
+            _ => return,
+        };
+
+        match event {
+            // Exit the event loop when a close is requested (e.g. window's close button is pressed)
+            WindowEvent::CloseRequested => event_loop.exit(),
+
+            // Resize the surface when the window is resized
+            WindowEvent::Resized(size) => {
+                self.context
+                    .resize_surface(surface, size.width, size.height);
             }
+
+            WindowEvent::RedrawRequested => {
+                // Empty the scene of objects to draw. You could create a new Scene each time, but in this case
+                // the same Scene is reused so that the underlying memory allocation can also be reused.
+                self.scene.reset();
+
+                let render_scale = 5.0;
+                let svg_filename = std::env::args().nth(1).expect("svg filename is first arg");
+                let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
+                let parsed_svg = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
+
+                render_svg(&mut self.scene, render_scale, &parsed_svg.items);
+
+                let width = surface.config.width;
+                let height = surface.config.height;
+
+                // Get a handle to the device
+                let device_handle = &self.context.devices[surface.dev_id];
+
+                // Render to a texture, which we will later copy into the surface
+                self.renderers[surface.dev_id]
+                    .as_mut()
+                    .unwrap()
+                    .render_to_texture(
+                        &device_handle.device,
+                        &device_handle.queue,
+                        &self.scene,
+                        &surface.target_view,
+                        &RenderParams {
+                            base_color: palette::css::BLACK, // Background color
+                            width,
+                            height,
+                            strip_height: 4,
+                        },
+                    );
+
+                let surface_texture = surface
+                    .surface
+                    .get_current_texture()
+                    .expect("failed to get surface texture");
+
+                // Perform the copy
+                let mut encoder =
+                    device_handle
+                        .device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("Surface Blit"),
+                        });
+                surface.blitter.copy(
+                    &device_handle.device,
+                    &mut encoder,
+                    &surface.target_view,
+                    &surface_texture
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor::default()),
+                );
+                device_handle.queue.submit([encoder.finish()]);
+                // Queue the texture to be presented on the surface
+                surface_texture.present();
+
+                device_handle.device.poll(wgpu::Maintain::Poll);
+            }
+            _ => {}
         }
     }
-}
-
-/// Helper function that creates a Winit window and returns it (wrapped in an Arc for sharing)
-fn create_winit_window(
-    event_loop: &ActiveEventLoop,
-    width: u32,
-    height: u32,
-    initially_visible: bool,
-) -> Arc<Window> {
-    let attr = Window::default_attributes()
-        .with_inner_size(winit::dpi::PhysicalSize::new(width, height))
-        .with_resizable(false)
-        .with_title("Vello SVG Renderer")
-        .with_visible(initially_visible)
-        .with_active(true);
-    Arc::new(event_loop.create_window(attr).unwrap())
 }

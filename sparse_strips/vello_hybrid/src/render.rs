@@ -1,272 +1,365 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Basic render operations.
+//! GPU rendering module for the sparse strips CPU/GPU rendering engine.
+//!
+//! This module provides the GPU-side implementation of the hybrid rendering system.
+//! It handles:
+//! - GPU resource management (buffers, textures, pipelines)
+//! - Surface/window management and presentation
+//! - Shader execution and rendering
+//!
+//! The hybrid approach combines CPU-side path processing with efficient GPU rendering
+//! to balance flexibility and performance.
 
-use crate::gpu::{GpuStrip, RenderData};
-use crate::{RenderTarget, Renderer};
-use kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
-use peniko::color::palette::css::BLACK;
-use peniko::{BlendMode, Compose, Fill, Mix};
-use vello_common::coarse::{WIDE_TILE_WIDTH, Wide};
-use vello_common::flatten::Line;
-use vello_common::paint::Paint;
-use vello_common::pixmap::Pixmap;
-use vello_common::strip::{STRIP_HEIGHT, Strip};
-use vello_common::tile::Tiles;
-use vello_common::{flatten, strip};
+use std::fmt::Debug;
 
-/// Default tolerance for curve flattening
-pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
+use bytemuck::{Pod, Zeroable};
+use wgpu::{
+    BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
+    PipelineCompilationOptions, Queue, RenderPipeline, Texture, TextureView, util::DeviceExt,
+};
 
-/// A render context for hybrid CPU/GPU rendering.
-///
-/// This context maintains the state for path rendering and manages the rendering
-/// pipeline from paths to strips that can be rendered by the GPU.
+use crate::scene::Scene;
+
+/// Parameters for the renderer
 #[derive(Debug)]
-pub struct RenderContext {
-    pub(crate) width: usize,
-    pub(crate) height: usize,
-    pub(crate) wide: Wide,
-    pub(crate) alphas: Vec<u32>,
-    pub(crate) line_buf: Vec<Line>,
-    pub(crate) tiles: Tiles,
-    pub(crate) strip_buf: Vec<Strip>,
-    pub(crate) paint: Paint,
-    pub(crate) stroke: Stroke,
-    pub(crate) transform: Affine,
-    pub(crate) fill_rule: Fill,
-    pub(crate) blend_mode: BlendMode,
+pub struct RenderParams {
+    /// Background color
+    pub base_color: peniko::Color,
+    /// Width of the rendering target
+    pub width: u32,
+    /// Height of the rendering target
+    pub height: u32,
+    /// Height of a strip in the rendering
+    pub strip_height: u32,
 }
 
-impl RenderContext {
-    /// Create a new render context with the given width and height in pixels.
-    pub fn new(width: u16, height: u16) -> Self {
-        // TODO: Use u16 for width/height everywhere else, too.
-        let wide = Wide::new(width.into(), height.into());
+/// Options for the renderer
+#[derive(Debug)]
+pub struct RendererOptions {}
 
-        let alphas = vec![];
-        let line_buf = vec![];
-        let tiles = Tiles::new();
-        let strip_buf = vec![];
+/// Contains all GPU resources needed for rendering
+#[derive(Debug)]
+struct GpuResources {
+    /// Buffer for strip data
+    pub strips_buffer: Buffer,
+    /// Texture for alpha values
+    pub alphas_texture: Texture,
+    /// Bind group for rendering
+    pub render_bind_group: BindGroup,
+}
 
-        let transform = Affine::IDENTITY;
-        let fill_rule = Fill::NonZero;
-        let paint = BLACK.into();
-        let stroke = Stroke {
-            width: 1.0,
-            join: Join::Bevel,
-            start_cap: Cap::Butt,
-            end_cap: Cap::Butt,
-            ..Default::default()
-        };
-        let blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
+/// GPU renderer for the hybrid rendering system
+#[derive(Debug)]
+pub struct Renderer {
+    /// Bind group layout for rendering
+    pub render_bind_group_layout: BindGroupLayout,
+    /// Pipeline for rendering
+    pub render_pipeline: RenderPipeline,
+    /// GPU resources for rendering (created during prepare)
+    resources: Option<GpuResources>,
+}
+
+/// Contains the data needed for rendering
+#[derive(Debug, Default)]
+pub struct RenderData {
+    /// GPU strips to be rendered
+    pub strips: Vec<GpuStrip>,
+    /// Alpha values used in rendering
+    pub alphas: Vec<u32>,
+}
+
+/// Configuration for the GPU renderer
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct Config {
+    /// Width of the rendering target
+    pub width: u32,
+    /// Height of the rendering target
+    pub height: u32,
+    /// Height of a strip in the rendering
+    pub strip_height: u32,
+}
+
+/// Represents a GPU strip for rendering
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub struct GpuStrip {
+    /// X coordinate of the strip
+    pub x: u16,
+    /// Y coordinate of the strip
+    pub y: u16,
+    /// Width of the strip
+    pub width: u16,
+    /// Width of the portion where alpha blending should be applied.
+    pub dense_width: u16,
+    /// Index into the alpha texture where this strip's alpha values begin.
+    pub col: u32,
+    /// RGBA color value
+    pub rgba: u32,
+}
+
+impl GpuStrip {
+    /// Vertex attributes for the strip
+    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 4] {
+        wgpu::vertex_attr_array![
+            0 => Uint32,
+            1 => Uint32,
+            2 => Uint32,
+            3 => Uint32,
+        ]
+    }
+}
+
+impl Renderer {
+    /// Creates a new renderer
+    ///
+    /// The target parameter determines if we render to a window or headless
+    pub fn new(device: &Device, _options: &RendererOptions) -> Self {
+        let format = wgpu::TextureFormat::Bgra8Unorm;
+
+        let render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../shaders/sparse_strip_renderer.wgsl").into(),
+            ),
+        });
+        let render_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Uint,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&render_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &render_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<GpuStrip>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &GpuStrip::vertex_attributes(),
+                }],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &render_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format,
+                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
 
         Self {
-            width: width.into(),
-            height: height.into(),
-            wide,
-            alphas,
-            line_buf,
-            tiles,
-            strip_buf,
-            transform,
-            paint,
-            fill_rule,
-            stroke,
-            blend_mode,
+            render_bind_group_layout,
+            render_pipeline,
+            resources: None,
         }
     }
 
-    /// Fill a path with the current paint and fill rule.
-    pub fn fill_path(&mut self, path: &BezPath) {
-        flatten::fill(path, self.transform, &mut self.line_buf);
-        self.render_path(self.fill_rule, self.paint.clone());
-    }
+    /// Prepare the GPU buffers for rendering
+    pub fn prepare(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        scene: &Scene,
+        render_params: &RenderParams,
+    ) {
+        let render_data = scene.prepare_render_data();
+        let required_strips_size =
+            std::mem::size_of::<GpuStrip>() as u64 * render_data.strips.len() as u64;
 
-    /// Stroke a path with the current paint and stroke settings.
-    pub fn stroke_path(&mut self, path: &BezPath) {
-        flatten::stroke(path, &self.stroke, self.transform, &mut self.line_buf);
-        self.render_path(Fill::NonZero, self.paint.clone());
-    }
+        // Check if we need to create new resources or resize existing ones
+        let needs_new_resources = match &self.resources {
+            Some(resources) => required_strips_size > resources.strips_buffer.size(),
+            None => true,
+        };
 
-    /// Fill a rectangle with the current paint and fill rule.
-    pub fn fill_rect(&mut self, rect: &Rect) {
-        self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
-    }
+        if needs_new_resources {
+            let strips_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Strips Buffer"),
+                size: required_strips_size,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
 
-    /// Stroke a rectangle with the current paint and stroke settings.
-    pub fn stroke_rect(&mut self, rect: &Rect) {
-        self.stroke_path(&rect.to_path(DEFAULT_TOLERANCE));
-    }
+            let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+            let alpha_len = render_data.alphas.len();
+            // 4 alpha values u32 each per texel
+            let alpha_texture_height =
+                (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 4);
 
-    /// Set the blend mode for subsequent rendering operations.
-    pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        self.blend_mode = blend_mode;
-    }
+            // Ensure dimensions don't exceed WebGL2 limits
+            assert!(
+                alpha_texture_height <= max_texture_dimension_2d,
+                "Alpha texture height exceeds WebGL2 limit"
+            );
 
-    /// Set the stroke settings for subsequent stroke operations.
-    pub fn set_stroke(&mut self, stroke: Stroke) {
-        self.stroke = stroke;
-    }
+            let alphas_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Alpha Texture"),
+                size: wgpu::Extent3d {
+                    width: max_texture_dimension_2d,
+                    height: alpha_texture_height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba32Uint,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let alphas_texture_view =
+                alphas_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-    /// Set the paint for subsequent rendering operations.
-    pub fn set_paint(&mut self, paint: Paint) {
-        self.paint = paint;
-    }
+            let config_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Config Buffer"),
+                contents: bytemuck::bytes_of(&Config {
+                    width: render_params.width,
+                    height: render_params.height,
+                    strip_height: render_params.strip_height,
+                }),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
 
-    /// Set the fill rule for subsequent fill operations.
-    pub fn set_fill_rule(&mut self, fill_rule: Fill) {
-        self.fill_rule = fill_rule;
-    }
+            let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Render Bind Group"),
+                layout: &self.render_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&alphas_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: config_buf.as_entire_binding(),
+                    },
+                ],
+            });
 
-    /// Set the transform for subsequent rendering operations.
-    pub fn set_transform(&mut self, transform: Affine) {
-        self.transform = transform;
-    }
-
-    /// Reset the transform to identity.
-    pub fn reset_transform(&mut self) {
-        self.transform = Affine::IDENTITY;
-    }
-
-    /// Reset all rendering state to default values.
-    pub fn reset(&mut self) {
-        self.wide.reset();
-    }
-
-    /// Render the current content to a pixmap.
-    pub async fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        let render_data = self.prepare_render_data();
-        let mut renderer = Renderer::new(RenderTarget::Headless {
-            width: pixmap.width as u32,
-            height: pixmap.height as u32,
-        })
-        .await;
-        renderer.prepare(&render_data);
-        let buffer =
-            renderer.render_to_texture(&render_data, pixmap.width as u32, pixmap.height as u32);
-        // Convert buffer from BGRA to RGBA format
-        let mut rgba_buffer = Vec::with_capacity(buffer.len());
-        for chunk in buffer.chunks_exact(4) {
-            rgba_buffer.push(chunk[2]); // R (was B)    
-            rgba_buffer.push(chunk[1]); // G (unchanged)
-            rgba_buffer.push(chunk[0]); // B (was R)
-            rgba_buffer.push(chunk[3]); // A (unchanged)
+            self.resources = Some(GpuResources {
+                strips_buffer,
+                alphas_texture,
+                render_bind_group,
+            });
         }
 
-        pixmap.buf = rgba_buffer;
-    }
+        // Now that we have resources, we can update the data
+        if let Some(resources) = &self.resources {
+            // TODO: Explore using `write_buffer_with` to avoid copying the data twice
+            queue.write_buffer(
+                &resources.strips_buffer,
+                0,
+                bytemuck::cast_slice(&render_data.strips),
+            );
 
-    /// Get the width of the render context.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "Width is expected to fit within u16 range"
-    )]
-    pub fn width(&self) -> u16 {
-        self.width as u16
-    }
+            // Prepare alpha data for the texture with 4 alpha values per texel
+            let texture_width = resources.alphas_texture.width();
+            let texture_height = resources.alphas_texture.height();
+            let mut alpha_data = vec![0_u32; render_data.alphas.len()];
+            alpha_data[..].copy_from_slice(&render_data.alphas);
+            alpha_data.resize((texture_width * texture_height * 4) as usize, 0);
 
-    /// Get the height of the render context.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "Height is expected to fit within u16 range"
-    )]
-    pub fn height(&self) -> u16 {
-        self.height as u16
-    }
-
-    // Assumes that `line_buf` contains the flattened path.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "Width and height are expected to fit within u16 range"
-    )]
-    fn render_path(&mut self, fill_rule: Fill, paint: Paint) {
-        self.tiles
-            .make_tiles(&self.line_buf, self.width as u16, self.height as u16);
-        self.tiles.sort_tiles();
-
-        strip::render(
-            &self.tiles,
-            &mut self.strip_buf,
-            &mut self.alphas,
-            fill_rule,
-            &self.line_buf,
-        );
-
-        self.wide.generate(&self.strip_buf, fill_rule, paint);
-    }
-}
-
-impl RenderContext {
-    /// Prepares render data from the current context for GPU rendering
-    ///
-    /// This method converts the rendering context's state into a format
-    /// suitable for GPU rendering, including strips and alpha values.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "GpuStrip fields use u16 and values are expected to fit within that range"
-    )]
-    pub fn prepare_render_data(&self) -> RenderData {
-        let mut strips: Vec<GpuStrip> = Vec::new();
-        let wide_tiles_per_row = (self.width).div_ceil(WIDE_TILE_WIDTH);
-        let wide_tiles_per_col = (self.height).div_ceil(STRIP_HEIGHT);
-        for wide_tile_row in 0..wide_tiles_per_col {
-            for wide_tile_col in 0..wide_tiles_per_row {
-                let wide_tile =
-                    &self.wide.tiles[wide_tile_row * wide_tiles_per_row + wide_tile_col];
-                let wide_tile_x = wide_tile_col * WIDE_TILE_WIDTH;
-                let wide_tile_y = wide_tile_row * STRIP_HEIGHT;
-                let bg = wide_tile.bg.premultiply().to_rgba8().to_u32();
-                if bg != 0 {
-                    strips.push(GpuStrip {
-                        x: wide_tile_x as u16,
-                        y: wide_tile_y as u16,
-                        width: WIDE_TILE_WIDTH as u16,
-                        dense_width: 0,
-                        col: 0,
-                        rgba: bg,
-                    });
-                }
-                for cmd in &wide_tile.cmds {
-                    match cmd {
-                        vello_common::coarse::Cmd::Fill(fill) => {
-                            let color: peniko::color::AlphaColor<peniko::color::Srgb> =
-                                match fill.paint {
-                                    Paint::Solid(color) => color,
-                                    _ => peniko::color::AlphaColor::TRANSPARENT,
-                                };
-                            strips.push(GpuStrip {
-                                x: (wide_tile_x as u32 + fill.x) as u16,
-                                y: wide_tile_y as u16,
-                                width: fill.width as u16,
-                                dense_width: 0,
-                                col: 0,
-                                rgba: color.premultiply().to_rgba8().to_u32(),
-                            });
-                        }
-                        vello_common::coarse::Cmd::AlphaFill(cmd_strip) => {
-                            let color: peniko::color::AlphaColor<peniko::color::Srgb> =
-                                match cmd_strip.paint {
-                                    Paint::Solid(color) => color,
-                                    _ => peniko::color::AlphaColor::TRANSPARENT,
-                                };
-                            strips.push(GpuStrip {
-                                x: (wide_tile_x as u32 + cmd_strip.x) as u16,
-                                y: wide_tile_y as u16,
-                                width: cmd_strip.width as u16,
-                                dense_width: cmd_strip.width as u16,
-                                col: cmd_strip.alpha_ix as u32,
-                                rgba: color.premultiply().to_rgba8().to_u32(),
-                            });
-                        }
-                    }
-                }
-            }
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &resources.alphas_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                bytemuck::cast_slice(&alpha_data),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each)
+                    bytes_per_row: Some(texture_width * 16),
+                    rows_per_image: Some(texture_height),
+                },
+                wgpu::Extent3d {
+                    width: texture_width,
+                    height: texture_height,
+                    depth_or_array_layers: 1,
+                },
+            );
         }
-        RenderData {
-            strips,
-            alphas: self.alphas.clone(),
+    }
+
+    /// Render to a texture
+    pub fn render_to_texture(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        scene: &Scene,
+        texture_view: &TextureView,
+        render_params: &RenderParams,
+    ) {
+        self.prepare(device, queue, scene, render_params);
+        // If we don't have the required resources, return empty data
+        let Some(resources) = &self.resources else {
+            return;
+        };
+        let render_data = scene.prepare_render_data();
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Redner to Texture Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &resources.render_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, resources.strips_buffer.slice(..));
+            let strips_to_draw = render_data.strips.len();
+            render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());
         }
+        queue.submit([encoder.finish()]);
     }
 }

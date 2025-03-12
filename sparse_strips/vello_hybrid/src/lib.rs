@@ -29,12 +29,13 @@
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
-mod gpu;
-mod render;
+pub mod render;
+pub mod scene;
+pub mod util;
 /// Utility functions and types
 pub mod utils;
 
-pub use gpu::{Config, GpuStrip, RenderData, RenderTarget, Renderer, SurfaceTarget};
-pub use render::RenderContext;
+pub use render::{Config, GpuStrip, RenderData, Renderer};
+pub use scene::Scene;
 pub use utils::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;

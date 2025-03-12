@@ -12,7 +12,7 @@ use common::render_svg;
 use std::io::BufWriter;
 use vello_common::pico_svg::PicoSvg;
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{DimensionConstraints, RenderContext};
+use vello_hybrid::{DimensionConstraints, Scene};
 
 /// Main entry point for the headless rendering example.
 /// Takes two command line arguments:
@@ -41,16 +41,133 @@ async fn run() {
     let svg_height = parsed.size.height * render_scale;
     let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
 
-    let mut render_ctx = RenderContext::new(width as u16, height as u16);
-    render_svg(&mut render_ctx, render_scale, &parsed.items);
+    let mut scene = Scene::new(width as u16, height as u16);
+    render_svg(&mut scene, render_scale, &parsed.items);
+
+    // Initialize wgpu device and queue for GPU rendering
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        force_fallback_adapter: false,
+        compatible_surface: None,
+    }))
+    .expect("Failed to find an appropriate adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            label: Some("Device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            memory_hints: wgpu::MemoryHints::default(),
+        },
+        None,
+    ))
+    .expect("Failed to create device");
+
+    // Create a render target texture
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Render Target"),
+        size: wgpu::Extent3d {
+            width: width as u32,
+            height: height as u32,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Bgra8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    // Create renderer and render the scene to the texture
+    let mut renderer =
+        vello_hybrid::render::Renderer::new(&device, &vello_hybrid::render::RendererOptions {});
+    let render_params = vello_hybrid::render::RenderParams {
+        base_color: peniko::Color::TRANSPARENT,
+        width: width as u32,
+        height: height as u32,
+        strip_height: vello_common::strip::STRIP_HEIGHT as u32,
+    };
+    renderer.render_to_texture(&device, &queue, &scene, &texture_view, &render_params);
+
+    // Create a buffer to copy the texture data
+    let bytes_per_row = (width as u32 * 4).next_multiple_of(256);
+    let buffer_size = (bytes_per_row * height as u32) as u64;
+    let texture_copy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Output Buffer"),
+        size: buffer_size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    // Copy texture to buffer
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Copy Encoder"),
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &texture_copy_buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: None,
+            },
+        },
+        wgpu::Extent3d {
+            width: width as u32,
+            height: height as u32,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(std::iter::once(encoder.finish()));
+
+    // Map the buffer for reading
+    texture_copy_buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            if result.is_err() {
+                panic!("Failed to map texture for reading");
+            }
+        });
+    device.poll(wgpu::Maintain::Wait);
+
+    // Read back the pixel data
+    let mut img_data = Vec::with_capacity((width as u32 * height as u32 * 4) as usize);
+    for row in texture_copy_buffer
+        .slice(..)
+        .get_mapped_range()
+        .chunks_exact(bytes_per_row as usize)
+    {
+        img_data.extend_from_slice(&row[0..width as usize * 4]);
+    }
+    texture_copy_buffer.unmap();
+
+    // Convert BGRA to RGBA
+    let mut rgba_buffer = Vec::with_capacity(img_data.len());
+    for chunk in img_data.chunks_exact(4) {
+        rgba_buffer.push(chunk[2]); // R (was B)
+        rgba_buffer.push(chunk[1]); // G (unchanged)
+        rgba_buffer.push(chunk[0]); // B (was R)
+        rgba_buffer.push(chunk[3]); // A (unchanged)
+    }
+
+    // Create a pixmap and set the buffer
     let mut pixmap = Pixmap::new(width as u16, height as u16);
-    render_ctx.render_to_pixmap(&mut pixmap).await;
+    pixmap.buf = rgba_buffer;
     pixmap.unpremultiply();
 
+    // Write the pixmap to a file
     let file = std::fs::File::create(output_filename).unwrap();
     let w = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, width as u32, height as u32);
-    encoder.set_color(png::ColorType::Rgba);
-    let mut writer = encoder.write_header().unwrap();
+    let mut png_encoder = png::Encoder::new(w, width as u32, height as u32);
+    png_encoder.set_color(png::ColorType::Rgba);
+    let mut writer = png_encoder.write_header().unwrap();
     writer.write_image_data(&pixmap.buf).unwrap();
 }
