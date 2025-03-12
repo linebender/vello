@@ -236,7 +236,7 @@ impl RenderContext {
                                 width: fill.width as u16,
                                 dense_width: 0,
                                 col: 0,
-                                rgba: color.to_rgba8().to_u32(),
+                                rgba: color.premultiply().to_rgba8().to_u32(),
                             };
                             strips.push(strip);
                         }
@@ -252,7 +252,7 @@ impl RenderContext {
                                 width: cmd_strip.width as u16,
                                 dense_width: cmd_strip.width as u16,
                                 col: cmd_strip.alpha_ix as u32,
-                                rgba: color.to_rgba8().to_u32(),
+                                rgba: color.premultiply().to_rgba8().to_u32(),
                             };
                             strips.push(strip);
                         }
