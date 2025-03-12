@@ -259,7 +259,7 @@ pub fn render(
                 let h = (ymax - ymin).max(0.);
                 accumulated_winding[y_idx as usize] += sign * h;
 
-                for x_idx in 0..Tile::HEIGHT {
+                for x_idx in 0..Tile::WIDTH {
                     location_winding[x_idx as usize][y_idx as usize] += sign * h;
                 }
             }
