@@ -203,26 +203,26 @@ impl RenderContext {
     )]
     pub fn prepare_render_data(&self) -> RenderData {
         let mut strips: Vec<GpuStrip> = Vec::new();
-        let width_tiles = (self.width).div_ceil(WIDE_TILE_WIDTH);
-        let height_tiles = (self.height).div_ceil(STRIP_HEIGHT);
-        for y in 0..height_tiles {
-            for x in 0..width_tiles {
-                let tile = &self.wide.tiles[y * width_tiles + x];
-                let tile_x = x * WIDE_TILE_WIDTH;
-                let tile_y = y * STRIP_HEIGHT;
-                let bg = tile.bg.to_rgba8().to_u32();
+        let wide_tiles_per_row = (self.width).div_ceil(WIDE_TILE_WIDTH);
+        let wide_tiles_per_col = (self.height).div_ceil(STRIP_HEIGHT);
+        for wide_tile_row in 0..wide_tiles_per_col {
+            for wide_tile_col in 0..wide_tiles_per_row {
+                let wide_tile =
+                    &self.wide.tiles[wide_tile_row * wide_tiles_per_row + wide_tile_col];
+                let wide_tile_x = wide_tile_col * WIDE_TILE_WIDTH;
+                let wide_tile_y = wide_tile_row * STRIP_HEIGHT;
+                let bg = wide_tile.bg.premultiply().to_rgba8().to_u32();
                 if bg != 0 {
-                    let strip = GpuStrip {
-                        x: tile_x as u16,
-                        y: tile_y as u16,
+                    strips.push(GpuStrip {
+                        x: wide_tile_x as u16,
+                        y: wide_tile_y as u16,
                         width: WIDE_TILE_WIDTH as u16,
                         dense_width: 0,
                         col: 0,
                         rgba: bg,
-                    };
-                    strips.push(strip);
+                    });
                 }
-                for cmd in &tile.cmds {
+                for cmd in &wide_tile.cmds {
                     match cmd {
                         vello_common::coarse::Cmd::Fill(fill) => {
                             let color: peniko::color::AlphaColor<peniko::color::Srgb> =
@@ -230,15 +230,14 @@ impl RenderContext {
                                     Paint::Solid(color) => color,
                                     _ => peniko::color::AlphaColor::TRANSPARENT,
                                 };
-                            let strip = GpuStrip {
-                                x: (tile_x as u32 + fill.x) as u16,
-                                y: tile_y as u16,
+                            strips.push(GpuStrip {
+                                x: (wide_tile_x as u32 + fill.x) as u16,
+                                y: wide_tile_y as u16,
                                 width: fill.width as u16,
                                 dense_width: 0,
                                 col: 0,
                                 rgba: color.premultiply().to_rgba8().to_u32(),
-                            };
-                            strips.push(strip);
+                            });
                         }
                         vello_common::coarse::Cmd::AlphaFill(cmd_strip) => {
                             let color: peniko::color::AlphaColor<peniko::color::Srgb> =
@@ -246,15 +245,14 @@ impl RenderContext {
                                     Paint::Solid(color) => color,
                                     _ => peniko::color::AlphaColor::TRANSPARENT,
                                 };
-                            let strip = GpuStrip {
-                                x: (tile_x as u32 + cmd_strip.x) as u16,
-                                y: tile_y as u16,
+                            strips.push(GpuStrip {
+                                x: (wide_tile_x as u32 + cmd_strip.x) as u16,
+                                y: wide_tile_y as u16,
                                 width: cmd_strip.width as u16,
                                 dense_width: cmd_strip.width as u16,
                                 col: cmd_strip.alpha_ix as u32,
                                 rgba: color.premultiply().to_rgba8().to_u32(),
-                            };
-                            strips.push(strip);
+                            });
                         }
                     }
                 }
