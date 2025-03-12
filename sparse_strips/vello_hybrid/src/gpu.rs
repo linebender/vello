@@ -381,6 +381,7 @@ impl Renderer {
 
         // Now that we have resources, we can update the data
         if let Some(resources) = &self.resources {
+            // TODO: Explore using `write_buffer_with` to avoid copying the data twice
             self.queue.write_buffer(
                 &resources.strips_buffer,
                 0,
