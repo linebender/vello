@@ -20,8 +20,8 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
 #[derive(Debug)]
 pub struct RenderContext {
-    pub(crate) width: usize,
-    pub(crate) height: usize,
+    pub(crate) width: u16,
+    pub(crate) height: u16,
     pub(crate) wide: Wide,
     pub(crate) alphas: Vec<u32>,
     pub(crate) line_buf: Vec<Line>,
@@ -37,8 +37,7 @@ pub struct RenderContext {
 impl RenderContext {
     /// Create a new render context with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
-        // TODO: Use u16 for width/height everywhere else, too.
-        let wide = Wide::new(width.into(), height.into());
+        let wide = Wide::new(width, height);
 
         let alphas = vec![];
         let line_buf = vec![];
@@ -58,8 +57,8 @@ impl RenderContext {
         let blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
 
         Self {
-            width: width.into(),
-            height: height.into(),
+            width,
+            height,
             wide,
             alphas,
             line_buf,
@@ -132,12 +131,7 @@ impl RenderContext {
 
     /// Render the current context into a pixmap.
     pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        // TODO: Use u16 here, too, instead of casting.
-        let mut fine = Fine::new(
-            pixmap.width as usize,
-            pixmap.height as usize,
-            &mut pixmap.buf,
-        );
+        let mut fine = Fine::new(pixmap.width, pixmap.height, &mut pixmap.buf);
 
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();
@@ -156,18 +150,18 @@ impl RenderContext {
 
     /// Return the width of the pixmap.
     pub fn width(&self) -> u16 {
-        self.width as u16
+        self.width
     }
 
     /// Return the height of the pixmap.
     pub fn height(&self) -> u16 {
-        self.height as u16
+        self.height
     }
 
     // Assumes that `line_buf` contains the flattened path.
     fn render_path(&mut self, fill_rule: Fill, paint: Paint) {
         self.tiles
-            .make_tiles(&self.line_buf, self.width as u16, self.height as u16);
+            .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
 
         strip::render(

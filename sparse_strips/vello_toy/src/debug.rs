@@ -19,7 +19,7 @@ use vello_common::color::palette::css::BLACK;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use vello_common::peniko::Fill;
-use vello_common::strip::{STRIP_HEIGHT, Strip};
+use vello_common::strip::Strip;
 use vello_common::tile::{Tile, Tiles};
 use vello_common::{flatten, strip};
 
@@ -33,7 +33,7 @@ fn main() {
     let mut tiles = Tiles::new();
     let mut strip_buf = vec![];
     let mut alpha_buf = vec![];
-    let mut wide = Wide::new(args.width as usize, args.height as usize);
+    let mut wide = Wide::new(args.width, args.height);
 
     let stages = &args.stages;
 
@@ -174,7 +174,7 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
 
     for i in 0..tiles.len() {
         let tile = tiles.get(i);
-        let x = tile.x * Tile::WIDTH as i32;
+        let x = tile.x * Tile::WIDTH;
         let y = tile.y * Tile::HEIGHT;
 
         if seen.contains(&(x, y)) {
@@ -222,9 +222,9 @@ fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
 
         let rect = Rectangle::new()
             .set("x", x)
-            .set("y", y * STRIP_HEIGHT as u16)
+            .set("y", y * Tile::HEIGHT)
             .set("width", width)
-            .set("height", STRIP_HEIGHT)
+            .set("height", Tile::HEIGHT)
             .set("stroke", color)
             .set("fill", color)
             .set("fill-opacity", 0.4)
@@ -246,7 +246,7 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
             .map(|st| st.col)
             .unwrap_or(alphas.len() as u32);
 
-        let width = end - strip.col;
+        let width = u16::try_from(end - strip.col).unwrap();
 
         // TODO: Account for even-odd?
         let color = if strip.winding != 0 {
@@ -256,13 +256,13 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
         };
 
         for i in 0..width {
-            let alpha = alphas[(i + strip.col) as usize];
+            let alpha = alphas[i as usize + strip.col as usize];
             let entries = alpha.to_le_bytes();
 
-            for (h, e) in entries.iter().enumerate().take(STRIP_HEIGHT) {
+            for (h, e) in entries.iter().enumerate().take(Tile::HEIGHT.into()) {
                 let rect = Rectangle::new()
-                    .set("x", x + i as i32)
-                    .set("y", y * STRIP_HEIGHT as u16 + h as u16)
+                    .set("x", x + i)
+                    .set("y", y * Tile::HEIGHT + h as u16)
                     .set("width", 1)
                     .set("height", 1)
                     .set("fill", color)
@@ -280,10 +280,10 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
             match cmd {
                 Cmd::Fill(f) => {
                     for i in 0..f.width {
-                        for h in 0..STRIP_HEIGHT {
+                        for h in 0..Tile::HEIGHT {
                             let rect = Rectangle::new()
                                 .set("x", f.x + i)
-                                .set("y", t_i * STRIP_HEIGHT + h)
+                                .set("y", t_i * usize::from(Tile::HEIGHT + h))
                                 .set("width", 1)
                                 .set("height", 1)
                                 .set("fill", "blue");
@@ -297,10 +297,10 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
                         let alpha = alphas[s.alpha_ix + i as usize];
                         let entries = alpha.to_le_bytes();
 
-                        for (h, e) in entries.iter().enumerate().take(STRIP_HEIGHT) {
+                        for (h, e) in entries.iter().enumerate().take(Tile::HEIGHT.into()) {
                             let rect = Rectangle::new()
                                 .set("x", s.x + i)
-                                .set("y", t_i * STRIP_HEIGHT + h)
+                                .set("y", t_i * usize::from(Tile::HEIGHT) + h)
                                 .set("width", 1)
                                 .set("height", 1)
                                 .set("fill", "yellow")
