@@ -125,10 +125,6 @@ pub fn render(
 
         // Push out the strip if we're moving to a next strip.
         if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
-            if !prev_tile.same_row(&tile) {
-                winding_delta = 0;
-            }
-
             debug_assert_eq!(
                 (prev_tile.x + 1) * Tile::WIDTH as i32 - strip.x,
                 alpha_buf.len() as i32 - strip.col as i32,

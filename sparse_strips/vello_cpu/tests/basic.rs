@@ -124,6 +124,17 @@ fn filled_circle() {
 }
 
 #[test]
+fn filled_overflowing_circle() {
+    let mut ctx = get_ctx(100, 100, false);
+    let circle = Circle::new((50.0, 50.0), 50.0 + 1.0);
+
+    ctx.set_paint(LIME.into());
+    ctx.fill_path(&circle.to_path(0.1));
+
+    check_ref(&ctx, "filled_overflowing_circle");
+}
+
+#[test]
 fn filled_circle_with_opacity() {
     let mut ctx = get_ctx(100, 100, false);
     let circle = Circle::new((50.0, 50.0), 45.0);
