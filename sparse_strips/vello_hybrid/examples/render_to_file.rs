@@ -86,7 +86,7 @@ async fn run() {
         base_color: Some(peniko::Color::TRANSPARENT),
         width: width as u32,
         height: height as u32,
-        strip_height: vello_common::strip::STRIP_HEIGHT as u32,
+        strip_height: vello_common::tile::Tile::HEIGHT as u32,
     };
     renderer.prepare(&device, &queue, &scene, &render_params);
     renderer.render_to_texture(&device, &queue, &scene, &texture_view, &render_params);
