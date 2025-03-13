@@ -74,7 +74,7 @@ impl Tile {
         Self {
             x,
             y,
-            packed_winding_line_idx: (winding as u32) << 31 | line_idx,
+            packed_winding_line_idx: ((winding as u32) << 31) | line_idx,
         }
     }
 
@@ -116,8 +116,8 @@ impl Tile {
     /// This is the u64 interpretation of `(y, x, packed_winding_line_idx)` where `y` is the
     /// most-significant part of the number and `packed_winding_line_idx` the least significant.
     #[inline(always)]
-    const fn to_bits(&self) -> u64 {
-        (self.y as u64) << 48 | (self.x as u64) << 32 | self.packed_winding_line_idx as u64
+    const fn to_bits(self) -> u64 {
+        ((self.y as u64) << 48) | ((self.x as u64) << 32) | self.packed_winding_line_idx as u64
     }
 }
 
