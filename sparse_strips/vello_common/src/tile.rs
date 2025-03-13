@@ -239,11 +239,7 @@ impl Tiles {
         let tile_columns = width.div_ceil(Tile::WIDTH);
         let tile_rows = height.div_ceil(Tile::HEIGHT);
 
-        for (line_idx, line) in lines
-            .iter()
-            .take((MAX_LINES_PER_PATH as usize).saturating_add(1))
-            .enumerate()
-        {
+        for (line_idx, line) in lines.iter().take(MAX_LINES_PER_PATH as usize).enumerate() {
             let line_idx = line_idx as u32;
 
             let p0_x = line.p0.x / Tile::WIDTH as f32;
