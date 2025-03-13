@@ -22,8 +22,7 @@ pub struct Tile(
     ///
     /// The layout is as follows, with the bit indices from least to most significant.
     ///
-    /// [ 0, 31): The 31-bit index of the line this tile belongs to into the line buffer, plus
-    /// whether the line crosses the top edge of the tile, packed together;
+    /// [ 0, 31): The 31-bit index of the line this tile belongs to into the line buffer;
     /// [31, 32): The 1-bit coarse winding of the tile. This is `1` if and only if the lines
     /// crosses the tile's top edge. Lines making this crossing increment or decrement the coarse
     /// tile winding, depending on the line direction;
