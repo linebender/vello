@@ -106,6 +106,7 @@ oxipng = { version = "9.1.4", default-features = false }
 vello_api = { path = "sparse_strips/vello_api" }
 vello_common = { path = "sparse_strips/vello_common" }
 vello_cpu = { path = "sparse_strips/vello_cpu" }
+vello_hybrid = { path = "sparse_strips/vello_hybrid" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
 wgpu = { version = "24.0.1" }

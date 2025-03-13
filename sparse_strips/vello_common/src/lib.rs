@@ -14,6 +14,8 @@ only break in edge cases, and some of them are also only related to conversions 
 
 pub mod coarse;
 pub mod flatten;
+pub mod pico_svg;
+pub mod pixmap;
 pub mod strip;
 pub mod tile;
 

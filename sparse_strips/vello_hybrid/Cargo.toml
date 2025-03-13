@@ -11,7 +11,18 @@ repository.workspace = true
 # Prevent accidental publishing until the initial release
 publish = false
 
-[dependencies]
-
 [lints]
 workspace = true
+
+[dependencies]
+vello_common = { workspace = true }
+peniko = { workspace = true }
+kurbo = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
+wgpu = { workspace = true }
+
+[dev-dependencies]
+winit = "0.30.9"
+pollster = { workspace = true }
+png = "0.17.14"
+roxmltree = "0.20.0"
