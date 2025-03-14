@@ -374,3 +374,39 @@ impl Default for DimensionConstraints {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::DimensionConstraints;
+
+    #[test]
+    fn calculate_dimensions_in_range() {
+        let new = DimensionConstraints::new;
+        for (test_name, constraints) in [
+            ("Default", DimensionConstraints::default()),
+            (
+                "Max width different to max height",
+                new(100., 100., 500., 1000.),
+            ),
+            ("Max width equal to min width", new(100., 100., 100., 1000.)),
+            ("Very loose constraints", new(10., 10., 10_000., 10_000.)),
+        ] {
+            for [test_width, test_height] in [
+                [100., 100.],
+                [50., 200.],
+                [10., 2_000.],
+                [10_000., 10_000.],
+                // Larger than `u16::MAX`
+                [128_000., 128_000.],
+            ] {
+                let (width, height) = constraints.calculate_dimensions(test_width, test_height);
+                assert!(
+                    constraints.width_range.contains(&width),
+                    "Constraints in {test_name} should have a width in the supported range.\n\
+                    Got {width}x{height} from {test_width}x{test_height} in {constraints:?}"
+                );
+                assert!(constraints.height_range.contains(&height));
+            }
+        }
+    }
+}
