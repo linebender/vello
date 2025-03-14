@@ -133,28 +133,16 @@ impl Scene {
     }
 
     /// Get the width of the render context.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "Width is expected to fit within u16 range"
-    )]
     pub fn width(&self) -> u16 {
         self.width
     }
 
     /// Get the height of the render context.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "Height is expected to fit within u16 range"
-    )]
     pub fn height(&self) -> u16 {
         self.height
     }
 
     // Assumes that `line_buf` contains the flattened path.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "Width and height are expected to fit within u16 range"
-    )]
     fn render_path(&mut self, fill_rule: Fill, paint: Paint) {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
@@ -177,10 +165,6 @@ impl Scene {
     ///
     /// This method converts the rendering context's state into a format
     /// suitable for GPU rendering, including strips and alpha values.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "GpuStrip fields use u16 and values are expected to fit within that range"
-    )]
     pub fn prepare_render_data(&self) -> RenderData {
         let mut strips: Vec<GpuStrip> = Vec::new();
         let wide_tiles_per_row = (self.width).div_ceil(WideTile::WIDTH);
@@ -226,12 +210,15 @@ impl Scene {
                                     Paint::Solid(color) => color,
                                     _ => peniko::color::AlphaColor::TRANSPARENT,
                                 };
+
+                            // msg is a variable here to work around rustfmt failure
+                            let msg = "GpuStrip fields use u16 and values are expected to fit within that range";
                             strips.push(GpuStrip {
                                 x: wide_tile_x + cmd_strip.x,
                                 y: wide_tile_y,
                                 width: cmd_strip.width,
                                 dense_width: cmd_strip.width,
-                                col: cmd_strip.alpha_ix as u32,
+                                col: cmd_strip.alpha_ix.try_into().expect(msg),
                                 rgba: color.premultiply().to_rgba8().to_u32(),
                             });
                         }

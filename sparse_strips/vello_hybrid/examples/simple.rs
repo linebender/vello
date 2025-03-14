@@ -66,10 +66,6 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
         }
     }
 
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "Width and height are expected to fit within u16 range"
-    )]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let RenderState::Suspended(cached_window) = &mut self.state else {
             return;
@@ -78,8 +74,8 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
         let window = cached_window.take().unwrap_or_else(|| {
             create_winit_window(
                 event_loop,
-                self.scene.width() as u32,
-                self.scene.height() as u32,
+                self.scene.width().into(),
+                self.scene.height().into(),
                 true,
             )
         });

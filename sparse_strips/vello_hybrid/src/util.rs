@@ -29,7 +29,6 @@ pub struct DeviceHandle {
     /// The device
     pub device: Device,
     /// The queue of the device
-    #[allow(dead_code, reason = "This is used in the render context")]
     pub queue: Queue,
 }
 
@@ -319,29 +318,50 @@ impl DimensionConstraints {
         let min_height = *self.height_range.start();
         let max_height = *self.height_range.end();
 
-        if original_width > max_width || original_height > max_height {
+        let (width, height) = if original_width > max_width || original_height > max_height {
             // Scale down if dimensions exceed maximum limits
             let width_ratio = max_width / original_width;
             let height_ratio = max_height / original_height;
             let ratio = width_ratio.min(height_ratio);
 
-            (
-                (original_width * ratio).max(1.0),
-                (original_height * ratio).max(1.0),
-            )
+            ((original_width * ratio), (original_height * ratio))
         } else if original_width < min_width || original_height < min_height {
             // Scale up if dimensions are below minimum limits
             let width_ratio = min_width / original_width;
             let height_ratio = min_height / original_height;
             let ratio = width_ratio.max(height_ratio);
 
-            (
-                (original_width * ratio).max(1.0),
-                (original_height * ratio).max(1.0),
-            )
+            ((original_width * ratio), (original_height * ratio))
         } else {
             (original_width, original_height)
-        }
+        };
+        // Some viewboxes could never fit inside the given ranges (for example, for a constraint on both axes
+        // of 100.0..=2000.0), an `original_width` of `2.` with an `original_height` of `1000.`, there is clearly
+        // no way to fit that within the constraints.
+        // For these cases, we just clamp. Note that in theory.
+        (
+            width.clamp(min_width, max_width),
+            height.clamp(min_height, max_height),
+        )
+    }
+
+    /// Converts a floating point dimension to a u16.
+    /// This can be used for values returned from [`calculate_dimensions`](Self::calculate_dimensions).
+    /// Note that:
+    /// 1) If the
+    ///
+    /// # Panics
+    ///
+    /// If value is negative or more than [`u16::MAX`].
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Any truncation will be caught by the (saturating) casts into a wider type"
+    )]
+    #[track_caller]
+    pub fn convert_dimension(value: f64) -> u16 {
+        (value.ceil() as i32)
+            .try_into()
+            .expect("Dimensions are clamped into a reasonable range")
     }
 }
 
