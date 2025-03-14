@@ -15,10 +15,10 @@
 use std::fmt::Debug;
 
 use bytemuck::{Pod, Zeroable};
+use vello_common::tile::Tile;
 use wgpu::{
-    BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites,
-    CommandEncoderDescriptor, Device, PipelineCompilationOptions, Queue, RenderPipeline, Texture,
-    TextureView, util::DeviceExt,
+    BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
+    PipelineCompilationOptions, Queue, RenderPass, RenderPipeline, Texture, util::DeviceExt,
 };
 
 use crate::scene::Scene;
@@ -26,14 +26,10 @@ use crate::scene::Scene;
 /// Parameters for the renderer
 #[derive(Debug)]
 pub struct RenderParams {
-    /// Background color
-    pub base_color: Option<peniko::Color>,
     /// Width of the rendering target
     pub width: u32,
     /// Height of the rendering target
     pub height: u32,
-    /// Height of a strip in the rendering
-    pub strip_height: u32,
 }
 
 /// Options for the renderer
@@ -256,7 +252,7 @@ impl Renderer {
                 contents: bytemuck::bytes_of(&Config {
                     width: render_params.width,
                     height: render_params.height,
-                    strip_height: render_params.strip_height,
+                    strip_height: Tile::HEIGHT.into(),
                 }),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
@@ -322,51 +318,26 @@ impl Renderer {
         }
     }
 
-    /// Render to a texture
-    pub fn render_to_texture(
+    /// Render `scene` into the provided render pass.
+    ///
+    /// You must call [`prepare`](Self::prepare) with this scene before
+    /// calling `render`.
+    /// The provided pass can be rendering to a surface, or to a "off-screen" buffer.
+    pub fn render(
         &mut self,
-        device: &Device,
-        queue: &Queue,
         scene: &Scene,
-        texture_view: &TextureView,
-        render_params: &RenderParams,
+        render_pass: &mut RenderPass<'_>,
+        _render_params: &RenderParams,
     ) {
         // If we don't have the required resources, return empty data
         let Some(resources) = &self.resources else {
             return;
         };
         let render_data = scene.prepare_render_data();
-        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Redner to Texture Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: match render_params.base_color {
-                            Some(c) => wgpu::LoadOp::Clear(wgpu::Color {
-                                r: c.components[0] as f64,
-                                g: c.components[1] as f64,
-                                b: c.components[2] as f64,
-                                a: c.components[3] as f64,
-                            }),
-                            None => wgpu::LoadOp::Load,
-                        },
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &resources.render_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, resources.strips_buffer.slice(..));
-            let strips_to_draw = render_data.strips.len();
-            render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());
-        }
-        queue.submit([encoder.finish()]);
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &resources.render_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, resources.strips_buffer.slice(..));
+        let strips_to_draw = render_data.strips.len();
+        render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());
     }
 }

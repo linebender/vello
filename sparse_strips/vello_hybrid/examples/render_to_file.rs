@@ -13,6 +13,7 @@ use std::io::BufWriter;
 use vello_common::pico_svg::PicoSvg;
 use vello_common::pixmap::Pixmap;
 use vello_hybrid::{DimensionConstraints, Scene};
+use wgpu::RenderPassDescriptor;
 
 /// Main entry point for the headless rendering example.
 /// Takes two command line arguments:
@@ -82,13 +83,31 @@ async fn run() {
     // Create renderer and render the scene to the texture
     let mut renderer = vello_hybrid::Renderer::new(&device, &vello_hybrid::RendererOptions {});
     let render_params = vello_hybrid::RenderParams {
-        base_color: Some(peniko::Color::TRANSPARENT),
         width: width.into(),
         height: height.into(),
-        strip_height: vello_common::tile::Tile::HEIGHT as u32,
     };
     renderer.prepare(&device, &queue, &scene, &render_params);
-    renderer.render_to_texture(&device, &queue, &scene, &texture_view, &render_params);
+    // Copy texture to buffer
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Vello Render To Buffer"),
+    });
+    {
+        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &texture_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        renderer.render(&scene, &mut pass, &render_params);
+    }
 
     // Create a buffer to copy the texture data
     let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
@@ -99,10 +118,6 @@ async fn run() {
         mapped_at_creation: false,
     });
 
-    // Copy texture to buffer
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Copy Encoder"),
-    });
     encoder.copy_texture_to_buffer(
         wgpu::TexelCopyTextureInfo {
             texture: &texture,
@@ -124,7 +139,7 @@ async fn run() {
             depth_or_array_layers: 1,
         },
     );
-    queue.submit(std::iter::once(encoder.finish()));
+    queue.submit([encoder.finish()]);
 
     // Map the buffer for reading
     texture_copy_buffer
