@@ -321,8 +321,12 @@ impl Renderer {
         }
     }
 
-    /// Render to a texture
-    pub fn render_to_texture(
+    /// Render `scene` into the provided render pass.
+    ///
+    /// You must call [`prepare`](Self::prepare) with this scene before
+    /// calling `render`.
+    /// The provided pass can be rendering to a surface, or to a "off-screen" buffer.
+    pub fn render(
         &mut self,
         scene: &Scene,
         render_pass: &mut RenderPass<'_>,

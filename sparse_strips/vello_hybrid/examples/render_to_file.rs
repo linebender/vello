@@ -108,7 +108,7 @@ async fn run() {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        renderer.render_to_texture(&scene, &mut pass, &render_params);
+        renderer.render(&scene, &mut pass, &render_params);
     }
 
     // Create a buffer to copy the texture data

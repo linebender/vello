@@ -168,19 +168,16 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                         occlusion_query_set: None,
                         timestamp_writes: None,
                     });
-                    self.renderers[surface.dev_id]
-                        .as_mut()
-                        .unwrap()
-                        .render_to_texture(
-                            &self.scene,
-                            &mut pass,
-                            &RenderParams {
-                                base_color: Some(palette::css::BLACK),
-                                width,
-                                height,
-                                strip_height: 4,
-                            },
-                        );
+                    self.renderers[surface.dev_id].as_mut().unwrap().render(
+                        &self.scene,
+                        &mut pass,
+                        &RenderParams {
+                            base_color: Some(palette::css::BLACK),
+                            width,
+                            height,
+                            strip_height: 4,
+                        },
+                    );
                 }
 
                 device_handle.queue.submit([encoder.finish()]);
