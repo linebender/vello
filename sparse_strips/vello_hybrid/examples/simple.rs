@@ -103,7 +103,6 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
             &device_handle.queue,
             &self.scene,
             &RenderParams {
-                base_color: Some(palette::css::BLACK),
                 width: surface.config.width,
                 height: surface.config.height,
                 strip_height: 4,
@@ -172,7 +171,6 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                         &self.scene,
                         &mut pass,
                         &RenderParams {
-                            base_color: Some(palette::css::BLACK),
                             width,
                             height,
                             strip_height: 4,

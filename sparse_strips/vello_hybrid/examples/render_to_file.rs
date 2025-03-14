@@ -83,7 +83,6 @@ async fn run() {
     // Create renderer and render the scene to the texture
     let mut renderer = vello_hybrid::Renderer::new(&device, &vello_hybrid::RendererOptions {});
     let render_params = vello_hybrid::RenderParams {
-        base_color: Some(peniko::Color::TRANSPARENT),
         width: width.into(),
         height: height.into(),
         strip_height: vello_common::tile::Tile::HEIGHT as u32,

@@ -25,8 +25,6 @@ use crate::scene::Scene;
 /// Parameters for the renderer
 #[derive(Debug)]
 pub struct RenderParams {
-    /// Background color
-    pub base_color: Option<peniko::Color>,
     /// Width of the rendering target
     pub width: u32,
     /// Height of the rendering target

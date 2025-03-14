@@ -114,7 +114,6 @@ impl ApplicationHandler for SvgVelloApp<'_> {
             &device_handle.queue,
             &self.scene,
             &RenderParams {
-                base_color: Some(palette::css::BLACK),
                 width: surface.config.width,
                 height: surface.config.height,
                 strip_height: 4,
@@ -194,7 +193,6 @@ impl ApplicationHandler for SvgVelloApp<'_> {
                         &self.scene,
                         &mut pass,
                         &RenderParams {
-                            base_color: Some(palette::css::BLACK), // Background color
                             width,
                             height,
                             strip_height: 4,
