@@ -24,10 +24,6 @@ fn main() {
     pollster::block_on(run());
 }
 
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "Width and height are expected to fit within u16 range"
-)]
 async fn run() {
     let mut args = std::env::args().skip(1);
     let svg_filename: String = args.next().expect("svg filename is first arg");
@@ -41,7 +37,10 @@ async fn run() {
     let svg_height = parsed.size.height * render_scale;
     let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
 
-    let mut scene = Scene::new(width as u16, height as u16);
+    let width = DimensionConstraints::convert_dimension(width);
+    let height = DimensionConstraints::convert_dimension(height);
+
+    let mut scene = Scene::new(width, height);
     render_svg(&mut scene, render_scale, &parsed.items);
 
     // Initialize wgpu device and queue for GPU rendering
@@ -67,8 +66,8 @@ async fn run() {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Render Target"),
         size: wgpu::Extent3d {
-            width: width as u32,
-            height: height as u32,
+            width: width.into(),
+            height: height.into(),
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -84,19 +83,18 @@ async fn run() {
     let mut renderer = vello_hybrid::Renderer::new(&device, &vello_hybrid::RendererOptions {});
     let render_params = vello_hybrid::RenderParams {
         base_color: Some(peniko::Color::TRANSPARENT),
-        width: width as u32,
-        height: height as u32,
+        width: width.into(),
+        height: height.into(),
         strip_height: vello_common::tile::Tile::HEIGHT as u32,
     };
     renderer.prepare(&device, &queue, &scene, &render_params);
     renderer.render_to_texture(&device, &queue, &scene, &texture_view, &render_params);
 
     // Create a buffer to copy the texture data
-    let bytes_per_row = (width as u32 * 4).next_multiple_of(256);
-    let buffer_size = (bytes_per_row * height as u32) as u64;
+    let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
     let texture_copy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Output Buffer"),
-        size: buffer_size,
+        size: u64::from(bytes_per_row) * u64::from(height),
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
@@ -121,8 +119,8 @@ async fn run() {
             },
         },
         wgpu::Extent3d {
-            width: width as u32,
-            height: height as u32,
+            width: width.into(),
+            height: height.into(),
             depth_or_array_layers: 1,
         },
     );
@@ -139,7 +137,7 @@ async fn run() {
     device.poll(wgpu::Maintain::Wait);
 
     // Read back the pixel data
-    let mut img_data = Vec::with_capacity((width as u32 * height as u32 * 4) as usize);
+    let mut img_data = Vec::with_capacity(usize::from(width) * usize::from(height) * 4);
     for row in texture_copy_buffer
         .slice(..)
         .get_mapped_range()
@@ -159,14 +157,14 @@ async fn run() {
     }
 
     // Create a pixmap and set the buffer
-    let mut pixmap = Pixmap::new(width as u16, height as u16);
+    let mut pixmap = Pixmap::new(width, height);
     pixmap.buf = rgba_buffer;
     pixmap.unpremultiply();
 
     // Write the pixmap to a file
     let file = std::fs::File::create(output_filename).unwrap();
     let w = BufWriter::new(file);
-    let mut png_encoder = png::Encoder::new(w, width as u32, height as u32);
+    let mut png_encoder = png::Encoder::new(w, width.into(), height.into());
     png_encoder.set_color(png::ColorType::Rgba);
     let mut writer = png_encoder.write_header().unwrap();
     writer.write_image_data(&pixmap.buf).unwrap();

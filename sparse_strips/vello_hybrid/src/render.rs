@@ -16,8 +16,9 @@ use std::fmt::Debug;
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::{
-    BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
-    PipelineCompilationOptions, Queue, RenderPipeline, Texture, TextureView, util::DeviceExt,
+    BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites,
+    CommandEncoderDescriptor, Device, PipelineCompilationOptions, Queue, RenderPipeline, Texture,
+    TextureView, util::DeviceExt,
 };
 
 use crate::scene::Scene;
@@ -163,7 +164,7 @@ impl Renderer {
                 module: &render_shader,
                 entry_point: Some("vs_main"),
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<GpuStrip>() as u64,
+                    array_stride: size_of::<GpuStrip>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &GpuStrip::vertex_attributes(),
                 }],
@@ -205,8 +206,7 @@ impl Renderer {
         render_params: &RenderParams,
     ) {
         let render_data = scene.prepare_render_data();
-        let required_strips_size =
-            std::mem::size_of::<GpuStrip>() as u64 * render_data.strips.len() as u64;
+        let required_strips_size = size_of::<GpuStrip>() as u64 * render_data.strips.len() as u64;
 
         // Check if we need to create new resources or resize existing ones
         let needs_new_resources = match &self.resources {
@@ -336,7 +336,7 @@ impl Renderer {
             return;
         };
         let render_data = scene.prepare_render_data();
-        let mut encoder = device.create_command_encoder(&Default::default());
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Redner to Texture Pass"),

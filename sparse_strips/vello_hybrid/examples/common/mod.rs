@@ -1,6 +1,11 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+#![allow(
+    dead_code,
+    reason = "This is a shared module between examples; not all examples use all functionality from it"
+)]
+
 use std::sync::Arc;
 
 use kurbo::Affine;
@@ -12,7 +17,6 @@ use vello_hybrid::{
 use winit::{event_loop::ActiveEventLoop, window::Window};
 
 /// Define a render function that works with our `pico_svg::Item` type
-#[allow(dead_code, reason = "This is a helper function for the examples")]
 pub(crate) fn render_svg(ctx: &mut Scene, scale: f64, items: &[Item]) {
     ctx.set_transform(Affine::scale(scale));
     for item in items {
@@ -36,7 +40,6 @@ pub(crate) fn render_svg(ctx: &mut Scene, scale: f64, items: &[Item]) {
 }
 
 /// Helper function that creates a Winit window and returns it (wrapped in an Arc for sharing)
-#[allow(dead_code, reason = "This is a helper function for the examples")]
 pub(crate) fn create_winit_window(
     event_loop: &ActiveEventLoop,
     width: u32,
@@ -53,7 +56,6 @@ pub(crate) fn create_winit_window(
 }
 
 /// Helper function that creates a Vello Hybrid renderer
-#[allow(dead_code, reason = "This is a helper function for the examples")]
 pub(crate) fn create_vello_renderer(
     render_cx: &RenderContext,
     surface: &RenderSurface<'_>,
