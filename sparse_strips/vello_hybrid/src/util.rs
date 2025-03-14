@@ -346,13 +346,13 @@ impl DimensionConstraints {
     }
 
     /// Converts a floating point dimension to a u16.
-    /// This can be used for values returned from [`calculate_dimensions`](Self::calculate_dimensions).
-    /// Note that:
-    /// 1) If the
+    /// For the [default](DimensionConstraints::default) constraints, if the input value
+    /// was returned from [`calculate_dimensions`](Self::calculate_dimensions), this function can't
+    /// fail. But note that this does not necessarily apply for custom constraints.
     ///
     /// # Panics
     ///
-    /// If value is negative or more than [`u16::MAX`].
+    /// If `value` is negative or larger than [`u16::MAX`].
     #[expect(
         clippy::cast_possible_truncation,
         reason = "Any truncation will be caught by the (saturating) casts into a wider type"
