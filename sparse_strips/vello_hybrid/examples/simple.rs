@@ -155,7 +155,7 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                         });
                 {
                     let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                        label: Some("Redner to Texture Pass"),
+                        label: Some("Render to Texture Pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &texture_view,
                             resolve_target: None,
