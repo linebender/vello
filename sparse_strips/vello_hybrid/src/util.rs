@@ -308,6 +308,11 @@ impl DimensionConstraints {
     }
 
     /// Calculate dimensions while preserving aspect ratio within constraints
+    ///
+    /// Some viewboxes could never fit inside this constraint. For example, if the constraint for both axes
+    /// is 100.0..=2000.0, if `original_width` is `2.` and `original_height` is `1000.`, there is clearly
+    /// no way for that to fit within the constraints.
+    /// In these cases, this method clamps to within the ranges (respecting the constraints but losing the aspect ratio).
     pub fn calculate_dimensions(&self, original_width: f64, original_height: f64) -> (f64, f64) {
         // Ensure we have non-zero input dimensions
         let original_width = original_width.max(1.0);
@@ -335,10 +340,6 @@ impl DimensionConstraints {
         } else {
             (original_width, original_height)
         };
-        // Some viewboxes could never fit inside the given ranges (for example, for a constraint on both axes
-        // of 100.0..=2000.0), an `original_width` of `2.` with an `original_height` of `1000.`, there is clearly
-        // no way to fit that within the constraints.
-        // For these cases, we just clamp. Note that in theory.
         (
             width.clamp(min_width, max_width),
             height.clamp(min_height, max_height),

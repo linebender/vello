@@ -9,13 +9,7 @@
 mod common;
 
 use common::render_svg;
-use std::{
-    io::BufWriter,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+use std::io::BufWriter;
 use vello_common::pico_svg::PicoSvg;
 use vello_common::pixmap::Pixmap;
 use vello_hybrid::{DimensionConstraints, Scene};
