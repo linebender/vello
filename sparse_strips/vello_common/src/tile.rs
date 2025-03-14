@@ -272,8 +272,8 @@ impl TileIndex {
 }
 
 #[cfg(test)]
-const _: () = if Tile::WIDTH != 4 || Tile::HEIGHT != 4 {
-    panic!("Can only handle 4x4 tiles for now.");
+const _: () = if Tile::HEIGHT != 4 {
+    panic!("Can only handle tiles with a height of 4 pixels for now.");
 };
 
 #[cfg(test)]
