@@ -11,7 +11,7 @@ use super::{
 
 const WG_SIZE: usize = 256;
 
-fn draw_leaf_main(
+pub fn draw_leaf_main(
     n_wg: u32,
     config: &ConfigUniform,
     scene: &[u32],

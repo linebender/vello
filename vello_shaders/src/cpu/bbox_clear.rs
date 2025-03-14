@@ -5,7 +5,7 @@ use vello_encoding::{ConfigUniform, PathBbox};
 
 use super::CpuBinding;
 
-fn bbox_clear_main(config: &ConfigUniform, path_bboxes: &mut [PathBbox]) {
+pub fn bbox_clear_main(config: &ConfigUniform, path_bboxes: &mut [PathBbox]) {
     for i in 0..(config.layout.n_paths as usize) {
         path_bboxes[i].x0 = 0x7fff_ffff;
         path_bboxes[i].y0 = 0x7fff_ffff;
