@@ -15,6 +15,7 @@
 use std::fmt::Debug;
 
 use bytemuck::{Pod, Zeroable};
+use vello_common::tile::Tile;
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
     PipelineCompilationOptions, Queue, RenderPass, RenderPipeline, Texture, util::DeviceExt,
@@ -29,8 +30,6 @@ pub struct RenderParams {
     pub width: u32,
     /// Height of the rendering target
     pub height: u32,
-    /// Height of a strip in the rendering
-    pub strip_height: u32,
 }
 
 /// Options for the renderer
@@ -253,7 +252,7 @@ impl Renderer {
                 contents: bytemuck::bytes_of(&Config {
                     width: render_params.width,
                     height: render_params.height,
-                    strip_height: render_params.strip_height,
+                    strip_height: Tile::HEIGHT.into(),
                 }),
                 usage: wgpu::BufferUsages::UNIFORM,
             });

@@ -85,7 +85,6 @@ async fn run() {
     let render_params = vello_hybrid::RenderParams {
         width: width.into(),
         height: height.into(),
-        strip_height: vello_common::tile::Tile::HEIGHT as u32,
     };
     renderer.prepare(&device, &queue, &scene, &render_params);
     // Copy texture to buffer

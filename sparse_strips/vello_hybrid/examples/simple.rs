@@ -105,7 +105,6 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
             &RenderParams {
                 width: surface.config.width,
                 height: surface.config.height,
-                strip_height: 4,
             },
         );
 
@@ -170,11 +169,7 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                     self.renderers[surface.dev_id].as_mut().unwrap().render(
                         &self.scene,
                         &mut pass,
-                        &RenderParams {
-                            width,
-                            height,
-                            strip_height: 4,
-                        },
+                        &RenderParams { width, height },
                     );
                 }
 

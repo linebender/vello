@@ -12,7 +12,6 @@ mod common;
 use std::sync::Arc;
 
 use common::{create_vello_renderer, create_winit_window, render_svg};
-use peniko::color::palette;
 use vello_common::pico_svg::PicoSvg;
 use vello_hybrid::{
     RenderParams, Renderer, Scene,
@@ -116,7 +115,6 @@ impl ApplicationHandler for SvgVelloApp<'_> {
             &RenderParams {
                 width: surface.config.width,
                 height: surface.config.height,
-                strip_height: 4,
             },
         );
 
@@ -192,11 +190,7 @@ impl ApplicationHandler for SvgVelloApp<'_> {
                     self.renderers[surface.dev_id].as_mut().unwrap().render(
                         &self.scene,
                         &mut pass,
-                        &RenderParams {
-                            width,
-                            height,
-                            strip_height: 4,
-                        },
+                        &RenderParams { width, height },
                     );
                 }
                 device_handle.queue.submit([encoder.finish()]);
