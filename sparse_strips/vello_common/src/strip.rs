@@ -3,7 +3,7 @@
 
 //! Rendering strips.
 
-use peniko::Fill;
+use vello_api::peniko::Fill;
 
 use crate::flatten::Line;
 use crate::tile::{Tile, Tiles};

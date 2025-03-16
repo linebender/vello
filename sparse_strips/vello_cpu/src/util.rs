@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use peniko::color::{PremulColor, Srgb};
+use vello_common::peniko::color::{PremulColor, Srgb};
 
 pub(crate) trait ColorExt {
     /// Using the already-existing `to_rgba8` is slow on x86 because it involves rounding, so

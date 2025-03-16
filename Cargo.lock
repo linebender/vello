@@ -2698,8 +2698,6 @@ dependencies = [
 name = "vello_common"
 version = "0.4.0"
 dependencies = [
- "kurbo",
- "peniko",
  "roxmltree",
  "vello_api",
 ]
@@ -2709,9 +2707,7 @@ name = "vello_cpu"
 version = "0.4.0"
 dependencies = [
  "image",
- "kurbo",
  "oxipng",
- "peniko",
  "vello_common",
 ]
 
@@ -2731,8 +2727,6 @@ name = "vello_hybrid"
 version = "0.4.0"
 dependencies = [
  "bytemuck",
- "kurbo",
- "peniko",
  "png",
  "pollster",
  "roxmltree",

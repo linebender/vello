@@ -11,9 +11,9 @@
 
 use std::str::FromStr;
 
-use kurbo::{Affine, BezPath, Point, Size, Vec2};
-use peniko::color::{AlphaColor, DynamicColor, Srgb, palette};
 use roxmltree::{Document, Node};
+use vello_api::kurbo::{Affine, BezPath, Point, Size, Vec2};
+use vello_api::peniko::color::{AlphaColor, DynamicColor, Srgb, palette};
 
 /// A simplified representation of an SVG document
 #[derive(Debug)]
@@ -287,7 +287,7 @@ fn parse_transform(transform: &str) -> Affine {
 
 fn parse_color(color: &str) -> AlphaColor<Srgb> {
     let color = color.trim();
-    peniko::color::parse_color(color.trim())
+    vello_api::peniko::color::parse_color(color.trim())
         .map(DynamicColor::to_alpha_color)
         .unwrap_or(palette::css::FUCHSIA.with_alpha(0.5))
 }
@@ -313,7 +313,7 @@ fn modify_opacity(
 #[cfg(test)]
 mod tests {
     use super::parse_color;
-    use peniko::color::{AlphaColor, Srgb, palette};
+    use vello_api::peniko::color::{AlphaColor, Srgb, palette};
 
     fn assert_close_color(c1: AlphaColor<Srgb>, c2: AlphaColor<Srgb>) {
         const EPSILON: f32 = 1e-4;

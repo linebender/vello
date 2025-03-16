@@ -5,12 +5,12 @@
 
 use crate::fine::Fine;
 use crate::util::ColorExt;
-use kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
-use peniko::color::palette::css::BLACK;
-use peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::coarse::Wide;
 use vello_common::flatten::Line;
+use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::paint::Paint;
+use vello_common::peniko::color::palette::css::BLACK;
+use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
