@@ -44,7 +44,7 @@ log = { workspace = true }
 # tracing_android_trace
 tracing = { version = "0.1.41", features = ["log-always"] }
 # For _ci_dep_features_to_test feature tests.
-kurbo = { workspace = true, optional = true }
+kurbo = { workspace = true, optional = true, default-features = true }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 # We use android_logger on Android

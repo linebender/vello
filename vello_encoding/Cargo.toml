@@ -27,6 +27,6 @@ workspace = true
 [dependencies]
 bytemuck = { workspace = true }
 skrifa = { workspace = true }
-peniko = { workspace = true }
+peniko = { workspace = true, default-features = true }
 guillotiere = { version = "0.6.2" }
 smallvec = { workspace = true }
