@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use kurbo::Affine;
+use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::Item;
 use vello_hybrid::{
     Renderer, RendererOptions, Scene,
@@ -27,7 +27,7 @@ pub(crate) fn render_svg(ctx: &mut Scene, scale: f64, items: &[Item]) {
                     ctx.fill_path(&fill_item.path);
                 }
                 Item::Stroke(stroke_item) => {
-                    let style = kurbo::Stroke::new(stroke_item.width);
+                    let style = Stroke::new(stroke_item.width);
                     ctx.set_stroke(style);
                     ctx.set_paint(stroke_item.color.into());
                     ctx.stroke_path(&stroke_item.path);

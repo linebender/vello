@@ -4,12 +4,12 @@
 //! Basic render operations.
 
 use crate::render::{GpuStrip, RenderData};
-use kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
-use peniko::color::palette::css::BLACK;
-use peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::coarse::{Wide, WideTile};
 use vello_common::flatten::Line;
+use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::paint::Paint;
+use vello_common::peniko::color::{AlphaColor, Srgb, palette::css::BLACK};
+use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::strip::Strip;
 use vello_common::tile::{Tile, Tiles};
 use vello_common::{flatten, strip};
@@ -190,11 +190,10 @@ impl Scene {
                 for cmd in &wide_tile.cmds {
                     match cmd {
                         vello_common::coarse::Cmd::Fill(fill) => {
-                            let color: peniko::color::AlphaColor<peniko::color::Srgb> =
-                                match fill.paint {
-                                    Paint::Solid(color) => color,
-                                    _ => peniko::color::AlphaColor::TRANSPARENT,
-                                };
+                            let color: AlphaColor<Srgb> = match fill.paint {
+                                Paint::Solid(color) => color,
+                                _ => AlphaColor::TRANSPARENT,
+                            };
                             strips.push(GpuStrip {
                                 x: wide_tile_x + fill.x,
                                 y: wide_tile_y,
@@ -205,11 +204,10 @@ impl Scene {
                             });
                         }
                         vello_common::coarse::Cmd::AlphaFill(cmd_strip) => {
-                            let color: peniko::color::AlphaColor<peniko::color::Srgb> =
-                                match cmd_strip.paint {
-                                    Paint::Solid(color) => color,
-                                    _ => peniko::color::AlphaColor::TRANSPARENT,
-                                };
+                            let color: AlphaColor<Srgb> = match cmd_strip.paint {
+                                Paint::Solid(color) => color,
+                                _ => AlphaColor::TRANSPARENT,
+                            };
 
                             // msg is a variable here to work around rustfmt failure
                             let msg = "GpuStrip fields use u16 and values are expected to fit within that range";

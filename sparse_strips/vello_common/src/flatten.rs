@@ -3,9 +3,8 @@
 
 //! Flattening filled and stroked paths.
 
-use kurbo::StrokeOpts;
 use vello_api::kurbo;
-use vello_api::kurbo::{Affine, BezPath, Stroke};
+use vello_api::kurbo::{Affine, BezPath, Stroke, StrokeOpts};
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;
