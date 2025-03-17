@@ -9,17 +9,14 @@
 
 mod common;
 
-use common::{create_vello_renderer, create_winit_window};
+use common::{RenderContext, RenderSurface, create_vello_renderer, create_winit_window};
 use std::sync::Arc;
 use vello_common::kurbo::Affine;
 use vello_common::peniko::{
     color::palette,
     kurbo::{BezPath, Stroke},
 };
-use vello_hybrid::{
-    RenderParams, Renderer, Scene,
-    util::{RenderContext, RenderSurface},
-};
+use vello_hybrid::{RenderParams, Renderer, Scene};
 use wgpu::RenderPassDescriptor;
 use winit::{
     application::ApplicationHandler,
