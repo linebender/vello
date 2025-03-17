@@ -33,6 +33,8 @@ fn main() {
         renderers: vec![],
         state: RenderState::Suspended(None),
         scene: Scene::new(1600, 1200),
+        render_scale: 5.0,
+        parsed_svg: None,
     };
 
     let event_loop = EventLoop::new().expect("Couldn't create event loop");
@@ -68,6 +70,12 @@ struct SvgVelloApp<'s> {
     // description a scene to be drawn (with paths, fills, images, text, etc)
     // which is then passed to a renderer for rendering
     scene: Scene,
+
+    // The scale factor for the rendered SVG
+    render_scale: f64,
+
+    // The parsed SVG
+    parsed_svg: Option<PicoSvg>,
 }
 
 impl ApplicationHandler for SvgVelloApp<'_> {
@@ -99,6 +107,10 @@ impl ApplicationHandler for SvgVelloApp<'_> {
             .resize_with(self.context.devices.len(), || None);
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
+
+        let svg_filename = std::env::args().nth(1).expect("svg filename is first arg");
+        let svg: String = std::fs::read_to_string(svg_filename).expect("error reading file");
+        self.parsed_svg = Some(PicoSvg::load(&svg, 1.0).expect("error parsing SVG"));
 
         self.state = RenderState::Active {
             surface: Box::new(surface),
@@ -139,12 +151,10 @@ impl ApplicationHandler for SvgVelloApp<'_> {
             WindowEvent::RedrawRequested => {
                 self.scene.reset();
 
-                let render_scale = 5.0;
-                let svg_filename = std::env::args().nth(1).expect("svg filename is first arg");
-                let svg: String =
-                    std::fs::read_to_string(svg_filename).expect("error reading file");
-                let parsed_svg = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
-                render_svg(&mut self.scene, render_scale, &parsed_svg.items);
+                if let Some(parsed_svg) = &self.parsed_svg {
+                    render_svg(&mut self.scene, self.render_scale, &parsed_svg.items);
+                }
+
                 let device_handle = &self.context.devices[surface.dev_id];
                 let render_params = RenderParams {
                     width: surface.config.width,
