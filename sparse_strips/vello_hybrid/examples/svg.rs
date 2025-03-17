@@ -100,24 +100,6 @@ impl ApplicationHandler for SvgVelloApp<'_> {
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
-        self.scene.reset();
-
-        let render_scale = 5.0;
-        let svg_filename = std::env::args().nth(1).expect("svg filename is first arg");
-        let svg: String = std::fs::read_to_string(svg_filename).expect("error reading file");
-        let parsed_svg = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
-        render_svg(&mut self.scene, render_scale, &parsed_svg.items);
-        let device_handle = &self.context.devices[surface.dev_id];
-        self.renderers[surface.dev_id].as_mut().unwrap().prepare(
-            &device_handle.device,
-            &device_handle.queue,
-            &self.scene,
-            &RenderParams {
-                width: surface.config.width,
-                height: surface.config.height,
-            },
-        );
-
         self.state = RenderState::Active {
             surface: Box::new(surface),
             window,
@@ -155,9 +137,26 @@ impl ApplicationHandler for SvgVelloApp<'_> {
             }
 
             WindowEvent::RedrawRequested => {
-                let width = surface.config.width;
-                let height = surface.config.height;
+                self.scene.reset();
+
+                let render_scale = 5.0;
+                let svg_filename = std::env::args().nth(1).expect("svg filename is first arg");
+                let svg: String =
+                    std::fs::read_to_string(svg_filename).expect("error reading file");
+                let parsed_svg = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
+                render_svg(&mut self.scene, render_scale, &parsed_svg.items);
                 let device_handle = &self.context.devices[surface.dev_id];
+                let render_params = RenderParams {
+                    width: surface.config.width,
+                    height: surface.config.height,
+                };
+                self.renderers[surface.dev_id].as_mut().unwrap().prepare(
+                    &device_handle.device,
+                    &device_handle.queue,
+                    &self.scene,
+                    &render_params,
+                );
+
                 let surface_texture = surface
                     .surface
                     .get_current_texture()
@@ -190,7 +189,7 @@ impl ApplicationHandler for SvgVelloApp<'_> {
                     self.renderers[surface.dev_id].as_mut().unwrap().render(
                         &self.scene,
                         &mut pass,
-                        &RenderParams { width, height },
+                        &render_params,
                     );
                 }
                 device_handle.queue.submit([encoder.finish()]);
