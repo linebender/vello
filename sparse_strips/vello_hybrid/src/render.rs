@@ -363,7 +363,10 @@ impl Renderer {
     ) {
         // TODO: Consider API that forces the user to call `prepare` before `render`.
         // For example, `prepare` could return some struct that is consumed by `render`.
-        let resources = &self.resources.as_ref().expect("`prepare` should be called before `render`");
+        let resources = &self
+            .resources
+            .as_ref()
+            .expect("`prepare` should be called before `render`");
         let render_data = scene.prepare_render_data();
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &resources.render_bind_group, &[]);
