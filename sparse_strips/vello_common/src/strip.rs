@@ -58,12 +58,7 @@ pub fn render(
     let mut accumulated_winding = [0_f32; Tile::HEIGHT as usize];
 
     /// A special tile to keep the logic below simple.
-    const SENTINEL: Tile = Tile {
-        x: u16::MAX,
-        y: u16::MAX,
-        line_idx: 0,
-        winding: false,
-    };
+    const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, false);
 
     // The strip we're building.
     let mut strip = Strip {
@@ -73,8 +68,8 @@ pub fn render(
         winding: 0,
     };
 
-    for tile in tiles.iter().copied().chain([SENTINEL]) {
-        let line = lines[tile.line_idx as usize];
+    for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
+        let line = lines[tile.line_idx() as usize];
         let tile_left_x = tile.x as f32 * Tile::WIDTH as f32;
         let tile_top_y = tile.y as f32 * Tile::HEIGHT as f32;
         let p0_x = line.p0.x - tile_left_x;
@@ -128,7 +123,7 @@ pub fn render(
             );
             strip_buf.push(strip);
 
-            let is_sentinel = tile.y == u16::MAX && tile.x == u16::MAX;
+            let is_sentinel = tile_idx == tiles.len() as usize;
             if !prev_tile.same_row(&tile) {
                 // Emit a final strip in the row if there is non-zero winding for the sparse fill,
                 // or unconditionally if we've reached the sentinel tile to end the path (the `col`
@@ -222,7 +217,7 @@ pub fn render(
         let y_slope = (line_bottom_y - line_top_y) / (line_bottom_x - line_top_x);
         let x_slope = 1. / y_slope;
 
-        winding_delta += sign as i32 * tile.winding as i32;
+        winding_delta += sign as i32 * tile.winding() as i32;
 
         // TODO: this should be removed when out-of-viewport tiles are culled at the
         // tile-generation stage. That requires calculating and forwarding winding to strip
