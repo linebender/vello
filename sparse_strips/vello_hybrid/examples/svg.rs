@@ -20,8 +20,9 @@ use vello_hybrid::{
 use wgpu::RenderPassDescriptor;
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
+    keyboard::{Key, NamedKey},
     window::{Window, WindowId},
 };
 
@@ -42,6 +43,11 @@ fn main() {
         .run_app(&mut app)
         .expect("Couldn't run event loop");
 }
+
+// Constants for zoom behavior
+const MIN_SCALE: f64 = 0.1;
+const MAX_SCALE: f64 = 20.0;
+const ZOOM_STEP: f64 = 0.5;
 
 #[derive(Debug)]
 enum RenderState<'s> {
@@ -76,6 +82,13 @@ struct SvgVelloApp<'s> {
 
     // The parsed SVG
     parsed_svg: Option<PicoSvg>,
+}
+
+impl SvgVelloApp<'_> {
+    /// Adjust the render scale by the given delta, clamping to min/max values
+    fn adjust_scale(&mut self, delta: f64) {
+        self.render_scale = (self.render_scale + delta).clamp(MIN_SCALE, MAX_SCALE);
+    }
 }
 
 impl ApplicationHandler for SvgVelloApp<'_> {
@@ -146,6 +159,43 @@ impl ApplicationHandler for SvgVelloApp<'_> {
             WindowEvent::Resized(size) => {
                 self.context
                     .resize_surface(surface, size.width, size.height);
+            }
+
+            WindowEvent::MouseWheel {
+                delta: MouseScrollDelta::PixelDelta(pos),
+                ..
+            } => {
+                // Convert pixel delta to a scale adjustment
+                // Divide by a factor to make the zoom less sensitive
+                self.adjust_scale(pos.y * ZOOM_STEP / 50.0);
+            }
+
+            WindowEvent::PinchGesture { delta, .. } => {
+                self.adjust_scale(delta * ZOOM_STEP);
+            }
+
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        logical_key,
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } => {
+                match logical_key {
+                    Key::Character(c) => match c.as_str() {
+                        "+" | "=" => self.adjust_scale(ZOOM_STEP),
+                        "-" | "_" => self.adjust_scale(-ZOOM_STEP),
+                        // Reset to original scale
+                        "0" => {
+                            self.render_scale = 5.0;
+                        }
+                        _ => {}
+                    },
+                    Key::Named(NamedKey::Escape) => event_loop.exit(),
+                    _ => {}
+                }
             }
 
             WindowEvent::RedrawRequested => {
