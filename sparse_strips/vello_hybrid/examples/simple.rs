@@ -95,19 +95,6 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
-        self.scene.reset();
-        draw_simple_scene(&mut self.scene);
-        let device_handle = &self.context.devices[surface.dev_id];
-        self.renderers[surface.dev_id].as_mut().unwrap().prepare(
-            &device_handle.device,
-            &device_handle.queue,
-            &self.scene,
-            &RenderParams {
-                width: surface.config.width,
-                height: surface.config.height,
-            },
-        );
-
         self.state = RenderState::Active {
             surface: Box::new(surface),
             window,
@@ -132,9 +119,20 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                     .resize_surface(surface, size.width, size.height);
             }
             WindowEvent::RedrawRequested => {
-                let width = surface.config.width;
-                let height = surface.config.height;
+                self.scene.reset();
+
+                draw_simple_scene(&mut self.scene);
                 let device_handle = &self.context.devices[surface.dev_id];
+                let render_params = RenderParams {
+                    width: surface.config.width,
+                    height: surface.config.height,
+                };
+                self.renderers[surface.dev_id].as_mut().unwrap().prepare(
+                    &device_handle.device,
+                    &device_handle.queue,
+                    &self.scene,
+                    &render_params,
+                );
 
                 let surface_texture = surface
                     .surface
@@ -169,7 +167,7 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                     self.renderers[surface.dev_id].as_mut().unwrap().render(
                         &self.scene,
                         &mut pass,
-                        &RenderParams { width, height },
+                        &render_params,
                     );
                 }
 
