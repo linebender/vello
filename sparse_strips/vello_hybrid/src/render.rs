@@ -233,7 +233,7 @@ impl Renderer {
                     mapped_at_creation: false,
                 })
             } else {
-                // Reuse existing buffer if it's big enough
+                // Reuse existing buffer since it's big enough
                 self.resources
                     .as_ref()
                     .expect("Strips buffer not found")
@@ -247,10 +247,9 @@ impl Renderer {
                 let alpha_texture_height =
                     (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 4);
 
-                // Ensure dimensions don't exceed WebGL2 limits
                 assert!(
                     alpha_texture_height <= max_texture_dimension_2d,
-                    "Alpha texture height exceeds WebGL2 limit"
+                    "Alpha texture height exceeds max texture dimensions"
                 );
 
                 let alphas_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -309,47 +308,46 @@ impl Renderer {
             });
         };
 
-        // Now that we have resources, we can update the data
-        if let Some(resources) = &self.resources {
-            // TODO: Explore using `write_buffer_with` to avoid copying the data twice
-            queue.write_buffer(
-                &resources.strips_buffer,
-                0,
-                bytemuck::cast_slice(&render_data.strips),
-            );
+        // Resources are created in above blocks.
+        let resources = self.resources.as_ref().unwrap();
 
-            // Prepare alpha data for the texture with 4 alpha values per texel
-            let texture_width = resources.alphas_texture.width();
-            let texture_height = resources.alphas_texture.height();
-            assert!(
-                render_data.alphas.len() <= (texture_width * texture_height * 4) as usize,
-                "Alpha texture dimensions are too small to fit the alpha data"
-            );
-            let mut alpha_data = vec![0_u32; render_data.alphas.len()];
-            alpha_data[..].copy_from_slice(&render_data.alphas);
-            alpha_data.resize((texture_width * texture_height * 4) as usize, 0);
+        // TODO: Explore using `write_buffer_with` to avoid copying the data twice
+        queue.write_buffer(
+            &resources.strips_buffer,
+            0,
+            bytemuck::cast_slice(&render_data.strips),
+        );
 
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &resources.alphas_texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                bytemuck::cast_slice(&alpha_data),
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each)
-                    bytes_per_row: Some(texture_width * 16),
-                    rows_per_image: Some(texture_height),
-                },
-                wgpu::Extent3d {
-                    width: texture_width,
-                    height: texture_height,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
+        // Prepare alpha data for the texture with 4 alpha values per texel
+        let texture_width = resources.alphas_texture.width();
+        let texture_height = resources.alphas_texture.height();
+        assert!(
+            render_data.alphas.len() <= (texture_width * texture_height * 4) as usize,
+            "Alpha texture dimensions are too small to fit the alpha data"
+        );
+        let mut alpha_data = render_data.alphas.clone();
+        alpha_data.resize((texture_width * texture_height * 4) as usize, 0);
+
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &resources.alphas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytemuck::cast_slice(&alpha_data),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each)
+                bytes_per_row: Some(texture_width * 16),
+                rows_per_image: Some(texture_height),
+            },
+            wgpu::Extent3d {
+                width: texture_width,
+                height: texture_height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     /// Render `scene` into the provided render pass.
@@ -363,10 +361,12 @@ impl Renderer {
         render_pass: &mut RenderPass<'_>,
         _render_params: &RenderParams,
     ) {
-        // If we don't have the required resources, return empty data
-        let Some(resources) = &self.resources else {
-            return;
-        };
+        // TODO: Consider API that forces the user to call `prepare` before `render`.
+        // For example, `prepare` could return some struct that is consumed by `render`.
+        let resources = &self
+            .resources
+            .as_ref()
+            .expect("`prepare` should be called before `render`");
         let render_data = scene.prepare_render_data();
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &resources.render_bind_group, &[]);
