@@ -11,12 +11,11 @@ mod common;
 
 use std::sync::Arc;
 
-use common::{create_vello_renderer, create_winit_window, render_svg};
-use vello_common::pico_svg::PicoSvg;
-use vello_hybrid::{
-    RenderParams, Renderer, Scene,
-    util::{RenderContext, RenderSurface},
+use common::{
+    RenderContext, RenderSurface, create_vello_renderer, create_winit_window, render_svg,
 };
+use vello_common::pico_svg::PicoSvg;
+use vello_hybrid::{RenderParams, Renderer, Scene};
 use wgpu::RenderPassDescriptor;
 use winit::{
     application::ApplicationHandler,
