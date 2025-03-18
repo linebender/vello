@@ -64,7 +64,7 @@ pub struct RenderData {
     /// GPU strips to be rendered
     pub strips: Vec<GpuStrip>,
     /// Alpha values used in rendering
-    pub alphas: Vec<u32>,
+    pub alphas: Vec<u8>,
 }
 
 /// Configuration for the GPU renderer
@@ -91,7 +91,9 @@ pub struct GpuStrip {
     pub width: u16,
     /// Width of the portion where alpha blending should be applied.
     pub dense_width: u16,
-    /// Index into the alpha texture where this strip's alpha values begin.
+    /// Column-index into the alpha texture where this strip's alpha values begin.
+    ///
+    /// There are [`Config::strip_height`] alpha values per column.
     pub col: u32,
     /// RGBA color value
     pub rgba: u32,
@@ -210,13 +212,13 @@ impl Renderer {
 
                 let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
                 let alpha_len = render_data.alphas.len();
-                // There are 16 1-byte alpha values per texel, and 4 alpha values per `render_data.alphas`.
+                // There are 16 1-byte alpha values per texel.
                 let required_alpha_height =
-                    (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 4);
-                let required_alpha_size = max_texture_dimension_2d * required_alpha_height * 4;
+                    (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 16);
+                let required_alpha_size = max_texture_dimension_2d * required_alpha_height * 16;
 
                 let current_alpha_size =
-                    resources.alphas_texture.width() * resources.alphas_texture.height() * 4;
+                    resources.alphas_texture.width() * resources.alphas_texture.height() * 16;
                 let alpha_too_small = required_alpha_size > current_alpha_size;
 
                 (strips_too_small, alpha_too_small)
@@ -243,9 +245,9 @@ impl Renderer {
             let (alphas_texture, render_bind_group) = if needs_new_alpha_texture {
                 let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
                 let alpha_len = render_data.alphas.len();
-                // There are 16 1-byte alpha values per texel, and 4 alpha values per `render_data.alphas`.
+                // There are 16 1-byte alpha values per texel.
                 let alpha_texture_height =
-                    (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 4);
+                    (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 16);
 
                 assert!(
                     alpha_texture_height <= max_texture_dimension_2d,
@@ -323,11 +325,11 @@ impl Renderer {
         let texture_width = resources.alphas_texture.width();
         let texture_height = resources.alphas_texture.height();
         assert!(
-            render_data.alphas.len() <= (texture_width * texture_height * 4) as usize,
+            render_data.alphas.len() <= (texture_width * texture_height * 16) as usize,
             "Alpha texture dimensions are too small to fit the alpha data"
         );
         let mut alpha_data = render_data.alphas.clone();
-        alpha_data.resize((texture_width * texture_height * 4) as usize, 0);
+        alpha_data.resize((texture_width * texture_height * 16) as usize, 0);
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -336,7 +338,7 @@ impl Renderer {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            bytemuck::cast_slice(&alpha_data),
+            &alpha_data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each)

@@ -37,7 +37,7 @@ pub struct Scene {
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) wide: Wide,
-    pub(crate) alphas: Vec<u32>,
+    pub(crate) alphas: Vec<u8>,
     pub(crate) line_buf: Vec<Line>,
     pub(crate) tiles: Tiles,
     pub(crate) strip_buf: Vec<Strip>,
@@ -242,7 +242,9 @@ impl Scene {
                                 y: wide_tile_y,
                                 width: cmd_strip.width,
                                 dense_width: cmd_strip.width,
-                                col: cmd_strip.alpha_ix.try_into().expect(msg),
+                                col: (cmd_strip.alpha_ix / usize::from(Tile::HEIGHT))
+                                    .try_into()
+                                    .expect(msg),
                                 rgba: color.premultiply().to_rgba8().to_u32(),
                             });
                         }
