@@ -913,7 +913,7 @@ fn parse_arguments() -> Args {
     // We allow baking in arguments at compile time. This is especially useful for
     // Android and WASM.
     // This is used on desktop platforms to allow debugging the same settings
-    let args = if let Some(args) = option_env!("VELLO_STATIC_ARGS") {
+    if let Some(args) = option_env!("VELLO_STATIC_ARGS") {
         // We split by whitespace here to allow passing multiple arguments
         // In theory, we could do more advanced parsing/splitting (e.g. using quotes),
         // but that would require a lot more effort
@@ -924,8 +924,7 @@ fn parse_arguments() -> Args {
         Args::parse_from(std::iter::once("with_winit").chain(args.split_ascii_whitespace()))
     } else {
         Args::parse()
-    };
-    args
+    }
 }
 
 #[cfg(target_os = "android")]
