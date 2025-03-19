@@ -12,7 +12,7 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::tile::Tile;
 use vello_cpu::fine::Fine;
 
-const FILL_ITERS: usize = 2000;
+const FILL_ITERS: usize = 50;
 
 pub fn fill(c: &mut Criterion) {
     let mut g = c.benchmark_group("fill");
