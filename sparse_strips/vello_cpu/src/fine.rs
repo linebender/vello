@@ -18,7 +18,9 @@ pub(crate) const SCRATCH_BUF_SIZE: usize =
 
 pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
 
-pub(crate) struct Fine<'a> {
+/// TODO: Make private
+#[derive(Debug)]
+pub struct Fine<'a> {
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) out_buf: &'a mut [u8],
@@ -26,7 +28,8 @@ pub(crate) struct Fine<'a> {
 }
 
 impl<'a> Fine<'a> {
-    pub(crate) fn new(width: u16, height: u16, out_buf: &'a mut [u8]) -> Self {
+    /// Create a new fine rasterizer.
+    pub fn new(width: u16, height: u16, out_buf: &'a mut [u8]) -> Self {
         let scratch = [0; SCRATCH_BUF_SIZE];
 
         Self {
@@ -74,7 +77,8 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn fill(&mut self, x: usize, width: usize, paint: &Paint) {
+    /// Fill at a given x and with a width with the paint.
+    pub fn fill(&mut self, x: usize, width: usize, paint: &Paint) {
         match paint {
             Paint::Solid(c) => {
                 let color = c.premultiply().to_rgba8_fast();

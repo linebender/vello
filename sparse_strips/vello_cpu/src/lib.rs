@@ -12,7 +12,8 @@
 
 mod render;
 
-mod fine;
+/// TODO: Make private again
+pub mod fine;
 mod util;
 
 pub use render::RenderContext;

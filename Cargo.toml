@@ -121,3 +121,5 @@ web-time = "1.1.0"
 wgpu-profiler = "0.21.0"
 scenes = { path = "examples/scenes" }
 svg = "0.18.0"
+criterion = "0.5.1"
+rand = "0.9.0"
