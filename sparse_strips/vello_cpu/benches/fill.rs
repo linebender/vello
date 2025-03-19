@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 #![allow(missing_docs, reason = "Not needed for benchmarks")]
+#![allow(unreachable_pub, reason = "Otherwise benchmarks won't compile")]
 
 use criterion::Criterion;
 use rand::prelude::StdRng;
