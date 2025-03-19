@@ -210,7 +210,7 @@ impl Renderer {
 
                 let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
                 let alpha_len = render_data.alphas.len();
-                // 4 alpha values u32 each per texel
+                // There are 16 1-byte alpha values per texel, and 4 alpha values per `render_data.alphas`.
                 let required_alpha_height =
                     (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 4);
                 let required_alpha_size = max_texture_dimension_2d * required_alpha_height * 4;
@@ -243,7 +243,7 @@ impl Renderer {
             let (alphas_texture, render_bind_group) = if needs_new_alpha_texture {
                 let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
                 let alpha_len = render_data.alphas.len();
-                // 4 alpha values u32 each per texel
+                // There are 16 1-byte alpha values per texel, and 4 alpha values per `render_data.alphas`.
                 let alpha_texture_height =
                     (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 4);
 
@@ -252,6 +252,7 @@ impl Renderer {
                     "Alpha texture height exceeds max texture dimensions"
                 );
 
+                // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
                 let alphas_texture = device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("Alpha Texture"),
                     size: wgpu::Extent3d {
@@ -318,7 +319,7 @@ impl Renderer {
             bytemuck::cast_slice(&render_data.strips),
         );
 
-        // Prepare alpha data for the texture with 4 alpha values per texel
+        // Prepare alpha data for the texture with 16 1-byte alpha values per texel (4 per channel)
         let texture_width = resources.alphas_texture.width();
         let texture_height = resources.alphas_texture.height();
         assert!(
