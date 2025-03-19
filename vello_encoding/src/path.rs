@@ -282,17 +282,17 @@ impl PathTag {
     /// Mask for bottom 3 bits that contain the [`PathSegmentType`].
     const SEGMENT_MASK: u8 = 0x3;
 
-    /// Returns true if the tag is a segment.
+    /// Returns `true` if the tag is a segment.
     pub fn is_path_segment(self) -> bool {
         self.path_segment_type().0 != 0
     }
 
-    /// Returns true if this is a 32-bit floating point segment.
+    /// Returns `true` if this is a 32-bit floating point segment.
     pub fn is_f32(self) -> bool {
         self.0 & Self::F32_BIT != 0
     }
 
-    /// Returns true if this segment ends a subpath.
+    /// Returns `true` if this segment ends a subpath.
     pub fn is_subpath_end(self) -> bool {
         self.0 & Self::SUBPATH_END_BIT != 0
     }

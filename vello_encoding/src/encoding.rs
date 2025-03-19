@@ -61,7 +61,7 @@ impl Encoding {
         Self::default()
     }
 
-    /// Returns true if the encoding is empty.
+    /// Returns `true` if the encoding is empty.
     pub fn is_empty(&self) -> bool {
         self.path_tags.is_empty()
     }
@@ -226,7 +226,7 @@ impl Encoding {
     }
 
     /// Encodes a shape. If `is_fill` is true, all subpaths will be automatically closed.
-    /// Returns true if a non-zero number of segments were encoded.
+    /// Returns `true` if a non-zero number of segments were encoded.
     pub fn encode_shape(&mut self, shape: &impl Shape, is_fill: bool) -> bool {
         let mut encoder = self.encode_path(is_fill);
         encoder.shape(shape);
@@ -245,7 +245,7 @@ impl Encoding {
     }
 
     /// Encodes a path element iterator. If `is_fill` is true, all subpaths will be automatically
-    /// closed. Returns true if a non-zero number of segments were encoded.
+    /// closed. Returns `true` if a non-zero number of segments were encoded.
     pub fn encode_path_elements(
         &mut self,
         path: impl Iterator<Item = peniko::kurbo::PathEl>,
