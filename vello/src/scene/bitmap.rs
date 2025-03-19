@@ -80,7 +80,7 @@ impl<'a> BitmapStrikes<'a> {
         }
     }
 
-    /// Returns true if there are no available strikes.
+    /// Returns `true` if there are no available strikes.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
