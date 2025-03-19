@@ -91,15 +91,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // would it be faster to do a texture lookup for every pixel?
     if x < in.dense_end {
         let y = u32(floor(in.tex_coord.y));
-        // Retrieve alpha value from the texture
-        // Calculate texture coordinates based on the fragment's x-position
-        // Since we store 4 alpha values per texel, divide x by 4 to get the texel position
+        // Retrieve alpha value from the texture. We store 16 1-byte alpha
+        // values per texel, with each color channel packing 4 alpha values.
+        // The code here assumes the strip height is 4, i.e., each color
+        // channel encodes the alpha values for a single column within a strip.
+        // Divide x by 4 to get the texel position.
         let alphas_index = x;
         let tex_dimensions = textureDimensions(alphas_texture);
         let alphas_tex_width = tex_dimensions.x;
-        // Which texel contains our alpha value
+        // Which texel contains the alpha values for this column
         let texel_index = alphas_index / 4u;
-        // Which channel (R,G,B,A) in the texel
+        // Which channel (R,G,B,A) in the texel contains the alpha values for this column
         let channel_index = alphas_index % 4u;
         // Calculate texture coordinates using bitwise operations
         // This is more efficient than using modulo and division when width is a power of 2
@@ -110,7 +112,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Load all 4 channels from the texture
         let rgba_values = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0);
         
-        // Get the alphas from the appropriate RGBA channel based on the index
+        // Get the column's alphas from the appropriate RGBA channel based on the index
         let alphas_u32 = unpack_alphas_from_channel(rgba_values, channel_index);
         // Extract the alpha value for the current y-position from the packed u32 data
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
