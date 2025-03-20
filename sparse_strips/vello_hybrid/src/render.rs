@@ -77,6 +77,8 @@ pub struct Config {
     pub height: u32,
     /// Height of a strip in the rendering
     pub strip_height: u32,
+    /// Align to 16 bytes for WebGL2 compatibility
+    pub _padding: u32,
 }
 
 /// Represents a GPU strip for rendering
@@ -276,6 +278,7 @@ impl Renderer {
                         width: render_params.width,
                         height: render_params.height,
                         strip_height: Tile::HEIGHT.into(),
+                        _padding: 0,
                     }),
                     usage: wgpu::BufferUsages::UNIFORM,
                 });

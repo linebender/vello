@@ -17,6 +17,8 @@ struct Config {
     height: u32,
     // Height of a strip in the rendering
     strip_height: u32,
+    // Align to 16 bytes for WebGL2 compatibility
+    _padding: u32,
 }
 
 struct StripInstance {
