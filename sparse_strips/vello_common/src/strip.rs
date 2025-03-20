@@ -15,8 +15,8 @@ pub struct Strip {
     pub x: u16,
     /// The y coordinate of the strip, in user coordinates.
     pub y: u16,
-    /// The index into the alpha buffer
-    pub col: u32,
+    /// The index into the alpha buffer.
+    pub alpha_idx: u32,
     /// The winding number at the start of the strip.
     pub winding: i32,
 }
@@ -33,7 +33,7 @@ impl Strip {
 pub fn render(
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
-    alpha_buf: &mut Vec<u32>,
+    alpha_buf: &mut Vec<u8>,
     fill_rule: Fill,
     lines: &[Line],
 ) {
@@ -64,7 +64,7 @@ pub fn render(
     let mut strip = Strip {
         x: prev_tile.x * Tile::WIDTH,
         y: prev_tile.y * Tile::HEIGHT,
-        col: alpha_buf.len() as u32,
+        alpha_idx: alpha_buf.len() as u32,
         winding: 0,
     };
 
@@ -83,23 +83,17 @@ pub fn render(
             macro_rules! fill {
                 ($rule:expr) => {
                     for x in 0..Tile::WIDTH as usize {
-                        let mut alphas = 0_u32;
-
                         for y in 0..Tile::HEIGHT as usize {
                             let area = location_winding[x][y];
                             let coverage = $rule(area);
-                            let area_u8 = (coverage * 255.0 + 0.5) as u32;
-
-                            alphas += area_u8 << (y * 8);
+                            alpha_buf.push((coverage * 255.0 + 0.5) as u8);
                         }
-
-                        alpha_buf.push(alphas);
                     }
                 };
             }
             match fill_rule {
                 Fill::NonZero => {
-                    fill!(|area: f32| area.abs().min(1.0))
+                    fill!(|area: f32| area.abs())
                 }
                 Fill::EvenOdd => {
                     // As in other parts of the code, we avoid using `round` since it's very
@@ -118,7 +112,7 @@ pub fn render(
         if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
             debug_assert_eq!(
                 (prev_tile.x + 1) * Tile::WIDTH - strip.x,
-                (alpha_buf.len() - strip.col as usize) as u16,
+                ((alpha_buf.len() - strip.alpha_idx as usize) / usize::from(Tile::HEIGHT)) as u16,
                 "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
             );
             strip_buf.push(strip);
@@ -126,13 +120,13 @@ pub fn render(
             let is_sentinel = tile_idx == tiles.len() as usize;
             if !prev_tile.same_row(&tile) {
                 // Emit a final strip in the row if there is non-zero winding for the sparse fill,
-                // or unconditionally if we've reached the sentinel tile to end the path (the `col`
-                // field is used for width calculations).
+                // or unconditionally if we've reached the sentinel tile to end the path (the
+                // `alpha_idx` field is used for width calculations).
                 if winding_delta != 0 || is_sentinel {
                     strip_buf.push(Strip {
                         x: u16::MAX,
                         y: prev_tile.y * Tile::HEIGHT,
-                        col: alpha_buf.len() as u32,
+                        alpha_idx: alpha_buf.len() as u32,
                         winding: winding_delta,
                     });
                 }
@@ -153,7 +147,7 @@ pub fn render(
             strip = Strip {
                 x: tile.x * Tile::WIDTH,
                 y: tile.y * Tile::HEIGHT,
-                col: alpha_buf.len() as u32,
+                alpha_idx: alpha_buf.len() as u32,
                 winding: winding_delta,
             };
             // Note: this fill is mathematically not necessary. It provides a way to reduce

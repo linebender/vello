@@ -200,7 +200,7 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
     }
 }
 
-fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
+fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
     for i in 0..strips.len() {
         let strip = &strips[i];
         let x = strip.x;
@@ -208,10 +208,10 @@ fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
 
         let end = strips
             .get(i + 1)
-            .map(|s| s.col)
+            .map(|s| s.alpha_idx / u32::from(Tile::HEIGHT))
             .unwrap_or(alphas.len() as u32);
 
-        let width = end - strip.col;
+        let width = end - strip.alpha_idx / u32::from(Tile::HEIGHT);
 
         // TODO: Account for even-odd?
         let color = if strip.winding != 0 {
@@ -235,18 +235,16 @@ fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
     }
 }
 
-fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
+fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
     for s in 0..strips.len() {
         let strip = &strips[s];
-        let x = strip.x;
-        let y = strip.strip_y();
 
         let end = strips
             .get(s + 1)
-            .map(|st| st.col)
+            .map(|st| st.alpha_idx / u32::from(Tile::HEIGHT))
             .unwrap_or(alphas.len() as u32);
 
-        let width = u16::try_from(end - strip.col).unwrap();
+        let width = u16::try_from(end - strip.alpha_idx / u32::from(Tile::HEIGHT)).unwrap();
 
         // TODO: Account for even-odd?
         let color = if strip.winding != 0 {
@@ -255,18 +253,18 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
             "limegreen"
         };
 
-        for i in 0..width {
-            let alpha = alphas[i as usize + strip.col as usize];
-            let entries = alpha.to_le_bytes();
-
-            for (h, e) in entries.iter().enumerate().take(Tile::HEIGHT.into()) {
+        for x in 0..width {
+            for y in 0..Tile::HEIGHT {
+                let alpha = alphas[strip.alpha_idx as usize
+                    + usize::from(x) * usize::from(Tile::HEIGHT)
+                    + usize::from(y)];
                 let rect = Rectangle::new()
-                    .set("x", x + i)
-                    .set("y", y * Tile::HEIGHT + h as u16)
+                    .set("x", strip.x + x)
+                    .set("y", strip.y + y)
                     .set("width", 1)
                     .set("height", 1)
                     .set("fill", color)
-                    .set("fill-opacity", *e as f32 / 255.0);
+                    .set("fill-opacity", alpha as f32 / 255.0);
 
                 document.append(rect);
             }
@@ -274,16 +272,17 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u32]) {
     }
 }
 
-fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u32]) {
-    for (t_i, tile) in wide_tiles.iter().enumerate() {
+fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u8]) {
+    // TODO: account for multiple wide tiles per row.
+    for (tile_idx, tile) in wide_tiles.iter().enumerate() {
         for cmd in &tile.cmds {
             match cmd {
                 Cmd::Fill(f) => {
-                    for i in 0..f.width {
-                        for h in 0..Tile::HEIGHT {
+                    for x in 0..f.width {
+                        for y in 0..Tile::HEIGHT {
                             let rect = Rectangle::new()
-                                .set("x", f.x + i)
-                                .set("y", t_i * usize::from(Tile::HEIGHT + h))
+                                .set("x", f.x + x)
+                                .set("y", tile_idx * usize::from(Tile::HEIGHT) + usize::from(y))
                                 .set("width", 1)
                                 .set("height", 1)
                                 .set("fill", "blue");
@@ -293,18 +292,19 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
                     }
                 }
                 Cmd::AlphaFill(s) => {
-                    for i in 0..s.width {
-                        let alpha = alphas[s.alpha_ix + i as usize];
-                        let entries = alpha.to_le_bytes();
+                    for x in 0..s.width {
+                        for y in 0..Tile::HEIGHT {
+                            let alpha = alphas[s.alpha_ix
+                                + usize::from(x) * usize::from(Tile::HEIGHT)
+                                + usize::from(y)];
 
-                        for (h, e) in entries.iter().enumerate().take(Tile::HEIGHT.into()) {
                             let rect = Rectangle::new()
-                                .set("x", s.x + i)
-                                .set("y", t_i * usize::from(Tile::HEIGHT) + h)
+                                .set("x", s.x + x)
+                                .set("y", tile_idx * usize::from(Tile::HEIGHT) + usize::from(y))
                                 .set("width", 1)
                                 .set("height", 1)
                                 .set("fill", "yellow")
-                                .set("fill-opacity", *e as f32 / 255.0);
+                                .set("fill-opacity", alpha as f32 / 255.0);
 
                             document.append(rect);
                         }

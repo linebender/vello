@@ -66,7 +66,7 @@ impl<'a> Fine<'a> {
         );
     }
 
-    pub(crate) fn run_cmd(&mut self, cmd: &Cmd, alphas: &[u32]) {
+    pub(crate) fn run_cmd(&mut self, cmd: &Cmd, alphas: &[u8]) {
         match cmd {
             Cmd::Fill(f) => {
                 self.fill(f.x as usize, f.width as usize, &f.paint);
@@ -103,7 +103,7 @@ impl<'a> Fine<'a> {
     }
 
     /// Strip at a given x and with a width using the given paint and alpha values.
-    pub fn strip(&mut self, x: usize, width: usize, alphas: &[u32], paint: &Paint) {
+    pub fn strip(&mut self, x: usize, width: usize, alphas: &[u8], paint: &Paint) {
         debug_assert!(
             alphas.len() >= width,
             "alpha buffer doesn't contain sufficient elements"
@@ -175,12 +175,15 @@ pub(crate) mod strip {
     use crate::util::scalar::div_255;
     use vello_common::tile::Tile;
 
-    pub(crate) fn src_over(target: &mut [u8], src_c: &[u8; COLOR_COMPONENTS], alphas: &[u32]) {
+    pub(crate) fn src_over(target: &mut [u8], src_c: &[u8; COLOR_COMPONENTS], alphas: &[u8]) {
         let src_a = src_c[3] as u16;
 
-        for (bg_c, masks) in target.chunks_exact_mut(TILE_HEIGHT_COMPONENTS).zip(alphas) {
+        for (bg_c, masks) in target
+            .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
+            .zip(alphas.chunks_exact(usize::from(Tile::HEIGHT)))
+        {
             for j in 0..usize::from(Tile::HEIGHT) {
-                let mask_a = ((*masks >> (j * 8)) & 0xff) as u16;
+                let mask_a = u16::from(masks[j]);
                 let inv_src_a_mask_a = 255 - div_255(mask_a * src_a);
 
                 for i in 0..COLOR_COMPONENTS {

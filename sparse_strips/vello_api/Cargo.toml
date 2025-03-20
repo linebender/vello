@@ -15,6 +15,9 @@ publish = false
 peniko = { workspace = true }
 
 [features]
+default = ["std"]
+std = ["peniko/std"]
+libm = ["peniko/libm"]
 simd = []
 
 [lints]

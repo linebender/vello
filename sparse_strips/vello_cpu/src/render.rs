@@ -23,7 +23,7 @@ pub struct RenderContext {
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) wide: Wide,
-    pub(crate) alphas: Vec<u32>,
+    pub(crate) alphas: Vec<u8>,
     pub(crate) line_buf: Vec<Line>,
     pub(crate) tiles: Tiles,
     pub(crate) strip_buf: Vec<Strip>,

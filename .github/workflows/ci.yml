@@ -12,6 +12,11 @@ env:
   # List of packages that will be checked with the minimum supported Rust version.
   # This should be limited to packages that are intended for publishing.
   RUST_MIN_VER_PKGS: "-p vello -p vello_encoding -p vello_shaders -p vello_api -p vello_common -p vello_cpu -p vello_hybrid"
+  # List of packages that will be checked for `no_std` builds.
+  # This should be limited to packages that are intended for publishing.
+  RUST_NO_STD_PKGS: "-p vello_api"
+  # List of features that depend on the standard library and will be excluded from no_std checks.
+  FEATURES_DEPENDING_ON_STD: "std,default"
   # List of packages that can not target Wasm.
   # `vello_tests` uses `nv-flip`, which doesn't support Wasm.
   NO_WASM_PKGS: "--exclude vello_tests --exclude simple_sdl2"
@@ -43,6 +48,10 @@ env:
 #
 # The MSRV jobs run only cargo check because different clippy versions can disagree on goals and
 # running tests introduces dev dependencies which may require a higher MSRV than the bare package.
+#
+# For no_std checks we target x86_64-unknown-none, because this target doesn't support std
+# and as such will error out if our dependency tree accidentally tries to use std.
+# https://doc.rust-lang.org/stable/rustc/platform-support/x86_64-unknown-none.html
 #
 # We don't save caches in the merge-group cases, because those caches will never be re-used (apart
 # from the very rare cases where there are multiple PRs in the merge queue).
@@ -105,6 +114,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_STABLE_VER }}
+          targets: x86_64-unknown-none
           components: clippy
 
       - name: install cargo-hack
@@ -121,11 +131,14 @@ jobs:
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
 
+      - name: cargo clippy (no_std)
+        run: cargo hack clippy ${{ env.RUST_NO_STD_PKGS }} --locked --optional-deps --each-feature --ignore-unknown-features --features libm --exclude-features ${{ env.FEATURES_DEPENDING_ON_STD }} --target x86_64-unknown-none -- -D warnings
+
       - name: cargo clippy
-        run: cargo hack clippy --workspace --locked --optional-deps --each-feature -- -D warnings
+        run: cargo hack clippy --workspace --locked --optional-deps --each-feature --ignore-unknown-features --features std -- -D warnings
 
       - name: cargo clippy (auxiliary)
-        run: cargo hack clippy --workspace --locked --optional-deps --each-feature --tests --benches --examples -- -D warnings
+        run: cargo hack clippy --workspace --locked --optional-deps --each-feature --ignore-unknown-features --features std --tests --benches --examples -- -D warnings
 
   clippy-stable-wasm:
     name: cargo clippy (wasm32)
@@ -150,11 +163,14 @@ jobs:
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
 
+      - name: cargo clippy (no_std)
+        run: cargo hack clippy ${{ env.RUST_NO_STD_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --ignore-unknown-features --features libm --exclude-features ${{ env.FEATURES_DEPENDING_ON_STD }} -- -D warnings
+
       - name: cargo clippy
-        run: cargo hack clippy --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature -- -D warnings
+        run: cargo hack clippy --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --ignore-unknown-features --features std -- -D warnings
 
       - name: cargo clippy (auxiliary)
-        run: cargo hack clippy --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --tests --benches --examples -- -D warnings
+        run: cargo hack clippy --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --ignore-unknown-features --features std --tests --benches --examples -- -D warnings
 
   prime-lfs-cache:
     name: Prime LFS Cache
@@ -334,6 +350,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_MIN_VER }}
+          targets: x86_64-unknown-none
 
       - name: install cargo-hack
         uses: taiki-e/install-action@v2
@@ -349,8 +366,11 @@ jobs:
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
 
+      - name: cargo check (no_std)
+        run: cargo hack check ${{ env.RUST_NO_STD_PKGS }} --locked --optional-deps --each-feature --ignore-unknown-features --features libm --exclude-features ${{ env.FEATURES_DEPENDING_ON_STD }} --target x86_64-unknown-none
+
       - name: cargo check
-        run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} --locked --optional-deps --each-feature
+        run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} --locked --optional-deps --each-feature --ignore-unknown-features --features std
 
   check-msrv-wasm:
     name: cargo check (msrv) (wasm32)
@@ -375,7 +395,7 @@ jobs:
           save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: cargo check
-        run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature
+        run: cargo hack check ${{ env.RUST_MIN_VER_PKGS }} ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --optional-deps --each-feature --ignore-unknown-features --features std
 
   doc:
     name: cargo doc

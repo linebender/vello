@@ -171,7 +171,7 @@ impl Tiles {
         self.tile_buf.len() as u32
     }
 
-    /// Returns true if the container has no tiles.
+    /// Returns `true` if the container has no tiles.
     pub fn is_empty(&self) -> bool {
         self.tile_buf.is_empty()
     }
