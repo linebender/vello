@@ -2840,7 +2840,6 @@ dependencies = [
  "criterion",
  "image",
  "oxipng",
- "rand",
  "vello_common",
 ]
 

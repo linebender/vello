@@ -22,7 +22,6 @@ vello_common = { workspace = true }
 oxipng = { workspace = true, features = ["freestanding", "parallel"] }
 image = { workspace = true, features = ["png"] }
 criterion = { workspace = true }
-rand = { workspace = true }
 
 [lints]
 workspace = true
