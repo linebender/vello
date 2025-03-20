@@ -12,7 +12,7 @@
 
 mod render;
 
-/// TODO: Make private again
+#[doc(hidden)]
 pub mod fine;
 mod util;
 

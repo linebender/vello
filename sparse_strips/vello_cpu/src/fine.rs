@@ -18,8 +18,8 @@ pub(crate) const SCRATCH_BUF_SIZE: usize =
 
 pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
 
-/// TODO: Make private
 #[derive(Debug)]
+#[doc(hidden)]
 pub struct Fine<'a> {
     pub(crate) width: u16,
     pub(crate) height: u16,
@@ -101,7 +101,7 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn strip(&mut self, x: usize, width: usize, alphas: &[u32], paint: &Paint) {
+    pub fn strip(&mut self, x: usize, width: usize, alphas: &[u32], paint: &Paint) {
         debug_assert!(
             alphas.len() >= width,
             "alpha buffer doesn't contain sufficient elements"

@@ -4,8 +4,10 @@
 #![allow(missing_docs, reason = "Not needed for benchmarks")]
 
 mod fill;
+mod strip;
 
 use criterion::{criterion_group, criterion_main};
 
 criterion_group!(f, fill::fill);
-criterion_main!(f);
+criterion_group!(s, strip::strip);
+criterion_main!(f, s);
