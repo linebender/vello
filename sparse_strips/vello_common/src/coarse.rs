@@ -113,9 +113,11 @@ impl Wide {
             let next_strip = &strip_buf[i + 1];
             let x0 = strip.x;
             let strip_y = strip.strip_y();
-            let mut col = strip.col;
-            // Can potentially be 0, if the next strip's x values is also < 0.
-            let strip_width = next_strip.col.saturating_sub(col) as u16;
+            let mut col = strip.alpha_idx / u32::from(Tile::HEIGHT);
+            let next_col = next_strip.alpha_idx / u32::from(Tile::HEIGHT);
+            // Can potentially be 0, e.g. if the strip only changes coarse winding, but this
+            // depends on exact details of strip footprints.
+            let strip_width = next_col.saturating_sub(col) as u16;
             let x1 = x0 + strip_width;
             let tile_x0 = x0 / WideTile::WIDTH;
             // It's possible that a strip extends into a new wide tile, but we don't actually
@@ -130,7 +132,7 @@ impl Wide {
                 let cmd = CmdAlphaFill {
                     x: x_tile_rel,
                     width,
-                    alpha_ix: col as usize,
+                    alpha_ix: (col * u32::from(Tile::HEIGHT)) as usize,
                     paint: paint.clone(),
                 };
                 x += width;
