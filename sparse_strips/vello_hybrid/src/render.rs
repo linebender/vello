@@ -34,7 +34,10 @@ pub struct RenderParams {
 
 /// Options for the renderer
 #[derive(Debug)]
-pub struct RendererOptions {}
+pub struct RendererOptions {
+    /// Format of the rendering target
+    pub format: wgpu::TextureFormat,
+}
 
 /// Contains all GPU resources needed for rendering
 #[derive(Debug)]
@@ -116,9 +119,7 @@ impl Renderer {
     /// Creates a new renderer
     ///
     /// The target parameter determines if we render to a window or headless
-    pub fn new(device: &Device, _options: &RendererOptions) -> Self {
-        let format = wgpu::TextureFormat::Bgra8Unorm;
-
+    pub fn new(device: &Device, options: &RendererOptions) -> Self {
         let render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(
@@ -173,7 +174,7 @@ impl Renderer {
                 module: &render_shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(ColorTargetState {
-                    format,
+                    format: options.format,
                     blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],

@@ -74,14 +74,19 @@ async fn run() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Bgra8Unorm,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
     let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
     // Create renderer and render the scene to the texture
-    let mut renderer = vello_hybrid::Renderer::new(&device, &vello_hybrid::RendererOptions {});
+    let mut renderer = vello_hybrid::Renderer::new(
+        &device,
+        &vello_hybrid::RendererOptions {
+            format: texture.format(),
+        },
+    );
     let render_params = vello_hybrid::RenderParams {
         width: width.into(),
         height: height.into(),
@@ -162,18 +167,9 @@ async fn run() {
     }
     texture_copy_buffer.unmap();
 
-    // Convert BGRA to RGBA
-    let mut rgba_buffer = Vec::with_capacity(img_data.len());
-    for chunk in img_data.chunks_exact(4) {
-        rgba_buffer.push(chunk[2]); // R (was B)
-        rgba_buffer.push(chunk[1]); // G (unchanged)
-        rgba_buffer.push(chunk[0]); // B (was R)
-        rgba_buffer.push(chunk[3]); // A (unchanged)
-    }
-
     // Create a pixmap and set the buffer
     let mut pixmap = Pixmap::new(width, height);
-    pixmap.buf = rgba_buffer;
+    pixmap.buf = img_data;
     pixmap.unpremultiply();
 
     // Write the pixmap to a file

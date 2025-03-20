@@ -67,7 +67,9 @@ pub(crate) fn create_vello_renderer(
 ) -> Renderer {
     Renderer::new(
         &render_cx.devices[surface.dev_id].device,
-        &RendererOptions {},
+        &RendererOptions {
+            format: surface.config.format,
+        },
     )
 }
 
