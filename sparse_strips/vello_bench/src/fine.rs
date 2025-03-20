@@ -57,5 +57,5 @@ pub fn strip(c: &mut Criterion) {
         };
     }
 
-    strip_single!(transparent, &ROYAL_BLUE.into());
+    strip_single!(basic, &ROYAL_BLUE.into());
 }

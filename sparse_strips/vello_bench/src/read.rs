@@ -26,9 +26,9 @@ impl PathContainer {
         let raw_data = std::fs::read(path).unwrap();
 
         let data = std::str::from_utf8(&raw_data).unwrap();
-        let mut splitted = data.split("STROKES");
-        let fill_str = splitted.next().unwrap();
-        let stroke_str = splitted.next().unwrap();
+        let mut split = data.split("STROKES");
+        let fill_str = split.next().unwrap();
+        let stroke_str = split.next().unwrap();
 
         let fills = fill_str
             .split("\n")
@@ -59,7 +59,7 @@ impl PathContainer {
 
     /// Get the raw flattened lines of both fills and strokes.
     ///
-    /// A stroke width of 3 is assumed.
+    /// A stroke width of 2.0 is assumed.
     pub fn lines(&self) -> Vec<Line> {
         let mut line_buf = vec![];
         let mut temp_buf = vec![];
