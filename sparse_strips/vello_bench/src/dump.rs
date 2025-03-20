@@ -1,4 +1,7 @@
-//! Dump the paths of a
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Dump the paths of a SVG file.
 
 use std::env;
 use std::path::Path;

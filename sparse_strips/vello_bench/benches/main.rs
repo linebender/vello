@@ -4,9 +4,10 @@
 #![allow(missing_docs, reason = "Not needed for benchmarks")]
 
 use criterion::{criterion_group, criterion_main};
-use vello_bench::{fine, tile};
+use vello_bench::{fine, strip, tile};
 
 criterion_group!(ff, fine::fill);
 criterion_group!(fs, fine::strip);
 criterion_group!(tt, tile::tile);
-criterion_main!(tt, ff, fs);
+criterion_group!(srs, strip::render_strips);
+criterion_main!(tt, srs, ff, fs);

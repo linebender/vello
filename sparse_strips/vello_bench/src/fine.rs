@@ -11,7 +11,7 @@ use vello_common::tile::Tile;
 use vello_cpu::fine::Fine;
 
 pub fn fill(c: &mut Criterion) {
-    let mut g = c.benchmark_group("fill");
+    let mut g = c.benchmark_group("fine/fill");
 
     macro_rules! fill_single {
         ($name:ident, $paint:expr) => {
@@ -33,7 +33,7 @@ pub fn fill(c: &mut Criterion) {
 }
 
 pub fn strip(c: &mut Criterion) {
-    let mut g = c.benchmark_group("strip");
+    let mut g = c.benchmark_group("fine/strip");
     let mut rng = StdRng::from_seed(SEED);
 
     let mut alphas = vec![];

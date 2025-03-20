@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 pub mod data;
 pub mod fine;
 pub mod read;
+pub mod strip;
 pub mod tile;
 
 pub(crate) const FINE_ITERS: usize = 50;

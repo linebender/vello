@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::data::{COAT_OF_ARMS, GHOSTSCRIPT_TIGER, PARIS_30K};
 use crate::read::PathContainer;
 use criterion::Criterion;
