@@ -16,6 +16,10 @@ criterion = { workspace = true }
 rand = { workspace = true }
 usvg = { workspace = true }
 
+[features]
+gs = []
+paris_30k = []
+
 [[bin]]
 name = "dump"
 path = "src/dump.rs"

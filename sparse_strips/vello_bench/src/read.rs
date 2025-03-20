@@ -48,23 +48,26 @@ impl PathContainer {
 
     /// Get the raw flattened lines of both fills and strokes.
     ///
-    /// A stroke width of 2 is assumed.
+    /// A stroke width of 3 is assumed.
     pub fn lines(&self) -> Vec<Line> {
         let mut line_buf = vec![];
+        let mut temp_buf = vec![];
 
         for path in &self.fills {
-            flatten::fill(path, Affine::default(), &mut line_buf);
+            flatten::fill(path, Affine::default(), &mut temp_buf);
+            line_buf.extend(&temp_buf);
         }
 
         let stroke = Stroke {
             // Obviously not all strokes have that width, but it should be good enough
             // for benchmarking.
-            width: 2.0,
+            width: 1.0,
             ..Default::default()
         };
 
         for path in &self.strokes {
-            flatten::stroke(path, &stroke, Affine::default(), &mut line_buf)
+            flatten::stroke(path, &stroke, Affine::default(), &mut temp_buf);
+            line_buf.extend(&temp_buf);
         }
 
         line_buf

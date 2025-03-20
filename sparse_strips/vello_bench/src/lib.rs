@@ -9,6 +9,7 @@ use std::path::PathBuf;
 pub mod fill;
 pub mod read;
 pub mod strip;
+pub mod tile;
 
 pub const FINE_ITERS: usize = 50;
 pub const SEED: [u8; 32] = [0; 32];
