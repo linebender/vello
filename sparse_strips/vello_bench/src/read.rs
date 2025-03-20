@@ -61,7 +61,7 @@ impl PathContainer {
         let stroke = Stroke {
             // Obviously not all strokes have that width, but it should be good enough
             // for benchmarking.
-            width: 1.0,
+            width: 2.0,
             ..Default::default()
         };
 
