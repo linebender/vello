@@ -2837,7 +2837,7 @@ dependencies = [
 
 [[package]]
 name = "vello_bench"
-version = "0.4.0"
+version = "0.0.0"
 dependencies = [
  "criterion",
  "rand",

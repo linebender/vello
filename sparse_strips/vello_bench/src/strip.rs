@@ -4,7 +4,7 @@
 use crate::FINE_ITERS;
 use criterion::Criterion;
 use rand::prelude::StdRng;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::tile::Tile;
@@ -18,8 +18,9 @@ pub fn strip(c: &mut Criterion) {
 
     let mut alphas = vec![];
 
-    for _ in 0..WideTile::WIDTH {
-        alphas.push(rng.next_u32());
+    for _ in 0..WideTile::WIDTH*Tile::HEIGHT {
+        
+        alphas.push(rng.random());
     }
 
     macro_rules! strip_single {
