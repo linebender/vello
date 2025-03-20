@@ -93,9 +93,9 @@ bytemuck = { version = "1.21.0", features = ["derive"] }
 skrifa = "0.26.4"
 # The version of kurbo used below should be kept in sync
 # with the version of kurbo used by peniko.
-peniko = "0.3.1"
+peniko = { version = "0.3.1", default-features = false }
 # FIXME: This can be removed once peniko supports the schemars feature.
-kurbo = "0.11.1"
+kurbo = { version = "0.11.1", default-features = false }
 futures-intrusive = "0.5.0"
 smallvec = "1.13.2"
 static_assertions = "1.1.0"
@@ -103,7 +103,7 @@ thiserror = "2.0.11"
 oxipng = { version = "9.1.4", default-features = false }
 
 # The below crates are experimental!
-vello_api = { path = "sparse_strips/vello_api" }
+vello_api = { path = "sparse_strips/vello_api", default-features = false }
 vello_common = { path = "sparse_strips/vello_common" }
 vello_cpu = { path = "sparse_strips/vello_cpu" }
 vello_hybrid = { path = "sparse_strips/vello_hybrid" }
