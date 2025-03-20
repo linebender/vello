@@ -125,3 +125,4 @@ svg = "0.18.0"
 criterion = { version = "0.5.1", default-features = false }
 rand = { version = "0.9.0", default-features = false, features = ["std_rng"] }
 usvg = { version = "0.45.0" }
+once_cell = "1.21.1"

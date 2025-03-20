@@ -4,10 +4,14 @@ use std::env;
 use std::path::Path;
 use usvg::tiny_skia_path::PathSegment;
 use usvg::{Group, Node, Transform};
+use vello_bench::DATA_PATH;
+use vello_bench::read::PathContainer;
 use vello_common::kurbo::{Affine, BezPath};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+
+    let gs_data = PathContainer::from_data_file("gs");
 
     let Some(str_path) = args.get(1) else {
         eprintln!("you need to provide the path to the SVG as the first argument.");
@@ -24,7 +28,7 @@ fn main() {
     let mut ctx = ConversionContext::new();
     convert(&mut ctx, tree.root());
 
-    let out_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("data/{file_name}.txt"));
+    let out_path = DATA_PATH.join(format!("{file_name}.txt"));
 
     let out_string = {
         let mut buf = String::new();
