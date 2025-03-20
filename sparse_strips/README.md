@@ -27,7 +27,7 @@ This structure is **under active development** and subject to changes as the int
 
 ## Community
 
-Discussion of Vello Hybrid development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu).
+Discussion of Vello Hybrid development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#vello channel](https://xi.zulipchat.com/#narrow/channel/197075-vello).
 All public content can be read without logging in.
 
 Contributions are welcome by pull request.
