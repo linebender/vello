@@ -6,6 +6,7 @@
 use std::cell::LazyCell;
 use std::path::PathBuf;
 
+pub mod data;
 pub mod fill;
 pub mod read;
 pub mod strip;
