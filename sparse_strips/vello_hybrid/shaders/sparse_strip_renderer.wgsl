@@ -116,7 +116,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Extract the alpha value for the current y-position from the packed u32 data
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
-    // Apply the alpha value to the manually unpacked RGBA color
+    // Apply the alpha value to the unpacked RGBA color
     return alpha * unpack4x8unorm(in.color);
 }
 
