@@ -1,7 +1,7 @@
 <!--
 
 This repo-level readme needs restructuring, pending some Linebender templating decisions.
-https://xi.zulipchat.com/#narrow/channel/419691-linebender/topic/Bikeshedding.20badges
+https://xi.zulipchat.com/#narrow/channel/419691-linebender/topic/Bikeshedding.20badges/with/452312397
 
 For now, prefer updating the package-level readmes, e.g. vello/README.md.
 
