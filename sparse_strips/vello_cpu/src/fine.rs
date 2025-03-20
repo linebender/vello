@@ -20,6 +20,7 @@ pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
 
 #[derive(Debug)]
 #[doc(hidden)]
+/// This is an internal struct, do not access directly.
 pub struct Fine<'a> {
     pub(crate) width: u16,
     pub(crate) height: u16,
@@ -77,7 +78,7 @@ impl<'a> Fine<'a> {
         }
     }
 
-    /// Fill at a given x and with a width with the paint.
+    /// Fill at a given x and with a width using the given paint.
     pub fn fill(&mut self, x: usize, width: usize, paint: &Paint) {
         match paint {
             Paint::Solid(c) => {
@@ -101,6 +102,7 @@ impl<'a> Fine<'a> {
         }
     }
 
+    /// Strip at a given x and with a width using the given paint and alpha values.
     pub fn strip(&mut self, x: usize, width: usize, alphas: &[u32], paint: &Paint) {
         debug_assert!(
             alphas.len() >= width,

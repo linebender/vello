@@ -17,7 +17,8 @@ members = [
     "sparse_strips/vello_common",
     "sparse_strips/vello_cpu",
     "sparse_strips/vello_hybrid",
-    "sparse_strips/vello_toy", "sparse_strips/vello_bench",
+    "sparse_strips/vello_toy", 
+    "sparse_strips/vello_bench",
 ]
 
 [workspace.package]
@@ -122,4 +123,4 @@ wgpu-profiler = "0.21.0"
 scenes = { path = "examples/scenes" }
 svg = "0.18.0"
 criterion = { version = "0.5.1", default-features = false }
-rand = { version =  "0.9.0", default-features = false, features = ["std_rng"]}
+rand = { version =  "0.9.0", default-features = false, features = ["std_rng"] }

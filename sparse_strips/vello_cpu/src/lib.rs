@@ -13,6 +13,7 @@
 mod render;
 
 #[doc(hidden)]
+/// This is an internal module, do not access directly.
 pub mod fine;
 mod util;
 
