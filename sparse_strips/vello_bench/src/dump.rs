@@ -20,7 +20,7 @@ fn main() {
         let tmp = path.with_extension("");
         tmp.file_name().unwrap().to_string_lossy().to_string()
     };
-    let data = std::fs::read(path).expect(&format!("failed to read path {:?}", path));
+    let data = std::fs::read(path).unwrap_or_else(|_| panic!("failed to read path {:?}", path));
     let tree = usvg::Tree::from_data(&data, &usvg::Options::default()).unwrap();
     let mut ctx = ConversionContext::new();
     convert(&mut ctx, tree.root());
@@ -48,8 +48,8 @@ fn convert(ctx: &mut ConversionContext, g: &Group) {
 
     for child in g.children() {
         match child {
-            Node::Group(g) => {
-                convert(ctx, g);
+            Node::Group(group) => {
+                convert(ctx, group);
             }
             Node::Path(p) => {
                 let converted = convert_path_data(p);

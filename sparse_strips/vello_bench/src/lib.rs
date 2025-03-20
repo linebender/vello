@@ -11,7 +11,7 @@ pub mod fine;
 pub mod read;
 pub mod tile;
 
-pub const FINE_ITERS: usize = 50;
-pub const SEED: [u8; 32] = [0; 32];
-pub const DATA_PATH: LazyCell<PathBuf> =
+pub(crate) const FINE_ITERS: usize = 50;
+pub(crate) const SEED: [u8; 32] = [0; 32];
+pub(crate) static DATA_PATH: LazyCell<PathBuf> =
     LazyCell::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data"));
