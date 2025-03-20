@@ -36,8 +36,8 @@ pub(crate) struct CubicParams {
 pub(crate) struct EulerParams {
     pub(crate) th0: f32,
     // th1 need not be explicitly stored, as it can be derived from k0 - th0
-    // See #gpu > Euler Spiral `th1` param
-    // https://xi.zulipchat.com/#narrow/stream/197075-gpu/topic/Euler.20Spiral.20.60th1.60.20param
+    // See #vello > Euler Spiral `th1` param
+    // https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/Euler.20Spiral.20.60th1.60.20param/with/446074149
     pub(crate) k0: f32,
     pub(crate) k1: f32,
     pub(crate) ch: f32,

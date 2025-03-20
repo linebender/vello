@@ -6,7 +6,7 @@
 
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
 \
-[![Linebender Zulip chat.](https://img.shields.io/badge/Linebender-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
+[![Linebender Zulip chat.](https://img.shields.io/badge/Linebender-%23vello-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/channel/197075-vello)
 [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/linebender/vello/ci.yml?logo=github&label=CI)](https://github.com/linebender/vello/actions)
 
 </div>
@@ -43,7 +43,7 @@ cargo update -p package_name --precise 0.1.1
 
 ## Community
 
-Discussion of Vello API development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu).
+Discussion of Vello API development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#vello stream](https://xi.zulipchat.com/#narrow/channel/197075-vello).
 All public content can be read without logging in.
 
 Contributions are welcome by pull request.

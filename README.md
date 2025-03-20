@@ -1,7 +1,7 @@
 <!--
 
 This repo-level readme needs restructuring, pending some Linebender templating decisions.
-https://xi.zulipchat.com/#narrow/stream/419691-linebender/topic/Bikeshedding.20badges
+https://xi.zulipchat.com/#narrow/channel/419691-linebender/topic/Bikeshedding.20badges/with/452312397
 
 For now, prefer updating the package-level readmes, e.g. vello/README.md.
 
@@ -13,7 +13,7 @@ For now, prefer updating the package-level readmes, e.g. vello/README.md.
 
 **A GPU compute-centric 2D renderer**
 
-[![Linebender Zulip](https://img.shields.io/badge/Linebender-%23gpu-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/stream/197075-gpu)
+[![Linebender Zulip](https://img.shields.io/badge/Linebender-%23vello-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/channel/197075-vello)
 [![dependency status](https://deps.rs/repo/github/linebender/vello/status.svg)](https://deps.rs/repo/github/linebender/vello)
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
 [![wgpu version](https://img.shields.io/badge/wgpu-v24.0.1-orange.svg)](https://crates.io/crates/wgpu)
@@ -246,7 +246,7 @@ cargo update -p package_name --precise 0.1.1
 
 ## Community
 
-Discussion of Vello development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#gpu stream](https://xi.zulipchat.com/#narrow/stream/197075-gpu).
+Discussion of Vello development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#vello channel](https://xi.zulipchat.com/#narrow/channel/197075-vello).
 All public content can be read without logging in.
 
 Contributions are welcome by pull request.
