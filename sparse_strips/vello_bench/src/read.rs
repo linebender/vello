@@ -5,9 +5,10 @@ use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Stroke};
 use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
-use vello_common::tile::{Tile, Tiles};
+use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
 
+#[derive(Debug)]
 pub struct PathContainer {
     fills: Vec<BezPath>,
     strokes: Vec<BezPath>,

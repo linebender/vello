@@ -3,15 +3,12 @@
 use std::env;
 use std::path::Path;
 use usvg::tiny_skia_path::PathSegment;
-use usvg::{Group, Node, Transform};
+use usvg::{Group, Node};
 use vello_bench::DATA_PATH;
-use vello_bench::read::PathContainer;
 use vello_common::kurbo::{Affine, BezPath};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-
-    let gs_data = PathContainer::from_data_file("gs");
 
     let Some(str_path) = args.get(1) else {
         eprintln!("you need to provide the path to the SVG as the first argument.");
