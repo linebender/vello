@@ -17,8 +17,8 @@ use std::fmt::Debug;
 use bytemuck::{Pod, Zeroable};
 use vello_common::tile::Tile;
 use wgpu::{
-    BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
-    PipelineCompilationOptions, Queue, RenderPass, RenderPipeline, Texture, util::DeviceExt,
+    util::DeviceExt, BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites,
+    Device, PipelineCompilationOptions, Queue, RenderPass, RenderPipeline, Texture,
 };
 
 use crate::scene::Scene;
@@ -77,8 +77,9 @@ pub struct Config {
     pub height: u32,
     /// Height of a strip in the rendering
     pub strip_height: u32,
-    /// Align to 16 bytes for WebGL2 compatibility
-    pub _padding: u32,
+    /// Number of trailing zeros in alphas_tex_width (log2 of width).
+    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
+    pub alphas_tex_width_bits: u32,
 }
 
 /// Represents a GPU strip for rendering
@@ -278,7 +279,7 @@ impl Renderer {
                         width: render_params.width,
                         height: render_params.height,
                         strip_height: Tile::HEIGHT.into(),
-                        _padding: 0,
+                        alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     }),
                     usage: wgpu::BufferUsages::UNIFORM,
                 });

@@ -17,8 +17,9 @@ struct Config {
     height: u32,
     // Height of a strip in the rendering
     strip_height: u32,
-    // Align to 16 bytes for WebGL2 compatibility
-    _padding: u32,
+    // Number of trailing zeros in alphas_tex_width (log2 of width).
+    // Pre-calculated on CPU since WebGL2 doesn't support firstTrailingBit.
+    alphas_tex_width_bits: u32,
 }
 
 struct StripInstance {
@@ -103,11 +104,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let texel_index = alphas_index / 4u;
         // Which channel (R,G,B,A) in the texel
         let channel_index = alphas_index % 4u;
-        // Calculate texture coordinates using bitwise operations
-        // This is more efficient than using modulo and division when width is a power of 2
-        let alphas_tex_width_bits = firstTrailingBit(alphas_tex_width);
+        // Calculate texel coordinates
         let tex_x = texel_index & (alphas_tex_width - 1u);
-        let tex_y = texel_index >> alphas_tex_width_bits;                  
+        let tex_y = texel_index >> config.alphas_tex_width_bits;                  
         
         // Load all 4 channels from the texture
         let rgba_values = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0);
@@ -117,7 +116,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Extract the alpha value for the current y-position from the packed u32 data
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
-    // Apply the alpha value to the unpacked RGBA color
+    // Apply the alpha value to the manually unpacked RGBA color
     return alpha * unpack4x8unorm(in.color);
 }
 
@@ -130,4 +129,17 @@ fn unpack_alphas_from_channel(rgba: vec4<u32>, channel_index: u32) -> u32 {
         // Fallback, should never happen
         default: { return rgba.x; }
     }
+}
+
+// Polyfills `unpack4x8unorm`.
+//
+// Downlevel targets do not support native WGSL `unpack4x8unorm`.
+fn unpack4x8unorm(rgba_packed: u32) -> vec4<f32> {
+    // Extract each byte and convert to float in range [0,1]
+    return vec4<f32>(
+        f32((rgba_packed >> 0u) & 0xFFu) / 255.0,  // r
+        f32((rgba_packed >> 8u) & 0xFFu) / 255.0,  // g
+        f32((rgba_packed >> 16u) & 0xFFu) / 255.0, // b
+        f32((rgba_packed >> 24u) & 0xFFu) / 255.0  // a
+    );
 }
