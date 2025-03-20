@@ -18,7 +18,7 @@ struct Config {
     // Height of a strip in the rendering
     strip_height: u32,
     // Number of trailing zeros in alphas_tex_width (log2 of width).
-    // Pre-calculated on CPU since WebGL2 doesn't support firstTrailingBit.
+    // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
     alphas_tex_width_bits: u32,
 }
 
