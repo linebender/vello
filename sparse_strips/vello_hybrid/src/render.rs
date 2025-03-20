@@ -17,8 +17,8 @@ use std::fmt::Debug;
 use bytemuck::{Pod, Zeroable};
 use vello_common::tile::Tile;
 use wgpu::{
-    util::DeviceExt, BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites,
-    Device, PipelineCompilationOptions, Queue, RenderPass, RenderPipeline, Texture,
+    BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
+    PipelineCompilationOptions, Queue, RenderPass, RenderPipeline, Texture, util::DeviceExt,
 };
 
 use crate::scene::Scene;
@@ -80,7 +80,7 @@ pub struct Config {
     pub height: u32,
     /// Height of a strip in the rendering
     pub strip_height: u32,
-    /// Number of trailing zeros in alphas_tex_width (log2 of width).
+    /// Number of trailing zeros in `alphas_tex_width` (log2 of width).
     /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
     pub alphas_tex_width_bits: u32,
 }
