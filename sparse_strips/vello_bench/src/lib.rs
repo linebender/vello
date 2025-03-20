@@ -7,9 +7,8 @@ use std::cell::LazyCell;
 use std::path::PathBuf;
 
 pub mod data;
-pub mod fill;
+pub mod fine;
 pub mod read;
-pub mod strip;
 pub mod tile;
 
 pub const FINE_ITERS: usize = 50;
