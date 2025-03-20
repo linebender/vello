@@ -18,8 +18,7 @@ pub fn strip(c: &mut Criterion) {
 
     let mut alphas = vec![];
 
-    for _ in 0..WideTile::WIDTH*Tile::HEIGHT {
-        
+    for _ in 0..WideTile::WIDTH * Tile::HEIGHT {
         alphas.push(rng.random());
     }
 
