@@ -17,7 +17,7 @@ members = [
     "sparse_strips/vello_common",
     "sparse_strips/vello_cpu",
     "sparse_strips/vello_hybrid",
-    "sparse_strips/vello_toy",
+    "sparse_strips/vello_toy", "sparse_strips/vello_bench",
 ]
 
 [workspace.package]

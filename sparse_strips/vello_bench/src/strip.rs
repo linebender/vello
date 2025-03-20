@@ -1,19 +1,15 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#![allow(missing_docs, reason = "Not needed for benchmarks")]
-#![allow(unreachable_pub, reason = "Otherwise benchmarks won't compile")]
-
+use crate::FINE_ITERS;
 use criterion::Criterion;
 use rand::prelude::StdRng;
 use rand::{RngCore, SeedableRng};
 use vello_common::coarse::WideTile;
-use vello_common::color::AlphaColor;
-use vello_common::paint::Paint;
+use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::tile::Tile;
 use vello_cpu::fine::Fine;
 
-const STRIP_ITERS: usize = 30;
 const SEED: [u8; 32] = [0; 32];
 
 pub fn strip(c: &mut Criterion) {
@@ -33,7 +29,7 @@ pub fn strip(c: &mut Criterion) {
                     let mut out = vec![];
                     let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT, &mut out);
 
-                    for _ in 0..STRIP_ITERS {
+                    for _ in 0..FINE_ITERS {
                         fine.strip(0, WideTile::WIDTH as usize, &alphas, $paint);
                     }
                 })
@@ -41,6 +37,5 @@ pub fn strip(c: &mut Criterion) {
         };
     }
 
-    let solid_paint: Paint = AlphaColor::from_rgba8(230, 129, 185, 160).into();
-    strip_single!(fill_transparent, &solid_paint);
+    strip_single!(transparent, &ROYAL_BLUE.into());
 }

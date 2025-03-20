@@ -3,10 +3,8 @@
 
 #![allow(missing_docs, reason = "Not needed for benchmarks")]
 
-mod fill;
-mod strip;
-
 use criterion::{criterion_group, criterion_main};
+use vello_bench::{fill, strip};
 
 criterion_group!(f, fill::fill);
 criterion_group!(s, strip::strip);

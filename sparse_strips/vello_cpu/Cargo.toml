@@ -11,18 +11,12 @@ repository.workspace = true
 # Prevent accidental publishing until the initial release
 publish = false
 
-[[bench]]
-name = "main"
-harness = false
-
 [dependencies]
 vello_common = { workspace = true }
 
 [dev-dependencies]
 oxipng = { workspace = true, features = ["freestanding", "parallel"] }
 image = { workspace = true, features = ["png"] }
-criterion = { workspace = true }
-rand = { workspace = true }
 
 [lints]
 workspace = true

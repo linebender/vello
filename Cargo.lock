@@ -2826,6 +2826,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vello_bench"
+version = "0.4.0"
+dependencies = [
+ "criterion",
+ "rand",
+ "vello_common",
+ "vello_cpu",
+]
+
+[[package]]
 name = "vello_common"
 version = "0.4.0"
 dependencies = [
@@ -2837,10 +2847,8 @@ dependencies = [
 name = "vello_cpu"
 version = "0.4.0"
 dependencies = [
- "criterion",
  "image",
  "oxipng",
- "rand",
  "vello_common",
 ]
 
