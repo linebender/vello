@@ -132,6 +132,8 @@ impl<T: EncodedPaint> Wide<T> {
 
     /// Generate wide tile commands from the strip buffer.
     pub fn generate(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint) {
+        // The great thing: We encode the paint once, and can then reuse that for all
+        // generated commands!
         let encoded: T = paint.into();
         
         let width_tiles = self.width_tiles();
