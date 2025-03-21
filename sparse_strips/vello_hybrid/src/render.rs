@@ -34,7 +34,10 @@ pub struct RenderParams {
 
 /// Options for the renderer
 #[derive(Debug)]
-pub struct RendererOptions {}
+pub struct RendererOptions {
+    /// Format of the rendering target
+    pub format: wgpu::TextureFormat,
+}
 
 /// Contains all GPU resources needed for rendering
 #[derive(Debug)]
@@ -77,6 +80,9 @@ pub struct Config {
     pub height: u32,
     /// Height of a strip in the rendering
     pub strip_height: u32,
+    /// Number of trailing zeros in `alphas_tex_width` (log2 of width).
+    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
+    pub alphas_tex_width_bits: u32,
 }
 
 /// Represents a GPU strip for rendering
@@ -115,9 +121,7 @@ impl Renderer {
     /// Creates a new renderer
     ///
     /// The target parameter determines if we render to a window or headless
-    pub fn new(device: &Device, _options: &RendererOptions) -> Self {
-        let format = wgpu::TextureFormat::Bgra8Unorm;
-
+    pub fn new(device: &Device, options: &RendererOptions) -> Self {
         let render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(
@@ -172,7 +176,7 @@ impl Renderer {
                 module: &render_shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(ColorTargetState {
-                    format,
+                    format: options.format,
                     blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -278,6 +282,7 @@ impl Renderer {
                         width: render_params.width,
                         height: render_params.height,
                         strip_height: Tile::HEIGHT.into(),
+                        alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     }),
                     usage: wgpu::BufferUsages::UNIFORM,
                 });
