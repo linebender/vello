@@ -69,8 +69,8 @@ fn vs_main(
     let pix_y = f32(y0) + y * f32(config.strip_height);
     // Convert pixel coordinates to normalized device coordinates (NDC)
     // NDC ranges from -1 to 1, with (0,0) at the center of the viewport
-    let ndc_x = (pix_x + 0.5) * 2.0 / f32(config.width) - 1.0;
-    let ndc_y = 1.0 - (pix_y + 0.5) * 2.0 / f32(config.height);
+    let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
+    let ndc_y = 1.0 - pix_y * 2.0 / f32(config.height);
 
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.tex_coord = vec2<f32>(f32(instance.col) + x * f32(width), y * f32(config.strip_height));
