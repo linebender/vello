@@ -13,6 +13,7 @@
 mod render;
 
 mod fine;
+pub mod paint;
 mod util;
 
 pub use render::RenderContext;
