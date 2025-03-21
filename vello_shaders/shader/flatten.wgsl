@@ -547,6 +547,7 @@ fn draw_join(
     tan_prev: vec2f, tan_next: vec2f,
     n_prev: vec2f, n_next: vec2f,
     transform: Transform,
+    is_fill: bool,
 ) {
     var front0 = p0 + n_prev;
     let front1 = p0 + n_next;
@@ -558,13 +559,16 @@ fn draw_join(
 
     switch style_flags & STYLE_FLAGS_JOIN_MASK {
         case STYLE_FLAGS_JOIN_BEVEL: {
-            output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform);
+            if is_fill {
+                output_line_with_transform(path_ix, back0, back1, transform);
+            } else {
+                output_two_lines_with_transform(path_ix, front0, front1, back0, back1, transform);
+            }
         }
         case STYLE_FLAGS_JOIN_MITER: {
             let hypot = length(vec2f(cr, d));
             let miter_limit = unpack2x16float(style_flags & STYLE_MITER_LIMIT_MASK)[0];
 
-            var line_ix: u32;
             if 2. * hypot < (hypot + d) * miter_limit * miter_limit && cr != 0. {
                 let is_backside = cr > 0.;
                 let fp_last = select(front0, back1, is_backside);
@@ -575,20 +579,20 @@ fn draw_join(
                 let h = (tan_prev.x * v.y - tan_prev.y * v.x) / cr;
                 let miter_pt = fp_this - tan_next * h;
 
-                line_ix = atomicAdd(&bump.lines, 3u);
-                write_line_with_transform(line_ix, path_ix, p, miter_pt, transform);
-                line_ix += 1u;
+                if !is_fill || is_backside {
+                    output_line_with_transform(path_ix, p, miter_pt, transform);
+                }
 
                 if is_backside {
                     back0 = miter_pt;
                 } else {
                     front0 = miter_pt;
                 }
-            } else {
-                line_ix = atomicAdd(&bump.lines, 2u);
+            } 
+            if !is_fill {
+                output_line_with_transform(path_ix, front0, front1, transform);
             }
-            write_line_with_transform(line_ix, path_ix, front0, front1, transform);
-            write_line_with_transform(line_ix + 1u, path_ix, back0, back1, transform);
+            output_line_with_transform(path_ix, back0, back1, transform);
         }
         case STYLE_FLAGS_JOIN_ROUND: {
             var arc0: vec2f;
@@ -606,8 +610,12 @@ fn draw_join(
                 other0 = back0;
                 other1 = back1;
             }
-            flatten_arc(path_ix, arc0, arc1, p0, abs(atan2(cr, d)), transform);
-            output_line_with_transform(path_ix, other0, other1, transform);
+            if !is_fill || cr > 0. {
+                flatten_arc(path_ix, arc0, arc1, p0, abs(atan2(cr, d)), transform);
+            }
+            if !is_fill || cr < 0. {
+                output_line_with_transform(path_ix, other0, other1, transform);
+            }
         }
         default: {}
     }
@@ -823,6 +831,7 @@ fn main(
     let tag = compute_tag_monoid(ix);
     let path_ix = tag.monoid.path_ix;
     let style_ix = tag.monoid.style_ix;
+    let winding_ix = tag.monoid.winding_ix;
     let trans_ix = tag.monoid.trans_ix;
 
     let out = &path_bboxes[path_ix];
@@ -839,13 +848,16 @@ fn main(
         let is_stroke = (style_flags & STYLE_FLAGS_STYLE) != 0u;
         let transform = read_transform(config.transform_base, trans_ix);
         let pts = read_path_segment(tag, is_stroke);
+        let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
 
         if is_stroke {
             let linewidth = bitcast<f32>(scene[config.style_base + style_ix + 1u]);
-            let offset = 0.5 * linewidth;
+            // Read embolden value from style - used for font outlines
+            let embolden = bitcast<f32>(scene[config.style_base + style_ix + 2u]);
+            // Add embolden to stroke width for the total offset
+            let offset = 0.5 * (linewidth + embolden);
 
             let is_open = (tag.tag_byte & PATH_TAG_SEG_TYPE) != PATH_TAG_LINETO;
-            let is_stroke_cap_marker = (tag.tag_byte & PATH_TAG_SUBPATH_END) != 0u;
             if is_stroke_cap_marker {
                 if is_open {
                     // Draw start cap
@@ -883,7 +895,7 @@ fn main(
 
                 if neighbor.do_join {
                     draw_join(path_ix, style_flags, pts.p3, tan_prev, tan_next,
-                              n_prev, n_next, transform);
+                              n_prev, n_next, transform, false);
                 } else {
                     // Draw end cap.
                     draw_cap(path_ix, (style_flags & STYLE_FLAGS_END_CAP_MASK),
@@ -891,9 +903,52 @@ fn main(
                 }
             }
         } else {
-            let offset = 0.;
-            flatten_euler(pts, path_ix, transform, offset, pts.p0, pts.p3);
+            let embolden = -bitcast<f32>(scene[config.style_base + style_ix + 2u]);
+
+            if embolden != 0.0 && !is_stroke_cap_marker  {
+                let sign = bitcast<f32>(scene[config.winding_base + winding_ix]);
+
+                var tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3) * sign;
+                if dot(tan_start, tan_start) < TANGENT_THRESH * TANGENT_THRESH {
+                    tan_start = vec2(TANGENT_THRESH, 0.);
+                }
+                var tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3) * sign;
+                if dot(tan_prev, tan_prev) < TANGENT_THRESH * TANGENT_THRESH {
+                    tan_prev = vec2(TANGENT_THRESH, 0.);
+                }
+
+                let n_start = embolden * normalize(vec2(-tan_start.y, tan_start.x));
+
+                var n_prev = embolden * normalize(vec2(-tan_prev.y, tan_prev.x));
+
+                flatten_euler(pts, path_ix, transform, embolden * sign, pts.p0 + n_start, pts.p3 + n_prev);
+
+                let neighbor = read_neighboring_segment(ix + 1);
+                if neighbor.do_join {
+                    var tan_next = neighbor.tangent * sign;
+                    if dot(tan_next, tan_next) < TANGENT_THRESH * TANGENT_THRESH {
+                        tan_next = vec2(TANGENT_THRESH, 0.);
+                    }
+                    var n_next = embolden * normalize(vec2(-tan_next.y, tan_next.x));
+                    if sign < 0 {
+                        // this is necessary to preserve the winding direction
+                        // Swap n_prev and n_next
+                        var temp = n_next;
+                        n_next = n_prev;
+                        n_prev = temp;
+    
+                        // Swap tan_prev and tan_next
+                        temp = tan_next;
+                        tan_next = tan_prev;
+                        tan_prev = temp;
+                    }
+                    draw_join(path_ix, style_flags, pts.p3, tan_prev, tan_next, -n_prev, -n_next, transform, true);
+                }
+            } else if embolden == 0. {
+                flatten_euler(pts, path_ix, transform, 0., pts.p0, pts.p3);
+            }
         }
+
         // Update bounding box using atomics only. Computing a monoid is a
         // potential future optimization.
         if bbox.z > bbox.x || bbox.w > bbox.y {
@@ -904,3 +959,4 @@ fn main(
         }
     }
 }
+
