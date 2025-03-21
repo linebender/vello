@@ -4,7 +4,7 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
-use crate::util::ColorExt;
+use crate::paint::EncodedPaint;
 use vello_common::coarse::Wide;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
@@ -22,7 +22,7 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 pub struct RenderContext {
     pub(crate) width: u16,
     pub(crate) height: u16,
-    pub(crate) wide: Wide,
+    pub(crate) wide: Wide<EncodedPaint>,
     pub(crate) alphas: Vec<u8>,
     pub(crate) line_buf: Vec<Line>,
     pub(crate) tiles: Tiles,
@@ -139,7 +139,7 @@ impl RenderContext {
             for x in 0..width_tiles {
                 let tile = self.wide.get(x, y);
 
-                fine.clear(tile.bg.premultiply().to_rgba8_fast());
+                fine.clear(tile.bg);
                 for cmd in &tile.cmds {
                     fine.run_cmd(cmd, &self.alphas);
                 }
@@ -172,6 +172,6 @@ impl RenderContext {
             &self.line_buf,
         );
 
-        self.wide.generate(&self.strip_buf, fill_rule, paint);
+        self.wide.generate(&self.strip_buf, fill_rule, paint.into());
     }
 }

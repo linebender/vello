@@ -36,7 +36,7 @@ struct RenderState {
 pub struct Scene {
     pub(crate) width: u16,
     pub(crate) height: u16,
-    pub(crate) wide: Wide,
+    pub(crate) wide: Wide<Paint>,
     pub(crate) alphas: Vec<u8>,
     pub(crate) line_buf: Vec<Line>,
     pub(crate) tiles: Tiles,
@@ -193,21 +193,21 @@ impl Scene {
     /// suitable for GPU rendering, including strips and alpha values.
     pub fn prepare_render_data(&self) -> RenderData {
         let mut strips: Vec<GpuStrip> = Vec::new();
-        let wide_tiles_per_row = (self.width).div_ceil(WideTile::WIDTH);
+        let wide_tiles_per_row = (self.width).div_ceil(WideTile::<Paint>::WIDTH);
         let wide_tiles_per_col = (self.height).div_ceil(Tile::HEIGHT);
         for wide_tile_row in 0..wide_tiles_per_col {
             for wide_tile_col in 0..wide_tiles_per_row {
                 let wide_tile_idx = usize::from(wide_tile_row) * usize::from(wide_tiles_per_row)
                     + usize::from(wide_tile_col);
                 let wide_tile = &self.wide.tiles[wide_tile_idx];
-                let wide_tile_x = wide_tile_col * WideTile::WIDTH;
+                let wide_tile_x = wide_tile_col * WideTile::<Paint>::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
                 let bg = wide_tile.bg.premultiply().to_rgba8().to_u32();
                 if bg != 0 {
                     strips.push(GpuStrip {
                         x: wide_tile_x,
                         y: wide_tile_y,
-                        width: WideTile::WIDTH,
+                        width: WideTile::<Paint>::WIDTH,
                         dense_width: 0,
                         col: 0,
                         rgba: bg,

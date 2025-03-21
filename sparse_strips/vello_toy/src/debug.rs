@@ -22,6 +22,7 @@ use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
 use vello_common::tile::{Tile, Tiles};
 use vello_common::{flatten, strip};
+use vello_common::paint::Paint;
 
 fn main() {
     let args = Args::parse();
@@ -272,7 +273,7 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
     }
 }
 
-fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u8]) {
+fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile<Paint>], alphas: &[u8]) {
     // TODO: account for multiple wide tiles per row.
     for (tile_idx, tile) in wide_tiles.iter().enumerate() {
         for cmd in &tile.cmds {

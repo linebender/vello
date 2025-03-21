@@ -4,7 +4,9 @@
 //! Fine rasterization runs the commands in each wide tile to determine the final RGBA value
 //! of each pixel and pack it into the pixmap.
 
+use crate::paint::EncodedPaint;
 use crate::util::ColorExt;
+use vello_common::coarse::EncodedSolid;
 use vello_common::{
     coarse::{Cmd, WideTile},
     paint::Paint,
@@ -14,7 +16,7 @@ use vello_common::{
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_COMPONENTS;
 pub(crate) const SCRATCH_BUF_SIZE: usize =
-    WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
+    WideTile::<Paint>::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
 
 pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
 
@@ -62,7 +64,7 @@ impl<'a> Fine<'a> {
         );
     }
 
-    pub(crate) fn run_cmd(&mut self, cmd: &Cmd, alphas: &[u8]) {
+    pub(crate) fn run_cmd(&mut self, cmd: &Cmd<EncodedPaint>, alphas: &[u8]) {
         match cmd {
             Cmd::Fill(f) => {
                 self.fill(f.x as usize, f.width as usize, &f.paint);
@@ -74,18 +76,16 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn fill(&mut self, x: usize, width: usize, paint: &Paint) {
+    pub(crate) fn fill(&mut self, x: usize, width: usize, paint: &EncodedPaint) {
         match paint {
-            Paint::Solid(c) => {
-                let color = c.premultiply().to_rgba8_fast();
-
+            EncodedPaint::Solid(color) => {
                 let target = &mut self.scratch[x * TILE_HEIGHT_COMPONENTS..]
                     [..TILE_HEIGHT_COMPONENTS * width];
 
                 // If color is completely opaque we can just memcopy the colors.
-                if color[3] == 255 {
+                if color.is_opaque() {
                     for t in target.chunks_exact_mut(COLOR_COMPONENTS) {
-                        t.copy_from_slice(&color);
+                        t.copy_from_slice(color);
                     }
 
                     return;
@@ -97,20 +97,18 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn strip(&mut self, x: usize, width: usize, alphas: &[u8], paint: &Paint) {
+    pub(crate) fn strip(&mut self, x: usize, width: usize, alphas: &[u8], paint: &EncodedPaint) {
         debug_assert!(
             alphas.len() >= width,
             "alpha buffer doesn't contain sufficient elements"
         );
 
         match paint {
-            Paint::Solid(s) => {
-                let color = s.premultiply().to_rgba8_fast();
-
+            EncodedPaint::Solid(color) => {
                 let target = &mut self.scratch[x * TILE_HEIGHT_COMPONENTS..]
                     [..TILE_HEIGHT_COMPONENTS * width];
 
-                strip::src_over(target, &color, alphas);
+                strip::src_over(target, color, alphas);
             }
             _ => unimplemented!(),
         }
@@ -118,7 +116,8 @@ impl<'a> Fine<'a> {
 }
 
 fn pack(out_buf: &mut [u8], scratch: &ScratchBuf, width: usize, height: usize, x: usize, y: usize) {
-    let base_ix = (y * usize::from(Tile::HEIGHT) * width + x * usize::from(WideTile::WIDTH))
+    let base_ix = (y * usize::from(Tile::HEIGHT) * width
+        + x * usize::from(WideTile::<EncodedPaint>::WIDTH))
         * COLOR_COMPONENTS;
 
     // Make sure we don't process rows outside the range of the pixmap.
@@ -128,8 +127,8 @@ fn pack(out_buf: &mut [u8], scratch: &ScratchBuf, width: usize, height: usize, x
         let line_ix = base_ix + j * width * COLOR_COMPONENTS;
 
         // Make sure we don't process columns outside the range of the pixmap.
-        let max_width =
-            (width - x * usize::from(WideTile::WIDTH)).min(usize::from(WideTile::WIDTH));
+        let max_width = (width - x * usize::from(WideTile::<EncodedPaint>::WIDTH))
+            .min(usize::from(WideTile::<EncodedPaint>::WIDTH));
         let target_len = max_width * COLOR_COMPONENTS;
         // This helps the compiler to understand that any access to `dest` cannot
         // be out of bounds, and thus saves corresponding checks in the for loop.
