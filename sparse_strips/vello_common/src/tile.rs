@@ -320,11 +320,6 @@ impl Tiles {
 }
 
 #[cfg(test)]
-const _: () = if Tile::HEIGHT != 4 {
-    panic!("Can only handle tiles with a height of 4 pixels for now.");
-};
-
-#[cfg(test)]
 mod tests {
     use crate::flatten::{Line, Point};
     use crate::tile::Tiles;

@@ -37,3 +37,8 @@ pub use render::{Config, GpuStrip, RenderData, RenderParams, Renderer, RendererO
 pub use scene::Scene;
 pub use util::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;
+
+#[cfg(test)]
+const _: () = if vello_common::tile::Tile::HEIGHT != 4 {
+    panic!("`vello_hybrid` shaders currently require `Tile::HEIGHT` to be `4`");
+};
