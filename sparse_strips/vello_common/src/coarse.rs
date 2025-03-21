@@ -34,7 +34,7 @@ impl EncodedSolid for AlphaColor<Srgb> {
     }
 }
 
-pub trait EncodedPaint: From<Paint> + Clone + Debug {
+pub trait EncodedPaint: Clone + Debug {
     type Solid: EncodedSolid;
     
     fn as_solid_color(&self) -> Option<Self::Solid>;
@@ -131,11 +131,7 @@ impl<T: EncodedPaint> Wide<T> {
     }
 
     /// Generate wide tile commands from the strip buffer.
-    pub fn generate(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint) {
-        // The great thing: We encode the paint once, and can then reuse that for all
-        // generated commands!
-        let encoded: T = paint.into();
-        
+    pub fn generate(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: T) {
         let width_tiles = self.width_tiles();
 
         if strip_buf.is_empty() {
@@ -178,7 +174,7 @@ impl<T: EncodedPaint> Wide<T> {
                     x: x_tile_rel,
                     width,
                     alpha_ix: (col * u32::from(Tile::HEIGHT)) as usize,
-                    paint: encoded.clone(),
+                    paint: paint.clone(),
                 };
                 x += width;
                 col += u32::from(width);
@@ -202,7 +198,7 @@ impl<T: EncodedPaint> Wide<T> {
                     let width = x2.min((tile_x + 1) * WideTile::<T>::WIDTH) - x;
                     x += width;
                     self.get_mut(tile_x, strip_y)
-                        .fill(x_tile_rel, width, encoded.clone());
+                        .fill(x_tile_rel, width, paint.clone());
                 }
             }
         }

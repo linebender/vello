@@ -172,6 +172,6 @@ impl RenderContext {
             &self.line_buf,
         );
 
-        self.wide.generate(&self.strip_buf, fill_rule, paint);
+        self.wide.generate(&self.strip_buf, fill_rule, paint.into());
     }
 }
