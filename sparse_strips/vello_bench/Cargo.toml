@@ -16,10 +16,6 @@ criterion = { workspace = true }
 rand = { workspace = true }
 usvg = { workspace = true }
 
-[[bin]]
-name = "dump"
-path = "src/dump.rs"
-
 [[bench]]
 name = "main"
 harness = false

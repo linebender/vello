@@ -1,8 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::data::{COAT_OF_ARMS, GHOSTSCRIPT_TIGER, PARIS_30K};
-use crate::read::PathContainer;
+use crate::data::get_data_items;
 use criterion::Criterion;
 use vello_common::peniko::Fill;
 use vello_common::strip;
@@ -13,12 +12,10 @@ pub fn render_strips(c: &mut Criterion) {
 
     macro_rules! strip_single {
         ($item:expr) => {
-            let container = PathContainer::from_data_file(&$item);
+            let lines = $item.lines();
+            let tiles = $item.sorted_tiles();
 
-            let lines = container.lines();
-            let tiles = container.sorted_tiles();
-
-            g.bench_function($item.name, |b| {
+            g.bench_function($item.name.clone(), |b| {
                 let mut strip_buf = vec![];
                 let mut alpha_buf = vec![];
 
@@ -39,7 +36,7 @@ pub fn render_strips(c: &mut Criterion) {
         };
     }
 
-    strip_single!(GHOSTSCRIPT_TIGER);
-    strip_single!(PARIS_30K);
-    strip_single!(COAT_OF_ARMS);
+    for item in get_data_items() {
+        strip_single!(item);
+    }
 }

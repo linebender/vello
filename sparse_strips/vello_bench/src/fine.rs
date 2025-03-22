@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::{FINE_ITERS, SEED};
+use crate::SEED;
 use criterion::Criterion;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};

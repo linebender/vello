@@ -1,8 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::data::{COAT_OF_ARMS, GHOSTSCRIPT_TIGER, PARIS_30K};
-use crate::read::PathContainer;
+use crate::data::get_data_items;
 use criterion::Criterion;
 use vello_common::tile::Tiles;
 
@@ -12,10 +11,9 @@ pub fn tile(c: &mut Criterion) {
 
     macro_rules! tile_single {
         ($item:expr) => {
-            let container = PathContainer::from_data_file(&$item);
-            let lines = container.lines();
+            let lines = $item.lines();
 
-            g.bench_function($item.name, |b| {
+            g.bench_function($item.name.clone(), |b| {
                 b.iter(|| {
                     let mut tiler = Tiles::new();
                     tiler.make_tiles(&lines, $item.width, $item.height);
@@ -24,7 +22,7 @@ pub fn tile(c: &mut Criterion) {
         };
     }
 
-    tile_single!(GHOSTSCRIPT_TIGER);
-    tile_single!(PARIS_30K);
-    tile_single!(COAT_OF_ARMS);
+    for item in get_data_items() {
+        tile_single!(item);
+    }
 }
