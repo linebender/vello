@@ -19,9 +19,12 @@ pub fn render_strips(c: &mut Criterion) {
             let tiles = container.sorted_tiles();
 
             g.bench_function($item.name, |b| {
+                let mut strip_buf = vec![];
+                let mut alpha_buf = vec![];
+                
                 b.iter(|| {
-                    let mut strip_buf = vec![];
-                    let mut alpha_buf = vec![];
+                    strip_buf.clear();
+                    alpha_buf.clear();
 
                     strip::render(
                         &tiles,
@@ -30,6 +33,7 @@ pub fn render_strips(c: &mut Criterion) {
                         Fill::NonZero,
                         &lines,
                     );
+                    std::hint::black_box((&strip_buf, &alpha_buf));
                 })
             });
         };
