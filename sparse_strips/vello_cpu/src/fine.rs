@@ -41,7 +41,7 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn clear(&mut self, premul_color: [u8; 4]) {
+    pub fn clear(&mut self, premul_color: [u8; 4]) {
         if premul_color[0] == premul_color[1]
             && premul_color[1] == premul_color[2]
             && premul_color[2] == premul_color[3]

@@ -21,7 +21,7 @@ pub fn render_strips(c: &mut Criterion) {
             g.bench_function($item.name, |b| {
                 let mut strip_buf = vec![];
                 let mut alpha_buf = vec![];
-                
+
                 b.iter(|| {
                     strip_buf.clear();
                     alpha_buf.clear();
