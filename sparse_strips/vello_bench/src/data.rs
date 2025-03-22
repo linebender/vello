@@ -126,9 +126,15 @@ fn read(path: &Path) -> DataItem {
         name: file_name,
         fills: ctx.fills,
         strokes: ctx.strokes,
-        #[allow(clippy::cast_possible_truncation, reason = "It's okay to ignore for benchmarking.")]
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "It's okay to ignore for benchmarking."
+        )]
         width: tree.size().width() as u16,
-        #[allow(clippy::cast_possible_truncation, reason = "It's okay to ignore for benchmarking.")]
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "It's okay to ignore for benchmarking."
+        )]
         height: tree.size().height() as u16,
     }
 }
