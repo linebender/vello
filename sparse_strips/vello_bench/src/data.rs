@@ -15,8 +15,8 @@ use vello_common::{flatten, strip};
 static DATA: OnceLock<Vec<DataItem>> = OnceLock::new();
 
 pub fn get_data_items() -> &'static [DataItem] {
-    &DATA.get_or_init(|| {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("data");
+    DATA.get_or_init(|| {
+        let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("data");
         let mut data = vec![];
 
         // Always use ghostscript tiger.
@@ -25,12 +25,12 @@ pub fn get_data_items() -> &'static [DataItem] {
                 .join("../../examples/assets/Ghostscript_Tiger.svg"),
         ));
 
-        for entry in std::fs::read_dir(&path).unwrap() {
+        for entry in std::fs::read_dir(&data_dir).unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();
 
             if path.extension().and_then(|e| e.to_str()) == Some("svg") {
-                data.push(read(&path))
+                data.push(read(&path));
             }
         }
 
@@ -126,7 +126,9 @@ fn read(path: &Path) -> DataItem {
         name: file_name,
         fills: ctx.fills,
         strokes: ctx.strokes,
+        #[allow(clippy::cast_possible_truncation, reason = "It's okay to ignore for benchmarking.")]
         width: tree.size().width() as u16,
+        #[allow(clippy::cast_possible_truncation, reason = "It's okay to ignore for benchmarking.")]
         height: tree.size().height() as u16,
     }
 }
