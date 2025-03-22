@@ -21,7 +21,7 @@ pub fn fill(c: &mut Criterion) {
 
                 b.iter(|| {
                     fine.fill(0, WideTile::WIDTH as usize, $paint);
-                    
+
                     std::hint::black_box(&fine);
                 })
             });
@@ -50,7 +50,7 @@ pub fn strip(c: &mut Criterion) {
 
                 b.iter(|| {
                     fine.strip(0, WideTile::WIDTH as usize, &alphas, $paint);
-                    
+
                     std::hint::black_box(&fine);
                 })
             });
