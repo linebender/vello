@@ -12,7 +12,6 @@ pub mod read;
 pub mod strip;
 pub mod tile;
 
-pub(crate) const FINE_ITERS: usize = 50;
 pub(crate) const SEED: [u8; 32] = [0; 32];
 pub static DATA_PATH: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data"));
