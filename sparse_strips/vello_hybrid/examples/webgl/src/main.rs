@@ -3,6 +3,11 @@
 
 //! Demonstrates using Vello Hybrid using a WebGL2 backend in the browser.
 
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "truncation has no appreciable impact in this demo"
+)]
+
 fn main() {
     #[cfg(target_arch = "wasm32")]
     {
