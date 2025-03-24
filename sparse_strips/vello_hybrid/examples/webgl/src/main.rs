@@ -20,7 +20,7 @@ fn main() {
         let dpr = window.device_pixel_ratio();
 
         let ghosttiger = include_str!("../../../../../examples/assets/Ghostscript_Tiger.svg");
-        let svg = PicoSvg::load(ghosttiger, 1.0).expect("error parsing SVG");
+        let svg = PicoSvg::load(ghosttiger, 6.0).expect("error parsing SVG");
 
         let width = window.inner_width().unwrap().as_f64().unwrap() as u16 * dpr as u16;
         let height = window.inner_height().unwrap().as_f64().unwrap() as u16 * dpr as u16;

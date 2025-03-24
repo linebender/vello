@@ -149,7 +149,7 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
                 view: &surface_texture_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: wgpu::StoreOp::Store,
                 },
             })],
