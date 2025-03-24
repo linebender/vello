@@ -38,7 +38,7 @@ impl IndexedPaint {
 pub enum Paint {
     /// A premultiplied RGBA8 color.
     Solid(PremulRgba8),
-    /// An paint that needs to be resolved via an index.
+    /// A paint that needs to be resolved via an index.
     Indexed(IndexedPaint),
 }
 
