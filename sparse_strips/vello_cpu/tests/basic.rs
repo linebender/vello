@@ -687,3 +687,45 @@ macro_rules! compose_impl {
 fn compose_solid_src_over() {
     compose_impl!(Compose::SrcOver, "compose_solid_src_over");
 }
+
+fn star(center: Point, n: usize, inner: f64, outer: f64) -> BezPath {
+    let mut path = BezPath::new();
+    let first_point = Point::new(center.x + outer, center.y);
+    path.move_to(first_point);
+    for i in 1..n * 2 {
+        let th = i as f64 * std::f64::consts::PI / n as f64;
+        let r = if i % 2 == 0 { outer } else { inner };
+        let x = center.x + r * th.cos();
+        let y = center.y + r * th.sin();
+        path.line_to((x, y));
+    }
+    path.close_path();
+    path
+}
+
+#[test]
+fn draw_star_with_triangle() {
+    let mut ctx = get_ctx(200, 200, false);
+
+    // Create a triangle path
+    let mut triangle_path = BezPath::new();
+    triangle_path.move_to((10.0, 10.0));
+    triangle_path.line_to((180.0, 20.0));
+    triangle_path.line_to((30.0, 180.0));
+    triangle_path.close_path();
+
+    // Stroke the triangle
+    let stroke = Stroke::new(5.0);
+    ctx.set_paint(BLUE.into());
+    ctx.set_stroke(stroke);
+    ctx.stroke_path(&triangle_path);
+
+    // Create a star path
+    let star_path = star(Point::new(100., 100.), 13, 50., 95.);
+
+    ctx.clip(&star_path);
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_path(&triangle_path);
+
+    check_ref(&ctx, "draw_star_with_triangle");
+}

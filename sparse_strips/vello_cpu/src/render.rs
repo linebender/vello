@@ -100,6 +100,11 @@ impl RenderContext {
         GlyphRunBuilder::new(font.clone(), self.transform, self)
     }
 
+    /// Clip a path.
+    pub fn clip(&mut self, path: &BezPath) {
+        println!(">>> path -> {:?}", path);
+    }
+
     /// Set the current blend mode.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
         self.blend_mode = blend_mode;
