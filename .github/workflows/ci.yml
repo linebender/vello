@@ -295,7 +295,9 @@ jobs:
         run: cargo test --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --all-features --no-run
 
       - name: install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
 
       - name: check vello_hybrid is webgl compatible
         run: wasm-pack test --headless --chrome
