@@ -3,14 +3,13 @@
 
 //! Demonstrates using Vello Hybrid using a WebGL2 backend in the browser.
 
-use vello_common::kurbo::{Affine, Stroke};
-use vello_common::pico_svg::Item;
-use vello_hybrid::Scene;
-
 fn main() {
     #[cfg(target_arch = "wasm32")]
     {
+        use vello_common::kurbo::{Affine, Stroke};
+        use vello_common::pico_svg::Item;
         use vello_common::pico_svg::PicoSvg;
+        use vello_hybrid::Scene;
         use webgl::render_scene;
 
         console_error_panic_hook::set_once();
@@ -27,37 +26,40 @@ fn main() {
 
         let mut scene = vello_hybrid::Scene::new(width, height);
 
+        fn render_svg(ctx: &mut Scene, scale: f64, items: &[Item]) {
+            fn render_svg_inner(ctx: &mut Scene, items: &[Item], transform: Affine) {
+                ctx.set_transform(transform);
+                for item in items {
+                    match item {
+                        Item::Fill(fill_item) => {
+                            ctx.set_paint(fill_item.color.into());
+                            ctx.fill_path(&fill_item.path);
+                        }
+                        Item::Stroke(stroke_item) => {
+                            let style = Stroke::new(stroke_item.width);
+                            ctx.set_stroke(style);
+                            ctx.set_paint(stroke_item.color.into());
+                            ctx.stroke_path(&stroke_item.path);
+                        }
+                        Item::Group(group_item) => {
+                            render_svg_inner(
+                                ctx,
+                                &group_item.children,
+                                transform * group_item.affine,
+                            );
+                            ctx.set_transform(transform);
+                        }
+                    }
+                }
+            }
+
+            render_svg_inner(ctx, items, Affine::scale(scale));
+        }
+
         render_svg(&mut scene, dpr, &svg.items);
 
         wasm_bindgen_futures::spawn_local(async move {
             render_scene(scene, width, height).await;
         });
     }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn render_svg(ctx: &mut Scene, scale: f64, items: &[Item]) {
-    fn render_svg_inner(ctx: &mut Scene, items: &[Item], transform: Affine) {
-        ctx.set_transform(transform);
-        for item in items {
-            match item {
-                Item::Fill(fill_item) => {
-                    ctx.set_paint(fill_item.color.into());
-                    ctx.fill_path(&fill_item.path);
-                }
-                Item::Stroke(stroke_item) => {
-                    let style = Stroke::new(stroke_item.width);
-                    ctx.set_stroke(style);
-                    ctx.set_paint(stroke_item.color.into());
-                    ctx.stroke_path(&stroke_item.path);
-                }
-                Item::Group(group_item) => {
-                    render_svg_inner(ctx, &group_item.children, transform * group_item.affine);
-                    ctx.set_transform(transform);
-                }
-            }
-        }
-    }
-
-    render_svg_inner(ctx, items, Affine::scale(scale));
 }
