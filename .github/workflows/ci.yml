@@ -291,7 +291,6 @@ jobs:
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
 
-      # TODO: Find a way to make tests work. Until then the tests are merely compiled.
       - name: cargo test compile
         run: cargo test --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --all-features --no-run
 
