@@ -8,6 +8,7 @@ use vello_common::peniko::{color::palette, kurbo::BezPath};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+#[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 struct RendererWrapper {
     renderer: vello_hybrid::Renderer,
@@ -16,6 +17,7 @@ struct RendererWrapper {
     surface: wgpu::Surface<'static>,
 }
 
+#[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl RendererWrapper {
     #[cfg(target_arch = "wasm32")]
