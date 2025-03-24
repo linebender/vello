@@ -6,8 +6,9 @@
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use wasm_bindgen_test::*;
-    wasm_bindgen_test_configure!(run_in_browser);
     use webgl::{draw_triangle, render_scene};
+
+    wasm_bindgen_test_configure!(run_in_browser);
 
     #[wasm_bindgen_test]
     async fn test_renders_triangle() {
