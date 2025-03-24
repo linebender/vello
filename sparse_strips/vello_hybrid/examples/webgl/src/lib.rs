@@ -122,9 +122,7 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
     };
     renderer.prepare(&device, &queue, &scene, &params);
 
-    let surface_texture = surface
-        .get_current_texture()
-        .expect("Surface texture to be valid");
+    let surface_texture = surface.get_current_texture().unwrap();
     let surface_texture_view = surface_texture
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
