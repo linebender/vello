@@ -15,6 +15,8 @@ struct RendererWrapper {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl RendererWrapper {
+
+    #[cfg(target_arch = "wasm32")]
     async fn new(canvas: web_sys::HtmlCanvasElement) -> Self {
         let width = canvas.width();
         let height = canvas.height();
@@ -83,6 +85,7 @@ impl RendererWrapper {
 }
 
 /// Creates a `HTMLCanvasElement` of the given dimensions and renders the given `Scene` into it.
+#[cfg(target_arch = "wasm32")]
 pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
     console_error_panic_hook::set_once();
     console_log::init_with_level(log::Level::Debug).unwrap();
