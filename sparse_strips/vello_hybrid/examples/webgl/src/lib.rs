@@ -43,12 +43,10 @@ impl RendererWrapper {
                 .unwrap()
                 .dyn_into::<web_sys::WebGl2RenderingContext>()
                 .unwrap();
-            let max_texture_size = gl
-                .get_parameter(web_sys::WebGl2RenderingContext::MAX_TEXTURE_SIZE)
+            gl.get_parameter(web_sys::WebGl2RenderingContext::MAX_TEXTURE_SIZE)
                 .unwrap()
                 .as_f64()
-                .unwrap() as u32;
-            max_texture_size
+                .unwrap() as u32
         };
 
         let (device, queue) = adapter
