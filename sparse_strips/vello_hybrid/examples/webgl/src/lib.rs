@@ -3,13 +3,10 @@
 
 //! Demonstrates using Vello Hybrid using a WebGL2 backend in the browser.
 
-use vello_common::peniko::{color::palette, kurbo::BezPath};
-
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 struct RendererWrapper {
     renderer: vello_hybrid::Renderer,
     device: wgpu::Device,
@@ -18,7 +15,6 @@ struct RendererWrapper {
 }
 
 #[cfg(target_arch = "wasm32")]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl RendererWrapper {
     #[cfg(target_arch = "wasm32")]
     async fn new(canvas: web_sys::HtmlCanvasElement) -> Self {
@@ -40,6 +36,21 @@ impl RendererWrapper {
             .await
             .expect("Adapter to be valid");
 
+        let max_texture_size = {
+            let gl = canvas
+                .get_context("webgl2")
+                .unwrap()
+                .unwrap()
+                .dyn_into::<web_sys::WebGl2RenderingContext>()
+                .unwrap();
+            let max_texture_size = gl
+                .get_parameter(web_sys::WebGl2RenderingContext::MAX_TEXTURE_SIZE)
+                .unwrap()
+                .as_f64()
+                .unwrap() as u32;
+            max_texture_size
+        };
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -49,6 +60,7 @@ impl RendererWrapper {
                         // WGPU's downlevel defaults use a generous number of color attachments
                         // (8). Some devices (including CI) support only up to 4.
                         max_color_attachments: 4,
+                        max_texture_dimension_2d: max_texture_size,
                         ..wgpu::Limits::downlevel_webgl2_defaults()
                     },
                     ..Default::default()
@@ -91,8 +103,6 @@ impl RendererWrapper {
 /// Creates a `HTMLCanvasElement` of the given dimensions and renders the given `Scene` into it.
 #[cfg(target_arch = "wasm32")]
 pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
-    console_error_panic_hook::set_once();
-    console_log::init_with_level(log::Level::Debug).unwrap();
     let canvas = web_sys::Window::document(&web_sys::window().unwrap())
         .unwrap()
         .create_element("canvas")
@@ -101,6 +111,9 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
         .unwrap();
     canvas.set_width(width as u32);
     canvas.set_height(height as u32);
+    canvas.style().set_property("width", "100%").unwrap();
+    canvas.style().set_property("height", "100%").unwrap();
+
     // Add canvas to body
     web_sys::Window::document(&web_sys::window().unwrap())
         .unwrap()
@@ -149,15 +162,4 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
 
     queue.submit([encoder.finish()]);
     surface_texture.present();
-}
-
-/// Draws a blue triangle into the given `Scene`.
-pub fn draw_triangle(ctx: &mut vello_hybrid::Scene) {
-    let mut path = BezPath::new();
-    path.move_to((30.0, 40.0));
-    path.line_to((50.0, 20.0));
-    path.line_to((70.0, 40.0));
-    path.close_path();
-    ctx.set_paint(palette::css::BLUE.into());
-    ctx.fill_path(&path);
 }
