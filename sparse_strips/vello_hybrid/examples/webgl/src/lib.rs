@@ -36,6 +36,7 @@ impl RendererWrapper {
             .await
             .expect("Adapter to be valid");
 
+        #[allow(clippy::cast_possible_truncation)]
         let max_texture_size = {
             let gl = canvas
                 .get_context("webgl2")
