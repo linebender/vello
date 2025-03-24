@@ -15,7 +15,6 @@ struct RendererWrapper {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl RendererWrapper {
-
     #[cfg(target_arch = "wasm32")]
     async fn new(canvas: web_sys::HtmlCanvasElement) -> Self {
         let width = canvas.width();
