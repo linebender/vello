@@ -15,13 +15,7 @@ pub struct IndexedPaint(u32);
 impl IndexedPaint {
     /// Create a new indexed paint from an index.
     pub fn new(index: usize) -> Self {
-        assert!(
-            index <= u32::MAX as usize,
-            "exceeded the maximum number of paints"
-        );
-
-        
-        Self(u32::try_from(index).unwrap())
+        Self(u32::try_from(index).expect("exceeded the maximum number of paints"))
     }
 
     /// Return the index of the paint.
