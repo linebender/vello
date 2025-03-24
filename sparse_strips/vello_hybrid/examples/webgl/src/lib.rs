@@ -146,6 +146,7 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
     surface_texture.present();
 }
 
+/// Draws a blue triangle into the given `Scene`.
 pub fn draw_triangle(ctx: &mut vello_hybrid::Scene) {
     let mut path = BezPath::new();
     path.move_to((30.0, 40.0));
