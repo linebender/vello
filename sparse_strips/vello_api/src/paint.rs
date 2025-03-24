@@ -3,7 +3,7 @@
 
 //! Types for paints.
 
-use peniko::color::{AlphaColor, Srgb, PremulRgba8};
+use peniko::color::{AlphaColor, PremulRgba8, Srgb};
 
 pub(crate) const MAX_INDEX: usize = u32::MAX as usize;
 
@@ -19,10 +19,13 @@ impl IndexedPaint {
     pub fn new(index: usize) -> Self {
         assert!(index <= MAX_INDEX, "exceeded the maximum number of paints");
 
-        #[allow(clippy::cast_possible_truncation, reason = "Guaranteed to be in-bounds")]
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "Guaranteed to be in-bounds"
+        )]
         Self(index as u32)
     }
-    
+
     /// Return the index of the paint.
     pub fn index(&self) -> usize {
         self.0 as usize
@@ -35,14 +38,14 @@ pub enum Paint {
     /// A premultiplied RGBA8 color.
     Solid(PremulRgba8),
     /// An paint that needs to be resolved via an index.
-    Indexed(IndexedPaint)
+    Indexed(IndexedPaint),
 }
 
 impl From<AlphaColor<Srgb>> for Paint {
     fn from(value: AlphaColor<Srgb>) -> Self {
         // TODO: This might be slow on x86, see https://github.com/linebender/color/issues/142.
         // Since we only do that conversion once per path it might not be critical, but should
-        // still be measured. This also applies to all other usages of `to_rgba8` in the current 
+        // still be measured. This also applies to all other usages of `to_rgba8` in the current
         // code.
         Self::Solid(value.premultiply().to_rgba8())
     }

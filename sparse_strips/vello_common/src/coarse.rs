@@ -8,8 +8,8 @@ use crate::{
     strip::Strip,
     tile::Tile,
 };
-use vello_api::{paint::Paint, peniko::Fill};
 use vello_api::color::PremulRgba8;
+use vello_api::{paint::Paint, peniko::Fill};
 
 /// A container for wide tiles.
 #[derive(Debug)]
