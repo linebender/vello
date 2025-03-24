@@ -1,0 +1,13 @@
+//! Demonstrates using Vello Hybrid using a WebGL2 backend in the browser.
+
+use webgl::draw_triangle;
+use webgl::render_scene;
+
+fn main() {
+    let mut scene = vello_hybrid::Scene::new(100, 100);
+    draw_triangle(&mut scene);
+
+    wasm_bindgen_futures::spawn_local(async move {
+        render_scene(scene, 100, 100).await;
+    });
+}
