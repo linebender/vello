@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Demonstrates using Vello Hybrid using a WebGL2 backend in the browser.
 
 use webgl::draw_triangle;

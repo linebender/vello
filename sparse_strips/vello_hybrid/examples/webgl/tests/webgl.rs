@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Tests whether the WebGL example compiles and runs without panicking.
 
 #[cfg(target_arch = "wasm32")]
