@@ -35,6 +35,7 @@ fn main() {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 fn render_svg(ctx: &mut Scene, scale: f64, items: &[Item]) {
     fn render_svg_inner(ctx: &mut Scene, items: &[Item], transform: Affine) {
         ctx.set_transform(transform);
