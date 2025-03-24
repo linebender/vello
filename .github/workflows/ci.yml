@@ -307,9 +307,18 @@ jobs:
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
 
-      # TODO: Find a way to make tests work. Until then the tests are merely compiled.
       - name: cargo test compile
         run: cargo test --workspace ${{ env.NO_WASM_PKGS }} --locked --target wasm32-unknown-unknown --all-features --no-run
+
+      - name: install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - name: check vello_hybrid is webgl compatible
+        run: wasm-pack test --headless --chrome
+        working-directory: sparse_strips/vello_hybrid/examples/webgl
+
 
   check-stable-android:
     name: cargo check (aarch64-android)
