@@ -20,16 +20,13 @@ impl IndexedPaint {
             "exceeded the maximum number of paints"
         );
 
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "Guaranteed to be in-bounds"
-        )]
-        Self(index as u32)
+        
+        Self(u32::try_from(index).unwrap())
     }
 
     /// Return the index of the paint.
     pub fn index(&self) -> usize {
-        self.0 as usize
+        usize::try_from(self.0).unwrap()
     }
 }
 
