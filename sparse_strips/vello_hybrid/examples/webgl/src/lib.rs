@@ -3,6 +3,11 @@
 
 //! Demonstrates using Vello Hybrid using a WebGL2 backend in the browser.
 
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "truncation has no appreciable impact in this demo"
+)]
+
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -36,10 +41,6 @@ impl RendererWrapper {
             .await
             .expect("Adapter to be valid");
 
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "truncate down is ok for max texture size"
-        )]
         let max_texture_size = {
             let gl = canvas
                 .get_context("webgl2")
