@@ -5,8 +5,6 @@
 
 use peniko::color::{AlphaColor, PremulRgba8, Srgb};
 
-pub(crate) const MAX_INDEX: usize = u32::MAX as usize;
-
 /// A paint that needs to be resolved via its index.
 // In the future, we might add additional flags, that's why we have
 // this thin wrapper around u32, so we can change the underlying
@@ -17,7 +15,10 @@ pub struct IndexedPaint(u32);
 impl IndexedPaint {
     /// Create a new indexed paint from an index.
     pub fn new(index: usize) -> Self {
-        assert!(index <= MAX_INDEX, "exceeded the maximum number of paints");
+        assert!(
+            index <= u32::MAX as usize,
+            "exceeded the maximum number of paints"
+        );
 
         #[allow(
             clippy::cast_possible_truncation,
