@@ -683,7 +683,7 @@ impl<'a> PathEncoder<'a> {
             self.close();
         }
         if self.state == PathState::MoveTo {
-            let new_len = self.data.len() - 8;
+            let new_len = self.data.len() - 2;
             self.data.truncate(new_len);
         }
         if self.n_encoded_segments != 0 {
