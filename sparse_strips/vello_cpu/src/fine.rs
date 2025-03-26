@@ -92,7 +92,7 @@ impl<'a> Fine<'a> {
 
                 fill::src_over(target, &color);
             }
-            _ => unimplemented!(),
+            Paint::Indexed(_) => todo!(),
         }
     }
 
@@ -111,7 +111,7 @@ impl<'a> Fine<'a> {
 
                 strip::src_over(target, &color, alphas);
             }
-            _ => unimplemented!(),
+            Paint::Indexed(_) => todo!(),
         }
     }
 }
