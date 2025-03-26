@@ -1,6 +1,6 @@
 # Demo of Android View with Vello Hybrid
 
-[Android View](https://github.com/mwcampbell/android-view) is the upcoming new.
+[Android View](https://github.com/mwcampbell/android-view) is the upcoming new way to make Android apps with Rust.
 
 To run this, you can use the following commands.
 
