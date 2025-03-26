@@ -9,10 +9,10 @@ use skrifa::raw::FileRef;
 use std::f64::consts::PI;
 use std::sync::Arc;
 use vello_common::color::palette::css::{
-    BEIGE, BLUE, DARK_GREEN, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, YELLOW,
+    BEIGE, BLUE, DARK_BLUE, DARK_GREEN, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, YELLOW,
 };
 use vello_common::glyph::Glyph;
-use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
+use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko;
 use vello_common::peniko::{Blob, Compose, Font};
 use vello_cpu::RenderContext;
@@ -21,50 +21,50 @@ mod util;
 
 #[test]
 fn empty_1x1() {
-    let ctx = get_ctx(1, 1, true);
-    render_pixmap(&ctx);
+    let mut ctx = get_ctx(1, 1, true);
+    render_pixmap(&mut ctx);
 }
 
 #[test]
 fn empty_5x1() {
-    let ctx = get_ctx(5, 1, true);
-    render_pixmap(&ctx);
+    let mut ctx = get_ctx(5, 1, true);
+    render_pixmap(&mut ctx);
 }
 
 #[test]
 fn empty_1x5() {
-    let ctx = get_ctx(1, 5, true);
-    render_pixmap(&ctx);
+    let mut ctx = get_ctx(1, 5, true);
+    render_pixmap(&mut ctx);
 }
 
 #[test]
 fn empty_3x10() {
-    let ctx = get_ctx(3, 10, true);
-    render_pixmap(&ctx);
+    let mut ctx = get_ctx(3, 10, true);
+    render_pixmap(&mut ctx);
 }
 
 #[test]
 fn empty_23x45() {
-    let ctx = get_ctx(23, 45, true);
-    render_pixmap(&ctx);
+    let mut ctx = get_ctx(23, 45, true);
+    render_pixmap(&mut ctx);
 }
 
 #[test]
 fn empty_50x50() {
-    let ctx = get_ctx(50, 50, true);
-    render_pixmap(&ctx);
+    let mut ctx = get_ctx(50, 50, true);
+    render_pixmap(&mut ctx);
 }
 
 #[test]
 fn empty_463x450() {
-    let ctx = get_ctx(463, 450, true);
-    render_pixmap(&ctx);
+    let mut ctx = get_ctx(463, 450, true);
+    render_pixmap(&mut ctx);
 }
 
 #[test]
 fn empty_1134x1376() {
-    let ctx = get_ctx(1134, 1376, true);
-    render_pixmap(&ctx);
+    let mut ctx = get_ctx(1134, 1376, true);
+    render_pixmap(&mut ctx);
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn full_cover_1() {
     ctx.set_paint(BEIGE.into());
     ctx.fill_path(&Rect::new(0.0, 0.0, 8.0, 8.0).to_path(0.1));
 
-    check_ref(&ctx, "full_cover_1");
+    check_ref(&mut ctx, "full_cover_1");
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn filled_triangle() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "filled_triangle");
+    check_ref(&mut ctx, "filled_triangle");
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn stroked_triangle() {
     ctx.set_paint(LIME.into());
     ctx.stroke_path(&path);
 
-    check_ref(&ctx, "stroked_triangle");
+    check_ref(&mut ctx, "stroked_triangle");
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn filled_circle() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&circle.to_path(0.1));
 
-    check_ref(&ctx, "filled_circle");
+    check_ref(&mut ctx, "filled_circle");
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn filled_overflowing_circle() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&circle.to_path(0.1));
 
-    check_ref(&ctx, "filled_overflowing_circle");
+    check_ref(&mut ctx, "filled_overflowing_circle");
 }
 
 #[test]
@@ -146,7 +146,7 @@ fn filled_fully_overflowing_circle() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&circle.to_path(0.1));
 
-    check_ref(&ctx, "filled_fully_overflowing_circle");
+    check_ref(&mut ctx, "filled_fully_overflowing_circle");
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn filled_circle_with_opacity() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_path(&circle.to_path(0.1));
 
-    check_ref(&ctx, "filled_circle_with_opacity");
+    check_ref(&mut ctx, "filled_circle_with_opacity");
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn filled_overlapping_circles() {
         ctx.fill_path(&circle.to_path(0.1));
     }
 
-    check_ref(&ctx, "filled_overlapping_circles");
+    check_ref(&mut ctx, "filled_overlapping_circles");
 }
 
 #[test]
@@ -183,7 +183,7 @@ fn stroked_circle() {
     ctx.set_stroke(stroke);
     ctx.stroke_path(&circle.to_path(0.1));
 
-    check_ref(&ctx, "stroked_circle");
+    check_ref(&mut ctx, "stroked_circle");
 }
 
 /// Requires winding of the first row of tiles to be calculcated correctly for vertical lines.
@@ -195,7 +195,7 @@ fn rectangle_above_viewport() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
 
-    check_ref(&ctx, "rectangle_above_viewport");
+    check_ref(&mut ctx, "rectangle_above_viewport");
 }
 
 /// Requires winding of the first row of tiles to be calculcated correctly for sloped lines.
@@ -216,7 +216,7 @@ fn triangle_above_and_wider_than_viewport() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "triangle_above_and_wider_than_viewport");
+    check_ref(&mut ctx, "triangle_above_and_wider_than_viewport");
 }
 
 /// Requires winding and pixel coverage to be calculcated correctly for tiles preceding the
@@ -229,7 +229,7 @@ fn rectangle_left_of_viewport() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
 
-    check_ref(&ctx, "rectangle_left_of_viewport");
+    check_ref(&mut ctx, "rectangle_left_of_viewport");
 }
 
 fn star_path() -> BezPath {
@@ -252,7 +252,7 @@ fn filling_nonzero_rule() {
     ctx.set_paint(MAROON.into());
     ctx.fill_path(&star);
 
-    check_ref(&ctx, "filling_nonzero_rule");
+    check_ref(&mut ctx, "filling_nonzero_rule");
 }
 
 #[test]
@@ -264,7 +264,7 @@ fn filling_evenodd_rule() {
     ctx.set_fill_rule(peniko::Fill::EvenOdd);
     ctx.fill_path(&star);
 
-    check_ref(&ctx, "filling_evenodd_rule");
+    check_ref(&mut ctx, "filling_evenodd_rule");
 }
 
 #[test]
@@ -275,7 +275,7 @@ fn filled_aligned_rect() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
 
-    check_ref(&ctx, "filled_aligned_rect");
+    check_ref(&mut ctx, "filled_aligned_rect");
 }
 
 #[test]
@@ -292,7 +292,7 @@ fn stroked_unaligned_rect() {
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
-    check_ref(&ctx, "stroked_unaligned_rect");
+    check_ref(&mut ctx, "stroked_unaligned_rect");
 }
 
 #[test]
@@ -309,7 +309,7 @@ fn stroked_unaligned_rect_as_path() {
     ctx.set_stroke(stroke);
     ctx.stroke_path(&rect);
 
-    check_ref(&ctx, "stroked_unaligned_rect_as_path");
+    check_ref(&mut ctx, "stroked_unaligned_rect_as_path");
 }
 
 #[test]
@@ -322,7 +322,7 @@ fn stroked_aligned_rect() {
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
-    check_ref(&ctx, "stroked_aligned_rect");
+    check_ref(&mut ctx, "stroked_aligned_rect");
 }
 
 #[test]
@@ -339,7 +339,7 @@ fn overflowing_stroked_rect() {
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
-    check_ref(&ctx, "overflowing_stroked_rect");
+    check_ref(&mut ctx, "overflowing_stroked_rect");
 }
 
 #[test]
@@ -352,7 +352,7 @@ fn round_stroked_rect() {
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
-    check_ref(&ctx, "round_stroked_rect");
+    check_ref(&mut ctx, "round_stroked_rect");
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn bevel_stroked_rect() {
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
-    check_ref(&ctx, "bevel_stroked_rect");
+    check_ref(&mut ctx, "bevel_stroked_rect");
 }
 
 #[test]
@@ -380,7 +380,7 @@ fn filled_unaligned_rect() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
 
-    check_ref(&ctx, "filled_unaligned_rect");
+    check_ref(&mut ctx, "filled_unaligned_rect");
 }
 
 #[test]
@@ -392,7 +392,7 @@ fn filled_transformed_rect_1() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
 
-    check_ref(&ctx, "filled_transformed_rect_1");
+    check_ref(&mut ctx, "filled_transformed_rect_1");
 }
 
 #[test]
@@ -404,7 +404,7 @@ fn filled_transformed_rect_2() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
 
-    check_ref(&ctx, "filled_transformed_rect_2");
+    check_ref(&mut ctx, "filled_transformed_rect_2");
 }
 
 #[test]
@@ -416,7 +416,7 @@ fn filled_transformed_rect_3() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
 
-    check_ref(&ctx, "filled_transformed_rect_3");
+    check_ref(&mut ctx, "filled_transformed_rect_3");
 }
 
 #[test]
@@ -431,7 +431,7 @@ fn filled_transformed_rect_4() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
 
-    check_ref(&ctx, "filled_transformed_rect_4");
+    check_ref(&mut ctx, "filled_transformed_rect_4");
 }
 
 #[test]
@@ -445,7 +445,7 @@ fn stroked_transformed_rect_1() {
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
-    check_ref(&ctx, "stroked_transformed_rect_1");
+    check_ref(&mut ctx, "stroked_transformed_rect_1");
 }
 
 #[test]
@@ -459,7 +459,7 @@ fn stroked_transformed_rect_2() {
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
-    check_ref(&ctx, "stroked_transformed_rect_2");
+    check_ref(&mut ctx, "stroked_transformed_rect_2");
 }
 
 #[test]
@@ -473,7 +473,7 @@ fn stroked_transformed_rect_3() {
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
-    check_ref(&ctx, "stroked_transformed_rect_3");
+    check_ref(&mut ctx, "stroked_transformed_rect_3");
 }
 
 #[test]
@@ -490,7 +490,7 @@ fn stroked_transformed_rect_4() {
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
-    check_ref(&ctx, "stroked_transformed_rect_4");
+    check_ref(&mut ctx, "stroked_transformed_rect_4");
 }
 
 #[test]
@@ -501,7 +501,7 @@ fn strip_inscribed_rect() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
 
-    check_ref(&ctx, "strip_inscribed_rect");
+    check_ref(&mut ctx, "strip_inscribed_rect");
 }
 
 #[test]
@@ -512,7 +512,7 @@ fn filled_vertical_hairline_rect() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
 
-    check_ref(&ctx, "filled_vertical_hairline_rect");
+    check_ref(&mut ctx, "filled_vertical_hairline_rect");
 }
 
 #[test]
@@ -523,7 +523,34 @@ fn filled_vertical_hairline_rect_2() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
 
-    check_ref(&ctx, "filled_vertical_hairline_rect_2");
+    check_ref(&mut ctx, "filled_vertical_hairline_rect_2");
+}
+
+#[test]
+fn clipped_triangle_with_star() {
+    let mut ctx = get_ctx(256, 256, true);
+
+    // Create a triangle path
+    let mut triangle_path = BezPath::new();
+    triangle_path.move_to((10.0, 10.0));
+    triangle_path.line_to((180.0, 20.0));
+    triangle_path.line_to((30.0, 180.0));
+    triangle_path.close_path();
+
+    // Stroke the triangle
+    let stroke = Stroke::new(1.0);
+    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_stroke(stroke);
+    ctx.stroke_path(&triangle_path);
+
+    // Create a star path
+    let star_path = star(Point::new(100., 100.), 13, 50., 95.);
+
+    ctx.clip(&star_path);
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_path(&triangle_path);
+
+    check_ref(&mut ctx, "clipped_triangle_with_star");
 }
 
 #[test]
@@ -679,7 +706,7 @@ macro_rules! compose_impl {
         ctx.set_blend_mode(peniko::BlendMode::new(peniko::Mix::Normal, $mode));
         compose_source(&mut ctx);
 
-        check_ref(&ctx, $name);
+        check_ref(&mut ctx, $name);
     };
 }
 
@@ -690,42 +717,12 @@ fn compose_solid_src_over() {
 
 fn star(center: Point, n: usize, inner: f64, outer: f64) -> BezPath {
     let mut path = BezPath::new();
-    let first_point = Point::new(center.x + outer, center.y);
-    path.move_to(first_point);
+    path.move_to(center + Vec2::new(outer, 0.));
     for i in 1..n * 2 {
         let th = i as f64 * std::f64::consts::PI / n as f64;
         let r = if i % 2 == 0 { outer } else { inner };
-        let x = center.x + r * th.cos();
-        let y = center.y + r * th.sin();
-        path.line_to((x, y));
+        path.line_to(center + r * Vec2::from_angle(th));
     }
     path.close_path();
     path
-}
-
-#[test]
-fn draw_star_with_triangle() {
-    let mut ctx = get_ctx(200, 200, false);
-
-    // Create a triangle path
-    let mut triangle_path = BezPath::new();
-    triangle_path.move_to((10.0, 10.0));
-    triangle_path.line_to((180.0, 20.0));
-    triangle_path.line_to((30.0, 180.0));
-    triangle_path.close_path();
-
-    // Stroke the triangle
-    let stroke = Stroke::new(5.0);
-    ctx.set_paint(BLUE.into());
-    ctx.set_stroke(stroke);
-    ctx.stroke_path(&triangle_path);
-
-    // Create a star path
-    let star_path = star(Point::new(100., 100.), 13, 50., 95.);
-
-    ctx.clip(&star_path);
-    ctx.set_paint(REBECCA_PURPLE.into());
-    ctx.fill_path(&triangle_path);
-
-    check_ref(&ctx, "draw_star_with_triangle");
 }
