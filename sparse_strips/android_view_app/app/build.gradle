@@ -41,6 +41,10 @@ dependencies {
     implementation 'androidx.core:core:1.5.0'
     implementation('org.linebender.android.rustview:library') {
         version {
+            // N.B. This uses my branch because gradle either:
+            // 1) Doesn't have; OR
+            // 2) Doesn't clearly document
+            // a way to depend on a specific commit hash(!)
             branch = 'split-library'
         }
     }
