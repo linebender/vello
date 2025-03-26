@@ -219,7 +219,7 @@ impl Scene {
                         vello_common::coarse::Cmd::Fill(fill) => {
                             let color: PremulRgba8 = match fill.paint {
                                 Paint::Solid(color) => color,
-                                Paint::Indexed(_) => todo!(),
+                                Paint::Indexed(_) => unimplemented!(),
                             };
                             strips.push(GpuStrip {
                                 x: wide_tile_x + fill.x,
@@ -233,7 +233,7 @@ impl Scene {
                         vello_common::coarse::Cmd::AlphaFill(cmd_strip) => {
                             let color: PremulRgba8 = match cmd_strip.paint {
                                 Paint::Solid(color) => color,
-                                Paint::Indexed(_) => todo!(),
+                                Paint::Indexed(_) => unimplemented!(),
                             };
 
                             // msg is a variable here to work around rustfmt failure

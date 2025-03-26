@@ -29,8 +29,6 @@
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
-#![allow(clippy::todo, reason = "This crate is still in development")]
-
 mod render;
 mod scene;
 pub mod util;
