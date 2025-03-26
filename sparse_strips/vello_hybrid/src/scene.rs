@@ -9,7 +9,7 @@ use vello_common::color::PremulRgba8;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::paint::Paint;
-use vello_common::peniko::color::{AlphaColor, Srgb, palette::css::BLACK};
+use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::strip::Strip;
 use vello_common::tile::{Tile, Tiles};
