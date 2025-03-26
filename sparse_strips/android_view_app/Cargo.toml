@@ -1,0 +1,34 @@
+[package]
+name = "sparse_strips_android"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "main"
+crate-type = ["cdylib"]
+
+[dependencies]
+accesskit = { git = "https://github.com/AccessKit/accesskit", branch = "android-extended-handlers" }
+accesskit_android = { git = "https://github.com/AccessKit/accesskit", branch = "android-extended-handlers" }
+android-view = { git = "https://github.com/DJMcNab/android-view.git", branch = "split-library" }
+android_logger = "0.15.0"
+anyhow = "1.0.96"
+log = "0.4.26"
+peniko = { version = "0.3.1", default-features = false }
+pollster = "0.4.0"
+vello_common = { workspace = true }
+vello_hybrid = { workspace = true }
+wgpu = { workspace = true }
+
+# Send tracing events to Android GPU inspector, for profiling
+tracing_android_trace = "0.1.1"
+tracing-subscriber = "0.3.19"
+# Make events recorded with profiling (e.g. in wgpu) visible to Android GPU inspector
+profiling = { version = "1.0.16", features = ["profile-with-tracing"] }
+# Make events recorded to `tracing` visible in logcat
+tracing = { version = "0.1.38", features = ["log-always"] }
