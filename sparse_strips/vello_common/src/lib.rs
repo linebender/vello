@@ -11,6 +11,7 @@
     reason = "We temporarily ignore those because the casts\
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
+#![allow(clippy::todo, reason = "This crate is still in development")]
 
 pub mod coarse;
 pub mod flatten;
