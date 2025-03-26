@@ -6,7 +6,7 @@ To run this, you can use the following commands.
 
 ```sh
 cd sparse_strips/android_view_app/
-cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build -p sparse_strips_android --release
+cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build -p sparse_strips_android [--release]
 ./gradlew build
 ./gradlew installDebug
 ```
