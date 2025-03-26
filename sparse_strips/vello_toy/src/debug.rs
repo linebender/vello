@@ -294,7 +294,7 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
                 Cmd::AlphaFill(s) => {
                     for x in 0..s.width {
                         for y in 0..Tile::HEIGHT {
-                            let alpha = alphas[s.alpha_ix
+                            let alpha = alphas[s.alpha_idx
                                 + usize::from(x) * usize::from(Tile::HEIGHT)
                                 + usize::from(y)];
 
@@ -309,6 +309,9 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
                             document.append(rect);
                         }
                     }
+                }
+                _ => {
+                    unimplemented!("unsupported command: {:?}", cmd);
                 }
             }
         }
