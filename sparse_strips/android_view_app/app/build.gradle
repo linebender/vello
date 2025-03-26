@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    ndkVersion "25.2.9519653"
+    compileSdk 31
+
+    defaultConfig {
+        applicationId "org.linebender.vello.sparse_strips_demo"
+        minSdk 28
+        targetSdk 33
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            minifyEnabled false
+            //packagingOptions {
+            //    doNotStrip '**/*.so'
+            //}
+            debuggable true
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    namespace "org.linebender.vello.sparse_strips_demo"
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.2.0'
+    implementation 'androidx.core:core:1.5.0'
+    implementation('org.linebender.android.rustview:library') {
+        version {
+            branch = 'split-library'
+        }
+    }
+}

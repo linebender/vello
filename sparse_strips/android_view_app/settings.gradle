@@ -1,0 +1,22 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+sourceControl {
+    gitRepository("https://github.com/DJMcNab/android-view.git") {
+        producesModule("org.linebender.android.rustview:library")
+    }
+}
+
+include ':app'
