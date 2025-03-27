@@ -1,0 +1,24 @@
+[package]
+name = "vello_bench"
+description = "Benchmarking harness for sparse strips."
+categories = ["rendering", "graphics"]
+keywords = ["2d", "vector-graphics"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+vello_common = { workspace = true }
+vello_cpu = { workspace = true }
+criterion = { workspace = true }
+rand = { workspace = true }
+usvg = { workspace = true }
+
+[[bench]]
+name = "main"
+harness = false
+
+[lints]
+workspace = true

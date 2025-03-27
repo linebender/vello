@@ -14,6 +14,7 @@ members = [
     "examples/with_winit",
 
     "sparse_strips/vello_api",
+    "sparse_strips/vello_bench",
     "sparse_strips/vello_common",
     "sparse_strips/vello_cpu",
     "sparse_strips/vello_hybrid",
@@ -122,3 +123,7 @@ web-time = "1.1.0"
 wgpu-profiler = "0.21.0"
 scenes = { path = "examples/scenes" }
 svg = "0.18.0"
+criterion = { version = "0.5.1", default-features = false }
+rand = { version = "0.9.0", default-features = false, features = ["std_rng"] }
+usvg = { version = "0.45.0" }
+once_cell = "1.21.1"

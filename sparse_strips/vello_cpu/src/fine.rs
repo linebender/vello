@@ -17,7 +17,10 @@ pub(crate) const SCRATCH_BUF_SIZE: usize =
 
 pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
 
-pub(crate) struct Fine<'a> {
+#[derive(Debug)]
+#[doc(hidden)]
+/// This is an internal struct, do not access directly.
+pub struct Fine<'a> {
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) out_buf: &'a mut [u8],
@@ -25,7 +28,8 @@ pub(crate) struct Fine<'a> {
 }
 
 impl<'a> Fine<'a> {
-    pub(crate) fn new(width: u16, height: u16, out_buf: &'a mut [u8]) -> Self {
+    /// Create a new fine rasterizer.
+    pub fn new(width: u16, height: u16, out_buf: &'a mut [u8]) -> Self {
         let scratch = [0; SCRATCH_BUF_SIZE];
 
         Self {
@@ -36,7 +40,7 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn clear(&mut self, premul_color: [u8; 4]) {
+    pub fn clear(&mut self, premul_color: [u8; 4]) {
         if premul_color[0] == premul_color[1]
             && premul_color[1] == premul_color[2]
             && premul_color[2] == premul_color[3]
@@ -73,7 +77,8 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn fill(&mut self, x: usize, width: usize, paint: &Paint) {
+    /// Fill at a given x and with a width using the given paint.
+    pub fn fill(&mut self, x: usize, width: usize, paint: &Paint) {
         match paint {
             Paint::Solid(c) => {
                 let color = c.to_u8_array();
@@ -96,7 +101,8 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn strip(&mut self, x: usize, width: usize, alphas: &[u8], paint: &Paint) {
+    /// Strip at a given x and with a width using the given paint and alpha values.
+    pub fn strip(&mut self, x: usize, width: usize, alphas: &[u8], paint: &Paint) {
         debug_assert!(
             alphas.len() >= width,
             "alpha buffer doesn't contain sufficient elements"
