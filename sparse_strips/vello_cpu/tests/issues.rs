@@ -25,7 +25,7 @@ fn incorrect_filling_1() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&p);
 
-    check_ref(&ctx, "incorrect_filling_1");
+    check_ref(&mut ctx, "incorrect_filling_1");
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn incorrect_filling_2() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&p);
 
-    check_ref(&ctx, "incorrect_filling_2");
+    check_ref(&mut ctx, "incorrect_filling_2");
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn incorrect_filling_3() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "incorrect_filling_3");
+    check_ref(&mut ctx, "incorrect_filling_3");
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn incorrect_filling_4() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "incorrect_filling_4");
+    check_ref(&mut ctx, "incorrect_filling_4");
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn incorrect_filling_5() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "incorrect_filling_5");
+    check_ref(&mut ctx, "incorrect_filling_5");
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn incorrect_filling_6() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "incorrect_filling_6");
+    check_ref(&mut ctx, "incorrect_filling_6");
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn incorrect_filling_7() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "incorrect_filling_7");
+    check_ref(&mut ctx, "incorrect_filling_7");
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn incorrect_filling_8() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "incorrect_filling_8");
+    check_ref(&mut ctx, "incorrect_filling_8");
 }
 
 #[test]
@@ -194,7 +194,7 @@ fn filling_unclosed_path_1() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "filling_unclosed_path_1");
+    check_ref(&mut ctx, "filling_unclosed_path_1");
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn filling_unclosed_path_2() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "filling_unclosed_path_2");
+    check_ref(&mut ctx, "filling_unclosed_path_2");
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn triangle_exceeding_viewport_1() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "triangle_exceeding_viewport_1");
+    check_ref(&mut ctx, "triangle_exceeding_viewport_1");
 }
 
 #[test]
@@ -252,7 +252,7 @@ fn triangle_exceeding_viewport_2() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "triangle_exceeding_viewport_2");
+    check_ref(&mut ctx, "triangle_exceeding_viewport_2");
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn shape_at_wide_tile_boundary() {
     ctx.fill_path(&path);
 
     // Just make sure we don't panic.
-    render_pixmap(&ctx);
+    render_pixmap(&mut ctx);
 }
 
 #[test]
@@ -290,5 +290,5 @@ fn eo_filling_missing_anti_aliasing() {
     ctx.set_paint(LIME.into());
     ctx.fill_path(&path);
 
-    check_ref(&ctx, "eo_filling_missing_anti_aliasing");
+    check_ref(&mut ctx, "eo_filling_missing_anti_aliasing");
 }
