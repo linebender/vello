@@ -193,7 +193,9 @@ impl WideTile {
     }
 
     pub(crate) fn fill(&mut self, x: u16, width: u16, paint: Paint) {
-        let Paint::Solid(s) = &paint else { unimplemented!() };
+        let Paint::Solid(s) = &paint else {
+            unimplemented!()
+        };
         let can_override = x == 0 && width == Self::WIDTH && s.a == 255;
 
         if can_override {
