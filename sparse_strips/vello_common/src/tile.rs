@@ -531,8 +531,6 @@ mod tests {
         );
     }
 
-    // At tile boundary
-
     #[test]
     // See https://github.com/LaurenzV/cpu-sparse-experiments/issues/46.
     fn infinite_loop() {
