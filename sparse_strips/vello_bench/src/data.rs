@@ -20,7 +20,7 @@ pub fn get_data_items() -> &'static [DataItem] {
         let mut data = vec![];
 
         // Always use ghostscript tiger.
-        data.push(read(
+        data.push(DataItem::from_path(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../examples/assets/Ghostscript_Tiger.svg"),
         ));
@@ -30,7 +30,7 @@ pub fn get_data_items() -> &'static [DataItem] {
             let path = entry.path();
 
             if path.extension().and_then(|e| e.to_str()) == Some("svg") {
-                data.push(read(&path));
+                data.push(DataItem::from_path(&path));
             }
         }
 
@@ -48,6 +48,34 @@ pub struct DataItem {
 }
 
 impl DataItem {
+    fn from_path(path: &Path) -> DataItem {
+        let file_name = {
+            let tmp = path.with_extension("");
+            tmp.file_name().unwrap().to_string_lossy().to_string()
+        };
+
+        let data = std::fs::read(path).unwrap();
+        let tree = usvg::Tree::from_data(&data, &usvg::Options::default()).unwrap();
+        let mut ctx = ConversionContext::new();
+        convert(&mut ctx, tree.root());
+
+        DataItem {
+            name: file_name,
+            fills: ctx.fills,
+            strokes: ctx.strokes,
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "It's okay to ignore for benchmarking."
+            )]
+            width: tree.size().width() as u16,
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "It's okay to ignore for benchmarking."
+            )]
+            height: tree.size().height() as u16,
+        }
+    }
+    
     /// Get the raw flattened lines of both fills and strokes.
     ///
     /// A stroke width of 2.0 is assumed.
@@ -111,33 +139,7 @@ impl DataItem {
     }
 }
 
-fn read(path: &Path) -> DataItem {
-    let file_name = {
-        let tmp = path.with_extension("");
-        tmp.file_name().unwrap().to_string_lossy().to_string()
-    };
 
-    let data = std::fs::read(path).unwrap();
-    let tree = usvg::Tree::from_data(&data, &usvg::Options::default()).unwrap();
-    let mut ctx = ConversionContext::new();
-    convert(&mut ctx, tree.root());
-
-    DataItem {
-        name: file_name,
-        fills: ctx.fills,
-        strokes: ctx.strokes,
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "It's okay to ignore for benchmarking."
-        )]
-        width: tree.size().width() as u16,
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "It's okay to ignore for benchmarking."
-        )]
-        height: tree.size().height() as u16,
-    }
-}
 
 fn convert(ctx: &mut ConversionContext, g: &Group) {
     ctx.push(convert_transform(&g.transform()));
