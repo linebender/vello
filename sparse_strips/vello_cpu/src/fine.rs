@@ -4,7 +4,6 @@
 //! Fine rasterization runs the commands in each wide tile to determine the final RGBA value
 //! of each pixel and pack it into the pixmap.
 
-use crate::util::ColorExt;
 use vello_common::{
     coarse::{Cmd, WideTile},
     paint::Paint,
@@ -77,7 +76,7 @@ impl<'a> Fine<'a> {
     pub(crate) fn fill(&mut self, x: usize, width: usize, paint: &Paint) {
         match paint {
             Paint::Solid(c) => {
-                let color = c.premultiply().to_rgba8_fast();
+                let color = c.to_u8_array();
 
                 let target = &mut self.scratch[x * TILE_HEIGHT_COMPONENTS..]
                     [..TILE_HEIGHT_COMPONENTS * width];
@@ -93,7 +92,7 @@ impl<'a> Fine<'a> {
 
                 fill::src_over(target, &color);
             }
-            _ => unimplemented!(),
+            Paint::Indexed(_) => unimplemented!(),
         }
     }
 
@@ -105,14 +104,14 @@ impl<'a> Fine<'a> {
 
         match paint {
             Paint::Solid(s) => {
-                let color = s.premultiply().to_rgba8_fast();
+                let color = s.to_u8_array();
 
                 let target = &mut self.scratch[x * TILE_HEIGHT_COMPONENTS..]
                     [..TILE_HEIGHT_COMPONENTS * width];
 
                 strip::src_over(target, &color, alphas);
             }
-            _ => unimplemented!(),
+            Paint::Indexed(_) => unimplemented!(),
         }
     }
 }

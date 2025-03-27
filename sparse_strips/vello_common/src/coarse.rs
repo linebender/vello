@@ -8,6 +8,7 @@ use crate::{
     strip::Strip,
     tile::Tile,
 };
+use vello_api::color::PremulRgba8;
 use vello_api::{paint::Paint, peniko::Fill};
 
 /// A container for wide tiles.
@@ -44,7 +45,7 @@ impl Wide {
     /// Reset all tiles in the container.
     pub fn reset(&mut self) {
         for tile in &mut self.tiles {
-            tile.bg = AlphaColor::TRANSPARENT;
+            tile.bg = AlphaColor::<Srgb>::TRANSPARENT.premultiply().to_rgba8();
             tile.cmds.clear();
         }
     }
@@ -172,7 +173,7 @@ pub struct WideTile {
     /// The y coordinate of the wide tile.
     pub y: u16,
     /// The background of the tile.
-    pub bg: AlphaColor<Srgb>,
+    pub bg: PremulRgba8,
     /// The draw commands of the tile.
     pub cmds: Vec<Cmd>,
 }
@@ -186,7 +187,7 @@ impl WideTile {
         Self {
             x,
             y,
-            bg: AlphaColor::TRANSPARENT,
+            bg: AlphaColor::<Srgb>::TRANSPARENT.premultiply().to_rgba8(),
             cmds: vec![],
         }
     }
@@ -195,7 +196,7 @@ impl WideTile {
         let Paint::Solid(s) = &paint else {
             unimplemented!()
         };
-        let can_override = x == 0 && width == Self::WIDTH && s.components[3] == 1.0;
+        let can_override = x == 0 && width == Self::WIDTH && s.a == 255;
 
         if can_override {
             self.cmds.clear();

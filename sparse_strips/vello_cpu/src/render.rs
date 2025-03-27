@@ -4,7 +4,6 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
-use crate::util::ColorExt;
 use vello_common::coarse::Wide;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
@@ -139,7 +138,7 @@ impl RenderContext {
             for x in 0..width_tiles {
                 let tile = self.wide.get(x, y);
 
-                fine.clear(tile.bg.premultiply().to_rgba8_fast());
+                fine.clear(tile.bg.to_u8_array());
                 for cmd in &tile.cmds {
                     fine.run_cmd(cmd, &self.alphas);
                 }
