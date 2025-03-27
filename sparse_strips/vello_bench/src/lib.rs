@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-pub mod data;
 pub mod cpu_fine;
+pub mod data;
 pub mod strip;
 pub mod tile;
 

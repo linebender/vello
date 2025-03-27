@@ -48,25 +48,31 @@ pub struct DataItem {
 }
 
 impl DataItem {
-    fn from_path(path: &Path) -> DataItem {
-        let file_name = {
-            path.file_stem().unwrap().to_string_lossy().to_string()
-        };
+    fn from_path(path: &Path) -> Self {
+        let file_name = { path.file_stem().unwrap().to_string_lossy().to_string() };
 
         let data = std::fs::read(path).unwrap();
         let tree = usvg::Tree::from_data(&data, &usvg::Options::default()).unwrap();
         let mut ctx = ConversionContext::new();
         convert(&mut ctx, tree.root());
 
-        DataItem {
+        Self {
             name: file_name,
             fills: ctx.fills,
             strokes: ctx.strokes,
-            width: (tree.size().width().ceil() as i32).try_into().unwrap(),
-            height: (tree.size().height().ceil() as i32).try_into().unwrap(),
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "It's okay to ignore for benchmarking."
+            )]
+            width: tree.size().width() as u16,
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "It's okay to ignore for benchmarking."
+            )]
+            height: tree.size().height() as u16,
         }
     }
-    
+
     /// Get the raw flattened lines of both fills and strokes.
     ///
     /// A stroke width of 2.0 is assumed.
@@ -129,8 +135,6 @@ impl DataItem {
         (alpha_buf, strip_buf)
     }
 }
-
-
 
 fn convert(ctx: &mut ConversionContext, g: &Group) {
     ctx.push(convert_transform(&g.transform()));
