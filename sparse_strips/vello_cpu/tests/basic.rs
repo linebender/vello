@@ -666,6 +666,26 @@ fn clipped_triangle_with_star() {
 }
 
 #[test]
+fn clipped_rectangle_with_star() {
+    let mut ctx = get_ctx(100, 100, true);
+
+    let clip_rect = Rect::new(10.0, 30.0, 60.0, 70.0);
+    let star_path = star(Point::new(60., 50.), 5, 20., 40.);
+
+    let stroke = Stroke::new(1.0);
+    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_stroke(stroke);
+    ctx.stroke_rect(&clip_rect);
+
+    ctx.clip(&clip_rect.to_path(0.1));
+
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_path(&star_path);
+
+    check_ref(&mut ctx, "clipped_rectangle_with_star");
+}
+
+#[test]
 fn oversized_star() {
     let mut ctx = get_ctx(100, 100, true);
 
@@ -733,9 +753,10 @@ fn compose_solid_src_over() {
 
 fn star(center: Point, n: usize, inner: f64, outer: f64) -> BezPath {
     let mut path = BezPath::new();
-    path.move_to(center + Vec2::new(outer, 0.));
+    let start_angle = -std::f64::consts::FRAC_PI_2;
+    path.move_to(center + outer * Vec2::from_angle(start_angle));
     for i in 1..n * 2 {
-        let th = i as f64 * std::f64::consts::PI / n as f64;
+        let th = start_angle + i as f64 * std::f64::consts::PI / n as f64;
         let r = if i % 2 == 0 { outer } else { inner };
         path.line_to(center + r * Vec2::from_angle(th));
     }
