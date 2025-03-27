@@ -527,48 +527,6 @@ fn filled_vertical_hairline_rect_2() {
 }
 
 #[test]
-fn clipped_triangle_with_star() {
-    let mut ctx = get_ctx(256, 256, true);
-
-    // Create a triangle path
-    let mut triangle_path = BezPath::new();
-    triangle_path.move_to((10.0, 10.0));
-    triangle_path.line_to((180.0, 20.0));
-    triangle_path.line_to((30.0, 180.0));
-    triangle_path.close_path();
-
-    // Stroke the triangle
-    let stroke = Stroke::new(1.0);
-    ctx.set_paint(DARK_BLUE.into());
-    ctx.set_stroke(stroke);
-    ctx.stroke_path(&triangle_path);
-
-    // Create a star path
-    let star_path = star(Point::new(100., 100.), 13, 50., 95.);
-
-    ctx.clip(&star_path);
-    ctx.set_paint(REBECCA_PURPLE.into());
-    ctx.fill_path(&triangle_path);
-
-    check_ref(&mut ctx, "clipped_triangle_with_star");
-}
-
-#[test]
-fn filled_glyphs() {
-    let mut ctx = get_ctx(300, 70, false);
-    let font_size: f32 = 50_f32;
-    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
-
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .fill_glyphs(glyphs.into_iter());
-
-    check_ref(&ctx, "filled_glyphs");
-}
-
-#[test]
 fn stroked_glyphs() {
     let mut ctx = get_ctx(300, 70, false);
     let font_size: f32 = 50_f32;
@@ -666,6 +624,67 @@ fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
         .collect::<Vec<_>>();
 
     (font, glyphs)
+}
+
+#[test]
+fn filled_glyphs() {
+    let mut ctx = get_ctx(300, 70, false);
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .fill_glyphs(glyphs.into_iter());
+
+    check_ref(&ctx, "filled_glyphs");
+}
+
+#[test]
+fn clipped_triangle_with_star() {
+    let mut ctx = get_ctx(256, 256, true);
+
+    // Create a triangle path
+    let mut triangle_path = BezPath::new();
+    triangle_path.move_to((10.0, 10.0));
+    triangle_path.line_to((180.0, 20.0));
+    triangle_path.line_to((30.0, 180.0));
+    triangle_path.close_path();
+
+    // Stroke the triangle
+    let stroke = Stroke::new(1.0);
+    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_stroke(stroke);
+    ctx.stroke_path(&triangle_path);
+
+    // Create a star path
+    let star_path = star(Point::new(100., 100.), 13, 50., 95.);
+
+    ctx.clip(&star_path);
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_path(&triangle_path);
+
+    check_ref(&mut ctx, "clipped_triangle_with_star");
+}
+
+#[test]
+fn oversized_star() {
+    let mut ctx = get_ctx(100, 100, true);
+
+    // Create a star path that extends beyond the render context boundaries
+    // Center it in the middle of the viewport
+    let star_path = star(Point::new(50., 50.), 10, 30., 90.);
+
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_path(&star_path);
+
+    let stroke = Stroke::new(2.0);
+    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_stroke(stroke);
+    ctx.stroke_path(&star_path);
+
+    check_ref(&mut ctx, "oversized_star");
 }
 
 fn miter_stroke_2() -> Stroke {
