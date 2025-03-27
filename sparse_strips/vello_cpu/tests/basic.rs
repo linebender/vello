@@ -686,6 +686,37 @@ fn clipped_rectangle_with_star() {
 }
 
 #[test]
+fn clipped_double_shapes() {
+    let mut ctx = get_ctx(100, 100, true);
+
+    // Create first clipping region - a rectangle on the left side
+    let clip_rect = Rect::new(10.0, 20.0, 60.0, 80.0);
+
+    // Create second clipping region - a circle on the right side
+    let circle_center = Point::new(70.0, 50.0);
+    let circle_radius = 40.0;
+    let clip_circle = Circle::new(circle_center, circle_radius).to_path(0.1);
+
+    // Draw outlines of our clipping regions to visualize them
+    let stroke = Stroke::new(1.0);
+    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_stroke(stroke);
+    ctx.stroke_rect(&clip_rect);
+    ctx.stroke_path(&clip_circle);
+
+    // Apply both clips
+    ctx.clip(&clip_rect.to_path(0.1));
+    ctx.clip(&clip_circle);
+
+    // Then a filled rectangle that covers most of the canvas
+    let large_rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_rect(&large_rect);
+
+    check_ref(&mut ctx, "clipped_double_shapes");
+}
+
+#[test]
 fn oversized_star() {
     let mut ctx = get_ctx(100, 100, true);
 
