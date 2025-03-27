@@ -62,8 +62,8 @@ impl DataItem {
             name: file_name,
             fills: ctx.fills,
             strokes: ctx.strokes,
-            width: tree.size().width().try_into().unwrap(),
-            height: tree.size().height().try_into().unwrap(),
+            width: (tree.size().width().ceil() as i32).try_into().unwrap(),
+            height: (tree.size().height().ceil() as i32).try_into().unwrap(),
         }
     }
     
