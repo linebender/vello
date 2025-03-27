@@ -50,8 +50,7 @@ pub struct DataItem {
 impl DataItem {
     fn from_path(path: &Path) -> DataItem {
         let file_name = {
-            let tmp = path.with_extension("");
-            tmp.file_name().unwrap().to_string_lossy().to_string()
+            path.file_stem().unwrap().to_string_lossy().to_string()
         };
 
         let data = std::fs::read(path).unwrap();
