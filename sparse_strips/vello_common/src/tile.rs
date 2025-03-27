@@ -325,7 +325,8 @@ mod tests {
     use crate::tile::Tiles;
 
     #[test]
-    fn issue_46_infinite_loop() {
+    // See https://github.com/LaurenzV/cpu-sparse-experiments/issues/46.
+    fn infinite_loop() {
         let line = Line {
             p0: Point { x: 22.0, y: 552.0 },
             p1: Point { x: 224.0, y: 388.0 },
