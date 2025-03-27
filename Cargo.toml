@@ -19,6 +19,7 @@ members = [
     "sparse_strips/vello_hybrid",
     "sparse_strips/vello_hybrid/examples/webgl",
     "sparse_strips/vello_toy",
+    "sparse_strips/android_view_app",
 ]
 
 [workspace.package]
