@@ -643,23 +643,20 @@ fn filled_glyphs() {
 
 #[test]
 fn clipped_triangle_with_star() {
-    let mut ctx = get_ctx(256, 256, true);
+    let mut ctx: RenderContext = get_ctx(100, 100, true);
 
-    // Create a triangle path
     let mut triangle_path = BezPath::new();
     triangle_path.move_to((10.0, 10.0));
-    triangle_path.line_to((180.0, 20.0));
-    triangle_path.line_to((30.0, 180.0));
+    triangle_path.line_to((90.0, 20.0));
+    triangle_path.line_to((20.0, 90.0));
     triangle_path.close_path();
 
-    // Stroke the triangle
     let stroke = Stroke::new(1.0);
     ctx.set_paint(DARK_BLUE.into());
     ctx.set_stroke(stroke);
     ctx.stroke_path(&triangle_path);
 
-    // Create a star path
-    let star_path = star(Point::new(100., 100.), 13, 50., 95.);
+    let star_path = star(Point::new(50., 50.), 13, 25., 45.);
 
     ctx.clip(&star_path);
     ctx.set_paint(REBECCA_PURPLE.into());
