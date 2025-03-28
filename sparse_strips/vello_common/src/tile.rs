@@ -373,11 +373,11 @@ mod tests {
         let mut tiles = Tiles::new();
         tiles.make_tiles(&[line], 100, 100);
 
-        assert_eq!(tiles.tile_buf, vec![Tile::new(0, 0, 0, true)]);
+        assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, true)]);
     }
 
     #[test]
-    fn vertical_straight_line() {
+    fn horizontal_straight_line() {
         let line = Line {
             p0: Point { x: 1.5, y: 1.0 },
             p1: Point { x: 8.5, y: 1.0 },
@@ -398,7 +398,7 @@ mod tests {
     }
 
     #[test]
-    fn horizontal_straight_line() {
+    fn vertical_straight_line() {
         let line = Line {
             p0: Point { x: 1.0, y: 1.5 },
             p1: Point { x: 1.0, y: 8.5 },
