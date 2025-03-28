@@ -7,7 +7,7 @@ use super::CpuBinding;
 
 const WG_SIZE: usize = 256;
 
-fn clip_reduce_main(
+pub fn clip_reduce_main(
     n_wg: u32,
     clip_inp: &[Clip],
     path_bboxes: &[PathBbox],
