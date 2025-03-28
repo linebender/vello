@@ -59,6 +59,9 @@ pub struct Renderer {
     pub render_pipeline: RenderPipeline,
     /// GPU resources for rendering (created during prepare)
     resources: Option<GpuResources>,
+
+    /// Scratch buffer for staging alpha texture data.
+    alpha_data: Vec<u8>,
 }
 
 /// Contains the data needed for rendering
@@ -196,6 +199,7 @@ impl Renderer {
             render_bind_group_layout,
             render_pipeline,
             resources: None,
+            alpha_data: Vec::new(),
         }
     }
 
@@ -258,6 +262,11 @@ impl Renderer {
                     "Alpha texture height exceeds max texture dimensions"
                 );
 
+                // Resize the alpha texture staging buffer.
+                self.alpha_data.resize(
+                    (max_texture_dimension_2d * alpha_texture_height * 16) as usize,
+                    0,
+                );
                 // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
                 let alphas_texture = device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("Alpha Texture"),
@@ -333,8 +342,9 @@ impl Renderer {
             render_data.alphas.len() <= (texture_width * texture_height * 16) as usize,
             "Alpha texture dimensions are too small to fit the alpha data"
         );
-        let mut alpha_data = render_data.alphas.clone();
-        alpha_data.resize((texture_width * texture_height * 16) as usize, 0);
+        // After this copy to `self.alpha_data`, there may be stale trailing alpha values. These
+        // are not sampled, so can be left as-is.
+        self.alpha_data[0..render_data.alphas.len()].copy_from_slice(&render_data.alphas);
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -343,7 +353,7 @@ impl Renderer {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &alpha_data,
+            &self.alpha_data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each)
