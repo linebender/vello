@@ -350,16 +350,16 @@ impl<'a> LinearGradientFiller<'a> {
         filler
     }
 
-    fn advance<T: Sign>(&mut self) {
+    fn advance<SI: Sign>(&mut self) {
         while self.cur_pos > self.cur_range.x1 || self.cur_pos < self.cur_range.x0 {
-            T::idx_advance(&mut self.range_idx, self.gradient.ranges.len());
+            SI::idx_advance(&mut self.range_idx, self.gradient.ranges.len());
             self.cur_range = &self.gradient.ranges[self.range_idx];
         }
     }
 
-    fn advance_temp<T: Sign>(&mut self, target_pos: f32) {
+    fn advance_temp<SI: Sign>(&mut self, target_pos: f32) {
         while target_pos > self.temp_range.x1 || target_pos < self.temp_range.x0 {
-            T::idx_advance(&mut self.temp_range_idx, self.gradient.ranges.len());
+            SI::idx_advance(&mut self.temp_range_idx, self.gradient.ranges.len());
             self.temp_range = &self.gradient.ranges[self.temp_range_idx];
         }
     }
@@ -380,12 +380,12 @@ impl<'a> LinearGradientFiller<'a> {
         }
     }
 
-    fn run_inner<T: Extend, S: Sign>(mut self, target: &mut [u8]) {
+    fn run_inner<EX: Extend, SI: Sign>(mut self, target: &mut [u8]) {
         let mut col_positions = [0.0; Tile::HEIGHT as usize];
-        self.cur_pos = T::extend(self.cur_pos, self.gradient.end);
+        self.cur_pos = EX::extend(self.cur_pos, self.gradient.end);
 
         // Get to the initial position.
-        self.advance::<S>();
+        self.advance::<SI>();
 
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
@@ -394,33 +394,33 @@ impl<'a> LinearGradientFiller<'a> {
                 let range = self.cur_range;
                 for i in 0..COLOR_COMPONENTS {
                     let base_pos = self.cur_pos + i as f32 * self.y_advance;
-                    needs_advance |= S::needs_advance(base_pos, range.x0, range.x1);
+                    needs_advance |= SI::needs_advance(base_pos, range.x0, range.x1);
                     col_positions[i] = base_pos;
                 }
 
                 if needs_advance {
                     for i in 0..COLOR_COMPONENTS {
-                        col_positions[i] = T::extend(col_positions[i], self.gradient.end);
+                        col_positions[i] = EX::extend(col_positions[i], self.gradient.end);
                     }
 
-                    self.run_col::<Advancer, S>(col, &col_positions);
+                    self.run_col::<Advancer, SI>(col, &col_positions);
                 } else {
-                    self.run_col::<NoAdvancer, S>(col, &col_positions);
+                    self.run_col::<NoAdvancer, SI>(col, &col_positions);
                 }
 
-                self.cur_pos = T::extend(self.cur_pos + self.x_advance, self.gradient.end);
-                self.advance::<S>()
+                self.cur_pos = EX::extend(self.cur_pos + self.x_advance, self.gradient.end);
+                self.advance::<SI>()
             })
     }
 
     #[inline(always)]
-    fn run_col<T: Advance, S: Sign>(
+    fn run_col<AD: Advance, SI: Sign>(
         &mut self,
         column: &mut [u8],
         positions: &[f32; Tile::HEIGHT as usize],
     ) {
         for (pixel, target_pos) in column.chunks_exact_mut(COLOR_COMPONENTS).zip(positions) {
-            let range = T::get_range::<S>(self, *target_pos);
+            let range = AD::get_range::<SI>(self, *target_pos);
 
             for col_idx in 0..COLOR_COMPONENTS {
                 let im3 = target_pos - range.x0;
