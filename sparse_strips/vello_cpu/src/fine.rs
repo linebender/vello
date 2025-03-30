@@ -354,29 +354,37 @@ impl<'a> LinearGradientFiller<'a> {
         filler
     }
 
-    fn advance(&mut self) {
+    fn advance<T: Sign>(&mut self) {
         while self.cur_pos > self.cur_range.x1 || self.cur_pos < self.cur_range.x0 {
-            Positive::idx_advance(&mut self.range_idx, self.gradient.ranges.len());
+            T::idx_advance(&mut self.range_idx, self.gradient.ranges.len());
             self.cur_range = &self.gradient.ranges[self.range_idx];
         }
     }
 
-    fn advance_temp(&mut self, target_pos: f32) {
+    fn advance_temp<T: Sign>(&mut self, target_pos: f32) {
         while target_pos > self.temp_range.x1 || target_pos < self.temp_range.x0 {
-            Positive::idx_advance(&mut self.temp_range_idx, self.gradient.ranges.len());
+            T::idx_advance(&mut self.temp_range_idx, self.gradient.ranges.len());
             self.temp_range = &self.gradient.ranges[self.temp_range_idx];
         }
     }
 
     fn run(mut self, target: &mut [u8]) {
         if self.gradient.pad {
-            self.run_inner::<Pad>(target);
+            if self.gradient.sign == 1 {
+                self.run_inner::<Pad, Positive>(target);
+            } else {
+                self.run_inner::<Pad, Negative>(target);
+            }
         } else {
-            self.run_inner::<Repeat>(target);
+            if self.gradient.sign == 1 {
+                self.run_inner::<Repeat, Positive>(target);
+            } else {
+                self.run_inner::<Repeat, Negative>(target);
+            }
         }
     }
 
-    fn run_inner<T: Extend>(mut self, target: &mut [u8]) {
+    fn run_inner<T: Extend, S: Sign>(mut self, target: &mut [u8]) {
         let mut col_positions = [0.0; Tile::HEIGHT as usize];
 
         target
@@ -388,7 +396,7 @@ impl<'a> LinearGradientFiller<'a> {
                 let range = self.cur_range;
                 for i in 0..COLOR_COMPONENTS {
                     let base_pos = self.cur_pos + i as f32 * self.y_advance;
-                    needs_advance |= base_pos > range.x1;
+                    needs_advance |= base_pos > range.x1 || base_pos < range.x0;
                     col_positions[i] = base_pos;
                 }
 
@@ -397,20 +405,24 @@ impl<'a> LinearGradientFiller<'a> {
                         col_positions[i] = T::extend(col_positions[i], 0.0, self.gradient.end);
                     }
 
-                    self.run_col::<Advancer>(col, &col_positions);
+                    self.run_col::<Advancer, S>(col, &col_positions);
                 } else {
-                    self.run_col::<NoAdvancer>(col, &col_positions);
+                    self.run_col::<NoAdvancer, S>(col, &col_positions);
                 }
 
                 self.cur_pos = T::extend(self.cur_pos + self.x_advance, 0.0, self.gradient.end);
-                self.advance()
+                self.advance::<S>()
             })
     }
 
     #[inline(always)]
-    fn run_col<T: Advance>(&mut self, column: &mut [u8], positions: &[f32; Tile::HEIGHT as usize]) {
+    fn run_col<T: Advance, S: Sign>(
+        &mut self,
+        column: &mut [u8],
+        positions: &[f32; Tile::HEIGHT as usize],
+    ) {
         for (pixel, target_pos) in column.chunks_exact_mut(COLOR_COMPONENTS).zip(positions) {
-            let range = T::get_range(self, *target_pos);
+            let range = T::get_range::<S>(self, *target_pos);
 
             for col_idx in 0..COLOR_COMPONENTS {
                 let im3 = target_pos - range.x0;
@@ -526,14 +538,24 @@ trait Sign {
     fn idx_advance(idx: &mut usize, gradient_len: usize);
 }
 
-struct Positive;
-
-impl Sign for Positive {
+struct Negative;
+impl Sign for Negative {
     fn idx_advance(idx: &mut usize, gradient_len: usize) {
         if *idx >= (gradient_len - 1) {
             *idx = 0;
-        }   else {
+        } else {
             *idx += 1;
+        }
+    }
+}
+
+struct Positive;
+impl Sign for Positive {
+    fn idx_advance(idx: &mut usize, gradient_len: usize) {
+        if *idx == 0 {
+            *idx = gradient_len - 1;
+        } else {
+            *idx -= 1;
         }
     }
 }
@@ -546,15 +568,21 @@ impl Extend for Repeat {
 }
 
 trait Advance {
-    fn get_range<'a>(gf: &mut LinearGradientFiller<'a>, target_pos: f32) -> &'a GradientRange;
+    fn get_range<'a, S: Sign>(
+        gf: &mut LinearGradientFiller<'a>,
+        target_pos: f32,
+    ) -> &'a GradientRange;
 }
 
 struct Advancer;
 impl Advance for Advancer {
     #[inline]
-    fn get_range<'a>(gf: &mut LinearGradientFiller<'a>, target_pos: f32) -> &'a GradientRange {
+    fn get_range<'a, S: Sign>(
+        gf: &mut LinearGradientFiller<'a>,
+        target_pos: f32,
+    ) -> &'a GradientRange {
         // It's possible that we have to skip multiple stops.
-        gf.advance_temp(target_pos);
+        gf.advance_temp::<S>(target_pos);
 
         gf.temp_range
     }
@@ -562,7 +590,7 @@ impl Advance for Advancer {
 
 struct NoAdvancer;
 impl Advance for NoAdvancer {
-    fn get_range<'a>(gf: &mut LinearGradientFiller<'a>, _: f32) -> &'a GradientRange {
+    fn get_range<'a, S: Sign>(gf: &mut LinearGradientFiller<'a>, _: f32) -> &'a GradientRange {
         gf.cur_range
     }
 }

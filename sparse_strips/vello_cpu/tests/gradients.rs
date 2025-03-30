@@ -96,23 +96,23 @@ fn gradient_linear_with_downward_y() {
     check_ref(&ctx, "gradient_linear_with_downward_y");
 }
 
-// #[test]
-// fn gradient_linear_with_upward_y() {
-//     let mut ctx = get_ctx(100, 100, false);
-//     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-// 
-//     let gradient = LinearGradient {
-//         p0: Point::new(20.0, 80.0),
-//         p1: Point::new(80.0, 20.0),
-//         stops: stops_green_blue(),
-//         extend: vello_common::peniko::Extend::Pad,
-//     };
-// 
-//     ctx.set_paint(gradient);
-//     ctx.fill_rect(&rect);
-// 
-//     check_ref(&ctx, "gradient_linear_with_upward_y");
-// }
+#[test]
+fn gradient_linear_with_upward_y() {
+    let mut ctx = get_ctx(100, 100, false);
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+    let gradient = LinearGradient {
+        p0: Point::new(20.0, 80.0),
+        p1: Point::new(80.0, 20.0),
+        stops: stops_green_blue(),
+        extend: vello_common::peniko::Extend::Pad,
+    };
+
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&rect);
+
+    check_ref(&ctx, "gradient_linear_with_upward_y");
+}
 
 #[test]
 fn gradient_spread_method_pad() {

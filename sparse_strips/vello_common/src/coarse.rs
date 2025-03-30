@@ -196,7 +196,7 @@ impl WideTile {
         let bg = if let Paint::Solid(s) = &paint {
             let can_override = x == 0 && width == Self::WIDTH && s.a == 255;
             can_override.then(|| *s)
-        }   else {
+        } else {
             // TODO: Implement for indexed paints.
             None
         };

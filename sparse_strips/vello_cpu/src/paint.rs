@@ -2,7 +2,6 @@ use crate::fine::COLOR_COMPONENTS;
 use crate::util::ColorExt;
 use std::f32::consts::PI;
 use std::iter;
-use std::sync::Arc;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::Point;
 use vello_common::peniko::Extend;
@@ -167,13 +166,14 @@ impl LinearGradient {
             let dy_dx = dy / dx;
             1.0 / (1.0 + dy_dx * dy_dx).sqrt()
         };
+
         // How much do we advance in the direction of the gradient, when taking one step to the bottom
         // (i.e. when processing a new pixel in the current column)?
         let y_advance = if dy == 0.0 {
             0.0
         } else {
             let dx_dy = dx / dy;
-            1.0 / (1.0 + dx_dy * dx_dy).sqrt()
+            (1.0 / (1.0 + dx_dy * dx_dy).sqrt()).copysign(dx_dy)
         };
 
         let end = (dx * dx + dy * dy).sqrt();
@@ -185,7 +185,8 @@ impl LinearGradient {
             let c1 = right_stop.color.premultiply().to_rgba8_fast();
 
             let mut im1 = [0.0; 4];
-            let im2 = x1 - x0;
+            // Make sure this doesn't end up being 0 for our pad stops.
+            let im2 = (x1 - x0).max(0.0000001);
             let mut im3 = [0.0; 4];
 
             for i in 0..COLOR_COMPONENTS {
