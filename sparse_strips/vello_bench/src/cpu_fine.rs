@@ -7,7 +7,7 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, ROYAL_BLUE, YELLOW};
-use vello_common::kurbo::Point;
+use vello_common::kurbo::{Affine, Point};
 use vello_common::paint::{IndexedPaint, Paint};
 use vello_common::peniko;
 use vello_common::tile::Tile;
@@ -50,6 +50,7 @@ pub fn fill(c: &mut Criterion) {
                 p1: Point::new(WideTile::WIDTH as f64, Tile::HEIGHT as f64),
                 stops: $stops,
                 extend: peniko::Extend::$extend,
+                transform: Affine::IDENTITY
             })
             .encode()
             .into()];
@@ -127,6 +128,7 @@ pub fn strip(c: &mut Criterion) {
                 p1: Point::new(WideTile::WIDTH as f64, Tile::HEIGHT as f64),
                 stops: stops_blue_green_red_yellow(),
                 extend: peniko::Extend::$extend,
+                transform: Affine::IDENTITY
             })
             .encode()
             .into()];
