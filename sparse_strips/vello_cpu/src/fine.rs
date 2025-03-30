@@ -538,8 +538,16 @@ impl Extend for Pad {
 
 struct Repeat;
 impl Extend for Repeat {
-    fn extend(val: f32, max: f32) -> f32 {
-        val.rem_euclid(max)
+    fn extend(mut val: f32, max: f32) -> f32 {
+        while val < 0.0 {
+            val += max;
+        }
+        
+        while val > max {
+            val -= max;
+        }
+        
+        val
     }
 }
 
