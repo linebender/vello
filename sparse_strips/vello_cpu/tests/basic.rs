@@ -67,7 +67,7 @@ fn empty_1134x1376() {
 fn full_cover_1() {
     let mut ctx = get_ctx(8, 8, true);
 
-    ctx.set_paint(BEIGE.into());
+    ctx.set_paint(BEIGE);
     ctx.fill_path(&Rect::new(0.0, 0.0, 8.0, 8.0).to_path(0.1));
 
     check_ref(&ctx, "full_cover_1");
@@ -87,7 +87,7 @@ fn filled_triangle() {
         path
     };
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "filled_triangle");
@@ -107,7 +107,7 @@ fn stroked_triangle() {
     };
 
     ctx.set_stroke(Stroke::new(3.0));
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.stroke_path(&path);
 
     check_ref(&ctx, "stroked_triangle");
@@ -117,7 +117,7 @@ fn stroked_triangle() {
 fn filled_circle() {
     let mut ctx = get_ctx(100, 100, false);
     let circle = Circle::new((50.0, 50.0), 45.0);
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&circle.to_path(0.1));
 
     check_ref(&ctx, "filled_circle");
@@ -128,7 +128,7 @@ fn filled_overflowing_circle() {
     let mut ctx = get_ctx(100, 100, false);
     let circle = Circle::new((50.0, 50.0), 50.0 + 1.0);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&circle.to_path(0.1));
 
     check_ref(&ctx, "filled_overflowing_circle");
@@ -139,7 +139,7 @@ fn filled_fully_overflowing_circle() {
     let mut ctx = get_ctx(100, 100, false);
     let circle = Circle::new((50.0, 50.0), 80.0);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&circle.to_path(0.1));
 
     check_ref(&ctx, "filled_fully_overflowing_circle");
@@ -150,7 +150,7 @@ fn filled_circle_with_opacity() {
     let mut ctx = get_ctx(100, 100, false);
     let circle = Circle::new((50.0, 50.0), 45.0);
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_path(&circle.to_path(0.1));
 
     check_ref(&ctx, "filled_circle_with_opacity");
@@ -162,7 +162,7 @@ fn filled_overlapping_circles() {
 
     for e in [(35.0, 35.0, RED), (65.0, 35.0, GREEN), (50.0, 65.0, BLUE)] {
         let circle = Circle::new((e.0, e.1), 30.0);
-        ctx.set_paint(e.2.with_alpha(0.5).into());
+        ctx.set_paint(e.2.with_alpha(0.5));
         ctx.fill_path(&circle.to_path(0.1));
     }
 
@@ -175,7 +175,7 @@ fn stroked_circle() {
     let circle = Circle::new((50.0, 50.0), 45.0);
     let stroke = Stroke::new(3.0);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.set_stroke(stroke);
     ctx.stroke_path(&circle.to_path(0.1));
 
@@ -188,7 +188,7 @@ fn rectangle_above_viewport() {
     let mut ctx = get_ctx(10, 10, false);
     let rect = Rect::new(2.0, -5.0, 8.0, 8.0);
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "rectangle_above_viewport");
@@ -209,7 +209,7 @@ fn triangle_above_and_wider_than_viewport() {
         path
     };
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_path(&path);
 
     check_ref(&ctx, "triangle_above_and_wider_than_viewport");
@@ -222,7 +222,7 @@ fn rectangle_left_of_viewport() {
     let mut ctx = get_ctx(10, 10, false);
     let rect = Rect::new(-4.0, 3.0, 1.0, 8.0);
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "rectangle_left_of_viewport");
@@ -245,7 +245,7 @@ fn filling_nonzero_rule() {
     let mut ctx = get_ctx(100, 100, false);
     let star = star_path();
 
-    ctx.set_paint(MAROON.into());
+    ctx.set_paint(MAROON);
     ctx.fill_path(&star);
 
     check_ref(&ctx, "filling_nonzero_rule");
@@ -256,7 +256,7 @@ fn filling_evenodd_rule() {
     let mut ctx = get_ctx(100, 100, false);
     let star = star_path();
 
-    ctx.set_paint(MAROON.into());
+    ctx.set_paint(MAROON);
     ctx.set_fill_rule(peniko::Fill::EvenOdd);
     ctx.fill_path(&star);
 
@@ -268,7 +268,7 @@ fn filled_aligned_rect() {
     let mut ctx = get_ctx(30, 20, false);
     let rect = Rect::new(1.0, 1.0, 29.0, 19.0);
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "filled_aligned_rect");
@@ -284,7 +284,7 @@ fn stroked_unaligned_rect() {
         ..Default::default()
     };
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
@@ -301,7 +301,7 @@ fn stroked_unaligned_rect_as_path() {
         ..Default::default()
     };
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_path(&rect);
 
@@ -314,7 +314,7 @@ fn stroked_aligned_rect() {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0);
     let stroke = miter_stroke_2();
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
@@ -331,7 +331,7 @@ fn overflowing_stroked_rect() {
         ..Default::default()
     };
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
@@ -344,7 +344,7 @@ fn round_stroked_rect() {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0);
     let stroke = Stroke::new(3.0);
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
@@ -361,7 +361,7 @@ fn bevel_stroked_rect() {
         ..Default::default()
     };
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
@@ -373,7 +373,7 @@ fn filled_unaligned_rect() {
     let mut ctx = get_ctx(30, 20, false);
     let rect = Rect::new(1.5, 1.5, 28.5, 18.5);
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "filled_unaligned_rect");
@@ -385,7 +385,7 @@ fn filled_transformed_rect_1() {
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
 
     ctx.set_transform(Affine::translate((10.0, 10.0)));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "filled_transformed_rect_1");
@@ -397,7 +397,7 @@ fn filled_transformed_rect_2() {
     let rect = Rect::new(5.0, 5.0, 10.0, 10.0);
 
     ctx.set_transform(Affine::scale(2.0));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "filled_transformed_rect_2");
@@ -409,7 +409,7 @@ fn filled_transformed_rect_3() {
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
 
     ctx.set_transform(Affine::new([2.0, 0.0, 0.0, 2.0, 5.0, 5.0]));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "filled_transformed_rect_3");
@@ -424,7 +424,7 @@ fn filled_transformed_rect_4() {
         45.0 * PI / 180.0,
         Point::new(15.0, 15.0),
     ));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "filled_transformed_rect_4");
@@ -437,7 +437,7 @@ fn stroked_transformed_rect_1() {
     let stroke = miter_stroke_2();
 
     ctx.set_transform(Affine::translate((10.0, 10.0)));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
@@ -451,7 +451,7 @@ fn stroked_transformed_rect_2() {
     let stroke = miter_stroke_2();
 
     ctx.set_transform(Affine::scale(2.0));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
@@ -465,7 +465,7 @@ fn stroked_transformed_rect_3() {
     let stroke = miter_stroke_2();
 
     ctx.set_transform(Affine::new([2.0, 0.0, 0.0, 2.0, 5.0, 5.0]));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
@@ -482,7 +482,7 @@ fn stroked_transformed_rect_4() {
         45.0 * PI / 180.0,
         Point::new(15.0, 15.0),
     ));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
 
@@ -494,7 +494,7 @@ fn strip_inscribed_rect() {
     let mut ctx = get_ctx(30, 20, false);
     let rect = Rect::new(1.5, 9.5, 28.5, 11.5);
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "strip_inscribed_rect");
@@ -505,7 +505,7 @@ fn filled_vertical_hairline_rect() {
     let mut ctx = get_ctx(5, 8, false);
     let rect = Rect::new(2.25, 0.0, 2.75, 8.0);
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "filled_vertical_hairline_rect");
@@ -516,7 +516,7 @@ fn filled_vertical_hairline_rect_2() {
     let mut ctx = get_ctx(10, 10, false);
     let rect = Rect::new(4.5, 0.5, 5.5, 9.5);
 
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "filled_vertical_hairline_rect_2");
@@ -541,7 +541,7 @@ fn bevel_stroke_2() -> Stroke {
 fn compose_destination() -> RenderContext {
     let mut ctx = get_ctx(50, 50, true);
     let rect = Rect::new(4.5, 4.5, 35.5, 35.5);
-    ctx.set_paint(YELLOW.with_alpha(0.35).into());
+    ctx.set_paint(YELLOW.with_alpha(0.35));
     ctx.set_stroke(bevel_stroke_2());
     ctx.fill_rect(&rect);
 
@@ -550,7 +550,7 @@ fn compose_destination() -> RenderContext {
 
 fn compose_source(ctx: &mut RenderContext) {
     let rect = Rect::new(14.5, 14.5, 45.5, 45.5);
-    ctx.set_paint(DARK_GREEN.with_alpha(0.8).into());
+    ctx.set_paint(DARK_GREEN.with_alpha(0.8));
     ctx.fill_rect(&rect);
 }
 

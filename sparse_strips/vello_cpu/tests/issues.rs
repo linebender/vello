@@ -22,7 +22,7 @@ fn incorrect_filling_1() {
 
     let mut ctx = get_ctx(8, 8, false);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&p);
 
     check_ref(&ctx, "incorrect_filling_1");
@@ -40,7 +40,7 @@ fn incorrect_filling_2() {
 
     let mut ctx = get_ctx(64, 64, false);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&p);
 
     check_ref(&ctx, "incorrect_filling_2");
@@ -58,7 +58,7 @@ fn incorrect_filling_3() {
 
     let mut ctx = get_ctx(9, 9, false);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "incorrect_filling_3");
@@ -82,7 +82,7 @@ fn incorrect_filling_4() {
 
     let mut ctx = get_ctx(64, 64, false);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "incorrect_filling_4");
@@ -100,7 +100,7 @@ fn incorrect_filling_5() {
 
     let mut ctx = get_ctx(32, 32, false);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "incorrect_filling_5");
@@ -118,7 +118,7 @@ fn incorrect_filling_6() {
 
     let mut ctx = get_ctx(32, 32, false);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "incorrect_filling_6");
@@ -136,7 +136,7 @@ fn incorrect_filling_7() {
 
     let mut ctx = get_ctx(32, 32, false);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "incorrect_filling_7");
@@ -160,7 +160,7 @@ fn incorrect_filling_8() {
 
     let mut ctx = get_ctx(32, 32, false);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "incorrect_filling_8");
@@ -176,7 +176,7 @@ fn out_of_bound_strip() {
 
     let mut ctx = get_ctx(256, 256, true);
 
-    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_paint(DARK_BLUE);
     ctx.set_stroke(stroke);
     // Just make sure we don't panic.
     ctx.stroke_path(&path);
@@ -191,7 +191,7 @@ fn filling_unclosed_path_1() {
     path.line_to((25.0, 75.0));
     let mut ctx = get_ctx(100, 100, false);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "filling_unclosed_path_1");
@@ -213,7 +213,7 @@ fn filling_unclosed_path_2() {
 
     let mut ctx = get_ctx(100, 100, false);
 
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "filling_unclosed_path_2");
@@ -231,7 +231,7 @@ fn triangle_exceeding_viewport_1() {
     let mut ctx = get_ctx(15, 8, false);
 
     ctx.set_fill_rule(Fill::EvenOdd);
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "triangle_exceeding_viewport_1");
@@ -249,7 +249,7 @@ fn triangle_exceeding_viewport_2() {
     let mut ctx = get_ctx(15, 8, false);
 
     ctx.set_fill_rule(Fill::EvenOdd);
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "triangle_exceeding_viewport_2");
@@ -268,7 +268,7 @@ fn shape_at_wide_tile_boundary() {
     let mut ctx = get_ctx(256, 4, false);
 
     ctx.set_fill_rule(Fill::EvenOdd);
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     // Just make sure we don't panic.
@@ -287,7 +287,7 @@ fn eo_filling_missing_anti_aliasing() {
     let mut ctx = get_ctx(50, 50, false);
 
     ctx.set_fill_rule(Fill::EvenOdd);
-    ctx.set_paint(LIME.into());
+    ctx.set_paint(LIME);
     ctx.fill_path(&path);
 
     check_ref(&ctx, "eo_filling_missing_anti_aliasing");

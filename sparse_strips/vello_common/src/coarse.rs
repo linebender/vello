@@ -193,14 +193,17 @@ impl WideTile {
     }
 
     pub(crate) fn fill(&mut self, x: u16, width: u16, paint: Paint) {
-        let Paint::Solid(s) = &paint else {
-            unimplemented!()
+        let bg = if let Paint::Solid(s) = &paint {
+            let can_override = x == 0 && width == Self::WIDTH && s.a == 255;
+            can_override.then(|| *s)
+        }   else {
+            // TODO: Implement for indexed paints.
+            None
         };
-        let can_override = x == 0 && width == Self::WIDTH && s.a == 255;
 
-        if can_override {
+        if let Some(bg) = bg {
             self.cmds.clear();
-            self.bg = *s;
+            self.bg = bg;
         } else {
             self.cmds.push(Cmd::Fill(CmdFill { x, width, paint }));
         }

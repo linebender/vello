@@ -4,10 +4,11 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
+use crate::paint::{EncodedPaint, PaintType};
 use vello_common::coarse::Wide;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
-use vello_common::paint::Paint;
+use vello_common::paint::{IndexedPaint, Paint};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
@@ -31,6 +32,7 @@ pub struct RenderContext {
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
     pub(crate) blend_mode: BlendMode,
+    pub(crate) encoded_paints: Vec<EncodedPaint>,
 }
 
 impl RenderContext {
@@ -54,6 +56,7 @@ impl RenderContext {
             ..Default::default()
         };
         let blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
+        let encoded_paints = vec![];
 
         Self {
             width,
@@ -68,6 +71,7 @@ impl RenderContext {
             fill_rule,
             stroke,
             blend_mode,
+            encoded_paints,
         }
     }
 
@@ -104,7 +108,27 @@ impl RenderContext {
     }
 
     /// Set the current paint.
-    pub fn set_paint(&mut self, paint: Paint) {
+    pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
+        let paint_type: PaintType = paint.into();
+
+        let paint = match paint_type {
+            PaintType::Solid(s) => s.into(),
+            PaintType::LinearGradient(l) => {
+                let encoded = l.encode();
+                let idx = self.encoded_paints.len();
+                self.encoded_paints
+                    .push(EncodedPaint::LinearGradient(encoded));
+                Paint::Indexed(IndexedPaint::new(idx))
+            }
+            PaintType::SweepGradient(s) => {
+                let encoded = s.encode();
+                let idx = self.encoded_paints.len();
+                self.encoded_paints
+                    .push(EncodedPaint::SweepGradient(encoded));
+                Paint::Indexed(IndexedPaint::new(idx))
+            }
+        };
+
         self.paint = paint;
     }
 
@@ -140,7 +164,7 @@ impl RenderContext {
 
                 fine.clear(tile.bg.to_u8_array());
                 for cmd in &tile.cmds {
-                    fine.run_cmd(cmd, &self.alphas);
+                    fine.run_cmd(x, y, cmd, &self.alphas, &self.encoded_paints);
                 }
                 fine.pack(x, y);
             }

@@ -16,7 +16,7 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use vello_common::color::palette;
-use vello_common::kurbo::{Rect, Shape};
+use vello_common::kurbo::{BezPath, Rect, Shape};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderContext;
 
@@ -30,7 +30,7 @@ pub(crate) fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderConte
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);
 
-        ctx.set_paint(palette::css::WHITE.into());
+        ctx.set_paint(palette::css::WHITE);
         ctx.fill_path(&path);
     }
 
@@ -101,6 +101,18 @@ pub(crate) fn check_ref(ctx: &RenderContext, name: &str) {
 
         panic!("test didnt match reference image");
     }
+}
+
+pub(crate) fn star_path() -> BezPath {
+    let mut path = BezPath::new();
+    path.move_to((50.0, 10.0));
+    path.line_to((75.0, 90.0));
+    path.line_to((10.0, 40.0));
+    path.line_to((90.0, 40.0));
+    path.line_to((25.0, 90.0));
+    path.line_to((50.0, 10.0));
+
+    path
 }
 
 fn get_diff(expected_image: &RgbaImage, actual_image: &RgbaImage) -> Option<RgbaImage> {
