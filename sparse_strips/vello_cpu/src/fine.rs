@@ -370,13 +370,13 @@ impl<'a> LinearGradientFiller<'a> {
 
     fn run(mut self, target: &mut [u8]) {
         if self.gradient.pad {
-            if self.gradient.sign == 1 {
+            if self.gradient.positive {
                 self.run_inner::<Pad, Positive>(target);
             } else {
                 self.run_inner::<Pad, Negative>(target);
             }
         } else {
-            if self.gradient.sign == 1 {
+            if self.gradient.positive {
                 self.run_inner::<Repeat, Positive>(target);
             } else {
                 self.run_inner::<Repeat, Negative>(target);
