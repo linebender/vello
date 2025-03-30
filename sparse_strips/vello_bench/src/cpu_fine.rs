@@ -11,7 +11,7 @@ use vello_common::kurbo::{Affine, Point};
 use vello_common::paint::{IndexedPaint, Paint};
 use vello_common::peniko;
 use vello_common::tile::Tile;
-use vello_cpu::fine::Fine;
+use vello_cpu::r#mod::Fine;
 use vello_cpu::paint::{LinearGradient, Stop, SweepGradient};
 
 pub fn fill(c: &mut Criterion) {
