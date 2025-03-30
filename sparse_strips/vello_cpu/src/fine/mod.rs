@@ -4,13 +4,13 @@
 //! Fine rasterization runs the commands in each wide tile to determine the final RGBA value
 //! of each pixel and pack it into the pixmap.
 
-mod linear;
-mod sweep;
+mod linear_gradient;
+mod sweep_gradient;
 
 use crate::paint::EncodedPaint;
-use linear::LinearGradientFiller;
+use linear_gradient::LinearGradientFiller;
 use std::iter;
-use sweep::SweepGradientFiller;
+use sweep_gradient::SweepGradientFiller;
 use vello_common::{
     coarse::{Cmd, WideTile},
     paint::Paint,
