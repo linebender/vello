@@ -1,7 +1,10 @@
 //! Rendering linear gradients.
 
 use crate::fine;
-use crate::fine::{COLOR_COMPONENTS, Extend, Sign, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{
+    COLOR_COMPONENTS, Extend, Negative, Pad, Positive, Repeat, Sign,
+    TILE_HEIGHT_COMPONENTS,
+};
 use crate::paint::{EncodedLinearGradient, GradientRange};
 use vello_common::tile::Tile;
 
@@ -120,62 +123,6 @@ impl<'a> LinearGradientFiller<'a> {
 
                 pixel[col_idx] = (range.c0[col_idx] as i16 + combined) as u8;
             }
-        }
-    }
-}
-
-struct Pad;
-
-impl fine::Extend for Pad {
-    fn extend(val: f32, _: f32) -> f32 {
-        val
-    }
-}
-
-struct Repeat;
-
-impl fine::Extend for Repeat {
-    fn extend(mut val: f32, max: f32) -> f32 {
-        while val < 0.0 {
-            val += max;
-        }
-
-        while val > max {
-            val -= max;
-        }
-
-        val
-    }
-}
-
-struct Negative;
-
-impl Sign for Negative {
-    fn needs_advance(base_pos: f32, x0: f32, _: f32) -> bool {
-        base_pos < x0
-    }
-
-    fn idx_advance(idx: &mut usize, gradient_len: usize) {
-        if *idx >= (gradient_len - 1) {
-            *idx = 0;
-        } else {
-            *idx += 1;
-        }
-    }
-}
-
-struct Positive;
-
-impl Sign for Positive {
-    fn needs_advance(base_pos: f32, _: f32, x1: f32) -> bool {
-        base_pos > x1
-    }
-
-    fn idx_advance(idx: &mut usize, gradient_len: usize) {
-        if *idx == 0 {
-            *idx = gradient_len - 1;
-        } else {
-            *idx -= 1;
         }
     }
 }

@@ -5,6 +5,7 @@
 //! of each pixel and pack it into the pixmap.
 
 mod linear;
+mod sweep;
 
 use crate::paint::{EncodedPaint, EncodedSweepGradient};
 use linear::LinearGradientFiller;
@@ -396,4 +397,60 @@ trait Extend {
 trait Sign {
     fn needs_advance(base_pos: f32, x0: f32, x1: f32) -> bool;
     fn idx_advance(idx: &mut usize, gradient_len: usize);
+}
+
+struct Pad;
+
+impl Extend for Pad {
+    fn extend(val: f32, _: f32) -> f32 {
+        val
+    }
+}
+
+struct Repeat;
+
+impl Extend for Repeat {
+    fn extend(mut val: f32, max: f32) -> f32 {
+        while val < 0.0 {
+            val += max;
+        }
+
+        while val > max {
+            val -= max;
+        }
+
+        val
+    }
+}
+
+struct Negative;
+
+impl Sign for Negative {
+    fn needs_advance(base_pos: f32, x0: f32, _: f32) -> bool {
+        base_pos < x0
+    }
+
+    fn idx_advance(idx: &mut usize, gradient_len: usize) {
+        if *idx >= (gradient_len - 1) {
+            *idx = 0;
+        } else {
+            *idx += 1;
+        }
+    }
+}
+
+struct Positive;
+
+impl Sign for Positive {
+    fn needs_advance(base_pos: f32, _: f32, x1: f32) -> bool {
+        base_pos > x1
+    }
+
+    fn idx_advance(idx: &mut usize, gradient_len: usize) {
+        if *idx == 0 {
+            *idx = gradient_len - 1;
+        } else {
+            *idx -= 1;
+        }
+    }
 }
