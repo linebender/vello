@@ -386,7 +386,7 @@ impl<'a> LinearGradientFiller<'a> {
 
     fn run_inner<T: Extend, S: Sign>(mut self, target: &mut [u8]) {
         let mut col_positions = [0.0; Tile::HEIGHT as usize];
-        self.cur_pos = T::extend(self.cur_pos, 0.0, self.gradient.end);
+        self.cur_pos = T::extend(self.cur_pos, self.gradient.end);
 
         // Get to the initial position.
         self.advance::<S>();
@@ -404,7 +404,7 @@ impl<'a> LinearGradientFiller<'a> {
 
                 if needs_advance {
                     for i in 0..COLOR_COMPONENTS {
-                        col_positions[i] = T::extend(col_positions[i], 0.0, self.gradient.end);
+                        col_positions[i] = T::extend(col_positions[i], self.gradient.end);
                     }
 
                     self.run_col::<Advancer, S>(col, &col_positions);
@@ -412,7 +412,7 @@ impl<'a> LinearGradientFiller<'a> {
                     self.run_col::<NoAdvancer, S>(col, &col_positions);
                 }
 
-                self.cur_pos = T::extend(self.cur_pos + self.x_advance, 0.0, self.gradient.end);
+                self.cur_pos = T::extend(self.cur_pos + self.x_advance, self.gradient.end);
                 self.advance::<S>()
             })
     }
@@ -526,13 +526,20 @@ impl<'a> SweepGradientFiller<'a> {
 }
 
 trait Extend {
-    fn extend(val: f32, min: f32, max: f32) -> f32;
+    fn extend(val: f32, max: f32) -> f32;
 }
 
 struct Pad;
 impl Extend for Pad {
-    fn extend(val: f32, _: f32, _: f32) -> f32 {
+    fn extend(val: f32, _: f32) -> f32 {
         val
+    }
+}
+
+struct Repeat;
+impl Extend for Repeat {
+    fn extend(val: f32, max: f32) -> f32 {
+        val.rem_euclid(max)
     }
 }
 
@@ -568,13 +575,6 @@ impl Sign for Positive {
         } else {
             *idx -= 1;
         }
-    }
-}
-
-struct Repeat;
-impl Extend for Repeat {
-    fn extend(val: f32, min: f32, max: f32) -> f32 {
-        min + val.rem_euclid(max - min)
     }
 }
 
