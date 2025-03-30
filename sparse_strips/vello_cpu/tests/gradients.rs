@@ -314,6 +314,8 @@ fn gradient_linear_with_path_transform_4() {
     );
 }
 
+// TODO: Add test case for skewing transforms
+
 #[test]
 fn gradient_sweep_2_stops() {
     let mut ctx = get_ctx(100, 100, false);

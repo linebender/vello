@@ -27,7 +27,7 @@ pub struct RenderContext {
     pub(crate) line_buf: Vec<Line>,
     pub(crate) tiles: Tiles,
     pub(crate) strip_buf: Vec<Strip>,
-    pub(crate) paint: Paint,
+    pub(crate) paint: PaintType,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
@@ -75,16 +75,40 @@ impl RenderContext {
         }
     }
 
+    fn encode_current_paint(&mut self) -> Paint {
+        match self.paint.clone() {
+            PaintType::Solid(s) => s.into(),
+            PaintType::LinearGradient(mut l) => {
+                l.transform = self.transform * l.transform;
+
+                let encoded = l.encode();
+                let idx = self.encoded_paints.len();
+                self.encoded_paints
+                    .push(EncodedPaint::LinearGradient(encoded));
+                Paint::Indexed(IndexedPaint::new(idx))
+            }
+            PaintType::SweepGradient(s) => {
+                let encoded = s.encode();
+                let idx = self.encoded_paints.len();
+                self.encoded_paints
+                    .push(EncodedPaint::SweepGradient(encoded));
+                Paint::Indexed(IndexedPaint::new(idx))
+            }
+        }
+    }
+
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
         flatten::fill(path, self.transform, &mut self.line_buf);
-        self.render_path(self.fill_rule, self.paint.clone());
+        let paint = self.encode_current_paint();
+        self.render_path(self.fill_rule, paint);
     }
 
     /// Stroke a path.
     pub fn stroke_path(&mut self, path: &BezPath) {
         flatten::stroke(path, &self.stroke, self.transform, &mut self.line_buf);
-        self.render_path(Fill::NonZero, self.paint.clone());
+        let paint = self.encode_current_paint();
+        self.render_path(Fill::NonZero, paint);
     }
 
     /// Fill a rectangle.
@@ -109,29 +133,7 @@ impl RenderContext {
 
     /// Set the current paint.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
-        let paint_type: PaintType = paint.into();
-
-        let paint = match paint_type {
-            PaintType::Solid(s) => s.into(),
-            PaintType::LinearGradient(mut l) => {
-                l.transform = self.transform * l.transform;
-
-                let encoded = l.encode();
-                let idx = self.encoded_paints.len();
-                self.encoded_paints
-                    .push(EncodedPaint::LinearGradient(encoded));
-                Paint::Indexed(IndexedPaint::new(idx))
-            }
-            PaintType::SweepGradient(s) => {
-                let encoded = s.encode();
-                let idx = self.encoded_paints.len();
-                self.encoded_paints
-                    .push(EncodedPaint::SweepGradient(encoded));
-                Paint::Indexed(IndexedPaint::new(idx))
-            }
-        };
-
-        self.paint = paint;
+        self.paint = paint.into();
     }
 
     /// Set the current fill rule.

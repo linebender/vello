@@ -6,7 +6,7 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Point};
 use vello_common::peniko::Extend;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PaintType {
     Solid(AlphaColor<Srgb>),
     LinearGradient(LinearGradient),
@@ -106,6 +106,7 @@ pub struct LinearGradient {
 
 impl LinearGradient {
     pub fn encode(self) -> EncodedLinearGradient {
+        // Note that this will not work for transforms with coordinate skewing.
         let mut p0 = self.transform * self.p0;
         let mut p1 = self.transform * self.p1;
 
