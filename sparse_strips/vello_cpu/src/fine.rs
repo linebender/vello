@@ -386,17 +386,19 @@ impl<'a> LinearGradientFiller<'a> {
 
     fn run_inner<T: Extend, S: Sign>(mut self, target: &mut [u8]) {
         let mut col_positions = [0.0; Tile::HEIGHT as usize];
+        self.cur_pos = T::extend(self.cur_pos, 0.0, self.gradient.end);
+
+        // Get to the initial position.
+        self.advance::<S>();
 
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
             .for_each(|col| {
-                self.cur_pos = T::extend(self.cur_pos, 0.0, self.gradient.end);
-
                 let mut needs_advance = false;
                 let range = self.cur_range;
                 for i in 0..COLOR_COMPONENTS {
                     let base_pos = self.cur_pos + i as f32 * self.y_advance;
-                    needs_advance |= base_pos > range.x1 || base_pos < range.x0;
+                    needs_advance |= S::needs_advance(base_pos, range.x0, range.x1);
                     col_positions[i] = base_pos;
                 }
 
@@ -535,11 +537,16 @@ impl Extend for Pad {
 }
 
 trait Sign {
+    fn needs_advance(base_pos: f32, x0: f32, x1: f32) -> bool;
     fn idx_advance(idx: &mut usize, gradient_len: usize);
 }
 
 struct Negative;
 impl Sign for Negative {
+    fn needs_advance(base_pos: f32, x0: f32, _: f32) -> bool {
+        base_pos < x0
+    }
+
     fn idx_advance(idx: &mut usize, gradient_len: usize) {
         if *idx >= (gradient_len - 1) {
             *idx = 0;
@@ -551,6 +558,10 @@ impl Sign for Negative {
 
 struct Positive;
 impl Sign for Positive {
+    fn needs_advance(base_pos: f32, _: f32, x1: f32) -> bool {
+        base_pos > x1
+    }
+
     fn idx_advance(idx: &mut usize, gradient_len: usize) {
         if *idx == 0 {
             *idx = gradient_len - 1;
