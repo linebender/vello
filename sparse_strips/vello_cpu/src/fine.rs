@@ -356,25 +356,25 @@ impl<'a> LinearGradientFiller<'a> {
 
     fn advance(&mut self) {
         while self.cur_pos > self.cur_range.x1 || self.cur_pos < self.cur_range.x0 {
-            self.range_idx += 1;
-
-            if self.range_idx >= self.gradient.ranges.len() {
+            if self.range_idx >= (self.gradient.ranges.len() - 1) {
                 self.range_idx = 0;
+            }   else {
+                self.range_idx += 1;
             }
 
-            self.cur_range = &self.gradient.ranges[self.range_idx]
+            self.cur_range = &self.gradient.ranges[self.range_idx];
         }
     }
 
     fn advance_temp(&mut self, target_pos: f32) {
         while target_pos > self.temp_range.x1 || target_pos < self.temp_range.x0 {
-            self.temp_range_idx += 1;
-
-            if self.temp_range_idx >= self.gradient.ranges.len() {
+            if self.temp_range_idx >= (self.gradient.ranges.len() - 1) {
                 self.temp_range_idx = 0;
+            }   else {
+                self.temp_range_idx += 1;
             }
 
-            self.temp_range = &self.gradient.ranges[self.temp_range_idx]
+            self.temp_range = &self.gradient.ranges[self.temp_range_idx];
         }
     }
 
@@ -529,6 +529,22 @@ struct Pad;
 impl Extend for Pad {
     fn extend(val: f32, _: f32, _: f32) -> f32 {
         val
+    }
+}
+
+trait Sign {
+    fn idx_advance(idx: &mut usize, gradient_len: usize);
+}
+
+struct Positive;
+
+impl Sign for Positive {
+    fn idx_advance(idx: &mut usize, gradient_len: usize) {
+        *idx += 1;
+
+        if *idx >= gradient_len {
+            *idx = 0;
+        }
     }
 }
 
