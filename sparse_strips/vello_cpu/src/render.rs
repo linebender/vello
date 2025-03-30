@@ -113,7 +113,9 @@ impl RenderContext {
 
         let paint = match paint_type {
             PaintType::Solid(s) => s.into(),
-            PaintType::LinearGradient(l) => {
+            PaintType::LinearGradient(mut l) => {
+                l.transform = self.transform * l.transform;
+
                 let encoded = l.encode();
                 let idx = self.encoded_paints.len();
                 self.encoded_paints

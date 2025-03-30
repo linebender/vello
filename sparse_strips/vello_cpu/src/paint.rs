@@ -3,7 +3,7 @@ use crate::util::ColorExt;
 use std::f32::consts::PI;
 use std::iter;
 use vello_common::color::{AlphaColor, Srgb};
-use vello_common::kurbo::Point;
+use vello_common::kurbo::{Affine, Point};
 use vello_common::peniko::Extend;
 
 #[derive(Debug)]
@@ -100,13 +100,14 @@ pub struct LinearGradient {
     pub p1: Point,
     /// The color stops of the linear gradient.
     pub stops: Vec<Stop>,
+    pub transform: Affine,
     pub extend: Extend,
 }
 
 impl LinearGradient {
     pub fn encode(self) -> EncodedLinearGradient {
-        let mut p0 = self.p0;
-        let mut p1 = self.p1;
+        let mut p0 = self.transform * self.p0;
+        let mut p1 = self.transform * self.p1;
 
         let has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
 

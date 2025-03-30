@@ -1,8 +1,9 @@
 mod util;
 
 use crate::util::{check_ref, get_ctx, star_path};
+use std::f64::consts::PI;
 use vello_common::color::palette::css::{BLACK, BLUE, GREEN, RED, WHITE, YELLOW};
-use vello_common::kurbo::{Point, Rect};
+use vello_common::kurbo::{Affine, Point, Rect};
 use vello_cpu::paint::{LinearGradient, Stop, SweepGradient};
 
 #[test]
@@ -14,6 +15,7 @@ fn gradient_on_3_wide_tiles() {
         p0: Point::new(0.0, 0.0),
         p1: Point::new(600.0, 0.0),
         stops: stops_green_blue(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
     };
 
@@ -32,6 +34,7 @@ fn gradient_linear_2_stops() {
         p0: Point::new(10.0, 0.0),
         p1: Point::new(90.0, 0.0),
         stops: stops_green_blue(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
     };
 
@@ -50,6 +53,7 @@ fn gradient_linear_2_stops_with_alpha() {
         p0: Point::new(10.0, 0.0),
         p1: Point::new(90.0, 0.0),
         stops: stops_green_blue_with_alpha(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
     };
 
@@ -68,6 +72,7 @@ fn gradient_linear_negative_direction() {
         p0: Point::new(90.0, 0.0),
         p1: Point::new(10.0, 0.0),
         stops: stops_green_blue(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
     };
 
@@ -86,6 +91,7 @@ fn gradient_linear_with_downward_y() {
         p0: Point::new(20.0, 20.0),
         p1: Point::new(80.0, 80.0),
         stops: stops_green_blue(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
     };
 
@@ -104,6 +110,7 @@ fn gradient_linear_with_upward_y() {
         p0: Point::new(20.0, 80.0),
         p1: Point::new(80.0, 20.0),
         stops: stops_green_blue(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
     };
 
@@ -122,6 +129,7 @@ fn gradient_spread_method_pad() {
         p0: Point::new(35.0, 0.0),
         p1: Point::new(65.0, 0.0),
         stops: stops_green_blue(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
     };
 
@@ -140,6 +148,7 @@ fn gradient_spread_method_repeat() {
         p0: Point::new(45.0, 0.0),
         p1: Point::new(55.0, 0.0),
         stops: stops_green_blue(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Repeat,
     };
 
@@ -158,6 +167,7 @@ fn gradient_spread_method_reflect() {
         p0: Point::new(45.0, 0.0),
         p1: Point::new(55.0, 0.0),
         stops: stops_green_blue(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Reflect,
     };
 
@@ -176,6 +186,7 @@ fn gradient_linear_4_stops() {
         p0: Point::new(10.0, 0.0),
         p1: Point::new(90.0, 0.0),
         stops: stops_blue_green_red_yellow(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
     };
 
@@ -194,6 +205,7 @@ fn gradient_complex_shape() {
         p0: Point::new(0.0, 0.0),
         p1: Point::new(100.0, 0.0),
         stops: stops_blue_green_red_yellow(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
     };
 
@@ -212,6 +224,7 @@ fn gradient_linear_with_y_repeat() {
         p0: Point::new(47.5, 47.5),
         p1: Point::new(50.5, 52.5),
         stops: stops_blue_green_red_yellow(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Repeat,
     };
 
@@ -230,6 +243,7 @@ fn gradient_linear_with_y_reflect() {
         p0: Point::new(47.5, 47.5),
         p1: Point::new(50.5, 52.5),
         stops: stops_blue_green_red_yellow(),
+        transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Reflect,
     };
 
@@ -237,6 +251,67 @@ fn gradient_linear_with_y_reflect() {
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "gradient_linear_with_y_reflect");
+}
+
+macro_rules! gradient_with_path_transform {
+    ($name:expr, $transform:expr, $p0:expr, $p1: expr) => {
+        let mut ctx = get_ctx(100, 100, false);
+        let rect = Rect::new($p0, $p0, $p1, $p1);
+
+        let gradient = LinearGradient {
+            p0: Point::new($p0, $p0),
+            p1: Point::new($p1, $p0),
+            stops: stops_green_blue(),
+            transform: Affine::IDENTITY,
+            extend: vello_common::peniko::Extend::Pad,
+        };
+
+        ctx.set_transform($transform);
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
+
+        check_ref(&ctx, $name);
+    };
+}
+
+#[test]
+fn gradient_linear_with_path_transform_1() {
+    gradient_with_path_transform!(
+        "gradient_linear_with_path_transform_1",
+        Affine::translate((25.0, 25.0)),
+        0.0,
+        50.0
+    );
+}
+
+#[test]
+fn gradient_linear_with_path_transform_2() {
+    gradient_with_path_transform!(
+        "gradient_linear_with_path_transform_2",
+        Affine::scale(2.0),
+        12.5,
+        37.5
+    );
+}
+
+#[test]
+fn gradient_linear_with_path_transform_3() {
+    gradient_with_path_transform!(
+        "gradient_linear_with_path_transform_3",
+        Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
+        0.0,
+        25.0
+    );
+}
+
+#[test]
+fn gradient_linear_with_path_transform_4() {
+    gradient_with_path_transform!(
+        "gradient_linear_with_path_transform_4",
+        Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
+        25.0,
+        75.0
+    );
 }
 
 #[test]
@@ -280,19 +355,6 @@ fn stops_green_blue_with_alpha() -> Vec<Stop> {
         Stop {
             offset: 1.0,
             color: BLUE.with_alpha(0.75),
-        },
-    ]
-}
-
-fn stops_black_white() -> Vec<Stop> {
-    vec![
-        Stop {
-            offset: 0.0,
-            color: BLACK,
-        },
-        Stop {
-            offset: 1.0,
-            color: WHITE,
         },
     ]
 }
