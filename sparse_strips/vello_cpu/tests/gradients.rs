@@ -1,9 +1,8 @@
 mod util;
 
-use crate::util::{check_ref, get_ctx, render_pixmap, star_path};
-use vello_common::color::AlphaColor;
+use crate::util::{check_ref, get_ctx, star_path};
 use vello_common::color::palette::css::{BLACK, BLUE, GREEN, RED, WHITE, YELLOW};
-use vello_common::kurbo::{Affine, Point, Rect};
+use vello_common::kurbo::{Point, Rect};
 use vello_cpu::paint::{LinearGradient, Stop, SweepGradient};
 
 #[test]

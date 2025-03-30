@@ -144,7 +144,7 @@ impl<'a> Fine<'a> {
 
                 match paint {
                     EncodedPaint::LinearGradient(g) => {
-                        let mut iter = LinearGradientFiller::new(g, start_x, start_y);
+                        let iter = LinearGradientFiller::new(g, start_x, start_y);
 
                         if g.has_opacities {
                             iter.run(color_buf);
@@ -159,7 +159,7 @@ impl<'a> Fine<'a> {
                         }
                     }
                     EncodedPaint::SweepGradient(s) => {
-                        let mut iter = SweepGradientFiller::new(s, start_x, start_y);
+                        let iter = SweepGradientFiller::new(s, start_x, start_y);
 
                         if s.has_opacities {
                             iter.run(color_buf);
@@ -211,7 +211,7 @@ impl<'a> Fine<'a> {
 
                 match encoded_paint {
                     EncodedPaint::LinearGradient(g) => {
-                        let mut iter = LinearGradientFiller::new(g, start_x, start_y);
+                        let iter = LinearGradientFiller::new(g, start_x, start_y);
                         iter.run(color_buf);
                         strip::src_over(
                             blend_buf,
@@ -331,8 +331,8 @@ pub(crate) struct LinearGradientFiller<'a> {
 impl<'a> LinearGradientFiller<'a> {
     pub(crate) fn new(
         gradient: &'a EncodedLinearGradient,
-        mut start_x: u16,
-        mut start_y: u16,
+        start_x: u16,
+        start_y: u16,
     ) -> Self {
         // The actual starting point of the strip.
         let x0 = start_x as f32 + gradient.offsets.0 + 0.5;
@@ -340,7 +340,7 @@ impl<'a> LinearGradientFiller<'a> {
 
         let cur_pos = (x0 * gradient.fact1 - y0 * gradient.fact2) / gradient.denom;
 
-        let mut filler = Self {
+        let filler = Self {
             cur_pos,
             x_advance: gradient.advances.0,
             y_advance: gradient.advances.1,
@@ -368,7 +368,7 @@ impl<'a> LinearGradientFiller<'a> {
         }
     }
 
-    fn run(mut self, target: &mut [u8]) {
+    fn run(self, target: &mut [u8]) {
         if self.gradient.pad {
             if self.gradient.positive {
                 self.run_inner::<Pad, Positive>(target);
@@ -458,8 +458,8 @@ pub(crate) struct SweepGradientFiller<'a> {
 impl<'a> SweepGradientFiller<'a> {
     pub(crate) fn new(
         gradient: &'a EncodedSweepGradient,
-        mut start_x: u16,
-        mut start_y: u16,
+        start_x: u16,
+        start_y: u16,
     ) -> Self {
         let mut start_point = Point::new(
             start_x as f64 + gradient.offsets.0 as f64,
@@ -485,7 +485,7 @@ impl<'a> SweepGradientFiller<'a> {
             im3[i] = im1[i] / im2;
         }
 
-        let mut filler = Self {
+        let filler = Self {
             cur_pos: (start_point.x as f32, start_point.y as f32 + 0.5),
             c0,
             c1,

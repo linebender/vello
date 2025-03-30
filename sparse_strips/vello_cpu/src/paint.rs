@@ -58,7 +58,7 @@ impl SweepGradient {
 
         let has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
 
-        let mut stops = if start_angle <= end_angle {
+        let stops = if start_angle <= end_angle {
             self.stops
                 .iter()
                 .map(|s| {
