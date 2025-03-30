@@ -356,24 +356,14 @@ impl<'a> LinearGradientFiller<'a> {
 
     fn advance(&mut self) {
         while self.cur_pos > self.cur_range.x1 || self.cur_pos < self.cur_range.x0 {
-            if self.range_idx >= (self.gradient.ranges.len() - 1) {
-                self.range_idx = 0;
-            }   else {
-                self.range_idx += 1;
-            }
-
+            Positive::idx_advance(&mut self.range_idx, self.gradient.ranges.len());
             self.cur_range = &self.gradient.ranges[self.range_idx];
         }
     }
 
     fn advance_temp(&mut self, target_pos: f32) {
         while target_pos > self.temp_range.x1 || target_pos < self.temp_range.x0 {
-            if self.temp_range_idx >= (self.gradient.ranges.len() - 1) {
-                self.temp_range_idx = 0;
-            }   else {
-                self.temp_range_idx += 1;
-            }
-
+            Positive::idx_advance(&mut self.temp_range_idx, self.gradient.ranges.len());
             self.temp_range = &self.gradient.ranges[self.temp_range_idx];
         }
     }
@@ -540,10 +530,10 @@ struct Positive;
 
 impl Sign for Positive {
     fn idx_advance(idx: &mut usize, gradient_len: usize) {
-        *idx += 1;
-
-        if *idx >= gradient_len {
+        if *idx >= (gradient_len - 1) {
             *idx = 0;
+        }   else {
+            *idx += 1;
         }
     }
 }
