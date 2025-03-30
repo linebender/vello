@@ -690,11 +690,11 @@ fn clipped_double_shapes() {
     let mut ctx = get_ctx(100, 100, true);
 
     // Create first clipping region - a rectangle on the left side
-    let clip_rect = Rect::new(10.0, 20.0, 60.0, 80.0);
+    let clip_rect = Rect::new(10.0, 30.0, 50.0, 70.0);
 
     // Create second clipping region - a circle on the right side
-    let circle_center = Point::new(70.0, 50.0);
-    let circle_radius = 40.0;
+    let circle_center = Point::new(65.0, 50.0);
+    let circle_radius = 30.0;
     let clip_circle = Circle::new(circle_center, circle_radius).to_path(0.1);
 
     // Draw outlines of our clipping regions to visualize them
