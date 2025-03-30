@@ -2,8 +2,7 @@
 
 use crate::fine;
 use crate::fine::{
-    COLOR_COMPONENTS, Extend, Negative, Pad, Positive, Repeat, Sign,
-    TILE_HEIGHT_COMPONENTS,
+    COLOR_COMPONENTS, Extend, Negative, Pad, Positive, Repeat, Sign, TILE_HEIGHT_COMPONENTS,
 };
 use crate::paint::{EncodedLinearGradient, GradientRange};
 use vello_common::tile::Tile;
