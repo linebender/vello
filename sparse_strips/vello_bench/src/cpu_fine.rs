@@ -12,7 +12,7 @@ use vello_common::paint::{IndexedPaint, Paint};
 use vello_common::peniko;
 use vello_common::tile::Tile;
 use vello_cpu::fine::Fine;
-use vello_cpu::paint::{EncodedPaint, LinearGradient, Stop, SweepGradient};
+use vello_cpu::paint::{LinearGradient, Stop, SweepGradient};
 
 pub fn fill(c: &mut Criterion) {
     let mut g = c.benchmark_group("fine/fill");
@@ -46,8 +46,8 @@ pub fn fill(c: &mut Criterion) {
     macro_rules! fill_single_linear {
         ($name:ident, $extend:ident, $stops:expr) => {
             let paints = [(LinearGradient {
-                p0: Point::new(80.0, 0.0),
-                p1: Point::new(120.0, 0.0),
+                p0: Point::new(0.0, 0.0),
+                p1: Point::new(WideTile::WIDTH as f64, Tile::HEIGHT as f64),
                 stops: $stops,
                 extend: peniko::Extend::$extend,
             })
@@ -124,7 +124,7 @@ pub fn strip(c: &mut Criterion) {
         ($name:ident, $extend:ident) => {
             let paints = [(LinearGradient {
                 p0: Point::new(0.0, 0.0),
-                p1: Point::new(WideTile::WIDTH as f64, 0.0),
+                p1: Point::new(WideTile::WIDTH as f64, Tile::HEIGHT as f64),
                 stops: stops_blue_green_red_yellow(),
                 extend: peniko::Extend::$extend,
             })

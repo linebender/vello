@@ -194,15 +194,7 @@ impl LinearGradient {
                 im3[i] = im1[i] / im2;
             }
 
-            GradientRange {
-                x0,
-                x1,
-                c0,
-                c1,
-                im1,
-                im2,
-                im3,
-            }
+            GradientRange { x0, x1, c0, im3 }
         };
 
         let stop_ranges = stops.windows(2).map(|s| {
@@ -305,9 +297,6 @@ pub struct GradientRange {
     pub(crate) x0: f32,
     pub(crate) x1: f32,
     pub(crate) c0: [u8; 4],
-    pub(crate) c1: [u8; 4],
-    pub(crate) im1: [f32; 4],
-    pub(crate) im2: f32,
     pub(crate) im3: [f32; 4],
 }
 

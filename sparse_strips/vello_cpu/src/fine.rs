@@ -329,11 +329,7 @@ pub(crate) struct LinearGradientFiller<'a> {
 }
 
 impl<'a> LinearGradientFiller<'a> {
-    pub(crate) fn new(
-        gradient: &'a EncodedLinearGradient,
-        start_x: u16,
-        start_y: u16,
-    ) -> Self {
+    pub(crate) fn new(gradient: &'a EncodedLinearGradient, start_x: u16, start_y: u16) -> Self {
         // The actual starting point of the strip.
         let x0 = start_x as f32 + gradient.offsets.0 + 0.5;
         let y0 = start_y as f32 + gradient.offsets.1 + 0.5;
@@ -441,26 +437,15 @@ pub(crate) struct SweepGradientFiller<'a> {
     /// The position of the next x that should be processed.
     cur_pos: (f32, f32),
     x0: f32,
-    x1: f32,
     /// The color of the left stop.
     c0: [u8; 4],
-    /// The color of the right stop.
-    c1: [u8; 4],
-    im1: [f32; 4],
-    im2: f32,
     im3: [f32; 4],
-    /// The output buffer for emitting colors from the iterator.
-    color_buf: [u8; COLOR_COMPONENTS],
     /// The underlying gradient.
     gradient: &'a EncodedSweepGradient,
 }
 
 impl<'a> SweepGradientFiller<'a> {
-    pub(crate) fn new(
-        gradient: &'a EncodedSweepGradient,
-        start_x: u16,
-        start_y: u16,
-    ) -> Self {
+    pub(crate) fn new(gradient: &'a EncodedSweepGradient, start_x: u16, start_y: u16) -> Self {
         let mut start_point = Point::new(
             start_x as f64 + gradient.offsets.0 as f64,
             start_y as f64 + gradient.offsets.1 as f64,
@@ -488,13 +473,8 @@ impl<'a> SweepGradientFiller<'a> {
         let filler = Self {
             cur_pos: (start_point.x as f32, start_point.y as f32 + 0.5),
             c0,
-            c1,
-            x1,
             x0,
-            im1,
-            im2,
             im3,
-            color_buf: [0; COLOR_COMPONENTS],
             gradient,
         };
 
@@ -542,11 +522,11 @@ impl Extend for Repeat {
         while val < 0.0 {
             val += max;
         }
-        
+
         while val > max {
             val -= max;
         }
-        
+
         val
     }
 }
