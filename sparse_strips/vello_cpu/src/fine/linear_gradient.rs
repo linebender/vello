@@ -60,21 +60,21 @@ impl<'a> LinearGradientFiller<'a> {
 
     pub(super) fn run(self, target: &mut [u8]) {
         if self.gradient.pad {
-            if self.gradient.positive {
-                self.run_inner::<Pad, Positive>(target);
-            } else {
-                self.run_inner::<Pad, Negative>(target);
-            }
+            self.run_1::<Pad>(target);
         } else {
-            if self.gradient.positive {
-                self.run_inner::<Repeat, Positive>(target);
-            } else {
-                self.run_inner::<Repeat, Negative>(target);
-            }
+            self.run_1::<Repeat>(target);
+        }
+    }
+    
+    fn run_1<EX: Extend>(self, target: &mut [u8]) {
+        if self.gradient.positive {
+            self.run_inner::<EX, Positive>(target);
+        }   else {
+            self.run_inner::<EX, Negative>(target);
         }
     }
 
-    fn run_inner<EX: fine::Extend, SI: Sign>(mut self, target: &mut [u8]) {
+    fn run_inner<EX: Extend, SI: Sign>(mut self, target: &mut [u8]) {
         let mut col_positions = [0.0; Tile::HEIGHT as usize];
         self.cur_pos = EX::extend(self.cur_pos, self.gradient.end);
 
