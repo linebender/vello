@@ -64,7 +64,11 @@ impl<'a> LinearGradientFiller<'a> {
     }
 
     fn run_1(self, target: &mut [u8], pad: bool) {
-        self.run_2::<Positive>(target, pad);
+        if self.gradient.x_positive {
+            self.run_2::<Positive>(target, pad);
+        }   else {
+            self.run_2::<Negative>(target, pad);
+        }
     }
 
     fn run_2<XS: Sign>(self, target: &mut [u8], pad: bool) {
