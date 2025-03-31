@@ -59,28 +59,38 @@ impl<'a> LinearGradientFiller<'a> {
     }
 
     pub(super) fn run(self, target: &mut [u8]) {
-        if self.gradient.pad {
-            self.run_1::<Pad>(target);
-        } else {
-            self.run_1::<Repeat>(target);
-        }
+        let pad = self.gradient.pad;
+        self.run_1(target, pad);
     }
 
-    fn run_1<EX: Extend>(self, target: &mut [u8]) {
-        self.run_2::<EX, Positive>(target);
+    fn run_1(self, target: &mut [u8], pad: bool) {
+        self.run_2::<Positive>(target, pad);
     }
 
-    fn run_2<EX: Extend, XS: Sign>(self, target: &mut [u8]) {
+    fn run_2<XS: Sign>(self, target: &mut [u8], pad: bool) {
         if self.gradient.y_positive {
-            self.run_inner::<EX, XS, Positive>(target);
+            self.run_inner::<XS, Positive>(target, pad);
         } else {
-            self.run_inner::<EX, XS, Negative>(target);
+            self.run_inner::<XS, Negative>(target, pad);
         }
     }
 
-    fn run_inner<EX: Extend, XS: Sign, YS: Sign>(mut self, target: &mut [u8]) {
+    fn run_inner<XS: Sign, YS: Sign>(mut self, target: &mut [u8], pad: bool) {
+        let end = self.gradient.end;
+        let extend = |mut val| if pad { val } else {
+            while val < 0.0 {
+                val += end;
+            }
+
+            while val > self.gradient.end {
+                val -= end;
+            }
+
+            val
+        };
+        
         let mut col_positions = [0.0; Tile::HEIGHT as usize];
-        self.cur_pos = EX::extend(self.cur_pos, self.gradient.end);
+        self.cur_pos = extend(self.cur_pos);
 
         // Get to the initial position.
         self.advance::<Positive>();
@@ -98,7 +108,7 @@ impl<'a> LinearGradientFiller<'a> {
 
                 if needs_advance {
                     for i in 0..COLOR_COMPONENTS {
-                        col_positions[i] = EX::extend(col_positions[i], self.gradient.end);
+                        col_positions[i] = extend(col_positions[i]);
                     }
 
                     self.run_col::<Advancer, YS>(col, &col_positions);
@@ -106,7 +116,7 @@ impl<'a> LinearGradientFiller<'a> {
                     self.run_col::<NoAdvancer, YS>(col, &col_positions);
                 }
 
-                self.cur_pos = EX::extend(self.cur_pos + self.x_advance, self.gradient.end);
+                self.cur_pos = extend(self.cur_pos + self.x_advance);
                 self.advance::<Positive>()
             })
     }
