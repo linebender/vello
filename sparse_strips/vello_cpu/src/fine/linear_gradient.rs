@@ -65,21 +65,29 @@ impl<'a> LinearGradientFiller<'a> {
             self.run_1::<Repeat>(target);
         }
     }
-    
+
     fn run_1<EX: Extend>(self, target: &mut [u8]) {
         if self.gradient.positive {
-            self.run_inner::<EX, Positive>(target);
-        }   else {
-            self.run_inner::<EX, Negative>(target);
+            self.run_2::<EX, Positive>(target);
+        } else {
+            self.run_2::<EX, Negative>(target);
         }
     }
 
-    fn run_inner<EX: Extend, SI: Sign>(mut self, target: &mut [u8]) {
+    fn run_2<EX: Extend, XS: Sign>(self, target: &mut [u8]) {
+        if self.gradient.positive {
+            self.run_inner::<EX, XS, Positive>(target);
+        } else {
+            self.run_inner::<EX, XS, Negative>(target);
+        }
+    }
+
+    fn run_inner<EX: Extend, XS: Sign, YS: Sign>(mut self, target: &mut [u8]) {
         let mut col_positions = [0.0; Tile::HEIGHT as usize];
         self.cur_pos = EX::extend(self.cur_pos, self.gradient.end);
 
         // Get to the initial position.
-        self.advance::<SI>();
+        self.advance::<XS>();
 
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
@@ -88,7 +96,7 @@ impl<'a> LinearGradientFiller<'a> {
                 let range = self.cur_range;
                 for i in 0..COLOR_COMPONENTS {
                     let base_pos = self.cur_pos + i as f32 * self.y_advance;
-                    needs_advance |= SI::needs_advance(base_pos, range.x0, range.x1);
+                    needs_advance |= YS::needs_advance(base_pos, range.x0, range.x1);
                     col_positions[i] = base_pos;
                 }
 
@@ -97,13 +105,13 @@ impl<'a> LinearGradientFiller<'a> {
                         col_positions[i] = EX::extend(col_positions[i], self.gradient.end);
                     }
 
-                    self.run_col::<Advancer, SI>(col, &col_positions);
+                    self.run_col::<Advancer, YS>(col, &col_positions);
                 } else {
-                    self.run_col::<NoAdvancer, SI>(col, &col_positions);
+                    self.run_col::<NoAdvancer, YS>(col, &col_positions);
                 }
 
                 self.cur_pos = EX::extend(self.cur_pos + self.x_advance, self.gradient.end);
-                self.advance::<SI>()
+                self.advance::<XS>()
             })
     }
 
