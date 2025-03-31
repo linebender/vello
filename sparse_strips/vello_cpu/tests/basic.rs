@@ -4,13 +4,17 @@
 //! Tests for basic functionality.
 
 use crate::util::{check_ref, get_ctx, render_pixmap};
+use skrifa::MetadataProvider;
+use skrifa::raw::FileRef;
 use std::f64::consts::PI;
+use std::sync::Arc;
 use vello_common::color::palette::css::{
     BEIGE, BLUE, DARK_GREEN, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, YELLOW,
 };
+use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
 use vello_common::peniko;
-use vello_common::peniko::Compose;
+use vello_common::peniko::{Blob, Compose, Font};
 use vello_cpu::RenderContext;
 
 mod util;
@@ -520,6 +524,98 @@ fn filled_vertical_hairline_rect_2() {
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "filled_vertical_hairline_rect_2");
+}
+
+#[test]
+fn filled_glyphs() {
+    let mut ctx = get_ctx(300, 70, false);
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .fill_glyphs(glyphs.iter());
+
+    check_ref(&ctx, "filled_glyphs");
+}
+
+#[test]
+fn stroked_glyphs() {
+    let mut ctx = get_ctx(300, 70, false);
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .stroke_glyphs(glyphs.iter());
+
+    check_ref(&ctx, "stroked_glyphs");
+}
+
+#[test]
+fn skewed_glyphs() {
+    let mut ctx = get_ctx(300, 70, false);
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.0))
+        .fill_glyphs(glyphs.iter());
+
+    check_ref(&ctx, "skewed_glyphs");
+}
+
+fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
+    const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+    let font = Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+
+    let font_ref = {
+        let file_ref = FileRef::new(font.data.as_ref()).unwrap();
+        match file_ref {
+            FileRef::Font(f) => f,
+            FileRef::Collection(collection) => collection.get(font.index).unwrap(),
+        }
+    };
+    let font_size = skrifa::instance::Size::new(font_size);
+    let axes = font_ref.axes();
+    let variations: Vec<(&str, f32)> = vec![];
+    let var_loc = axes.location(variations.as_slice());
+    let charmap = font_ref.charmap();
+    let metrics = font_ref.metrics(font_size, &var_loc);
+    let line_height = metrics.ascent - metrics.descent + metrics.leading;
+    let glyph_metrics = font_ref.glyph_metrics(font_size, &var_loc);
+
+    let mut pen_x = 0_f32;
+    let mut pen_y = 0_f32;
+
+    let glyphs = text
+        .chars()
+        .filter_map(|ch| {
+            if ch == '\n' {
+                pen_y += line_height;
+                pen_x = 0.0;
+                return None;
+            }
+            let gid = charmap.map(ch).unwrap_or_default();
+            let advance = glyph_metrics.advance_width(gid).unwrap_or_default();
+            let x = pen_x;
+            pen_x += advance;
+            Some(Glyph {
+                id: gid.to_u32(),
+                x,
+                y: pen_y,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    (font, glyphs)
 }
 
 fn miter_stroke_2() -> Stroke {

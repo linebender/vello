@@ -3038,6 +3038,7 @@ name = "vello_common"
 version = "0.4.0"
 dependencies = [
  "roxmltree",
+ "skrifa",
  "vello_api",
 ]
 
@@ -3047,6 +3048,7 @@ version = "0.4.0"
 dependencies = [
  "image",
  "oxipng",
+ "skrifa",
  "vello_common",
 ]
 
@@ -3069,6 +3071,7 @@ dependencies = [
  "png",
  "pollster",
  "roxmltree",
+ "skrifa",
  "vello_common",
  "wgpu",
  "winit",
