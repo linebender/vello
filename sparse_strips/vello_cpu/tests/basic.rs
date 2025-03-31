@@ -13,8 +13,7 @@ use vello_common::color::palette::css::{
 };
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke, Vec2};
-use vello_common::peniko;
-use vello_common::peniko::{Blob, Compose, Font};
+use vello_common::peniko::{Blob, Compose, Fill, Font};
 use vello_cpu::RenderContext;
 
 mod util;
@@ -232,22 +231,10 @@ fn rectangle_left_of_viewport() {
     check_ref(&mut ctx, "rectangle_left_of_viewport");
 }
 
-fn star_path() -> BezPath {
-    let mut path = BezPath::new();
-    path.move_to((50.0, 10.0));
-    path.line_to((75.0, 90.0));
-    path.line_to((10.0, 40.0));
-    path.line_to((90.0, 40.0));
-    path.line_to((25.0, 90.0));
-    path.line_to((50.0, 10.0));
-
-    path
-}
-
 #[test]
 fn filling_nonzero_rule() {
     let mut ctx = get_ctx(100, 100, false);
-    let star = star_path();
+    let star = crossed_line_star();
 
     ctx.set_paint(MAROON.into());
     ctx.fill_path(&star);
@@ -258,10 +245,10 @@ fn filling_nonzero_rule() {
 #[test]
 fn filling_evenodd_rule() {
     let mut ctx = get_ctx(100, 100, false);
-    let star = star_path();
+    let star = crossed_line_star();
 
     ctx.set_paint(MAROON.into());
-    ctx.set_fill_rule(peniko::Fill::EvenOdd);
+    ctx.set_fill_rule(Fill::EvenOdd);
     ctx.fill_path(&star);
 
     check_ref(&mut ctx, "filling_evenodd_rule");
@@ -656,7 +643,7 @@ fn clipped_triangle_with_star() {
     ctx.set_stroke(stroke);
     ctx.stroke_path(&triangle_path);
 
-    let star_path = star(Point::new(50., 50.), 13, 25., 45.);
+    let star_path = circular_star(Point::new(50., 50.), 13, 25., 45.);
 
     ctx.clip(&star_path);
     ctx.set_paint(REBECCA_PURPLE.into());
@@ -666,11 +653,11 @@ fn clipped_triangle_with_star() {
 }
 
 #[test]
-fn clipped_rectangle_with_star() {
+fn clipped_rectangle_with_star_nonzero_rule() {
     let mut ctx = get_ctx(100, 100, true);
 
-    let clip_rect = Rect::new(10.0, 30.0, 60.0, 70.0);
-    let star_path = star(Point::new(60., 50.), 5, 20., 40.);
+    let clip_rect = Rect::new(5.0, 30.0, 50.0, 70.0);
+    let star_path = crossed_line_star();
 
     let stroke = Stroke::new(1.0);
     ctx.set_paint(DARK_BLUE.into());
@@ -680,9 +667,31 @@ fn clipped_rectangle_with_star() {
     ctx.clip(&clip_rect.to_path(0.1));
 
     ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_fill_rule(Fill::NonZero);
     ctx.fill_path(&star_path);
 
-    check_ref(&mut ctx, "clipped_rectangle_with_star");
+    check_ref(&mut ctx, "clipped_rectangle_with_star_nonzero_rule");
+}
+
+#[test]
+fn clipped_rectangle_with_star_evenodd_rule() {
+    let mut ctx = get_ctx(100, 100, true);
+
+    let clip_rect = Rect::new(5.0, 30.0, 50.0, 70.0);
+    let star_path = crossed_line_star();
+
+    let stroke = Stroke::new(1.0);
+    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_stroke(stroke);
+    ctx.stroke_rect(&clip_rect);
+
+    ctx.clip(&clip_rect.to_path(0.1));
+
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_fill_rule(Fill::EvenOdd);
+    ctx.fill_path(&star_path);
+
+    check_ref(&mut ctx, "clipped_rectangle_with_star_evenodd_rule");
 }
 
 #[test]
@@ -722,7 +731,7 @@ fn oversized_star() {
 
     // Create a star path that extends beyond the render context boundaries
     // Center it in the middle of the viewport
-    let star_path = star(Point::new(50., 50.), 10, 30., 90.);
+    let star_path = circular_star(Point::new(50., 50.), 10, 30., 90.);
 
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_path(&star_path);
@@ -782,7 +791,19 @@ fn compose_solid_src_over() {
     compose_impl!(Compose::SrcOver, "compose_solid_src_over");
 }
 
-fn star(center: Point, n: usize, inner: f64, outer: f64) -> BezPath {
+fn crossed_line_star() -> BezPath {
+    let mut path = BezPath::new();
+    path.move_to((50.0, 10.0));
+    path.line_to((75.0, 90.0));
+    path.line_to((10.0, 40.0));
+    path.line_to((90.0, 40.0));
+    path.line_to((25.0, 90.0));
+    path.line_to((50.0, 10.0));
+
+    path
+}
+
+fn circular_star(center: Point, n: usize, inner: f64, outer: f64) -> BezPath {
     let mut path = BezPath::new();
     let start_angle = -std::f64::consts::FRAC_PI_2;
     path.move_to(center + outer * Vec2::from_angle(start_angle));
