@@ -4,7 +4,7 @@
 //! Processing and drawing glyphs.
 
 use crate::peniko::Font;
-use skrifa::instance::{NormalizedCoord, Size};
+use skrifa::instance::Size;
 use skrifa::outline::DrawSettings;
 use skrifa::{
     GlyphId, MetadataProvider,
@@ -43,7 +43,7 @@ pub trait GlyphRenderer {
 /// A builder for configuring and drawing glyphs.
 #[derive(Debug)]
 pub struct GlyphRunBuilder<'a, T: GlyphRenderer + 'a> {
-    run: GlyphRun,
+    run: GlyphRun<'a>,
     renderer: &'a mut T,
 }
 
@@ -56,7 +56,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 font_size: 16.0,
                 glyph_transform: None,
                 hint: true,
-                normalized_coords: Vec::new(),
+                normalized_coords: &[],
             },
             renderer,
         }
@@ -81,8 +81,8 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
     }
 
     /// Set normalized variation coordinates for variable fonts.
-    pub fn normalized_coords(mut self, coords: Vec<NormalizedCoord>) -> Self {
-        self.run.normalized_coords = coords;
+    pub fn normalized_coords(mut self, coords: &'a [NormalizedCoord]) -> Self {
+        self.run.normalized_coords = bytemuck::cast_slice(coords);
         self
     }
 
@@ -99,16 +99,15 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
     }
 
     fn prepare_glyphs(
-        run: &GlyphRun,
+        run: &GlyphRun<'a>,
         glyphs: impl Iterator<Item = &'a Glyph>,
     ) -> impl Iterator<Item = PreparedGlyph> {
         let font = skrifa::FontRef::from_index(run.font.data.as_ref(), run.font.index).unwrap();
         let outlines = font.outline_glyphs();
         let size = Size::new(run.font_size);
-        let normalized_coords = run.normalized_coords.as_slice();
         let hinting_instance = if run.hint {
             // TODO: Cache hinting instance.
-            HintingInstance::new(&outlines, size, normalized_coords, HINTING_OPTIONS).ok()
+            HintingInstance::new(&outlines, size, run.normalized_coords, HINTING_OPTIONS).ok()
         } else {
             None
         };
@@ -116,7 +115,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             let draw_settings = if let Some(hinting_instance) = &hinting_instance {
                 DrawSettings::hinted(hinting_instance, false)
             } else {
-                DrawSettings::unhinted(size, normalized_coords)
+                DrawSettings::unhinted(size, run.normalized_coords)
             };
             let outline = outlines.get(GlyphId::new(glyph.id))?;
             let mut path = OutlinePath(BezPath::new());
@@ -135,7 +134,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
 /// A sequence of glyphs with shared rendering properties.
 #[derive(Clone, Debug)]
-struct GlyphRun {
+struct GlyphRun<'a> {
     /// Font for all glyphs in the run.
     pub font: Font,
     /// Size of the font in pixels per em.
@@ -143,7 +142,7 @@ struct GlyphRun {
     /// Per-glyph transform. Can be used to apply skew to simulate italic text.
     pub glyph_transform: Option<Affine>,
     /// Normalized variation coordinates for variable fonts.
-    pub normalized_coords: Vec<NormalizedCoord>,
+    pub normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     /// Controls whether font hinting is enabled.
     pub hint: bool,
 }
@@ -187,4 +186,23 @@ impl OutlinePen for OutlinePath {
     fn close(&mut self) {
         self.0.close_path();
     }
+}
+
+/// A normalized variation coordinate (for variable fonts) in 2.14 fixed point format.
+///
+/// In most cases, this can be [cast](bytemuck::cast_slice) from the
+/// normalised coords provided by your text layout library.
+///
+/// Equivalent to [`skrifa::instance::NormalizedCoord`], but defined
+/// in Vello so that Skrifa is not part of Vello's public API.
+/// This allows Vello to update its Skrifa in a patch release, and limits
+/// the need for updates only to align Skrifa versions.
+pub type NormalizedCoord = i16;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const _NORMALISED_COORD_SIZE_MATCHES: () =
+        assert!(size_of::<skrifa::instance::NormalizedCoord>() == size_of::<NormalizedCoord>());
 }

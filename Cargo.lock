@@ -3037,6 +3037,7 @@ dependencies = [
 name = "vello_common"
 version = "0.4.0"
 dependencies = [
+ "bytemuck",
  "roxmltree",
  "skrifa",
  "vello_api",

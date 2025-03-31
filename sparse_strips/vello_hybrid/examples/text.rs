@@ -225,7 +225,6 @@ fn draw_text(ctx: &mut Scene) {
 
     // Fill the text
     ctx.glyph_run(&font)
-        .normalized_coords(vec![])
         .font_size(size)
         .hint(true)
         .fill_glyphs(glyphs.iter());

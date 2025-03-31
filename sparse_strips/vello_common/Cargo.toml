@@ -15,6 +15,7 @@ publish = false
 vello_api = { workspace = true, default-features = true }
 # for pico_svg
 roxmltree = "0.20.0"
+bytemuck = { workspace = true }
 skrifa = { workspace = true }
 
 [features]
