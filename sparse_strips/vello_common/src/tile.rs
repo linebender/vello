@@ -389,7 +389,7 @@ mod tests {
 
         assert_eq!(
             tiles.tile_buf,
-            vec![
+            [
                 Tile::new(0, 0, 0, false),
                 Tile::new(1, 0, 0, false),
                 Tile::new(2, 0, 0, false),
@@ -410,7 +410,7 @@ mod tests {
 
         assert_eq!(
             tiles.tile_buf,
-            vec![
+            [
                 Tile::new(0, 0, 0, false),
                 Tile::new(0, 1, 0, true),
                 Tile::new(0, 2, 0, true),
@@ -431,7 +431,7 @@ mod tests {
 
         assert_eq!(
             tiles.tile_buf,
-            vec![
+            [
                 Tile::new(0, 0, 0, false),
                 Tile::new(1, 0, 0, false),
                 Tile::new(1, 1, 0, true),
@@ -454,7 +454,7 @@ mod tests {
 
         assert_eq!(
             tiles.tile_buf,
-            vec![
+            [
                 Tile::new(0, 0, 0, false),
                 Tile::new(1, 0, 0, false),
                 Tile::new(1, 1, 0, true),
@@ -477,7 +477,7 @@ mod tests {
 
         assert_eq!(
             tiles.tile_buf,
-            vec![
+            [
                 Tile::new(2, 1, 0, false),
                 Tile::new(3, 1, 0, false),
                 Tile::new(0, 2, 0, false),
@@ -500,7 +500,7 @@ mod tests {
 
         assert_eq!(
             tiles.tile_buf,
-            vec![
+            [
                 Tile::new(2, 1, 0, false),
                 Tile::new(3, 1, 0, false),
                 Tile::new(0, 2, 0, false),
@@ -527,7 +527,7 @@ mod tests {
 
         assert_eq!(
             tiles.tile_buf,
-            vec![Tile::new(0, 0, 0, false), Tile::new(0, 0, 1, false),]
+            [Tile::new(0, 0, 0, false), Tile::new(0, 0, 1, false),]
         );
     }
 
