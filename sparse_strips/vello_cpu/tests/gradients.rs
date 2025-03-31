@@ -254,13 +254,13 @@ fn gradient_linear_with_y_reflect() {
 }
 
 macro_rules! gradient_with_path_transform {
-    ($name:expr, $transform:expr, $p0:expr, $p1: expr) => {
+    ($name:expr, $transform:expr, $p0:expr, $p1: expr, $p2:expr, $p3: expr) => {
         let mut ctx = get_ctx(100, 100, false);
-        let rect = Rect::new($p0, $p0, $p1, $p1);
+        let rect = Rect::new($p0, $p1, $p2, $p3);
 
         let gradient = LinearGradient {
-            p0: Point::new($p0, $p0),
-            p1: Point::new($p1, $p1),
+            p0: Point::new($p0, $p1),
+            p1: Point::new($p2, $p3),
             stops: stops_green_blue(),
             transform: Affine::IDENTITY,
             extend: vello_common::peniko::Extend::Pad,
@@ -280,6 +280,8 @@ fn gradient_linear_with_path_transform_1() {
         "gradient_linear_with_path_transform_1",
         Affine::translate((25.0, 25.0)),
         0.0,
+        0.0,
+        50.0,
         50.0
     );
 }
@@ -290,6 +292,8 @@ fn gradient_linear_with_path_transform_2() {
         "gradient_linear_with_path_transform_2",
         Affine::scale(2.0),
         12.5,
+        12.5,
+        37.5,
         37.5
     );
 }
@@ -300,6 +304,8 @@ fn gradient_linear_with_path_transform_3() {
         "gradient_linear_with_path_transform_3",
         Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
         0.0,
+        0.0,
+        25.0,
         25.0
     );
 }
@@ -310,7 +316,21 @@ fn gradient_linear_with_path_transform_4() {
         "gradient_linear_with_path_transform_4",
         Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
         25.0,
+        25.0,
+        75.0,
         75.0
+    );
+}
+
+#[test]
+fn gradient_linear_with_path_transform_5() {
+    gradient_with_path_transform!(
+        "gradient_linear_with_path_transform_5",
+        Affine::scale_non_uniform(1.0, 2.0),
+        25.0,
+        12.5,
+        75.0,
+        37.5
     );
 }
 
