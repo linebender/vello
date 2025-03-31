@@ -83,7 +83,7 @@ impl<'a> LinearGradientFiller<'a> {
         self.cur_pos = EX::extend(self.cur_pos, self.gradient.end);
 
         // Get to the initial position.
-        self.advance::<XS>();
+        self.advance::<Positive>();
 
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
@@ -107,7 +107,7 @@ impl<'a> LinearGradientFiller<'a> {
                 }
 
                 self.cur_pos = EX::extend(self.cur_pos + self.x_advance, self.gradient.end);
-                self.advance::<XS>()
+                self.advance::<Positive>()
             })
     }
 
