@@ -127,9 +127,6 @@ impl LinearGradient {
                 .collect::<Vec<_>>()
         };
 
-        let y_positive = p0.y < p1.y;
-        let x_positive = p0.x < p1.x;
-
         // Double the length of the iterator, and append stops in reverse order.
         // Then we can treat it the same as repeated gradients.
         if self.extend == Extend::Reflect {
@@ -230,6 +227,9 @@ impl LinearGradient {
         } else {
             stop_ranges.collect()
         };
+        
+        let x_positive = x_advance >= 0.0;
+        let y_positive = y_advance >= 0.0;
 
         EncodedLinearGradient {
             offsets: (x_offset, y_offset),
