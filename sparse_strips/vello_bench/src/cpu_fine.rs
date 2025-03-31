@@ -50,7 +50,7 @@ pub fn fill(c: &mut Criterion) {
                 p1: Point::new(WideTile::WIDTH as f64, Tile::HEIGHT as f64),
                 stops: $stops,
                 extend: peniko::Extend::$extend,
-                transform: Affine::IDENTITY
+                transform: Affine::IDENTITY,
             })
             .encode()
             .into()];
@@ -128,7 +128,7 @@ pub fn strip(c: &mut Criterion) {
                 p1: Point::new(WideTile::WIDTH as f64, Tile::HEIGHT as f64),
                 stops: stops_blue_green_red_yellow(),
                 extend: peniko::Extend::$extend,
-                transform: Affine::IDENTITY
+                transform: Affine::IDENTITY,
             })
             .encode()
             .into()];

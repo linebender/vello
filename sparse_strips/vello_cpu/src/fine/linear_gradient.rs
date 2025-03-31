@@ -74,6 +74,7 @@ impl<'a> LinearGradientFiller<'a> {
 
     fn run_inner<YS: Sign>(mut self, target: &mut [u8], pad: bool, x_positive: bool) {
         let end = self.gradient.end;
+        
         let extend = |mut val| if pad { val } else {
             while val < 0.0 {
                 val += end;
@@ -86,15 +87,20 @@ impl<'a> LinearGradientFiller<'a> {
             val
         };
         
+        let advance_x = |lg: &mut Self| {
+            if x_positive {
+                lg.advance::<Positive>();
+            }   else {
+                lg.advance::<Negative>();
+            }
+        };
+        
+        
         let mut col_positions = [0.0; Tile::HEIGHT as usize];
         self.cur_pos = extend(self.cur_pos);
 
         // Get to the initial position.
-        if x_positive {
-            self.advance::<Positive>();
-        }   else {
-            self.advance::<Negative>();
-        }
+        advance_x(&mut self);
 
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
@@ -119,11 +125,7 @@ impl<'a> LinearGradientFiller<'a> {
 
                 self.cur_pos = extend(self.cur_pos + self.x_advance);
                 
-                if x_positive {
-                    self.advance::<Positive>();
-                }   else {
-                    self.advance::<Negative>();
-                }
+                advance_x(&mut self);
             })
     }
 
