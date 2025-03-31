@@ -260,7 +260,7 @@ macro_rules! gradient_with_path_transform {
 
         let gradient = LinearGradient {
             p0: Point::new($p0, $p0),
-            p1: Point::new($p1, $p0),
+            p1: Point::new($p1, $p1),
             stops: stops_green_blue(),
             transform: Affine::IDENTITY,
             extend: vello_common::peniko::Extend::Pad,
