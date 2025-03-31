@@ -144,8 +144,12 @@ impl RenderContext {
     }
 
     /// Render the current context into a pixmap.
-    pub fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
-        self.finish();
+    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+        if let Some(state) = self.wide.state_stack.last() {
+            if state.n_clip > 0 {
+                panic!("All clips must be popped before rendering");
+            }
+        }
         let mut fine = Fine::new(pixmap.width, pixmap.height, &mut pixmap.buf);
 
         let width_tiles = self.wide.width_tiles();
@@ -164,7 +168,10 @@ impl RenderContext {
     }
 
     /// Finish the coarse rasterization prior to fine rendering.
-    fn finish(&mut self) {
+    ///
+    /// This method is called when the render context is finished with rendering.
+    /// It pops all the clips from the wide tiles.
+    pub fn finish(&mut self) {
         self.wide.pop_clips();
     }
 

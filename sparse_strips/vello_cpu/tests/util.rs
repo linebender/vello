@@ -39,8 +39,8 @@ pub(crate) fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderConte
 
 pub(crate) fn render_pixmap(ctx: &mut RenderContext) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
+    ctx.finish();
     ctx.render_to_pixmap(&mut pixmap);
-
     pixmap
 }
 
