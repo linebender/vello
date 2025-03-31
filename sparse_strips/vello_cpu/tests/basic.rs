@@ -572,6 +572,14 @@ fn skewed_glyphs() {
     check_ref(&ctx, "skewed_glyphs");
 }
 
+/// ***DO NOT USE THIS OUTSIDE OF THESE TESTS***
+///
+/// This function is used for _TESTING PURPOSES ONLY_. If you need to layout and shape
+/// text for your application, use a proper text shaping library like `Parley`.
+///
+/// We use this function as a convenience for testing; to get some glyphs shaped and laid
+/// out in a small amount of code without having to go through the trouble of setting up a
+/// full text layout pipeline, which you absolutely should do in application code.
 fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
     const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
     let font = Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
