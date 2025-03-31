@@ -127,7 +127,8 @@ impl LinearGradient {
                 .collect::<Vec<_>>()
         };
 
-        let positive = p0.y < p1.y;
+        let y_positive = p0.y < p1.y;
+        let x_positive = p0.x < p1.x;
 
         // Double the length of the iterator, and append stops in reverse order.
         // Then we can treat it the same as repeated gradients.
@@ -240,7 +241,8 @@ impl LinearGradient {
             ranges,
             pad: self.extend == Extend::Pad,
             has_opacities,
-            positive,
+            y_positive,
+            x_positive,
         }
     }
 }
@@ -290,7 +292,8 @@ pub struct EncodedLinearGradient {
     pub ranges: Vec<GradientRange>,
     pub pad: bool,
     pub has_opacities: bool,
-    pub positive: bool,
+    pub y_positive: bool,
+    pub x_positive: bool,
 }
 
 /// A color stop.
