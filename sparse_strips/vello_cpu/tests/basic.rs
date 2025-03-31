@@ -629,7 +629,7 @@ fn filled_glyphs() {
 }
 
 #[test]
-fn clipped_triangle_with_star() {
+fn clip_triangle_with_star() {
     let mut ctx: RenderContext = get_ctx(100, 100, true);
 
     let mut triangle_path = BezPath::new();
@@ -649,11 +649,11 @@ fn clipped_triangle_with_star() {
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_path(&triangle_path);
 
-    check_ref(&mut ctx, "clipped_triangle_with_star");
+    check_ref(&mut ctx, "clip_triangle_with_star");
 }
 
 #[test]
-fn clipped_rectangle_with_star_nonzero_rule() {
+fn clip_rectangle_with_star_nonzero() {
     let mut ctx = get_ctx(100, 100, true);
 
     let clip_rect = Rect::new(5.0, 30.0, 50.0, 70.0);
@@ -670,11 +670,11 @@ fn clipped_rectangle_with_star_nonzero_rule() {
     ctx.set_fill_rule(Fill::NonZero);
     ctx.fill_path(&star_path);
 
-    check_ref(&mut ctx, "clipped_rectangle_with_star_nonzero_rule");
+    check_ref(&mut ctx, "clip_rectangle_with_star_nonzero");
 }
 
 #[test]
-fn clipped_rectangle_with_star_evenodd_rule() {
+fn clip_rectangle_with_star_evenodd() {
     let mut ctx = get_ctx(100, 100, true);
 
     let clip_rect = Rect::new(5.0, 30.0, 50.0, 70.0);
@@ -691,11 +691,11 @@ fn clipped_rectangle_with_star_evenodd_rule() {
     ctx.set_fill_rule(Fill::EvenOdd);
     ctx.fill_path(&star_path);
 
-    check_ref(&mut ctx, "clipped_rectangle_with_star_evenodd_rule");
+    check_ref(&mut ctx, "clip_rectangle_with_star_evenodd");
 }
 
 #[test]
-fn clipped_double_shapes() {
+fn clip_rectangle_and_circle() {
     let mut ctx = get_ctx(100, 100, true);
 
     // Create first clipping region - a rectangle on the left side
@@ -722,7 +722,122 @@ fn clipped_double_shapes() {
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_rect(&large_rect);
 
-    check_ref(&mut ctx, "clipped_double_shapes");
+    check_ref(&mut ctx, "clip_rectangle_and_circle");
+}
+
+#[test]
+fn clip_with_translation() {
+    let mut ctx = get_ctx(100, 100, true);
+
+    // Apply a translation transform
+    ctx.set_transform(Affine::translate((30.0, 30.0)));
+
+    // Create and apply a clipping rectangle
+    let clip_rect = Rect::new(0.0, 0.0, 40.0, 40.0);
+    draw_clipping_outline(&mut ctx, &clip_rect.to_path(0.1));
+    ctx.clip(&clip_rect.to_path(0.1));
+
+    // Draw a rectangle that should be clipped
+    let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_rect(&rect);
+
+    check_ref(&mut ctx, "clip_with_translation");
+}
+
+#[test]
+fn clip_with_scale() {
+    let mut ctx = get_ctx(100, 100, true);
+
+    ctx.set_transform(Affine::scale(2.0));
+
+    // Create and apply a clipping rectangle
+    let clip_rect = Rect::new(10.0, 10.0, 40.0, 40.0);
+    draw_clipping_outline(&mut ctx, &clip_rect.to_path(0.1));
+    ctx.clip(&clip_rect.to_path(0.1));
+
+    // Draw a rectangle that should be clipped
+    let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_rect(&rect);
+
+    check_ref(&mut ctx, "clip_with_scale");
+}
+
+#[test]
+fn clip_with_rotate() {
+    let mut ctx = get_ctx(100, 100, true);
+
+    ctx.set_transform(Affine::rotate_about(
+        45.0 * PI / 180.0,
+        Point::new(50.0, 50.0),
+    ));
+
+    // Create and apply a clipping rectangle
+    let clip_rect = Rect::new(20.0, 20.0, 80.0, 80.0);
+    draw_clipping_outline(&mut ctx, &clip_rect.to_path(0.1));
+    ctx.clip(&clip_rect.to_path(0.1));
+
+    // Draw a rectangle that should be clipped
+    let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_rect(&rect);
+
+    check_ref(&mut ctx, "clip_with_rotate");
+}
+
+#[test]
+fn clip_transformed_rect() {
+    let mut ctx = get_ctx(100, 100, true);
+
+    let clip_rect = Rect::new(20.0, 20.0, 80.0, 80.0);
+
+    draw_clipping_outline(&mut ctx, &clip_rect.to_path(0.1));
+
+    ctx.clip(&clip_rect.to_path(0.1));
+
+    ctx.set_transform(Affine::rotate_about(
+        45.0 * PI / 180.0,
+        Point::new(50.0, 50.0),
+    ));
+
+    // Draw a smaller rectangle that should be clipped
+    let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_rect(&rect);
+
+    check_ref(&mut ctx, "clip_transformed_rect");
+}
+
+#[test]
+fn clip_with_multiple_transforms() {
+    let mut ctx = get_ctx(100, 100, true);
+
+    // Apply initial transform
+    ctx.set_transform(Affine::rotate_about(
+        45.0 * PI / 180.0,
+        Point::new(50.0, 50.0),
+    ));
+
+    // Create and apply first clip
+    let clip_rect1 = Rect::new(20.0, 20.0, 80.0, 80.0);
+    draw_clipping_outline(&mut ctx, &clip_rect1.to_path(0.1));
+    ctx.clip(&clip_rect1.to_path(0.1));
+
+    // Apply another transform
+    ctx.set_transform(Affine::scale(1.5));
+
+    // Create and apply second clip
+    let clip_rect2 = Rect::new(30.0, 30.0, 70.0, 70.0);
+    draw_clipping_outline(&mut ctx, &clip_rect2.to_path(0.1));
+    ctx.clip(&clip_rect2.to_path(0.1));
+
+    // Draw a rectangle that should be clipped by both regions
+    let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_rect(&rect);
+
+    check_ref(&mut ctx, "clip_with_multiple_transforms");
 }
 
 #[test]
@@ -742,6 +857,13 @@ fn oversized_star() {
     ctx.stroke_path(&star_path);
 
     check_ref(&mut ctx, "oversized_star");
+}
+
+fn draw_clipping_outline(ctx: &mut RenderContext, path: &BezPath) {
+    let stroke = Stroke::new(1.0);
+    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_stroke(stroke);
+    ctx.stroke_path(path);
 }
 
 fn miter_stroke_2() -> Stroke {
