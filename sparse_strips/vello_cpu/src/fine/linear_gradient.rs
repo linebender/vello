@@ -60,26 +60,19 @@ impl<'a> LinearGradientFiller<'a> {
 
     pub(super) fn run(self, target: &mut [u8]) {
         let pad = self.gradient.pad;
-        self.run_1(target, pad);
+        let x_positive = self.gradient.x_positive;
+        self.run_1(target, pad, x_positive);
     }
 
-    fn run_1(self, target: &mut [u8], pad: bool) {
-        if self.gradient.x_positive {
-            self.run_2::<Positive>(target, pad);
-        }   else {
-            self.run_2::<Negative>(target, pad);
-        }
-    }
-
-    fn run_2<XS: Sign>(self, target: &mut [u8], pad: bool) {
+    fn run_1(self, target: &mut [u8], pad: bool, x_positive: bool) {
         if self.gradient.y_positive {
-            self.run_inner::<XS, Positive>(target, pad);
-        } else {
-            self.run_inner::<XS, Negative>(target, pad);
+            self.run_inner::<Positive>(target, pad, x_positive);
+        }   else {
+            self.run_inner::<Negative>(target, pad, x_positive);
         }
     }
 
-    fn run_inner<XS: Sign, YS: Sign>(mut self, target: &mut [u8], pad: bool) {
+    fn run_inner<YS: Sign>(mut self, target: &mut [u8], pad: bool, x_positive: bool) {
         let end = self.gradient.end;
         let extend = |mut val| if pad { val } else {
             while val < 0.0 {
@@ -97,7 +90,11 @@ impl<'a> LinearGradientFiller<'a> {
         self.cur_pos = extend(self.cur_pos);
 
         // Get to the initial position.
-        self.advance::<Positive>();
+        if x_positive {
+            self.advance::<Positive>();
+        }   else {
+            self.advance::<Negative>();
+        }
 
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
@@ -121,7 +118,12 @@ impl<'a> LinearGradientFiller<'a> {
                 }
 
                 self.cur_pos = extend(self.cur_pos + self.x_advance);
-                self.advance::<Positive>()
+                
+                if x_positive {
+                    self.advance::<Positive>();
+                }   else {
+                    self.advance::<Negative>();
+                }
             })
     }
 
