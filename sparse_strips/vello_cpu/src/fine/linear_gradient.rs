@@ -2,7 +2,7 @@
 
 use crate::fine;
 use crate::fine::{
-    COLOR_COMPONENTS, Extend, Negative, Pad, Positive, Repeat, Sign, TILE_HEIGHT_COMPONENTS,
+    COLOR_COMPONENTS, Extend, Negative, Pad, Positive, Repeat, Sign, TILE_HEIGHT_COMPONENTS, extend,
 };
 use crate::paint::{EncodedLinearGradient, GradientRange};
 use vello_common::tile::Tile;
@@ -75,21 +75,7 @@ impl<'a> LinearGradientFiller<'a> {
     fn run_inner<YS: Sign>(mut self, target: &mut [u8], pad: bool, x_positive: bool) {
         let end = self.gradient.end;
 
-        let extend = |mut val| {
-            if pad {
-                val
-            } else {
-                while val < 0.0 {
-                    val += end;
-                }
-
-                while val > self.gradient.end {
-                    val -= end;
-                }
-
-                val
-            }
-        };
+        let extend = |val| extend(val, pad, end);
 
         let advance_x = |lg: &mut Self| {
             if x_positive {

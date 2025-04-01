@@ -380,3 +380,20 @@ impl Sign for Positive {
         }
     }
 }
+
+#[inline(always)]
+pub(crate) fn extend(mut val: f32, pad: bool, end: f32) -> f32 {
+    if pad {
+        val
+    } else {
+        while val < 0.0 {
+            val += end;
+        }
+
+        while val > end {
+            val -= end;
+        }
+
+        val
+    }
+}
