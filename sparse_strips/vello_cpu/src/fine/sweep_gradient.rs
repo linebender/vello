@@ -61,7 +61,10 @@ impl<'a> SweepGradientFiller<'a> {
                 let mut pos = self.cur_pos;
 
                 for pixel in column.chunks_exact_mut(COLOR_COMPONENTS) {
-                    let angle = extend(self.cur_angle(pos));
+                    let actual_pos = self.gradient.trans * Point::new(pos.0 as f64, pos.1 as f64);
+                    let points = (actual_pos.x as f32, actual_pos.y as f32);
+
+                    let angle = extend(self.cur_angle(points));
                     self.advance::<Positive>(angle);
                     let range = self.cur_range;
 
@@ -72,12 +75,10 @@ impl<'a> SweepGradientFiller<'a> {
                         pixel[col_idx] = (range.c0[col_idx] as i16 + combined) as u8;
                     }
 
-                    pos.0 += self.gradient.y_deltas.x as f32;
-                    pos.1 += self.gradient.y_deltas.y as f32;
+                    pos.1 += 1.0;
                 }
 
-                self.cur_pos.0 += self.gradient.x_deltas.x as f32;
-                self.cur_pos.1 += self.gradient.x_deltas.y as f32;
+                self.cur_pos.0 += 1.0;
             })
     }
 }

@@ -85,14 +85,10 @@ impl SweepGradient {
         let c = self.transform.as_coeffs();
 
         let offsets = (-center.x as f32, -center.y as f32);
-        let delta_scale = Affine::new([1.0, c[1], c[2], 1.0, 0.0, 0.0]).inverse();
-
-        let x_deltas = delta_scale * Point::new(1.0, 0.0);
-        let y_deltas = delta_scale * Point::new(0.0, 1.0);
+        let trans = Affine::new([c[0], c[1], c[2], c[3], 0.0, 0.0]).inverse();
 
         EncodedSweepGradient {
-            x_deltas,
-            y_deltas,
+            trans,
             start_angle,
             end_angle,
             offsets,
@@ -281,8 +277,7 @@ impl From<EncodedSweepGradient> for EncodedPaint {
 
 #[derive(Debug)]
 pub struct EncodedSweepGradient {
-    pub x_deltas: Point,
-    pub y_deltas: Point,
+    pub trans: Affine,
     pub start_angle: f32,
     pub end_angle: f32,
     pub offsets: (f32, f32),
