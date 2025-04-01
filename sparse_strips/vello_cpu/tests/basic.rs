@@ -536,7 +536,7 @@ fn filled_glyphs() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.glyph_run(&font)
         .font_size(font_size)
-        .fill_glyphs(glyphs.iter());
+        .fill_glyphs(glyphs.into_iter());
 
     check_ref(&ctx, "filled_glyphs");
 }
@@ -551,7 +551,7 @@ fn stroked_glyphs() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.glyph_run(&font)
         .font_size(font_size)
-        .stroke_glyphs(glyphs.iter());
+        .stroke_glyphs(glyphs.into_iter());
 
     check_ref(&ctx, "stroked_glyphs");
 }
@@ -567,7 +567,7 @@ fn skewed_glyphs() {
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.0))
-        .fill_glyphs(glyphs.iter());
+        .fill_glyphs(glyphs.into_iter());
 
     check_ref(&ctx, "skewed_glyphs");
 }
@@ -582,7 +582,7 @@ fn scaled_glyphs() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.glyph_run(&font)
         .font_size(font_size)
-        .fill_glyphs(glyphs.iter());
+        .fill_glyphs(glyphs.into_iter());
 
     check_ref(&ctx, "scaled_glyphs");
 }
