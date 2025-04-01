@@ -187,7 +187,7 @@ impl GlyphRenderer for RenderContext {
         match glyph {
             PreparedGlyph::Outline(glyph) => {
                 let transform = self.transform * glyph.local_transform;
-                flatten::fill(&glyph.path, transform, &mut self.line_buf);
+                flatten::fill(glyph.path, transform, &mut self.line_buf);
                 self.render_path(Fill::NonZero, self.paint.clone());
             }
         }
@@ -197,7 +197,7 @@ impl GlyphRenderer for RenderContext {
         match glyph {
             PreparedGlyph::Outline(glyph) => {
                 let transform = self.transform * glyph.local_transform;
-                flatten::stroke(&glyph.path, &self.stroke, transform, &mut self.line_buf);
+                flatten::stroke(glyph.path, &self.stroke, transform, &mut self.line_buf);
                 self.render_path(Fill::NonZero, self.paint.clone());
             }
         }
