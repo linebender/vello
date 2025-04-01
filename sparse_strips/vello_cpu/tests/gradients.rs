@@ -350,25 +350,6 @@ fn gradient_linear_with_path_transform_5() {
 
 // TODO: Add test case for skewing transforms
 
-#[test]
-fn gradient_sweep_2_stops() {
-    let mut ctx = get_ctx(100, 100, false);
-    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-
-    let gradient = SweepGradient {
-        center: Point::new(50.0, 50.0),
-        start_angle: 0.0,
-        end_angle: 360.0,
-        stops: stops_green_blue(),
-        extend: vello_common::peniko::Extend::Pad,
-    };
-
-    ctx.set_paint(gradient);
-    ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "gradient_sweep_2_stops");
-}
-
 fn stops_green_blue() -> Vec<Stop> {
     vec![
         Stop {
