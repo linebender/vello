@@ -49,6 +49,7 @@ pub struct SweepGradient {
     /// The color stops of the linear gradient.
     pub stops: Vec<Stop>,
     pub extend: Extend,
+    pub transform: Affine,
 }
 
 impl SweepGradient {
@@ -80,14 +81,17 @@ impl SweepGradient {
 
         let stops = encode_stops(&stops, start_angle, end_angle, pad);
 
-        let offsets = (-self.center.x as f32, -self.center.y as f32);
-        let rotation = Affine::rotate(0.0);
+        let c = self.transform.as_coeffs();
+        let offsets = (
+            -self.center.x as f32 + c[4] as f32,
+            -self.center.y as f32 + c[5] as f32,
+        );
+        let delta_scale = Affine::new([c[0], c[1], c[2], c[3], 0.0, 0.0]);
 
-        let x_deltas = rotation * Point::new(1.0, 0.0);
-        let y_deltas = rotation * Point::new(0.0, 1.0);
+        let x_deltas = delta_scale * Point::new(1.0, 0.0);
+        let y_deltas = delta_scale * Point::new(0.0, 1.0);
 
         EncodedSweepGradient {
-            rotation,
             x_deltas,
             y_deltas,
             start_angle,
@@ -278,7 +282,6 @@ impl From<EncodedSweepGradient> for EncodedPaint {
 
 #[derive(Debug)]
 pub struct EncodedSweepGradient {
-    pub rotation: Affine,
     pub x_deltas: Point,
     pub y_deltas: Point,
     pub start_angle: f32,

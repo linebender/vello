@@ -2,8 +2,6 @@ use crate::util::{
     check_ref, get_ctx, star_path, stops_blue_green_red_yellow, stops_green_blue,
     stops_green_blue_with_alpha,
 };
-use std::f64::consts::PI;
-use vello_common::color::palette::css::{BLACK, BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_cpu::paint::{LinearGradient, Stop, SweepGradient};
 
@@ -20,6 +18,7 @@ macro_rules! basic {
             end_angle: 360.0,
             stops: $stops,
             extend: vello_common::peniko::Extend::Pad,
+            transform: Affine::IDENTITY,
         };
 
         ctx.set_paint(gradient);
@@ -76,6 +75,7 @@ fn gradient_sweep_complex_shape() {
         end_angle: 360.0,
         stops: stops_blue_green_red_yellow(),
         extend: vello_common::peniko::Extend::Pad,
+        transform: Affine::IDENTITY,
     };
 
     ctx.set_paint(gradient);
@@ -95,6 +95,7 @@ macro_rules! spread_method {
             end_angle: 210.0,
             stops: stops_blue_green_red_yellow(),
             extend: $extend,
+            transform: Affine::IDENTITY,
         };
 
         ctx.set_paint(gradient);

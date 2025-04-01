@@ -391,7 +391,7 @@ pub(crate) fn extend(mut val: f32, pad: bool, start: f32, end: f32) -> f32 {
         }
 
         while val > end {
-            val -= (end - start);
+            val -= end - start;
         }
 
         val

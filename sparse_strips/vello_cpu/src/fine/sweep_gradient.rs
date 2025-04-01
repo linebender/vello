@@ -21,7 +21,6 @@ impl<'a> SweepGradientFiller<'a> {
             start_x as f64 + gradient.offsets.0 as f64 + 0.5,
             start_y as f64 + gradient.offsets.1 as f64 + 0.5,
         );
-        start_point = gradient.rotation * start_point;
 
         let filler = Self {
             cur_pos: (start_point.x as f32, start_point.y as f32),
