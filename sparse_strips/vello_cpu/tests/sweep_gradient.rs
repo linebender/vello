@@ -203,9 +203,9 @@ fn gradient_sweep_with_transform_negative_scale() {
 // TODO: Add negative scale
 
 #[test]
-fn gradient_sweep_with_transform_scale_and_transform() {
+fn gradient_sweep_with_transform_scale_and_translate() {
     gradient_with_transform!(
-        "gradient_sweep_with_transform_scale_and_transform",
+        "gradient_sweep_with_transform_scale_and_translate",
         Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
         0.0,
         0.0,
