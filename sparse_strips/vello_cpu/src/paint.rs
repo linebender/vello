@@ -84,7 +84,7 @@ impl SweepGradient {
         let center = self.transform * self.center;
         let c = self.transform.as_coeffs();
 
-        let trans = Affine::new([c[0], c[1], c[2], c[3], center.x, center.y]).inverse();
+        let trans = Affine::new([c[0], c[1], c[2], c[3], center.x - 0.5, center.y - 0.5]).inverse();
 
         EncodedSweepGradient {
             trans,
