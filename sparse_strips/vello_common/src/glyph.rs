@@ -103,7 +103,8 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         let outlines = font.outline_glyphs();
         let size = Size::new(self.run.font_size);
         let hinting_instance = if self.run.hint {
-            // Rotated, skewed, or other transformations cannot be hinted.
+            // Only transformations including uniform scaling and translation can be hinted.
+            // Rotated, skewed, and other transformations cannot be hinted.
             let [a, b, c, d, _, _] = self.run.transform.as_coeffs();
             if a == d && b == 0.0 && c == 0.0 {
                 // TODO: Cache hinting instance.
