@@ -223,13 +223,13 @@ impl<'a> Fine<'a> {
                         );
                     }
                     EncodedPaint::SweepGradient(s) => {
-                        // let mut iter = SweepGradientFiller::new(s, start_x, start_y);
-                        // iter.run(color_buf);
-                        // strip::src_over(
-                        //     blend_buf,
-                        //     color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-                        //     alphas,
-                        // );
+                        let mut iter = SweepGradientFiller::new(s, start_x, start_y);
+                        iter.run(color_buf);
+                        strip::src_over(
+                            blend_buf,
+                            color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+                            alphas,
+                        );
                     }
                 }
             }
