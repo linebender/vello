@@ -6,13 +6,16 @@
 mod common;
 
 use common::{RenderContext, RenderSurface, create_vello_renderer, create_winit_window};
-use skrifa::MetadataProvider;
-use skrifa::raw::FileRef;
+use parley::FontFamily;
+use parley::{
+    Alignment, AlignmentOptions, FontContext, GlyphRun, Layout, LayoutContext,
+    PositionedLayoutItem, StyleProperty,
+};
+use skrifa::instance::NormalizedCoord;
 use std::sync::Arc;
+use vello_common::color::palette::css::WHITE;
+use vello_common::color::{AlphaColor, Srgb};
 use vello_common::glyph::Glyph;
-use vello_common::kurbo::Affine;
-use vello_common::peniko::color::palette;
-use vello_common::peniko::{Blob, Font};
 use vello_hybrid::{RenderParams, Renderer, Scene};
 use wgpu::RenderPassDescriptor;
 use winit::{
@@ -24,13 +27,28 @@ use winit::{
 
 const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ColorBrush {
+    color: AlphaColor<Srgb>,
+}
+
+impl Default for ColorBrush {
+    fn default() -> Self {
+        Self { color: WHITE }
+    }
+}
+
 fn main() {
     let mut app = App {
         context: RenderContext::new(),
+        font_cx: FontContext::new(),
+        layout_cx: LayoutContext::new(),
         renderers: vec![],
         state: RenderState::Suspended(None),
         scene: Scene::new(900, 600),
     };
+
+    app.font_cx.collection.register_fonts(ROBOTO_FONT.to_vec());
 
     let event_loop = EventLoop::new().unwrap();
     event_loop
@@ -49,6 +67,8 @@ enum RenderState<'s> {
 
 struct App<'s> {
     context: RenderContext,
+    font_cx: FontContext,
+    layout_cx: LayoutContext<ColorBrush>,
     renderers: Vec<Option<Renderer>>,
     state: RenderState<'s>,
     scene: Scene,
@@ -115,7 +135,13 @@ impl ApplicationHandler for App<'_> {
             WindowEvent::RedrawRequested => {
                 self.scene.reset();
 
-                draw_text(&mut self.scene);
+                draw_text(
+                    &mut self.scene,
+                    String::from("Hello from Vello Hybrid and Parley!"),
+                    &mut self.font_cx,
+                    &mut self.layout_cx,
+                );
+
                 let device_handle = &self.context.devices[surface.dev_id];
                 let render_params = RenderParams {
                     width: surface.config.width,
@@ -175,74 +201,63 @@ impl ApplicationHandler for App<'_> {
     }
 }
 
-fn draw_text(ctx: &mut Scene) {
-    let font = Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
-    let font_ref = {
-        let file_ref = FileRef::new(font.data.as_ref()).unwrap();
-        match file_ref {
-            FileRef::Font(f) => f,
-            FileRef::Collection(collection) => collection.get(font.index).unwrap(),
-        }
-    };
-    let axes = font_ref.axes();
-    let size = 52_f32;
-    let font_size = skrifa::instance::Size::new(size);
-    let variations: Vec<(&str, f32)> = vec![];
-    let var_loc = axes.location(variations.as_slice());
-    let charmap = font_ref.charmap();
-    let metrics = font_ref.metrics(font_size, &var_loc);
-    let line_height = metrics.ascent - metrics.descent + metrics.leading;
-    let glyph_metrics = font_ref.glyph_metrics(font_size, &var_loc);
+fn draw_text(
+    ctx: &mut Scene,
+    text: String,
+    font_cx: &mut FontContext,
+    layout_cx: &mut LayoutContext<ColorBrush>,
+) {
+    let mut builder = layout_cx.ranged_builder(font_cx, &text, 1.0);
+    builder.push_default(FontFamily::parse("Roboto").unwrap());
+    builder.push_default(StyleProperty::LineHeight(1.3));
+    builder.push_default(StyleProperty::FontSize(32.0));
 
-    let mut pen_x = 0_f32;
-    let mut pen_y = 0_f32;
+    let mut layout: Layout<ColorBrush> = builder.build(&text);
+    let max_advance = Some(400.0);
+    layout.break_all_lines(max_advance);
+    layout.align(max_advance, Alignment::Middle, AlignmentOptions::default());
 
-    let text = "Hello, world!";
-
-    let glyphs = text
-        .chars()
-        .filter_map(|ch| {
-            if ch == '\n' {
-                pen_y += line_height;
-                pen_x = 0.0;
-                return None;
+    for line in layout.lines() {
+        for item in line.items() {
+            match item {
+                PositionedLayoutItem::GlyphRun(glyph_run) => {
+                    render_glyph_run(ctx, &glyph_run, 30);
+                }
+                _ => {}
             }
-            let gid = charmap.map(ch).unwrap_or_default();
-            let advance = glyph_metrics.advance_width(gid).unwrap_or_default();
-            let x = pen_x;
-            pen_x += advance;
-            Some(Glyph {
-                id: gid.to_u32(),
-                x,
-                y: pen_y,
-            })
-        })
+        }
+    }
+}
+
+fn render_glyph_run(ctx: &mut Scene, glyph_run: &GlyphRun<'_, ColorBrush>, padding: u32) {
+    let mut run_x = glyph_run.offset();
+    let run_y = glyph_run.baseline();
+    let glyphs = glyph_run.glyphs().map(|glyph| {
+        let glyph_x = run_x + glyph.x + padding as f32;
+        let glyph_y = run_y - glyph.y + padding as f32;
+        run_x += glyph.advance;
+
+        Glyph {
+            id: glyph.id as u32,
+            x: glyph_x,
+            y: glyph_y,
+        }
+    });
+
+    let run = glyph_run.run();
+    let font = run.font();
+    let font_size = run.font_size();
+    let normalized_coords = run
+        .normalized_coords()
+        .iter()
+        .map(|coord| NormalizedCoord::from_bits(*coord))
         .collect::<Vec<_>>();
 
-    ctx.set_paint(palette::css::WHITE.into());
-    let transform = Affine::scale(2.0).then_translate((0., f64::from(size) * 2.0).into());
-    ctx.set_transform(transform);
-
-    // Fill the text
-    ctx.glyph_run(&font)
-        .font_size(size)
+    let style = glyph_run.style();
+    ctx.set_paint(style.brush.color.into());
+    ctx.glyph_run(font)
+        .font_size(font_size)
+        .normalized_coords(bytemuck::cast_slice(normalized_coords.as_slice()))
         .hint(true)
-        .fill_glyphs(glyphs.iter());
-
-    ctx.set_transform(transform.then_translate((0., f64::from(size) * 2.0).into()));
-
-    // Stroke the text
-    ctx.glyph_run(&font)
-        .font_size(size)
-        .hint(true)
-        .stroke_glyphs(glyphs.iter());
-
-    ctx.set_transform(transform.then_translate((0., f64::from(size) * 4.0).into()));
-
-    // Skew the text to the right
-    ctx.glyph_run(&font)
-        .font_size(size)
-        .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.0))
-        .hint(true)
-        .stroke_glyphs(glyphs.iter());
+        .fill_glyphs(glyphs);
 }

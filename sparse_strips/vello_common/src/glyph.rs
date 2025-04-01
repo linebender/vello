@@ -88,16 +88,16 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
     }
 
     /// Consumes the builder and fills the glyphs with the current configuration.
-    pub fn fill_glyphs(self, glyphs: impl Iterator<Item = &'a Glyph>) {
+    pub fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph>) {
         self.render(glyphs, Style::Fill);
     }
 
     /// Consumes the builder and strokes the glyphs with the current configuration.
-    pub fn stroke_glyphs(self, glyphs: impl Iterator<Item = &'a Glyph>) {
+    pub fn stroke_glyphs(self, glyphs: impl Iterator<Item = Glyph>) {
         self.render(glyphs, Style::Stroke);
     }
 
-    fn render(self, glyphs: impl Iterator<Item = &'a Glyph>, style: Style) {
+    fn render(self, glyphs: impl Iterator<Item = Glyph>, style: Style) {
         let font =
             skrifa::FontRef::from_index(self.run.font.data.as_ref(), self.run.font.index).unwrap();
         let outlines = font.outline_glyphs();
