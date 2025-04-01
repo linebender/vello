@@ -15,10 +15,7 @@ pub(crate) struct SweepGradientFiller<'a> {
 
 impl<'a> SweepGradientFiller<'a> {
     pub(crate) fn new(gradient: &'a EncodedSweepGradient, start_x: u16, start_y: u16) -> Self {
-        let mut start_point = Point::new(
-            start_x as f64 + gradient.offsets.0 as f64 + 0.5,
-            start_y as f64 + gradient.offsets.1 as f64 + 0.5,
-        );
+        let mut start_point = Point::new(start_x as f64 + 0.5, start_y as f64 + 0.5);
 
         let filler = Self {
             cur_pos: (start_point.x as f32, start_point.y as f32),
