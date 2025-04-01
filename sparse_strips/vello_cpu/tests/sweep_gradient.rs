@@ -200,8 +200,6 @@ fn gradient_sweep_with_transform_negative_scale() {
     );
 }
 
-// TODO: Add negative scale
-
 #[test]
 fn gradient_sweep_with_transform_scale_and_translate() {
     gradient_with_transform!(
