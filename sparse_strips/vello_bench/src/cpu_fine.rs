@@ -76,10 +76,11 @@ pub fn fill(c: &mut Criterion) {
         ($name:ident, $extend:ident, $stops:expr) => {
             let paints = [(SweepGradient {
                 center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
-                start_angle: 120.0,
-                end_angle: 240.0,
+                start_angle: 150.0,
+                end_angle: 210.0,
                 stops: $stops,
                 extend: peniko::Extend::$extend,
+                transform: Affine::default(),
             })
             .encode()
             .into()];
@@ -87,7 +88,11 @@ pub fn fill(c: &mut Criterion) {
             fill_single!($name, &Paint::Indexed(IndexedPaint::new(0)), &paints[..]);
         };
     }
-    fill_single_sweep!(sweep_gradient_pad, Pad, stops_blue_green_red_yellow());
+    fill_single_sweep!(
+        sweep_gradient_opaque,
+        Pad,
+        stops_blue_green_red_yellow_opaque()
+    );
 }
 
 pub fn strip(c: &mut Criterion) {
