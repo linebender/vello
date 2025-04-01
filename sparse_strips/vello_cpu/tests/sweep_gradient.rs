@@ -10,12 +10,12 @@ use vello_cpu::paint::{LinearGradient, Stop, SweepGradient};
 mod util;
 
 macro_rules! basic {
-    ($stops:expr, $name:expr) => {
+    ($stops:expr, $name:expr, $center:expr) => {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
         let gradient = SweepGradient {
-            center: Point::new(50.0, 50.0),
+            center: $center,
             start_angle: 0.0,
             end_angle: 360.0,
             stops: $stops,
@@ -31,20 +31,26 @@ macro_rules! basic {
 
 #[test]
 fn gradient_sweep_2_stops() {
-    basic!(stops_green_blue(), "gradient_sweep_2_stops");
+    basic!(stops_green_blue(), "gradient_sweep_2_stops", Point::new(50.0, 50.0));
 }
 
 #[test]
 fn gradient_sweep_2_stops_with_alpha() {
     basic!(
         stops_green_blue_with_alpha(),
-        "gradient_sweep_2_stops_with_alpha"
+        "gradient_sweep_2_stops_with_alpha",
+        Point::new(50.0, 50.0)
     );
 }
 
 #[test]
 fn gradient_sweep_4_stops() {
-    basic!(stops_blue_green_red_yellow(), "gradient_sweep_4_stops");
+    basic!(stops_blue_green_red_yellow(), "gradient_sweep_4_stops", Point::new(50.0, 50.0));
+}
+
+#[test]
+fn gradient_sweep_not_in_center() {
+    basic!(stops_green_blue(), "gradient_sweep_not_in_center", Point::new(30.0, 30.0));
 }
 
 #[test]
