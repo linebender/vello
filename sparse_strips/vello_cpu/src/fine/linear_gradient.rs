@@ -67,35 +67,38 @@ impl<'a> LinearGradientFiller<'a> {
     fn run_1(self, target: &mut [u8], pad: bool, x_positive: bool) {
         if self.gradient.y_positive {
             self.run_inner::<Positive>(target, pad, x_positive);
-        }   else {
+        } else {
             self.run_inner::<Negative>(target, pad, x_positive);
         }
     }
 
     fn run_inner<YS: Sign>(mut self, target: &mut [u8], pad: bool, x_positive: bool) {
         let end = self.gradient.end;
-        
-        let extend = |mut val| if pad { val } else {
-            while val < 0.0 {
-                val += end;
-            }
 
-            while val > self.gradient.end {
-                val -= end;
-            }
+        let extend = |mut val| {
+            if pad {
+                val
+            } else {
+                while val < 0.0 {
+                    val += end;
+                }
 
-            val
+                while val > self.gradient.end {
+                    val -= end;
+                }
+
+                val
+            }
         };
-        
+
         let advance_x = |lg: &mut Self| {
             if x_positive {
                 lg.advance::<Positive>();
-            }   else {
+            } else {
                 lg.advance::<Negative>();
             }
         };
-        
-        
+
         let mut col_positions = [0.0; Tile::HEIGHT as usize];
         self.cur_pos = extend(self.cur_pos);
 
@@ -124,7 +127,7 @@ impl<'a> LinearGradientFiller<'a> {
                 }
 
                 self.cur_pos = extend(self.cur_pos + self.x_advance);
-                
+
                 advance_x(&mut self);
             })
     }

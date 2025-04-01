@@ -58,26 +58,7 @@ impl SweepGradient {
 
         let has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
 
-        let stops = if start_angle <= end_angle {
-            self.stops
-                .iter()
-                .map(|s| {
-                    let s: EncodedSweepStop = (*s).into();
-                    s
-                })
-                .collect()
-        } else {
-            std::mem::swap(&mut start_angle, &mut end_angle);
-
-            self.stops
-                .iter()
-                .rev()
-                .map(|s| EncodedSweepStop {
-                    offset: 1.0 - s.offset,
-                    color: s.color.premultiply().to_rgba8_fast(),
-                })
-                .collect::<Vec<_>>()
-        };
+        let stops = encode_stops(&self.stops, end_angle, self.extend == Extend::Pad);
 
         let offsets = (-self.center.x as f32, -self.center.y as f32);
 
@@ -85,7 +66,7 @@ impl SweepGradient {
             rotation: -start_angle,
             end_angle: end_angle - start_angle,
             offsets,
-            stops,
+            ranges: stops,
             pad: true,
             has_opacities,
         }
@@ -178,56 +159,8 @@ impl LinearGradient {
 
         let end = (dx * dx + dy * dy).sqrt();
 
-        let create_range = |left_stop: &Stop, right_stop: &Stop| {
-            let x0 = end * left_stop.offset;
-            let x1 = end * right_stop.offset;
-            let c0 = left_stop.color.premultiply().to_rgba8_fast();
-            let c1 = right_stop.color.premultiply().to_rgba8_fast();
+        let ranges = encode_stops(&stops, end, self.extend == Extend::Pad);
 
-            let mut im1 = [0.0; 4];
-            // Make sure this doesn't end up being 0 for our pad stops.
-            let im2 = (x1 - x0).max(0.0000001);
-            let mut im3 = [0.0; 4];
-
-            for i in 0..COLOR_COMPONENTS {
-                im1[i] = c1[i] as f32 - c0[i] as f32;
-                im3[i] = im1[i] / im2;
-            }
-
-            GradientRange { x0, x1, c0, im3 }
-        };
-
-        let stop_ranges = stops.windows(2).map(|s| {
-            let left_stop = &s[0];
-            let right_stop = &s[1];
-
-            create_range(left_stop, right_stop)
-        });
-
-        let pad = self.extend == Extend::Pad;
-        let ranges = if pad {
-            let left_range = iter::once({
-                let first_stop = &stops[0];
-                let mut encoded_range = create_range(first_stop, first_stop);
-                encoded_range.x0 = f32::MIN;
-
-                encoded_range
-            });
-
-            let right_range = iter::once({
-                let last_stop = stops.last().unwrap();
-
-                let mut encoded_range = create_range(&last_stop, &last_stop);
-                encoded_range.x1 = f32::MAX;
-
-                encoded_range
-            });
-
-            left_range.chain(stop_ranges.chain(right_range)).collect()
-        } else {
-            stop_ranges.collect()
-        };
-        
         let x_positive = x_advance >= 0.0;
         let y_positive = y_advance >= 0.0;
 
@@ -244,6 +177,57 @@ impl LinearGradient {
             y_positive,
             x_positive,
         }
+    }
+}
+
+fn encode_stops(stops: &[Stop], end: f32, pad: bool) -> Vec<GradientRange> {
+    let create_range = |left_stop: &Stop, right_stop: &Stop| {
+        let x0 = end * left_stop.offset;
+        let x1 = end * right_stop.offset;
+        let c0 = left_stop.color.premultiply().to_rgba8_fast();
+        let c1 = right_stop.color.premultiply().to_rgba8_fast();
+
+        let mut im1 = [0.0; 4];
+        // Make sure this doesn't end up being 0 for our pad stops.
+        let im2 = (x1 - x0).max(0.0000001);
+        let mut im3 = [0.0; 4];
+
+        for i in 0..COLOR_COMPONENTS {
+            im1[i] = c1[i] as f32 - c0[i] as f32;
+            im3[i] = im1[i] / im2;
+        }
+
+        GradientRange { x0, x1, c0, im3 }
+    };
+
+    let stop_ranges = stops.windows(2).map(|s| {
+        let left_stop = &s[0];
+        let right_stop = &s[1];
+
+        create_range(left_stop, right_stop)
+    });
+
+    if pad {
+        let left_range = iter::once({
+            let first_stop = &stops[0];
+            let mut encoded_range = create_range(first_stop, first_stop);
+            encoded_range.x0 = f32::MIN;
+
+            encoded_range
+        });
+
+        let right_range = iter::once({
+            let last_stop = stops.last().unwrap();
+
+            let mut encoded_range = create_range(&last_stop, &last_stop);
+            encoded_range.x1 = f32::MAX;
+
+            encoded_range
+        });
+
+        left_range.chain(stop_ranges.chain(right_range)).collect()
+    } else {
+        stop_ranges.collect()
     }
 }
 
@@ -270,7 +254,7 @@ pub struct EncodedSweepGradient {
     pub rotation: f32,
     pub end_angle: f32,
     pub offsets: (f32, f32),
-    pub stops: Vec<EncodedSweepStop>,
+    pub ranges: Vec<GradientRange>,
     pub pad: bool,
     pub has_opacities: bool,
 }
@@ -303,22 +287,4 @@ pub struct GradientRange {
     pub(crate) x1: f32,
     pub(crate) c0: [u8; 4],
     pub(crate) im3: [f32; 4],
-}
-
-/// A color stop.
-#[derive(Debug, Clone)]
-pub struct EncodedSweepStop {
-    /// The normalized offset of the stop.
-    pub offset: f32,
-    /// The color of the stop.
-    pub color: [u8; 4],
-}
-
-impl From<Stop> for EncodedSweepStop {
-    fn from(value: Stop) -> Self {
-        Self {
-            offset: value.offset,
-            color: value.color.premultiply().to_rgba8_fast(),
-        }
-    }
 }
