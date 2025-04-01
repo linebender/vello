@@ -258,6 +258,18 @@ macro_rules! gradient_with_path_transform {
 }
 
 #[test]
+fn gradient_linear_with_path_transform_identity() {
+    gradient_with_path_transform!(
+        "gradient_linear_with_path_transform_identity",
+        Affine::IDENTITY,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
+}
+
+#[test]
 fn gradient_linear_with_path_transform_1() {
     gradient_with_path_transform!(
         "gradient_linear_with_path_transform_1",

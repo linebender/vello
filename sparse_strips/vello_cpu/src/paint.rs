@@ -81,12 +81,11 @@ impl SweepGradient {
 
         let stops = encode_stops(&stops, start_angle, end_angle, pad);
 
+        let center = self.transform * self.center;
         let c = self.transform.as_coeffs();
-        let offsets = (
-            -self.center.x as f32 + c[4] as f32,
-            -self.center.y as f32 + c[5] as f32,
-        );
-        let delta_scale = Affine::new([c[0], c[1], c[2], c[3], 0.0, 0.0]);
+
+        let offsets = (-center.x as f32, -center.y as f32);
+        let delta_scale = Affine::new([1.0, c[1], c[2], 1.0, 0.0, 0.0]).inverse();
 
         let x_deltas = delta_scale * Point::new(1.0, 0.0);
         let y_deltas = delta_scale * Point::new(0.0, 1.0);

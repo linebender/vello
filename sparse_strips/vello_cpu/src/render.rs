@@ -87,7 +87,9 @@ impl RenderContext {
                     .push(EncodedPaint::LinearGradient(encoded));
                 Paint::Indexed(IndexedPaint::new(idx))
             }
-            PaintType::SweepGradient(s) => {
+            PaintType::SweepGradient(mut s) => {
+                s.transform = self.transform * s.transform;
+
                 let encoded = s.encode();
                 let idx = self.encoded_paints.len();
                 self.encoded_paints
