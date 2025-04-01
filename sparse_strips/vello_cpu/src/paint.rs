@@ -55,8 +55,8 @@ pub struct SweepGradient {
 impl SweepGradient {
     pub fn encode(self) -> EncodedSweepGradient {
         let mut stops = self.stops;
-        let start_angle = self.start_angle * (PI / 180.0);
-        let mut end_angle = self.end_angle * (PI / 180.0);
+        let start_angle = self.start_angle.to_radians();
+        let mut end_angle = self.end_angle.to_radians();
 
         if self.extend == Extend::Reflect {
             end_angle += end_angle - start_angle;
