@@ -76,14 +76,10 @@ impl SweepGradient {
         }
 
         let pad = self.extend == Extend::Pad;
-
         let has_opacities = stops.iter().any(|s| s.color.components[3] != 1.0);
-
         let stops = encode_stops(&stops, start_angle, end_angle, pad);
-
         let center = self.transform * self.center;
         let c = self.transform.as_coeffs();
-
         let trans = Affine::new([c[0], c[1], c[2], c[3], center.x - 0.5, center.y - 0.5]).inverse();
 
         EncodedSweepGradient {
@@ -112,8 +108,8 @@ pub struct LinearGradient {
 impl LinearGradient {
     pub fn encode(self) -> EncodedLinearGradient {
         // Note that this will not work for transforms with coordinate skewing.
-        let mut p0 = self.transform * self.p0;
-        let mut p1 = self.transform * self.p1;
+        let mut p0 = self.p0;
+        let mut p1 = self.p1;
 
         let has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
 
@@ -163,34 +159,15 @@ impl LinearGradient {
         let fact1 = norm.1;
         let fact2 = norm.0;
 
-        // How much do we advance in the direction of the gradient, when taking one step to the right
-        // (i.e. when processing a new column in the strip)?
-        let x_advance = if dx == 0.0 {
-            0.0
-        } else {
-            let dy_dx = dy / dx;
-            1.0 / (1.0 + dy_dx * dy_dx).sqrt()
-        };
-
-        // How much do we advance in the direction of the gradient, when taking one step to the bottom
-        // (i.e. when processing a new pixel in the current column)?
-        let y_advance = if dy == 0.0 {
-            0.0
-        } else {
-            let dx_dy = dx / dy;
-            (1.0 / (1.0 + dx_dy * dx_dy).sqrt()).copysign(dx_dy)
-        };
-
         let end = (dx * dx + dy * dy).sqrt();
 
         let ranges = encode_stops(&stops, 0.0, end, self.extend == Extend::Pad);
 
-        let x_positive = x_advance >= 0.0;
-        let y_positive = y_advance >= 0.0;
+        let c = self.transform.as_coeffs();
+        let transform = Affine::translate((x_offset as f64, y_offset as f64))
+            * Affine::new([c[0], c[1], c[2], c[3], c[4] - 0.5, c[5] - 0.5]).inverse();
 
         EncodedLinearGradient {
-            offsets: (x_offset, y_offset),
-            advances: (x_advance, y_advance),
             denom,
             fact1,
             fact2,
@@ -198,8 +175,7 @@ impl LinearGradient {
             ranges,
             pad: self.extend == Extend::Pad,
             has_opacities,
-            y_positive,
-            x_positive,
+            transform,
         }
     }
 }
@@ -286,8 +262,6 @@ pub struct EncodedSweepGradient {
 #[derive(Debug, Clone)]
 pub struct EncodedLinearGradient {
     pub end: f32,
-    pub offsets: (f32, f32),
-    pub advances: (f32, f32),
     // Below are the factors that will be used to later on calculate
     // the distance of a strip to the line making up the gradient. Basis of the formula
     // is https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Line_defined_by_two_points
@@ -300,8 +274,7 @@ pub struct EncodedLinearGradient {
     pub ranges: Vec<GradientRange>,
     pub pad: bool,
     pub has_opacities: bool,
-    pub y_positive: bool,
-    pub x_positive: bool,
+    pub transform: Affine,
 }
 
 /// A color stop.
