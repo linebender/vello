@@ -6,6 +6,8 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Point};
 use vello_common::peniko::Extend;
 
+// TODO: Validate gradient before encoding it.
+
 #[derive(Debug, Clone)]
 pub enum PaintType {
     Solid(AlphaColor<Srgb>),
