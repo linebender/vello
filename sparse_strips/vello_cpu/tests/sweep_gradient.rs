@@ -193,7 +193,7 @@ fn gradient_sweep_with_transform_scale() {
 #[test]
 fn gradient_sweep_with_transform_scale_and_transform() {
     gradient_with_transform!(
-        "gradient_sweep_with_transform_3",
+        "gradient_sweep_with_transform_scale_and_transform",
         Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
         0.0,
         0.0,
