@@ -236,7 +236,7 @@ fn gradient_linear_with_y_reflect() {
     check_ref(&ctx, "gradient_linear_with_y_reflect");
 }
 
-macro_rules! gradient_with_path_transform {
+macro_rules! gradient_with_transform {
     ($name:expr, $transform:expr, $p0:expr, $p1: expr, $p2:expr, $p3: expr) => {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new($p0, $p1, $p2, $p3);
@@ -258,9 +258,9 @@ macro_rules! gradient_with_path_transform {
 }
 
 #[test]
-fn gradient_linear_with_path_transform_identity() {
-    gradient_with_path_transform!(
-        "gradient_linear_with_path_transform_identity",
+fn gradient_linear_with_transform_identity() {
+    gradient_with_transform!(
+        "gradient_linear_with_transform_identity",
         Affine::IDENTITY,
         25.0,
         25.0,
@@ -270,9 +270,9 @@ fn gradient_linear_with_path_transform_identity() {
 }
 
 #[test]
-fn gradient_linear_with_path_transform_1() {
-    gradient_with_path_transform!(
-        "gradient_linear_with_path_transform_1",
+fn gradient_linear_with_transform_1() {
+    gradient_with_transform!(
+        "gradient_linear_with_transform_1",
         Affine::translate((25.0, 25.0)),
         0.0,
         0.0,
@@ -282,9 +282,9 @@ fn gradient_linear_with_path_transform_1() {
 }
 
 #[test]
-fn gradient_linear_with_path_transform_2() {
-    gradient_with_path_transform!(
-        "gradient_linear_with_path_transform_2",
+fn gradient_linear_with_transform_2() {
+    gradient_with_transform!(
+        "gradient_linear_with_transform_2",
         Affine::scale(2.0),
         12.5,
         12.5,
@@ -294,9 +294,9 @@ fn gradient_linear_with_path_transform_2() {
 }
 
 #[test]
-fn gradient_linear_with_path_transform_3() {
-    gradient_with_path_transform!(
-        "gradient_linear_with_path_transform_3",
+fn gradient_linear_with_transform_3() {
+    gradient_with_transform!(
+        "gradient_linear_with_transform_3",
         Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
         0.0,
         0.0,
@@ -306,9 +306,9 @@ fn gradient_linear_with_path_transform_3() {
 }
 
 #[test]
-fn gradient_linear_with_path_transform_4() {
-    gradient_with_path_transform!(
-        "gradient_linear_with_path_transform_4",
+fn gradient_linear_with_transform_4() {
+    gradient_with_transform!(
+        "gradient_linear_with_transform_4",
         Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
         25.0,
         25.0,
@@ -318,9 +318,9 @@ fn gradient_linear_with_path_transform_4() {
 }
 
 #[test]
-fn gradient_linear_with_path_transform_5() {
-    gradient_with_path_transform!(
-        "gradient_linear_with_path_transform_5",
+fn gradient_linear_with_transform_5() {
+    gradient_with_transform!(
+        "gradient_linear_with_transform_5",
         Affine::scale_non_uniform(1.0, 2.0),
         25.0,
         12.5,
@@ -331,10 +331,10 @@ fn gradient_linear_with_path_transform_5() {
 
 // Not working yet
 // #[test]
-// fn gradient_linear_with_path_transform_6() {
+// fn gradient_linear_with_transform_6() {
 //     let transform = Affine::translate((-37.5, 0.0)) * Affine::skew(PI / 4.0, 0.0);
-//     gradient_with_path_transform!(
-//         "gradient_linear_with_path_transform_6",
+//     gradient_with_transform!(
+//         "gradient_linear_with_transform_6",
 //         transform,
 //         25.0,
 //         25.0,
