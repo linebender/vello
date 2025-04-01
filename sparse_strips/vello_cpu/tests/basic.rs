@@ -572,6 +572,21 @@ fn skewed_glyphs() {
     check_ref(&ctx, "skewed_glyphs");
 }
 
+#[test]
+fn scaled_glyphs() {
+    let mut ctx = get_ctx(150, 125, false);
+    let font_size: f32 = 25_f32;
+    let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(2.0));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .fill_glyphs(glyphs.iter());
+
+    check_ref(&ctx, "scaled_glyphs");
+}
+
 /// ***DO NOT USE THIS OUTSIDE OF THESE TESTS***
 ///
 /// This function is used for _TESTING PURPOSES ONLY_. If you need to layout and shape
