@@ -244,7 +244,7 @@ macro_rules! gradient_with_transform {
         let gradient = LinearGradient {
             p0: Point::new($p0, $p1),
             p1: Point::new($p2, $p3),
-            stops: stops_green_blue(),
+            stops: stops_blue_green_red_yellow(),
             transform: Affine::IDENTITY,
             extend: vello_common::peniko::Extend::Pad,
         };
