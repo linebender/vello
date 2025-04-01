@@ -219,11 +219,8 @@ fn draw_text(
 
     for line in layout.lines() {
         for item in line.items() {
-            match item {
-                PositionedLayoutItem::GlyphRun(glyph_run) => {
-                    render_glyph_run(ctx, &glyph_run, 30);
-                }
-                _ => {}
+            if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                render_glyph_run(ctx, &glyph_run, 30);
             }
         }
     }
