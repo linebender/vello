@@ -16,17 +16,17 @@ pub use vello_api::glyph::*;
 
 /// A glyph prepared for rendering.
 #[derive(Debug)]
-pub enum PreparedGlyph {
+pub enum PreparedGlyph<'a> {
     /// A glyph defined by its outline.
-    Outline(OutlineGlyph),
+    Outline(OutlineGlyph<'a>),
     // TODO: Image and Colr variants.
 }
 
 /// A glyph defined by a path (its outline) and a local transform.
 #[derive(Debug)]
-pub struct OutlineGlyph {
+pub struct OutlineGlyph<'a> {
     /// The path of the glyph.
-    pub path: BezPath,
+    pub path: &'a BezPath,
     /// The local transform of the glyph.
     pub local_transform: Affine,
 }
@@ -34,10 +34,10 @@ pub struct OutlineGlyph {
 /// Trait for types that can render glyphs.
 pub trait GlyphRenderer {
     /// Fill glyphs with the current paint and fill rule.
-    fn fill_glyphs(&mut self, glyphs: impl Iterator<Item = PreparedGlyph>);
+    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>);
 
     /// Stroke glyphs with the current paint and stroke settings.
-    fn stroke_glyphs(&mut self, glyphs: impl Iterator<Item = PreparedGlyph>);
+    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>);
 }
 
 /// A builder for configuring and drawing glyphs.
@@ -89,54 +89,71 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
     /// Consumes the builder and fills the glyphs with the current configuration.
     pub fn fill_glyphs(self, glyphs: impl Iterator<Item = &'a Glyph>) {
-        self.renderer
-            .fill_glyphs(Self::prepare_glyphs(&self.run, glyphs));
+        self.render(glyphs, Style::Fill);
     }
 
     /// Consumes the builder and strokes the glyphs with the current configuration.
     pub fn stroke_glyphs(self, glyphs: impl Iterator<Item = &'a Glyph>) {
-        self.renderer
-            .stroke_glyphs(Self::prepare_glyphs(&self.run, glyphs));
+        self.render(glyphs, Style::Stroke);
     }
 
-    fn prepare_glyphs(
-        run: &GlyphRun<'a>,
-        glyphs: impl Iterator<Item = &'a Glyph>,
-    ) -> impl Iterator<Item = PreparedGlyph> {
-        let font = skrifa::FontRef::from_index(run.font.data.as_ref(), run.font.index).unwrap();
+    fn render(self, glyphs: impl Iterator<Item = &'a Glyph>, style: Style) {
+        let font =
+            skrifa::FontRef::from_index(self.run.font.data.as_ref(), self.run.font.index).unwrap();
         let outlines = font.outline_glyphs();
-        let size = Size::new(run.font_size);
-        let hinting_instance = if run.hint {
+        let size = Size::new(self.run.font_size);
+        let hinting_instance = if self.run.hint {
             // Rotated, skewed, or other transformations cannot be hinted.
-            let [a, b, c, d, _, _] = run.transform.as_coeffs();
+            let [a, b, c, d, _, _] = self.run.transform.as_coeffs();
             if a == d && b == 0.0 && c == 0.0 {
                 // TODO: Cache hinting instance.
-                HintingInstance::new(&outlines, size, run.normalized_coords, HINTING_OPTIONS).ok()
+                HintingInstance::new(&outlines, size, self.run.normalized_coords, HINTING_OPTIONS)
+                    .ok()
             } else {
                 None
             }
         } else {
             None
         };
-        glyphs.filter_map(move |glyph| {
+
+        let render_glyph = match style {
+            Style::Fill => GlyphRenderer::fill_glyph,
+            Style::Stroke => GlyphRenderer::stroke_glyph,
+        };
+        // Re-use the same `path` allocation for each glyph.
+        let mut path = OutlinePath(BezPath::new());
+        for glyph in glyphs {
+            path.0.truncate(0);
             let draw_settings = if let Some(hinting_instance) = &hinting_instance {
                 DrawSettings::hinted(hinting_instance, false)
             } else {
-                DrawSettings::unhinted(size, run.normalized_coords)
+                DrawSettings::unhinted(size, self.run.normalized_coords)
             };
-            let outline = outlines.get(GlyphId::new(glyph.id))?;
-            let mut path = OutlinePath(BezPath::new());
-            outline.draw(draw_settings, &mut path).ok()?;
+            let Some(outline) = outlines.get(GlyphId::new(glyph.id)) else {
+                continue;
+            };
+            if outline.draw(draw_settings, &mut path).is_err() {
+                continue;
+            }
             let mut transform = Affine::translate(Vec2::new(glyph.x as f64, glyph.y as f64));
-            if let Some(glyph_transform) = run.glyph_transform {
+            if let Some(glyph_transform) = self.run.glyph_transform {
                 transform *= glyph_transform;
             }
-            Some(PreparedGlyph::Outline(OutlineGlyph {
-                path: path.0,
-                local_transform: transform,
-            }))
-        })
+
+            render_glyph(
+                self.renderer,
+                PreparedGlyph::Outline(OutlineGlyph {
+                    path: &path.0,
+                    local_transform: transform,
+                }),
+            );
+        }
     }
+}
+
+enum Style {
+    Fill,
+    Stroke,
 }
 
 /// A sequence of glyphs with shared rendering properties.
