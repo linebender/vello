@@ -188,6 +188,18 @@ fn gradient_sweep_with_transform_scale() {
     );
 }
 
+#[test]
+fn gradient_sweep_with_transform_negative_scale() {
+    gradient_with_transform!(
+        "gradient_sweep_with_transform_negative_scale",
+        Affine::translate((100.0, 100.0)) * Affine::scale(-2.0),
+        12.5,
+        12.5,
+        37.5,
+        37.5
+    );
+}
+
 // TODO: Add negative scale
 
 #[test]
