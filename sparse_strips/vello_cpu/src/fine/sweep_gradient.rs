@@ -10,9 +10,7 @@ pub(crate) struct SweepGradientFiller<'a> {
     /// The underlying gradient.
     gradient: &'a EncodedSweepGradient,
     range_idx: usize,
-    temp_range_idx: usize,
     cur_range: &'a GradientRange,
-    temp_range: &'a GradientRange,
 }
 
 impl<'a> SweepGradientFiller<'a> {
@@ -26,9 +24,7 @@ impl<'a> SweepGradientFiller<'a> {
             cur_pos: (start_point.x as f32, start_point.y as f32),
             gradient,
             range_idx: 0,
-            temp_range_idx: 0,
             cur_range: &gradient.ranges[0],
-            temp_range: &gradient.ranges[0],
         };
 
         filler
@@ -38,9 +34,9 @@ impl<'a> SweepGradientFiller<'a> {
         (-pos.1).atan2(pos.0).rem_euclid(2.0 * PI)
     }
 
-    fn advance<SI: Sign>(&mut self, target_angle: f32) {
+    fn advance(&mut self, target_angle: f32) {
         while target_angle > self.cur_range.x1 || target_angle < self.cur_range.x0 {
-            SI::idx_advance(&mut self.range_idx, self.gradient.ranges.len());
+            Positive::idx_advance(&mut self.range_idx, self.gradient.ranges.len());
             self.cur_range = &self.gradient.ranges[self.range_idx];
         }
     }
@@ -65,7 +61,7 @@ impl<'a> SweepGradientFiller<'a> {
                     let points = (actual_pos.x as f32, actual_pos.y as f32);
 
                     let angle = extend(self.cur_angle(points));
-                    self.advance::<Positive>(angle);
+                    self.advance(angle);
                     let range = self.cur_range;
 
                     for col_idx in 0..COLOR_COMPONENTS {
