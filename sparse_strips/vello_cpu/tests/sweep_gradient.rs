@@ -65,3 +65,22 @@ fn gradient_sweep_complex_shape() {
 
     check_ref(&ctx, "gradient_sweep_complex_shape");
 }
+
+#[test]
+fn gradient_sweep_spread_method_pad() {
+    let mut ctx = get_ctx(100, 100, false);
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+    let gradient = SweepGradient {
+        center: Point::new(50.0, 50.0),
+        start_angle: 150.0,
+        end_angle: 210.0,
+        stops: stops_green_blue(),
+        extend: vello_common::peniko::Extend::Pad,
+    };
+
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&rect);
+
+    check_ref(&ctx, "gradient_sweep_spread_method_pad");
+}

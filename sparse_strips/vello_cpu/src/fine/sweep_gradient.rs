@@ -21,8 +21,7 @@ impl<'a> SweepGradientFiller<'a> {
             start_x as f64 + gradient.offsets.0 as f64 + 0.5,
             start_y as f64 + gradient.offsets.1 as f64 + 0.5,
         );
-        start_point =
-            Affine::rotate_about(gradient.rotation as f64, Point::new(0.0, 0.0)) * start_point;
+        start_point = gradient.rotation * start_point;
 
         let filler = Self {
             cur_pos: (start_point.x as f32, start_point.y as f32),
@@ -65,10 +64,12 @@ impl<'a> SweepGradientFiller<'a> {
                         pixel[col_idx] = (range.c0[col_idx] as i16 + combined) as u8;
                     }
 
-                    pos.1 += 1.0;
+                    pos.0 += self.gradient.y_deltas.x as f32;
+                    pos.1 += self.gradient.y_deltas.y as f32;
                 }
 
-                self.cur_pos.0 += 1.0;
+                self.cur_pos.0 += self.gradient.x_deltas.x as f32;
+                self.cur_pos.1 += self.gradient.x_deltas.y as f32;
             })
     }
 }

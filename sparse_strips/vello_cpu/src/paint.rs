@@ -53,17 +53,28 @@ pub struct SweepGradient {
 
 impl SweepGradient {
     pub fn encode(self) -> EncodedSweepGradient {
-        let mut start_angle = self.start_angle * (PI / 180.0);
+        let start_angle = self.start_angle * (PI / 180.0);
         let mut end_angle = self.end_angle * (PI / 180.0);
 
         let has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
 
-        let stops = encode_stops(&self.stops, end_angle, self.extend == Extend::Pad);
+        let stops = encode_stops(
+            &self.stops,
+            start_angle,
+            end_angle,
+            self.extend == Extend::Pad,
+        );
 
         let offsets = (-self.center.x as f32, -self.center.y as f32);
+        let rotation = Affine::rotate(0.0);
+
+        let x_deltas = rotation * Point::new(1.0, 0.0);
+        let y_deltas = rotation * Point::new(0.0, 1.0);
 
         EncodedSweepGradient {
-            rotation: -start_angle,
+            rotation,
+            x_deltas,
+            y_deltas,
             end_angle: end_angle - start_angle,
             offsets,
             ranges: stops,
@@ -159,7 +170,7 @@ impl LinearGradient {
 
         let end = (dx * dx + dy * dy).sqrt();
 
-        let ranges = encode_stops(&stops, end, self.extend == Extend::Pad);
+        let ranges = encode_stops(&stops, 0.0, end, self.extend == Extend::Pad);
 
         let x_positive = x_advance >= 0.0;
         let y_positive = y_advance >= 0.0;
@@ -180,10 +191,10 @@ impl LinearGradient {
     }
 }
 
-fn encode_stops(stops: &[Stop], end: f32, pad: bool) -> Vec<GradientRange> {
+fn encode_stops(stops: &[Stop], start: f32, end: f32, pad: bool) -> Vec<GradientRange> {
     let create_range = |left_stop: &Stop, right_stop: &Stop| {
-        let x0 = end * left_stop.offset;
-        let x1 = end * right_stop.offset;
+        let x0 = start + (end - start) * left_stop.offset;
+        let x1 = start + (end - start) * right_stop.offset;
         let c0 = left_stop.color.premultiply().to_rgba8_fast();
         let c1 = right_stop.color.premultiply().to_rgba8_fast();
 
@@ -251,7 +262,9 @@ impl From<EncodedSweepGradient> for EncodedPaint {
 
 #[derive(Debug)]
 pub struct EncodedSweepGradient {
-    pub rotation: f32,
+    pub rotation: Affine,
+    pub x_deltas: Point,
+    pub y_deltas: Point,
     pub end_angle: f32,
     pub offsets: (f32, f32),
     pub ranges: Vec<GradientRange>,
