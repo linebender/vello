@@ -103,61 +103,39 @@ fn gradient_linear_with_upward_y() {
     check_ref(&ctx, "gradient_linear_with_upward_y");
 }
 
+macro_rules! gradient_pad {
+    ($extend:path, $name:expr) => {
+        let mut ctx = get_ctx(100, 100, false);
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    
+        let gradient = LinearGradient {
+            p0: Point::new(40.0, 40.0),
+            p1: Point::new(60.0, 60.0),
+            stops: stops_blue_green_red_yellow(),
+            transform: Affine::IDENTITY,
+            extend: $extend,
+        };
+    
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
+    
+        check_ref(&ctx, $name);
+    };
+}
+
 #[test]
 fn gradient_linear_spread_method_pad() {
-    let mut ctx = get_ctx(100, 100, false);
-    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-
-    let gradient = LinearGradient {
-        p0: Point::new(35.0, 0.0),
-        p1: Point::new(65.0, 0.0),
-        stops: stops_green_blue(),
-        transform: Affine::IDENTITY,
-        extend: vello_common::peniko::Extend::Pad,
-    };
-
-    ctx.set_paint(gradient);
-    ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "gradient_linear_spread_method_pad");
+    gradient_pad!(vello_common::peniko::Extend::Pad, "gradient_linear_with_pad");
 }
 
 #[test]
 fn gradient_linear_spread_method_repeat() {
-    let mut ctx = get_ctx(100, 100, false);
-    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-
-    let gradient = LinearGradient {
-        p0: Point::new(45.0, 0.0),
-        p1: Point::new(55.0, 0.0),
-        stops: stops_green_blue(),
-        transform: Affine::IDENTITY,
-        extend: vello_common::peniko::Extend::Repeat,
-    };
-
-    ctx.set_paint(gradient);
-    ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "gradient_linear_spread_method_repeat");
+    gradient_pad!(vello_common::peniko::Extend::Repeat, "gradient_linear_with_repeat");
 }
 
 #[test]
 fn gradient_linear_spread_method_reflect() {
-    let mut ctx = get_ctx(100, 100, false);
-    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-
-    let gradient = LinearGradient {
-        p0: Point::new(45.0, 0.0),
-        p1: Point::new(55.0, 0.0),
-        stops: stops_green_blue(),
-        transform: Affine::IDENTITY,
-        extend: vello_common::peniko::Extend::Reflect,
-    };
-
-    ctx.set_paint(gradient);
-    ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "gradient_linear_spread_method_reflect");
+    gradient_pad!(vello_common::peniko::Extend::Reflect, "gradient_linear_with_reflect");
 }
 
 #[test]
