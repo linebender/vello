@@ -1,4 +1,4 @@
-use crate::fine::{COLOR_COMPONENTS, Positive, Sign, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{COLOR_COMPONENTS, Positive, Sign, TILE_HEIGHT_COMPONENTS, extend};
 use crate::paint::{EncodedSweepGradient, GradientRange};
 use std::f32::consts::PI;
 use vello_common::kurbo::{Affine, Point};
@@ -47,13 +47,22 @@ impl<'a> SweepGradientFiller<'a> {
     }
 
     pub(super) fn run(mut self, target: &mut [u8]) {
+        let extend = |val| {
+            extend(
+                val,
+                self.gradient.pad,
+                self.gradient.start_angle,
+                self.gradient.end_angle,
+            )
+        };
+
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
             .for_each(|column| {
                 let mut pos = self.cur_pos;
 
                 for pixel in column.chunks_exact_mut(COLOR_COMPONENTS) {
-                    let angle = self.cur_angle(pos);
+                    let angle = extend(self.cur_angle(pos));
                     self.advance::<Positive>(angle);
                     let range = self.cur_range;
 

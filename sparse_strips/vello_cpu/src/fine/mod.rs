@@ -382,16 +382,16 @@ impl Sign for Positive {
 }
 
 #[inline(always)]
-pub(crate) fn extend(mut val: f32, pad: bool, end: f32) -> f32 {
+pub(crate) fn extend(mut val: f32, pad: bool, start: f32, end: f32) -> f32 {
     if pad {
         val
     } else {
-        while val < 0.0 {
-            val += end;
+        while val < start {
+            val += end - start;
         }
 
         while val > end {
-            val -= end;
+            val -= (end - start);
         }
 
         val

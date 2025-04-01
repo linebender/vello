@@ -93,3 +93,11 @@ fn gradient_sweep_spread_method_pad() {
         vello_common::peniko::Extend::Pad
     );
 }
+
+#[test]
+fn gradient_sweep_spread_method_repeat() {
+    spread_method!(
+        "gradient_sweep_spread_method_repeat",
+        vello_common::peniko::Extend::Repeat
+    );
+}

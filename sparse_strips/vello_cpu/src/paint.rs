@@ -53,17 +53,13 @@ pub struct SweepGradient {
 
 impl SweepGradient {
     pub fn encode(self) -> EncodedSweepGradient {
+        let pad = self.extend == Extend::Pad;
         let start_angle = self.start_angle * (PI / 180.0);
         let mut end_angle = self.end_angle * (PI / 180.0);
 
         let has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
 
-        let stops = encode_stops(
-            &self.stops,
-            start_angle,
-            end_angle,
-            self.extend == Extend::Pad,
-        );
+        let stops = encode_stops(&self.stops, start_angle, end_angle, pad);
 
         let offsets = (-self.center.x as f32, -self.center.y as f32);
         let rotation = Affine::rotate(0.0);
@@ -75,10 +71,11 @@ impl SweepGradient {
             rotation,
             x_deltas,
             y_deltas,
-            end_angle: end_angle - start_angle,
+            start_angle,
+            end_angle,
             offsets,
             ranges: stops,
-            pad: true,
+            pad,
             has_opacities,
         }
     }
@@ -265,6 +262,7 @@ pub struct EncodedSweepGradient {
     pub rotation: Affine,
     pub x_deltas: Point,
     pub y_deltas: Point,
+    pub start_angle: f32,
     pub end_angle: f32,
     pub offsets: (f32, f32),
     pub ranges: Vec<GradientRange>,

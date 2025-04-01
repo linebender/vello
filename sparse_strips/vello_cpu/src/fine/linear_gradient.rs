@@ -75,7 +75,7 @@ impl<'a> LinearGradientFiller<'a> {
     fn run_inner<YS: Sign>(mut self, target: &mut [u8], pad: bool, x_positive: bool) {
         let end = self.gradient.end;
 
-        let extend = |val| extend(val, pad, end);
+        let extend = |val| extend(val, pad, 0.0, end);
 
         let advance_x = |lg: &mut Self| {
             if x_positive {
