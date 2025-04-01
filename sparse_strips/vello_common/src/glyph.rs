@@ -121,10 +121,9 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             Style::Fill => GlyphRenderer::fill_glyph,
             Style::Stroke => GlyphRenderer::stroke_glyph,
         };
-        // Re-use the same `path` allocation for each glyph.
+        // Reuse the same `path` allocation for each glyph.
         let mut path = OutlinePath(BezPath::new());
         for glyph in glyphs {
-            path.0.truncate(0);
             let draw_settings = if let Some(hinting_instance) = &hinting_instance {
                 DrawSettings::hinted(hinting_instance, false)
             } else {
@@ -133,6 +132,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             let Some(outline) = outlines.get(GlyphId::new(glyph.id)) else {
                 continue;
             };
+            path.0.truncate(0);
             if outline.draw(draw_settings, &mut path).is_err() {
                 continue;
             }
