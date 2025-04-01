@@ -165,9 +165,9 @@ fn gradient_sweep_with_path_transform_identity() {
 }
 
 #[test]
-fn gradient_sweep_with_path_transform_1() {
+fn gradient_sweep_with_path_transform_translate() {
     gradient_with_path_transform!(
-        "gradient_sweep_with_path_transform_1",
+        "gradient_sweep_with_path_transform_translate",
         Affine::translate((25.0, 25.0)),
         0.0,
         0.0,
@@ -177,9 +177,9 @@ fn gradient_sweep_with_path_transform_1() {
 }
 
 #[test]
-fn gradient_sweep_with_path_transform_2() {
+fn gradient_sweep_with_path_transform_scale() {
     gradient_with_path_transform!(
-        "gradient_sweep_with_path_transform_2",
+        "gradient_sweep_with_path_transform_scale",
         Affine::scale(2.0),
         12.5,
         12.5,
@@ -188,8 +188,10 @@ fn gradient_sweep_with_path_transform_2() {
     );
 }
 
+// TODO: Add negative scale
+
 #[test]
-fn gradient_sweep_with_path_transform_3() {
+fn gradient_sweep_with_path_transform_scale_and_transform() {
     gradient_with_path_transform!(
         "gradient_sweep_with_path_transform_3",
         Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
@@ -200,11 +202,10 @@ fn gradient_sweep_with_path_transform_3() {
     );
 }
 
-// Not working yet
 #[test]
-fn gradient_sweep_with_path_transform_4() {
+fn gradient_sweep_with_path_transform_rotate_1() {
     gradient_with_path_transform!(
-        "gradient_sweep_with_path_transform_4",
+        "gradient_sweep_with_path_transform_rotate_1",
         Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
         25.0,
         25.0,
@@ -214,9 +215,21 @@ fn gradient_sweep_with_path_transform_4() {
 }
 
 #[test]
-fn gradient_sweep_with_path_transform_5() {
+fn gradient_sweep_with_path_transform_rotate_2() {
     gradient_with_path_transform!(
-        "gradient_sweep_with_path_transform_5",
+        "gradient_sweep_with_path_transform_rotate_2",
+        Affine::rotate_about(-PI / 4.0, Point::new(50.0, 50.0)),
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
+}
+
+#[test]
+fn gradient_sweep_with_path_transform_scale_non_uniform() {
+    gradient_with_path_transform!(
+        "gradient_sweep_with_path_transform_scale_non_uniform",
         Affine::scale_non_uniform(1.0, 2.0),
         25.0,
         12.5,
@@ -225,12 +238,50 @@ fn gradient_sweep_with_path_transform_5() {
     );
 }
 
-// Not working yet
 #[test]
-fn gradient_sweep_with_path_transform_6() {
+fn gradient_sweep_with_path_transform_skew_x_1() {
     let transform = Affine::translate((-37.5, 0.0)) * Affine::skew(PI / 4.0, 0.0);
     gradient_with_path_transform!(
-        "gradient_sweep_with_path_transform_6",
+        "gradient_sweep_with_path_transform_skew_x_1",
+        transform,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
+}
+
+#[test]
+fn gradient_sweep_with_path_transform_skew_x_2() {
+    let transform = Affine::translate((37.5, 0.0)) * Affine::skew(-PI / 4.0, 0.0);
+    gradient_with_path_transform!(
+        "gradient_sweep_with_path_transform_skew_x_2",
+        transform,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
+}
+
+#[test]
+fn gradient_sweep_with_path_transform_skew_y_1() {
+    let transform = Affine::translate((0.0, 37.5)) * Affine::skew(0.0, -PI / 4.0);
+    gradient_with_path_transform!(
+        "gradient_sweep_with_path_transform_skew_y_1",
+        transform,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
+}
+
+#[test]
+fn gradient_sweep_with_path_transform_skew_y_2() {
+    let transform = Affine::translate((0.0, -37.5)) * Affine::skew(0.0, PI / 4.0);
+    gradient_with_path_transform!(
+        "gradient_sweep_with_path_transform_skew_y_2",
         transform,
         25.0,
         25.0,
