@@ -31,7 +31,11 @@ macro_rules! basic {
 
 #[test]
 fn gradient_sweep_2_stops() {
-    basic!(stops_green_blue(), "gradient_sweep_2_stops", Point::new(50.0, 50.0));
+    basic!(
+        stops_green_blue(),
+        "gradient_sweep_2_stops",
+        Point::new(50.0, 50.0)
+    );
 }
 
 #[test]
@@ -45,12 +49,20 @@ fn gradient_sweep_2_stops_with_alpha() {
 
 #[test]
 fn gradient_sweep_4_stops() {
-    basic!(stops_blue_green_red_yellow(), "gradient_sweep_4_stops", Point::new(50.0, 50.0));
+    basic!(
+        stops_blue_green_red_yellow(),
+        "gradient_sweep_4_stops",
+        Point::new(50.0, 50.0)
+    );
 }
 
 #[test]
 fn gradient_sweep_not_in_center() {
-    basic!(stops_green_blue(), "gradient_sweep_not_in_center", Point::new(30.0, 30.0));
+    basic!(
+        stops_green_blue(),
+        "gradient_sweep_not_in_center",
+        Point::new(30.0, 30.0)
+    );
 }
 
 #[test]
@@ -105,5 +117,13 @@ fn gradient_sweep_spread_method_repeat() {
     spread_method!(
         "gradient_sweep_spread_method_repeat",
         vello_common::peniko::Extend::Repeat
+    );
+}
+
+#[test]
+fn gradient_sweep_spread_method_reflect() {
+    spread_method!(
+        "gradient_sweep_spread_method_reflect",
+        vello_common::peniko::Extend::Reflect
     );
 }
