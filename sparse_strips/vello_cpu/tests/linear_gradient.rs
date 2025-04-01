@@ -294,6 +294,18 @@ fn gradient_linear_with_transform_scale() {
 }
 
 #[test]
+fn gradient_linear_with_transform_negative_scale() {
+    gradient_with_transform!(
+        "gradient_linear_with_transform_negative_scale",
+        Affine::translate((100.0, 100.0)) * Affine::scale(-2.0),
+        12.5,
+        12.5,
+        37.5,
+        37.5
+    );
+}
+
+#[test]
 fn gradient_linear_with_transform_scale_and_translate() {
     gradient_with_transform!(
         "gradient_linear_with_transform_scale_and_translate",
@@ -306,10 +318,22 @@ fn gradient_linear_with_transform_scale_and_translate() {
 }
 
 #[test]
-fn gradient_linear_with_transform_rotate() {
+fn gradient_linear_with_transform_rotate_1() {
     gradient_with_transform!(
-        "gradient_linear_with_transform_rotate",
+        "gradient_linear_with_transform_rotate_1",
         Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
+}
+
+#[test]
+fn gradient_linear_with_transform_rotate_2() {
+    gradient_with_transform!(
+        "gradient_linear_with_transform_rotate_2",
+        Affine::rotate_about(-PI / 4.0, Point::new(50.0, 50.0)),
         25.0,
         25.0,
         75.0,
@@ -329,16 +353,54 @@ fn gradient_linear_with_transform_scaling_non_uniform() {
     );
 }
 
-// Not working yet
-// #[test]
-// fn gradient_linear_with_transform_6() {
-//     let transform = Affine::translate((-37.5, 0.0)) * Affine::skew(PI / 4.0, 0.0);
-//     gradient_with_transform!(
-//         "gradient_linear_with_transform_6",
-//         transform,
-//         25.0,
-//         25.0,
-//         75.0,
-//         75.0
-//     );
-// }
+#[test]
+fn gradient_linear_with_transform_skew_x_1() {
+    let transform = Affine::translate((-37.5, 0.0)) * Affine::skew(PI / 4.0, 0.0);
+    gradient_with_transform!(
+        "gradient_linear_with_transform_skew_x_1",
+        transform,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
+}
+
+#[test]
+fn gradient_linear_with_transform_skew_x_2() {
+    let transform = Affine::translate((37.5, 0.0)) * Affine::skew(-PI / 4.0, 0.0);
+    gradient_with_transform!(
+        "gradient_linear_with_transform_skew_x_2",
+        transform,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
+}
+
+#[test]
+fn gradient_linear_with_transform_skew_y_1() {
+    let transform = Affine::translate((0.0, 37.5)) * Affine::skew(0.0, -PI / 4.0);
+    gradient_with_transform!(
+        "gradient_linear_with_transform_skew_y_1",
+        transform,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
+}
+
+#[test]
+fn gradient_linear_with_transform_skew_y_2() {
+    let transform = Affine::translate((0.0, -37.5)) * Affine::skew(0.0, PI / 4.0);
+    gradient_with_transform!(
+        "gradient_linear_with_transform_skew_y_2",
+        transform,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
+}
