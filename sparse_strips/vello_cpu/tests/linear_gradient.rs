@@ -270,9 +270,9 @@ fn gradient_linear_with_transform_identity() {
 }
 
 #[test]
-fn gradient_linear_with_transform_1() {
+fn gradient_linear_with_transform_translate() {
     gradient_with_transform!(
-        "gradient_linear_with_transform_1",
+        "gradient_linear_with_transform_translate",
         Affine::translate((25.0, 25.0)),
         0.0,
         0.0,
@@ -282,9 +282,9 @@ fn gradient_linear_with_transform_1() {
 }
 
 #[test]
-fn gradient_linear_with_transform_2() {
+fn gradient_linear_with_transform_scale() {
     gradient_with_transform!(
-        "gradient_linear_with_transform_2",
+        "gradient_linear_with_transform_scale",
         Affine::scale(2.0),
         12.5,
         12.5,
@@ -294,9 +294,9 @@ fn gradient_linear_with_transform_2() {
 }
 
 #[test]
-fn gradient_linear_with_transform_3() {
+fn gradient_linear_with_transform_scale_and_translate() {
     gradient_with_transform!(
-        "gradient_linear_with_transform_3",
+        "gradient_linear_with_transform_scale_and_translate",
         Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
         0.0,
         0.0,
@@ -306,9 +306,9 @@ fn gradient_linear_with_transform_3() {
 }
 
 #[test]
-fn gradient_linear_with_transform_4() {
+fn gradient_linear_with_transform_rotate() {
     gradient_with_transform!(
-        "gradient_linear_with_transform_4",
+        "gradient_linear_with_transform_rotate",
         Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
         25.0,
         25.0,
@@ -318,9 +318,9 @@ fn gradient_linear_with_transform_4() {
 }
 
 #[test]
-fn gradient_linear_with_transform_5() {
+fn gradient_linear_with_transform_scaling_non_uniform() {
     gradient_with_transform!(
-        "gradient_linear_with_transform_5",
+        "gradient_linear_with_transform_scaling_non_uniform",
         Affine::scale_non_uniform(1.0, 2.0),
         25.0,
         12.5,
