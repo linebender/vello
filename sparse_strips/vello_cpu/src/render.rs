@@ -97,7 +97,7 @@ impl RenderContext {
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     pub fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
-        GlyphRunBuilder::new(font.clone(), self)
+        GlyphRunBuilder::new(font.clone(), self.transform, self)
     }
 
     /// Set the current blend mode.

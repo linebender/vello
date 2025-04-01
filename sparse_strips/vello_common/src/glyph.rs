@@ -49,11 +49,12 @@ pub struct GlyphRunBuilder<'a, T: GlyphRenderer + 'a> {
 
 impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
     /// Creates a new builder for drawing glyphs.
-    pub fn new(font: Font, renderer: &'a mut T) -> Self {
+    pub fn new(font: Font, transform: Affine, renderer: &'a mut T) -> Self {
         Self {
             run: GlyphRun {
                 font,
                 font_size: 16.0,
+                transform,
                 glyph_transform: None,
                 hint: true,
                 normalized_coords: &[],
@@ -106,8 +107,14 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         let outlines = font.outline_glyphs();
         let size = Size::new(run.font_size);
         let hinting_instance = if run.hint {
-            // TODO: Cache hinting instance.
-            HintingInstance::new(&outlines, size, run.normalized_coords, HINTING_OPTIONS).ok()
+            // Rotated, skewed, or other transformations cannot be hinted.
+            let [a, b, c, d, _, _] = run.transform.as_coeffs();
+            if a == d && b == 0.0 && c == 0.0 {
+                // TODO: Cache hinting instance.
+                HintingInstance::new(&outlines, size, run.normalized_coords, HINTING_OPTIONS).ok()
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -139,6 +146,8 @@ struct GlyphRun<'a> {
     pub font: Font,
     /// Size of the font in pixels per em.
     pub font_size: f32,
+    /// Global transform.
+    pub transform: Affine,
     /// Per-glyph transform. Can be used to apply skew to simulate italic text.
     pub glyph_transform: Option<Affine>,
     /// Normalized variation coordinates for variable fonts.
