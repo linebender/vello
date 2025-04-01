@@ -28,7 +28,7 @@ web-sys = { version = "0.3.77", features = [
     "CssStyleDeclaration",
     "WebGl2RenderingContext",
 ] }
-wgpu = { workspace = true, features = ["webgl"] }
+wgpu = { workspace = true, features = ["webgpu"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.50"

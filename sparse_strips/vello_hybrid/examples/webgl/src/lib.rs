@@ -26,7 +26,7 @@ impl RendererWrapper {
         let width = canvas.width();
         let height = canvas.height();
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::GL,
+            backends: wgpu::Backends::BROWSER_WEBGPU,
             ..Default::default()
         });
         let surface = instance
@@ -41,19 +41,6 @@ impl RendererWrapper {
             .await
             .expect("Adapter to be valid");
 
-        let max_texture_size = {
-            let gl = canvas
-                .get_context("webgl2")
-                .unwrap()
-                .unwrap()
-                .dyn_into::<web_sys::WebGl2RenderingContext>()
-                .unwrap();
-            gl.get_parameter(web_sys::WebGl2RenderingContext::MAX_TEXTURE_SIZE)
-                .unwrap()
-                .as_f64()
-                .unwrap() as u32
-        };
-
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -63,7 +50,7 @@ impl RendererWrapper {
                         // WGPU's downlevel defaults use a generous number of color attachments
                         // (8). Some devices (including CI) support only up to 4.
                         max_color_attachments: 4,
-                        max_texture_dimension_2d: max_texture_size,
+                        max_texture_dimension_2d: 16384,
                         ..wgpu::Limits::downlevel_webgl2_defaults()
                     },
                     ..Default::default()
