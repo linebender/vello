@@ -34,14 +34,73 @@ pub struct SceneState {
     pub n_clip: usize,
 }
 
+/// A clip region.
 #[derive(Debug)]
 struct Clip {
     /// The intersected bounding box after clip
-    pub clip_bbox: [u16; 4],
+    pub clip_bbox: Bbox,
     /// The rendered path in sparse strip representation
     pub strips: Vec<Strip>,
     /// The fill rule used for this clip
     pub fill_rule: Fill,
+}
+
+/// A bounding box
+///
+/// The first two values represent the x0 and y0 coordinates, respectively.
+/// The last two values represent the x1 and y1 coordinates, respectively.
+///  x0, y0 — the top-left corner of the bounding box,
+///  x1, y1 — the bottom-right corner of the bounding box.   
+#[derive(Debug, Clone)]
+struct Bbox {
+    pub bbox: [u16; 4],
+}
+
+impl Bbox {
+    pub(crate) fn new(bbox: [u16; 4]) -> Self {
+        Self { bbox }
+    }
+
+    /// Get the x0 coordinate of the bounding box.
+    #[inline]
+    pub(crate) fn x0(&self) -> u16 {
+        self.bbox[0]
+    }
+
+    /// Get the y0 coordinate of the bounding box.
+    #[inline]
+    pub(crate) fn y0(&self) -> u16 {
+        self.bbox[1]
+    }
+
+    /// Get the x1 coordinate of the bounding box.
+    #[inline]
+    pub(crate) fn x1(&self) -> u16 {
+        self.bbox[2]
+    }
+
+    /// Get the y1 coordinate of the bounding box.
+    #[inline]
+    pub(crate) fn y1(&self) -> u16 {
+        self.bbox[3]
+    }
+
+    /// Create an empty bounding box (zero area).
+    #[inline]
+    pub(crate) fn empty() -> Self {
+        Self::new([0, 0, 0, 0])
+    }
+
+    /// Calculate the intersection of this bounding box with another.
+    #[inline]
+    pub(crate) fn intersect(&self, other: &Self) -> Self {
+        Self::new([
+            self.x0().max(other.x0()),
+            self.y0().max(other.y0()),
+            self.x1().min(other.x1()),
+            self.y1().min(other.y1()),
+        ])
+    }
 }
 
 impl Wide {
@@ -152,10 +211,10 @@ impl Wide {
             let strip_y = strip.strip_y();
 
             // Skip strips outside the current clip bounding box
-            if strip_y < bbox[1] {
+            if strip_y < bbox.y0() {
                 continue;
             }
-            if strip_y >= bbox[3] {
+            if strip_y >= bbox.y1() {
                 break;
             }
 
@@ -167,15 +226,15 @@ impl Wide {
             let x1 = x0 + strip_width;
 
             // Calculate which wide tiles this strip intersects
-            let wtile_x0 = (x0 / WideTile::WIDTH).max(bbox[0]);
+            let wtile_x0 = (x0 / WideTile::WIDTH).max(bbox.x0());
             // It's possible that a strip extends into a new wide tile, but we don't actually
             // have as many wide tiles (e.g. because the pixmap width is only 512, but
             // strip ends at 513), so take the minimum between the rounded values and `width_tiles`.
-            let wtile_x1 = x1.div_ceil(WideTile::WIDTH).min(bbox[2]);
+            let wtile_x1 = x1.div_ceil(WideTile::WIDTH).min(bbox.x1());
 
             // Adjust column starting position if needed to respect clip boundaries
             let mut x = x0;
-            let clip_x = bbox[0] * WideTile::WIDTH;
+            let clip_x = bbox.x0() * WideTile::WIDTH;
             if clip_x > x {
                 col += (clip_x - x) as u32;
                 x = clip_x;
@@ -210,8 +269,8 @@ impl Wide {
                 let x2 = next_strip
                     .x
                     .min(self.width.next_multiple_of(WideTile::WIDTH));
-                let wfxt0 = (x1 / WideTile::WIDTH).max(bbox[0]);
-                let wfxt1 = x2.div_ceil(WideTile::WIDTH).min(bbox[2]);
+                let wfxt0 = (x1 / WideTile::WIDTH).max(bbox.x0());
+                let wfxt1 = x2.div_ceil(WideTile::WIDTH).min(bbox.x1());
 
                 // Generate fill commands for each wide tile in the fill region
                 for wtile_x in wfxt0..wfxt1 {
@@ -242,7 +301,7 @@ impl Wide {
 
         // Calculate the bounding box of the clip path in strip coordinates
         let path_bbox = if n_strips <= 1 {
-            [0, 0, 0, 0]
+            Bbox::empty()
         } else {
             // Calculate the y range from first to last strip in wide tile coordinates
             let y0 = strips[0].strip_y();
@@ -260,20 +319,15 @@ impl Wide {
                 x0 = x0.min(x / WideTile::WIDTH);
                 x1 = x1.max((x + width).div_ceil(WideTile::WIDTH));
             }
-            [x0, y0, x1, y1]
+            Bbox::new([x0, y0, x1, y1])
         };
 
         let parent_bbox = self.get_bbox();
         // Calculate the intersection of the parent clip bounding box and the path bounding box.
-        let clip_bbox = [
-            parent_bbox[0].max(path_bbox[0]),
-            parent_bbox[1].max(path_bbox[1]),
-            parent_bbox[2].min(path_bbox[2]),
-            parent_bbox[3].min(path_bbox[3]),
-        ];
+        let clip_bbox = parent_bbox.intersect(&path_bbox);
 
-        let mut wtile_x = clip_bbox[0];
-        let mut wtile_y = clip_bbox[1];
+        let mut wtile_x = clip_bbox.x0();
+        let mut wtile_y = clip_bbox.y0();
 
         // Process strips to determine the clipping state for each wide tile
         for i in 0..n_strips - 1 {
@@ -287,24 +341,24 @@ impl Wide {
 
             // Process wide tiles in rows before this strip's row
             // These wide tiles are all zero-winding (outside the path)
-            while wtile_y < y.min(clip_bbox[3]) {
-                for x in wtile_x..clip_bbox[2] {
+            while wtile_y < y.min(clip_bbox.y1()) {
+                for x in wtile_x..clip_bbox.x1() {
                     self.get_mut(x, wtile_y).push_zero_clip();
                 }
                 // Reset x to the left edge of the clip bounding box
-                wtile_x = clip_bbox[0];
+                wtile_x = clip_bbox.x0();
                 // Move to the next row
                 wtile_y += 1;
             }
 
             // If we've reached the bottom of the clip bounding box, stop processing
-            if wtile_y == clip_bbox[3] {
+            if wtile_y == clip_bbox.y1() {
                 break;
             }
 
             // Process wide tiles to the left of this strip in the same row
             let x_pixels = strip.x;
-            let x_clamped = (x_pixels / WideTile::WIDTH).min(clip_bbox[2]);
+            let x_clamped = (x_pixels / WideTile::WIDTH).min(clip_bbox.x1());
             if wtile_x < x_clamped {
                 // If winding is zero or doesn't match fill rule, these wide tiles are outside the path
                 let is_inside = match fill_rule {
@@ -326,7 +380,7 @@ impl Wide {
             let width = ((next_strip.alpha_idx - strip.alpha_idx) / u32::from(Tile::HEIGHT)) as u16;
             let x1 = (x_pixels + width)
                 .div_ceil(WideTile::WIDTH)
-                .min(clip_bbox[2]);
+                .min(clip_bbox.x1());
             if wtile_x < x1 {
                 for x in wtile_x..x1 {
                     self.get_mut(x, wtile_y).push_clip();
@@ -336,11 +390,11 @@ impl Wide {
         }
 
         // Process any remaining wide tiles in the bounding box (all zero-winding)
-        while wtile_y < clip_bbox[3] {
-            for x in wtile_x..clip_bbox[2] {
+        while wtile_y < clip_bbox.y1() {
+            for x in wtile_x..clip_bbox.x1() {
                 self.get_mut(x, wtile_y).push_zero_clip();
             }
-            wtile_x = clip_bbox[0];
+            wtile_x = clip_bbox.x0();
             wtile_y += 1;
         }
 
@@ -353,12 +407,12 @@ impl Wide {
     }
 
     /// Get the bounding box of the current clip region or the entire viewport if no clip regions are active.
-    fn get_bbox(&self) -> [u16; 4] {
+    fn get_bbox(&self) -> Bbox {
         if let Some(top) = self.clip_stack.last() {
-            top.clip_bbox
+            top.clip_bbox.clone()
         } else {
             // Convert pixel dimensions to wide tile coordinates
-            [0, 0, self.width_tiles(), self.height_tiles()]
+            Bbox::new([0, 0, self.width_tiles(), self.height_tiles()])
         }
     }
 
@@ -392,8 +446,8 @@ impl Wide {
         } = self.clip_stack.pop().unwrap();
         let n_strips = strips.len();
 
-        let mut wtile_x = clip_bbox[0];
-        let mut wtile_y = clip_bbox[1];
+        let mut wtile_x = clip_bbox.x0();
+        let mut wtile_y = clip_bbox.y0();
         let mut pop_pending = false;
 
         // Process each strip to determine the clipping state for each tile
@@ -408,7 +462,7 @@ impl Wide {
 
             // Process tiles in rows before this strip's row
             // These tiles all had zero-winding clips
-            while wtile_y < y.min(clip_bbox[3]) {
+            while wtile_y < y.min(clip_bbox.y1()) {
                 // Handle any pending clip pop from previous iteration
                 if core::mem::take(&mut pop_pending) {
                     self.get_mut(wtile_x, wtile_y).pop_clip();
@@ -416,20 +470,20 @@ impl Wide {
                 }
 
                 // Pop zero clips for all remaining tiles in this row
-                for x in wtile_x..clip_bbox[2] {
+                for x in wtile_x..clip_bbox.x1() {
                     self.get_mut(x, wtile_y).pop_zero_clip();
                 }
-                wtile_x = clip_bbox[0];
+                wtile_x = clip_bbox.x0();
                 wtile_y += 1;
             }
 
-            if wtile_y == clip_bbox[3] {
+            if wtile_y == clip_bbox.y1() {
                 break;
             }
 
             // Process tiles to the left of this strip in the same row
             let x0 = strip.x;
-            let x_clamped = (x0 / WideTile::WIDTH).min(clip_bbox[2]);
+            let x_clamped = (x0 / WideTile::WIDTH).min(clip_bbox.x1());
             if wtile_x < x_clamped {
                 // Handle any pending clip pop from previous iteration
                 if core::mem::take(&mut pop_pending) {
@@ -457,15 +511,16 @@ impl Wide {
             let strip_width =
                 ((next_strip.alpha_idx - strip.alpha_idx) / u32::from(Tile::HEIGHT)) as u16;
             let x1 = x0 + strip_width;
-            let wtile_x0 = (x0 / WideTile::WIDTH).max(clip_bbox[0]);
-            let wtile_x1 = x1.div_ceil(WideTile::WIDTH).min(clip_bbox[2]);
+            let wtile_x0 = (x0 / WideTile::WIDTH).max(clip_bbox.x0());
+            let wtile_x1 = x1.div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
 
             // Calculate starting position and column for alpha mask
             let mut x = x0;
             let mut col = (strip.alpha_idx / u32::from(Tile::HEIGHT)) as u16;
-            if clip_bbox[0] * WideTile::WIDTH > x {
-                col += clip_bbox[0] * WideTile::WIDTH - x;
-                x = clip_bbox[0] * WideTile::WIDTH;
+            let clip_x = clip_bbox.x0() * WideTile::WIDTH;
+            if clip_x > x {
+                col += clip_x - x;
+                x = clip_x;
             }
 
             // Render clip strips for each affected tile and mark for popping
@@ -537,11 +592,11 @@ impl Wide {
         }
 
         // Process any remaining tiles in the bounding box (all zero-winding)
-        while wtile_y < clip_bbox[3] {
-            for x in wtile_x..clip_bbox[2] {
+        while wtile_y < clip_bbox.y1() {
+            for x in wtile_x..clip_bbox.x1() {
                 self.get_mut(x, wtile_y).pop_zero_clip();
             }
-            wtile_x = clip_bbox[0];
+            wtile_x = clip_bbox.x0();
             wtile_y += 1;
         }
     }
