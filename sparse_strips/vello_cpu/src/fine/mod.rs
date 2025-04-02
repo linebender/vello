@@ -6,6 +6,7 @@
 
 mod linear_gradient;
 mod sweep_gradient;
+mod radial_gradient;
 
 use crate::paint::EncodedPaint;
 use linear_gradient::LinearGradientFiller;
@@ -176,6 +177,7 @@ impl<'a> Fine<'a> {
                             iter.run(blend_buf);
                         }
                     }
+                    EncodedPaint::RadialGradient(s) => todo!(),
                 }
             }
         }
@@ -231,6 +233,7 @@ impl<'a> Fine<'a> {
                             alphas,
                         );
                     }
+                    EncodedPaint::RadialGradient(s) => todo!(),
                 }
             }
         }

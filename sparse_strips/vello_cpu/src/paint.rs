@@ -13,6 +13,7 @@ pub enum PaintType {
     Solid(AlphaColor<Srgb>),
     LinearGradient(LinearGradient),
     SweepGradient(SweepGradient),
+    RadialGradient(RadialGradient),
 }
 
 impl From<AlphaColor<Srgb>> for PaintType {
@@ -33,6 +34,10 @@ impl From<SweepGradient> for PaintType {
     }
 }
 
+impl From<RadialGradient> for PaintType {
+    fn from(value: RadialGradient) -> Self { Self::RadialGradient(value) }
+}
+
 /// A color stop.
 #[derive(Debug, Clone, Copy)]
 pub struct Stop {
@@ -40,6 +45,88 @@ pub struct Stop {
     pub offset: f32,
     /// The color of the stop.
     pub color: AlphaColor<Srgb>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RadialGradient {
+    pub c1: Point,
+    pub r1: f32,
+    pub c2: Point,
+    pub r2: f32,
+    pub stops: Vec<Stop>,
+    pub transform: Affine,
+    pub extend: Extend,
+}
+
+impl RadialGradient {
+    pub fn encode(mut self) -> EncodedRadialGradient {
+        let mut c0 = self.c1;
+        let mut c1 = self.c2;
+        let mut r0 = self.r1;
+        let mut r1 = self.r2;
+        
+        let mut stops = if self.c1.x <= self.c2.x {
+            self.stops
+        } else {
+            std::mem::swap(&mut self.c1, &mut self.c2);
+            std::mem::swap(&mut self.r1, &mut self.r2);
+
+            self.stops
+                .iter()
+                .rev()
+                .map(|s| Stop {
+                    offset: 1.0 - s.offset,
+                    color: s.color,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        if self.extend == Extend::Reflect {
+            c1 += c1 - c0;
+            r1 += r1 - r0;
+
+            let first_half = stops.iter().map(|s| Stop {
+                offset: s.offset / 2.0,
+                color: s.color,
+            });
+
+            let second_half = stops.iter().rev().map(|s| Stop {
+                offset: 0.5 + (1.0 - s.offset) / 2.0,
+                color: s.color,
+            });
+
+            let combined = first_half.chain(second_half).collect::<Vec<_>>();
+            stops = combined;
+        }
+
+        let x_offset = -c0.x as f32;
+        let y_offset = -c0.y as f32;
+
+        let dx = c1.x as f32 + x_offset;
+        let dy = c1.y as f32 + y_offset;
+
+        let end = (dx * dx + dy * dy).sqrt();
+
+        let c = self.transform.as_coeffs();
+        let transform = Affine::translate((x_offset as f64, y_offset as f64))
+            * Affine::new([c[0], c[1], c[2], c[3], c[4] - 0.5, c[5] - 0.5]).inverse();
+
+        let pad = self.extend == Extend::Pad;
+        let has_opacities = stops.iter().any(|s| s.color.components[3] != 1.0);
+        let ranges = encode_stops(&stops, 0.0, end, pad);
+        
+        let end_point = c1 - c0;
+        
+        EncodedRadialGradient {
+            transform,
+            c1: (end_point.x as f32, end_point.y as f32),
+            r0,
+            r1,
+            ranges,
+            pad,
+            has_opacities,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -237,6 +324,7 @@ fn encode_stops(stops: &[Stop], start: f32, end: f32, pad: bool) -> Vec<Gradient
 pub enum EncodedPaint {
     LinearGradient(EncodedLinearGradient),
     SweepGradient(EncodedSweepGradient),
+    RadialGradient(EncodedRadialGradient),
 }
 
 impl From<EncodedLinearGradient> for EncodedPaint {
@@ -249,6 +337,21 @@ impl From<EncodedSweepGradient> for EncodedPaint {
     fn from(value: EncodedSweepGradient) -> Self {
         EncodedPaint::SweepGradient(value)
     }
+}
+
+impl From<EncodedRadialGradient> for EncodedPaint {
+    fn from(value: EncodedRadialGradient) -> Self { EncodedPaint::RadialGradient(value) }
+}
+
+#[derive(Debug)]
+pub struct EncodedRadialGradient {
+    pub transform: Affine,
+    pub c1: (f32, f32),
+    pub r0: f32,
+    pub r1: f32,
+    pub ranges: Vec<GradientRange>,
+    pub pad: bool,
+    pub has_opacities: bool,
 }
 
 #[derive(Debug)]
