@@ -203,11 +203,11 @@ impl ApplicationHandler for App<'_> {
 
 fn draw_text(
     ctx: &mut Scene,
-    text: String,
+    text: &str,
     font_cx: &mut FontContext,
     layout_cx: &mut LayoutContext<ColorBrush>,
 ) {
-    let mut builder = layout_cx.ranged_builder(font_cx, &text, 1.0);
+    let mut builder = layout_cx.ranged_builder(font_cx, text, 1.0);
     builder.push_default(FontFamily::parse("Roboto").unwrap());
     builder.push_default(StyleProperty::LineHeight(1.3));
     builder.push_default(StyleProperty::FontSize(32.0));
