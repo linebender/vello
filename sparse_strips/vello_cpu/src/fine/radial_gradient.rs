@@ -54,6 +54,7 @@ impl<'a> RadialGradientFiller<'a> {
 
         let discriminant = b * b - 4.0 * a * c;
         if discriminant < 0.0 {
+            eprintln!("{:?}", pos);
             panic!("was zero");
         }
 
