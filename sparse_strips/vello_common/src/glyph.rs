@@ -161,17 +161,17 @@ enum Style {
 #[derive(Clone, Debug)]
 struct GlyphRun<'a> {
     /// Font for all glyphs in the run.
-    pub font: Font,
+    font: Font,
     /// Size of the font in pixels per em.
-    pub font_size: f32,
+    font_size: f32,
     /// Global transform.
-    pub transform: Affine,
+    transform: Affine,
     /// Per-glyph transform. Can be used to apply skew to simulate italic text.
-    pub glyph_transform: Option<Affine>,
+    glyph_transform: Option<Affine>,
     /// Normalized variation coordinates for variable fonts.
-    pub normalized_coords: &'a [skrifa::instance::NormalizedCoord],
+    normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     /// Controls whether font hinting is enabled.
-    pub hint: bool,
+    hint: bool,
 }
 
 // TODO: Although these are sane defaults, we might want to make them
