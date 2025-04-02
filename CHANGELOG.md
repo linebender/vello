@@ -17,6 +17,11 @@ This release has an [MSRV][] of 1.85.
 
 <!-- TODO: Wgpu 24 (#791); override_image change (#802) -->
 
+### Changed
+
+- The SDL2 example (`simple_sdl2`) has been replaced by `simple_sdl3` using SDL3. ([#887][] by [@waywardmonkeys][])
+
+
 ### Removed
 
 - Breaking: The `Renderer::render_to_surface` has been removed. ([#803][] by [@DJMcNab][])
@@ -257,6 +262,7 @@ This release has an [MSRV][] of 1.75.
 [#796]: https://github.com/linebender/vello/pull/796
 [#803]: https://github.com/linebender/vello/pull/803
 [#841]: https://github.com/linebender/vello/pull/841
+[#887]: https://github.com/linebender/vello/pull/887
 
 <!-- Note that this still comparing against 0.4.0, because 0.4.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.4.0...HEAD
