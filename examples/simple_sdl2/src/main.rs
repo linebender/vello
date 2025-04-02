@@ -126,6 +126,7 @@ fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface<'_>)
             use_cpu: false,
             antialiasing_support: vello::AaSupport::all(),
             num_init_threads: NonZeroUsize::new(1),
+            pipeline_cache: None,
         },
     )
     .expect("Couldn't create renderer")

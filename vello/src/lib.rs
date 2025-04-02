@@ -388,6 +388,11 @@ pub struct RendererOptions {
     ///
     /// Has no effect on WebAssembly
     pub num_init_threads: Option<NonZeroUsize>,
+
+    /// The pipeline cache to use when creating the shaders.
+    ///
+    /// For much more discussion of expected usage patterns, see the documentation on that type.
+    pub pipeline_cache: Option<wgpu::PipelineCache>,
 }
 
 #[cfg(feature = "wgpu")]
@@ -401,7 +406,7 @@ struct RenderResult {
 impl Renderer {
     /// Creates a new renderer for the specified device.
     pub fn new(device: &Device, options: RendererOptions) -> Result<Self> {
-        let mut engine = WgpuEngine::new(options.use_cpu);
+        let mut engine = WgpuEngine::new(options.use_cpu, options.pipeline_cache.clone());
         // If we are running in parallel (i.e. the number of threads is not 1)
         if options.num_init_threads != NonZeroUsize::new(1) {
             #[cfg(not(target_arch = "wasm32"))]
@@ -494,7 +499,7 @@ impl Renderer {
     #[doc(hidden)] // End-users of Vello should not have `hot_reload` enabled.
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<(), Error> {
         device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let mut engine = WgpuEngine::new(self.options.use_cpu);
+        let mut engine = WgpuEngine::new(self.options.use_cpu, self.options.pipeline_cache.clone());
         // We choose not to initialise these shaders in parallel, to ensure the error scope works correctly
         let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
         #[cfg(feature = "debug_layers")]
