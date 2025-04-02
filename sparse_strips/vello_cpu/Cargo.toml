@@ -17,6 +17,7 @@ vello_common = { workspace = true }
 [dev-dependencies]
 oxipng = { workspace = true, features = ["freestanding", "parallel"] }
 image = { workspace = true, features = ["png"] }
+skrifa = { workspace = true }
 
 [lints]
 workspace = true

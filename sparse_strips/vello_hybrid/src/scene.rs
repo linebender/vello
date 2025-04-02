@@ -7,8 +7,10 @@ use crate::render::{GpuStrip, RenderData};
 use vello_common::coarse::{Wide, WideTile};
 use vello_common::color::PremulRgba8;
 use vello_common::flatten::Line;
+use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::paint::Paint;
+use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::strip::Strip;
@@ -111,6 +113,11 @@ impl Scene {
     /// Stroke a rectangle with the current paint and stroke settings.
     pub fn stroke_rect(&mut self, rect: &Rect) {
         self.stroke_path(&rect.to_path(DEFAULT_TOLERANCE));
+    }
+
+    /// Creates a builder for drawing a run of glyphs that have the same attributes.
+    pub fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
+        GlyphRunBuilder::new(font.clone(), self.transform, self)
     }
 
     /// Set the blend mode for subsequent rendering operations.
@@ -256,6 +263,28 @@ impl Scene {
         RenderData {
             strips,
             alphas: self.alphas.clone(),
+        }
+    }
+}
+
+impl GlyphRenderer for Scene {
+    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
+        match glyph {
+            PreparedGlyph::Outline(glyph) => {
+                let transform = self.transform * glyph.local_transform;
+                flatten::fill(glyph.path, transform, &mut self.line_buf);
+                self.render_path(Fill::NonZero, self.paint.clone());
+            }
+        }
+    }
+
+    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
+        match glyph {
+            PreparedGlyph::Outline(glyph) => {
+                let transform = self.transform * glyph.local_transform;
+                flatten::stroke(glyph.path, &self.stroke, transform, &mut self.line_buf);
+                self.render_path(Fill::NonZero, self.paint.clone());
+            }
         }
     }
 }
