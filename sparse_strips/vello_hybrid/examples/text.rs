@@ -214,7 +214,7 @@ fn draw_text(
     builder.push_default(StyleProperty::LineHeight(1.3));
     builder.push_default(StyleProperty::FontSize(32.0));
 
-    let mut layout: Layout<ColorBrush> = builder.build(&text);
+    let mut layout: Layout<ColorBrush> = builder.build(text);
     let max_advance = Some(400.0);
     layout.break_all_lines(max_advance);
     layout.align(max_advance, Alignment::Middle, AlignmentOptions::default());
