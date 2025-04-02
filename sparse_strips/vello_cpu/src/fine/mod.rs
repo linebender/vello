@@ -8,6 +8,7 @@ mod linear_gradient;
 mod radial_gradient;
 mod sweep_gradient;
 
+use crate::fine::radial_gradient::RadialGradientFiller;
 use crate::paint::EncodedPaint;
 use linear_gradient::LinearGradientFiller;
 use std::iter;
@@ -177,7 +178,21 @@ impl<'a> Fine<'a> {
                             iter.run(blend_buf);
                         }
                     }
-                    EncodedPaint::RadialGradient(s) => todo!(),
+                    EncodedPaint::RadialGradient(r) => {
+                        let iter = RadialGradientFiller::new(r, start_x, start_y);
+
+                        if r.has_opacities {
+                            iter.run(color_buf);
+                            fill::src_over(
+                                blend_buf,
+                                color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+                            );
+                        } else {
+                            // Similarly to solid colors we can just override the previous values
+                            // if all colors in the gradient are fully opaque.
+                            iter.run(blend_buf);
+                        }
+                    }
                 }
             }
         }
@@ -233,7 +248,15 @@ impl<'a> Fine<'a> {
                             alphas,
                         );
                     }
-                    EncodedPaint::RadialGradient(s) => todo!(),
+                    EncodedPaint::RadialGradient(r) => {
+                        let mut iter = RadialGradientFiller::new(r, start_x, start_y);
+                        iter.run(color_buf);
+                        strip::src_over(
+                            blend_buf,
+                            color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+                            alphas,
+                        );
+                    }
                 }
             }
         }

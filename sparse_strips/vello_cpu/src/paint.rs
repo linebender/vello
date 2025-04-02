@@ -90,18 +90,13 @@ impl RadialGradient {
         let x_offset = -c0.x as f32;
         let y_offset = -c0.y as f32;
 
-        let dx = c1.x as f32 + x_offset;
-        let dy = c1.y as f32 + y_offset;
-
-        let end = (dx * dx + dy * dy).sqrt();
-
         let c = self.transform.as_coeffs();
         let transform = Affine::translate((x_offset as f64, y_offset as f64))
             * Affine::new([c[0], c[1], c[2], c[3], c[4] - 0.5, c[5] - 0.5]).inverse();
 
         let pad = self.extend == Extend::Pad;
         let has_opacities = stops.iter().any(|s| s.color.components[3] != 1.0);
-        let ranges = encode_stops(&stops, 0.0, end, pad);
+        let ranges = encode_stops(&stops, 0.0, 1.0, pad);
 
         let end_point = c1 - c0;
 
