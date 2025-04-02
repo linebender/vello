@@ -103,10 +103,11 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         let outlines = font.outline_glyphs();
         let size = Size::new(self.run.font_size);
         let hinting_instance = if self.run.hint {
-            // Only transformations including uniform scaling and translation can be hinted.
-            // Rotated, skewed, and other transformations cannot be hinted.
+            // Only apply hinting if the transform is a simple translation.
+            // Scaled, rotated, skewed, and other transformations cannot be hinted.
             let [a, b, c, d, _, _] = self.run.transform.as_coeffs();
-            if a == d && b == 0.0 && c == 0.0 {
+            // TODO: Consider scaling the font size if the transform is a uniform scale.
+            if a == 1.0 && d == 1.0 && b == 0.0 && c == 0.0 {
                 // TODO: Cache hinting instance.
                 HintingInstance::new(&outlines, size, self.run.normalized_coords, HINTING_OPTIONS)
                     .ok()
@@ -161,17 +162,17 @@ enum Style {
 #[derive(Clone, Debug)]
 struct GlyphRun<'a> {
     /// Font for all glyphs in the run.
-    pub font: Font,
+    font: Font,
     /// Size of the font in pixels per em.
-    pub font_size: f32,
+    font_size: f32,
     /// Global transform.
-    pub transform: Affine,
+    transform: Affine,
     /// Per-glyph transform. Can be used to apply skew to simulate italic text.
-    pub glyph_transform: Option<Affine>,
+    glyph_transform: Option<Affine>,
     /// Normalized variation coordinates for variable fonts.
-    pub normalized_coords: &'a [skrifa::instance::NormalizedCoord],
+    normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     /// Controls whether font hinting is enabled.
-    pub hint: bool,
+    hint: bool,
 }
 
 // TODO: Although these are sane defaults, we might want to make them

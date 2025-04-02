@@ -11,7 +11,6 @@ use parley::{
     Alignment, AlignmentOptions, FontContext, GlyphRun, Layout, LayoutContext,
     PositionedLayoutItem, StyleProperty,
 };
-use skrifa::instance::NormalizedCoord;
 use std::sync::Arc;
 use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
@@ -137,7 +136,7 @@ impl ApplicationHandler for App<'_> {
 
                 draw_text(
                     &mut self.scene,
-                    String::from("Hello from Vello Hybrid and Parley!"),
+                    "Hello from Vello Hybrid and Parley!",
                     &mut self.font_cx,
                     &mut self.layout_cx,
                 );
@@ -203,11 +202,11 @@ impl ApplicationHandler for App<'_> {
 
 fn draw_text(
     ctx: &mut Scene,
-    text: String,
+    text: &str,
     font_cx: &mut FontContext,
     layout_cx: &mut LayoutContext<ColorBrush>,
 ) {
-    let mut builder = layout_cx.ranged_builder(font_cx, &text, 1.0);
+    let mut builder = layout_cx.ranged_builder(font_cx, text, 1.0);
     builder.push_default(FontFamily::parse("Roboto").unwrap());
     builder.push_default(StyleProperty::LineHeight(1.3));
     builder.push_default(StyleProperty::FontSize(32.0));
@@ -244,17 +243,13 @@ fn render_glyph_run(ctx: &mut Scene, glyph_run: &GlyphRun<'_, ColorBrush>, paddi
     let run = glyph_run.run();
     let font = run.font();
     let font_size = run.font_size();
-    let normalized_coords = run
-        .normalized_coords()
-        .iter()
-        .map(|coord| NormalizedCoord::from_bits(*coord))
-        .collect::<Vec<_>>();
+    let normalized_coords = bytemuck::cast_slice(run.normalized_coords());
 
     let style = glyph_run.style();
     ctx.set_paint(style.brush.color.into());
     ctx.glyph_run(font)
         .font_size(font_size)
-        .normalized_coords(bytemuck::cast_slice(normalized_coords.as_slice()))
+        .normalized_coords(normalized_coords)
         .hint(true)
         .fill_glyphs(glyphs);
 }
