@@ -305,98 +305,96 @@ impl Wide {
             Bbox::empty()
         } else {
             // Calculate the y range from first to last strip in wide tile coordinates
-            let y0 = strips[0].strip_y();
-            let y1 = strips[n_strips - 1].strip_y() + 1;
+            let wtile_y0 = strips[0].strip_y();
+            let wtile_y1 = strips[n_strips - 1].strip_y() + 1;
 
             // Calculate the x range by examining all strips in wide tile coordinates
-            let mut x0 = strips[0].x / WideTile::WIDTH;
-            let mut x1 = x0;
+            let mut wtile_x0 = strips[0].x / WideTile::WIDTH;
+            let mut wtile_x1 = wtile_x0;
             for i in 0..n_strips - 1 {
                 let strip = &strips[i];
                 let next_strip = &strips[i + 1];
                 let width =
                     ((next_strip.alpha_idx - strip.alpha_idx) / u32::from(Tile::HEIGHT)) as u16;
                 let x = strip.x;
-                x0 = x0.min(x / WideTile::WIDTH);
-                x1 = x1.max((x + width).div_ceil(WideTile::WIDTH));
+                wtile_x0 = wtile_x0.min(x / WideTile::WIDTH);
+                wtile_x1 = wtile_x1.max((x + width).div_ceil(WideTile::WIDTH));
             }
-            Bbox::new([x0, y0, x1, y1])
+            Bbox::new([wtile_x0, wtile_y0, wtile_x1, wtile_y1])
         };
 
         let parent_bbox = self.get_bbox();
         // Calculate the intersection of the parent clip bounding box and the path bounding box.
         let clip_bbox = parent_bbox.intersect(&path_bbox);
 
-        let mut wtile_x = clip_bbox.x0();
-        let mut wtile_y = clip_bbox.y0();
+        let mut cur_wtile_x = clip_bbox.x0();
+        let mut cur_wtile_y = clip_bbox.y0();
 
         // Process strips to determine the clipping state for each wide tile
         for i in 0..n_strips - 1 {
             let strip = &strips[i];
-            let y = strip.strip_y();
+            let strip_y = strip.strip_y();
 
             // Skip strips before current wide tile row
-            if y < wtile_y {
+            if strip_y < cur_wtile_y {
                 continue;
             }
 
             // Process wide tiles in rows before this strip's row
             // These wide tiles are all zero-winding (outside the path)
-            while wtile_y < y.min(clip_bbox.y1()) {
-                for x in wtile_x..clip_bbox.x1() {
-                    self.get_mut(x, wtile_y).push_zero_clip();
+            while cur_wtile_y < strip_y.min(clip_bbox.y1()) {
+                for wtile_x in cur_wtile_x..clip_bbox.x1() {
+                    self.get_mut(wtile_x, cur_wtile_y).push_zero_clip();
                 }
                 // Reset x to the left edge of the clip bounding box
-                wtile_x = clip_bbox.x0();
+                cur_wtile_x = clip_bbox.x0();
                 // Move to the next row
-                wtile_y += 1;
+                cur_wtile_y += 1;
             }
 
             // If we've reached the bottom of the clip bounding box, stop processing
-            if wtile_y == clip_bbox.y1() {
+            if cur_wtile_y == clip_bbox.y1() {
                 break;
             }
 
             // Process wide tiles to the left of this strip in the same row
-            let x_pixels = strip.x;
-            let x_clamped = (x_pixels / WideTile::WIDTH).min(clip_bbox.x1());
-            if wtile_x < x_clamped {
+            let x = strip.x;
+            let wtile_x_clamped = (x / WideTile::WIDTH).min(clip_bbox.x1());
+            if cur_wtile_x < wtile_x_clamped {
                 // If winding is zero or doesn't match fill rule, these wide tiles are outside the path
                 let is_inside = match fill_rule {
                     Fill::NonZero => strip.winding != 0,
                     Fill::EvenOdd => strip.winding % 2 != 0,
                 };
                 if !is_inside {
-                    for x in wtile_x..x_clamped {
-                        self.get_mut(x, wtile_y).push_zero_clip();
+                    for wtile_x in cur_wtile_x..wtile_x_clamped {
+                        self.get_mut(wtile_x, cur_wtile_y).push_zero_clip();
                     }
                 }
                 // If winding is nonzero, then wide tiles covered entirely
                 // by sparse fill are no-op (no clipping is applied).
-                wtile_x = x_clamped;
+                cur_wtile_x = wtile_x_clamped;
             }
 
             // Process wide tiles covered by the strip - these need actual clipping
             let next_strip = &strips[i + 1];
             let width = ((next_strip.alpha_idx - strip.alpha_idx) / u32::from(Tile::HEIGHT)) as u16;
-            let x1 = (x_pixels + width)
-                .div_ceil(WideTile::WIDTH)
-                .min(clip_bbox.x1());
-            if wtile_x < x1 {
-                for x in wtile_x..x1 {
-                    self.get_mut(x, wtile_y).push_clip();
+            let wtile_x1 = (x + width).div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
+            if cur_wtile_x < wtile_x1 {
+                for wtile_x in cur_wtile_x..wtile_x1 {
+                    self.get_mut(wtile_x, cur_wtile_y).push_clip();
                 }
-                wtile_x = x1;
+                cur_wtile_x = wtile_x1;
             }
         }
 
         // Process any remaining wide tiles in the bounding box (all zero-winding)
-        while wtile_y < clip_bbox.y1() {
-            for x in wtile_x..clip_bbox.x1() {
-                self.get_mut(x, wtile_y).push_zero_clip();
+        while cur_wtile_y < clip_bbox.y1() {
+            for wtile_x in cur_wtile_x..clip_bbox.x1() {
+                self.get_mut(wtile_x, cur_wtile_y).push_zero_clip();
             }
-            wtile_x = clip_bbox.x0();
-            wtile_y += 1;
+            cur_wtile_x = clip_bbox.x0();
+            cur_wtile_y += 1;
         }
 
         self.clip_stack.push(Clip {
@@ -447,64 +445,65 @@ impl Wide {
         } = self.clip_stack.pop().unwrap();
         let n_strips = strips.len();
 
-        let mut wtile_x = clip_bbox.x0();
-        let mut wtile_y = clip_bbox.y0();
+        let mut cur_wtile_x = clip_bbox.x0();
+        let mut cur_wtile_y = clip_bbox.y0();
         let mut pop_pending = false;
 
         // Process each strip to determine the clipping state for each tile
         for i in 0..n_strips - 1 {
             let strip = &strips[i];
-            let y = strip.strip_y();
+            let strip_y = strip.strip_y();
 
             // Skip strips before current tile row
-            if y < wtile_y {
+            if strip_y < cur_wtile_y {
                 continue;
             }
 
             // Process tiles in rows before this strip's row
             // These tiles all had zero-winding clips
-            while wtile_y < y.min(clip_bbox.y1()) {
+            while cur_wtile_y < strip_y.min(clip_bbox.y1()) {
                 // Handle any pending clip pop from previous iteration
                 if core::mem::take(&mut pop_pending) {
-                    self.get_mut(wtile_x, wtile_y).pop_clip();
-                    wtile_x += 1;
+                    self.get_mut(cur_wtile_x, cur_wtile_y).pop_clip();
+                    cur_wtile_x += 1;
                 }
 
                 // Pop zero clips for all remaining tiles in this row
-                for x in wtile_x..clip_bbox.x1() {
-                    self.get_mut(x, wtile_y).pop_zero_clip();
+                for wtile_x in cur_wtile_x..clip_bbox.x1() {
+                    self.get_mut(wtile_x, cur_wtile_y).pop_zero_clip();
                 }
-                wtile_x = clip_bbox.x0();
-                wtile_y += 1;
+                cur_wtile_x = clip_bbox.x0();
+                cur_wtile_y += 1;
             }
 
-            if wtile_y == clip_bbox.y1() {
+            // If we've reached the bottom of the clip bounding box, stop processing
+            if cur_wtile_y == clip_bbox.y1() {
                 break;
             }
 
             // Process tiles to the left of this strip in the same row
             let x0 = strip.x;
-            let x_clamped = (x0 / WideTile::WIDTH).min(clip_bbox.x1());
-            if wtile_x < x_clamped {
+            let wtile_x_clamped = (x0 / WideTile::WIDTH).min(clip_bbox.x1());
+            if cur_wtile_x < wtile_x_clamped {
                 // Handle any pending clip pop from previous iteration
                 if core::mem::take(&mut pop_pending) {
-                    self.get_mut(wtile_x, wtile_y).pop_clip();
-                    wtile_x += 1;
+                    self.get_mut(cur_wtile_x, cur_wtile_y).pop_clip();
+                    cur_wtile_x += 1;
                 }
 
                 // Pop zero clips for tiles that had zero winding or didn't match fill rule
                 // TODO: The winding check is probably not needed; if there was a fill,
-                // the logic below should have advanced tile_x.
+                // the logic below should have advanced wtile_x.
                 let is_inside = match fill_rule {
                     Fill::NonZero => strip.winding != 0,
                     Fill::EvenOdd => strip.winding % 2 != 0,
                 };
                 if !is_inside {
-                    for x in wtile_x..x_clamped {
-                        self.get_mut(x, wtile_y).pop_zero_clip();
+                    for wtile_x in cur_wtile_x..wtile_x_clamped {
+                        self.get_mut(wtile_x, cur_wtile_y).pop_zero_clip();
                     }
                 }
-                wtile_x = x_clamped;
+                cur_wtile_x = wtile_x_clamped;
             }
 
             // Process tiles covered by the strip - render clip content and pop
@@ -525,19 +524,19 @@ impl Wide {
             }
 
             // Render clip strips for each affected tile and mark for popping
-            for wtile_ix in wtile_x0..wtile_x1 {
+            for wtile_x in wtile_x0..wtile_x1 {
                 // If we've moved past tile_x and have a pending pop, do it now
-                if wtile_ix > wtile_x && core::mem::take(&mut pop_pending) {
-                    self.get_mut(wtile_x, wtile_y).pop_clip();
+                if cur_wtile_x < wtile_x && core::mem::take(&mut pop_pending) {
+                    self.get_mut(cur_wtile_x, cur_wtile_y).pop_clip();
                 }
 
                 // Calculate the portion of the strip that affects this tile
-                let x_tile_rel = (x % WideTile::WIDTH) as u32;
-                let width = x1.min((wtile_ix + 1) * WideTile::WIDTH) - x;
+                let x_rel = (x % WideTile::WIDTH) as u32;
+                let width = x1.min((wtile_x + 1) * WideTile::WIDTH) - x;
 
                 // Create clip strip command for rendering the partial coverage
                 let cmd = CmdClipAlphaFill {
-                    x: x_tile_rel,
+                    x: x_rel,
                     width: width as u32,
                     alpha_idx: (col * Tile::HEIGHT) as usize,
                 };
@@ -545,8 +544,8 @@ impl Wide {
                 col += width;
 
                 // Apply the clip strip command and update state
-                self.get_mut(wtile_ix, wtile_y).clip_strip(cmd);
-                wtile_x = wtile_ix;
+                self.get_mut(wtile_x, cur_wtile_y).clip_strip(cmd);
+                cur_wtile_x = wtile_x;
                 pop_pending = true;
             }
 
@@ -555,32 +554,33 @@ impl Wide {
                 Fill::NonZero => next_strip.winding != 0,
                 Fill::EvenOdd => next_strip.winding % 2 != 0,
             };
-            if is_inside && y == next_strip.strip_y() {
-                let x2_px = next_strip.x;
-                let wtile_x2_px = x2_px.min((wtile_x + 1) * WideTile::WIDTH);
-                let width = wtile_x2_px.saturating_sub(x1);
+            if is_inside && strip_y == next_strip.strip_y() {
+                let x2 = next_strip.x;
+                let clipped_x2 = x2.min((cur_wtile_x + 1) * WideTile::WIDTH);
+                let width = clipped_x2.saturating_sub(x1);
 
                 // If there's a gap, fill it
                 if width > 0 {
-                    let x_tile_rel = (x1 % WideTile::WIDTH) as u32;
-                    self.get_mut(wtile_x, wtile_y)
-                        .clip_fill(x_tile_rel, width as u32);
+                    let x_rel = (x1 % WideTile::WIDTH) as u32;
+                    self.get_mut(cur_wtile_x, cur_wtile_y)
+                        .clip_fill(x_rel, width as u32);
                 }
 
                 // If the next strip is a sentinel, skip the fill
                 // It's a sentinel in the row if there is non-zero winding for the sparse fill
                 // Look more into this in the strip.rs render function
-                if x2_px == u16::MAX {
+                if x2 == u16::MAX {
                     continue;
                 }
 
                 // If fill extends to next tile, pop current and handle next
-                if x2_px > (wtile_x + 1) * WideTile::WIDTH {
-                    self.get_mut(wtile_x, wtile_y).pop_clip();
-                    let width2 = x2_px % WideTile::WIDTH;
-                    wtile_x = x2_px / WideTile::WIDTH;
+                if x2 > (cur_wtile_x + 1) * WideTile::WIDTH {
+                    self.get_mut(cur_wtile_x, cur_wtile_y).pop_clip();
+                    let width2 = x2 % WideTile::WIDTH;
+                    cur_wtile_x = x2 / WideTile::WIDTH;
                     if width2 > 0 {
-                        self.get_mut(wtile_x, wtile_y).clip_fill(0, width2 as u32);
+                        self.get_mut(cur_wtile_x, cur_wtile_y)
+                            .clip_fill(0, width2 as u32);
                     }
                 }
             }
@@ -588,17 +588,17 @@ impl Wide {
 
         // Handle any pending clip pop from the last iteration
         if core::mem::take(&mut pop_pending) {
-            self.get_mut(wtile_x, wtile_y).pop_clip();
-            wtile_x += 1;
+            self.get_mut(cur_wtile_x, cur_wtile_y).pop_clip();
+            cur_wtile_x += 1;
         }
 
         // Process any remaining tiles in the bounding box (all zero-winding)
-        while wtile_y < clip_bbox.y1() {
-            for x in wtile_x..clip_bbox.x1() {
-                self.get_mut(x, wtile_y).pop_zero_clip();
+        while cur_wtile_y < clip_bbox.y1() {
+            for wtile_x in cur_wtile_x..clip_bbox.x1() {
+                self.get_mut(wtile_x, cur_wtile_y).pop_zero_clip();
             }
-            wtile_x = clip_bbox.x0();
-            wtile_y += 1;
+            cur_wtile_x = clip_bbox.x0();
+            cur_wtile_y += 1;
         }
     }
 }
