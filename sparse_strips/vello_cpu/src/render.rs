@@ -4,7 +4,7 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
-use vello_common::coarse::Wide;
+use vello_common::coarse::{SceneState, Wide};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
@@ -71,6 +71,17 @@ impl RenderContext {
             stroke,
             blend_mode,
         }
+    }
+
+    /// Save the current scene state.
+    pub fn save(&mut self) {
+        self.wide.state_stack.push(SceneState { n_clip: 0 });
+    }
+
+    /// Restore the previous scene state.
+    pub fn restore(&mut self) {
+        self.wide.pop_clips();
+        self.wide.state_stack.pop();
     }
 
     /// Fill a path.

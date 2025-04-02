@@ -629,6 +629,25 @@ fn filled_glyphs() {
 }
 
 #[test]
+fn oversized_star() {
+    let mut ctx = get_ctx(100, 100, true);
+
+    // Create a star path that extends beyond the render context boundaries
+    // Center it in the middle of the viewport
+    let star_path = circular_star(Point::new(50., 50.), 10, 30., 90.);
+
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_path(&star_path);
+
+    let stroke = Stroke::new(2.0);
+    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_stroke(stroke);
+    ctx.stroke_path(&star_path);
+
+    check_ref(&mut ctx, "oversized_star");
+}
+
+#[test]
 fn clip_triangle_with_star() {
     let mut ctx: RenderContext = get_ctx(100, 100, true);
 
@@ -841,22 +860,38 @@ fn clip_with_multiple_transforms() {
 }
 
 #[test]
-fn oversized_star() {
+fn clip_with_save_restore() {
     let mut ctx = get_ctx(100, 100, true);
 
-    // Create a star path that extends beyond the render context boundaries
-    // Center it in the middle of the viewport
-    let star_path = circular_star(Point::new(50., 50.), 10, 30., 90.);
+    // Create first clipping region - a rectangle on the left side
+    let clip_rect1 = Rect::new(10.0, 30.0, 50.0, 70.0);
+    draw_clipping_outline(&mut ctx, &clip_rect1.to_path(0.1));
+    ctx.clip(&clip_rect1.to_path(0.1));
 
+    // Save the state after first clip
+    ctx.save();
+
+    // Add second clipping region - a circle on the right side
+    let circle_center = Point::new(65.0, 50.0);
+    let circle_radius = 30.0;
+    let clip_circle = Circle::new(circle_center, circle_radius).to_path(0.1);
+    draw_clipping_outline(&mut ctx, &clip_circle);
+    ctx.clip(&clip_circle);
+
+    // Draw a rectangle that should be clipped by both regions
+    let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
     ctx.set_paint(REBECCA_PURPLE.into());
-    ctx.fill_path(&star_path);
+    ctx.fill_rect(&rect);
 
-    let stroke = Stroke::new(2.0);
-    ctx.set_paint(DARK_BLUE.into());
-    ctx.set_stroke(stroke);
-    ctx.stroke_path(&star_path);
+    // Restore to state before second clip
+    ctx.restore();
 
-    check_ref(&mut ctx, "oversized_star");
+    // Draw another rectangle that should only be clipped by the first region
+    let rect2 = Rect::new(0.0, 0.0, 100.0, 100.0);
+    ctx.set_paint(DARK_GREEN.with_alpha(0.5).into());
+    ctx.fill_rect(&rect2);
+
+    check_ref(&mut ctx, "clip_with_save_restore");
 }
 
 fn draw_clipping_outline(ctx: &mut RenderContext, path: &BezPath) {
