@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Vello can also be used with non-Winit crates which provide a `RawWindowHandle`.
-//! This example uses it with [`sdl2`].
+//! This example uses it with [`sdl3`].
 //!
 //! Vello however is primarily designed for Xilem, which uses Winit, and so support for non-Winit crates
 //! is on a tier-2 basis, i.e. it is checked in CI, but is not rarely manually validated.
-extern crate sdl2;
 
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
+use sdl3::event::Event;
+use sdl3::keyboard::Keycode;
 
 use std::num::NonZeroUsize;
 
@@ -22,14 +21,14 @@ use vello::{AaConfig, Renderer, RendererOptions, Scene};
 use vello::wgpu;
 
 fn main() {
-    let sdl_context = sdl2::init().unwrap();
+    let sdl_context = sdl3::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
     let width: u32 = 800;
     let height: u32 = 600;
 
     let window = video_subsystem
-        .window("Vello SDL2 Demo", width, height)
+        .window("Vello SDL3 Demo", width, height)
         .position_centered()
         .metal_view()
         .build()
