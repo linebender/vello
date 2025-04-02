@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Code related to managing wgpu pipeline caches, especially on Android
 
 use std::{
@@ -40,10 +43,12 @@ fn get_cache_directory_android<T>(event_loop: &EventLoop<T>) -> anyhow::Result<P
     Ok(dir)
 }
 
-pub(crate) fn get_cache_directory<T>(event_loop: &EventLoop<T>) -> anyhow::Result<Option<PathBuf>> {
+pub(crate) fn get_cache_directory<T>(
+    _event_loop: &EventLoop<T>,
+) -> anyhow::Result<Option<PathBuf>> {
     #[cfg(target_os = "android")]
     {
-        return get_cache_directory_android(event_loop).map(Some);
+        return get_cache_directory_android(_event_loop).map(Some);
     }
     #[expect(
         clippy::allow_attributes,
