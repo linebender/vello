@@ -667,6 +667,7 @@ fn clip_triangle_with_star() {
     ctx.clip(&star_path);
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_path(&triangle_path);
+    ctx.finish();
 
     check_ref(&mut ctx, "clip_triangle_with_star");
 }
@@ -686,7 +687,7 @@ fn clip_rectangle_with_star_nonzero() {
     // The NonZero fill rule will treat self-intersecting regions as filled
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_rect(&rect);
-
+    ctx.finish();
     check_ref(&mut ctx, "clip_rectangle_with_star_nonzero");
 }
 
@@ -705,6 +706,7 @@ fn clip_rectangle_with_star_evenodd() {
     // The EvenOdd rule should create a "hole" in the middle where the paths overlap
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_rect(&rect);
+    ctx.finish();
 
     check_ref(&mut ctx, "clip_rectangle_with_star_evenodd");
 }
@@ -736,7 +738,7 @@ fn clip_rectangle_and_circle() {
     let large_rect = Rect::new(0.0, 0.0, 100.0, 100.0);
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_rect(&large_rect);
-
+    ctx.finish();
     check_ref(&mut ctx, "clip_rectangle_and_circle");
 }
 
@@ -756,7 +758,7 @@ fn clip_with_translation() {
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_rect(&rect);
-
+    ctx.finish();
     check_ref(&mut ctx, "clip_with_translation");
 }
 
@@ -775,6 +777,7 @@ fn clip_with_scale() {
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_rect(&rect);
+    ctx.finish();
 
     check_ref(&mut ctx, "clip_with_scale");
 }
@@ -797,6 +800,7 @@ fn clip_with_rotate() {
     let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_rect(&rect);
+    ctx.finish();
 
     check_ref(&mut ctx, "clip_with_rotate");
 }
@@ -820,6 +824,7 @@ fn clip_transformed_rect() {
     let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_rect(&rect);
+    ctx.finish();
 
     check_ref(&mut ctx, "clip_transformed_rect");
 }
@@ -851,6 +856,7 @@ fn clip_with_multiple_transforms() {
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
     ctx.set_paint(REBECCA_PURPLE.into());
     ctx.fill_rect(&rect);
+    ctx.finish();
 
     check_ref(&mut ctx, "clip_with_multiple_transforms");
 }
@@ -886,7 +892,7 @@ fn clip_with_save_restore() {
     let rect2 = Rect::new(0.0, 0.0, 100.0, 100.0);
     ctx.set_paint(DARK_GREEN.with_alpha(0.5).into());
     ctx.fill_rect(&rect2);
-
+    ctx.finish();
     check_ref(&mut ctx, "clip_with_save_restore");
 }
 

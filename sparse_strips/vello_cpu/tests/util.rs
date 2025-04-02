@@ -37,14 +37,13 @@ pub(crate) fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderConte
     ctx
 }
 
-pub(crate) fn render_pixmap(ctx: &mut RenderContext) -> Pixmap {
+pub(crate) fn render_pixmap(ctx: &RenderContext) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.finish();
     ctx.render_to_pixmap(&mut pixmap);
     pixmap
 }
 
-pub(crate) fn check_ref(ctx: &mut RenderContext, name: &str) {
+pub(crate) fn check_ref(ctx: &RenderContext, name: &str) {
     let mut pixmap = render_pixmap(ctx);
     pixmap.unpremultiply();
 
