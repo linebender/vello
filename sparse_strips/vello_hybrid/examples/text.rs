@@ -136,7 +136,7 @@ impl ApplicationHandler for App<'_> {
 
                 draw_text(
                     &mut self.scene,
-                    String::from("Hello from Vello Hybrid and Parley!"),
+                    "Hello from Vello Hybrid and Parley!",
                     &mut self.font_cx,
                     &mut self.layout_cx,
                 );
