@@ -115,6 +115,7 @@ pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image
             use_cpu: params.use_cpu,
             num_init_threads: NonZeroUsize::new(1),
             antialiasing_support: std::iter::once(params.anti_aliasing).collect(),
+            pipeline_cache: None,
         },
     )
     .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;

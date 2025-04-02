@@ -210,6 +210,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                         use_cpu: self.use_cpu,
                         antialiasing_support: AA_CONFIGS.iter().copied().collect(),
                         num_init_threads: NonZeroUsize::new(self.num_init_threads),
+                        pipeline_cache: None,
                     },
                 )
                 .map_err(|e| {
