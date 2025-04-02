@@ -173,9 +173,10 @@ impl Wide {
 
             // Adjust column starting position if needed to respect clip boundaries
             let mut x = x0;
-            if (bbox[0] * WideTile::WIDTH) > x {
-                col += (bbox[0] * WideTile::WIDTH - x) as u32;
-                x = bbox[0] * WideTile::WIDTH;
+            let clip_x = bbox[0] * WideTile::WIDTH;
+            if clip_x > x {
+                col += (clip_x - x) as u32;
+                x = clip_x;
             }
 
             // Generate alpha fill commands for each wide tile intersected by this strip
