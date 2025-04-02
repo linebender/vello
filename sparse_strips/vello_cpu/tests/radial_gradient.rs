@@ -112,3 +112,25 @@ fn gradient_radial_center_offset() {
 
     check_ref(&ctx, "gradient_radial_center_offset");
 }
+
+#[test]
+#[ignore]
+fn gradient_radial_circle_1_bigger_radius() {
+    let mut ctx = get_ctx(100, 100, false);
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+    let gradient = RadialGradient {
+        c1: Point::new(50.0, 50.0),
+        r1: 40.0,
+        c2: Point::new(50.0, 50.0),
+        r2: 10.0,
+        stops: stops_blue_green_red_yellow(),
+        transform: Affine::IDENTITY,
+        extend: vello_common::peniko::Extend::Pad,
+    };
+
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&rect);
+
+    check_ref(&ctx, "gradient_radial_circle_1_bigger_radius");
+}
