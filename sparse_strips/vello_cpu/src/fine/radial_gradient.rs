@@ -62,12 +62,18 @@ impl<'a> RadialGradientFiller<'a> {
         let t1 = (-b - sqrt_d) / (2.0 * a);
         let t2 = (-b + sqrt_d) / (2.0 * a);
 
-        t1
+        if dr >= 0.0 {
+            t1
+        }   else {
+            t2
+        }
     }
 
     pub(super) fn run(mut self, target: &mut [u8]) {
         let pad = self.gradient.pad;
         let transform = self.gradient.transform;
+        
+        eprintln!("{:?}", self.gradient.ranges);
 
         let extend = |val| extend(val, pad, 0.0, 1.0);
 

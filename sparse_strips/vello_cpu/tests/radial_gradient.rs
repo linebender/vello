@@ -114,7 +114,6 @@ fn gradient_radial_center_offset() {
 }
 
 #[test]
-#[ignore]
 fn gradient_radial_circle_1_bigger_radius() {
     let mut ctx = get_ctx(100, 100, false);
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
