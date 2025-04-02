@@ -3,16 +3,14 @@ use crate::util::ColorExt;
 use std::iter;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Point};
-use vello_common::peniko::Extend;
+use vello_common::peniko::{Extend, GradientKind};
 
 // TODO: Validate gradient before encoding it.
 
 #[derive(Debug, Clone)]
 pub enum PaintType {
     Solid(AlphaColor<Srgb>),
-    LinearGradient(LinearGradient),
-    SweepGradient(SweepGradient),
-    RadialGradient(RadialGradient),
+    Gradient(Gradient),
 }
 
 impl From<AlphaColor<Srgb>> for PaintType {
@@ -21,21 +19,188 @@ impl From<AlphaColor<Srgb>> for PaintType {
     }
 }
 
-impl From<LinearGradient> for PaintType {
-    fn from(value: LinearGradient) -> Self {
-        Self::LinearGradient(value)
+impl From<Gradient> for PaintType {
+    fn from(value: Gradient) -> Self {
+        Self::Gradient(value)
     }
 }
 
-impl From<SweepGradient> for PaintType {
-    fn from(value: SweepGradient) -> Self {
-        Self::SweepGradient(value)
-    }
+#[derive(Debug, Clone)]
+pub struct Gradient {
+    pub kind: GradientKind,
+    pub stops: Vec<Stop>,
+    pub transform: Affine,
+    pub extend: Extend,
 }
 
-impl From<RadialGradient> for PaintType {
-    fn from(value: RadialGradient) -> Self {
-        Self::RadialGradient(value)
+impl Gradient {
+    pub fn encode(mut self) -> EncodedPaint {
+        match self.kind {
+            GradientKind::Linear { start, end } => {
+                // Note that this will not work for transforms with coordinate skewing.
+                let mut p0 = start;
+                let mut p1 = end;
+
+                let has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
+
+                let mut stops = if p0.x <= p1.x {
+                    self.stops
+                } else {
+                    std::mem::swap(&mut p0, &mut p1);
+
+                    self.stops
+                        .iter()
+                        .rev()
+                        .map(|s| Stop {
+                            offset: 1.0 - s.offset,
+                            color: s.color,
+                        })
+                        .collect::<Vec<_>>()
+                };
+
+                // Double the length of the iterator, and append stops in reverse order.
+                // Then we can treat it the same as repeated gradients.
+                if self.extend == Extend::Reflect {
+                    p1.x += p1.x - p0.x;
+                    p1.y += p1.y - p0.y;
+
+                    let first_half = stops.iter().map(|s| Stop {
+                        offset: s.offset / 2.0,
+                        color: s.color,
+                    });
+
+                    let second_half = stops.iter().rev().map(|s| Stop {
+                        offset: 0.5 + (1.0 - s.offset) / 2.0,
+                        color: s.color,
+                    });
+
+                    let combined = first_half.chain(second_half).collect::<Vec<_>>();
+                    stops = combined;
+                }
+
+                let x_offset = -p0.x as f32;
+                let y_offset = -p0.y as f32;
+
+                let dx = p1.x as f32 + x_offset;
+                let dy = p1.y as f32 + y_offset;
+                let norm = (-dy, dx);
+
+                let denom = (norm.1 * norm.1 + norm.0 * norm.0).sqrt();
+                let fact1 = norm.1;
+                let fact2 = norm.0;
+
+                let end = (dx * dx + dy * dy).sqrt();
+
+                let ranges = encode_stops(&stops, 0.0, end, self.extend == Extend::Pad);
+
+                let c = self.transform.as_coeffs();
+                let transform = Affine::translate((x_offset as f64, y_offset as f64))
+                    * Affine::new([c[0], c[1], c[2], c[3], c[4] - 0.5, c[5] - 0.5]).inverse();
+
+                EncodedPaint::LinearGradient(EncodedLinearGradient {
+                    denom,
+                    fact1,
+                    fact2,
+                    end: (dx * dx + dy * dy).sqrt(),
+                    ranges,
+                    pad: self.extend == Extend::Pad,
+                    has_opacities,
+                    transform,
+                })
+            }
+            GradientKind::Radial { start_center, start_radius, end_center, end_radius } => {
+                let mut c0 = start_center;
+                let mut c1 = end_center;
+                let mut r0 = start_radius;
+                let mut r1 = end_radius;
+
+                let mut stops = self.stops;
+
+                if self.extend == Extend::Reflect {
+                    c1 += c1 - c0;
+                    r1 += r1 - r0;
+
+                    let first_half = stops.iter().map(|s| Stop {
+                        offset: s.offset / 2.0,
+                        color: s.color,
+                    });
+
+                    let second_half = stops.iter().rev().map(|s| Stop {
+                        offset: 0.5 + (1.0 - s.offset) / 2.0,
+                        color: s.color,
+                    });
+
+                    let combined = first_half.chain(second_half).collect::<Vec<_>>();
+                    stops = combined;
+                }
+
+                let x_offset = -c0.x as f32;
+                let y_offset = -c0.y as f32;
+
+                let c = self.transform.as_coeffs();
+                let transform = Affine::translate((x_offset as f64, y_offset as f64))
+                    * Affine::new([c[0], c[1], c[2], c[3], c[4] - 0.5, c[5] - 0.5]).inverse();
+
+                let dist = (c1.x * c1.x + c1.y * c1.y).sqrt();
+
+                let pad = self.extend == Extend::Pad;
+                // If the inner circle is not completely contained within the outer circle, the gradient
+                // can deform into a cone-like structure where some areas of the shape will not be drawn.
+                let has_opacities =
+                    stops.iter().any(|s| s.color.components[3] != 1.0) || dist as f32 + r1 > r0;
+                let ranges = encode_stops(&stops, 0.0, 1.0, pad);
+
+                let end_point = c1 - c0;
+
+                EncodedPaint::RadialGradient(EncodedRadialGradient {
+                    transform,
+                    c1: (end_point.x as f32, end_point.y as f32),
+                    r0,
+                    r1,
+                    ranges,
+                    pad,
+                    has_opacities,
+                })
+            }
+            GradientKind::Sweep { center, start_angle, end_angle } => {
+                let mut stops = self.stops;
+                let start_angle = start_angle.to_radians();
+                let mut end_angle = end_angle.to_radians();
+
+                if self.extend == Extend::Reflect {
+                    end_angle += end_angle - start_angle;
+
+                    let first_half = stops.iter().map(|s| Stop {
+                        offset: s.offset / 2.0,
+                        color: s.color,
+                    });
+
+                    let second_half = stops.iter().rev().map(|s| Stop {
+                        offset: 0.5 + (1.0 - s.offset) / 2.0,
+                        color: s.color,
+                    });
+
+                    let combined = first_half.chain(second_half).collect::<Vec<_>>();
+                    stops = combined;
+                }
+
+                let pad = self.extend == Extend::Pad;
+                let has_opacities = stops.iter().any(|s| s.color.components[3] != 1.0);
+                let stops = encode_stops(&stops, start_angle, end_angle, pad);
+                let center = self.transform * center;
+                let c = self.transform.as_coeffs();
+                let trans = Affine::new([c[0], c[1], c[2], c[3], center.x - 0.5, center.y - 0.5]).inverse();
+
+                EncodedPaint::SweepGradient(EncodedSweepGradient {
+                    trans,
+                    start_angle,
+                    end_angle,
+                    ranges: stops,
+                    pad,
+                    has_opacities,
+                })
+            }
+        }
     }
 }
 
@@ -46,74 +211,6 @@ pub struct Stop {
     pub offset: f32,
     /// The color of the stop.
     pub color: AlphaColor<Srgb>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RadialGradient {
-    pub c1: Point,
-    pub r1: f32,
-    pub c2: Point,
-    pub r2: f32,
-    pub stops: Vec<Stop>,
-    pub transform: Affine,
-    pub extend: Extend,
-}
-
-impl RadialGradient {
-    pub fn encode(mut self) -> EncodedRadialGradient {
-        let mut c0 = self.c1;
-        let mut c1 = self.c2;
-        let mut r0 = self.r1;
-        let mut r1 = self.r2;
-
-        let mut stops = self.stops;
-
-        if self.extend == Extend::Reflect {
-            c1 += c1 - c0;
-            r1 += r1 - r0;
-
-            let first_half = stops.iter().map(|s| Stop {
-                offset: s.offset / 2.0,
-                color: s.color,
-            });
-
-            let second_half = stops.iter().rev().map(|s| Stop {
-                offset: 0.5 + (1.0 - s.offset) / 2.0,
-                color: s.color,
-            });
-
-            let combined = first_half.chain(second_half).collect::<Vec<_>>();
-            stops = combined;
-        }
-
-        let x_offset = -c0.x as f32;
-        let y_offset = -c0.y as f32;
-
-        let c = self.transform.as_coeffs();
-        let transform = Affine::translate((x_offset as f64, y_offset as f64))
-            * Affine::new([c[0], c[1], c[2], c[3], c[4] - 0.5, c[5] - 0.5]).inverse();
-
-        let dist = (c1.x * c1.x + c1.y * c1.y).sqrt();
-
-        let pad = self.extend == Extend::Pad;
-        // If the inner circle is not completely contained within the outer circle, the gradient
-        // can deform into a cone-like structure where some areas of the shape will not be drawn.
-        let has_opacities =
-            stops.iter().any(|s| s.color.components[3] != 1.0) || dist as f32 + r1 > r0;
-        let ranges = encode_stops(&stops, 0.0, 1.0, pad);
-
-        let end_point = c1 - c0;
-
-        EncodedRadialGradient {
-            transform,
-            c1: (end_point.x as f32, end_point.y as f32),
-            r0,
-            r1,
-            ranges,
-            pad,
-            has_opacities,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -128,46 +225,6 @@ pub struct SweepGradient {
     pub transform: Affine,
 }
 
-impl SweepGradient {
-    pub fn encode(self) -> EncodedSweepGradient {
-        let mut stops = self.stops;
-        let start_angle = self.start_angle.to_radians();
-        let mut end_angle = self.end_angle.to_radians();
-
-        if self.extend == Extend::Reflect {
-            end_angle += end_angle - start_angle;
-
-            let first_half = stops.iter().map(|s| Stop {
-                offset: s.offset / 2.0,
-                color: s.color,
-            });
-
-            let second_half = stops.iter().rev().map(|s| Stop {
-                offset: 0.5 + (1.0 - s.offset) / 2.0,
-                color: s.color,
-            });
-
-            let combined = first_half.chain(second_half).collect::<Vec<_>>();
-            stops = combined;
-        }
-
-        let pad = self.extend == Extend::Pad;
-        let has_opacities = stops.iter().any(|s| s.color.components[3] != 1.0);
-        let stops = encode_stops(&stops, start_angle, end_angle, pad);
-        let center = self.transform * self.center;
-        let c = self.transform.as_coeffs();
-        let trans = Affine::new([c[0], c[1], c[2], c[3], center.x - 0.5, center.y - 0.5]).inverse();
-
-        EncodedSweepGradient {
-            trans,
-            start_angle,
-            end_angle,
-            ranges: stops,
-            pad,
-            has_opacities,
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct LinearGradient {
@@ -179,81 +236,6 @@ pub struct LinearGradient {
     pub stops: Vec<Stop>,
     pub transform: Affine,
     pub extend: Extend,
-}
-
-impl LinearGradient {
-    pub fn encode(self) -> EncodedLinearGradient {
-        // Note that this will not work for transforms with coordinate skewing.
-        let mut p0 = self.p0;
-        let mut p1 = self.p1;
-
-        let has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
-
-        let mut stops = if self.p0.x <= self.p1.x {
-            self.stops
-        } else {
-            std::mem::swap(&mut p0, &mut p1);
-
-            self.stops
-                .iter()
-                .rev()
-                .map(|s| Stop {
-                    offset: 1.0 - s.offset,
-                    color: s.color,
-                })
-                .collect::<Vec<_>>()
-        };
-
-        // Double the length of the iterator, and append stops in reverse order.
-        // Then we can treat it the same as repeated gradients.
-        if self.extend == Extend::Reflect {
-            p1.x += p1.x - p0.x;
-            p1.y += p1.y - p0.y;
-
-            let first_half = stops.iter().map(|s| Stop {
-                offset: s.offset / 2.0,
-                color: s.color,
-            });
-
-            let second_half = stops.iter().rev().map(|s| Stop {
-                offset: 0.5 + (1.0 - s.offset) / 2.0,
-                color: s.color,
-            });
-
-            let combined = first_half.chain(second_half).collect::<Vec<_>>();
-            stops = combined;
-        }
-
-        let x_offset = -p0.x as f32;
-        let y_offset = -p0.y as f32;
-
-        let dx = p1.x as f32 + x_offset;
-        let dy = p1.y as f32 + y_offset;
-        let norm = (-dy, dx);
-
-        let denom = (norm.1 * norm.1 + norm.0 * norm.0).sqrt();
-        let fact1 = norm.1;
-        let fact2 = norm.0;
-
-        let end = (dx * dx + dy * dy).sqrt();
-
-        let ranges = encode_stops(&stops, 0.0, end, self.extend == Extend::Pad);
-
-        let c = self.transform.as_coeffs();
-        let transform = Affine::translate((x_offset as f64, y_offset as f64))
-            * Affine::new([c[0], c[1], c[2], c[3], c[4] - 0.5, c[5] - 0.5]).inverse();
-
-        EncodedLinearGradient {
-            denom,
-            fact1,
-            fact2,
-            end: (dx * dx + dy * dy).sqrt(),
-            ranges,
-            pad: self.extend == Extend::Pad,
-            has_opacities,
-            transform,
-        }
-    }
 }
 
 fn encode_stops(stops: &[Stop], start: f32, end: f32, pad: bool) -> Vec<GradientRange> {

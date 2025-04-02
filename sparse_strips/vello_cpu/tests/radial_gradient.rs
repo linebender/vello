@@ -4,7 +4,8 @@ use crate::util::{
 };
 use std::f64::consts::PI;
 use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
-use vello_cpu::paint::{LinearGradient, RadialGradient};
+use vello_common::peniko::GradientKind::Radial;
+use vello_cpu::paint::Gradient;
 
 mod util;
 
@@ -13,11 +14,13 @@ macro_rules! simple {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-        let gradient = RadialGradient {
-            c1: Point::new(50.0, 50.0),
-            r1: 10.0,
-            c2: Point::new(50.0, 50.0),
-            r2: 40.0,
+        let gradient = Gradient {
+            kind: Radial {
+                start_center: Point::new(50.0, 50.0),
+                start_radius: 10.0,
+                end_center: Point::new(50.0, 50.0),
+                end_radius: 40.0
+            },
             stops: $stops,
             transform: Affine::IDENTITY,
             extend: vello_common::peniko::Extend::Pad,
@@ -53,11 +56,13 @@ macro_rules! gradient_pad {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-        let gradient = RadialGradient {
-            c1: Point::new(50.0, 50.0),
-            r1: 20.0,
-            c2: Point::new(50.0, 50.0),
-            r2: 25.0,
+        let gradient = Gradient {
+            kind: Radial {
+                start_center: Point::new(50.0, 50.0),
+                start_radius: 20.0,
+                end_center: Point::new(50.0, 50.0),
+                end_radius: 25.0
+            },
             stops: stops_blue_green_red_yellow(),
             transform: Affine::IDENTITY,
             extend: $extend,
@@ -99,11 +104,13 @@ macro_rules! offset {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-        let gradient = RadialGradient {
-            c1: $point,
-            r1: 2.0,
-            c2: Point::new(50.0, 50.0),
-            r2: 40.0,
+        let gradient = Gradient {
+            kind: Radial {
+                start_center: $point,
+                start_radius: 2.0,
+                end_center: Point::new(50.0, 50.0),
+                end_radius: 40.0
+            },
             stops: stops_blue_green_red_yellow(),
             transform: Affine::IDENTITY,
             extend: vello_common::peniko::Extend::Repeat,
@@ -153,11 +160,13 @@ fn gradient_radial_c0_bigger() {
     let mut ctx = get_ctx(100, 100, false);
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-    let gradient = RadialGradient {
-        c1: Point::new(50.0, 50.0),
-        r1: 40.0,
-        c2: Point::new(50.0, 50.0),
-        r2: 10.0,
+    let gradient = Gradient {
+        kind: Radial {
+            start_center: Point::new(50.0, 50.0),
+            start_radius: 40.0,
+            end_center: Point::new(50.0, 50.0),
+            end_radius: 10.0
+        },
         stops: stops_blue_green_red_yellow(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
@@ -174,11 +183,13 @@ macro_rules! non_overlapping {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-        let gradient = RadialGradient {
-            c1: Point::new(30.0, 50.0),
-            r1: $radius,
-            c2: Point::new(70.0, 50.0),
-            r2: 20.0,
+        let gradient = Gradient {
+            kind: Radial {
+                start_center:Point::new(30.0, 50.0),
+                start_radius: $radius,
+                end_center: Point::new(70.0, 50.0),
+                end_radius: 20.0
+            },
             stops: stops_blue_green_red_yellow(),
             transform: Affine::IDENTITY,
             extend: vello_common::peniko::Extend::Pad,
@@ -216,11 +227,13 @@ fn gradient_radial_complex_shape() {
     let mut ctx = get_ctx(100, 100, false);
     let path = star_path();
 
-    let gradient = RadialGradient {
-        c1: Point::new(50.0, 50.0),
-        r1: 5.0,
-        c2: Point::new(50.0, 50.0),
-        r2: 35.0,
+    let gradient = Gradient {
+        kind: Radial {
+            start_center: Point::new(50.0, 50.0),
+            start_radius: 5.0,
+            end_center: Point::new(50.0, 50.0),
+            end_radius: 35.0
+        },
         stops: stops_blue_green_red_yellow(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
@@ -238,11 +251,13 @@ macro_rules! gradient_with_transform {
         let rect = Rect::new($p0, $p1, $p2, $p3);
         let point = Point::new(($p0 + $p2) / 2.0, ($p1 + $p3) / 2.0);
 
-        let gradient = RadialGradient {
-            c1: point,
-            r1: 5.0,
-            c2: point,
-            r2: 35.0,
+        let gradient = Gradient {
+            kind: Radial {
+                start_center: point,
+                start_radius: 5.0,
+                end_center: point,
+                end_radius: 35.0
+            },
             stops: stops_blue_green_red_yellow(),
             transform: Affine::IDENTITY,
             extend: vello_common::peniko::Extend::Pad,

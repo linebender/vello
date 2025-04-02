@@ -78,31 +78,13 @@ impl RenderContext {
     fn encode_current_paint(&mut self) -> Paint {
         match self.paint.clone() {
             PaintType::Solid(s) => s.into(),
-            PaintType::LinearGradient(mut l) => {
-                l.transform = self.transform * l.transform;
+            PaintType::Gradient(mut g) => {
+                g.transform = self.transform * g.transform;
 
-                let encoded = l.encode();
+                let encoded = g.encode();
                 let idx = self.encoded_paints.len();
                 self.encoded_paints
-                    .push(EncodedPaint::LinearGradient(encoded));
-                Paint::Indexed(IndexedPaint::new(idx))
-            }
-            PaintType::SweepGradient(mut s) => {
-                s.transform = self.transform * s.transform;
-
-                let encoded = s.encode();
-                let idx = self.encoded_paints.len();
-                self.encoded_paints
-                    .push(EncodedPaint::SweepGradient(encoded));
-                Paint::Indexed(IndexedPaint::new(idx))
-            }
-            PaintType::RadialGradient(mut r) => {
-                r.transform = self.transform * r.transform;
-
-                let encoded = r.encode();
-                let idx = self.encoded_paints.len();
-                self.encoded_paints
-                    .push(EncodedPaint::RadialGradient(encoded));
+                    .push(encoded);
                 Paint::Indexed(IndexedPaint::new(idx))
             }
         }
