@@ -29,6 +29,9 @@ This release has an [MSRV][] of 1.85.
 
 The crates were switched to edition 2024 of Rust.
 
+- The example which uses sdl2 has been removed.
+  The sdl2 crates no longer compile, and this example previously existing shows that it was possible. ([#886][] by [@DJMcNab][])
+
 ## [0.4.1][] - 2025-03-10
 
 This release has an [MSRV][] of 1.82.
@@ -257,6 +260,7 @@ This release has an [MSRV][] of 1.75.
 [#796]: https://github.com/linebender/vello/pull/796
 [#803]: https://github.com/linebender/vello/pull/803
 [#841]: https://github.com/linebender/vello/pull/841
+[#886]: https://github.com/linebender/vello/pull/886
 
 <!-- Note that this still comparing against 0.4.0, because 0.4.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.4.0...HEAD
