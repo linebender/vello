@@ -24,8 +24,6 @@ use winit::{
     window::{Window, WindowId},
 };
 
-const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ColorBrush {
     color: AlphaColor<Srgb>,
@@ -46,8 +44,6 @@ fn main() {
         state: RenderState::Suspended(None),
         scene: Scene::new(900, 600),
     };
-
-    app.font_cx.collection.register_fonts(ROBOTO_FONT.to_vec());
 
     let event_loop = EventLoop::new().unwrap();
     event_loop
