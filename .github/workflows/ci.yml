@@ -19,7 +19,7 @@ env:
   FEATURES_DEPENDING_ON_STD: "std,default"
   # List of packages that can not target Wasm.
   # `vello_tests` uses `nv-flip`, which doesn't support Wasm.
-  NO_WASM_PKGS: "--exclude vello_tests --exclude simple_sdl2"
+  NO_WASM_PKGS: "--exclude vello_tests"
   # The files stored in LFS the tests need to access, in JSON format
   LFS_FILES: '["vello_tests/snapshots/*.png", "sparse_strips/vello_cpu/snapshots/*.png"]'
 
