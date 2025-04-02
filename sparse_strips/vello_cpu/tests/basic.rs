@@ -674,20 +674,18 @@ fn clip_triangle_with_star() {
 #[test]
 fn clip_rectangle_with_star_nonzero() {
     let mut ctx = get_ctx(100, 100, true);
-
-    let clip_rect = Rect::new(5.0, 30.0, 50.0, 70.0);
+    let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+    // Create a self-intersecting star shape that will show the difference between fill rules
     let star_path = crossed_line_star();
 
-    let stroke = Stroke::new(1.0);
-    ctx.set_paint(DARK_BLUE.into());
-    ctx.set_stroke(stroke);
-    ctx.stroke_rect(&clip_rect);
-
-    ctx.clip(&clip_rect.to_path(0.1));
-
-    ctx.set_paint(REBECCA_PURPLE.into());
+    // Set the fill rule to NonZero before applying the clip
     ctx.set_fill_rule(Fill::NonZero);
-    ctx.fill_path(&star_path);
+    // Apply the star as a clip
+    ctx.clip(&star_path);
+    // Draw a rectangle that should be clipped by the star
+    // The NonZero fill rule will treat self-intersecting regions as filled
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_rect(&rect);
 
     check_ref(&mut ctx, "clip_rectangle_with_star_nonzero");
 }
@@ -695,20 +693,18 @@ fn clip_rectangle_with_star_nonzero() {
 #[test]
 fn clip_rectangle_with_star_evenodd() {
     let mut ctx = get_ctx(100, 100, true);
-
-    let clip_rect = Rect::new(5.0, 30.0, 50.0, 70.0);
+    let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+    // Create a self-intersecting star shape that will show the difference between fill rules
     let star_path = crossed_line_star();
 
-    let stroke = Stroke::new(1.0);
-    ctx.set_paint(DARK_BLUE.into());
-    ctx.set_stroke(stroke);
-    ctx.stroke_rect(&clip_rect);
-
-    ctx.clip(&clip_rect.to_path(0.1));
-
-    ctx.set_paint(REBECCA_PURPLE.into());
+    // Set the fill rule to EvenOdd before applying the clip
     ctx.set_fill_rule(Fill::EvenOdd);
-    ctx.fill_path(&star_path);
+    // Apply the star as a clip
+    ctx.clip(&star_path);
+    // Draw a rectangle that should be clipped by the star
+    // The EvenOdd rule should create a "hole" in the middle where the paths overlap
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_rect(&rect);
 
     check_ref(&mut ctx, "clip_rectangle_with_star_evenodd");
 }

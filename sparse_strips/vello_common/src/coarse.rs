@@ -40,6 +40,8 @@ struct Clip {
     pub clip_bbox: [u16; 4],
     /// The rendered path in sparse strip representation
     pub strips: Vec<Strip>,
+    /// The fill rule used for this clip
+    pub fill_rule: Fill,
 }
 
 impl Wide {
@@ -235,7 +237,7 @@ impl Wide {
     ///    - If covered by zero winding: `push_zero_clip`
     ///    - If fully covered by non-zero winding: do nothing (clip is a no-op)
     ///    - If partially covered: `push_clip`
-    pub fn push_clip(&mut self, strips: Vec<Strip>) {
+    pub fn push_clip(&mut self, strips: Vec<Strip>, fill_rule: Fill) {
         let n_strips = strips.len();
 
         // Calculate the bounding box of the clip path in strip coordinates
@@ -304,8 +306,12 @@ impl Wide {
             let x_pixels = strip.x;
             let x_clamped = (x_pixels / WideTile::WIDTH).min(clip_bbox[2]);
             if wtile_x < x_clamped {
-                // If winding is zero, these wide tiles are outside the path
-                if strip.winding == 0 {
+                // If winding is zero or doesn't match fill rule, these wide tiles are outside the path
+                let is_inside = match fill_rule {
+                    Fill::NonZero => strip.winding != 0,
+                    Fill::EvenOdd => strip.winding % 2 != 0,
+                };
+                if !is_inside {
                     for x in wtile_x..x_clamped {
                         self.get_mut(x, wtile_y).push_zero_clip();
                     }
@@ -338,7 +344,11 @@ impl Wide {
             wtile_y += 1;
         }
 
-        self.clip_stack.push(Clip { clip_bbox, strips });
+        self.clip_stack.push(Clip {
+            clip_bbox,
+            strips,
+            fill_rule,
+        });
         self.state_stack.last_mut().unwrap().n_clip += 1;
     }
 
@@ -375,7 +385,11 @@ impl Wide {
     pub fn pop_clip(&mut self) {
         self.state_stack.last_mut().unwrap().n_clip -= 1;
 
-        let Clip { clip_bbox, strips } = self.clip_stack.pop().unwrap();
+        let Clip {
+            clip_bbox,
+            strips,
+            fill_rule,
+        } = self.clip_stack.pop().unwrap();
         let n_strips = strips.len();
 
         let mut wtile_x = clip_bbox[0];
@@ -423,10 +437,14 @@ impl Wide {
                     wtile_x += 1;
                 }
 
-                // Pop zero clips for tiles that had zero winding
+                // Pop zero clips for tiles that had zero winding or didn't match fill rule
                 // TODO: The winding check is probably not needed; if there was a fill,
                 // the logic below should have advanced tile_x.
-                if strip.winding == 0 {
+                let is_inside = match fill_rule {
+                    Fill::NonZero => strip.winding != 0,
+                    Fill::EvenOdd => strip.winding % 2 != 0,
+                };
+                if !is_inside {
                     for x in wtile_x..x_clamped {
                         self.get_mut(x, wtile_y).pop_zero_clip();
                     }
@@ -476,8 +494,12 @@ impl Wide {
                 pop_pending = true;
             }
 
-            // Handle fill regions between strips (if next strip has non-zero winding)
-            if next_strip.winding != 0 && y == next_strip.strip_y() {
+            // Handle fill regions between strips based on fill rule
+            let is_inside = match fill_rule {
+                Fill::NonZero => next_strip.winding != 0,
+                Fill::EvenOdd => next_strip.winding % 2 != 0,
+            };
+            if is_inside && y == next_strip.strip_y() {
                 let x2_px = next_strip.x;
                 let wtile_x2_px = x2_px.min((wtile_x + 1) * WideTile::WIDTH);
                 let width = wtile_x2_px.saturating_sub(x1);
