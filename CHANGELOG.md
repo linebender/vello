@@ -15,6 +15,10 @@ You can find its changes [documented below](#041---2025-03-10).
 
 This release has an [MSRV][] of 1.85.
 
+## Added
+
+- Breaking change: Support for pipeline caches. ([#524][] by [@DJMcNab][])
+
 <!-- TODO: Wgpu 24 (#791); override_image change (#802) -->
 
 ### Removed

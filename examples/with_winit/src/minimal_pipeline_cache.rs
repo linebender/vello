@@ -79,7 +79,10 @@ pub(crate) unsafe fn load_pipeline_cache(
     })?;
     let cache_file = directory.join(cache_key);
     let data = match std::fs::read(&cache_file) {
-        Ok(data) => Some(data),
+        Ok(data) => {
+            log::info!("Successfully loaded pipeline cache");
+            Some(data)
+        }
         Err(e) if e.kind() == ErrorKind::NotFound => None,
         Err(e) => return Err(e.into()),
     };
