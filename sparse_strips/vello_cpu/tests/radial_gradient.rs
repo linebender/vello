@@ -1,8 +1,8 @@
-use std::f64::consts::PI;
 use crate::util::{
     check_ref, get_ctx, star_path, stops_blue_green_red_yellow, stops_green_blue,
     stops_green_blue_with_alpha,
 };
+use std::f64::consts::PI;
 use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
 use vello_cpu::paint::{LinearGradient, RadialGradient};
 
@@ -204,6 +204,11 @@ fn gradient_radial_non_overlapping_c0_smaller() {
 #[test]
 fn gradient_radial_non_overlapping_c0_larger() {
     non_overlapping!(25.0, "gradient_radial_non_overlapping_c0_larger");
+}
+
+#[test]
+fn gradient_radial_non_overlapping_cone() {
+    non_overlapping!(5.0, "gradient_radial_non_overlapping_cone");
 }
 
 #[test]

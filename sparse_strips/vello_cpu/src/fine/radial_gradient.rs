@@ -64,8 +64,13 @@ impl<'a> RadialGradientFiller<'a> {
         let max = t1.max(t2);
         let min = t1.min(t2);
 
+        // Ignore all t where we would have a
         if self.gradient.r0 + dr * max <= 0.0 {
-            Some(min)
+            if self.gradient.r0 + dr * min <= 0.0 {
+                None
+            } else {
+                Some(min)
+            }
         } else {
             Some(max)
         }
