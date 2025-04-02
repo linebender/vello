@@ -1,5 +1,6 @@
 use crate::util::{
-    check_ref, get_ctx, stops_blue_green_red_yellow, stops_green_blue, stops_green_blue_with_alpha,
+    check_ref, get_ctx, star_path, stops_blue_green_red_yellow, stops_green_blue,
+    stops_green_blue_with_alpha,
 };
 use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
 use vello_cpu::paint::{LinearGradient, RadialGradient};
@@ -202,4 +203,25 @@ fn gradient_radial_non_overlapping_c0_smaller() {
 #[test]
 fn gradient_radial_non_overlapping_c0_larger() {
     non_overlapping!(25.0, "gradient_radial_non_overlapping_c0_larger");
+}
+
+#[test]
+fn gradient_radial_complex_shape() {
+    let mut ctx = get_ctx(100, 100, false);
+    let path = star_path();
+
+    let gradient = RadialGradient {
+        c1: Point::new(50.0, 50.0),
+        r1: 5.0,
+        c2: Point::new(50.0, 50.0),
+        r2: 35.0,
+        stops: stops_blue_green_red_yellow(),
+        transform: Affine::IDENTITY,
+        extend: vello_common::peniko::Extend::Pad,
+    };
+
+    ctx.set_paint(gradient);
+    ctx.fill_path(&path);
+
+    check_ref(&ctx, "gradient_radial_complex_shape");
 }
