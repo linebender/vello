@@ -322,7 +322,214 @@ impl Tiles {
 #[cfg(test)]
 mod tests {
     use crate::flatten::{Line, Point};
-    use crate::tile::Tiles;
+    use crate::tile::{Tile, Tiles};
+
+    #[test]
+    fn cull_line_at_top() {
+        let line = Line {
+            p0: Point { x: 3.0, y: -5.0 },
+            p1: Point { x: 9.0, y: -1.0 },
+        };
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&[line], 100, 100);
+
+        assert!(tiles.is_empty());
+    }
+
+    #[test]
+    fn cull_line_at_right() {
+        let line = Line {
+            p0: Point { x: 101.0, y: 0.0 },
+            p1: Point { x: 103.0, y: 20.0 },
+        };
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&[line], 100, 100);
+
+        assert!(tiles.is_empty());
+    }
+
+    #[test]
+    fn cull_line_at_bottom() {
+        let line = Line {
+            p0: Point { x: 30.0, y: 101.0 },
+            p1: Point { x: 35.0, y: 105.0 },
+        };
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&[line], 100, 100);
+
+        assert!(tiles.is_empty());
+    }
+
+    #[test]
+    fn partially_cull_line_exceeding_viewport() {
+        let line = Line {
+            p0: Point { x: -2.0, y: -3.0 },
+            p1: Point { x: 2.0, y: 1.0 },
+        };
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&[line], 100, 100);
+
+        assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, true)]);
+    }
+
+    #[test]
+    fn horizontal_straight_line() {
+        let line = Line {
+            p0: Point { x: 1.5, y: 1.0 },
+            p1: Point { x: 8.5, y: 1.0 },
+        };
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&[line], 100, 100);
+        tiles.sort_tiles();
+
+        assert_eq!(
+            tiles.tile_buf,
+            [
+                Tile::new(0, 0, 0, false),
+                Tile::new(1, 0, 0, false),
+                Tile::new(2, 0, 0, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn vertical_straight_line() {
+        let line = Line {
+            p0: Point { x: 1.0, y: 1.5 },
+            p1: Point { x: 1.0, y: 8.5 },
+        };
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&[line], 100, 100);
+        tiles.sort_tiles();
+
+        assert_eq!(
+            tiles.tile_buf,
+            [
+                Tile::new(0, 0, 0, false),
+                Tile::new(0, 1, 0, true),
+                Tile::new(0, 2, 0, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn top_left_to_bottom_right() {
+        let line = Line {
+            p0: Point { x: 1.0, y: 1.0 },
+            p1: Point { x: 11.0, y: 8.5 },
+        };
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&[line], 100, 100);
+        tiles.sort_tiles();
+
+        assert_eq!(
+            tiles.tile_buf,
+            [
+                Tile::new(0, 0, 0, false),
+                Tile::new(1, 0, 0, false),
+                Tile::new(1, 1, 0, true),
+                Tile::new(2, 1, 0, false),
+                Tile::new(2, 2, 0, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn bottom_right_to_top_left() {
+        let line = Line {
+            p0: Point { x: 11.0, y: 8.5 },
+            p1: Point { x: 1.0, y: 1.0 },
+        };
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&[line], 100, 100);
+        tiles.sort_tiles();
+
+        assert_eq!(
+            tiles.tile_buf,
+            [
+                Tile::new(0, 0, 0, false),
+                Tile::new(1, 0, 0, false),
+                Tile::new(1, 1, 0, true),
+                Tile::new(2, 1, 0, false),
+                Tile::new(2, 2, 0, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn bottom_left_to_top_right() {
+        let line = Line {
+            p0: Point { x: 2.0, y: 11.0 },
+            p1: Point { x: 14.0, y: 6.0 },
+        };
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&[line], 100, 100);
+        tiles.sort_tiles();
+
+        assert_eq!(
+            tiles.tile_buf,
+            [
+                Tile::new(2, 1, 0, false),
+                Tile::new(3, 1, 0, false),
+                Tile::new(0, 2, 0, false),
+                Tile::new(1, 2, 0, false),
+                Tile::new(2, 2, 0, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn top_right_to_bottom_left() {
+        let line = Line {
+            p0: Point { x: 14.0, y: 6.0 },
+            p1: Point { x: 2.0, y: 11.0 },
+        };
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&[line], 100, 100);
+        tiles.sort_tiles();
+
+        assert_eq!(
+            tiles.tile_buf,
+            [
+                Tile::new(2, 1, 0, false),
+                Tile::new(3, 1, 0, false),
+                Tile::new(0, 2, 0, false),
+                Tile::new(1, 2, 0, false),
+                Tile::new(2, 2, 0, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn two_lines_in_single_tile() {
+        let line_1 = Line {
+            p0: Point { x: 1.0, y: 3.0 },
+            p1: Point { x: 3.0, y: 3.0 },
+        };
+
+        let line_2 = Line {
+            p0: Point { x: 3.0, y: 3.0 },
+            p1: Point { x: 0.0, y: 1.0 },
+        };
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&[line_1, line_2], 100, 100);
+
+        assert_eq!(
+            tiles.tile_buf,
+            [Tile::new(0, 0, 0, false), Tile::new(0, 0, 1, false),]
+        );
+    }
 
     #[test]
     // See https://github.com/LaurenzV/cpu-sparse-experiments/issues/46.
