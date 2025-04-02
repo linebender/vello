@@ -181,17 +181,12 @@ impl<'a> Fine<'a> {
                     EncodedPaint::RadialGradient(r) => {
                         let iter = RadialGradientFiller::new(r, start_x, start_y);
 
-                        if r.has_opacities {
-                            iter.run(color_buf);
-                            fill::src_over(
-                                blend_buf,
-                                color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-                            );
-                        } else {
-                            // Similarly to solid colors we can just override the previous values
-                            // if all colors in the gradient are fully opaque.
-                            iter.run(blend_buf);
-                        }
+                        // TODO: allow direct copying
+                        iter.run(color_buf);
+                        fill::src_over(
+                            blend_buf,
+                            color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+                        );
                     }
                 }
             }

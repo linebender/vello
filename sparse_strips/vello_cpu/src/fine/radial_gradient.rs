@@ -90,6 +90,10 @@ impl<'a> RadialGradientFiller<'a> {
 
                             pixel[col_idx] = (range.c0[col_idx] as i16 + combined) as u8;
                         }
+                    }   else {
+                        for col_idx in 0..COLOR_COMPONENTS {
+                            pixel[col_idx] = 0 as u8;
+                        }
                     }
                     
                     pos.1 += 1.0;
