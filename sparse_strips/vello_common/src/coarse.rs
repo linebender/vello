@@ -215,6 +215,7 @@ impl Wide {
                 continue;
             }
             if strip_y >= bbox.y1() {
+                // The rest of our strips must be outside the clip, so we can break early.
                 break;
             }
 
