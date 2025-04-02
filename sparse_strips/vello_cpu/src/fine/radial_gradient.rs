@@ -39,7 +39,7 @@ impl<'a> RadialGradientFiller<'a> {
     // cx(t) = t * x1
     // cy(t) = t * y1
     // r(t) = (1 - t) * r0 + t * r1
-    fn cur_pos(&self, pos: (f32, f32)) -> f32 {
+    fn cur_pos(&self, pos: (f32, f32)) -> Option<f32> {
         let r0 = self.gradient.r0;
         let dx = self.gradient.c1.0;
         let dy = self.gradient.c1.1;
@@ -54,26 +54,19 @@ impl<'a> RadialGradientFiller<'a> {
 
         let discriminant = b * b - 4.0 * a * c;
         if discriminant < 0.0 {
-            eprintln!("{:?}", pos);
-            panic!("was zero");
+            return None;
         }
 
         let sqrt_d = discriminant.sqrt();
         let t1 = (-b - sqrt_d) / (2.0 * a);
         let t2 = (-b + sqrt_d) / (2.0 * a);
 
-        if dr >= 0.0 {
-            t1
-        }   else {
-            t2
-        }
+        Some(t1.max(t2))
     }
 
     pub(super) fn run(mut self, target: &mut [u8]) {
         let pad = self.gradient.pad;
         let transform = self.gradient.transform;
-        
-        eprintln!("{:?}", self.gradient.ranges);
 
         let extend = |val| extend(val, pad, 0.0, 1.0);
 
@@ -85,18 +78,20 @@ impl<'a> RadialGradientFiller<'a> {
                 for pixel in column.chunks_exact_mut(COLOR_COMPONENTS) {
                     let actual_pos = transform * Point::new(pos.0 as f64, pos.1 as f64);
                     let points = (actual_pos.x as f32, actual_pos.y as f32);
+                    
+                    if let Some(val) = self.cur_pos(points) {
+                        let dist = extend(val);
+                        self.advance(dist);
+                        let range = self.cur_range;
 
-                    let dist = extend(self.cur_pos(points));
-                    self.advance(dist);
-                    let range = self.cur_range;
+                        for col_idx in 0..COLOR_COMPONENTS {
+                            let im3 = dist - range.x0;
+                            let combined = (range.im3[col_idx] * im3 + 0.5) as i16;
 
-                    for col_idx in 0..COLOR_COMPONENTS {
-                        let im3 = dist - range.x0;
-                        let combined = (range.im3[col_idx] * im3 + 0.5) as i16;
-
-                        pixel[col_idx] = (range.c0[col_idx] as i16 + combined) as u8;
+                            pixel[col_idx] = (range.c0[col_idx] as i16 + combined) as u8;
+                        }
                     }
-
+                    
                     pos.1 += 1.0;
                 }
 
