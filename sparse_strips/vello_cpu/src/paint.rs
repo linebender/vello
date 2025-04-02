@@ -93,8 +93,13 @@ impl RadialGradient {
         let transform = Affine::translate((x_offset as f64, y_offset as f64))
             * Affine::new([c[0], c[1], c[2], c[3], c[4] - 0.5, c[5] - 0.5]).inverse();
 
+        let dist = (c1.x * c1.x + c1.y * c1.y).sqrt();
+
         let pad = self.extend == Extend::Pad;
-        let has_opacities = stops.iter().any(|s| s.color.components[3] != 1.0);
+        // If the inner circle is not completely contained within the outer circle, the gradient
+        // can deform into a cone-like structure where some areas of the shape will not be drawn.
+        let has_opacities =
+            stops.iter().any(|s| s.color.components[3] != 1.0) || dist as f32 + r1 > r0;
         let ranges = encode_stops(&stops, 0.0, 1.0, pad);
 
         let end_point = c1 - c0;

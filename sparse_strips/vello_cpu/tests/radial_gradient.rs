@@ -137,37 +137,37 @@ fn gradient_radial_c0_bigger() {
 
 macro_rules! non_overlapping {
     ($radius:expr,$name:expr) => {
-         let mut ctx = get_ctx(100, 100, false);
-            let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-        
-            let gradient = RadialGradient {
-                c1: Point::new(30.0, 50.0),
-                r1: $radius,
-                c2: Point::new(70.0, 50.0),
-                r2: 20.0,
-                stops: stops_blue_green_red_yellow(),
-                transform: Affine::IDENTITY,
-                extend: vello_common::peniko::Extend::Pad,
-            };
-        
-            ctx.set_paint(gradient);
-            ctx.fill_rect(&rect);
-        
-            check_ref(&ctx, $name);
+        let mut ctx = get_ctx(100, 100, false);
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+        let gradient = RadialGradient {
+            c1: Point::new(30.0, 50.0),
+            r1: $radius,
+            c2: Point::new(70.0, 50.0),
+            r2: 20.0,
+            stops: stops_blue_green_red_yellow(),
+            transform: Affine::IDENTITY,
+            extend: vello_common::peniko::Extend::Pad,
+        };
+
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
+
+        check_ref(&ctx, $name);
     };
 }
 
 #[test]
 fn gradient_radial_non_overlapping_same_size() {
-   non_overlapping!(20.0, "gradient_radial_non_overlapping_same_size");
+    non_overlapping!(20.0, "gradient_radial_non_overlapping_same_size");
 }
 
 #[test]
 fn gradient_radial_non_overlapping_c0_smaller() {
-   non_overlapping!(15.0, "gradient_radial_non_overlapping_c0_smaller");
+    non_overlapping!(15.0, "gradient_radial_non_overlapping_c0_smaller");
 }
 
 #[test]
 fn gradient_radial_non_overlapping_c0_larger() {
-   non_overlapping!(25.0, "gradient_radial_non_overlapping_c0_larger");
+    non_overlapping!(25.0, "gradient_radial_non_overlapping_c0_larger");
 }

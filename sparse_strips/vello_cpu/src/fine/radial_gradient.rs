@@ -78,7 +78,7 @@ impl<'a> RadialGradientFiller<'a> {
                 for pixel in column.chunks_exact_mut(COLOR_COMPONENTS) {
                     let actual_pos = transform * Point::new(pos.0 as f64, pos.1 as f64);
                     let points = (actual_pos.x as f32, actual_pos.y as f32);
-                    
+
                     if let Some(val) = self.cur_pos(points) {
                         let dist = extend(val);
                         self.advance(dist);
@@ -90,12 +90,12 @@ impl<'a> RadialGradientFiller<'a> {
 
                             pixel[col_idx] = (range.c0[col_idx] as i16 + combined) as u8;
                         }
-                    }   else {
+                    } else {
                         for col_idx in 0..COLOR_COMPONENTS {
-                            pixel[col_idx] = 0 as u8;
+                            pixel[col_idx] = 0;
                         }
                     }
-                    
+
                     pos.1 += 1.0;
                 }
 
