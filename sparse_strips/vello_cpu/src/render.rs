@@ -98,10 +98,11 @@ impl RenderContext {
             }
             PaintType::RadialGradient(mut r) => {
                 r.transform = self.transform * r.transform;
-                
+
                 let encoded = r.encode();
                 let idx = self.encoded_paints.len();
-                self.encoded_paints.push(EncodedPaint::RadialGradient(encoded));
+                self.encoded_paints
+                    .push(EncodedPaint::RadialGradient(encoded));
                 Paint::Indexed(IndexedPaint::new(idx))
             }
         }

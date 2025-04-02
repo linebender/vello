@@ -1,6 +1,6 @@
-use vello_common::kurbo::Point;
-use crate::fine::{extend, Positive, Sign, COLOR_COMPONENTS, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{COLOR_COMPONENTS, Positive, Sign, TILE_HEIGHT_COMPONENTS, extend};
 use crate::paint::{EncodedLinearGradient, EncodedRadialGradient, GradientRange};
+use vello_common::kurbo::Point;
 
 #[derive(Debug)]
 pub(crate) struct RadialGradientFiller<'a> {
@@ -32,8 +32,36 @@ impl<'a> RadialGradientFiller<'a> {
         }
     }
 
+    // Find smallest t such that distance((x, y), center(t)) = radius(t)
+    // (x - cx(t))^2 + (y - cy(t))^2 - r(t)^2 = 0
+    // in the form Atˆ2 + Bt + C = 0
+    // where
+    // cx(t) = t * x1
+    // cy(t) = t * y1
+    // r(t) = (1 - t) * r0 + t * r1
     fn cur_pos(&self, pos: (f32, f32)) -> f32 {
-        todo!()
+        let r0 = self.gradient.r0;
+        let dx = self.gradient.c1.0;
+        let dy = self.gradient.c1.1;
+        let dr = self.gradient.r1 - self.gradient.r0;
+
+        let px = pos.0;
+        let py = pos.1;
+
+        let a = dx * dx + dy * dy - dr * dr;
+        let b = -2.0 * (px * dx + py * dy + r0 * dr);
+        let c = px * px + py * py - r0 * r0;
+
+        let discriminant = b * b - 4.0 * a * c;
+        if discriminant < 0.0 {
+            panic!("was zero");
+        }
+
+        let sqrt_d = discriminant.sqrt();
+        let t1 = (-b - sqrt_d) / (2.0 * a);
+        let t2 = (-b + sqrt_d) / (2.0 * a);
+
+        t1
     }
 
     pub(super) fn run(mut self, target: &mut [u8]) {

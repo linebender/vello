@@ -5,8 +5,8 @@
 //! of each pixel and pack it into the pixmap.
 
 mod linear_gradient;
-mod sweep_gradient;
 mod radial_gradient;
+mod sweep_gradient;
 
 use crate::paint::EncodedPaint;
 use linear_gradient::LinearGradientFiller;

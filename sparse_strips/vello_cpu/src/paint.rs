@@ -35,7 +35,9 @@ impl From<SweepGradient> for PaintType {
 }
 
 impl From<RadialGradient> for PaintType {
-    fn from(value: RadialGradient) -> Self { Self::RadialGradient(value) }
+    fn from(value: RadialGradient) -> Self {
+        Self::RadialGradient(value)
+    }
 }
 
 /// A color stop.
@@ -64,22 +66,8 @@ impl RadialGradient {
         let mut c1 = self.c2;
         let mut r0 = self.r1;
         let mut r1 = self.r2;
-        
-        let mut stops = if self.c1.x <= self.c2.x {
-            self.stops
-        } else {
-            std::mem::swap(&mut self.c1, &mut self.c2);
-            std::mem::swap(&mut self.r1, &mut self.r2);
 
-            self.stops
-                .iter()
-                .rev()
-                .map(|s| Stop {
-                    offset: 1.0 - s.offset,
-                    color: s.color,
-                })
-                .collect::<Vec<_>>()
-        };
+        let mut stops = self.stops;
 
         if self.extend == Extend::Reflect {
             c1 += c1 - c0;
@@ -114,9 +102,9 @@ impl RadialGradient {
         let pad = self.extend == Extend::Pad;
         let has_opacities = stops.iter().any(|s| s.color.components[3] != 1.0);
         let ranges = encode_stops(&stops, 0.0, end, pad);
-        
+
         let end_point = c1 - c0;
-        
+
         EncodedRadialGradient {
             transform,
             c1: (end_point.x as f32, end_point.y as f32),
@@ -340,7 +328,9 @@ impl From<EncodedSweepGradient> for EncodedPaint {
 }
 
 impl From<EncodedRadialGradient> for EncodedPaint {
-    fn from(value: EncodedRadialGradient) -> Self { EncodedPaint::RadialGradient(value) }
+    fn from(value: EncodedRadialGradient) -> Self {
+        EncodedPaint::RadialGradient(value)
+    }
 }
 
 #[derive(Debug)]
