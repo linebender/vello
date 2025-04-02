@@ -60,13 +60,13 @@ impl<'a> RadialGradientFiller<'a> {
         let sqrt_d = discriminant.sqrt();
         let t1 = (-b - sqrt_d) / (2.0 * a);
         let t2 = (-b + sqrt_d) / (2.0 * a);
-        
+
         let max = t1.max(t2);
         let min = t1.min(t2);
-        
+
         if self.gradient.r0 + dr * max <= 0.0 {
             Some(min)
-        }   else {
+        } else {
             Some(max)
         }
     }
