@@ -24,6 +24,8 @@ use winit::{
     window::{Window, WindowId},
 };
 
+const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ColorBrush {
     color: AlphaColor<Srgb>,
@@ -44,6 +46,11 @@ fn main() {
         state: RenderState::Suspended(None),
         scene: Scene::new(900, 600),
     };
+
+    // Note: If you set `default-features = true` in the `parley` dependency, you automatically
+    // get access to system fonts. Since we want to ensure this example can be compiled to Wasm,
+    // we are passing the font data directly to the font context.
+    app.font_cx.collection.register_fonts(ROBOTO_FONT.to_vec());
 
     let event_loop = EventLoop::new().unwrap();
     event_loop
