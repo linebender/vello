@@ -1,6 +1,5 @@
 use crate::fine::COLOR_COMPONENTS;
 use crate::util::ColorExt;
-use std::f32::consts::PI;
 use std::iter;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Point};
