@@ -11,7 +11,6 @@ use parley::{
     Alignment, AlignmentOptions, FontContext, GlyphRun, Layout, LayoutContext,
     PositionedLayoutItem, StyleProperty,
 };
-use skrifa::instance::NormalizedCoord;
 use std::sync::Arc;
 use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
@@ -244,17 +243,13 @@ fn render_glyph_run(ctx: &mut Scene, glyph_run: &GlyphRun<'_, ColorBrush>, paddi
     let run = glyph_run.run();
     let font = run.font();
     let font_size = run.font_size();
-    let normalized_coords = run
-        .normalized_coords()
-        .iter()
-        .map(|coord| NormalizedCoord::from_bits(*coord))
-        .collect::<Vec<_>>();
+    let normalized_coords = bytemuck::cast_slice(run.normalized_coords());
 
     let style = glyph_run.style();
     ctx.set_paint(style.brush.color.into());
     ctx.glyph_run(font)
         .font_size(font_size)
-        .normalized_coords(bytemuck::cast_slice(normalized_coords.as_slice()))
+        .normalized_coords(normalized_coords)
         .hint(true)
         .fill_glyphs(glyphs);
 }
