@@ -15,8 +15,11 @@
 
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::mpsc::Sender;
 
+use minimal_pipeline_cache::{get_cache_directory, write_pipeline_cache};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 use vello::low_level::DebugLayers;
@@ -42,10 +45,11 @@ use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowAttributes};
 
-use vello::wgpu;
+use vello::wgpu::{self, PipelineCache};
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
 mod hot_reload;
+mod minimal_pipeline_cache;
 mod multi_touch;
 mod stats;
 
@@ -171,6 +175,8 @@ struct VelloApp<'s> {
     modifiers: ModifiersState,
 
     debug: DebugLayers,
+
+    cache_data: Option<(PathBuf, Sender<(PipelineCache, PathBuf)>)>,
 }
 
 impl ApplicationHandler<UserEvent> for VelloApp<'_> {
@@ -179,6 +185,8 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        use minimal_pipeline_cache::load_pipeline_cache;
+
         let None = self.state else {
             return;
         };
@@ -203,14 +211,30 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 .resize_with(self.context.devices.len(), || None);
             let id = render_state.surface.dev_id;
             self.renderers[id].get_or_insert_with(|| {
+                let device_handle = &self.context.devices[id];
+                let cache = if let Some((dir, tx)) = self.cache_data.as_ref() {
+                    // Safety: Hoping for the best. Given that we're using as private a cache directory as possible, it's
+                    // probably fine?
+                    unsafe {
+                        load_pipeline_cache(
+                            &device_handle.device,
+                            &device_handle.adapter().get_info(),
+                            dir,
+                        )
+                        .unwrap()
+                        .map(|(cache, dir)| (cache, dir, tx.clone()))
+                    }
+                } else {
+                    None
+                };
                 let start = Instant::now();
                 let renderer = Renderer::new(
-                    &self.context.devices[id].device,
+                    &device_handle.device,
                     RendererOptions {
                         use_cpu: self.use_cpu,
                         antialiasing_support: AA_CONFIGS.iter().copied().collect(),
                         num_init_threads: NonZeroUsize::new(self.num_init_threads),
-                        pipeline_cache: None,
+                        pipeline_cache: cache.as_ref().map(|(cache, _, _)| cache.clone()),
                     },
                 )
                 .map_err(|e| {
@@ -230,6 +254,9 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                         ..Default::default()
                     })
                     .expect("Not setting max_num_pending_frames");
+                if let Some((cache, dir, tx)) = cache {
+                    drop(tx.send((cache, dir)));
+                }
                 renderer
             });
             Some(render_state)
@@ -525,7 +552,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                     #[cfg(feature = "wgpu-profiler")]
                     if let Some(profiling_result) = self.renderers[surface.dev_id]
                         .as_mut()
-                        .and_then(|it| it.profile_result.take())
+                        .and_then(|renderer| renderer.profile_result.take())
                     {
                         if self.profile_stored.is_none()
                             || self.profile_taken.elapsed() > Duration::from_secs(1)
@@ -704,6 +731,7 @@ fn run(
                 // We currently initialise on one thread on WASM, but mark this here
                 // anyway
                 num_init_threads: NonZeroUsize::new(1),
+                pipeline_cache: None,
             },
         )
         .map_err(|e| {
@@ -726,7 +754,20 @@ fn run(
         renderers[id] = Some(renderer);
         (Some(render_state), renderers)
     };
-
+    let cache_directory = get_cache_directory(&event_loop).unwrap();
+    let cache_data = if let Some(cache_directory) = cache_directory {
+        let (tx, rx) = std::sync::mpsc::channel::<(PipelineCache, PathBuf)>();
+        std::thread::spawn(move || {
+            while let Ok((cache, path)) = rx.recv() {
+                if let Err(e) = write_pipeline_cache(&path, &cache) {
+                    log::error!("Failed to write pipeline cache: {e}");
+                }
+            }
+        });
+        Some((cache_directory, tx))
+    } else {
+        None
+    };
     let debug = DebugLayers::none();
 
     let mut app = VelloApp {
@@ -774,6 +815,7 @@ fn run(
         prev_scene_ix: 0,
         modifiers: ModifiersState::default(),
         debug,
+        cache_data,
     };
 
     event_loop.run_app(&mut app).expect("run to completion");
