@@ -4,7 +4,7 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
-use vello_common::coarse::Wide;
+use vello_common::coarse::{SceneState, Wide};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
@@ -73,6 +73,17 @@ impl RenderContext {
         }
     }
 
+    /// Save the current scene state.
+    pub fn save(&mut self) {
+        self.wide.state_stack.push(SceneState { n_clip: 0 });
+    }
+
+    /// Restore the previous scene state.
+    pub fn restore(&mut self) {
+        self.wide.pop_clips();
+        self.wide.state_stack.pop();
+    }
+
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
         flatten::fill(path, self.transform, &mut self.line_buf);
@@ -98,6 +109,14 @@ impl RenderContext {
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     pub fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
         GlyphRunBuilder::new(font.clone(), self.transform, self)
+    }
+
+    /// Clip a path.
+    pub fn clip(&mut self, path: &BezPath) {
+        flatten::fill(path, self.transform, &mut self.line_buf);
+        self.make_strips(self.fill_rule);
+        let strips = core::mem::take(&mut self.strip_buf);
+        self.wide.push_clip(strips, self.fill_rule);
     }
 
     /// Set the current blend mode.
@@ -137,21 +156,34 @@ impl RenderContext {
 
     /// Render the current context into a pixmap.
     pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+        if let Some(state) = self.wide.state_stack.last() {
+            if state.n_clip > 0 {
+                panic!("All clips must be popped before rendering");
+            }
+        }
         let mut fine = Fine::new(pixmap.width, pixmap.height, &mut pixmap.buf);
 
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();
         for y in 0..height_tiles {
             for x in 0..width_tiles {
-                let tile = self.wide.get(x, y);
+                let wtile = self.wide.get(x, y);
 
-                fine.clear(tile.bg.to_u8_array());
-                for cmd in &tile.cmds {
+                fine.clear(wtile.bg.to_u8_array());
+                for cmd in &wtile.cmds {
                     fine.run_cmd(cmd, &self.alphas);
                 }
                 fine.pack(x, y);
             }
         }
+    }
+
+    /// Finish the coarse rasterization prior to fine rendering.
+    ///
+    /// This method is called when the render context is finished with rendering.
+    /// It pops all the clips from the wide tiles.
+    pub fn finish(&mut self) {
+        self.wide.pop_clips();
     }
 
     /// Return the width of the pixmap.
@@ -166,6 +198,11 @@ impl RenderContext {
 
     // Assumes that `line_buf` contains the flattened path.
     fn render_path(&mut self, fill_rule: Fill, paint: Paint) {
+        self.make_strips(fill_rule);
+        self.wide.generate(&self.strip_buf, fill_rule, paint);
+    }
+
+    fn make_strips(&mut self, fill_rule: Fill) {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
@@ -177,8 +214,6 @@ impl RenderContext {
             fill_rule,
             &self.line_buf,
         );
-
-        self.wide.generate(&self.strip_buf, fill_rule, paint);
     }
 }
 
