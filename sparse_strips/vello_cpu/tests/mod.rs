@@ -14,8 +14,8 @@
 //!     currently holds a bunch of different kinds of tests.
 //!   - Tests for bugs should go into `issues.rs`.
 //!   - For test naming, try to put the "topic" of the test at the start of the name instead of
-//!     the end. For example, if your test case is about blend modes, "blend_mode_hard_light" is
-//!     better than "hard_light_blend_mode". This makes it easier to inspect the reference
+//!     the end. For example, if your test case is about blend modes, `blend_mode_hard_light` is
+//!     better than `hard_light_blend_mode`. This makes it easier to inspect the reference
 //!     snapshots by topic.
 
 #![allow(missing_docs, reason = "we don't need docs for testing")]
