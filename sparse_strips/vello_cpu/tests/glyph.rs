@@ -3,7 +3,7 @@ use vello_common::color::palette::css::REBECCA_PURPLE;
 use vello_common::kurbo::Affine;
 
 #[test]
-fn filled_glyphs() {
+fn glyphs_filled() {
     let mut ctx = get_ctx(300, 70, false);
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
@@ -14,11 +14,11 @@ fn filled_glyphs() {
         .font_size(font_size)
         .fill_glyphs(glyphs.into_iter());
 
-    check_ref(&ctx, "filled_glyphs");
+    check_ref(&ctx, "glyphs_filled");
 }
 
 #[test]
-fn stroked_glyphs() {
+fn glyphs_stroked() {
     let mut ctx = get_ctx(300, 70, false);
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
@@ -29,11 +29,11 @@ fn stroked_glyphs() {
         .font_size(font_size)
         .stroke_glyphs(glyphs.into_iter());
 
-    check_ref(&ctx, "stroked_glyphs");
+    check_ref(&ctx, "glyphs_stroked");
 }
 
 #[test]
-fn skewed_glyphs() {
+fn glyphs_skewed() {
     let mut ctx = get_ctx(300, 70, false);
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
@@ -45,11 +45,11 @@ fn skewed_glyphs() {
         .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.0))
         .fill_glyphs(glyphs.into_iter());
 
-    check_ref(&ctx, "skewed_glyphs");
+    check_ref(&ctx, "glyphs_skewed");
 }
 
 #[test]
-fn scaled_glyphs() {
+fn glyphs_scaled() {
     let mut ctx = get_ctx(150, 125, false);
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
@@ -60,5 +60,5 @@ fn scaled_glyphs() {
         .font_size(font_size)
         .fill_glyphs(glyphs.into_iter());
 
-    check_ref(&ctx, "scaled_glyphs");
+    check_ref(&ctx, "glyphs_scaled");
 }
