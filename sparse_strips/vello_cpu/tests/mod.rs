@@ -7,6 +7,7 @@
 // TODO: Use automod
 mod basic;
 mod clip;
+mod compose;
 mod glyph;
 mod issues;
 mod util;
