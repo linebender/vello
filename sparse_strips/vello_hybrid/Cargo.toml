@@ -20,8 +20,6 @@ bytemuck = { workspace = true, features = ["derive"] }
 wgpu = { workspace = true }
 
 [dev-dependencies]
-winit = "0.30.9"
-vello_hybrid_scenes = { workspace = true }
 pollster = { workspace = true }
 png = "0.17.14"
 roxmltree = "0.20.0"

@@ -1,11 +1,10 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Draws some text on screen.
+//! Renders our example scenes with Vello Hybrid.
 
-mod common;
-
-use common::{RenderContext, RenderSurface, create_vello_renderer, create_winit_window};
+mod render_context;
+use render_context::{RenderContext, RenderSurface, create_vello_renderer, create_winit_window};
 #[cfg(not(target_arch = "wasm32"))]
 use std::env;
 use std::sync::Arc;
@@ -17,9 +16,7 @@ use vello_hybrid_scenes::{AnyScene, get_example_scenes};
 use wgpu::RenderPassDescriptor;
 use winit::{
     application::ApplicationHandler,
-    event::{
-        ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent,
-    },
+    event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{Key, NamedKey},
     window::{Window, WindowId},

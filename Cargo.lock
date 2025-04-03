@@ -3170,9 +3170,7 @@ dependencies = [
  "pollster",
  "roxmltree",
  "vello_common",
- "vello_hybrid_scenes",
  "wgpu",
- "winit",
 ]
 
 [[package]]
@@ -3183,6 +3181,18 @@ dependencies = [
  "parley",
  "vello_common",
  "vello_hybrid",
+]
+
+[[package]]
+name = "vello_hybrid_winit"
+version = "0.4.0"
+dependencies = [
+ "pollster",
+ "vello_common",
+ "vello_hybrid",
+ "vello_hybrid_scenes",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]
