@@ -1,14 +1,12 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Tests for Github issues.
+//! Tests for GitHub issues.
 
 use crate::util::{check_ref, get_ctx, render_pixmap};
 use vello_common::color::palette::css::{DARK_BLUE, LIME};
 use vello_common::kurbo::{BezPath, Stroke};
 use vello_common::peniko::Fill;
-
-mod util;
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2

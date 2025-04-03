@@ -3,69 +3,15 @@
 
 //! Tests for basic functionality.
 
-use crate::util::{check_ref, get_ctx, render_pixmap};
-use skrifa::MetadataProvider;
-use skrifa::raw::FileRef;
-use std::f64::consts::PI;
-use std::sync::Arc;
-use vello_common::color::palette::css::{
-    BEIGE, BLUE, DARK_GREEN, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, YELLOW,
+use crate::util::{
+    check_ref, circular_star, crossed_line_star, get_ctx, miter_stroke_2,
 };
-use vello_common::glyph::Glyph;
+use std::f64::consts::PI;
+use vello_common::color::palette::css::{
+    BEIGE, BLUE, DARK_BLUE, GREEN, LIME, MAROON, REBECCA_PURPLE, RED,
+};
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
-use vello_common::peniko;
-use vello_common::peniko::{Blob, Compose, Font};
-use vello_cpu::RenderContext;
-
-mod util;
-
-#[test]
-fn empty_1x1() {
-    let ctx = get_ctx(1, 1, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_5x1() {
-    let ctx = get_ctx(5, 1, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_1x5() {
-    let ctx = get_ctx(1, 5, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_3x10() {
-    let ctx = get_ctx(3, 10, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_23x45() {
-    let ctx = get_ctx(23, 45, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_50x50() {
-    let ctx = get_ctx(50, 50, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_463x450() {
-    let ctx = get_ctx(463, 450, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_1134x1376() {
-    let ctx = get_ctx(1134, 1376, true);
-    render_pixmap(&ctx);
-}
+use vello_common::peniko::Fill;
 
 #[test]
 fn full_cover_1() {
@@ -232,22 +178,10 @@ fn rectangle_left_of_viewport() {
     check_ref(&ctx, "rectangle_left_of_viewport");
 }
 
-fn star_path() -> BezPath {
-    let mut path = BezPath::new();
-    path.move_to((50.0, 10.0));
-    path.line_to((75.0, 90.0));
-    path.line_to((10.0, 40.0));
-    path.line_to((90.0, 40.0));
-    path.line_to((25.0, 90.0));
-    path.line_to((50.0, 10.0));
-
-    path
-}
-
 #[test]
 fn filling_nonzero_rule() {
     let mut ctx = get_ctx(100, 100, false);
-    let star = star_path();
+    let star = crossed_line_star();
 
     ctx.set_paint(MAROON.into());
     ctx.fill_path(&star);
@@ -258,10 +192,10 @@ fn filling_nonzero_rule() {
 #[test]
 fn filling_evenodd_rule() {
     let mut ctx = get_ctx(100, 100, false);
-    let star = star_path();
+    let star = crossed_line_star();
 
     ctx.set_paint(MAROON.into());
-    ctx.set_fill_rule(peniko::Fill::EvenOdd);
+    ctx.set_fill_rule(Fill::EvenOdd);
     ctx.fill_path(&star);
 
     check_ref(&ctx, "filling_evenodd_rule");
@@ -527,163 +461,20 @@ fn filled_vertical_hairline_rect_2() {
 }
 
 #[test]
-fn filled_glyphs() {
-    let mut ctx = get_ctx(300, 70, false);
-    let font_size: f32 = 50_f32;
-    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
+fn oversized_star() {
+    let mut ctx = get_ctx(100, 100, true);
 
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .fill_glyphs(glyphs.into_iter());
+    // Create a star path that extends beyond the render context boundaries
+    // Center it in the middle of the viewport
+    let star_path = circular_star(Point::new(50., 50.), 10, 30., 90.);
 
-    check_ref(&ctx, "filled_glyphs");
-}
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_path(&star_path);
 
-#[test]
-fn stroked_glyphs() {
-    let mut ctx = get_ctx(300, 70, false);
-    let font_size: f32 = 50_f32;
-    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
+    let stroke = Stroke::new(2.0);
+    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_stroke(stroke);
+    ctx.stroke_path(&star_path);
 
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .stroke_glyphs(glyphs.into_iter());
-
-    check_ref(&ctx, "stroked_glyphs");
-}
-
-#[test]
-fn skewed_glyphs() {
-    let mut ctx = get_ctx(300, 70, false);
-    let font_size: f32 = 50_f32;
-    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
-
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.0))
-        .fill_glyphs(glyphs.into_iter());
-
-    check_ref(&ctx, "skewed_glyphs");
-}
-
-#[test]
-fn scaled_glyphs() {
-    let mut ctx = get_ctx(150, 125, false);
-    let font_size: f32 = 25_f32;
-    let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
-
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(2.0));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .fill_glyphs(glyphs.into_iter());
-
-    check_ref(&ctx, "scaled_glyphs");
-}
-
-/// ***DO NOT USE THIS OUTSIDE OF THESE TESTS***
-///
-/// This function is used for _TESTING PURPOSES ONLY_. If you need to layout and shape
-/// text for your application, use a proper text shaping library like `Parley`.
-///
-/// We use this function as a convenience for testing; to get some glyphs shaped and laid
-/// out in a small amount of code without having to go through the trouble of setting up a
-/// full text layout pipeline, which you absolutely should do in application code.
-fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
-    const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
-    let font = Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
-
-    let font_ref = {
-        let file_ref = FileRef::new(font.data.as_ref()).unwrap();
-        match file_ref {
-            FileRef::Font(f) => f,
-            FileRef::Collection(collection) => collection.get(font.index).unwrap(),
-        }
-    };
-    let font_size = skrifa::instance::Size::new(font_size);
-    let axes = font_ref.axes();
-    let variations: Vec<(&str, f32)> = vec![];
-    let var_loc = axes.location(variations.as_slice());
-    let charmap = font_ref.charmap();
-    let metrics = font_ref.metrics(font_size, &var_loc);
-    let line_height = metrics.ascent - metrics.descent + metrics.leading;
-    let glyph_metrics = font_ref.glyph_metrics(font_size, &var_loc);
-
-    let mut pen_x = 0_f32;
-    let mut pen_y = 0_f32;
-
-    let glyphs = text
-        .chars()
-        .filter_map(|ch| {
-            if ch == '\n' {
-                pen_y += line_height;
-                pen_x = 0.0;
-                return None;
-            }
-            let gid = charmap.map(ch).unwrap_or_default();
-            let advance = glyph_metrics.advance_width(gid).unwrap_or_default();
-            let x = pen_x;
-            pen_x += advance;
-            Some(Glyph {
-                id: gid.to_u32(),
-                x,
-                y: pen_y,
-            })
-        })
-        .collect::<Vec<_>>();
-
-    (font, glyphs)
-}
-
-fn miter_stroke_2() -> Stroke {
-    Stroke {
-        width: 2.0,
-        join: Join::Miter,
-        ..Default::default()
-    }
-}
-
-fn bevel_stroke_2() -> Stroke {
-    Stroke {
-        width: 2.0,
-        join: Join::Bevel,
-        ..Default::default()
-    }
-}
-
-fn compose_destination() -> RenderContext {
-    let mut ctx = get_ctx(50, 50, true);
-    let rect = Rect::new(4.5, 4.5, 35.5, 35.5);
-    ctx.set_paint(YELLOW.with_alpha(0.35).into());
-    ctx.set_stroke(bevel_stroke_2());
-    ctx.fill_rect(&rect);
-
-    ctx
-}
-
-fn compose_source(ctx: &mut RenderContext) {
-    let rect = Rect::new(14.5, 14.5, 45.5, 45.5);
-    ctx.set_paint(DARK_GREEN.with_alpha(0.8).into());
-    ctx.fill_rect(&rect);
-}
-
-macro_rules! compose_impl {
-    ($mode:path, $name:expr) => {
-        let mut ctx = compose_destination();
-        ctx.set_blend_mode(peniko::BlendMode::new(peniko::Mix::Normal, $mode));
-        compose_source(&mut ctx);
-
-        check_ref(&ctx, $name);
-    };
-}
-
-#[test]
-fn compose_solid_src_over() {
-    compose_impl!(Compose::SrcOver, "compose_solid_src_over");
+    check_ref(&ctx, "oversized_star");
 }
