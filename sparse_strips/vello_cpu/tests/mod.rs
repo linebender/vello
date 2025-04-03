@@ -4,4 +4,9 @@
 #![allow(missing_docs, reason = "we don't need docs for testing")]
 #![allow(clippy::cast_possible_truncation, reason = "not critical for testing")]
 
-automod::dir!("tests");
+// TODO: Use automod
+mod basic;
+mod clip;
+mod glyph;
+mod issues;
+mod util;

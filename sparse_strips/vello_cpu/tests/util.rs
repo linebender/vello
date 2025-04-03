@@ -1,15 +1,18 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder, Rgba, RgbaImage, load_from_memory};
+use skrifa::MetadataProvider;
+use skrifa::raw::FileRef;
 use std::cmp::max;
 use std::io::Cursor;
 use std::path::PathBuf;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use vello_common::color::palette;
+use vello_common::glyph::Glyph;
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
+use vello_common::peniko::{Blob, Font};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderContext;
 
@@ -75,6 +78,60 @@ pub(crate) fn circular_star(center: Point, n: usize, inner: f64, outer: f64) -> 
     }
     path.close_path();
     path
+}
+
+/// ***DO NOT USE THIS OUTSIDE OF THESE TESTS***
+///
+/// This function is used for _TESTING PURPOSES ONLY_. If you need to layout and shape
+/// text for your application, use a proper text shaping library like `Parley`.
+///
+/// We use this function as a convenience for testing; to get some glyphs shaped and laid
+/// out in a small amount of code without having to go through the trouble of setting up a
+/// full text layout pipeline, which you absolutely should do in application code.
+pub(crate) fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
+    const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+    let font = Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+
+    let font_ref = {
+        let file_ref = FileRef::new(font.data.as_ref()).unwrap();
+        match file_ref {
+            FileRef::Font(f) => f,
+            FileRef::Collection(collection) => collection.get(font.index).unwrap(),
+        }
+    };
+    let font_size = skrifa::instance::Size::new(font_size);
+    let axes = font_ref.axes();
+    let variations: Vec<(&str, f32)> = vec![];
+    let var_loc = axes.location(variations.as_slice());
+    let charmap = font_ref.charmap();
+    let metrics = font_ref.metrics(font_size, &var_loc);
+    let line_height = metrics.ascent - metrics.descent + metrics.leading;
+    let glyph_metrics = font_ref.glyph_metrics(font_size, &var_loc);
+
+    let mut pen_x = 0_f32;
+    let mut pen_y = 0_f32;
+
+    let glyphs = text
+        .chars()
+        .filter_map(|ch| {
+            if ch == '\n' {
+                pen_y += line_height;
+                pen_x = 0.0;
+                return None;
+            }
+            let gid = charmap.map(ch).unwrap_or_default();
+            let advance = glyph_metrics.advance_width(gid).unwrap_or_default();
+            let x = pen_x;
+            pen_x += advance;
+            Some(Glyph {
+                id: gid.to_u32(),
+                x,
+                y: pen_y,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    (font, glyphs)
 }
 
 pub(crate) fn check_ref(ctx: &RenderContext, name: &str) {
