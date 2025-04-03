@@ -8,7 +8,6 @@ use vello_common::color::palette::css::{DARK_BLUE, LIME};
 use vello_common::kurbo::{BezPath, Stroke};
 use vello_common::peniko::Fill;
 
-mod util;
 
 #[test]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2

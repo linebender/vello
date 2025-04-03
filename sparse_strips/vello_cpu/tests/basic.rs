@@ -16,7 +16,6 @@ use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Str
 use vello_common::peniko::{self, Blob, Compose, Fill, Font};
 use vello_cpu::RenderContext;
 
-mod util;
 
 #[test]
 fn empty_1x1() {

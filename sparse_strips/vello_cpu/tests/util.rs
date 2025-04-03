@@ -1,13 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#![allow(missing_docs, reason = "we don't need docs for testing")]
-#![allow(
-    unused,
-    reason = "cargo reports the functions/variables here are unused
-when running `cargo test` because they are not be used in every test module."
-)]
-#![allow(clippy::cast_possible_truncation, reason = "not critical for testing")]
 
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder, Rgba, RgbaImage, load_from_memory};
