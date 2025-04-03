@@ -4,6 +4,7 @@
 //! Processing and drawing glyphs.
 
 use crate::peniko::Font;
+use skrifa::OutlineGlyphCollection;
 use skrifa::instance::Size;
 use skrifa::outline::DrawSettings;
 use skrifa::{
@@ -105,30 +106,19 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
     }
 
     fn render(self, glyphs: impl Iterator<Item = Glyph>, style: Style) {
-        let run = self.run;
-        let font = skrifa::FontRef::from_index(run.font.data.as_ref(), run.font.index).unwrap();
+        let font =
+            skrifa::FontRef::from_index(self.run.font.data.as_ref(), self.run.font.index).unwrap();
         let outlines = font.outline_glyphs();
-        let (transform, size, scale, hinting_instance) = if run.hint {
-            // Hinting doesn't make sense if we later scale the glyphs via `transform`. So, if this glyph can be
-            // scaled uniformly, we extract the scale from its global transform and apply it to font size for
-            // hinting. Note that this extracted scale is later applied to the glyph's position.
-            //
-            // If the glyph is rotated or skewed, hinting is not applicable.
-            if let Some((scale, transform)) = take_uniform_scale(run.transform) {
-                let size = Size::new(run.font_size * scale as f32);
-                (
-                    transform,
-                    size,
-                    scale,
-                    HintingInstance::new(&outlines, size, run.normalized_coords, HINTING_OPTIONS)
-                        .ok(),
-                )
-            } else {
-                (run.transform, Size::new(run.font_size), 1.0, None)
-            }
-        } else {
-            (run.transform, Size::new(run.font_size), 1.0, None)
-        };
+
+        let PreparedGlyphRun {
+            transform,
+            glyph_transform,
+            size,
+            scale,
+            horizontal_skew,
+            normalized_coords,
+            hinting_instance,
+        } = prepare_glyph_run(&self.run, &outlines);
 
         let render_glyph = match style {
             Style::Fill => GlyphRenderer::fill_glyph,
@@ -140,7 +130,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             let draw_settings = if let Some(hinting_instance) = &hinting_instance {
                 DrawSettings::hinted(hinting_instance, false)
             } else {
-                DrawSettings::unhinted(size, run.normalized_coords)
+                DrawSettings::unhinted(size, normalized_coords)
             };
             let Some(outline) = outlines.get(GlyphId::new(glyph.id)) else {
                 continue;
@@ -152,12 +142,12 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             let mut local_transform =
                 Affine::translate(Vec2::new(glyph.x as f64 * scale, glyph.y as f64 * scale));
 
-            if let Some(skew_angle) = run.horizontal_skew {
+            if let Some(skew_angle) = horizontal_skew {
                 let skew_x = skew_angle.tan() as f64;
                 local_transform *= Affine::skew(skew_x, 0.0);
             }
 
-            if let Some(glyph_transform) = run.glyph_transform {
+            if let Some(glyph_transform) = glyph_transform {
                 local_transform *= glyph_transform;
             }
 
@@ -194,6 +184,74 @@ struct GlyphRun<'a> {
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     /// Controls whether font hinting is enabled.
     hint: bool,
+}
+
+struct PreparedGlyphRun<'a> {
+    transform: Affine,
+    glyph_transform: Option<Affine>,
+    size: Size,
+    scale: f64,
+    horizontal_skew: Option<f32>,
+    normalized_coords: &'a [skrifa::instance::NormalizedCoord],
+    hinting_instance: Option<HintingInstance>,
+}
+
+/// Prepare a glyph run for rendering.
+///
+/// This function calculates the appropriate transform, size, and scaling parameters
+/// for proper font hinting when enabled and possible.
+fn prepare_glyph_run<'a>(
+    run: &GlyphRun<'a>,
+    outlines: &OutlineGlyphCollection<'_>,
+) -> PreparedGlyphRun<'a> {
+    // TODO: Consider extracting the scale from the glyph transform and applying it to the font size.
+    if !run.hint || run.glyph_transform.is_some() {
+        return PreparedGlyphRun {
+            transform: run.transform,
+            glyph_transform: run.glyph_transform,
+            size: Size::new(run.font_size),
+            scale: 1.0,
+            horizontal_skew: run.horizontal_skew,
+            normalized_coords: run.normalized_coords,
+            hinting_instance: None,
+        };
+    }
+
+    // Hinting doesn't make sense if we later scale the glyphs via some transform. So, if
+    // this glyph can be scaled uniformly, we extract the scale from its global and glyph
+    // transform and apply it to font size for hinting. Note that this extracted scale
+    // should be later applied to the glyph's position.
+    //
+    // If the glyph is rotated or skewed, hinting is not applicable.
+
+    // Attempt to extract uniform scale from the run's transform.
+    if let Some((scale, transform)) = take_uniform_scale(run.transform) {
+        let font_size = run.font_size * scale as f32;
+
+        let size = Size::new(font_size);
+        let hinting_instance =
+            HintingInstance::new(outlines, size, run.normalized_coords, HINTING_OPTIONS).ok();
+
+        return PreparedGlyphRun {
+            transform,
+            glyph_transform: run.glyph_transform,
+            size,
+            scale,
+            horizontal_skew: run.horizontal_skew,
+            normalized_coords: run.normalized_coords,
+            hinting_instance,
+        };
+    }
+
+    PreparedGlyphRun {
+        transform: run.transform,
+        glyph_transform: run.glyph_transform,
+        size: Size::new(run.font_size),
+        scale: 1.0,
+        horizontal_skew: run.horizontal_skew,
+        normalized_coords: run.normalized_coords,
+        hinting_instance: None,
+    }
 }
 
 /// If `transform` has a uniform scale without rotation or skew, return the scale factor and the
