@@ -3625,6 +3625,7 @@ dependencies = [
  "log",
  "vello_common",
  "vello_hybrid",
+ "vello_hybrid_scenes",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

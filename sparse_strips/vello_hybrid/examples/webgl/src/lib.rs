@@ -9,7 +9,19 @@
 )]
 
 #[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
+#[cfg(target_arch = "wasm32")]
+use std::rc::Rc;
+#[cfg(target_arch = "wasm32")]
+use vello_common::kurbo::{Affine, Vec2};
+#[cfg(target_arch = "wasm32")]
+use vello_hybrid_scenes::AnyScene;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
+
+const ZOOM_STEP: f64 = 0.1;
 
 #[cfg(target_arch = "wasm32")]
 struct RendererWrapper {
@@ -103,7 +115,300 @@ impl RendererWrapper {
     }
 }
 
-/// Creates a `HTMLCanvasElement` of the given dimensions and renders the given `Scene` into it.
+/// State that handles scene rendering and interactions
+#[cfg(target_arch = "wasm32")]
+struct AppState {
+    scenes: Box<[AnyScene]>,
+    current_scene: usize,
+    scene: vello_hybrid::Scene,
+    transform: Affine,
+    mouse_down: bool,
+    last_cursor_position: Option<Vec2>,
+    width: u32,
+    height: u32,
+    renderer_wrapper: RendererWrapper,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl AppState {
+    async fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene]>) -> Self {
+        let width = canvas.width();
+        let height = canvas.height();
+
+        let renderer_wrapper = RendererWrapper::new(canvas).await;
+
+        Self {
+            scenes,
+            current_scene: 0,
+            scene: vello_hybrid::Scene::new(width as u16, height as u16),
+            transform: Affine::IDENTITY,
+            mouse_down: false,
+            last_cursor_position: None,
+            width,
+            height,
+            renderer_wrapper,
+        }
+    }
+
+    fn render(&mut self) {
+        self.scene.reset();
+
+        // Render the current scene with transform
+        self.scenes[self.current_scene].render(&mut self.scene, self.transform);
+
+        let params = vello_hybrid::RenderParams {
+            width: self.width,
+            height: self.height,
+        };
+
+        self.renderer_wrapper.renderer.prepare(
+            &self.renderer_wrapper.device,
+            &self.renderer_wrapper.queue,
+            &self.scene,
+            &params,
+        );
+
+        let surface_texture = self.renderer_wrapper.surface.get_current_texture().unwrap();
+        let surface_texture_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self
+            .renderer_wrapper
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &surface_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            self.renderer_wrapper
+                .renderer
+                .render(&self.scene, &mut pass, &params);
+        }
+
+        self.renderer_wrapper.queue.submit([encoder.finish()]);
+        surface_texture.present();
+    }
+
+    fn next_scene(&mut self) {
+        self.current_scene = (self.current_scene + 1) % self.scenes.len();
+        self.transform = Affine::IDENTITY;
+        self.render();
+    }
+
+    fn prev_scene(&mut self) {
+        self.current_scene = if self.current_scene == 0 {
+            self.scenes.len() - 1
+        } else {
+            self.current_scene - 1
+        };
+        self.transform = Affine::IDENTITY;
+        self.render();
+    }
+
+    fn reset_transform(&mut self) {
+        self.transform = Affine::IDENTITY;
+        self.render();
+    }
+
+    fn handle_mouse_down(&mut self, x: f64, y: f64) {
+        self.mouse_down = true;
+        self.last_cursor_position = Some(Vec2::new(x, y));
+    }
+
+    fn handle_mouse_up(&mut self) {
+        self.mouse_down = false;
+        self.last_cursor_position = None;
+    }
+
+    fn handle_mouse_move(&mut self, x: f64, y: f64) {
+        let current_pos = Vec2::new(x, y);
+
+        if self.mouse_down {
+            if let Some(last_pos) = self.last_cursor_position {
+                let delta = current_pos - last_pos;
+                self.transform = Affine::translate(delta) * self.transform;
+                self.render();
+            }
+        }
+
+        self.last_cursor_position = Some(current_pos);
+    }
+
+    fn handle_wheel(&mut self, delta_y: f64) {
+        if let Some(cursor_pos) = self.last_cursor_position {
+            let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
+
+            // Zoom centered at cursor position
+            self.transform = Affine::translate(cursor_pos)
+                * Affine::scale(zoom_factor)
+                * Affine::translate(-cursor_pos)
+                * self.transform;
+
+            self.render();
+        } else {
+            // If no cursor position is known, zoom centered on screen
+            let center = Vec2::new(self.width as f64 / 2.0, self.height as f64 / 2.0);
+
+            let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
+
+            self.transform = Affine::translate(center)
+                * Affine::scale(zoom_factor)
+                * Affine::translate(-center)
+                * self.transform;
+
+            self.render();
+        }
+    }
+}
+
+/// Creates a `HTMLCanvasElement` of the given dimensions and renders the given scenes into it,
+/// with interactive controls for panning, zooming, and switching between scenes.
+#[cfg(target_arch = "wasm32")]
+pub async fn run_interactive(width: u16, height: u16) {
+    let canvas = web_sys::Window::document(&web_sys::window().unwrap())
+        .unwrap()
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .unwrap();
+    canvas.set_width(width as u32);
+    canvas.set_height(height as u32);
+    canvas.style().set_property("width", "100%").unwrap();
+    canvas.style().set_property("height", "100%").unwrap();
+
+    // Add canvas to body
+    web_sys::Window::document(&web_sys::window().unwrap())
+        .unwrap()
+        .body()
+        .unwrap()
+        .append_child(&canvas)
+        .unwrap();
+
+    let scenes = vello_hybrid_scenes::get_example_scenes();
+
+    let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes).await));
+
+    // Initial render
+    app_state.borrow_mut().render();
+
+    // Set up event handlers
+
+    // Mouse down
+    {
+        let app_state = app_state.clone();
+        let closure = Closure::wrap(Box::new(move |event: MouseEvent| {
+            app_state
+                .borrow_mut()
+                .handle_mouse_down(event.client_x() as f64, event.client_y() as f64);
+        }) as Box<dyn FnMut(_)>);
+        canvas
+            .add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Mouse up
+    {
+        let app_state = app_state.clone();
+        let closure = Closure::wrap(Box::new(move |_event: MouseEvent| {
+            app_state.borrow_mut().handle_mouse_up();
+        }) as Box<dyn FnMut(_)>);
+        canvas
+            .add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Mouse move
+    {
+        let app_state = app_state.clone();
+        let closure = Closure::wrap(Box::new(move |event: MouseEvent| {
+            app_state
+                .borrow_mut()
+                .handle_mouse_move(event.client_x() as f64, event.client_y() as f64);
+        }) as Box<dyn FnMut(_)>);
+        canvas
+            .add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Mouse wheel
+    {
+        let app_state = app_state.clone();
+        let closure = Closure::wrap(Box::new(move |event: WheelEvent| {
+            event.prevent_default();
+            let delta = -event.delta_y() / 100.0; // Normalize and invert
+            app_state.borrow_mut().handle_wheel(delta);
+        }) as Box<dyn FnMut(_)>);
+        canvas
+            .add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Keyboard events (document level)
+    {
+        let app_state = app_state.clone();
+        let document = web_sys::window().unwrap().document().unwrap();
+        let closure =
+            Closure::wrap(
+                Box::new(move |event: KeyboardEvent| match event.key().as_str() {
+                    "ArrowRight" => app_state.borrow_mut().next_scene(),
+                    "ArrowLeft" => app_state.borrow_mut().prev_scene(),
+                    " " => app_state.borrow_mut().reset_transform(),
+                    _ => {}
+                }) as Box<dyn FnMut(_)>,
+            );
+        document
+            .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Create instructions element
+    let document = web_sys::window().unwrap().document().unwrap();
+    let instructions = document.create_element("div").unwrap();
+    instructions.set_inner_html(
+        "Left/Right Arrow: Change scene | Space: Reset view | Mouse Drag: Pan | Mouse Wheel: Zoom",
+    );
+    let style = instructions
+        .dyn_ref::<web_sys::HtmlElement>()
+        .unwrap()
+        .style();
+    style.set_property("position", "fixed").unwrap();
+    style.set_property("bottom", "10px").unwrap();
+    style.set_property("left", "10px").unwrap();
+    style
+        .set_property("background", "rgba(0, 0, 0, 0.5)")
+        .unwrap();
+    style.set_property("color", "white").unwrap();
+    style.set_property("padding", "5px 10px").unwrap();
+    style.set_property("border-radius", "5px").unwrap();
+    style.set_property("font-family", "sans-serif").unwrap();
+    style.set_property("pointer-events", "none").unwrap();
+
+    document
+        .body()
+        .unwrap()
+        .append_child(&instructions)
+        .unwrap();
+}
+
+/// Creates a `HTMLCanvasElement` and renders a single scene into it
 #[cfg(target_arch = "wasm32")]
 pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
     let canvas = web_sys::Window::document(&web_sys::window().unwrap())
