@@ -113,6 +113,20 @@ impl RendererWrapper {
             surface,
         }
     }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+            desired_maximum_frame_latency: 2,
+            view_formats: vec![],
+        };
+        self.surface.configure(&self.device, &surface_config);
+    }
 }
 
 /// State that handles scene rendering and interactions
@@ -128,6 +142,7 @@ struct AppState {
     height: u32,
     renderer_wrapper: RendererWrapper,
     need_render: bool,
+    canvas: HtmlCanvasElement,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -136,7 +151,7 @@ impl AppState {
         let width = canvas.width();
         let height = canvas.height();
 
-        let renderer_wrapper = RendererWrapper::new(canvas).await;
+        let renderer_wrapper = RendererWrapper::new(canvas.clone()).await;
 
         Self {
             scenes,
@@ -149,6 +164,7 @@ impl AppState {
             height,
             renderer_wrapper,
             need_render: true,
+            canvas,
         }
     }
 
@@ -208,6 +224,18 @@ impl AppState {
         surface_texture.present();
 
         self.need_render = false;
+    }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        self.canvas.set_width(width);
+        self.canvas.set_height(height);
+        self.width = width;
+        self.height = height;
+
+        self.scene = vello_hybrid::Scene::new(width as u16, height as u16);
+        self.renderer_wrapper.resize(width, height);
+
+        self.need_render = true;
     }
 
     fn next_scene(&mut self) {
@@ -320,12 +348,34 @@ pub async fn run_interactive(width: u16, height: u16) {
     {
         let f = Rc::new(RefCell::new(None));
         let g = f.clone();
-        let app_state_ = app_state.clone();
+        let app_state = app_state.clone();
+
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-            app_state_.borrow_mut().render();
+            app_state.borrow_mut().render();
             request_animation_frame(f.borrow().as_ref().unwrap());
         }) as Box<dyn FnMut()>));
+
         request_animation_frame(g.borrow().as_ref().unwrap());
+    }
+
+    // Set up window resize event handler
+    {
+        let app_state = app_state.clone();
+        let window = web_sys::window().unwrap();
+        let closure = Closure::wrap(Box::new(move |_: Event| {
+            let window = web_sys::window().unwrap();
+            let dpr = window.device_pixel_ratio();
+
+            let width = window.inner_width().unwrap().as_f64().unwrap() as u32 * dpr as u32;
+            let height = window.inner_height().unwrap().as_f64().unwrap() as u32 * dpr as u32;
+
+            app_state.borrow_mut().resize(width, height);
+        }) as Box<dyn FnMut(_)>);
+
+        window
+            .add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
     }
 
     // Set up event handlers
