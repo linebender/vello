@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::peniko::GradientKind;
 use vello_cpu::paint::Gradient;
