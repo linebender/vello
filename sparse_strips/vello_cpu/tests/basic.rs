@@ -515,6 +515,21 @@ fn filled_vertical_hairline_rect_2() {
 }
 
 #[test]
+fn filled_glyphs() {
+    let mut ctx = get_ctx(300, 70, false);
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .fill_glyphs(glyphs.into_iter());
+
+    check_ref(&ctx, "filled_glyphs");
+}
+
+#[test]
 fn stroked_glyphs() {
     let mut ctx = get_ctx(300, 70, false);
     let font_size: f32 = 50_f32;
@@ -612,21 +627,6 @@ fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
         .collect::<Vec<_>>();
 
     (font, glyphs)
-}
-
-#[test]
-fn filled_glyphs() {
-    let mut ctx = get_ctx(300, 70, false);
-    let font_size: f32 = 50_f32;
-    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
-
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .fill_glyphs(glyphs.into_iter());
-
-    check_ref(&ctx, "filled_glyphs");
 }
 
 #[test]
