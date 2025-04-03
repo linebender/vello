@@ -127,6 +127,7 @@ struct AppState {
     width: u32,
     height: u32,
     renderer_wrapper: RendererWrapper,
+    need_render: bool,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -147,10 +148,15 @@ impl AppState {
             width,
             height,
             renderer_wrapper,
+            need_render: true,
         }
     }
 
     fn render(&mut self) {
+        if !self.need_render {
+            return;
+        }
+
         self.scene.reset();
 
         // Render the current scene with transform
@@ -200,12 +206,14 @@ impl AppState {
 
         self.renderer_wrapper.queue.submit([encoder.finish()]);
         surface_texture.present();
+
+        self.need_render = false;
     }
 
     fn next_scene(&mut self) {
         self.current_scene = (self.current_scene + 1) % self.scenes.len();
         self.transform = Affine::IDENTITY;
-        self.render();
+        self.need_render = true;
     }
 
     fn prev_scene(&mut self) {
@@ -215,12 +223,12 @@ impl AppState {
             self.current_scene - 1
         };
         self.transform = Affine::IDENTITY;
-        self.render();
+        self.need_render = true;
     }
 
     fn reset_transform(&mut self) {
         self.transform = Affine::IDENTITY;
-        self.render();
+        self.need_render = true;
     }
 
     fn handle_mouse_down(&mut self, x: f64, y: f64) {
@@ -240,7 +248,7 @@ impl AppState {
             if let Some(last_pos) = self.last_cursor_position {
                 let delta = current_pos - last_pos;
                 self.transform = Affine::translate(delta) * self.transform;
-                self.render();
+                self.need_render = true;
             }
         }
 
@@ -257,7 +265,7 @@ impl AppState {
                 * Affine::translate(-cursor_pos)
                 * self.transform;
 
-            self.render();
+            self.need_render = true;
         } else {
             // If no cursor position is known, zoom centered on screen
             let center = Vec2::new(self.width as f64 / 2.0, self.height as f64 / 2.0);
@@ -269,9 +277,16 @@ impl AppState {
                 * Affine::translate(-center)
                 * self.transform;
 
-            self.render();
+            self.need_render = true;
         }
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = requestAnimationFrame)]
+    fn request_animation_frame(f: &Closure<dyn FnMut()>);
 }
 
 /// Creates a `HTMLCanvasElement` of the given dimensions and renders the given scenes into it,
@@ -301,8 +316,17 @@ pub async fn run_interactive(width: u16, height: u16) {
 
     let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes).await));
 
-    // Initial render
-    app_state.borrow_mut().render();
+    // Set up animation frame loop
+    {
+        let f = Rc::new(RefCell::new(None));
+        let g = f.clone();
+        let app_state_ = app_state.clone();
+        *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+            app_state_.borrow_mut().render();
+            request_animation_frame(f.borrow().as_ref().unwrap());
+        }) as Box<dyn FnMut()>));
+        request_animation_frame(g.borrow().as_ref().unwrap());
+    }
 
     // Set up event handlers
 
