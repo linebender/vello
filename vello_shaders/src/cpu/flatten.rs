@@ -1,7 +1,7 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-use std::f32::consts::FRAC_1_SQRT_2;
+use std::{f32::consts::FRAC_1_SQRT_2, mem::swap};
 
 use super::{
     CpuBinding,
@@ -434,6 +434,7 @@ fn draw_join(
     n_prev: Vec2,
     n_next: Vec2,
     transform: &Transform,
+    is_fill: bool,
     line_ix: &mut usize,
     lines: &mut [LineSoup],
     bbox: &mut IntBbox,
@@ -442,43 +443,52 @@ fn draw_join(
     let front1 = p0 + n_next;
     let mut back0 = p0 - n_next;
     let back1 = p0 - n_prev;
-
     let cr = tan_prev.x * tan_next.y - tan_prev.y * tan_next.x;
     let d = tan_prev.dot(tan_next);
 
     match style_flags & Style::FLAGS_JOIN_MASK {
         Style::FLAGS_JOIN_BITS_BEVEL => {
             if front0 != front1 && back0 != back1 {
-                output_two_lines_with_transform(
-                    path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox,
-                );
+                if is_fill {
+                    output_line_with_transform(
+                        path_ix, back0, back1, transform, line_ix, lines, bbox,
+                    );
+                } else {
+                    output_two_lines_with_transform(
+                        path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox,
+                    );
+                }
             }
         }
         Style::FLAGS_JOIN_BITS_MITER => {
             let hypot = cr.hypot(d);
             let miter_limit = f16_to_f32((style_flags & Style::MITER_LIMIT_MASK) as u16);
-
             if 2. * hypot < (hypot + d) * miter_limit * miter_limit && cr != 0. {
                 let is_backside = cr > 0.;
                 let fp_last = if is_backside { back1 } else { front0 };
                 let fp_this = if is_backside { back0 } else { front1 };
                 let p = if is_backside { back0 } else { front0 };
-
                 let v = fp_this - fp_last;
                 let h = (tan_prev.x * v.y - tan_prev.y * v.x) / cr;
                 let miter_pt = fp_this - tan_next * h;
-
-                output_line_with_transform(path_ix, p, miter_pt, transform, line_ix, lines, bbox);
-
+                if !is_fill || is_backside {
+                    output_line_with_transform(
+                        path_ix, p, miter_pt, transform, line_ix, lines, bbox,
+                    );
+                }
                 if is_backside {
                     back0 = miter_pt;
                 } else {
                     front0 = miter_pt;
                 }
             }
-            output_two_lines_with_transform(
-                path_ix, front0, front1, back0, back1, transform, line_ix, lines, bbox,
-            );
+
+            if !is_fill {
+                output_line_with_transform(
+                    path_ix, front0, front1, transform, line_ix, lines, bbox,
+                );
+            }
+            output_line_with_transform(path_ix, back0, back1, transform, line_ix, lines, bbox);
         }
         Style::FLAGS_JOIN_BITS_ROUND => {
             let (arc0, arc1, other0, other1) = if cr > 0. {
@@ -486,18 +496,25 @@ fn draw_join(
             } else {
                 (front0, front1, back0, back1)
             };
-            flatten_arc(
-                path_ix,
-                arc0,
-                arc1,
-                p0,
-                cr.atan2(d).abs(),
-                transform,
-                line_ix,
-                lines,
-                bbox,
-            );
-            output_line_with_transform(path_ix, other0, other1, transform, line_ix, lines, bbox);
+
+            if !is_fill || cr > 0. {
+                flatten_arc(
+                    path_ix,
+                    arc0,
+                    arc1,
+                    p0,
+                    cr.atan2(d).abs(),
+                    transform,
+                    line_ix,
+                    lines,
+                    bbox,
+                );
+            }
+            if !is_fill || cr < 0. {
+                output_line_with_transform(
+                    path_ix, other0, other1, transform, line_ix, lines, bbox,
+                );
+            }
         }
         _ => unreachable!(),
     }
@@ -680,6 +697,7 @@ fn flatten_main(
         let tag = compute_tag_monoid(ix, pathtags, tag_monoids);
         let path_ix = tag.monoid.path_ix;
         let style_ix = tag.monoid.style_ix;
+        let winding_ix = tag.monoid.winding_ix;
         let trans_ix = tag.monoid.trans_ix;
         let style_flags = scene[(config.layout.style_base.wrapping_add(style_ix)) as usize];
         if (tag.tag_byte & PATH_TAG_PATH) != 0 {
@@ -697,14 +715,16 @@ fn flatten_main(
             let is_stroke = (style_flags & Style::FLAGS_STYLE_BIT) != 0;
             let transform = Transform::read(config.layout.transform_base, trans_ix, scene);
             let pts = read_path_segment(&tag, is_stroke, pathdata);
+            let is_stroke_cap_marker = (tag.tag_byte & PathTag::SUBPATH_END_BIT) != 0;
 
             if is_stroke {
                 let linewidth =
                     f32::from_bits(scene[(config.layout.style_base + style_ix + 1) as usize]);
-                let offset = 0.5 * linewidth;
+                let embolden =
+                    f32::from_bits(scene[(config.layout.style_base + style_ix + 2) as usize]);
+                let offset = 0.5 * (linewidth + embolden);
 
                 let is_open = seg_type != PATH_TAG_LINETO;
-                let is_stroke_cap_marker = (tag.tag_byte & PathTag::SUBPATH_END_BIT) != 0;
                 if is_stroke_cap_marker {
                     if is_open {
                         // Draw start cap
@@ -797,6 +817,7 @@ fn flatten_main(
                             n_prev,
                             n_next,
                             &transform,
+                            false,
                             &mut line_ix,
                             lines,
                             &mut bbox,
@@ -818,17 +839,84 @@ fn flatten_main(
                     }
                 }
             } else {
-                flatten_euler(
-                    &pts,
-                    path_ix,
-                    &transform,
-                    /*offset*/ 0.,
-                    pts.p0,
-                    pts.p3,
-                    &mut line_ix,
-                    lines,
-                    &mut bbox,
-                );
+                let embolden =
+                    -f32::from_bits(scene[(config.layout.style_base + style_ix + 2) as usize]);
+
+                if embolden != 0.0 && !is_stroke_cap_marker {
+                    let sign =
+                        f32::from_bits(scene[(config.layout.winding_base + winding_ix) as usize]);
+
+                    let tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3) * sign;
+                    let tan_start = if tan_start.length_squared() < TANGENT_THRESH.powi(2) {
+                        Vec2::new(TANGENT_THRESH, 0.)
+                    } else {
+                        tan_start
+                    };
+                    let tan_prev = cubic_end_tangent(pts.p0, pts.p1, pts.p2, pts.p3) * sign;
+                    let mut tan_prev = if tan_prev.length_squared() < TANGENT_THRESH.powi(2) {
+                        Vec2::new(TANGENT_THRESH, 0.)
+                    } else {
+                        tan_prev
+                    };
+
+                    let n_start = embolden * Vec2::new(-tan_start.y, tan_start.x).normalize();
+
+                    let mut n_prev = embolden * Vec2::new(-tan_prev.y, tan_prev.x).normalize();
+
+                    flatten_euler(
+                        &pts,
+                        path_ix,
+                        &transform,
+                        embolden * sign,
+                        pts.p0 + n_start,
+                        pts.p3 + n_prev,
+                        &mut line_ix,
+                        lines,
+                        &mut bbox,
+                    );
+
+                    let neighbor =
+                        read_neighboring_segment(ix + 1, pathtags, pathdata, tag_monoids);
+                    if neighbor.do_join {
+                        let tan_next = neighbor.tangent * sign;
+                        let mut tan_next = if tan_next.length() < TANGENT_THRESH.powi(2) {
+                            Vec2::new(TANGENT_THRESH, 0.)
+                        } else {
+                            tan_next
+                        };
+                        let mut n_next = embolden * Vec2::new(-tan_next.y, tan_next.x).normalize();
+                        if sign < 0. {
+                            swap(&mut n_prev, &mut n_next);
+                            swap(&mut tan_prev, &mut tan_next);
+                        }
+                        draw_join(
+                            path_ix,
+                            style_flags,
+                            pts.p3,
+                            tan_prev,
+                            tan_next,
+                            -n_prev,
+                            -n_next,
+                            &transform,
+                            true,
+                            &mut line_ix,
+                            lines,
+                            &mut bbox,
+                        );
+                    }
+                } else if embolden == 0. {
+                    flatten_euler(
+                        &pts,
+                        path_ix,
+                        &transform,
+                        /*offset*/ 0.,
+                        pts.p0,
+                        pts.p3,
+                        &mut line_ix,
+                        lines,
+                        &mut bbox,
+                    );
+                }
             }
         }
 
