@@ -1,3 +1,8 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Tests for clipping.
+
 use crate::util::{check_ref, circular_star, crossed_line_star, get_ctx};
 use std::f64::consts::PI;
 use vello_common::color::palette::css::{DARK_BLUE, DARK_GREEN, REBECCA_PURPLE};

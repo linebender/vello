@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Basic sanity checks that no panic happen for pixmaps with different sizes.
 
 use crate::util::{get_ctx, render_pixmap};

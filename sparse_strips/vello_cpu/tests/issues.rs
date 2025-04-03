@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Tests for Github issues.
+//! Tests for GitHub issues.
 
 use crate::util::{check_ref, get_ctx, render_pixmap};
 use vello_common::color::palette::css::{DARK_BLUE, LIME};

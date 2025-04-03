@@ -1,4 +1,7 @@
-//! Testing composition operators
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Testing composition operators.
 
 use crate::util::{bevel_stroke_2, check_ref, get_ctx};
 use vello_common::color::palette::css::{DARK_GREEN, YELLOW};
