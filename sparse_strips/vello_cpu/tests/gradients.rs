@@ -1,11 +1,9 @@
 mod util;
 
-use crate::util::{check_ref, get_ctx, star_path, stops_green_blue};
-use std::f64::consts::PI;
-use vello_common::color::palette::css::{BLACK, BLUE, GREEN, RED, WHITE, YELLOW};
+use crate::util::{check_ref, get_ctx, stops_green_blue};
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::peniko::GradientKind;
-use vello_cpu::paint::{Gradient, LinearGradient, Stop, SweepGradient};
+use vello_cpu::paint::Gradient;
 
 #[test]
 fn gradient_on_3_wide_tiles() {

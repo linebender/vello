@@ -27,7 +27,7 @@ static REFS_PATH: LazyLock<PathBuf> =
 static DIFFS_PATH: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("diffs"));
 
-pub fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderContext {
+pub(crate) fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderContext {
     let mut ctx = RenderContext::new(width, height);
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);
@@ -39,13 +39,13 @@ pub fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderContext {
     ctx
 }
 
-pub fn render_pixmap(ctx: &RenderContext) -> Pixmap {
+pub(crate) fn render_pixmap(ctx: &RenderContext) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
     ctx.render_to_pixmap(&mut pixmap);
     pixmap
 }
 
-pub fn stops_green_blue() -> Vec<Stop> {
+pub(crate) fn stops_green_blue() -> Vec<Stop> {
     vec![
         Stop {
             offset: 0.0,
@@ -58,7 +58,7 @@ pub fn stops_green_blue() -> Vec<Stop> {
     ]
 }
 
-pub fn stops_green_blue_with_alpha() -> Vec<Stop> {
+pub(crate) fn stops_green_blue_with_alpha() -> Vec<Stop> {
     vec![
         Stop {
             offset: 0.0,
@@ -71,7 +71,7 @@ pub fn stops_green_blue_with_alpha() -> Vec<Stop> {
     ]
 }
 
-pub fn stops_blue_green_red_yellow() -> Vec<Stop> {
+pub(crate) fn stops_blue_green_red_yellow() -> Vec<Stop> {
     vec![
         Stop {
             offset: 0.0,
@@ -92,7 +92,7 @@ pub fn stops_blue_green_red_yellow() -> Vec<Stop> {
     ]
 }
 
-pub fn check_ref(ctx: &RenderContext, name: &str) {
+pub(crate) fn check_ref(ctx: &RenderContext, name: &str) {
     let mut pixmap = render_pixmap(ctx);
     pixmap.unpremultiply();
 
@@ -151,7 +151,7 @@ pub fn check_ref(ctx: &RenderContext, name: &str) {
     }
 }
 
-pub fn star_path() -> BezPath {
+pub(crate) fn star_path() -> BezPath {
     let mut path = BezPath::new();
     path.move_to((50.0, 10.0));
     path.line_to((75.0, 90.0));

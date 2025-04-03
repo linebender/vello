@@ -1,12 +1,8 @@
 //! Rendering linear gradients.
 
-use crate::fine;
-use crate::fine::{
-    COLOR_COMPONENTS, Extend, Negative, Pad, Positive, Repeat, Sign, TILE_HEIGHT_COMPONENTS, extend,
-};
+use crate::fine::{COLOR_COMPONENTS, Positive, Sign, TILE_HEIGHT_COMPONENTS, extend};
 use crate::paint::{EncodedLinearGradient, GradientRange};
 use vello_common::kurbo::Point;
-use vello_common::tile::Tile;
 
 #[derive(Debug)]
 pub(crate) struct LinearGradientFiller<'a> {

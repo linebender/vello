@@ -1,7 +1,7 @@
 use crate::fine::{COLOR_COMPONENTS, Positive, Sign, TILE_HEIGHT_COMPONENTS, extend};
 use crate::paint::{EncodedSweepGradient, GradientRange};
 use std::f32::consts::PI;
-use vello_common::kurbo::{Affine, Point};
+use vello_common::kurbo::Point;
 
 #[derive(Debug)]
 pub(crate) struct SweepGradientFiller<'a> {

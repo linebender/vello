@@ -34,7 +34,7 @@ pub struct Gradient {
 }
 
 impl Gradient {
-    pub fn encode(mut self) -> EncodedPaint {
+    pub fn encode(self) -> EncodedPaint {
         match self.kind {
             GradientKind::Linear { start, end } => {
                 // Note that this will not work for transforms with coordinate skewing.
@@ -114,9 +114,9 @@ impl Gradient {
                 end_center,
                 end_radius,
             } => {
-                let mut c0 = start_center;
+                let c0 = start_center;
                 let mut c1 = end_center;
-                let mut r0 = start_radius;
+                let r0 = start_radius;
                 let mut r1 = end_radius;
 
                 let mut stops = self.stops;

@@ -257,7 +257,7 @@ impl<'a> Fine<'a> {
                         );
                     }
                     EncodedPaint::SweepGradient(s) => {
-                        let mut iter = SweepGradientFiller::new(s, start_x, start_y);
+                        let iter = SweepGradientFiller::new(s, start_x, start_y);
                         iter.run(color_buf);
                         strip::src_over(
                             blend_buf,
@@ -266,7 +266,7 @@ impl<'a> Fine<'a> {
                         );
                     }
                     EncodedPaint::RadialGradient(r) => {
-                        let mut iter = RadialGradientFiller::new(r, start_x, start_y);
+                        let iter = RadialGradientFiller::new(r, start_x, start_y);
                         iter.run(color_buf);
                         strip::src_over(
                             blend_buf,
@@ -411,30 +411,6 @@ trait Extend {
 trait Sign {
     fn needs_advance(base_pos: f32, x0: f32, x1: f32) -> bool;
     fn idx_advance(idx: &mut usize, gradient_len: usize);
-}
-
-struct Pad;
-
-impl Extend for Pad {
-    fn extend(val: f32, _: f32) -> f32 {
-        val
-    }
-}
-
-struct Repeat;
-
-impl Extend for Repeat {
-    fn extend(mut val: f32, max: f32) -> f32 {
-        while val < 0.0 {
-            val += max;
-        }
-
-        while val > max {
-            val -= max;
-        }
-
-        val
-    }
 }
 
 struct Negative;

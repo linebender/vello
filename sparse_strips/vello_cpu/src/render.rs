@@ -5,7 +5,6 @@
 
 use crate::fine::Fine;
 use crate::paint::{EncodedPaint, PaintType};
-use std::cell::OnceCell;
 use vello_common::coarse::{SceneState, Wide};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};

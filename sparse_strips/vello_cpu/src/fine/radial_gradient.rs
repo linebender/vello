@@ -1,5 +1,5 @@
 use crate::fine::{COLOR_COMPONENTS, Positive, Sign, TILE_HEIGHT_COMPONENTS, extend};
-use crate::paint::{EncodedLinearGradient, EncodedRadialGradient, GradientRange};
+use crate::paint::{EncodedRadialGradient, GradientRange};
 use vello_common::kurbo::Point;
 
 #[derive(Debug)]

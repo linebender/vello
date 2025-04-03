@@ -3,7 +3,7 @@ use crate::util::{
     stops_green_blue_with_alpha,
 };
 use std::f64::consts::PI;
-use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
+use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::peniko::GradientKind::Radial;
 use vello_cpu::paint::Gradient;
 

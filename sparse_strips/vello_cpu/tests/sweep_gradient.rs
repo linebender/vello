@@ -5,7 +5,7 @@ use crate::util::{
 use std::f64::consts::PI;
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::peniko::GradientKind;
-use vello_cpu::paint::{Gradient, LinearGradient, Stop};
+use vello_cpu::paint::Gradient;
 
 mod util;
 
