@@ -733,7 +733,6 @@ fn run(
                     dir,
                 )
                 .unwrap()
-                .map(|(cache, dir)| (cache, dir))
             }
         } else {
             None
