@@ -263,7 +263,7 @@ mod tests {
             assert!(result.is_some());
             let (scale, transform) = result.unwrap();
             assert!((scale - 1.0).abs() < 1e-10);
-            assert!(transform == Affine::IDENTITY);
+            assert_eq!(transform, Affine::IDENTITY);
         }
 
         #[test]
@@ -273,7 +273,7 @@ mod tests {
             assert!(result.is_some());
             let (scale, transform) = result.unwrap();
             assert!((scale - 2.5).abs() < 1e-10);
-            assert!(transform == Affine::IDENTITY);
+            assert_eq!(transform, Affine::IDENTITY);
         }
 
         #[test]
@@ -284,7 +284,7 @@ mod tests {
             let (scale, transform) = result.unwrap();
             assert!((scale - 3.0).abs() < 1e-10);
             // The translation should be adjusted by the scale factor
-            assert!(transform == Affine::translate(Vec2::new(10.0, 20.0)));
+            assert_eq!(transform, Affine::translate(Vec2::new(10.0, 20.0)));
         }
 
         #[test]
@@ -294,7 +294,7 @@ mod tests {
             assert!(result.is_some());
             let (scale, transform) = result.unwrap();
             assert!((scale - 1.0).abs() < 1e-10);
-            assert!(transform == translation);
+            assert_eq!(transform, translation);
         }
 
         #[test]
