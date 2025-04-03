@@ -174,7 +174,7 @@ struct GlyphRun<'a> {
     font_size: f32,
     /// Global transform.
     transform: Affine,
-    /// Per-glyph transform. Can be used to apply skew to simulate italic text.
+    /// Per-glyph transform. Use `horizontal_skew` to simulate italic text.
     glyph_transform: Option<Affine>,
     /// Horizontal skew angle in radians for simulating italic/oblique text.
     horizontal_skew: Option<f32>,
