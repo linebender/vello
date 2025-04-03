@@ -33,7 +33,7 @@ pub struct Fine<'a> {
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) out_buf: &'a mut [u8],
-    pub(crate) blend_buf: ScratchBuf,
+    pub(crate) blend_buf: Vec<ScratchBuf>,
     pub(crate) color_buf: ScratchBuf,
 }
 
@@ -47,29 +47,33 @@ impl<'a> Fine<'a> {
             width,
             height,
             out_buf,
-            blend_buf: scratch,
+            blend_buf: vec![scratch],
             color_buf: color_scratch,
         }
     }
 
     pub fn clear(&mut self, premul_color: [u8; 4]) {
+        let blend_buf = self.blend_buf.last_mut().unwrap();
+
         if premul_color[0] == premul_color[1]
             && premul_color[1] == premul_color[2]
             && premul_color[2] == premul_color[3]
         {
             // All components are the same, so we can use memset instead.
-            self.blend_buf.fill(premul_color[0]);
+            blend_buf.fill(premul_color[0]);
         } else {
-            for z in self.blend_buf.chunks_exact_mut(COLOR_COMPONENTS) {
+            for z in blend_buf.chunks_exact_mut(COLOR_COMPONENTS) {
                 z.copy_from_slice(&premul_color);
             }
         }
     }
 
     pub(crate) fn pack(&mut self, x: u16, y: u16) {
+        let blend_buf = self.blend_buf.last_mut().unwrap();
+
         pack(
             self.out_buf,
-            &self.blend_buf,
+            blend_buf,
             self.width.into(),
             self.height.into(),
             x.into(),
@@ -97,7 +101,7 @@ impl<'a> Fine<'a> {
                 );
             }
             Cmd::AlphaFill(s) => {
-                let a_slice = &alphas[s.alpha_ix..];
+                let a_slice = &alphas[s.alpha_idx..];
                 self.strip(
                     s.x as usize,
                     tile_x,
@@ -107,6 +111,19 @@ impl<'a> Fine<'a> {
                     &s.paint,
                     paints,
                 );
+            }
+            Cmd::PushClip => {
+                self.blend_buf.push([0; SCRATCH_BUF_SIZE]);
+            }
+            Cmd::PopClip => {
+                self.blend_buf.pop();
+            }
+            Cmd::ClipFill(cf) => {
+                self.clip_fill(cf.x as usize, cf.width as usize);
+            }
+            Cmd::ClipStrip(cs) => {
+                let aslice = &alphas[cs.alpha_idx..];
+                self.clip_strip(cs.x as usize, cs.width as usize, aslice);
             }
         }
     }
@@ -121,8 +138,8 @@ impl<'a> Fine<'a> {
         fill: &Paint,
         encoded_paints: &[EncodedPaint],
     ) {
-        let blend_buf =
-            &mut self.blend_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
+        let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
+            [..TILE_HEIGHT_COMPONENTS * width];
         let color_buf =
             &mut self.color_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
 
@@ -214,8 +231,8 @@ impl<'a> Fine<'a> {
             "alpha buffer doesn't contain sufficient elements"
         );
 
-        let blend_buf =
-            &mut self.blend_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
+        let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
+            [..TILE_HEIGHT_COMPONENTS * width];
         let color_buf =
             &mut self.color_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
 
@@ -257,6 +274,51 @@ impl<'a> Fine<'a> {
                             alphas,
                         );
                     }
+                }
+            }
+        }
+    }
+
+    fn clip_fill(&mut self, x: usize, width: usize) {
+        let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
+        let target_buffer = rest.last_mut().unwrap();
+
+        for col_idx in 0..width {
+            for row_idx in 0..usize::from(Tile::HEIGHT) {
+                let px_offset = (x + col_idx) * TILE_HEIGHT_COMPONENTS + row_idx * COLOR_COMPONENTS;
+                let source_alpha = source_buffer[px_offset + 3] as f32 / 255.0;
+                let inverse_alpha = 1.0 - source_alpha;
+
+                for channel_idx in 0..COLOR_COMPONENTS {
+                    let dest = target_buffer[px_offset + channel_idx] as f32;
+                    let src = source_buffer[px_offset + channel_idx] as f32;
+                    target_buffer[px_offset + channel_idx] =
+                        (dest * inverse_alpha + src * source_alpha) as u8;
+                }
+            }
+        }
+    }
+
+    fn clip_strip(&mut self, x: usize, width: usize, alphas: &[u8]) {
+        let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
+        let target_buffer = rest.last_mut().unwrap();
+
+        for (col_idx, column_alphas) in alphas
+            .chunks_exact(usize::from(Tile::HEIGHT))
+            .take(width)
+            .enumerate()
+        {
+            for (row_idx, &alpha) in column_alphas.iter().enumerate() {
+                let px_offset = (x + col_idx) * TILE_HEIGHT_COMPONENTS + row_idx * COLOR_COMPONENTS;
+                let mask_alpha = alpha as f32 / 255.0;
+                let source_alpha = source_buffer[px_offset + 3] as f32 / 255.0;
+                let inverse_alpha = 1.0 - mask_alpha * source_alpha;
+
+                for channel_idx in 0..COLOR_COMPONENTS {
+                    let dest = target_buffer[px_offset + channel_idx] as f32;
+                    let source = source_buffer[px_offset + channel_idx] as f32;
+                    target_buffer[px_offset + channel_idx] =
+                        (dest * inverse_alpha + mask_alpha * source) as u8;
                 }
             }
         }

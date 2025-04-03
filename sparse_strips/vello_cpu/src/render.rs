@@ -4,11 +4,13 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
+use crate::paint::{EncodedPaint, PaintType};
+use std::cell::OnceCell;
 use vello_common::coarse::{SceneState, Wide};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
-use vello_common::paint::{IndexedPaint, Paint, EncodedPaint, PaintType};
+use vello_common::paint::{IndexedPaint, Paint};
 use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
@@ -190,7 +192,7 @@ impl RenderContext {
 
                 fine.clear(wtile.bg.to_u8_array());
                 for cmd in &wtile.cmds {
-                    fine.run_cmd(x, y, cmd, &self.alphas);
+                    fine.run_cmd(x, y, cmd, &self.alphas, &self.encoded_paints);
                 }
                 fine.pack(x, y);
             }
@@ -240,9 +242,12 @@ impl GlyphRenderer for RenderContext {
     fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
         match glyph {
             PreparedGlyph::Outline(glyph) => {
+                // TODO: We probably want to cache this.
+                let paint = self.encode_current_paint();
+
                 let transform = self.transform * glyph.local_transform;
                 flatten::fill(glyph.path, transform, &mut self.line_buf);
-                self.render_path(Fill::NonZero, self.paint.clone());
+                self.render_path(Fill::NonZero, paint);
             }
         }
     }
@@ -250,9 +255,12 @@ impl GlyphRenderer for RenderContext {
     fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
         match glyph {
             PreparedGlyph::Outline(glyph) => {
+                // TODO: We probably want to cache this.
+                let paint = self.encode_current_paint();
+
                 let transform = self.transform * glyph.local_transform;
                 flatten::stroke(glyph.path, &self.stroke, transform, &mut self.line_buf);
-                self.render_path(Fill::NonZero, self.paint.clone());
+                self.render_path(Fill::NonZero, paint);
             }
         }
     }
