@@ -16,24 +16,6 @@ pub trait ExampleScene {
         Self: Sized;
 }
 
-/// A wrapper that holds any type implementing ExampleScene
-pub struct SceneHolder<T: ExampleScene> {
-    /// The scene implementation with its state
-    pub scene: T,
-}
-
-impl<T: ExampleScene> SceneHolder<T> {
-    /// Create a new scene holder with the default state
-    pub fn new() -> Self {
-        Self { scene: T::new() }
-    }
-
-    /// Render the scene using the current state
-    pub fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
-        self.scene.render(scene, root_transform);
-    }
-}
-
 /// A type-erased example scene that can be stored in collections
 pub struct AnyScene {
     /// The render function that calls the wrapped scene's render method
@@ -55,6 +37,7 @@ impl AnyScene {
 }
 
 /// Get all available example scenes
+/// Unlike the Wasm version, this function allows for passing custom SVGs.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn get_example_scenes(svg_path: Option<&str>) -> Box<[AnyScene]> {
     let mut scenes = Vec::with_capacity(3);
