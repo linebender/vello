@@ -83,8 +83,7 @@ impl RenderContext {
 
                 let encoded = g.encode();
                 let idx = self.encoded_paints.len();
-                self.encoded_paints
-                    .push(encoded);
+                self.encoded_paints.push(encoded);
                 Paint::Indexed(IndexedPaint::new(idx))
             }
         }

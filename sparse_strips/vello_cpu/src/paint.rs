@@ -108,7 +108,12 @@ impl Gradient {
                     transform,
                 })
             }
-            GradientKind::Radial { start_center, start_radius, end_center, end_radius } => {
+            GradientKind::Radial {
+                start_center,
+                start_radius,
+                end_center,
+                end_radius,
+            } => {
                 let mut c0 = start_center;
                 let mut c1 = end_center;
                 let mut r0 = start_radius;
@@ -162,7 +167,11 @@ impl Gradient {
                     has_opacities,
                 })
             }
-            GradientKind::Sweep { center, start_angle, end_angle } => {
+            GradientKind::Sweep {
+                center,
+                start_angle,
+                end_angle,
+            } => {
                 let mut stops = self.stops;
                 let start_angle = start_angle.to_radians();
                 let mut end_angle = end_angle.to_radians();
@@ -189,7 +198,8 @@ impl Gradient {
                 let stops = encode_stops(&stops, start_angle, end_angle, pad);
                 let center = self.transform * center;
                 let c = self.transform.as_coeffs();
-                let trans = Affine::new([c[0], c[1], c[2], c[3], center.x - 0.5, center.y - 0.5]).inverse();
+                let trans =
+                    Affine::new([c[0], c[1], c[2], c[3], center.x - 0.5, center.y - 0.5]).inverse();
 
                 EncodedPaint::SweepGradient(EncodedSweepGradient {
                     trans,
@@ -224,7 +234,6 @@ pub struct SweepGradient {
     pub extend: Extend,
     pub transform: Affine,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct LinearGradient {

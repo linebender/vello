@@ -19,7 +19,7 @@ macro_rules! simple {
                 start_center: Point::new(50.0, 50.0),
                 start_radius: 10.0,
                 end_center: Point::new(50.0, 50.0),
-                end_radius: 40.0
+                end_radius: 40.0,
             },
             stops: $stops,
             transform: Affine::IDENTITY,
@@ -61,7 +61,7 @@ macro_rules! gradient_pad {
                 start_center: Point::new(50.0, 50.0),
                 start_radius: 20.0,
                 end_center: Point::new(50.0, 50.0),
-                end_radius: 25.0
+                end_radius: 25.0,
             },
             stops: stops_blue_green_red_yellow(),
             transform: Affine::IDENTITY,
@@ -109,7 +109,7 @@ macro_rules! offset {
                 start_center: $point,
                 start_radius: 2.0,
                 end_center: Point::new(50.0, 50.0),
-                end_radius: 40.0
+                end_radius: 40.0,
             },
             stops: stops_blue_green_red_yellow(),
             transform: Affine::IDENTITY,
@@ -165,7 +165,7 @@ fn gradient_radial_c0_bigger() {
             start_center: Point::new(50.0, 50.0),
             start_radius: 40.0,
             end_center: Point::new(50.0, 50.0),
-            end_radius: 10.0
+            end_radius: 10.0,
         },
         stops: stops_blue_green_red_yellow(),
         transform: Affine::IDENTITY,
@@ -185,10 +185,10 @@ macro_rules! non_overlapping {
 
         let gradient = Gradient {
             kind: Radial {
-                start_center:Point::new(30.0, 50.0),
+                start_center: Point::new(30.0, 50.0),
                 start_radius: $radius,
                 end_center: Point::new(70.0, 50.0),
-                end_radius: 20.0
+                end_radius: 20.0,
             },
             stops: stops_blue_green_red_yellow(),
             transform: Affine::IDENTITY,
@@ -232,7 +232,7 @@ fn gradient_radial_complex_shape() {
             start_center: Point::new(50.0, 50.0),
             start_radius: 5.0,
             end_center: Point::new(50.0, 50.0),
-            end_radius: 35.0
+            end_radius: 35.0,
         },
         stops: stops_blue_green_red_yellow(),
         transform: Affine::IDENTITY,
@@ -256,7 +256,7 @@ macro_rules! gradient_with_transform {
                 start_center: point,
                 start_radius: 5.0,
                 end_center: point,
-                end_radius: 35.0
+                end_radius: 35.0,
             },
             stops: stops_blue_green_red_yellow(),
             transform: Affine::IDENTITY,

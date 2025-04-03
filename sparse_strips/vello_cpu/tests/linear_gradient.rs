@@ -4,7 +4,8 @@ use crate::util::{
 };
 use std::f64::consts::PI;
 use vello_common::kurbo::{Affine, Point, Rect};
-use vello_cpu::paint::LinearGradient;
+use vello_common::peniko::GradientKind;
+use vello_cpu::paint::Gradient;
 
 mod util;
 
@@ -13,9 +14,11 @@ fn gradient_linear_2_stops() {
     let mut ctx = get_ctx(100, 100, false);
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-    let gradient = LinearGradient {
-        p0: Point::new(10.0, 0.0),
-        p1: Point::new(90.0, 0.0),
+    let gradient = Gradient {
+        kind: GradientKind::Linear {
+            start: Point::new(10.0, 0.0),
+            end: Point::new(90.0, 0.0),
+        },
         stops: stops_green_blue(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
@@ -32,9 +35,11 @@ fn gradient_linear_2_stops_with_alpha() {
     let mut ctx = get_ctx(100, 100, false);
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-    let gradient = LinearGradient {
-        p0: Point::new(10.0, 0.0),
-        p1: Point::new(90.0, 0.0),
+    let gradient = Gradient {
+        kind: GradientKind::Linear {
+            start: Point::new(10.0, 0.0),
+            end: Point::new(90.0, 0.0),
+        },
         stops: stops_green_blue_with_alpha(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
@@ -51,9 +56,11 @@ fn gradient_linear_negative_direction() {
     let mut ctx = get_ctx(100, 100, false);
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-    let gradient = LinearGradient {
-        p0: Point::new(90.0, 0.0),
-        p1: Point::new(10.0, 0.0),
+    let gradient = Gradient {
+        kind: GradientKind::Linear {
+            start: Point::new(90.0, 0.0),
+            end: Point::new(10.0, 0.0),
+        },
         stops: stops_green_blue(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
@@ -70,9 +77,11 @@ fn gradient_linear_with_downward_y() {
     let mut ctx = get_ctx(100, 100, false);
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-    let gradient = LinearGradient {
-        p0: Point::new(20.0, 20.0),
-        p1: Point::new(80.0, 80.0),
+    let gradient = Gradient {
+        kind: GradientKind::Linear {
+            start: Point::new(20.0, 20.0),
+            end: Point::new(80.0, 80.0),
+        },
         stops: stops_green_blue(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
@@ -89,9 +98,11 @@ fn gradient_linear_with_upward_y() {
     let mut ctx = get_ctx(100, 100, false);
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-    let gradient = LinearGradient {
-        p0: Point::new(20.0, 80.0),
-        p1: Point::new(80.0, 20.0),
+    let gradient = Gradient {
+        kind: GradientKind::Linear {
+            start: Point::new(20.0, 80.0),
+            end: Point::new(80.0, 20.0),
+        },
         stops: stops_green_blue(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
@@ -108,9 +119,11 @@ macro_rules! gradient_pad {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-        let gradient = LinearGradient {
-            p0: Point::new(40.0, 40.0),
-            p1: Point::new(60.0, 60.0),
+        let gradient = Gradient {
+            kind: GradientKind::Linear {
+                start: Point::new(40.0, 40.0),
+                end: Point::new(60.0, 60.0),
+            },
             stops: stops_blue_green_red_yellow(),
             transform: Affine::IDENTITY,
             extend: $extend,
@@ -152,9 +165,11 @@ fn gradient_linear_4_stops() {
     let mut ctx = get_ctx(100, 100, false);
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-    let gradient = LinearGradient {
-        p0: Point::new(10.0, 0.0),
-        p1: Point::new(90.0, 0.0),
+    let gradient = Gradient {
+        kind: GradientKind::Linear {
+            start: Point::new(10.0, 0.0),
+            end: Point::new(90.0, 0.0),
+        },
         stops: stops_blue_green_red_yellow(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
@@ -171,9 +186,11 @@ fn gradient_linear_complex_shape() {
     let mut ctx = get_ctx(100, 100, false);
     let path = star_path();
 
-    let gradient = LinearGradient {
-        p0: Point::new(0.0, 0.0),
-        p1: Point::new(100.0, 0.0),
+    let gradient = Gradient {
+        kind: GradientKind::Linear {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(100.0, 0.0),
+        },
         stops: stops_blue_green_red_yellow(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
@@ -190,9 +207,11 @@ fn gradient_linear_with_y_repeat() {
     let mut ctx = get_ctx(100, 100, false);
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-    let gradient = LinearGradient {
-        p0: Point::new(47.5, 47.5),
-        p1: Point::new(50.5, 52.5),
+    let gradient = Gradient {
+        kind: GradientKind::Linear {
+            start: Point::new(47.5, 47.5),
+            end: Point::new(50.5, 52.5),
+        },
         stops: stops_blue_green_red_yellow(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Repeat,
@@ -209,9 +228,11 @@ fn gradient_linear_with_y_reflect() {
     let mut ctx = get_ctx(100, 100, false);
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-    let gradient = LinearGradient {
-        p0: Point::new(47.5, 47.5),
-        p1: Point::new(50.5, 52.5),
+    let gradient = Gradient {
+        kind: GradientKind::Linear {
+            start: Point::new(47.5, 47.5),
+            end: Point::new(50.5, 52.5),
+        },
         stops: stops_blue_green_red_yellow(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Reflect,
@@ -228,9 +249,11 @@ macro_rules! gradient_with_transform {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new($p0, $p1, $p2, $p3);
 
-        let gradient = LinearGradient {
-            p0: Point::new($p0, $p1),
-            p1: Point::new($p2, $p3),
+        let gradient = Gradient {
+            kind: GradientKind::Linear {
+                start: Point::new($p0, $p1),
+                end: Point::new($p2, $p3),
+            },
             stops: stops_blue_green_red_yellow(),
             transform: Affine::IDENTITY,
             extend: vello_common::peniko::Extend::Pad,

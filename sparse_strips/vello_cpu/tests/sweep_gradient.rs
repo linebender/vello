@@ -4,7 +4,8 @@ use crate::util::{
 };
 use std::f64::consts::PI;
 use vello_common::kurbo::{Affine, Point, Rect};
-use vello_cpu::paint::{LinearGradient, Stop, SweepGradient};
+use vello_common::peniko::GradientKind;
+use vello_cpu::paint::{Gradient, LinearGradient, Stop};
 
 mod util;
 
@@ -13,10 +14,12 @@ macro_rules! basic {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-        let gradient = SweepGradient {
-            center: $center,
-            start_angle: 0.0,
-            end_angle: 360.0,
+        let gradient = Gradient {
+            kind: GradientKind::Sweep {
+                center: $center,
+                start_angle: 0.0,
+                end_angle: 360.0,
+            },
             stops: $stops,
             extend: vello_common::peniko::Extend::Pad,
             transform: Affine::IDENTITY,
@@ -70,10 +73,12 @@ fn gradient_sweep_complex_shape() {
     let mut ctx = get_ctx(100, 100, false);
     let path = star_path();
 
-    let gradient = SweepGradient {
-        center: Point::new(50.0, 50.0),
-        start_angle: 0.0,
-        end_angle: 360.0,
+    let gradient = Gradient {
+        kind: GradientKind::Sweep {
+            center: Point::new(50.0, 50.0),
+            start_angle: 0.0,
+            end_angle: 360.0,
+        },
         stops: stops_blue_green_red_yellow(),
         extend: vello_common::peniko::Extend::Pad,
         transform: Affine::IDENTITY,
@@ -90,10 +95,12 @@ macro_rules! spread_method {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-        let gradient = SweepGradient {
-            center: Point::new(50.0, 50.0),
-            start_angle: 150.0,
-            end_angle: 210.0,
+        let gradient = Gradient {
+            kind: GradientKind::Sweep {
+                center: Point::new(50.0, 50.0),
+                start_angle: 150.0,
+                end_angle: 210.0,
+            },
             stops: stops_blue_green_red_yellow(),
             extend: $extend,
             transform: Affine::IDENTITY,
@@ -135,10 +142,12 @@ macro_rules! gradient_with_transform {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new($p0, $p1, $p2, $p3);
 
-        let gradient = SweepGradient {
-            center: Point::new(($p0 + $p2) / 2.0, ($p1 + $p3) / 2.0),
-            start_angle: 150.0,
-            end_angle: 210.0,
+        let gradient = Gradient {
+            kind: GradientKind::Sweep {
+                center: Point::new(($p0 + $p2) / 2.0, ($p1 + $p3) / 2.0),
+                start_angle: 150.0,
+                end_angle: 210.0,
+            },
             stops: stops_blue_green_red_yellow(),
             extend: vello_common::peniko::Extend::Pad,
             transform: Affine::IDENTITY,
