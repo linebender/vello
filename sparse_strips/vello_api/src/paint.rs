@@ -9,7 +9,7 @@ use peniko::color::{AlphaColor, PremulRgba8, Srgb};
 // In the future, we might add additional flags, that's why we have
 // this thin wrapper around u32, so we can change the underlying
 // representation without breaking the API.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedPaint(u32);
 
 impl IndexedPaint {
@@ -25,7 +25,7 @@ impl IndexedPaint {
 }
 
 /// A paint used for filling or stroking paths.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Paint {
     /// A premultiplied RGBA8 color.
     Solid(PremulRgba8),

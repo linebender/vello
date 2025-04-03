@@ -21,14 +21,14 @@ fn clip_triangle_with_star() {
     triangle_path.close_path();
 
     let stroke = Stroke::new(1.0);
-    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_paint(DARK_BLUE);
     ctx.set_stroke(stroke);
     ctx.stroke_path(&triangle_path);
 
     let star_path = circular_star(Point::new(50., 50.), 13, 25., 45.);
 
     ctx.clip(&star_path);
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_path(&triangle_path);
     ctx.finish();
 
@@ -48,7 +48,7 @@ fn clip_rectangle_with_star_nonzero() {
     ctx.clip(&star_path);
     // Draw a rectangle that should be clipped by the star
     // The NonZero fill rule will treat self-intersecting regions as filled
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
     ctx.finish();
     check_ref(&ctx, "clip_rectangle_with_star_nonzero");
@@ -67,7 +67,7 @@ fn clip_rectangle_with_star_evenodd() {
     ctx.clip(&star_path);
     // Draw a rectangle that should be clipped by the star
     // The EvenOdd rule should create a "hole" in the middle where the paths overlap
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
     ctx.finish();
 
@@ -88,7 +88,7 @@ fn clip_rectangle_and_circle() {
 
     // Draw outlines of our clipping regions to visualize them
     let stroke = Stroke::new(1.0);
-    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_paint(DARK_BLUE);
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&clip_rect);
     ctx.stroke_path(&clip_circle);
@@ -99,7 +99,7 @@ fn clip_rectangle_and_circle() {
 
     // Then a filled rectangle that covers most of the canvas
     let large_rect = Rect::new(0.0, 0.0, 100.0, 100.0);
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&large_rect);
     ctx.finish();
     check_ref(&ctx, "clip_rectangle_and_circle");
@@ -119,7 +119,7 @@ fn clip_with_translation() {
 
     // Draw a rectangle that should be clipped
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
     ctx.finish();
     check_ref(&ctx, "clip_with_translation");
@@ -138,7 +138,7 @@ fn clip_with_scale() {
 
     // Draw a rectangle that should be clipped
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
     ctx.finish();
 
@@ -161,7 +161,7 @@ fn clip_with_rotate() {
 
     // Draw a rectangle that should be clipped
     let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
     ctx.finish();
 
@@ -185,7 +185,7 @@ fn clip_transformed_rect() {
 
     // Draw a smaller rectangle that should be clipped
     let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
     ctx.finish();
 
@@ -217,7 +217,7 @@ fn clip_with_multiple_transforms() {
 
     // Draw a rectangle that should be clipped by both regions
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
     ctx.finish();
 
@@ -245,7 +245,7 @@ fn clip_with_save_restore() {
 
     // Draw a rectangle that should be clipped by both regions
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
 
     // Restore to state before second clip
@@ -253,7 +253,7 @@ fn clip_with_save_restore() {
 
     // Draw another rectangle that should only be clipped by the first region
     let rect2 = Rect::new(0.0, 0.0, 100.0, 100.0);
-    ctx.set_paint(DARK_GREEN.with_alpha(0.5).into());
+    ctx.set_paint(DARK_GREEN.with_alpha(0.5));
     ctx.fill_rect(&rect2);
     ctx.finish();
     check_ref(&ctx, "clip_with_save_restore");
@@ -261,7 +261,7 @@ fn clip_with_save_restore() {
 
 fn draw_clipping_outline(ctx: &mut RenderContext, path: &BezPath) {
     let stroke = Stroke::new(1.0);
-    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_paint(DARK_BLUE);
     ctx.set_stroke(stroke);
     ctx.stroke_path(path);
 }

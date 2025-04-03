@@ -11,11 +11,12 @@ use std::cmp::max;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
-use vello_common::color::palette;
+use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko::{Blob, Font};
 use vello_common::pixmap::Pixmap;
+use vello_cpu::paint::Stop;
 use vello_cpu::RenderContext;
 
 static REFS_PATH: LazyLock<PathBuf> =
@@ -28,7 +29,7 @@ pub(crate) fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderConte
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);
 
-        ctx.set_paint(palette::css::WHITE.into());
+        ctx.set_paint(WHITE);
         ctx.fill_path(&path);
     }
 
@@ -135,6 +136,55 @@ pub(crate) fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
 
     (font, glyphs)
 }
+
+
+pub(crate) fn stops_green_blue() -> Vec<Stop> {
+    vec![
+        Stop {
+            offset: 0.0,
+            color: GREEN,
+        },
+        Stop {
+            offset: 1.0,
+            color: BLUE,
+        },
+    ]
+}
+
+pub(crate) fn stops_green_blue_with_alpha() -> Vec<Stop> {
+    vec![
+        Stop {
+            offset: 0.0,
+            color: GREEN.with_alpha(0.25),
+        },
+        Stop {
+            offset: 1.0,
+            color: BLUE.with_alpha(0.75),
+        },
+    ]
+}
+
+pub(crate) fn stops_blue_green_red_yellow() -> Vec<Stop> {
+    vec![
+        Stop {
+            offset: 0.0,
+            color: BLUE,
+        },
+        Stop {
+            offset: 0.33,
+            color: GREEN,
+        },
+        Stop {
+            offset: 0.66,
+            color: RED,
+        },
+        Stop {
+            offset: 1.0,
+            color: YELLOW,
+        },
+    ]
+}
+
 
 pub(crate) fn check_ref(ctx: &RenderContext, name: &str) {
     let mut pixmap = render_pixmap(ctx);
