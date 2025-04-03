@@ -250,11 +250,14 @@ impl Scene {
                                 y: wide_tile_y,
                                 width: cmd_strip.width,
                                 dense_width: cmd_strip.width,
-                                col: (cmd_strip.alpha_ix / usize::from(Tile::HEIGHT))
+                                col: (cmd_strip.alpha_idx / usize::from(Tile::HEIGHT))
                                     .try_into()
                                     .expect(msg),
                                 rgba: color.to_u32(),
                             });
+                        }
+                        _ => {
+                            unimplemented!("unsupported command: {:?}", cmd);
                         }
                     }
                 }
