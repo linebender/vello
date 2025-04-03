@@ -4,6 +4,7 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
+use crate::paint::{EncodedPaint, PaintType};
 use vello_common::coarse::{SceneState, Wide};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
@@ -28,11 +29,12 @@ pub struct RenderContext {
     pub(crate) line_buf: Vec<Line>,
     pub(crate) tiles: Tiles,
     pub(crate) strip_buf: Vec<Strip>,
-    pub(crate) paint: Paint,
+    pub(crate) paint: PaintType,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
     pub(crate) blend_mode: BlendMode,
+    pub(crate) encoded_paints: Vec<EncodedPaint>,
 }
 
 impl RenderContext {
@@ -56,6 +58,7 @@ impl RenderContext {
             ..Default::default()
         };
         let blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
+        let encoded_paints = vec![];
 
         Self {
             width,
@@ -70,6 +73,19 @@ impl RenderContext {
             fill_rule,
             stroke,
             blend_mode,
+            encoded_paints,
+        }
+    }
+
+    fn encode_current_paint(&mut self) -> Paint {
+        match self.paint.clone() {
+            PaintType::Solid(s) => s.into(),
+            PaintType::Gradient(mut g) => {
+                // TODO: Add caching?
+                g.transform = self.transform * g.transform;
+
+                g.encode_into(&mut self.encoded_paints)
+            }
         }
     }
 
@@ -87,13 +103,15 @@ impl RenderContext {
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
         flatten::fill(path, self.transform, &mut self.line_buf);
-        self.render_path(self.fill_rule, self.paint.clone());
+        let paint = self.encode_current_paint();
+        self.render_path(self.fill_rule, paint);
     }
 
     /// Stroke a path.
     pub fn stroke_path(&mut self, path: &BezPath) {
         flatten::stroke(path, &self.stroke, self.transform, &mut self.line_buf);
-        self.render_path(Fill::NonZero, self.paint.clone());
+        let paint = self.encode_current_paint();
+        self.render_path(Fill::NonZero, paint);
     }
 
     /// Fill a rectangle.
@@ -130,8 +148,8 @@ impl RenderContext {
     }
 
     /// Set the current paint.
-    pub fn set_paint(&mut self, paint: Paint) {
-        self.paint = paint;
+    pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
+        self.paint = paint.into();
     }
 
     /// Set the current fill rule.
@@ -171,7 +189,7 @@ impl RenderContext {
 
                 fine.clear(wtile.bg.to_u8_array());
                 for cmd in &wtile.cmds {
-                    fine.run_cmd(cmd, &self.alphas);
+                    fine.run_cmd(x, y, cmd, &self.alphas, &self.encoded_paints);
                 }
                 fine.pack(x, y);
             }
@@ -221,9 +239,11 @@ impl GlyphRenderer for RenderContext {
     fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
         match glyph {
             PreparedGlyph::Outline(glyph) => {
+                let paint = self.encode_current_paint();
+
                 let transform = self.transform * glyph.local_transform;
                 flatten::fill(glyph.path, transform, &mut self.line_buf);
-                self.render_path(Fill::NonZero, self.paint.clone());
+                self.render_path(Fill::NonZero, paint);
             }
         }
     }
@@ -231,9 +251,11 @@ impl GlyphRenderer for RenderContext {
     fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
         match glyph {
             PreparedGlyph::Outline(glyph) => {
+                let paint = self.encode_current_paint();
+
                 let transform = self.transform * glyph.local_transform;
                 flatten::stroke(glyph.path, &self.stroke, transform, &mut self.line_buf);
-                self.render_path(Fill::NonZero, self.paint.clone());
+                self.render_path(Fill::NonZero, paint);
             }
         }
     }

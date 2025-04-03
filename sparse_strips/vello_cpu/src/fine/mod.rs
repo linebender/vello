@@ -4,6 +4,10 @@
 //! Fine rasterization runs the commands in each wide tile to determine the final RGBA value
 //! of each pixel and pack it into the pixmap.
 
+mod gradient;
+use crate::fine::gradient::GradientFiller;
+use crate::paint::{EncodedKind, EncodedPaint};
+use std::iter;
 use vello_common::{
     coarse::{Cmd, WideTile},
     paint::Paint,
@@ -24,42 +28,47 @@ pub struct Fine<'a> {
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) out_buf: &'a mut [u8],
-    pub(crate) scratch: Vec<ScratchBuf>,
+    pub(crate) blend_buf: Vec<ScratchBuf>,
+    pub(crate) color_buf: ScratchBuf,
 }
 
 impl<'a> Fine<'a> {
     /// Create a new fine rasterizer.
     pub fn new(width: u16, height: u16, out_buf: &'a mut [u8]) -> Self {
-        let scratch = [0; SCRATCH_BUF_SIZE];
+        let blend_buf = [0; SCRATCH_BUF_SIZE];
+        let color_buf = [0; SCRATCH_BUF_SIZE];
 
         Self {
             width,
             height,
             out_buf,
-            scratch: vec![scratch],
+            blend_buf: vec![blend_buf],
+            color_buf,
         }
     }
 
     pub fn clear(&mut self, premul_color: [u8; 4]) {
-        let scratch = self.scratch.last_mut().unwrap();
+        let blend_buf = self.blend_buf.last_mut().unwrap();
+
         if premul_color[0] == premul_color[1]
             && premul_color[1] == premul_color[2]
             && premul_color[2] == premul_color[3]
         {
             // All components are the same, so we can use memset instead.
-            scratch.fill(premul_color[0]);
+            blend_buf.fill(premul_color[0]);
         } else {
-            for z in scratch.chunks_exact_mut(COLOR_COMPONENTS) {
+            for z in blend_buf.chunks_exact_mut(COLOR_COMPONENTS) {
                 z.copy_from_slice(&premul_color);
             }
         }
     }
 
     pub(crate) fn pack(&mut self, x: u16, y: u16) {
-        let scratch = self.scratch.last_mut().unwrap();
+        let blend_buf = self.blend_buf.last_mut().unwrap();
+
         pack(
             self.out_buf,
-            scratch,
+            blend_buf,
             self.width.into(),
             self.height.into(),
             x.into(),
@@ -67,20 +76,42 @@ impl<'a> Fine<'a> {
         );
     }
 
-    pub(crate) fn run_cmd(&mut self, cmd: &Cmd, alphas: &[u8]) {
+    pub(crate) fn run_cmd(
+        &mut self,
+        tile_x: u16,
+        tile_y: u16,
+        cmd: &Cmd,
+        alphas: &[u8],
+        paints: &[EncodedPaint],
+    ) {
         match cmd {
             Cmd::Fill(f) => {
-                self.fill(f.x as usize, f.width as usize, &f.paint);
+                self.fill(
+                    f.x as usize,
+                    tile_x,
+                    tile_y,
+                    f.width as usize,
+                    &f.paint,
+                    paints,
+                );
             }
             Cmd::AlphaFill(s) => {
                 let a_slice = &alphas[s.alpha_idx..];
-                self.strip(s.x as usize, s.width as usize, a_slice, &s.paint);
+                self.strip(
+                    s.x as usize,
+                    tile_x,
+                    tile_y,
+                    s.width as usize,
+                    a_slice,
+                    &s.paint,
+                    paints,
+                );
             }
             Cmd::PushClip => {
-                self.scratch.push([0; SCRATCH_BUF_SIZE]);
+                self.blend_buf.push([0; SCRATCH_BUF_SIZE]);
             }
             Cmd::PopClip => {
-                self.scratch.pop();
+                self.blend_buf.pop();
             }
             Cmd::ClipFill(cf) => {
                 self.clip_fill(cf.x as usize, cf.width as usize);
@@ -93,53 +124,141 @@ impl<'a> Fine<'a> {
     }
 
     /// Fill at a given x and with a width using the given paint.
-    pub fn fill(&mut self, x: usize, width: usize, paint: &Paint) {
-        let scratch = self.scratch.last_mut().unwrap();
-        match paint {
-            Paint::Solid(c) => {
-                let color = c.to_u8_array();
+    pub fn fill(
+        &mut self,
+        x: usize,
+        tile_x: u16,
+        tile_y: u16,
+        width: usize,
+        fill: &Paint,
+        encoded_paints: &[EncodedPaint],
+    ) {
+        let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
+            [..TILE_HEIGHT_COMPONENTS * width];
+        let color_buf =
+            &mut self.color_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
 
-                let target =
-                    &mut scratch[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
+        let start_x = tile_x * WideTile::WIDTH + x as u16;
+        let start_y = tile_y * Tile::HEIGHT;
+
+        match fill {
+            Paint::Solid(color) => {
+                let color = &color.to_u8_array();
 
                 // If color is completely opaque we can just memcopy the colors.
                 if color[3] == 255 {
-                    for t in target.chunks_exact_mut(COLOR_COMPONENTS) {
-                        t.copy_from_slice(&color);
+                    for t in blend_buf.chunks_exact_mut(COLOR_COMPONENTS) {
+                        t.copy_from_slice(color);
                     }
 
                     return;
                 }
 
-                fill::src_over(target, &color);
+                fill::src_over(blend_buf, iter::repeat(*color));
             }
-            Paint::Indexed(_) => unimplemented!(),
+            Paint::Indexed(i) => {
+                let paint = &encoded_paints[i.index()];
+
+                macro_rules! gradient {
+                    ($iter:expr,$opacities:expr) => {
+                        if $opacities {
+                            $iter.run(color_buf);
+                            fill::src_over(
+                                blend_buf,
+                                color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+                            );
+                        } else {
+                            // Similarly to solid colors we can just override the previous values
+                            // if all colors in the gradient are fully opaque.
+                            $iter.run(blend_buf);
+                        }
+                    };
+                }
+
+                match paint {
+                    EncodedPaint::Gradient(g) => match &g.kind {
+                        EncodedKind::Linear(l) => {
+                            let iter = GradientFiller::new(g, l, start_x, start_y);
+                            gradient!(iter, g.has_opacities);
+                        }
+                        EncodedKind::Radial(r) => {
+                            let iter = GradientFiller::new(g, r, start_x, start_y);
+                            gradient!(iter, g.has_opacities);
+                        }
+                        EncodedKind::Sweep(s) => {
+                            let iter = GradientFiller::new(g, s, start_x, start_y);
+                            gradient!(iter, g.has_opacities);
+                        }
+                    },
+                }
+            }
         }
     }
 
     /// Strip at a given x and with a width using the given paint and alpha values.
-    pub fn strip(&mut self, x: usize, width: usize, alphas: &[u8], paint: &Paint) {
+    pub fn strip(
+        &mut self,
+        x: usize,
+        tile_x: u16,
+        tile_y: u16,
+        width: usize,
+        alphas: &[u8],
+        fill: &Paint,
+        paints: &[EncodedPaint],
+    ) {
         debug_assert!(
             alphas.len() >= width,
             "alpha buffer doesn't contain sufficient elements"
         );
-        let scratch = self.scratch.last_mut().unwrap();
 
-        match paint {
-            Paint::Solid(s) => {
-                let color = s.to_u8_array();
+        let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
+            [..TILE_HEIGHT_COMPONENTS * width];
+        let color_buf =
+            &mut self.color_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
 
-                let target =
-                    &mut scratch[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
+        let start_x = tile_x * WideTile::WIDTH + x as u16;
+        let start_y = tile_y * Tile::HEIGHT;
 
-                strip::src_over(target, &color, alphas);
+        match fill {
+            Paint::Solid(color) => {
+                strip::src_over(blend_buf, iter::repeat(color.to_u8_array()), alphas);
             }
-            Paint::Indexed(_) => unimplemented!(),
+            Paint::Indexed(i) => {
+                let encoded_paint = &paints[i.index()];
+
+                macro_rules! gradient {
+                    ($iter:expr) => {
+                        $iter.run(color_buf);
+                        strip::src_over(
+                            blend_buf,
+                            color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+                            alphas,
+                        );
+                    };
+                }
+
+                match encoded_paint {
+                    EncodedPaint::Gradient(g) => match &g.kind {
+                        EncodedKind::Linear(l) => {
+                            let iter = GradientFiller::new(g, l, start_x, start_y);
+                            gradient!(iter);
+                        }
+                        EncodedKind::Radial(r) => {
+                            let iter = GradientFiller::new(g, r, start_x, start_y);
+                            gradient!(iter);
+                        }
+                        EncodedKind::Sweep(s) => {
+                            let iter = GradientFiller::new(g, s, start_x, start_y);
+                            gradient!(iter);
+                        }
+                    },
+                }
+            }
         }
     }
 
     fn clip_fill(&mut self, x: usize, width: usize) {
-        let (source_buffer, rest) = self.scratch.split_last_mut().unwrap();
+        let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
 
         for col_idx in 0..width {
@@ -159,7 +278,7 @@ impl<'a> Fine<'a> {
     }
 
     fn clip_strip(&mut self, x: usize, width: usize, alphas: &[u8]) {
-        let (source_buffer, rest) = self.scratch.split_last_mut().unwrap();
+        let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
 
         for (col_idx, column_alphas) in alphas
@@ -218,13 +337,15 @@ pub(crate) mod fill {
     use crate::fine::{COLOR_COMPONENTS, TILE_HEIGHT_COMPONENTS};
     use crate::util::scalar::div_255;
 
-    pub(crate) fn src_over(target: &mut [u8], src_c: &[u8; COLOR_COMPONENTS]) {
-        let src_a = src_c[3] as u16;
-
+    pub(crate) fn src_over<T: Iterator<Item = [u8; COLOR_COMPONENTS]>>(
+        target: &mut [u8],
+        mut color_iter: T,
+    ) {
         for strip in target.chunks_exact_mut(TILE_HEIGHT_COMPONENTS) {
             for bg_c in strip.chunks_exact_mut(COLOR_COMPONENTS) {
+                let src_c = color_iter.next().unwrap();
                 for i in 0..COLOR_COMPONENTS {
-                    bg_c[i] = src_c[i] + div_255(bg_c[i] as u16 * (255 - src_a)) as u8;
+                    bg_c[i] = src_c[i] + div_255(bg_c[i] as u16 * (255 - src_c[3] as u16)) as u8;
                 }
             }
         }
@@ -236,16 +357,19 @@ pub(crate) mod strip {
     use crate::util::scalar::div_255;
     use vello_common::tile::Tile;
 
-    pub(crate) fn src_over(target: &mut [u8], src_c: &[u8; COLOR_COMPONENTS], alphas: &[u8]) {
-        let src_a = src_c[3] as u16;
-
+    pub(crate) fn src_over<T: Iterator<Item = [u8; COLOR_COMPONENTS]>>(
+        target: &mut [u8],
+        mut color_iter: T,
+        alphas: &[u8],
+    ) {
         for (bg_c, masks) in target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
             .zip(alphas.chunks_exact(usize::from(Tile::HEIGHT)))
         {
             for j in 0..usize::from(Tile::HEIGHT) {
+                let src_c = color_iter.next().unwrap();
                 let mask_a = u16::from(masks[j]);
-                let inv_src_a_mask_a = 255 - div_255(mask_a * src_a);
+                let inv_src_a_mask_a = 255 - div_255(mask_a * src_c[3] as u16);
 
                 for i in 0..COLOR_COMPONENTS {
                     let im1 = bg_c[j * COLOR_COMPONENTS + i] as u16 * inv_src_a_mask_a;

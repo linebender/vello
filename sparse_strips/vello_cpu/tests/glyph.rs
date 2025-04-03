@@ -14,7 +14,7 @@ fn glyphs_filled() {
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .fill_glyphs(glyphs.into_iter());
@@ -29,7 +29,7 @@ fn glyphs_stroked() {
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .stroke_glyphs(glyphs.into_iter());
@@ -44,7 +44,7 @@ fn glyphs_skewed() {
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.0))
@@ -60,7 +60,7 @@ fn glyphs_scaled() {
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(2.0));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .fill_glyphs(glyphs.into_iter());

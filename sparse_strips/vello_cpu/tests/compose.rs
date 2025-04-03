@@ -12,7 +12,7 @@ use vello_cpu::RenderContext;
 fn compose_destination() -> RenderContext {
     let mut ctx = get_ctx(50, 50, true);
     let rect = Rect::new(4.5, 4.5, 35.5, 35.5);
-    ctx.set_paint(YELLOW.with_alpha(0.35).into());
+    ctx.set_paint(YELLOW.with_alpha(0.35));
     ctx.set_stroke(bevel_stroke_2());
     ctx.fill_rect(&rect);
 
@@ -21,7 +21,7 @@ fn compose_destination() -> RenderContext {
 
 fn compose_source(ctx: &mut RenderContext) {
     let rect = Rect::new(14.5, 14.5, 45.5, 45.5);
-    ctx.set_paint(DARK_GREEN.with_alpha(0.8).into());
+    ctx.set_paint(DARK_GREEN.with_alpha(0.8));
     ctx.fill_rect(&rect);
 }
 
