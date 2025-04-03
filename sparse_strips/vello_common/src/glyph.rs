@@ -103,8 +103,10 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         let outlines = font.outline_glyphs();
         let (transform, size, scale, hinting_instance) = if run.hint {
             // Hinting doesn't make sense if we later scale the glyphs via `transform`. So, if this glyph can be
-            // scaled uniformly, we scale its font size and use that for hinting. If the glyph is rotated or skewed,
-            // hinting is not applicable.
+            // scaled uniformly, we extract the scale from its global transform and apply it to font size for
+            // hinting. Note that this extracted scale is later applied to the glyph's position.
+            //
+            // If the glyph is rotated or skewed, hinting is not applicable.
             if let Some((scale, transform)) = take_uniform_scale(run.transform) {
                 let size = Size::new(run.font_size * scale as f32);
                 (
