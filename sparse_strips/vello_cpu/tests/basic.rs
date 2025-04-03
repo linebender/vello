@@ -13,8 +13,7 @@ use vello_common::color::palette::css::{
 };
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke, Vec2};
-use vello_common::peniko::{self, Blob, Fill};
-use vello_common::peniko::{Compose, Font};
+use vello_common::peniko::{self, Blob, Compose, Fill, Font};
 use vello_cpu::RenderContext;
 
 mod util;
