@@ -186,10 +186,9 @@ struct GlyphRun<'a> {
 fn take_uniform_scale(transform: Affine) -> Option<(f64, Affine)> {
     let [a, b, c, d, e, f] = transform.as_coeffs();
     if a == d && b == 0.0 && c == 0.0 {
-        let scale = a;
+        let extracted_scale = a;
         let transform_without_scale = Affine::new([1.0, 0.0, 0.0, 1.0, e, f]);
-
-        Some((scale, transform_without_scale))
+        Some((extracted_scale, transform_without_scale))
     } else {
         None
     }
