@@ -12,4 +12,5 @@ pub use peniko;
 pub use peniko::color;
 pub use peniko::kurbo;
 pub mod execute;
+pub mod glyph;
 pub mod paint;

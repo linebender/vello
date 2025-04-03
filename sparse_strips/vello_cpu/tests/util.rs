@@ -42,7 +42,6 @@ pub fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderContext {
 pub fn render_pixmap(ctx: &RenderContext) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
     ctx.render_to_pixmap(&mut pixmap);
-
     pixmap
 }
 

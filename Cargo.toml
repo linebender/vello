@@ -10,7 +10,6 @@ members = [
     "examples/run_wasm",
     "examples/scenes",
     "examples/simple",
-    "examples/simple_sdl2",
     "examples/with_winit",
 
     "sparse_strips/vello_api",
@@ -28,8 +27,7 @@ members = [
 #
 # NOTE: When bumping this, remember to also bump the aforementioned other packages'
 #       version in the dependencies section at the bottom of this file.
-#       Additionally, bump the Vello dependency version in the 'simple'
-#       and `simple_sdl2` examples.
+#       Additionally, bump the Vello dependency version in the 'simple' example.
 version = "0.4.0"
 
 edition = "2024"
