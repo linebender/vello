@@ -139,14 +139,12 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             if outline.draw(draw_settings, &mut path).is_err() {
                 continue;
             }
+
             let mut local_transform =
                 Affine::translate(Vec2::new(glyph.x as f64 * scale, glyph.y as f64 * scale));
-
-            if let Some(skew_angle) = horizontal_skew {
-                let skew_x = skew_angle.tan() as f64;
-                local_transform *= Affine::skew(skew_x, 0.0);
+            if let Some(skew) = horizontal_skew {
+                local_transform *= Affine::skew(skew.tan() as f64, 0.0);
             }
-
             if let Some(glyph_transform) = glyph_transform {
                 local_transform *= glyph_transform;
             }
