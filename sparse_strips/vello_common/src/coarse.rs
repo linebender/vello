@@ -640,24 +640,17 @@ impl WideTile {
 
     pub(crate) fn fill(&mut self, x: u16, width: u16, paint: Paint) {
         if !self.is_zero_clip() {
-            let Paint::Solid(s) = &paint else {
-                unimplemented!()
+            let bg = if let Paint::Solid(s) = &paint {
+                let can_override = x == 0 && width == Self::WIDTH && s.a == 255 && self.n_clip == 0;
+                can_override.then(|| *s)
+            } else {
+                // TODO: Implement for indexed paints.
+                None
             };
-            // Note that we could be more aggressive in optimizing a whole-tile opaque fill
-            // even with a clip stack. It would be valid to elide all drawing commands from
-            // the enclosing clip push up to the fill. Further, we could extend the clip
-            // push command to include a background color, rather than always starting with
-            // a transparent buffer. Lastly, a sequence of push(bg); strip/fill; pop could
-            // be replaced with strip/fill with the color (the latter is true even with a
-            // non-opaque color).
-            //
-            // However, the extra cost of tracking such optimizations may outweigh the
-            // benefit, especially in hybrid mode with GPU painting.
-            let can_override = x == 0 && width == Self::WIDTH && s.a == 255 && self.n_clip == 0;
 
-            if can_override {
+            if let Some(bg) = bg {
                 self.cmds.clear();
-                self.bg = *s;
+                self.bg = bg;
             } else {
                 self.cmds.push(Cmd::Fill(CmdFill { x, width, paint }));
             }
