@@ -9,7 +9,7 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use vello_common::color::palette;
-use vello_common::kurbo::{Rect, Shape};
+use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderContext;
 
@@ -34,6 +34,47 @@ pub(crate) fn render_pixmap(ctx: &RenderContext) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
     ctx.render_to_pixmap(&mut pixmap);
     pixmap
+}
+
+pub(crate) fn miter_stroke_2() -> Stroke {
+    Stroke {
+        width: 2.0,
+        join: Join::Miter,
+        ..Default::default()
+    }
+}
+
+pub(crate) fn bevel_stroke_2() -> Stroke {
+    Stroke {
+        width: 2.0,
+        join: Join::Bevel,
+        ..Default::default()
+    }
+}
+
+pub(crate) fn crossed_line_star() -> BezPath {
+    let mut path = BezPath::new();
+    path.move_to((50.0, 10.0));
+    path.line_to((75.0, 90.0));
+    path.line_to((10.0, 40.0));
+    path.line_to((90.0, 40.0));
+    path.line_to((25.0, 90.0));
+    path.line_to((50.0, 10.0));
+
+    path
+}
+
+pub(crate) fn circular_star(center: Point, n: usize, inner: f64, outer: f64) -> BezPath {
+    let mut path = BezPath::new();
+    let start_angle = -std::f64::consts::FRAC_PI_2;
+    path.move_to(center + outer * Vec2::from_angle(start_angle));
+    for i in 1..n * 2 {
+        let th = start_angle + i as f64 * std::f64::consts::PI / n as f64;
+        let r = if i % 2 == 0 { outer } else { inner };
+        path.line_to(center + r * Vec2::from_angle(th));
+    }
+    path.close_path();
+    path
 }
 
 pub(crate) fn check_ref(ctx: &RenderContext, name: &str) {
