@@ -20,54 +20,6 @@ use vello_common::peniko::{self, Blob, Compose, Fill, Font};
 use vello_cpu::RenderContext;
 
 #[test]
-fn empty_1x1() {
-    let ctx = get_ctx(1, 1, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_5x1() {
-    let ctx = get_ctx(5, 1, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_1x5() {
-    let ctx = get_ctx(1, 5, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_3x10() {
-    let ctx = get_ctx(3, 10, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_23x45() {
-    let ctx = get_ctx(23, 45, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_50x50() {
-    let ctx = get_ctx(50, 50, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_463x450() {
-    let ctx = get_ctx(463, 450, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
-fn empty_1134x1376() {
-    let ctx = get_ctx(1134, 1376, true);
-    render_pixmap(&ctx);
-}
-
-#[test]
 fn full_cover_1() {
     let mut ctx = get_ctx(8, 8, true);
 
