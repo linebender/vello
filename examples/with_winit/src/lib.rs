@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
-use minimal_pipeline_cache::{get_cache_directory, write_pipeline_cache};
+use minimal_pipeline_cache::{get_cache_directory, load_pipeline_cache, write_pipeline_cache};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 use vello::low_level::DebugLayers;
@@ -176,6 +176,13 @@ struct VelloApp<'s> {
 
     debug: DebugLayers,
 
+    #[cfg_attr(
+        target_arch = "wasm32",
+        expect(
+            dead_code,
+            reason = "Creating the renderer happens at startup on WASM, so it doesn't access this field."
+        )
+    )]
     cache_data: Option<(PathBuf, Sender<(PipelineCache, PathBuf)>)>,
 }
 
@@ -185,8 +192,6 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        use minimal_pipeline_cache::load_pipeline_cache;
-
         let None = self.state else {
             return;
         };
@@ -714,6 +719,21 @@ fn run(
     #[cfg(not(target_arch = "wasm32"))]
     let (render_state, renderers) = (None::<RenderState<'_>>, vec![]);
 
+    let cache_directory = get_cache_directory(&event_loop).unwrap();
+    let cache_data = if let Some(cache_directory) = cache_directory {
+        let (tx, rx) = std::sync::mpsc::channel::<(PipelineCache, PathBuf)>();
+        std::thread::spawn(move || {
+            while let Ok((cache, path)) = rx.recv() {
+                if let Err(e) = write_pipeline_cache(&path, &cache) {
+                    log::error!("Failed to write pipeline cache: {e}");
+                }
+            }
+        });
+        Some((cache_directory, tx))
+    } else {
+        None
+    };
+
     // The design of `RenderContext` forces delayed renderer initialisation to
     // not work on wasm, as WASM futures effectively must be 'static.
     // Otherwise, this could work by sending the result to event_loop.proxy
@@ -723,15 +743,31 @@ fn run(
         let mut renderers = vec![];
         renderers.resize_with(render_cx.devices.len(), || None);
         let id = render_state.surface.dev_id;
+        let device_handle = &render_cx.devices[id];
+        let cache = if let Some((dir, tx)) = cache_data.as_ref() {
+            // Safety: Hoping for the best. Given that we're using as private a cache directory as possible, it's
+            // probably fine?
+            unsafe {
+                load_pipeline_cache(
+                    &device_handle.device,
+                    &device_handle.adapter().get_info(),
+                    dir,
+                )
+                .unwrap()
+                .map(|(cache, dir)| (cache, dir, tx.clone()))
+            }
+        } else {
+            None
+        };
         let renderer = Renderer::new(
-            &render_cx.devices[id].device,
+            &device_handle.device,
             RendererOptions {
                 use_cpu: args.use_cpu,
                 antialiasing_support: AA_CONFIGS.iter().copied().collect(),
                 // We currently initialise on one thread on WASM, but mark this here
                 // anyway
                 num_init_threads: NonZeroUsize::new(1),
-                pipeline_cache: None,
+                pipeline_cache: cache.as_ref().map(|(cache, _, _)| cache.clone()),
             },
         )
         .map_err(|e| {
@@ -752,21 +788,10 @@ fn run(
             })
             .expect("Not setting max_num_pending_frames");
         renderers[id] = Some(renderer);
+        if let Some((cache, dir, tx)) = cache {
+            drop(tx.send((cache, dir)));
+        }
         (Some(render_state), renderers)
-    };
-    let cache_directory = get_cache_directory(&event_loop).unwrap();
-    let cache_data = if let Some(cache_directory) = cache_directory {
-        let (tx, rx) = std::sync::mpsc::channel::<(PipelineCache, PathBuf)>();
-        std::thread::spawn(move || {
-            while let Ok((cache, path)) = rx.recv() {
-                if let Err(e) = write_pipeline_cache(&path, &cache) {
-                    log::error!("Failed to write pipeline cache: {e}");
-                }
-            }
-        });
-        Some((cache_directory, tx))
-    } else {
-        None
     };
     let debug = DebugLayers::none();
 
