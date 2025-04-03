@@ -4,20 +4,14 @@
 //! Tests for basic functionality.
 
 use crate::util::{
-    bevel_stroke_2, check_ref, circular_star, crossed_line_star, get_ctx, miter_stroke_2,
-    render_pixmap,
+    check_ref, circular_star, crossed_line_star, get_ctx, miter_stroke_2,
 };
-use skrifa::MetadataProvider;
-use skrifa::raw::FileRef;
 use std::f64::consts::PI;
-use std::sync::Arc;
 use vello_common::color::palette::css::{
-    BEIGE, BLUE, DARK_BLUE, DARK_GREEN, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, YELLOW,
+    BEIGE, BLUE, DARK_BLUE, GREEN, LIME, MAROON, REBECCA_PURPLE, RED,
 };
-use vello_common::glyph::Glyph;
-use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke, Vec2};
-use vello_common::peniko::{self, Blob, Compose, Fill, Font};
-use vello_cpu::RenderContext;
+use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
+use vello_common::peniko::Fill;
 
 #[test]
 fn full_cover_1() {
