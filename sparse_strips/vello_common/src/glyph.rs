@@ -56,6 +56,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 font_size: 16.0,
                 transform,
                 glyph_transform: None,
+                horizontal_skew: None,
                 hint: true,
                 normalized_coords: &[],
             },
@@ -69,9 +70,15 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         self
     }
 
-    /// Set the per-glyph transform. Can be used to apply skew to simulate italic text.
+    /// Set the per-glyph transform. Use `horizontal_skew` to simulate italic text.
     pub fn glyph_transform(mut self, transform: Affine) -> Self {
         self.run.glyph_transform = Some(transform);
+        self
+    }
+
+    /// Set the horizontal skew angle in radians to simulate italic/oblique text.
+    pub fn horizontal_skew(mut self, angle: f32) -> Self {
+        self.run.horizontal_skew = Some(angle);
         self
     }
 
@@ -144,6 +151,12 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             }
             let mut local_transform =
                 Affine::translate(Vec2::new(glyph.x as f64 * scale, glyph.y as f64 * scale));
+
+            if let Some(skew_angle) = run.horizontal_skew {
+                let skew_x = skew_angle.tan() as f64;
+                local_transform *= Affine::skew(skew_x, 0.0);
+            }
+
             if let Some(glyph_transform) = run.glyph_transform {
                 local_transform *= glyph_transform;
             }
@@ -175,6 +188,8 @@ struct GlyphRun<'a> {
     transform: Affine,
     /// Per-glyph transform. Can be used to apply skew to simulate italic text.
     glyph_transform: Option<Affine>,
+    /// Horizontal skew angle in radians for simulating italic/oblique text.
+    horizontal_skew: Option<f32>,
     /// Normalized variation coordinates for variable fonts.
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     /// Controls whether font hinting is enabled.
