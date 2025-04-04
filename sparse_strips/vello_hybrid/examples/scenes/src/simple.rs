@@ -1,3 +1,5 @@
+//! Simple example scene with basic shapes.
+
 use vello_common::kurbo::{Affine, BezPath, Stroke};
 use vello_common::peniko::color::palette;
 use vello_hybrid::Scene;
@@ -14,7 +16,7 @@ impl ExampleScene for SimpleScene {
     }
 
     fn render(&mut self, ctx: &mut Scene, root_transform: Affine) {
-        render(ctx, root_transform)
+        render(ctx, root_transform);
     }
 }
 

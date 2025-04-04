@@ -1,3 +1,5 @@
+//! Text rendering example scene.
+
 use core::fmt;
 use parley::FontFamily;
 use parley::{
@@ -71,7 +73,7 @@ impl ExampleScene for TextScene {
 
     fn render(&mut self, scene: &mut Scene, _root_transform: Affine) {
         let text = self.text.clone();
-        render_text(self, scene, &text)
+        render_text(self, scene, &text);
     }
 }
 

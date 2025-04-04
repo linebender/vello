@@ -1,3 +1,5 @@
+//! Example scenes for Vello Hybrid.
+
 pub mod simple;
 pub mod svg;
 pub mod text;
@@ -17,6 +19,7 @@ pub trait ExampleScene {
 }
 
 /// A type-erased example scene
+#[derive(Debug)]
 pub struct AnyScene {
     /// The render function that calls the wrapped scene's render method
     render_fn: Box<dyn FnMut(&mut Scene, Affine)>,

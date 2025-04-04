@@ -1,3 +1,5 @@
+//! SVG rendering example scene.
+
 use std::fmt;
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
@@ -48,7 +50,7 @@ impl ExampleScene for SvgScene {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl SvgScene {
-    /// Create a new SvgScene with the content from a given file
+    /// Create a new `SvgScene` with the content from a given file
     pub fn with_svg_file(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let svg_content = std::fs::read_to_string(path)?;
         let svg = PicoSvg::load(&svg_content, 1.0)?;
