@@ -403,6 +403,7 @@ pub struct RendererOptions {
     pub pipeline_cache: Option<wgpu::PipelineCache>,
 }
 
+#[cfg(feature = "wgpu")]
 impl Default for RendererOptions {
     fn default() -> Self {
         Self {
