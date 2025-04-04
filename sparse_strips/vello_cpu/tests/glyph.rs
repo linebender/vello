@@ -170,3 +170,35 @@ fn glyphs_glyph_transform_unhinted() {
 
     check_ref(&ctx, "glyphs_glyph_transform_unhinted");
 }
+
+#[test]
+fn glyphs_small() {
+    let mut ctx = get_ctx(60, 12, false);
+    let font_size: f32 = 10_f32;
+    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(true)
+        .fill_glyphs(glyphs.into_iter());
+
+    check_ref(&ctx, "glyphs_small");
+}
+
+#[test]
+fn glyphs_small_unhinted() {
+    let mut ctx = get_ctx(60, 12, false);
+    let font_size: f32 = 10_f32;
+    let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter());
+
+    check_ref(&ctx, "glyphs_small_unhinted");
+}
