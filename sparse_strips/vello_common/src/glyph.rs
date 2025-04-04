@@ -140,15 +140,8 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 continue;
             }
 
-            let mut local_transform = {
-                let mut translation = Vec2::new(glyph.x as f64 * scale, glyph.y as f64 * scale);
-                if hinting_instance.is_some() {
-                    // When hinting, ensure the y-offset is integer. The x-offset doesn't matter,
-                    // as we perform vertical-only hinting.
-                    translation.y = translation.y.round();
-                }
-                Affine::translate(translation)
-            };
+            let mut local_transform =
+                Affine::translate(Vec2::new(glyph.x as f64 * scale, glyph.y as f64 * scale));
             if let Some(skew) = horizontal_skew {
                 local_transform *= Affine::skew(skew.tan() as f64, 0.0);
             }
@@ -156,11 +149,18 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 local_transform *= glyph_transform;
             }
 
+            // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
+            // perform vertical-only hinting.
+            let mut total_transform = (transform * local_transform).as_coeffs();
+            if hinting_instance.is_some() {
+                total_transform[5] = total_transform[5].round();
+            }
+
             render_glyph(
                 self.renderer,
                 PreparedGlyph::Outline(OutlineGlyph {
                     path: &path.0,
-                    transform: transform * local_transform,
+                    transform: Affine::new(total_transform),
                 }),
             );
         }
