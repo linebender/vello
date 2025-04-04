@@ -5,7 +5,7 @@ pub mod text;
 use vello_common::kurbo::Affine;
 use vello_hybrid::Scene;
 
-/// Trait for scenes that maintain state between renders
+/// Example scene that can maintain state between renders
 pub trait ExampleScene {
     /// Render the scene using the current state
     fn render(&mut self, scene: &mut Scene, root_transform: Affine);
@@ -16,14 +16,14 @@ pub trait ExampleScene {
         Self: Sized;
 }
 
-/// A type-erased example scene that can be stored in collections
+/// A type-erased example scene
 pub struct AnyScene {
     /// The render function that calls the wrapped scene's render method
     render_fn: Box<dyn FnMut(&mut Scene, Affine)>,
 }
 
 impl AnyScene {
-    /// Create a new AnyScene from any type that implements ExampleScene
+    /// Create a new `AnyScene` from any type that implements `ExampleScene`
     pub fn new<T: ExampleScene + 'static>(mut scene: T) -> Self {
         Self {
             render_fn: Box::new(move |s, transform| scene.render(s, transform)),
@@ -44,14 +44,12 @@ pub fn get_example_scenes(svg_paths: Option<Vec<&str>>) -> Box<[AnyScene]> {
 
     // Create SVG scenes for each provided path
     if let Some(paths) = svg_paths {
-        if !paths.is_empty() {
-            for path in paths {
-                let svg_scene = svg::SvgScene::with_svg_file(path.into()).unwrap();
-                scenes.push(AnyScene::new(svg_scene));
-            }
+        for path in paths {
+            scenes.push(AnyScene::new(
+                svg::SvgScene::with_svg_file(path.into()).unwrap(),
+            ));
         }
     } else {
-        // Default SVG scene with ghost tiger
         scenes.push(AnyScene::new(svg::SvgScene::new()));
     }
 

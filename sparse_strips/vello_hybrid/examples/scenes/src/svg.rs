@@ -8,12 +8,10 @@ use std::path::{Path, PathBuf};
 
 use crate::ExampleScene;
 
-/// SVG scene that renders the Ghost Tiger SVG and other files
+/// SVG scene that renders an SVG file
 pub struct SvgScene {
     scale: f64,
-    ghost_tiger_svg: PicoSvg,
-    #[cfg(not(target_arch = "wasm32"))]
-    custom_svg: Option<PicoSvg>,
+    svg: PicoSvg,
 }
 
 impl fmt::Debug for SvgScene {
@@ -24,11 +22,11 @@ impl fmt::Debug for SvgScene {
 
 impl ExampleScene for SvgScene {
     fn new() -> Self {
-        // Load the ghost tiger SVG
+        // Load the ghost tiger SVG by default
         #[cfg(target_arch = "wasm32")]
-        let ghost_tiger = include_str!("../../../../../examples/assets/Ghostscript_Tiger.svg");
+        let svg_content = include_str!("../../../../../examples/assets/Ghostscript_Tiger.svg");
         #[cfg(not(target_arch = "wasm32"))]
-        let ghost_tiger = {
+        let svg_content = {
             let cargo_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .canonicalize()
                 .unwrap();
@@ -38,50 +36,24 @@ impl ExampleScene for SvgScene {
             .unwrap()
         };
 
-        let ghost_tiger_svg =
-            PicoSvg::load(&ghost_tiger, 1.0).expect("Failed to parse Ghost Tiger SVG");
+        let svg = PicoSvg::load(&svg_content, 1.0).expect("Failed to parse Ghost Tiger SVG");
 
-        Self {
-            scale: 3.0,
-            ghost_tiger_svg,
-            #[cfg(not(target_arch = "wasm32"))]
-            custom_svg: None,
-        }
+        Self { scale: 3.0, svg }
     }
 
     fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
-        // Render the custom SVG if available on native platforms
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Some(svg) = &self.custom_svg {
-            render_svg(scene, self.scale, &svg.items, root_transform);
-            return;
-        }
-
-        // Render the ghost tiger SVG if no custom SVG
-        render_svg(
-            scene,
-            self.scale,
-            &self.ghost_tiger_svg.items,
-            root_transform,
-        );
+        render_svg(scene, self.scale, &self.svg.items, root_transform);
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl SvgScene {
-    /// Load a custom SVG file path for display
-    pub fn load_svg_file(&mut self, path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-        let svg_content = std::fs::read_to_string(path)?;
-        let parsed_svg = PicoSvg::load(&svg_content, 1.0)?;
-        self.custom_svg = Some(parsed_svg);
-        Ok(())
-    }
-
-    /// Create a new SvgScene with a single SVG file
+    /// Create a new SvgScene with the content from a given file
     pub fn with_svg_file(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut scene = Self::new();
-        scene.load_svg_file(path)?;
-        Ok(scene)
+        let svg_content = std::fs::read_to_string(path)?;
+        let svg = PicoSvg::load(&svg_content, 1.0)?;
+
+        Ok(Self { scale: 3.0, svg })
     }
 }
 
