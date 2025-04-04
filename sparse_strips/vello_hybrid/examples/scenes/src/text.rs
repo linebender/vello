@@ -73,9 +73,7 @@ impl TextScene {
         layout.break_all_lines(max_advance);
         layout.align(max_advance, Alignment::Middle, AlignmentOptions::default());
 
-        Self {
-            layout,
-        }
+        Self { layout }
     }
 }
 
