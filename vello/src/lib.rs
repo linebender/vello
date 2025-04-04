@@ -371,12 +371,18 @@ pub struct RenderParams {
 /// Options which are set at renderer creation time, used in [`Renderer::new`].
 pub struct RendererOptions {
     /// If true, run all stages up to fine rasterization on the CPU.
+    ///
+    /// This is not a recommended configuration as it is expected to have poor performance,
+    /// but it can be useful for debugging.
     // TODO: Consider evolving this so that the CPU stages can be configured dynamically via
     // `RenderParams`.
     pub use_cpu: bool,
 
     /// Represents the enabled set of AA configurations. This will be used to determine which
     /// pipeline permutations should be compiled at startup.
+    ///
+    /// By default this will be all modes, to support the widest range of.
+    /// It is recommended that most users configure this.
     pub antialiasing_support: AaSupport,
 
     /// How many threads to use for initialisation of shaders.
@@ -387,12 +393,28 @@ pub struct RendererOptions {
     /// Set to `None` to use a heuristic which will use many but not all threads
     ///
     /// Has no effect on WebAssembly
+    ///
+    /// Will default to `None` on most platforms, `Some(1)` on macOS.
     pub num_init_threads: Option<NonZeroUsize>,
 
     /// The pipeline cache to use when creating the shaders.
     ///
     /// For much more discussion of expected usage patterns, see the documentation on that type.
     pub pipeline_cache: Option<wgpu::PipelineCache>,
+}
+
+impl Default for RendererOptions {
+    fn default() -> Self {
+        Self {
+            use_cpu: false,
+            antialiasing_support: AaSupport::all(),
+            #[cfg(target_os = "macos")]
+            num_init_threads: NonZeroUsize::new(1),
+            #[cfg(not(target_os = "macos"))]
+            num_init_threads: None,
+            pipeline_cache: None,
+        }
+    }
 }
 
 #[cfg(feature = "wgpu")]
