@@ -201,6 +201,7 @@ This release has an [MSRV][] of 1.75.
 [#516]: https://github.com/linebender/vello/pull/516
 [#521]: https://github.com/linebender/vello/pull/521
 [#522]: https://github.com/linebender/vello/pull/522
+[#524]: https://github.com/linebender/vello/pull/524
 [#526]: https://github.com/linebender/vello/pull/526
 [#535]: https://github.com/linebender/vello/pull/535
 [#537]: https://github.com/linebender/vello/pull/537
