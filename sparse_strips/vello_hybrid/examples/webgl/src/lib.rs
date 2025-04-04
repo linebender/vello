@@ -320,15 +320,15 @@ extern "C" {
 /// Creates a `HTMLCanvasElement` of the given dimensions and renders the given scenes into it,
 /// with interactive controls for panning, zooming, and switching between scenes.
 #[cfg(target_arch = "wasm32")]
-pub async fn run_interactive(width: u16, height: u16) {
+pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     let canvas = web_sys::Window::document(&web_sys::window().unwrap())
         .unwrap()
         .create_element("canvas")
         .unwrap()
         .dyn_into::<web_sys::HtmlCanvasElement>()
         .unwrap();
-    canvas.set_width(width as u32);
-    canvas.set_height(height as u32);
+    canvas.set_width(canvas_width as u32);
+    canvas.set_height(canvas_height as u32);
     canvas.style().set_property("width", "100%").unwrap();
     canvas.style().set_property("height", "100%").unwrap();
 
@@ -361,7 +361,6 @@ pub async fn run_interactive(width: u16, height: u16) {
     // Set up window resize event handler
     {
         let app_state = app_state.clone();
-        let window = web_sys::window().unwrap();
         let closure = Closure::wrap(Box::new(move |_: Event| {
             let window = web_sys::window().unwrap();
             let dpr = window.device_pixel_ratio();
@@ -372,6 +371,7 @@ pub async fn run_interactive(width: u16, height: u16) {
             app_state.borrow_mut().resize(width, height);
         }) as Box<dyn FnMut(_)>);
 
+        let window = web_sys::window().unwrap();
         window
             .add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref())
             .unwrap();
