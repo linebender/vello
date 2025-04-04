@@ -140,8 +140,13 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 continue;
             }
 
-            let mut local_transform =
-                Affine::translate(Vec2::new(glyph.x as f64 * scale, glyph.y as f64 * scale));
+            let mut local_transform = {
+                let mut translation = Vec2::new(glyph.x as f64 * scale, glyph.y as f64 * scale);
+                if hinting_instance.is_some() {
+                    translation.y = translation.y.round();
+                }
+                Affine::translate(translation)
+            };
             if let Some(skew) = horizontal_skew {
                 local_transform *= Affine::skew(skew.tan() as f64, 0.0);
             }
