@@ -143,6 +143,8 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             let mut local_transform = {
                 let mut translation = Vec2::new(glyph.x as f64 * scale, glyph.y as f64 * scale);
                 if hinting_instance.is_some() {
+                    // When hinting, ensure the y-offset is integer. The x-offset doesn't matter,
+                    // as we perform vertical-only hinting.
                     translation.y = translation.y.round();
                 }
                 Affine::translate(translation)
