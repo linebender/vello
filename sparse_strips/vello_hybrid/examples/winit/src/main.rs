@@ -60,8 +60,8 @@ fn main() {
                 start_scene_index = index;
             } else {
                 // Collect all arguments as SVG paths
-                for i in 1..args.len() {
-                    svg_paths.push(&args[i]);
+                for arg in args.iter().skip(1) {
+                    svg_paths.push(arg);
                 }
             }
         }
