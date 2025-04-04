@@ -21,8 +21,6 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
-const ZOOM_STEP: f64 = 0.1;
-
 #[cfg(target_arch = "wasm32")]
 struct RendererWrapper {
     renderer: vello_hybrid::Renderer,
@@ -284,6 +282,8 @@ impl AppState {
     }
 
     fn handle_wheel(&mut self, delta_y: f64) {
+        const ZOOM_STEP: f64 = 0.1;
+
         if let Some(cursor_pos) = self.last_cursor_position {
             let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
 
