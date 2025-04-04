@@ -19,10 +19,18 @@ pub trait ExampleScene {
 }
 
 /// A type-erased example scene
-#[derive(Debug)]
 pub struct AnyScene {
     /// The render function that calls the wrapped scene's render method
-    render_fn: Box<dyn FnMut(&mut Scene, Affine)>,
+    render_fn: RenderFn,
+}
+
+/// A type-erased render function
+type RenderFn = Box<dyn FnMut(&mut Scene, Affine)>;
+
+impl std::fmt::Debug for AnyScene {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AnyScene").finish()
+    }
 }
 
 impl AnyScene {
