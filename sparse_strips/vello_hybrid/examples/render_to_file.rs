@@ -10,8 +10,8 @@ mod common;
 
 use common::render_svg;
 use std::io::BufWriter;
-use vello_common::pico_svg::PicoSvg;
 use vello_common::pixmap::Pixmap;
+use vello_common::{kurbo::Affine, pico_svg::PicoSvg};
 use vello_hybrid::{DimensionConstraints, Scene};
 use wgpu::RenderPassDescriptor;
 
@@ -42,7 +42,7 @@ async fn run() {
     let height = DimensionConstraints::convert_dimension(height);
 
     let mut scene = Scene::new(width, height);
-    render_svg(&mut scene, render_scale, &parsed.items);
+    render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));
 
     // Initialize wgpu device and queue for GPU rendering
     let instance = wgpu::Instance::default();
