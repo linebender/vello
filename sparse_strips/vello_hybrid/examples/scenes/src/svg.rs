@@ -23,7 +23,14 @@ impl fmt::Debug for SvgScene {
 }
 
 impl ExampleScene for SvgScene {
-    fn new() -> Self {
+    fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
+        render_svg(scene, self.scale, &self.svg.items, root_transform);
+    }
+}
+
+impl SvgScene {
+    /// Create a new `SvgScene` with the default Ghost Tiger SVG
+    pub fn new() -> Self {
         // Load the ghost tiger SVG by default
         #[cfg(target_arch = "wasm32")]
         let svg_content = include_str!("../../../../../examples/assets/Ghostscript_Tiger.svg");
@@ -43,19 +50,19 @@ impl ExampleScene for SvgScene {
         Self { scale: 3.0, svg }
     }
 
-    fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
-        render_svg(scene, self.scale, &self.svg.items, root_transform);
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl SvgScene {
     /// Create a new `SvgScene` with the content from a given file
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_svg_file(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let svg_content = std::fs::read_to_string(path)?;
         let svg = PicoSvg::load(&svg_content, 1.0)?;
 
         Ok(Self { scale: 3.0, svg })
+    }
+}
+
+impl Default for SvgScene {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

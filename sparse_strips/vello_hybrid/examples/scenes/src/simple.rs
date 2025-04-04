@@ -11,12 +11,21 @@ use crate::ExampleScene;
 pub struct SimpleScene {}
 
 impl ExampleScene for SimpleScene {
-    fn new() -> Self {
-        Self {}
-    }
-
     fn render(&mut self, ctx: &mut Scene, root_transform: Affine) {
         render(ctx, root_transform);
+    }
+}
+
+impl SimpleScene {
+    /// Create a new `SimpleScene`
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for SimpleScene {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

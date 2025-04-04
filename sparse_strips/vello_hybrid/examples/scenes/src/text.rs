@@ -32,9 +32,7 @@ const ROBOTO_FONT: &[u8] =
 
 /// State for the text example.
 pub struct TextScene {
-    font_cx: FontContext,
-    layout_cx: LayoutContext<ColorBrush>,
-    text: String,
+    layout: Layout<ColorBrush>,
 }
 
 impl fmt::Debug for TextScene {
@@ -43,54 +41,52 @@ impl fmt::Debug for TextScene {
     }
 }
 
-impl TextScene {
-    /// Set the text to be rendered
-    pub fn with_text(mut self, text: impl Into<String>) -> Self {
-        self.text = text.into();
-        self
+impl ExampleScene for TextScene {
+    fn render(&mut self, scene: &mut Scene, _root_transform: Affine) {
+        render_text(self, scene);
     }
 }
 
-impl ExampleScene for TextScene {
-    fn new() -> Self {
-        let layout_cx = LayoutContext::new();
+impl TextScene {
+    /// Create a new `TextScene` with the given text.
+    pub fn new(text: &str) -> Self {
+        // Typically, you'd want to store 1 `layout_cx` and `font_cx` for the
+        // duration of the program (or have an instance per thread).
+        let mut layout_cx = LayoutContext::new();
 
         #[cfg(not(target_arch = "wasm32"))]
-        let font_cx = FontContext::new();
+        let mut font_cx = FontContext::new();
         #[cfg(target_arch = "wasm32")]
-        let font_cx = {
+        let mut font_cx = {
             let mut font_cx = FontContext::new();
             font_cx.collection.register_fonts(ROBOTO_FONT.to_vec());
             font_cx
         };
 
-        Self {
-            font_cx,
-            layout_cx,
-            text: "Hello, Vello!".to_string(),
-        }
-    }
+        let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0);
+        builder.push_default(FontFamily::parse("Roboto").unwrap());
+        builder.push_default(StyleProperty::LineHeight(1.3));
+        builder.push_default(StyleProperty::FontSize(32.0));
 
-    fn render(&mut self, scene: &mut Scene, _root_transform: Affine) {
-        let text = self.text.clone();
-        render_text(self, scene, &text);
+        let mut layout: Layout<ColorBrush> = builder.build(text);
+        let max_advance = Some(400.0);
+        layout.break_all_lines(max_advance);
+        layout.align(max_advance, Alignment::Middle, AlignmentOptions::default());
+
+        Self {
+            layout,
+        }
     }
 }
 
-fn render_text(state: &mut TextScene, ctx: &mut Scene, text: &str) {
-    let mut builder = state
-        .layout_cx
-        .ranged_builder(&mut state.font_cx, text, 1.0);
-    builder.push_default(FontFamily::parse("Roboto").unwrap());
-    builder.push_default(StyleProperty::LineHeight(1.3));
-    builder.push_default(StyleProperty::FontSize(32.0));
+impl Default for TextScene {
+    fn default() -> Self {
+        Self::new("Hello, Vello!")
+    }
+}
 
-    let mut layout: Layout<ColorBrush> = builder.build(text);
-    let max_advance = Some(400.0);
-    layout.break_all_lines(max_advance);
-    layout.align(max_advance, Alignment::Middle, AlignmentOptions::default());
-
-    for line in layout.lines() {
+fn render_text(state: &mut TextScene, ctx: &mut Scene) {
+    for line in state.layout.lines() {
         for item in line.items() {
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
                 render_glyph_run(ctx, &glyph_run, 30);

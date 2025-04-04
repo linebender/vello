@@ -11,11 +11,6 @@ use vello_hybrid::Scene;
 pub trait ExampleScene {
     /// Render the scene using the current state
     fn render(&mut self, scene: &mut Scene, root_transform: Affine);
-
-    /// Create a new instance of the scene with default state
-    fn new() -> Self
-    where
-        Self: Sized;
 }
 
 /// A type-erased example scene
@@ -64,7 +59,7 @@ pub fn get_example_scenes(svg_paths: Option<Vec<&str>>) -> Box<[AnyScene]> {
         scenes.push(AnyScene::new(svg::SvgScene::new()));
     }
 
-    scenes.push(AnyScene::new(text::TextScene::new()));
+    scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
 
     scenes.into_boxed_slice()
@@ -75,7 +70,7 @@ pub fn get_example_scenes(svg_paths: Option<Vec<&str>>) -> Box<[AnyScene]> {
 pub fn get_example_scenes() -> Box<[AnyScene]> {
     vec![
         AnyScene::new(svg::SvgScene::new()),
-        AnyScene::new(text::TextScene::new()),
+        AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(simple::SimpleScene::new()),
     ]
     .into_boxed_slice()
