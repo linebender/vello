@@ -45,7 +45,8 @@ impl fmt::Debug for TextScene {
 }
 
 impl ExampleScene for TextScene {
-    fn render(&mut self, scene: &mut Scene, _root_transform: Affine) {
+    fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
+        scene.set_transform(root_transform);
         render_text(self, scene);
     }
 }
