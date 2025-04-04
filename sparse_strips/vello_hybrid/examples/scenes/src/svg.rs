@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! SVG rendering example scene.
 
 use std::fmt;
@@ -39,13 +42,13 @@ impl SvgScene {
             let cargo_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .canonicalize()
                 .unwrap();
-            std::fs::read_to_string(
+            &std::fs::read_to_string(
                 cargo_dir.join("../../../../examples/assets/Ghostscript_Tiger.svg"),
             )
             .unwrap()
         };
 
-        let svg = PicoSvg::load(&svg_content, 1.0).expect("Failed to parse Ghost Tiger SVG");
+        let svg = PicoSvg::load(svg_content, 1.0).expect("Failed to parse Ghost Tiger SVG");
 
         Self { scale: 3.0, svg }
     }
