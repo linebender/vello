@@ -52,18 +52,25 @@ fn main() {
     let (scenes, start_scene_index) = {
         let mut start_scene_index = 0;
         let args: Vec<String> = env::args().collect();
-        let mut svg_path: Option<&str> = None;
+        let mut svg_paths: Vec<&str> = Vec::new();
 
         if args.len() > 1 {
-            // Check if the argument is a number (scene index) or a string (SVG path)
+            // Check if the first argument is a number (scene index)
             if let Ok(index) = args[1].parse::<usize>() {
                 start_scene_index = index;
             } else {
-                // Treat the argument as a path to an SVG file
-                svg_path = Some(args[1].as_str());
+                // Collect all arguments as SVG paths
+                for i in 1..args.len() {
+                    svg_paths.push(&args[i]);
+                }
             }
         }
-        let scenes = get_example_scenes(svg_path);
+        let scenes = if svg_paths.is_empty() {
+            get_example_scenes(None)
+        } else {
+            get_example_scenes(Some(svg_paths))
+        };
+
         start_scene_index = start_scene_index.min(scenes.len() - 1);
         (scenes, start_scene_index)
     };
@@ -185,6 +192,9 @@ impl ApplicationHandler for App<'_> {
                     // Reset transform on spacebar
                     self.transform = Affine::IDENTITY;
                     window.request_redraw();
+                }
+                Key::Named(NamedKey::Escape) => {
+                    event_loop.exit();
                 }
                 _ => {}
             },

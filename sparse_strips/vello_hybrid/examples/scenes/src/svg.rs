@@ -57,7 +57,7 @@ impl ExampleScene for SvgScene {
             return;
         }
 
-        // Render the ghost tiger SVG
+        // Render the ghost tiger SVG if no custom SVG
         render_svg(
             scene,
             self.scale,
@@ -75,6 +75,13 @@ impl SvgScene {
         let parsed_svg = PicoSvg::load(&svg_content, 1.0)?;
         self.custom_svg = Some(parsed_svg);
         Ok(())
+    }
+
+    /// Create a new SvgScene with a single SVG file
+    pub fn with_svg_file(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut scene = Self::new();
+        scene.load_svg_file(path)?;
+        Ok(scene)
     }
 }
 

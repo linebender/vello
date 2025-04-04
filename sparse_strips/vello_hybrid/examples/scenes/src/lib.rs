@@ -39,16 +39,22 @@ impl AnyScene {
 /// Get all available example scenes
 /// Unlike the Wasm version, this function allows for passing custom SVGs.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn get_example_scenes(svg_path: Option<&str>) -> Box<[AnyScene]> {
-    let mut scenes = Vec::with_capacity(3);
+pub fn get_example_scenes(svg_paths: Option<Vec<&str>>) -> Box<[AnyScene]> {
+    let mut scenes = Vec::new();
 
-    // Create SVG scene first, potentially with custom SVG
-    let mut svg_scene = svg::SvgScene::new();
-    if let Some(path) = svg_path {
-        svg_scene.load_svg_file(path.into()).unwrap();
+    // Create SVG scenes for each provided path
+    if let Some(paths) = svg_paths {
+        if !paths.is_empty() {
+            for path in paths {
+                let svg_scene = svg::SvgScene::with_svg_file(path.into()).unwrap();
+                scenes.push(AnyScene::new(svg_scene));
+            }
+        }
+    } else {
+        // Default SVG scene with ghost tiger
+        scenes.push(AnyScene::new(svg::SvgScene::new()));
     }
 
-    scenes.push(AnyScene::new(svg_scene));
     scenes.push(AnyScene::new(text::TextScene::new()));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
 
