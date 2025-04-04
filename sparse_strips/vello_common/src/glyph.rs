@@ -57,7 +57,6 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 font_size: 16.0,
                 transform,
                 glyph_transform: None,
-                horizontal_skew: None,
                 hint: true,
                 normalized_coords: &[],
             },
@@ -71,19 +70,17 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         self
     }
 
-    /// Set the per-glyph transform. Use `horizontal_skew` to simulate italic text.
+    /// Set the per-glyph transform. Use `Affine::skew` with a horizontal-only skew to simulate
+    /// italic text.
     pub fn glyph_transform(mut self, transform: Affine) -> Self {
         self.run.glyph_transform = Some(transform);
         self
     }
 
-    /// Set the horizontal skew angle in radians to simulate italic/oblique text.
-    pub fn horizontal_skew(mut self, angle: f32) -> Self {
-        self.run.horizontal_skew = Some(angle);
-        self
-    }
-
     /// Set whether font hinting is enabled.
+    ///
+    /// This performs vertical hinting only. Hinting is performed only if the combined `transform`
+    /// and `glyph_transform` have a uniform scale and no vertical skew or rotation.
     pub fn hint(mut self, hint: bool) -> Self {
         self.run.hint = hint;
         self
@@ -112,10 +109,8 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
         let PreparedGlyphRun {
             transform,
-            glyph_transform,
+            translation_transform,
             size,
-            scale,
-            horizontal_skew,
             normalized_coords,
             hinting_instance,
         } = prepare_glyph_run(&self.run, &outlines);
@@ -140,18 +135,13 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 continue;
             }
 
-            let mut local_transform =
-                Affine::translate(Vec2::new(glyph.x as f64 * scale, glyph.y as f64 * scale));
-            if let Some(skew) = horizontal_skew {
-                local_transform *= Affine::skew(skew.tan() as f64, 0.0);
-            }
-            if let Some(glyph_transform) = glyph_transform {
-                local_transform *= glyph_transform;
-            }
+            let translation = translation_transform
+                .pre_translate(Vec2::new(glyph.x as f64, glyph.y as f64))
+                .translation();
 
             // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
             // perform vertical-only hinting.
-            let mut total_transform = (transform * local_transform).as_coeffs();
+            let mut total_transform = (transform.then_translate(translation)).as_coeffs();
             if hinting_instance.is_some() {
                 total_transform[5] = total_transform[5].round();
             }
@@ -181,10 +171,9 @@ struct GlyphRun<'a> {
     font_size: f32,
     /// Global transform.
     transform: Affine,
-    /// Per-glyph transform. Use `horizontal_skew` to simulate italic text.
+    /// Per-glyph transform. Use [`Affine::skew`] with horizontal-skew only to simulate italic
+    /// text.
     glyph_transform: Option<Affine>,
-    /// Horizontal skew angle in radians for simulating italic/oblique text.
-    horizontal_skew: Option<f32>,
     /// Normalized variation coordinates for variable fonts.
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     /// Controls whether font hinting is enabled.
@@ -192,11 +181,15 @@ struct GlyphRun<'a> {
 }
 
 struct PreparedGlyphRun<'a> {
+    /// The total transform (`global_transform * glyph_transform`), not accounting for glyph
+    /// translation.
     transform: Affine,
-    glyph_transform: Option<Affine>,
+    /// The glyph translation transform.
+    ///
+    /// This should be applied to glyph translations to calculate the glyph's global translation.
+    translation_transform: Affine,
+    /// The font size to generate glyph outlines for.
     size: Size,
-    scale: f64,
-    horizontal_skew: Option<f32>,
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     hinting_instance: Option<HintingInstance>,
 }
@@ -209,66 +202,53 @@ fn prepare_glyph_run<'a>(
     run: &GlyphRun<'a>,
     outlines: &OutlineGlyphCollection<'_>,
 ) -> PreparedGlyphRun<'a> {
-    // TODO: Consider extracting the scale from the glyph transform and applying it to the font size.
-    if !run.hint || run.glyph_transform.is_some() {
+    if !run.hint {
         return PreparedGlyphRun {
-            transform: run.transform,
-            glyph_transform: run.glyph_transform,
+            transform: run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY),
+            translation_transform: run.transform.with_translation(Vec2::ZERO),
             size: Size::new(run.font_size),
-            scale: 1.0,
-            horizontal_skew: run.horizontal_skew,
             normalized_coords: run.normalized_coords,
             hinting_instance: None,
         };
     }
 
-    // Hinting doesn't make sense if we later scale the glyphs via some transform. So, if
-    // this glyph can be scaled uniformly, we extract the scale from its global and glyph
-    // transform and apply it to font size for hinting. Note that this extracted scale
-    // should be later applied to the glyph's position.
+    // We perform vertical-only hinting.
     //
-    // If the glyph is rotated or skewed, hinting is not applicable.
+    // Hinting doesn't make sense if we later scale the glyphs via some transform. So we extract
+    // the scale from the global transform and glyph transform and apply it to the font size for
+    // hinting. We do require the scaling to be uniform: simply using the vertical scale as font
+    // size and then transforming by the relative horizontal scale can cause, e.g., overlapping
+    // glyphs. Note that this extracted scale should be later applied to the glyph's position.
+    //
+    // As the hinting is vertical-only, we can handle horizontal skew, but not vertical skew or
+    // rotations.
 
-    // Attempt to extract uniform scale from the run's transform.
-    if let Some((scale, transform)) = take_uniform_scale(run.transform) {
-        let font_size = run.font_size * scale as f32;
+    let total_transform = run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY);
+    let [t_a, t_b, t_c, t_d, t_e, t_f] = total_transform.as_coeffs();
 
-        let size = Size::new(font_size);
+    let uniform_scale = t_a == t_d;
+    let vertically_uniform = t_b == 0.;
+
+    if uniform_scale && vertically_uniform {
+        let vertical_font_size = run.font_size * t_d as f32;
+        let size = Size::new(vertical_font_size);
         let hinting_instance =
             HintingInstance::new(outlines, size, run.normalized_coords, HINTING_OPTIONS).ok();
-
-        return PreparedGlyphRun {
-            transform,
-            glyph_transform: run.glyph_transform,
+        PreparedGlyphRun {
+            transform: Affine::new([1., t_b, t_c, 1., t_e, t_f]),
+            translation_transform: run.transform.with_translation(Vec2::ZERO),
             size,
-            scale,
-            horizontal_skew: run.horizontal_skew,
             normalized_coords: run.normalized_coords,
             hinting_instance,
-        };
-    }
-
-    PreparedGlyphRun {
-        transform: run.transform,
-        glyph_transform: run.glyph_transform,
-        size: Size::new(run.font_size),
-        scale: 1.0,
-        horizontal_skew: run.horizontal_skew,
-        normalized_coords: run.normalized_coords,
-        hinting_instance: None,
-    }
-}
-
-/// If `transform` has a uniform scale without rotation or skew, return the scale factor and the
-/// transform with the scale factored out. Translation is unchanged.
-fn take_uniform_scale(transform: Affine) -> Option<(f64, Affine)> {
-    let [a, b, c, d, e, f] = transform.as_coeffs();
-    if a == d && b == 0.0 && c == 0.0 {
-        let extracted_scale = a;
-        let transform_without_scale = Affine::new([1.0, 0.0, 0.0, 1.0, e, f]);
-        Some((extracted_scale, transform_without_scale))
+        }
     } else {
-        None
+        PreparedGlyphRun {
+            transform: run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY),
+            translation_transform: run.transform.with_translation(Vec2::ZERO),
+            size: Size::new(run.font_size),
+            normalized_coords: run.normalized_coords,
+            hinting_instance: None,
+        }
     }
 }
 
