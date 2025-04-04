@@ -161,6 +161,18 @@ impl ApplicationHandler for SvgVelloApp<'_> {
             WindowEvent::Resized(size) => {
                 self.context
                     .resize_surface(surface, size.width, size.height);
+                let device_handle = &self.context.devices[surface.dev_id];
+                self.renderers[surface.dev_id]
+                    .as_mut()
+                    .unwrap()
+                    .update_config(
+                        &device_handle.device,
+                        &device_handle.queue,
+                        &RenderParams {
+                            width: size.width,
+                            height: size.height,
+                        },
+                    );
             }
 
             WindowEvent::MouseWheel {
