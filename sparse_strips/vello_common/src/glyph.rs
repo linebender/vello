@@ -109,7 +109,6 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
         let PreparedGlyphRun {
             transform,
-            translation_transform,
             size,
             normalized_coords,
             hinting_instance,
@@ -135,9 +134,17 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 continue;
             }
 
-            let translation = translation_transform
-                .pre_translate(Vec2::new(glyph.x as f64, glyph.y as f64))
-                .translation();
+            // Calculate the global glyph translation based on the glyph's local position within
+            // the run and the run's global transform.
+            //
+            // This is a partial affine matrix multiplication, calculating only the translation
+            // component that we need. It is added below to calculate the total transform of this
+            // glyph.
+            let [a, b, c, d, _, _] = self.run.transform.as_coeffs();
+            let translation = Vec2::new(
+                a * glyph.x as f64 + c * glyph.y as f64,
+                b * glyph.x as f64 + d * glyph.y as f64,
+            );
 
             // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
             // perform vertical-only hinting.
@@ -184,10 +191,6 @@ struct PreparedGlyphRun<'a> {
     /// The total transform (`global_transform * glyph_transform`), not accounting for glyph
     /// translation.
     transform: Affine,
-    /// The glyph translation transform.
-    ///
-    /// This should be applied to glyph translations to calculate the glyph's global translation.
-    translation_transform: Affine,
     /// The font size to generate glyph outlines for.
     size: Size,
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
@@ -205,7 +208,6 @@ fn prepare_glyph_run<'a>(
     if !run.hint {
         return PreparedGlyphRun {
             transform: run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY),
-            translation_transform: run.transform.with_translation(Vec2::ZERO),
             size: Size::new(run.font_size),
             normalized_coords: run.normalized_coords,
             hinting_instance: None,
@@ -236,7 +238,6 @@ fn prepare_glyph_run<'a>(
             HintingInstance::new(outlines, size, run.normalized_coords, HINTING_OPTIONS).ok();
         PreparedGlyphRun {
             transform: Affine::new([1., t_b, t_c, 1., t_e, t_f]),
-            translation_transform: run.transform.with_translation(Vec2::ZERO),
             size,
             normalized_coords: run.normalized_coords,
             hinting_instance,
@@ -244,7 +245,6 @@ fn prepare_glyph_run<'a>(
     } else {
         PreparedGlyphRun {
             transform: run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY),
-            translation_transform: run.transform.with_translation(Vec2::ZERO),
             size: Size::new(run.font_size),
             normalized_coords: run.normalized_coords,
             hinting_instance: None,
