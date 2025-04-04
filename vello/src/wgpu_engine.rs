@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
-    ComputePassDescriptor, ComputePipeline, Device, PipelineCompilationOptions, Queue, Texture,
-    TextureAspect, TextureUsages, TextureView, TextureViewDimension,
+    ComputePassDescriptor, ComputePipeline, Device, PipelineCache, PipelineCompilationOptions,
+    Queue, Texture, TextureAspect, TextureUsages, TextureView, TextureViewDimension,
 };
 
 use crate::{
@@ -40,6 +40,7 @@ pub(crate) struct WgpuEngine {
     ///
     /// The `Texture` should have the same size as the `Image`.
     pub(crate) image_overrides: HashMap<u64, wgpu::TexelCopyTextureInfoBase<Texture>>,
+    pipeline_cache: Option<PipelineCache>,
 }
 
 enum PipelineState {
@@ -140,9 +141,10 @@ enum TransientBuf<'a> {
 }
 
 impl WgpuEngine {
-    pub fn new(use_cpu: bool) -> Self {
+    pub fn new(use_cpu: bool, pipeline_cache: Option<PipelineCache>) -> Self {
         Self {
             use_cpu,
+            pipeline_cache,
             ..Default::default()
         }
     }
@@ -186,6 +188,7 @@ impl WgpuEngine {
             let work_queue = std::sync::Mutex::new(remainder.into_iter());
             let work_queue = &work_queue;
             std::thread::scope(|scope| {
+                let pipeline_cache = self.pipeline_cache.as_ref();
                 let tx = tx;
                 new_shaders
                     .into_iter()
@@ -195,7 +198,11 @@ impl WgpuEngine {
                             .name("Vello shader initialisation worker thread".into())
                             .spawn_scoped(scope, move || {
                                 let shader = Self::create_compute_pipeline(
-                                    device, it.label, it.wgsl, it.entries,
+                                    device,
+                                    it.label,
+                                    it.wgsl,
+                                    it.entries,
+                                    pipeline_cache,
                                 );
                                 // We know the rx can only be closed if all the tx references are dropped
                                 tx.send((it.shader_id, shader)).unwrap();
@@ -207,6 +214,7 @@ impl WgpuEngine {
                                             value.label,
                                             value.wgsl,
                                             value.entries,
+                                            pipeline_cache,
                                         );
                                         tx.send((value.shader_id, shader)).unwrap();
                                     } else {
@@ -291,7 +299,13 @@ impl WgpuEngine {
             });
             return id;
         }
-        let wgpu = Self::create_compute_pipeline(device, label, wgsl, entries);
+        let wgpu = Self::create_compute_pipeline(
+            device,
+            label,
+            wgsl,
+            entries,
+            self.pipeline_cache.as_ref(),
+        );
         add(Shader {
             wgpu: Some(wgpu),
             cpu: None,
@@ -349,7 +363,7 @@ impl WgpuEngine {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
-            cache: None,
+            cache: self.pipeline_cache.as_ref(),
         });
         let id = self.shaders.len();
         self.shaders.push(Shader {
@@ -818,6 +832,7 @@ impl WgpuEngine {
         label: &str,
         wgsl: Cow<'_, str>,
         entries: Vec<wgpu::BindGroupLayoutEntry>,
+        cache: Option<&PipelineCache>,
     ) -> WgpuShader {
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(label),
@@ -842,8 +857,7 @@ impl WgpuEngine {
                 zero_initialize_workgroup_memory: false,
                 ..Default::default()
             },
-            // TODO: Support providing a cache here.
-            cache: None,
+            cache,
         });
         WgpuShader {
             pipeline: PipelineState::Compute(pipeline),
