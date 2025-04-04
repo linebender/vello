@@ -141,7 +141,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
             // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
             // perform vertical-only hinting.
-            let mut total_transform = (transform.then_translate(translation)).as_coeffs();
+            let mut total_transform = transform.then_translate(translation).as_coeffs();
             if hinting_instance.is_some() {
                 total_transform[5] = total_transform[5].round();
             }
