@@ -1,0 +1,21 @@
+[package]
+name = "vello_hybrid_scenes"
+description = "Vello Hybrid scenes used in examples."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+bytemuck = { workspace = true, features = [] }
+vello_hybrid = { workspace = true }
+vello_common = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+parley = { version = "0.3.0", default-features = false, features = ["std"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+parley = { version = "0.3.0", default-features = true }
