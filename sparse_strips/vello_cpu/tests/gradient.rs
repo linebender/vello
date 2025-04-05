@@ -6,6 +6,10 @@ use vello_common::peniko::GradientKind;
 use vello_cpu::paint::Gradient;
 use crate::util::{check_ref, get_ctx, stops_green_blue};
 
+pub(crate) fn tan_45() -> f64 {
+    45.0_f64.to_radians().tan()
+}
+
 #[test]
 fn gradient_on_3_wide_tiles() {
     let mut ctx = get_ctx(600, 32, false);
@@ -36,6 +40,7 @@ mod linear {
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::GradientKind;
     use vello_cpu::paint::Gradient;
+    use crate::gradient::tan_45;
 
     #[test]
     fn gradient_linear_2_stops() {
@@ -393,7 +398,7 @@ mod linear {
 
     #[test]
     fn gradient_linear_with_transform_skew_x_1() {
-        let transform = Affine::translate((-37.5, 0.0)) * Affine::skew(PI / 4.0, 0.0);
+        let transform = Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0);
         gradient_with_transform!(
             "gradient_linear_with_transform_skew_x_1",
             transform,
@@ -406,7 +411,7 @@ mod linear {
 
     #[test]
     fn gradient_linear_with_transform_skew_x_2() {
-        let transform = Affine::translate((37.5, 0.0)) * Affine::skew(-PI / 4.0, 0.0);
+        let transform = Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0);
         gradient_with_transform!(
             "gradient_linear_with_transform_skew_x_2",
             transform,
@@ -419,7 +424,7 @@ mod linear {
 
     #[test]
     fn gradient_linear_with_transform_skew_y_1() {
-        let transform = Affine::translate((0.0, 37.5)) * Affine::skew(0.0, -PI / 4.0);
+        let transform = Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45());
         gradient_with_transform!(
             "gradient_linear_with_transform_skew_y_1",
             transform,
@@ -432,7 +437,7 @@ mod linear {
 
     #[test]
     fn gradient_linear_with_transform_skew_y_2() {
-        let transform = Affine::translate((0.0, -37.5)) * Affine::skew(0.0, PI / 4.0);
+        let transform = Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45());
         gradient_with_transform!(
             "gradient_linear_with_transform_skew_y_2",
             transform,
@@ -453,6 +458,7 @@ mod radial {
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::GradientKind::Radial;
     use vello_cpu::paint::Gradient;
+    use crate::gradient::tan_45;
 
     macro_rules! simple {
         ($stops:expr, $name:expr) => {
@@ -814,7 +820,7 @@ mod radial {
 
     #[test]
     fn gradient_radial_with_transform_skew_x_1() {
-        let transform = Affine::translate((-37.5, 0.0)) * Affine::skew(PI / 4.0, 0.0);
+        let transform = Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0);
         gradient_with_transform!(
             "gradient_radial_with_transform_skew_x_1",
             transform,
@@ -827,7 +833,7 @@ mod radial {
 
     #[test]
     fn gradient_radial_with_transform_skew_x_2() {
-        let transform = Affine::translate((37.5, 0.0)) * Affine::skew(-PI / 4.0, 0.0);
+        let transform = Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0);
         gradient_with_transform!(
             "gradient_radial_with_transform_skew_x_2",
             transform,
@@ -840,7 +846,7 @@ mod radial {
 
     #[test]
     fn gradient_radial_with_transform_skew_y_1() {
-        let transform = Affine::translate((0.0, 37.5)) * Affine::skew(0.0, -PI / 4.0);
+        let transform = Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45());
         gradient_with_transform!(
             "gradient_radial_with_transform_skew_y_1",
             transform,
@@ -853,7 +859,7 @@ mod radial {
 
     #[test]
     fn gradient_radial_with_transform_skew_y_2() {
-        let transform = Affine::translate((0.0, -37.5)) * Affine::skew(0.0, PI / 4.0);
+        let transform = Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45());
         gradient_with_transform!(
             "gradient_radial_with_transform_skew_y_2",
             transform,
@@ -874,6 +880,7 @@ mod sweep {
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::GradientKind;
     use vello_cpu::paint::Gradient;
+    use crate::gradient::tan_45;
 
     macro_rules! basic {
         ($stops:expr, $name:expr, $center:expr) => {
@@ -1125,7 +1132,7 @@ mod sweep {
 
     #[test]
     fn gradient_sweep_with_transform_skew_x_1() {
-        let transform = Affine::translate((-37.5, 0.0)) * Affine::skew(PI / 4.0, 0.0);
+        let transform = Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0);
         gradient_with_transform!(
             "gradient_sweep_with_transform_skew_x_1",
             transform,
@@ -1138,7 +1145,7 @@ mod sweep {
 
     #[test]
     fn gradient_sweep_with_transform_skew_x_2() {
-        let transform = Affine::translate((37.5, 0.0)) * Affine::skew(-PI / 4.0, 0.0);
+        let transform = Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0);
         gradient_with_transform!(
             "gradient_sweep_with_transform_skew_x_2",
             transform,
@@ -1151,7 +1158,7 @@ mod sweep {
 
     #[test]
     fn gradient_sweep_with_transform_skew_y_1() {
-        let transform = Affine::translate((0.0, 37.5)) * Affine::skew(0.0, -PI / 4.0);
+        let transform = Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45());
         gradient_with_transform!(
             "gradient_sweep_with_transform_skew_y_1",
             transform,
@@ -1164,7 +1171,7 @@ mod sweep {
 
     #[test]
     fn gradient_sweep_with_transform_skew_y_2() {
-        let transform = Affine::translate((0.0, -37.5)) * Affine::skew(0.0, PI / 4.0);
+        let transform = Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45());
         gradient_with_transform!(
             "gradient_sweep_with_transform_skew_y_2",
             transform,
