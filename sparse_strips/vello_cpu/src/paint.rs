@@ -51,6 +51,8 @@ pub struct Gradient {
     pub transform: Affine,
     /// The extend of the gradient.
     pub extend: Extend,
+    /// An additional opacity to apply to all gradient stops.
+    pub opacity: f32,
 }
 
 impl Gradient {
@@ -61,7 +63,10 @@ impl Gradient {
             return paint;
         }
 
-        let mut has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
+        let opacity = self.opacity.clamp(0.0, 1.0);
+
+        let mut has_opacities =
+            self.stops.iter().any(|s| s.color.components[3] != 1.0) || opacity != 1.0;
         let pad = self.extend == Extend::Pad;
 
         let mut stops = Cow::Borrowed(&self.stops);
@@ -215,7 +220,7 @@ impl Gradient {
             }
         };
 
-        let ranges = encode_stops(&stops, clamp_range.0, clamp_range.1, pad);
+        let ranges = encode_stops(&stops, clamp_range.0, clamp_range.1, pad, opacity);
 
         // This represents the transform that needs to be applied to the starting point of a
         // command before starting with the rendering.
@@ -391,12 +396,28 @@ fn apply_reflect(stops: &[Stop]) -> Vec<Stop> {
 }
 
 /// Encode all stops into a sequence of ranges.
-fn encode_stops(stops: &[Stop], start: f32, end: f32, pad: bool) -> Vec<GradientRange> {
+fn encode_stops(
+    stops: &[Stop],
+    start: f32,
+    end: f32,
+    pad: bool,
+    opacity: f32,
+) -> Vec<GradientRange> {
     let create_range = |left_stop: &Stop, right_stop: &Stop| {
         let x0 = start + (end - start) * left_stop.offset;
         let x1 = start + (end - start) * right_stop.offset;
-        let c0 = left_stop.color.premultiply().to_rgba8().to_u8_array();
-        let c1 = right_stop.color.premultiply().to_rgba8().to_u8_array();
+        let c0 = left_stop
+            .color
+            .multiply_alpha(opacity)
+            .premultiply()
+            .to_rgba8()
+            .to_u8_array();
+        let c1 = right_stop
+            .color
+            .multiply_alpha(opacity)
+            .premultiply()
+            .to_rgba8()
+            .to_u8_array();
 
         // Given two positions x0 and x1 as well as two corresponding colors c0 and c1,
         // the delta that needs to be applied to c0 to calculate the color of x between x0 and x1
@@ -655,6 +676,7 @@ mod tests {
             stops: vec![],
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
+            opacity: 1.0,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), BLACK.into());
@@ -675,6 +697,7 @@ mod tests {
             }],
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
+            opacity: 1.0,
         };
 
         // Should return the color of the first stop.
@@ -702,6 +725,7 @@ mod tests {
             ],
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
+            opacity: 1.0,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), BLACK.into());
@@ -728,6 +752,7 @@ mod tests {
             ],
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
+            opacity: 1.0,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), BLACK.into());
@@ -754,6 +779,7 @@ mod tests {
             ],
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
+            opacity: 1.0,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -781,6 +807,7 @@ mod tests {
             ],
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
+            opacity: 1.0,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -809,6 +836,7 @@ mod tests {
             ],
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
+            opacity: 1.0,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
