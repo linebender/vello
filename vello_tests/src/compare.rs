@@ -98,9 +98,13 @@ pub async fn compare_gpu_cpu(scene: Scene, mut params: TestParams) -> Result<Gpu
     params.use_cpu = true;
     let cpu_rendered = render_then_debug(&scene, &params).await?;
 
-    let path_root = &comparison_dir().join(&params.name);
-    let cpu_path = path_root.with_extension("cpu.png");
-    let gpu_path = path_root.with_extension("gpu.png");
+    let path_root = &comparison_dir();
+    let cpu_dir = path_root.join("cpu");
+    std::fs::create_dir_all(&cpu_dir)?;
+    let gpu_dir = path_root.join("gpu");
+    std::fs::create_dir_all(&gpu_dir)?;
+    let cpu_path = cpu_dir.join(&params.name).with_extension(".png");
+    let gpu_path = path_root.join(&params.name).with_extension(".png");
 
     assert!(gpu_rendered.width == cpu_rendered.width && gpu_rendered.height == cpu_rendered.height,);
 
