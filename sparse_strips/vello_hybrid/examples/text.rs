@@ -94,6 +94,7 @@ impl ApplicationHandler for App<'_> {
                 self.scene.width().into(),
                 self.scene.height().into(),
                 true,
+                true,
             )
         });
 

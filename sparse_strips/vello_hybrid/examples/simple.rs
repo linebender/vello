@@ -75,6 +75,7 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                 self.scene.width().into(),
                 self.scene.height().into(),
                 true,
+                true,
             )
         });
 

@@ -48,6 +48,8 @@ struct GpuResources {
     pub alphas_texture: Texture,
     /// Bind group for rendering
     pub render_bind_group: BindGroup,
+    /// Buffer for config data
+    pub config_buffer: Buffer,
 }
 
 /// GPU renderer for the hybrid rendering system
@@ -203,6 +205,25 @@ impl Renderer {
         }
     }
 
+    /// Update the config buffer with the new render params
+    pub fn update_config(&mut self, device: &Device, queue: &Queue, render_params: &RenderParams) {
+        if self.resources.is_none() {
+            return;
+        }
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+        let config = Config {
+            width: render_params.width,
+            height: render_params.height,
+            strip_height: Tile::HEIGHT.into(),
+            alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+        };
+        queue.write_buffer(
+            &self.resources.as_ref().unwrap().config_buffer,
+            0,
+            bytemuck::bytes_of(&config),
+        );
+    }
+
     /// Prepare the GPU buffers for rendering
     pub fn prepare(
         &mut self,
@@ -250,7 +271,7 @@ impl Renderer {
                     .strips_buffer
                     .clone()
             };
-            let (alphas_texture, render_bind_group) = if needs_new_alpha_texture {
+            let (alphas_texture, render_bind_group, config_buffer) = if needs_new_alpha_texture {
                 let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
                 let alpha_len = render_data.alphas.len();
                 // There are 16 1-byte alpha values per texel.
@@ -285,7 +306,7 @@ impl Renderer {
                 let alphas_texture_view =
                     alphas_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                let config_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                let config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Config Buffer"),
                     contents: bytemuck::bytes_of(&Config {
                         width: render_params.width,
@@ -293,7 +314,7 @@ impl Renderer {
                         strip_height: Tile::HEIGHT.into(),
                         alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     }),
-                    usage: wgpu::BufferUsages::UNIFORM,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
                 let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -306,22 +327,24 @@ impl Renderer {
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: config_buf.as_entire_binding(),
+                            resource: config_buffer.as_entire_binding(),
                         },
                     ],
                 });
-                (alphas_texture, render_bind_group)
+                (alphas_texture, render_bind_group, config_buffer)
             } else {
                 let resources = self.resources.as_ref().unwrap();
                 (
                     resources.alphas_texture.clone(),
                     resources.render_bind_group.clone(),
+                    resources.config_buffer.clone(),
                 )
             };
             self.resources = Some(GpuResources {
                 strips_buffer,
                 alphas_texture,
                 render_bind_group,
+                config_buffer,
             });
         };
 

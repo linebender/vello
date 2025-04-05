@@ -14,7 +14,7 @@ use std::sync::Arc;
 use common::{
     RenderContext, RenderSurface, create_vello_renderer, create_winit_window, render_svg,
 };
-use vello_common::pico_svg::PicoSvg;
+use vello_common::{kurbo::Affine, pico_svg::PicoSvg};
 use vello_hybrid::{RenderParams, Renderer, Scene};
 use wgpu::RenderPassDescriptor;
 use winit::{
@@ -33,7 +33,7 @@ fn main() {
         renderers: vec![],
         state: RenderState::Suspended(None),
         scene: Scene::new(1600, 1200),
-        render_scale: 5.0,
+        transform: Affine::scale(5.0),
         parsed_svg: None,
     };
 
@@ -77,7 +77,7 @@ struct SvgVelloApp<'s> {
     scene: Scene,
 
     // The scale factor for the rendered SVG
-    render_scale: f64,
+    transform: Affine,
 
     // The parsed SVG
     parsed_svg: Option<PicoSvg>,
@@ -86,7 +86,9 @@ struct SvgVelloApp<'s> {
 impl SvgVelloApp<'_> {
     /// Adjust the render scale by the given delta, clamping to min/max values
     fn adjust_scale(&mut self, delta: f64) {
-        self.render_scale = (self.render_scale + delta).clamp(MIN_SCALE, MAX_SCALE);
+        let current_scale = self.transform.determinant().sqrt();
+        let new_scale = (current_scale + delta).clamp(MIN_SCALE, MAX_SCALE);
+        self.transform = Affine::scale(new_scale);
     }
 }
 
@@ -101,6 +103,7 @@ impl ApplicationHandler for SvgVelloApp<'_> {
                 event_loop,
                 self.scene.width().into(),
                 self.scene.height().into(),
+                true,
                 true,
             )
         });
@@ -158,6 +161,18 @@ impl ApplicationHandler for SvgVelloApp<'_> {
             WindowEvent::Resized(size) => {
                 self.context
                     .resize_surface(surface, size.width, size.height);
+                let device_handle = &self.context.devices[surface.dev_id];
+                self.renderers[surface.dev_id]
+                    .as_mut()
+                    .unwrap()
+                    .update_config(
+                        &device_handle.device,
+                        &device_handle.queue,
+                        &RenderParams {
+                            width: size.width,
+                            height: size.height,
+                        },
+                    );
             }
 
             WindowEvent::MouseWheel {
@@ -188,7 +203,7 @@ impl ApplicationHandler for SvgVelloApp<'_> {
                         "-" | "_" => self.adjust_scale(-ZOOM_STEP),
                         // Reset to original scale
                         "0" => {
-                            self.render_scale = 5.0;
+                            self.transform = Affine::scale(5.0);
                         }
                         _ => {}
                     },
@@ -201,7 +216,7 @@ impl ApplicationHandler for SvgVelloApp<'_> {
                 self.scene.reset();
 
                 if let Some(parsed_svg) = &self.parsed_svg {
-                    render_svg(&mut self.scene, self.render_scale, &parsed_svg.items);
+                    render_svg(&mut self.scene, &parsed_svg.items, self.transform);
                 }
 
                 let device_handle = &self.context.devices[surface.dev_id];
