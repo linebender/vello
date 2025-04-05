@@ -108,7 +108,7 @@ impl Wide {
     pub fn new(width: u16, height: u16) -> Self {
         let width_tiles = width.div_ceil(WideTile::WIDTH);
         let height_tiles = height.div_ceil(Tile::HEIGHT);
-        let mut tiles = Vec::with_capacity(usize::from(width_tiles)  * usize::from(height_tiles));
+        let mut tiles = Vec::with_capacity(usize::from(width_tiles) * usize::from(height_tiles));
 
         for w in 0..width_tiles {
             for h in 0..height_tiles {
