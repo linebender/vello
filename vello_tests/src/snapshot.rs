@@ -19,23 +19,21 @@ use crate::{TestParams, env_var_relates_to, render_then_debug, write_png_to_file
 use anyhow::{Result, anyhow, bail};
 
 fn current_dir(directory: SnapshotDirectory, use_cpu: bool) -> PathBuf {
-    let dir = match directory {
-        SnapshotDirectory::Smoke => "smoke",
-        SnapshotDirectory::Lfs => "lfs",
-    };
     let mut path_buf = Path::new(env!("CARGO_MANIFEST_DIR")).join("current");
     path_buf.push(if use_cpu { "cpu" } else { "gpu" });
-    path_buf.push(dir);
+    match directory {
+        SnapshotDirectory::Smoke => path_buf.push("smoke"),
+        SnapshotDirectory::Lfs => { /* Do nothing */ }
+    };
     path_buf
 }
 
 fn snapshot_dir(directory: SnapshotDirectory) -> PathBuf {
-    let dir = match directory {
-        SnapshotDirectory::Smoke => "smoke",
-        SnapshotDirectory::Lfs => "lfs",
-    };
     let mut path_buf = Path::new(env!("CARGO_MANIFEST_DIR")).join("snapshots");
-    path_buf.push(dir);
+    match directory {
+        SnapshotDirectory::Smoke => path_buf.push("smoke"),
+        SnapshotDirectory::Lfs => { /* Do nothing */ }
+    };
     path_buf
 }
 
