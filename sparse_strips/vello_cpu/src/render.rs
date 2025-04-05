@@ -239,10 +239,8 @@ impl GlyphRenderer for RenderContext {
     fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
         match glyph {
             PreparedGlyph::Outline(glyph) => {
+                flatten::fill(glyph.path, glyph.transform, &mut self.line_buf);
                 let paint = self.encode_current_paint();
-
-                let transform = self.transform * glyph.local_transform;
-                flatten::fill(glyph.path, transform, &mut self.line_buf);
                 self.render_path(Fill::NonZero, paint);
             }
         }
@@ -251,10 +249,13 @@ impl GlyphRenderer for RenderContext {
     fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
         match glyph {
             PreparedGlyph::Outline(glyph) => {
+                flatten::stroke(
+                    glyph.path,
+                    &self.stroke,
+                    glyph.transform,
+                    &mut self.line_buf,
+                );
                 let paint = self.encode_current_paint();
-
-                let transform = self.transform * glyph.local_transform;
-                flatten::stroke(glyph.path, &self.stroke, transform, &mut self.line_buf);
                 self.render_path(Fill::NonZero, paint);
             }
         }
