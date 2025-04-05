@@ -6,7 +6,7 @@
 //! across different implementations
 
 #![forbid(unsafe_code)]
-#![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
+#![no_std]
 
 pub use peniko;
 pub use peniko::color;
