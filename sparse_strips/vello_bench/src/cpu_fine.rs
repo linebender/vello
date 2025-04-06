@@ -16,8 +16,7 @@ pub fn fill(c: &mut Criterion) {
     macro_rules! fill_single {
         ($name:ident, $paint:expr) => {
             g.bench_function(stringify!($name), |b| {
-                let mut out = vec![];
-                let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT, &mut out);
+                let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
 
                 b.iter(|| {
                     fine.fill(0, WideTile::WIDTH as usize, $paint);
@@ -45,8 +44,7 @@ pub fn strip(c: &mut Criterion) {
     macro_rules! strip_single {
         ($name:ident, $paint:expr) => {
             g.bench_function(stringify!($name), |b| {
-                let mut out = vec![];
-                let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT, &mut out);
+                let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
 
                 b.iter(|| {
                     fine.strip(0, WideTile::WIDTH as usize, &alphas, $paint);
