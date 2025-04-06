@@ -341,18 +341,23 @@ pub fn render_rect(
         rect.max_y().min(height as f64) as f32,
     );
 
-    let top_strip_idx = y0 as u16 / Tile::HEIGHT;
+    let top_strip_idx = (y0 as u16).max(0) / Tile::HEIGHT;
     let top_strip_y = top_strip_idx * Tile::HEIGHT;
-    let bottom_strip_idx = y1 as u16 / Tile::HEIGHT;
+    // In the wide tile generation stage, there is an assertion that all strips outside the
+    // viewport must have been culled, so we cull here.
+    //
+    // This index is inclusive, i.e. pixels at row `bottom_strip_idx` 
+    // are still part of the rectangle.
+    let bottom_strip_idx = (y1 as u16).min(height - 1) / Tile::HEIGHT;
     let bottom_strip_y = bottom_strip_idx * Tile::HEIGHT;
 
     let x0_floored = x0.floor();
     let x1_floored = x1.floor();
 
-    let x_start = x0_floored as u16;
+    let x_start = (x0_floored as u16).max(0);
     // Inclusive, i.e. the pixel at column `x_end` is the very right border (possibly only anti-aliased)
     // of the rectangle, which should still be stripped.
-    let x_end = x1_floored as u16;
+    let x_end = (x1_floored as u16).min(width - 1);
 
     // Calculate the vertical/horizontal coverage of a pixel, using a start
     // and end point. The area between the start and end point is considered to be
