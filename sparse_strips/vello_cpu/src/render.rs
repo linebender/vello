@@ -151,6 +151,10 @@ impl RenderContext {
 
     /// Reset the render context.
     pub fn reset(&mut self) {
+        self.line_buf.clear();
+        self.tiles.reset();
+        self.alphas.clear();
+        self.strip_buf.clear();
         self.wide.reset();
     }
 
