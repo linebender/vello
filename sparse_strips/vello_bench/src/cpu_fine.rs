@@ -64,7 +64,7 @@ pub fn pack(c: &mut Criterion) {
         let mut scratch = [0_u8; SCRATCH_BUF_SIZE];
 
         for (n, e) in scratch.iter_mut().enumerate() {
-            *e = (n % 256) as u8;
+            *e = u8::try_from(n % 256).unwrap();
         }
 
         let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
@@ -76,6 +76,6 @@ pub fn pack(c: &mut Criterion) {
                 std::hint::black_box(&fine);
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 }
