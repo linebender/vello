@@ -60,8 +60,8 @@ pub fn strip(c: &mut Criterion) {
 
 pub fn pack(c: &mut Criterion) {
     c.bench_function("fine/pack", |b| {
-        let buf = vec![0u8; SCRATCH_BUF_SIZE];
-        let mut scratch = [0u8; SCRATCH_BUF_SIZE];
+        let buf = vec![0_u8; SCRATCH_BUF_SIZE];
+        let mut scratch = [0_u8; SCRATCH_BUF_SIZE];
 
         for (n, e) in scratch.iter_mut().enumerate() {
             *e = (n % 256) as u8;
