@@ -323,7 +323,7 @@ pub fn render_rect(
     // - There could be some further optimizations (for example, if a rectangle is strip-aligned on
     //   the y-axis, we don't need the strips for the top part of the rectangle), but I don't think
     //   those edge cases are worth adding to the complexity of this method.
-    
+
     strip_buf.clear();
 
     // Don't try to draw empty rectangles.
@@ -346,7 +346,7 @@ pub fn render_rect(
     // In the wide tile generation stage, there is an assertion that all strips outside the
     // viewport must have been culled, so we cull here.
     //
-    // This index is inclusive, i.e. pixels at row `bottom_strip_idx` 
+    // This index is inclusive, i.e. pixels at row `bottom_strip_idx`
     // are still part of the rectangle.
     let bottom_strip_idx = (y1 as u16).min(height - 1) / Tile::HEIGHT;
     let bottom_strip_y = bottom_strip_idx * Tile::HEIGHT;
@@ -370,12 +370,12 @@ pub fn render_rect(
         end - start
     };
 
-    // Calculate the alpha coverages of the strips containing the top/bottom 
+    // Calculate the alpha coverages of the strips containing the top/bottom
     // borders of the rectangle.
     let vertical_alpha_coverage = |strip_y: u16| {
         let mut buf = [0.0f32; Tile::HEIGHT as usize];
 
-        // For each row in the strip, calculate how much it is covered by given the 
+        // For each row in the strip, calculate how much it is covered by given the
         // vertical endpoints y0 and y1.
         for i in 0..Tile::HEIGHT {
             buf[i as usize] = pixel_coverage(strip_y + i, y0, y1);
@@ -385,7 +385,7 @@ pub fn render_rect(
     };
 
     // Note that the alpha coverage of all pixels on either the left or ride side of a
-    // rectangle is always the same (except for corners), so we just need to calculate 
+    // rectangle is always the same (except for corners), so we just need to calculate
     // a single value. The coverage of corners will be calculated by adding an additional
     // opacity mask as calculated in `horizontal_alphas`.
     let left_alpha = pixel_coverage(x_start, x0, x1);
@@ -403,47 +403,40 @@ pub fn render_rect(
     };
 
     // Create a strip for the top/bottom edge of the rectangle.
-    let horizontal_strip = |alpha_buf: &mut Vec<u8>,
-                            strip_buf: &mut Vec<Strip>,
-                            alphas: &[f32; 4],
-                            strip_y: u16| {
-        // Strip the first column, which might have an additional alpha mask due to non-integer
-        // alignment of x0. If the rectangle is less than 1 pixel wide, this will represent
-        // the total coverage of the rectangle inside the pixel.
-        let alpha_idx = alpha_buf.len() as u32;
-        push_alpha(alphas, left_alpha, alpha_buf);
+    let horizontal_strip =
+        |alpha_buf: &mut Vec<u8>, strip_buf: &mut Vec<Strip>, alphas: &[f32; 4], strip_y: u16| {
+            // Strip the first column, which might have an additional alpha mask due to non-integer
+            // alignment of x0. If the rectangle is less than 1 pixel wide, this will represent
+            // the total coverage of the rectangle inside the pixel.
+            let alpha_idx = alpha_buf.len() as u32;
+            push_alpha(alphas, left_alpha, alpha_buf);
 
-        // If the rect covers more than one pixel horizontally, fill all the remaining ones
-        // except for the last one with the same opacity as in `alphas`.
-        // If the rect is contained within one pixel horizontally, 
-        // then right_alpha == left_alpha, and thus the alpha we pushed above is enough.
-        if x_end - x_start >= 1 {
-            for _ in (x_start + 1)..x_end {
-                push_alpha(alphas, 1.0, alpha_buf);
+            // If the rect covers more than one pixel horizontally, fill all the remaining ones
+            // except for the last one with the same opacity as in `alphas`.
+            // If the rect is contained within one pixel horizontally,
+            // then right_alpha == left_alpha, and thus the alpha we pushed above is enough.
+            if x_end - x_start >= 1 {
+                for _ in (x_start + 1)..x_end {
+                    push_alpha(alphas, 1.0, alpha_buf);
+                }
+
+                // Fill the last, right column, which might also need an additional alpha mask
+                // due to non-integer alignment of x1.
+                push_alpha(alphas, right_alpha, alpha_buf);
             }
 
-            // Fill the last, right column, which might also need an additional alpha mask
-            // due to non-integer alignment of x1.
-            push_alpha(alphas, right_alpha, alpha_buf);
-        }
-
-        // Push the actual strip.
-        strip_buf.push(Strip {
-            x: x0_floored as u16,
-            y: strip_y,
-            alpha_idx,
-            winding: 0,
-        });
-    };
+            // Push the actual strip.
+            strip_buf.push(Strip {
+                x: x0_floored as u16,
+                y: strip_y,
+                alpha_idx,
+                winding: 0,
+            });
+        };
 
     let top_alphas = vertical_alpha_coverage(top_strip_y);
     // Create the strip for the top part of the rectangle.
-    horizontal_strip(
-        alpha_buf,
-        strip_buf,
-        &top_alphas,
-        top_strip_y,
-    );
+    horizontal_strip(alpha_buf, strip_buf, &top_alphas, top_strip_y);
 
     // If rect covers more than one strip vertically, we need to strip the vertical line
     // segments of the rectangle, and finally the bottom horizontal line segment.
@@ -480,12 +473,7 @@ pub fn render_rect(
 
         // Strip the bottom part of the rectangle.
         let bottom_alphas = vertical_alpha_coverage(bottom_strip_y);
-        horizontal_strip(
-            alpha_buf,
-            strip_buf,
-            &bottom_alphas,
-            bottom_strip_y,
-        );
+        horizontal_strip(alpha_buf, strip_buf, &bottom_alphas, bottom_strip_y);
     }
 
     // Push sentinel strip.
