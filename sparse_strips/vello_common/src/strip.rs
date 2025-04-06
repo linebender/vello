@@ -315,7 +315,7 @@ pub fn render_rect(
     height: u16,
 ) {
     // The idea for this fast path is as follows:
-    // - We generate strips of width 1 for the left as well as the ride side of the rectangle. The
+    // - We generate strips of width 1 for the left as well as the right side of the rectangle. The
     //   left side has a winding number of 0, the right side has a winding number of 1.
     // - We generate a strip of the full rectangle width for the top and bottom part of the rectangle.
     // - Of course, it's also possible that a rectangle has a width of less than 2 or a height of
