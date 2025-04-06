@@ -395,44 +395,46 @@ pub fn render_rect(
     // want to calculate the coverage of the very first column of the top line in the
     // rect (which might start at the horizontal offset .5), then we need to multiply
     // all its alpha values by 0.5 to account for anti-aliasing of the left edge.
-    let push_alpha = |alphas: &[f32; 4], alpha_mask: f32, alpha_buf: &mut Vec<u8>| {
-        for i in 0..Tile::HEIGHT as usize {
-            let u8_alpha = ((alphas[i] * alpha_mask) * 255.0 + 0.5) as u8;
-            alpha_buf.push(u8_alpha);
+    let push_alpha = |col_alphas: &[f32; 4], alpha_mask: f32, alpha_buffer: &mut Vec<u8>| {
+        for alpha in col_alphas {
+            let u8_alpha = ((*alpha * alpha_mask) * 255.0 + 0.5) as u8;
+            alpha_buffer.push(u8_alpha);
         }
     };
 
     // Create a strip for the top/bottom edge of the rectangle.
-    let horizontal_strip =
-        |alpha_buf: &mut Vec<u8>, strip_buf: &mut Vec<Strip>, alphas: &[f32; 4], strip_y: u16| {
-            // Strip the first column, which might have an additional alpha mask due to non-integer
-            // alignment of x0. If the rectangle is less than 1 pixel wide, this will represent
-            // the total coverage of the rectangle inside the pixel.
-            let alpha_idx = alpha_buf.len() as u32;
-            push_alpha(alphas, left_alpha, alpha_buf);
+    let horizontal_strip = |alpha_buffer: &mut Vec<u8>,
+                            strip_buffer: &mut Vec<Strip>,
+                            col_alphas: &[f32; 4],
+                            strip_y: u16| {
+        // Strip the first column, which might have an additional alpha mask due to non-integer
+        // alignment of x0. If the rectangle is less than 1 pixel wide, this will represent
+        // the total coverage of the rectangle inside the pixel.
+        let alpha_idx = alpha_buffer.len() as u32;
+        push_alpha(col_alphas, left_alpha, alpha_buffer);
 
-            // If the rect covers more than one pixel horizontally, fill all the remaining ones
-            // except for the last one with the same opacity as in `alphas`.
-            // If the rect is contained within one pixel horizontally,
-            // then right_alpha == left_alpha, and thus the alpha we pushed above is enough.
-            if x_end - x_start >= 1 {
-                for _ in (x_start + 1)..x_end {
-                    push_alpha(alphas, 1.0, alpha_buf);
-                }
-
-                // Fill the last, right column, which might also need an additional alpha mask
-                // due to non-integer alignment of x1.
-                push_alpha(alphas, right_alpha, alpha_buf);
+        // If the rect covers more than one pixel horizontally, fill all the remaining ones
+        // except for the last one with the same opacity as in `alphas`.
+        // If the rect is contained within one pixel horizontally,
+        // then right_alpha == left_alpha, and thus the alpha we pushed above is enough.
+        if x_end - x_start >= 1 {
+            for _ in (x_start + 1)..x_end {
+                push_alpha(col_alphas, 1.0, alpha_buffer);
             }
 
-            // Push the actual strip.
-            strip_buf.push(Strip {
-                x: x0_floored as u16,
-                y: strip_y,
-                alpha_idx,
-                winding: 0,
-            });
-        };
+            // Fill the last, right column, which might also need an additional alpha mask
+            // due to non-integer alignment of x1.
+            push_alpha(col_alphas, right_alpha, alpha_buffer);
+        }
+
+        // Push the actual strip.
+        strip_buffer.push(Strip {
+            x: x0_floored as u16,
+            y: strip_y,
+            alpha_idx,
+            winding: 0,
+        });
+    };
 
     let top_alphas = vertical_alpha_coverage(top_strip_y);
     // Create the strip for the top part of the rectangle.
