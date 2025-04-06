@@ -60,7 +60,7 @@ pub fn strip(c: &mut Criterion) {
 
 pub fn pack(c: &mut Criterion) {
     c.bench_function("fine/pack", |b| {
-        let buf = vec![0_u8; SCRATCH_BUF_SIZE];
+        let mut buf = vec![0_u8; SCRATCH_BUF_SIZE];
         let mut scratch = [0_u8; SCRATCH_BUF_SIZE];
 
         for (n, e) in scratch.iter_mut().enumerate() {
@@ -69,13 +69,9 @@ pub fn pack(c: &mut Criterion) {
 
         let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
 
-        b.iter_batched_ref(
-            || buf.clone(),
-            |buf| {
-                fine.pack(0, 0, buf);
-                std::hint::black_box(&fine);
-            },
-            BatchSize::SmallInput,
-        );
+        b.iter(|| {
+            fine.pack(0, 0, &mut buf);
+            std::hint::black_box(&buf);
+        });
     });
 }
