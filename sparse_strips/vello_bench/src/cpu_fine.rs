@@ -70,9 +70,7 @@ pub fn pack(c: &mut Criterion) {
         let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
 
         b.iter_batched_ref(
-            || {
-                buf.clone()
-            },
+            || buf.clone(),
             |buf| {
                 fine.pack(0, 0, buf);
                 std::hint::black_box(&fine);
