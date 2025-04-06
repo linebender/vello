@@ -318,6 +318,17 @@ fn filled_unaligned_rect() {
 }
 
 #[test]
+fn filled_unaligned_rect_as_path() {
+    let mut ctx = get_ctx(30, 20, false);
+    let rect = Rect::new(1.5, 1.5, 28.5, 18.5).to_path(0.1);
+
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.fill_path(&rect);
+
+    check_ref(&ctx, "filled_unaligned_rect_as_path");
+}
+
+#[test]
 fn filled_transformed_rect_1() {
     let mut ctx = get_ctx(30, 30, false);
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
@@ -436,6 +447,17 @@ fn strip_inscribed_rect() {
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "strip_inscribed_rect");
+}
+
+#[test]
+fn filled_vertical_hairline_rect_as_path() {
+    let mut ctx = get_ctx(5, 8, false);
+    let rect = Rect::new(2.25, 0.0, 2.75, 8.0).to_path(0.1);
+
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.fill_path(&rect);
+
+    check_ref(&ctx, "filled_vertical_hairline_rect_as_path");
 }
 
 #[test]

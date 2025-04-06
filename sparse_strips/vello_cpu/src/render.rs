@@ -7,7 +7,7 @@ use crate::fine::Fine;
 use vello_common::coarse::{SceneState, Wide};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
-use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
+use vello_common::kurbo::{Affine, BezPath, Cap, Join, Point, Rect, Shape, Stroke};
 use vello_common::paint::Paint;
 use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
@@ -98,7 +98,12 @@ impl RenderContext {
 
     /// Fill a rectangle.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        if self.transform.has_skew() {
+            self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        } else {
+            let rect = transform_non_skewed_rect(rect, self.transform);
+            self.render_rect(&rect, self.paint.clone());
+        }
     }
 
     /// Stroke a rectangle.
@@ -202,6 +207,18 @@ impl RenderContext {
         self.wide.generate(&self.strip_buf, fill_rule, paint);
     }
 
+    fn render_rect(&mut self, rect: &Rect, paint: Paint) {
+        self.tiles.reset();
+        strip::render_rect(
+            rect,
+            &mut self.strip_buf,
+            &mut self.alphas,
+            self.width,
+            self.height,
+        );
+        self.wide.generate(&self.strip_buf, Fill::NonZero, paint);
+    }
+
     fn make_strips(&mut self, fill_rule: Fill) {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
@@ -240,4 +257,23 @@ impl GlyphRenderer for RenderContext {
             }
         }
     }
+}
+
+trait AffineExt {
+    fn has_skew(&self) -> bool;
+}
+
+impl AffineExt for Affine {
+    fn has_skew(&self) -> bool {
+        let coeffs = self.as_coeffs();
+
+        coeffs[1] != 0.0 || coeffs[2] != 0.0
+    }
+}
+
+fn transform_non_skewed_rect(rect: &Rect, affine: Affine) -> Rect {
+    let p1 = affine * Point::new(rect.x0, rect.y0);
+    let p2 = affine * Point::new(rect.x1, rect.y1);
+
+    Rect::from_points(p1, p2)
 }
