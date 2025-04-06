@@ -161,7 +161,7 @@ impl RenderContext {
                 panic!("All clips must be popped before rendering");
             }
         }
-        let mut fine = Fine::new(pixmap.width, pixmap.height, &mut pixmap.buf);
+        let mut fine = Fine::new(pixmap.width, pixmap.height);
 
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();
@@ -173,7 +173,7 @@ impl RenderContext {
                 for cmd in &wtile.cmds {
                     fine.run_cmd(cmd, &self.alphas);
                 }
-                fine.pack(x, y);
+                fine.pack(x, y, &mut pixmap.buf);
             }
         }
     }
