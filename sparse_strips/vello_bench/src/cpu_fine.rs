@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::SEED;
-use criterion::Criterion;
+use criterion::{BatchSize, Criterion};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::tile::Tile;
-use vello_cpu::fine::Fine;
+use vello_cpu::fine::{Fine, SCRATCH_BUF_SIZE};
 
 pub fn fill(c: &mut Criterion) {
     let mut g = c.benchmark_group("fine/fill");
@@ -56,4 +56,28 @@ pub fn strip(c: &mut Criterion) {
     }
 
     strip_single!(basic, &ROYAL_BLUE.into());
+}
+
+pub fn pack(c: &mut Criterion) {
+    c.bench_function("fine/pack", |b| {
+        let buf = vec![0u8; SCRATCH_BUF_SIZE];
+        let mut scratch = [0u8; SCRATCH_BUF_SIZE];
+
+        for (n, e) in scratch.iter_mut().enumerate() {
+            *e = (n % 256) as u8;
+        }
+
+        let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
+
+        b.iter_batched_ref(
+            || {
+                buf.clone()
+            },
+            |buf| {
+                fine.pack(0, 0, buf);
+                std::hint::black_box(&fine);
+            },
+            BatchSize::SmallInput,
+        )
+    });
 }
