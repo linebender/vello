@@ -106,6 +106,46 @@ fn glyphs_skewed_unhinted() {
 }
 
 #[test]
+fn glyphs_skewed_long() {
+    let mut ctx = get_ctx(250, 75, false);
+    let font_size: f32 = 20_f32;
+    let (font, glyphs) = layout_glyphs(
+        "Lorem ipsum dolor sit amet,\nconsectetur adipiscing elit.\nSed ornare arcu lectus.",
+        font_size,
+    );
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .glyph_transform(Affine::skew(-10_f64.to_radians().tan(), 0.))
+        .hint(true)
+        .fill_glyphs(glyphs.into_iter());
+
+    check_ref(&ctx, "glyphs_skewed_long");
+}
+
+#[test]
+fn glyphs_skewed_long_unhinted() {
+    let mut ctx = get_ctx(250, 75, false);
+    let font_size: f32 = 20_f32;
+    let (font, glyphs) = layout_glyphs(
+        "Lorem ipsum dolor sit amet,\nconsectetur adipiscing elit.\nSed ornare arcu lectus.",
+        font_size,
+    );
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .glyph_transform(Affine::skew(-10_f64.to_radians().tan(), 0.))
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter());
+
+    check_ref(&ctx, "glyphs_skewed_long_unhinted");
+}
+
+#[test]
 fn glyphs_skewed_unskewed() {
     let mut ctx = get_ctx(150, 125, false);
     let font_size: f32 = 50_f32;
