@@ -237,7 +237,7 @@ fn prepare_glyph_run<'a>(
         let hinting_instance =
             HintingInstance::new(outlines, size, run.normalized_coords, HINTING_OPTIONS).ok();
         PreparedGlyphRun {
-            transform: Affine::new([1., t_b, t_c, 1., t_e, t_f]),
+            transform: Affine::new([1., 0., t_c, 1., t_e, t_f]),
             size,
             normalized_coords: run.normalized_coords,
             hinting_instance,
