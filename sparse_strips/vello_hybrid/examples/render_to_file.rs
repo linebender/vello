@@ -81,15 +81,17 @@ async fn run() {
     // Create renderer and render the scene to the texture
     let mut renderer = vello_hybrid::Renderer::new(
         &device,
-        &vello_hybrid::RendererOptions {
+        &vello_hybrid::RenderTargetConfig {
             format: texture.format(),
+            width: width.into(),
+            height: height.into(),
         },
     );
-    let render_params = vello_hybrid::RenderParams {
+    let render_size = vello_hybrid::RenderSize {
         width: width.into(),
         height: height.into(),
     };
-    renderer.prepare(&device, &queue, &scene, &render_params);
+    renderer.prepare(&device, &queue, &scene, &render_size);
     // Copy texture to buffer
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),
@@ -109,7 +111,7 @@ async fn run() {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        renderer.render(&scene, &mut pass, &render_params);
+        renderer.render(&scene, &mut pass);
     }
 
     // Create a buffer to copy the texture data

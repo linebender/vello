@@ -99,8 +99,10 @@ impl RendererWrapper {
 
         let renderer = vello_hybrid::Renderer::new(
             &device,
-            &vello_hybrid::RendererOptions {
+            &vello_hybrid::RenderTargetConfig {
                 format: surface_format,
+                width: width.into(),
+                height: height.into(),
             },
         );
 
@@ -176,7 +178,7 @@ impl AppState {
         // Render the current scene with transform
         self.scenes[self.current_scene].render(&mut self.scene, self.transform);
 
-        let params = vello_hybrid::RenderParams {
+        let render_size = vello_hybrid::RenderSize {
             width: self.width,
             height: self.height,
         };
@@ -185,7 +187,7 @@ impl AppState {
             &self.renderer_wrapper.device,
             &self.renderer_wrapper.queue,
             &self.scene,
-            &params,
+            &render_size,
         );
 
         let surface_texture = self.renderer_wrapper.surface.get_current_texture().unwrap();
@@ -215,7 +217,7 @@ impl AppState {
 
             self.renderer_wrapper
                 .renderer
-                .render(&self.scene, &mut pass, &params);
+                .render(&self.scene, &mut pass);
         }
 
         self.renderer_wrapper.queue.submit([encoder.finish()]);
@@ -511,11 +513,11 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
         surface,
     } = RendererWrapper::new(canvas).await;
 
-    let params = vello_hybrid::RenderParams {
+    let render_size = vello_hybrid::RenderSize {
         width: width as u32,
         height: height as u32,
     };
-    renderer.prepare(&device, &queue, &scene, &params);
+    renderer.prepare(&device, &queue, &scene, &render_size);
 
     let surface_texture = surface.get_current_texture().unwrap();
     let surface_texture_view = surface_texture
@@ -539,7 +541,7 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        renderer.render(&scene, &mut pass, &params);
+        renderer.render(&scene, &mut pass);
     }
 
     queue.submit([encoder.finish()]);
