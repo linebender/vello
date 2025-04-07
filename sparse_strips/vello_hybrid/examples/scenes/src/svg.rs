@@ -15,7 +15,7 @@ use crate::ExampleScene;
 
 /// SVG scene that renders an SVG file
 pub struct SvgScene {
-    scale: f64,
+    transform: Affine,
     svg: PicoSvg,
 }
 
@@ -27,7 +27,7 @@ impl fmt::Debug for SvgScene {
 
 impl ExampleScene for SvgScene {
     fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
-        render_svg(scene, self.scale, &self.svg.items, root_transform);
+        render_svg(scene, &self.svg.items, root_transform * self.transform);
     }
 }
 
@@ -50,7 +50,10 @@ impl SvgScene {
 
         let svg = PicoSvg::load(svg_content, 1.0).expect("Failed to parse Ghost Tiger SVG");
 
-        Self { scale: 3.0, svg }
+        Self {
+            transform: Affine::scale(3.0),
+            svg,
+        }
     }
 
     /// Create a new `SvgScene` with the content from a given file
@@ -59,7 +62,10 @@ impl SvgScene {
         let svg_content = std::fs::read_to_string(path)?;
         let svg = PicoSvg::load(&svg_content, 1.0)?;
 
-        Ok(Self { scale: 3.0, svg })
+        Ok(Self {
+            transform: Affine::scale(3.0),
+            svg,
+        })
     }
 }
 
@@ -69,29 +75,24 @@ impl Default for SvgScene {
     }
 }
 
-fn render_svg(ctx: &mut Scene, scale: f64, items: &[Item], root_transform: Affine) {
-    fn render_svg_inner(ctx: &mut Scene, items: &[Item], transform: Affine) {
-        ctx.set_transform(transform);
-        for item in items {
-            match item {
-                Item::Fill(fill_item) => {
-                    ctx.set_paint(fill_item.color.into());
-                    ctx.fill_path(&fill_item.path);
-                }
-                Item::Stroke(stroke_item) => {
-                    let style = Stroke::new(stroke_item.width);
-                    ctx.set_stroke(style);
-                    ctx.set_paint(stroke_item.color.into());
-                    ctx.stroke_path(&stroke_item.path);
-                }
-                Item::Group(group_item) => {
-                    render_svg_inner(ctx, &group_item.children, transform * group_item.affine);
-                    ctx.set_transform(transform);
-                }
+fn render_svg(ctx: &mut Scene, items: &[Item], transform: Affine) {
+    ctx.set_transform(transform);
+    for item in items {
+        match item {
+            Item::Fill(fill_item) => {
+                ctx.set_paint(fill_item.color.into());
+                ctx.fill_path(&fill_item.path);
+            }
+            Item::Stroke(stroke_item) => {
+                let style = Stroke::new(stroke_item.width);
+                ctx.set_stroke(style);
+                ctx.set_paint(stroke_item.color.into());
+                ctx.stroke_path(&stroke_item.path);
+            }
+            Item::Group(group_item) => {
+                render_svg(ctx, &group_item.children, transform * group_item.affine);
+                ctx.set_transform(transform);
             }
         }
     }
-
-    let scene_transform = Affine::scale(scale);
-    render_svg_inner(ctx, items, root_transform * scene_transform);
 }
