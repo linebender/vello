@@ -4,6 +4,6 @@
 pub(crate) mod scalar {
     #[inline(always)]
     pub(crate) const fn div_255(val: u16) -> u16 {
-        (val + 1 + (val >> 8)) >> 8
+        (val + 255) >> 8
     }
 }
