@@ -7,7 +7,7 @@ use crate::fine::Fine;
 use vello_common::coarse::{SceneState, Wide};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
-use vello_common::kurbo::{Affine, BezPath, Cap, Join, Point, Rect, Shape, Stroke};
+use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::paint::Paint;
 use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
@@ -272,8 +272,8 @@ impl AffineExt for Affine {
 }
 
 fn transform_non_skewed_rect(rect: &Rect, affine: Affine) -> Rect {
-    let p1 = affine * Point::new(rect.x0, rect.y0);
-    let p2 = affine * Point::new(rect.x1, rect.y1);
-
-    Rect::from_points(p1, p2)
+    debug_assert!(!affine.has_skew());
+    let [a, _, _, d, _, _] = affine.as_coeffs();
+    
+    Rect::new(a * rect.x0, d * rect.y0, a * rect.x1, d * rect.y1) + affine.translation()
 }
