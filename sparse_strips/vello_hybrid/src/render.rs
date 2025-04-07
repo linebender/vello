@@ -227,7 +227,6 @@ impl Renderer {
         let render_data = scene.prepare_render_data();
         let required_strips_size = size_of::<GpuStrip>() as u64 * render_data.strips.len() as u64;
 
-        // Check if dimensions changed
         let (needs_new_strips_buffer, needs_new_alpha_texture, dimensions_changed) =
             match &self.resources {
                 Some(resources) => {
