@@ -6,11 +6,9 @@
 //! This example demonstrates rendering an SVG file without a window or display.
 //! It takes an input SVG file and renders it to a PNG file using the hybrid CPU/GPU renderer.
 
-mod common;
-
-use common::render_svg;
 use std::io::BufWriter;
-use vello_common::pico_svg::PicoSvg;
+use vello_common::kurbo::{Affine, Stroke};
+use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::Pixmap;
 use vello_hybrid::{DimensionConstraints, Scene};
 use wgpu::RenderPassDescriptor;
@@ -179,4 +177,30 @@ async fn run() {
     png_encoder.set_color(png::ColorType::Rgba);
     let mut writer = png_encoder.write_header().unwrap();
     writer.write_image_data(&pixmap.buf).unwrap();
+}
+
+fn render_svg(ctx: &mut Scene, scale: f64, items: &[Item]) {
+    fn render_svg_inner(ctx: &mut Scene, items: &[Item], transform: Affine) {
+        ctx.set_transform(transform);
+        for item in items {
+            match item {
+                Item::Fill(fill_item) => {
+                    ctx.set_paint(fill_item.color.into());
+                    ctx.fill_path(&fill_item.path);
+                }
+                Item::Stroke(stroke_item) => {
+                    let style = Stroke::new(stroke_item.width);
+                    ctx.set_stroke(style);
+                    ctx.set_paint(stroke_item.color.into());
+                    ctx.stroke_path(&stroke_item.path);
+                }
+                Item::Group(group_item) => {
+                    render_svg_inner(ctx, &group_item.children, transform * group_item.affine);
+                    ctx.set_transform(transform);
+                }
+            }
+        }
+    }
+
+    render_svg_inner(ctx, items, Affine::scale(scale));
 }
