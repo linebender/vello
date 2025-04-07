@@ -164,7 +164,10 @@ impl ApplicationHandler for App<'_> {
             WindowEvent::Resized(size) => {
                 self.context
                     .resize_surface(surface, size.width, size.height);
-                self.scene = Scene::new(size.width as u16, size.height as u16);
+                self.scene = Scene::new(
+                    u16::try_from(size.width).unwrap(),
+                    u16::try_from(size.height).unwrap(),
+                );
             }
             WindowEvent::KeyboardInput {
                 event:

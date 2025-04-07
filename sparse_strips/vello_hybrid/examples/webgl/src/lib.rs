@@ -101,8 +101,8 @@ impl RendererWrapper {
             &device,
             &vello_hybrid::RenderTargetConfig {
                 format: surface_format,
-                width: width.into(),
-                height: height.into(),
+                width,
+                height,
             },
         );
 
