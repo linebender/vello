@@ -272,9 +272,11 @@ impl AffineExt for Affine {
 }
 
 fn transform_non_skewed_rect(rect: &Rect, affine: Affine) -> Rect {
-    debug_assert!(!affine.has_skew(), "this method should only be called with non-skewing \
-    transforms");
+    debug_assert!(
+        !affine.has_skew(),
+        "this method should only be called with non-skewing transforms"
+    );
     let [a, _, _, d, _, _] = affine.as_coeffs();
-    
+
     Rect::new(a * rect.x0, d * rect.y0, a * rect.x1, d * rect.y1) + affine.translation()
 }
