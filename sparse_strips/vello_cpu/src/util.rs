@@ -31,9 +31,6 @@ pub(crate) mod scalar {
 
         #[test]
         fn division() {
-            let mut higher_count = 0u32;
-            let mut lower_count = 0u32;
-
             for i in 0u16..255 {
                 for j in 0u16..255 {
                     let mulled = i * j;
@@ -49,9 +46,6 @@ pub(crate) mod scalar {
                         // Division should be accurate for multiples of 255.
                         assert!(diff <= 0);
                     }
-
-                    higher_count += (actual > expected) as u32;
-                    lower_count += (actual < expected) as u32;
                 }
             }
         }
