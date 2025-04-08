@@ -31,8 +31,8 @@ pub(crate) mod scalar {
 
         #[test]
         fn division() {
-            for i in 0u16..255 {
-                for j in 0u16..255 {
+            for i in 0u16..=255 {
+                for j in 0u16..=255 {
                     let mulled = i * j;
                     let expected = mulled / 255;
                     let actual = div_255(mulled);
