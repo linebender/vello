@@ -40,7 +40,7 @@ async fn run() {
     let height = DimensionConstraints::convert_dimension(height);
 
     let mut scene = Scene::new(width, height);
-    render_svg(&mut scene, render_scale, &parsed.items);
+    render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));
 
     // Initialize wgpu device and queue for GPU rendering
     let instance = wgpu::Instance::default();
@@ -81,15 +81,17 @@ async fn run() {
     // Create renderer and render the scene to the texture
     let mut renderer = vello_hybrid::Renderer::new(
         &device,
-        &vello_hybrid::RendererOptions {
+        &vello_hybrid::RenderTargetConfig {
             format: texture.format(),
+            width: width.into(),
+            height: height.into(),
         },
     );
-    let render_params = vello_hybrid::RenderParams {
+    let render_size = vello_hybrid::RenderSize {
         width: width.into(),
         height: height.into(),
     };
-    renderer.prepare(&device, &queue, &scene, &render_params);
+    renderer.prepare(&device, &queue, &scene, &render_size);
     // Copy texture to buffer
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),
@@ -109,7 +111,7 @@ async fn run() {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        renderer.render(&scene, &mut pass, &render_params);
+        renderer.render(&scene, &mut pass);
     }
 
     // Create a buffer to copy the texture data
@@ -179,28 +181,24 @@ async fn run() {
     writer.write_image_data(&pixmap.buf).unwrap();
 }
 
-fn render_svg(ctx: &mut Scene, scale: f64, items: &[Item]) {
-    fn render_svg_inner(ctx: &mut Scene, items: &[Item], transform: Affine) {
-        ctx.set_transform(transform);
-        for item in items {
-            match item {
-                Item::Fill(fill_item) => {
-                    ctx.set_paint(fill_item.color.into());
-                    ctx.fill_path(&fill_item.path);
-                }
-                Item::Stroke(stroke_item) => {
-                    let style = Stroke::new(stroke_item.width);
-                    ctx.set_stroke(style);
-                    ctx.set_paint(stroke_item.color.into());
-                    ctx.stroke_path(&stroke_item.path);
-                }
-                Item::Group(group_item) => {
-                    render_svg_inner(ctx, &group_item.children, transform * group_item.affine);
-                    ctx.set_transform(transform);
-                }
+fn render_svg(ctx: &mut Scene, items: &[Item], transform: Affine) {
+    ctx.set_transform(transform);
+    for item in items {
+        match item {
+            Item::Fill(fill_item) => {
+                ctx.set_paint(fill_item.color.into());
+                ctx.fill_path(&fill_item.path);
+            }
+            Item::Stroke(stroke_item) => {
+                let style = Stroke::new(stroke_item.width);
+                ctx.set_stroke(style);
+                ctx.set_paint(stroke_item.color.into());
+                ctx.stroke_path(&stroke_item.path);
+            }
+            Item::Group(group_item) => {
+                render_svg(ctx, &group_item.children, transform * group_item.affine);
+                ctx.set_transform(transform);
             }
         }
     }
-
-    render_svg_inner(ctx, items, Affine::scale(scale));
 }

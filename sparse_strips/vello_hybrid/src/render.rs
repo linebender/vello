@@ -23,9 +23,9 @@ use wgpu::{
 
 use crate::scene::Scene;
 
-/// Parameters for the renderer
-#[derive(Debug)]
-pub struct RenderParams {
+/// Dimensions of the rendering target
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct RenderSize {
     /// Width of the rendering target
     pub width: u32,
     /// Height of the rendering target
@@ -34,9 +34,13 @@ pub struct RenderParams {
 
 /// Options for the renderer
 #[derive(Debug)]
-pub struct RendererOptions {
+pub struct RenderTargetConfig {
     /// Format of the rendering target
     pub format: wgpu::TextureFormat,
+    /// Width of the rendering target
+    pub width: u32,
+    /// Height of the rendering target
+    pub height: u32,
 }
 
 /// Contains all GPU resources needed for rendering
@@ -48,6 +52,8 @@ struct GpuResources {
     pub alphas_texture: Texture,
     /// Bind group for rendering
     pub render_bind_group: BindGroup,
+    /// Buffer for config data
+    pub config_buffer: Buffer,
 }
 
 /// GPU renderer for the hybrid rendering system
@@ -62,6 +68,9 @@ pub struct Renderer {
 
     /// Scratch buffer for staging alpha texture data.
     alpha_data: Vec<u8>,
+
+    /// Dimensions of the rendering target
+    render_size: RenderSize,
 }
 
 /// Contains the data needed for rendering
@@ -124,7 +133,7 @@ impl Renderer {
     /// Creates a new renderer
     ///
     /// The target parameter determines if we render to a window or headless
-    pub fn new(device: &Device, options: &RendererOptions) -> Self {
+    pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
         let render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(
@@ -179,7 +188,7 @@ impl Renderer {
                 module: &render_shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(ColorTargetState {
-                    format: options.format,
+                    format: render_target_config.format,
                     blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -200,6 +209,10 @@ impl Renderer {
             render_pipeline,
             resources: None,
             alpha_data: Vec::new(),
+            render_size: RenderSize {
+                width: render_target_config.width,
+                height: render_target_config.height,
+            },
         }
     }
 
@@ -209,32 +222,37 @@ impl Renderer {
         device: &Device,
         queue: &Queue,
         scene: &Scene,
-        render_params: &RenderParams,
+        new_render_size: &RenderSize,
     ) {
         let render_data = scene.prepare_render_data();
         let required_strips_size = size_of::<GpuStrip>() as u64 * render_data.strips.len() as u64;
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
 
-        let (needs_new_strips_buffer, needs_new_alpha_texture) = match &self.resources {
-            Some(resources) => {
-                let strips_too_small = required_strips_size > resources.strips_buffer.size();
+        let (needs_new_strips_buffer, needs_new_alpha_texture, needs_new_config) =
+            match &self.resources {
+                Some(resources) => {
+                    let strips_too_small = required_strips_size > resources.strips_buffer.size();
 
-                let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-                let alpha_len = render_data.alphas.len();
-                // There are 16 1-byte alpha values per texel.
-                let required_alpha_height =
-                    (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 16);
-                let required_alpha_size = max_texture_dimension_2d * required_alpha_height * 16;
+                    let alpha_len = render_data.alphas.len();
+                    // There are 16 1-byte alpha values per texel.
+                    let required_alpha_height =
+                        (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 16);
+                    let required_alpha_size = max_texture_dimension_2d * required_alpha_height * 16;
 
-                let current_alpha_size =
-                    resources.alphas_texture.width() * resources.alphas_texture.height() * 16;
-                let alpha_too_small = required_alpha_size > current_alpha_size;
+                    let current_alpha_size =
+                        resources.alphas_texture.width() * resources.alphas_texture.height() * 16;
+                    let alpha_too_small = required_alpha_size > current_alpha_size;
 
-                (strips_too_small, alpha_too_small)
-            }
-            None => (true, true),
-        };
+                    let dimensions_changed = self.render_size != *new_render_size;
+
+                    (strips_too_small, alpha_too_small, dimensions_changed)
+                }
+                // self.resources is None if prepare has not been called yet
+                None => (true, true, true),
+            };
 
         if needs_new_strips_buffer || needs_new_alpha_texture {
+            // Create strips buffer if it doesn't exist, or reuse existing strips buffer
             let strips_buffer = if needs_new_strips_buffer {
                 device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Strips Buffer"),
@@ -243,15 +261,35 @@ impl Renderer {
                     mapped_at_creation: false,
                 })
             } else {
-                // Reuse existing buffer since it's big enough
                 self.resources
                     .as_ref()
-                    .expect("Strips buffer not found")
+                    .expect("Strips buffer not initialized")
                     .strips_buffer
                     .clone()
             };
+
+            // Create config buffer if it doesn't exist, or reuse existing config buffer
+            let config_buffer = if self.resources.is_none() {
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Config Buffer"),
+                    contents: bytemuck::bytes_of(&Config {
+                        width: new_render_size.width,
+                        height: new_render_size.height,
+                        strip_height: Tile::HEIGHT.into(),
+                        alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                    }),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                })
+            } else {
+                self.resources
+                    .as_ref()
+                    .expect("Config buffer not initialized")
+                    .config_buffer
+                    .clone()
+            };
+
+            // Create alpha texture if it doesn't exist, or reuse existing alpha texture
             let (alphas_texture, render_bind_group) = if needs_new_alpha_texture {
-                let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
                 let alpha_len = render_data.alphas.len();
                 // There are 16 1-byte alpha values per texel.
                 let alpha_texture_height =
@@ -285,17 +323,6 @@ impl Renderer {
                 let alphas_texture_view =
                     alphas_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                let config_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Config Buffer"),
-                    contents: bytemuck::bytes_of(&Config {
-                        width: render_params.width,
-                        height: render_params.height,
-                        strip_height: Tile::HEIGHT.into(),
-                        alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                    }),
-                    usage: wgpu::BufferUsages::UNIFORM,
-                });
-
                 let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Render Bind Group"),
                     layout: &self.render_bind_group_layout,
@@ -306,24 +333,43 @@ impl Renderer {
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: config_buf.as_entire_binding(),
+                            resource: config_buffer.as_entire_binding(),
                         },
                     ],
                 });
                 (alphas_texture, render_bind_group)
             } else {
-                let resources = self.resources.as_ref().unwrap();
+                let resources = self.resources.as_ref().expect("Resources not initialized");
                 (
                     resources.alphas_texture.clone(),
                     resources.render_bind_group.clone(),
                 )
             };
+
             self.resources = Some(GpuResources {
                 strips_buffer,
                 alphas_texture,
                 render_bind_group,
+                config_buffer,
             });
         };
+
+        // Update config buffer if dimensions changed and config buffer exists.
+        // We don't need to initialize a new config buffer because it's fixed size (uniform buffer).
+        if needs_new_config && self.resources.is_some() {
+            let config = Config {
+                width: new_render_size.width,
+                height: new_render_size.height,
+                strip_height: Tile::HEIGHT.into(),
+                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+            };
+            queue.write_buffer(
+                &self.resources.as_ref().unwrap().config_buffer,
+                0,
+                bytemuck::bytes_of(&config),
+            );
+            self.render_size = new_render_size.clone();
+        }
 
         // Resources are created in above blocks.
         let resources = self.resources.as_ref().unwrap();
@@ -373,12 +419,7 @@ impl Renderer {
     /// You must call [`prepare`](Self::prepare) with this scene before
     /// calling `render`.
     /// The provided pass can be rendering to a surface, or to a "off-screen" buffer.
-    pub fn render(
-        &mut self,
-        scene: &Scene,
-        render_pass: &mut RenderPass<'_>,
-        _render_params: &RenderParams,
-    ) {
+    pub fn render(&mut self, scene: &Scene, render_pass: &mut RenderPass<'_>) {
         // TODO: Consider API that forces the user to call `prepare` before `render`.
         // For example, `prepare` could return some struct that is consumed by `render`.
         let resources = &self

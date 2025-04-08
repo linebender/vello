@@ -11,7 +11,7 @@ use std::sync::Arc;
 use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Vec2};
-use vello_hybrid::{RenderParams, Renderer, Scene};
+use vello_hybrid::{RenderSize, Renderer, Scene};
 use vello_hybrid_scenes::{AnyScene, get_example_scenes};
 use wgpu::RenderPassDescriptor;
 use winit::{
@@ -164,6 +164,10 @@ impl ApplicationHandler for App<'_> {
             WindowEvent::Resized(size) => {
                 self.context
                     .resize_surface(surface, size.width, size.height);
+                self.scene = Scene::new(
+                    u16::try_from(size.width).unwrap(),
+                    u16::try_from(size.height).unwrap(),
+                );
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -263,7 +267,7 @@ impl ApplicationHandler for App<'_> {
                 self.scenes[self.current_scene].render(&mut self.scene, self.transform);
 
                 let device_handle = &self.context.devices[surface.dev_id];
-                let render_params = RenderParams {
+                let render_size = RenderSize {
                     width: surface.config.width,
                     height: surface.config.height,
                 };
@@ -271,7 +275,7 @@ impl ApplicationHandler for App<'_> {
                     &device_handle.device,
                     &device_handle.queue,
                     &self.scene,
-                    &render_params,
+                    &render_size,
                 );
 
                 let surface_texture = surface
@@ -304,11 +308,10 @@ impl ApplicationHandler for App<'_> {
                         occlusion_query_set: None,
                         timestamp_writes: None,
                     });
-                    self.renderers[surface.dev_id].as_mut().unwrap().render(
-                        &self.scene,
-                        &mut pass,
-                        &render_params,
-                    );
+                    self.renderers[surface.dev_id]
+                        .as_mut()
+                        .unwrap()
+                        .render(&self.scene, &mut pass);
                 }
 
                 device_handle.queue.submit([encoder.finish()]);
