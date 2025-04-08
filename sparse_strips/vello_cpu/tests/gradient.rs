@@ -108,71 +108,48 @@ mod linear {
 
         check_ref(&ctx, "gradient_linear_2_stops_with_alpha");
     }
+    
+    macro_rules! directional {
+        ($name:expr, $start:expr, $end:expr) => {
+            let mut ctx = get_ctx(100, 100, false);
+            let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    
+            let gradient = Gradient {
+                kind: GradientKind::Linear {
+                    start: $start,
+                    end: $end,
+                },
+                stops: stops_green_blue(),
+                transform: Affine::IDENTITY,
+                extend: vello_common::peniko::Extend::Pad,
+                opacity: 1.0,
+            };
+    
+            ctx.set_paint(gradient);
+            ctx.fill_rect(&rect);
+            
+             check_ref(&ctx, $name);
+        };
+    }
 
     #[test]
     fn gradient_linear_negative_direction() {
-        let mut ctx = get_ctx(100, 100, false);
-        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-
-        let gradient = Gradient {
-            kind: GradientKind::Linear {
-                start: Point::new(90.0, 0.0),
-                end: Point::new(10.0, 0.0),
-            },
-            stops: stops_green_blue(),
-            transform: Affine::IDENTITY,
-            extend: vello_common::peniko::Extend::Pad,
-            opacity: 1.0,
-        };
-
-        ctx.set_paint(gradient);
-        ctx.fill_rect(&rect);
-
-        check_ref(&ctx, "gradient_linear_negative_direction");
+        directional!("gradient_linear_negative_direction", Point::new(90.0, 0.0), Point::new(10.0, 0.0));
     }
 
     #[test]
     fn gradient_linear_with_downward_y() {
-        let mut ctx = get_ctx(100, 100, false);
-        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-
-        let gradient = Gradient {
-            kind: GradientKind::Linear {
-                start: Point::new(20.0, 20.0),
-                end: Point::new(80.0, 80.0),
-            },
-            stops: stops_green_blue(),
-            transform: Affine::IDENTITY,
-            extend: vello_common::peniko::Extend::Pad,
-            opacity: 1.0,
-        };
-
-        ctx.set_paint(gradient);
-        ctx.fill_rect(&rect);
-
-        check_ref(&ctx, "gradient_linear_with_downward_y");
+        directional!("gradient_linear_with_downward_y", Point::new(20.0, 20.0), Point::new(80.0, 80.0));
     }
 
     #[test]
     fn gradient_linear_with_upward_y() {
-        let mut ctx = get_ctx(100, 100, false);
-        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+        directional!("gradient_linear_with_upward_y", Point::new(20.0, 80.0), Point::new(80.0, 20.0));
+    }
 
-        let gradient = Gradient {
-            kind: GradientKind::Linear {
-                start: Point::new(20.0, 80.0),
-                end: Point::new(80.0, 20.0),
-            },
-            stops: stops_green_blue(),
-            transform: Affine::IDENTITY,
-            extend: vello_common::peniko::Extend::Pad,
-            opacity: 1.0,
-        };
-
-        ctx.set_paint(gradient);
-        ctx.fill_rect(&rect);
-
-        check_ref(&ctx, "gradient_linear_with_upward_y");
+    #[test]
+    fn gradient_linear_vertical() {
+        directional!("gradient_linear_vertical", Point::new(0.0, 10.0), Point::new(0.0, 90.0));
     }
 
     macro_rules! gradient_pad {
