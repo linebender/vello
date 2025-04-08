@@ -186,12 +186,13 @@ impl RenderContext {
         for y in 0..height_tiles {
             for x in 0..width_tiles {
                 let wtile = self.wide.get(x, y);
+                fine.set_coords(x, y);
 
                 fine.clear(wtile.bg.to_u8_array());
                 for cmd in &wtile.cmds {
-                    fine.run_cmd(x, y, cmd, &self.alphas, &self.encoded_paints);
+                    fine.run_cmd(cmd, &self.alphas, &self.encoded_paints);
                 }
-                fine.pack(x, y);
+                fine.pack();
             }
         }
     }

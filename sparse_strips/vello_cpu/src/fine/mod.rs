@@ -27,6 +27,7 @@ pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
 pub struct Fine<'a> {
     pub(crate) width: u16,
     pub(crate) height: u16,
+    pub(crate) wide_coords: (u16, u16),
     pub(crate) out_buf: &'a mut [u8],
     pub(crate) blend_buf: Vec<ScratchBuf>,
     pub(crate) color_buf: ScratchBuf,
@@ -41,10 +42,16 @@ impl<'a> Fine<'a> {
         Self {
             width,
             height,
+            wide_coords: (0, 0),
             out_buf,
             blend_buf: vec![blend_buf],
             color_buf,
         }
+    }
+
+    /// Set tje coordinates of the current wide tile that is being processed (in tile units).
+    pub fn set_coords(&mut self, x: u16, y: u16) {
+        self.wide_coords = (x, y);
     }
 
     pub fn clear(&mut self, premul_color: [u8; 4]) {
@@ -63,7 +70,7 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn pack(&mut self, x: u16, y: u16) {
+    pub(crate) fn pack(&mut self) {
         let blend_buf = self.blend_buf.last_mut().unwrap();
 
         pack(
@@ -71,41 +78,19 @@ impl<'a> Fine<'a> {
             blend_buf,
             self.width.into(),
             self.height.into(),
-            x.into(),
-            y.into(),
+            self.wide_coords.0.into(),
+            self.wide_coords.1.into(),
         );
     }
 
-    pub(crate) fn run_cmd(
-        &mut self,
-        tile_x: u16,
-        tile_y: u16,
-        cmd: &Cmd,
-        alphas: &[u8],
-        paints: &[EncodedPaint],
-    ) {
+    pub(crate) fn run_cmd(&mut self, cmd: &Cmd, alphas: &[u8], paints: &[EncodedPaint]) {
         match cmd {
             Cmd::Fill(f) => {
-                self.fill(
-                    f.x as usize,
-                    tile_x,
-                    tile_y,
-                    f.width as usize,
-                    &f.paint,
-                    paints,
-                );
+                self.fill(f.x as usize, f.width as usize, &f.paint, paints);
             }
             Cmd::AlphaFill(s) => {
                 let a_slice = &alphas[s.alpha_idx..];
-                self.strip(
-                    s.x as usize,
-                    tile_x,
-                    tile_y,
-                    s.width as usize,
-                    a_slice,
-                    &s.paint,
-                    paints,
-                );
+                self.strip(s.x as usize, s.width as usize, a_slice, &s.paint, paints);
             }
             Cmd::PushClip => {
                 self.blend_buf.push([0; SCRATCH_BUF_SIZE]);
@@ -124,22 +109,14 @@ impl<'a> Fine<'a> {
     }
 
     /// Fill at a given x and with a width using the given paint.
-    pub fn fill(
-        &mut self,
-        x: usize,
-        tile_x: u16,
-        tile_y: u16,
-        width: usize,
-        fill: &Paint,
-        encoded_paints: &[EncodedPaint],
-    ) {
+    pub fn fill(&mut self, x: usize, width: usize, fill: &Paint, encoded_paints: &[EncodedPaint]) {
         let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
             [..TILE_HEIGHT_COMPONENTS * width];
         let color_buf =
             &mut self.color_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
 
-        let start_x = tile_x * WideTile::WIDTH + x as u16;
-        let start_y = tile_y * Tile::HEIGHT;
+        let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
+        let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
         match fill {
             Paint::Solid(color) => {
@@ -199,8 +176,6 @@ impl<'a> Fine<'a> {
     pub fn strip(
         &mut self,
         x: usize,
-        tile_x: u16,
-        tile_y: u16,
         width: usize,
         alphas: &[u8],
         fill: &Paint,
@@ -216,8 +191,8 @@ impl<'a> Fine<'a> {
         let color_buf =
             &mut self.color_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
 
-        let start_x = tile_x * WideTile::WIDTH + x as u16;
-        let start_y = tile_y * Tile::HEIGHT;
+        let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
+        let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
         match fill {
             Paint::Solid(color) => {
