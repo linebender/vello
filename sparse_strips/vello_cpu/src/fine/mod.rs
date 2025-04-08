@@ -49,7 +49,7 @@ impl<'a> Fine<'a> {
         }
     }
 
-    /// Set tje coordinates of the current wide tile that is being processed (in tile units).
+    /// Set the coordinates of the current wide tile that is being processed (in tile units).
     pub fn set_coords(&mut self, x: u16, y: u16) {
         self.wide_coords = (x, y);
     }
