@@ -14,6 +14,7 @@ use vello_common::paint::{IndexedPaint, Paint};
 use vello_common::peniko::{Extend, GradientKind};
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
+const NUDGE_VAL: f32 = 1.0e-7;
 
 /// A kind of paint used for drawing shapes.
 #[derive(Debug, Clone)]
@@ -420,8 +421,6 @@ fn encode_stops(
             .premultiply()
             .to_rgba8()
             .to_u8_array();
-
-        const NUDGE_VAL: f32 = 1.0e-7;
         
         // Given two positions x0 and x1 as well as two corresponding colors c0 and c1,
         // the delta that needs to be applied to c0 to calculate the color of x between x0 and x1
