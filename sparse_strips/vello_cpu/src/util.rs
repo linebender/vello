@@ -33,7 +33,7 @@ pub(crate) mod scalar {
 
         #[test]
         fn division() {
-            for i in 0u16..=(255 * 255) {
+            for i in 0_u16..=(255 * 255) {
                 let expected = i / 255;
                 let actual = div_255(i);
 
@@ -44,7 +44,7 @@ pub(crate) mod scalar {
 
                 if i % 255 == 0 {
                     // Division should be accurate for multiples of 255.
-                    assert!(diff <= 0);
+                    assert_eq!(diff, 0);
                 }
             }
         }
