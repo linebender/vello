@@ -18,7 +18,7 @@ pub(crate) mod scalar {
     ///    and therefore preferable for the high-performance pipeline.
     ///
     /// Three properties worth mentioning:
-    /// - Rounding errors do not appear for values divisible by 255, i.e. any call div_255(x * 255) will always yield x.
+    /// - Rounding errors do not appear for values divisible by 255, i.e. any call `div_255(x * 255)` will always yield x.
     /// - If there is a discrepancy, this division will always yield a value 1 higher than the original.
     /// - This won't work for very high values of u16 due to overflow, but we won't call this method
     ///   with values higher than 255 * 255.
