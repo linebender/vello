@@ -14,12 +14,14 @@ pub(crate) mod scalar {
     ///    in a way that completely preserves the rounding semantics of a integer division by
     ///    255. This could be achieved using the implementation `(val + 1 + (val >> 8)) >> 8`.
     ///    The second approach (used here) has slightly different rounding behavior to a
-    ///    normal division by 255, but is much faster (see https://github.com/linebender/vello/issues/904)
+    ///    normal division by 255, but is much faster (see <https://github.com/linebender/vello/issues/904>)
     ///    and therefore preferable for the high-performance pipeline.
     ///
-    /// Two properties worth mentioning:
+    /// Three properties worth mentioning:
     /// - Rounding errors do not appear for values divisible by 255, i.e. any call div_255(x * 255) will always yield x.
     /// - If there is a discrepancy, this division will always yield a value 1 higher than the original.
+    /// - This won't work for very high values of u16 due to overflow, but we won't call this method
+    ///   with values higher than 255 * 255.
     #[inline(always)]
     pub(crate) const fn div_255(val: u16) -> u16 {
         (val + 255) >> 8
@@ -31,21 +33,18 @@ pub(crate) mod scalar {
 
         #[test]
         fn division() {
-            for i in 0u16..=255 {
-                for j in 0u16..=255 {
-                    let mulled = i * j;
-                    let expected = mulled / 255;
-                    let actual = div_255(mulled);
+            for i in 0u16..=(255 * 255) {
+                let expected = i / 255;
+                let actual = div_255(i);
 
-                    let diff = (expected as i32 - actual as i32).abs();
+                let diff = expected.abs_diff(actual);
 
-                    // Rounding error shouldn't be higher than 1.
-                    assert!(diff <= 1);
+                // Rounding error shouldn't be higher than 1.
+                assert!(diff <= 1);
 
-                    if i == 255 || j == 255 {
-                        // Division should be accurate for multiples of 255.
-                        assert!(diff <= 0);
-                    }
+                if i % 255 == 0 {
+                    // Division should be accurate for multiples of 255.
+                    assert!(diff <= 0);
                 }
             }
         }
