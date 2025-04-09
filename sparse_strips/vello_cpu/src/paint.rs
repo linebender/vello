@@ -421,6 +421,8 @@ fn encode_stops(
             .to_rgba8()
             .to_u8_array();
 
+        const NUDGE_VAL: f32 = 1.0e-7;
+        
         // Given two positions x0 and x1 as well as two corresponding colors c0 and c1,
         // the delta that needs to be applied to c0 to calculate the color of x between x0 and x1
         // is calculated by c0 + ((x - x0) / (x1 - x0)) * (c1 - c0).
@@ -428,7 +430,7 @@ fn encode_stops(
 
         // We call this method with two same stops for `left_range` and `right_range`, so make
         // sure we don't actually end up with a 0 here.
-        let x1_minus_x0 = (x1 - x0).max(0.0000001);
+        let x1_minus_x0 = (x1 - x0).max(NUDGE_VAL);
         let mut factors = [0.0; 4];
 
         for i in 0..COLOR_COMPONENTS {
