@@ -421,7 +421,7 @@ fn encode_stops(
             .premultiply()
             .to_rgba8()
             .to_u8_array();
-        
+
         // Given two positions x0 and x1 as well as two corresponding colors c0 and c1,
         // the delta that needs to be applied to c0 to calculate the color of x between x0 and x1
         // is calculated by c0 + ((x - x0) / (x1 - x0)) * (c1 - c0).
