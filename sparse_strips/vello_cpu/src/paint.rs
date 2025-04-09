@@ -276,6 +276,8 @@ impl Gradient {
         Paint::Indexed(IndexedPaint::new(idx))
     }
 
+    /// Returns a paint in case the gradient does not validate. The paint will be either
+    /// black or contain the color of the first stop of the gradient.
     fn validate(&self) -> Option<Paint> {
         let black = Some(BLACK.into());
 
@@ -292,7 +294,7 @@ impl Gradient {
 
         // First stop must be at offset 0.0 and last offset must be at 1.0.
         if self.stops[0].offset != 0.0 || self.stops[self.stops.len() - 1].offset != 1.0 {
-            return black;
+            return first;
         }
 
         for stops in self.stops.windows(2) {
@@ -301,12 +303,12 @@ impl Gradient {
 
             // Offsets must be between 0 and 1.
             if f.offset > 1.0 || f.offset < 0.0 {
-                return black;
+                return first;
             }
 
             // Stops must be sorted by ascending offset.
             if f.offset >= n.offset {
-                return black;
+                return first;
             }
         }
 
@@ -728,7 +730,7 @@ mod tests {
             opacity: 1.0,
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), BLACK.into());
+        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
     }
 
     #[test]
@@ -755,7 +757,7 @@ mod tests {
             opacity: 1.0,
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), BLACK.into());
+        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
     }
 
     #[test]
