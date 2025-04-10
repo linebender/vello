@@ -4,6 +4,7 @@
 //! Paints for drawing shapes.
 
 use crate::fine::COLOR_COMPONENTS;
+use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::f32::consts::PI;
 use std::iter;
@@ -11,7 +12,7 @@ use vello_common::color::palette::css::BLACK;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Point, Vec2};
 use vello_common::paint::{IndexedPaint, Paint};
-use vello_common::peniko::{Extend, GradientKind};
+use vello_common::peniko::{ColorStop, ColorStops, Extend, GradientKind};
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -47,7 +48,7 @@ pub struct Gradient {
     /// Note that the first stop must have an offset of 0.0 and the last stop
     /// must have an offset of 1.0. In addition to that, the stops must be sorted
     /// with offsets in ascending order.
-    pub stops: Vec<Stop>,
+    pub stops: ColorStops,
     /// A transformation to apply to the gradient.
     pub transform: Affine,
     /// The extend of the gradient.
@@ -70,7 +71,7 @@ impl Gradient {
             self.stops.iter().any(|s| s.color.components[3] != 1.0) || opacity != 1.0;
         let pad = self.extend == Extend::Pad;
 
-        let mut stops = Cow::Borrowed(&self.stops);
+        let mut stops = Cow::Borrowed(&self.stops.0);
         // For each gradient type, before doing anything we first translate it such that
         // one of the points of the gradient lands on the origin (0, 0). We do this because
         // it makes things simpler and allows for some optimizations for certain calculations.
@@ -95,11 +96,11 @@ impl Gradient {
                         stops
                             .iter()
                             .rev()
-                            .map(|s| Stop {
+                            .map(|s| ColorStop {
                                 offset: 1.0 - s.offset,
                                 color: s.color,
                             })
-                            .collect::<Vec<_>>(),
+                            .collect::<SmallVec<[ColorStop; 4]>>(),
                     );
                 }
 
@@ -287,7 +288,7 @@ impl Gradient {
             return black;
         }
 
-        let first = Some(self.stops[0].color.into());
+        let first = Some(self.stops[0].color.to_alpha_color::<Srgb>().into());
 
         if self.stops.len() == 1 {
             return first;
@@ -374,50 +375,43 @@ impl Gradient {
     }
 }
 
-/// A color stop.
-#[derive(Debug, Clone, Copy)]
-pub struct Stop {
-    /// The normalized offset of the stop. Must be between 0.0 and 1.0.
-    pub offset: f32,
-    /// The color of the stop.
-    pub color: AlphaColor<Srgb>,
-}
-
 /// Extend the stops so that we can treat a repeated gradient like a reflected gradient.
-fn apply_reflect(stops: &[Stop]) -> Vec<Stop> {
-    let first_half = stops.iter().map(|s| Stop {
+fn apply_reflect(stops: &[ColorStop]) -> SmallVec<[ColorStop; 4]> {
+    let first_half = stops.iter().map(|s| ColorStop {
         offset: s.offset / 2.0,
         color: s.color,
     });
 
-    let second_half = stops.iter().rev().map(|s| Stop {
+    let second_half = stops.iter().rev().map(|s| ColorStop {
         offset: 0.5 + (1.0 - s.offset) / 2.0,
         color: s.color,
     });
 
-    first_half.chain(second_half).collect::<Vec<_>>()
+    first_half.chain(second_half).collect::<SmallVec<_>>()
 }
 
 /// Encode all stops into a sequence of ranges.
 fn encode_stops(
-    stops: &[Stop],
+    stops: &[ColorStop],
     start: f32,
     end: f32,
     pad: bool,
     opacity: f32,
 ) -> Vec<GradientRange> {
-    let create_range = |left_stop: &Stop, right_stop: &Stop| {
+    let create_range = |left_stop: &ColorStop, right_stop: &ColorStop| {
         let x0 = start + (end - start) * left_stop.offset;
         let x1 = start + (end - start) * right_stop.offset;
         let c0 = left_stop
             .color
             .multiply_alpha(opacity)
+            .to_alpha_color::<Srgb>()
             .premultiply()
             .to_rgba8()
             .to_u8_array();
         let c1 = right_stop
             .color
             .multiply_alpha(opacity)
+            .to_alpha_color::<Srgb>()
             .premultiply()
             .to_rgba8()
             .to_u8_array();
@@ -661,11 +655,13 @@ impl GradientLike for RadialKind {
 
 #[cfg(test)]
 mod tests {
-    use crate::paint::{Gradient, Stop};
+    use crate::paint::Gradient;
+    use smallvec::smallvec;
+    use vello_common::color::DynamicColor;
     use vello_common::color::palette::css::{BLACK, BLUE, GREEN};
     use vello_common::kurbo::{Affine, Point};
-    use vello_common::peniko::Extend;
-    use vello_common::peniko::GradientKind;
+    use vello_common::peniko::{ColorStop, GradientKind};
+    use vello_common::peniko::{ColorStops, Extend};
 
     #[test]
     fn gradient_missing_stops() {
@@ -676,7 +672,7 @@ mod tests {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
             },
-            stops: vec![],
+            stops: ColorStops(smallvec![]),
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
             opacity: 1.0,
@@ -694,10 +690,10 @@ mod tests {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
             },
-            stops: vec![Stop {
+            stops: ColorStops(smallvec![ColorStop {
                 offset: 0.0,
-                color: GREEN,
-            }],
+                color: DynamicColor::from_alpha_color(GREEN),
+            }]),
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
             opacity: 1.0,
@@ -716,16 +712,16 @@ mod tests {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
             },
-            stops: vec![
-                Stop {
+            stops: ColorStops(smallvec![
+                ColorStop {
                     offset: 0.0,
-                    color: GREEN,
+                    color: DynamicColor::from_alpha_color(GREEN),
                 },
-                Stop {
+                ColorStop {
                     offset: 0.5,
-                    color: BLUE,
+                    color: DynamicColor::from_alpha_color(BLUE),
                 },
-            ],
+            ]),
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
             opacity: 1.0,
@@ -743,16 +739,16 @@ mod tests {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
             },
-            stops: vec![
-                Stop {
+            stops: ColorStops(smallvec![
+                ColorStop {
                     offset: 1.0,
-                    color: GREEN,
+                    color: DynamicColor::from_alpha_color(GREEN),
                 },
-                Stop {
+                ColorStop {
                     offset: 0.0,
-                    color: BLUE,
+                    color: DynamicColor::from_alpha_color(BLUE),
                 },
-            ],
+            ]),
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
             opacity: 1.0,
@@ -770,16 +766,16 @@ mod tests {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(0.0, 0.0),
             },
-            stops: vec![
-                Stop {
+            stops: ColorStops(smallvec![
+                ColorStop {
                     offset: 0.0,
-                    color: GREEN,
+                    color: DynamicColor::from_alpha_color(GREEN),
                 },
-                Stop {
+                ColorStop {
                     offset: 1.0,
-                    color: BLUE,
+                    color: DynamicColor::from_alpha_color(BLUE),
                 },
-            ],
+            ]),
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
             opacity: 1.0,
@@ -798,16 +794,16 @@ mod tests {
                 start_angle: 0.0,
                 end_angle: 380.0,
             },
-            stops: vec![
-                Stop {
+            stops: ColorStops(smallvec![
+                ColorStop {
                     offset: 0.0,
-                    color: GREEN,
+                    color: DynamicColor::from_alpha_color(GREEN),
                 },
-                Stop {
+                ColorStop {
                     offset: 1.0,
-                    color: BLUE,
+                    color: DynamicColor::from_alpha_color(BLUE),
                 },
-            ],
+            ]),
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
             opacity: 1.0,
@@ -827,16 +823,16 @@ mod tests {
                 end_center: Point::new(0.0, 0.0),
                 end_radius: 20.0,
             },
-            stops: vec![
-                Stop {
+            stops: ColorStops(smallvec![
+                ColorStop {
                     offset: 0.0,
-                    color: GREEN,
+                    color: DynamicColor::from_alpha_color(GREEN),
                 },
-                Stop {
+                ColorStop {
                     offset: 1.0,
-                    color: BLUE,
+                    color: DynamicColor::from_alpha_color(BLUE),
                 },
-            ],
+            ]),
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
             opacity: 1.0,

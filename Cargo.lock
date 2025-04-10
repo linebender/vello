@@ -3104,6 +3104,7 @@ dependencies = [
  "image",
  "oxipng",
  "skrifa",
+ "smallvec",
  "vello_common",
 ]
 

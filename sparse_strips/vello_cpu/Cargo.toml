@@ -18,6 +18,7 @@ path = "tests/mod.rs"
 
 [dependencies]
 vello_common = { workspace = true }
+smallvec = { workspace = true }
 
 [dev-dependencies]
 automod = "1.0"

@@ -11,12 +11,13 @@ use std::cmp::max;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
+use smallvec::smallvec;
+use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
-use vello_common::peniko::{Blob, Font};
+use vello_common::peniko::{Blob, ColorStop, ColorStops, Font};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::paint::Stop;
 use vello_cpu::RenderContext;
 
 static REFS_PATH: LazyLock<PathBuf> =
@@ -138,51 +139,51 @@ pub(crate) fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
 }
 
 
-pub(crate) fn stops_green_blue() -> Vec<Stop> {
-    vec![
-        Stop {
+pub(crate) fn stops_green_blue() -> ColorStops {
+    ColorStops(smallvec![
+        ColorStop {
             offset: 0.0,
-            color: GREEN,
+            color: DynamicColor::from_alpha_color(GREEN),
         },
-        Stop {
+        ColorStop {
             offset: 1.0,
-            color: BLUE,
+            color: DynamicColor::from_alpha_color(BLUE),
         },
-    ]
+    ])
 }
 
-pub(crate) fn stops_green_blue_with_alpha() -> Vec<Stop> {
-    vec![
-        Stop {
+pub(crate) fn stops_green_blue_with_alpha() -> ColorStops {
+    ColorStops(smallvec![
+        ColorStop {
             offset: 0.0,
-            color: GREEN.with_alpha(0.25),
+            color: DynamicColor::from_alpha_color(GREEN.with_alpha(0.25)),
         },
-        Stop {
+        ColorStop {
             offset: 1.0,
-            color: BLUE.with_alpha(0.75),
+            color: DynamicColor::from_alpha_color(BLUE.with_alpha(0.75)),
         },
-    ]
+    ])
 }
 
-pub(crate) fn stops_blue_green_red_yellow() -> Vec<Stop> {
-    vec![
-        Stop {
+pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
+    ColorStops(smallvec![
+        ColorStop {
             offset: 0.0,
-            color: BLUE,
+            color: DynamicColor::from_alpha_color(BLUE),
         },
-        Stop {
+        ColorStop {
             offset: 0.33,
-            color: GREEN,
+            color: DynamicColor::from_alpha_color(GREEN),
         },
-        Stop {
+        ColorStop {
             offset: 0.66,
-            color: RED,
+            color: DynamicColor::from_alpha_color(RED),
         },
-        Stop {
+        ColorStop {
             offset: 1.0,
-            color: YELLOW,
+            color: DynamicColor::from_alpha_color(YELLOW),
         },
-    ]
+    ])
 }
 
 
