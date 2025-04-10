@@ -12,10 +12,11 @@ use vello_common::{
 
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_COMPONENTS;
-pub(crate) const SCRATCH_BUF_SIZE: usize =
+#[doc(hidden)]
+pub const SCRATCH_BUF_SIZE: usize =
     WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
-
-pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
+#[doc(hidden)]
+pub type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
 
 #[derive(Debug)]
 #[doc(hidden)]
@@ -53,7 +54,8 @@ impl Fine {
         }
     }
 
-    pub(crate) fn pack(&mut self, x: u16, y: u16, out_buf: &mut [u8]) {
+    #[doc(hidden)]
+    pub fn pack(&mut self, x: u16, y: u16, out_buf: &mut [u8]) {
         let scratch = self.scratch.last_mut().unwrap();
         pack(
             out_buf,
