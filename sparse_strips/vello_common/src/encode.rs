@@ -3,15 +3,15 @@
 
 //! Paints for drawing shapes.
 
+use crate::color::Srgb;
+use crate::color::palette::css::BLACK;
+use crate::kurbo::{Affine, Point, Vec2};
+use crate::peniko::{ColorStop, Extend, GradientKind};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::f32::consts::PI;
 use std::iter;
-use vello_api::paint::{IndexedPaint, Paint, Gradient};
-use crate::color::palette::css::BLACK;
-use crate::color::Srgb;
-use crate::kurbo::{Affine, Point, Vec2};
-use crate::peniko::{ColorStop, Extend, GradientKind};
+use vello_api::paint::{Gradient, IndexedPaint, Paint};
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -319,10 +319,7 @@ fn validate(gradient: &Gradient) -> Option<Paint> {
             ..
         } => {
             // Angles must be between 0 and 360.
-            if *start_angle < 0.0
-                || *start_angle > 360.0
-                || *end_angle < 0.0
-                || *end_angle > 360.0
+            if *start_angle < 0.0 || *start_angle > 360.0 || *end_angle < 0.0 || *end_angle > 360.0
             {
                 return first;
             }
@@ -634,13 +631,13 @@ impl GradientLike for RadialKind {
 
 #[cfg(test)]
 mod tests {
-    use super::{Gradient, Encode};
-    use smallvec::smallvec;
+    use super::{Encode, Gradient};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::{Affine, Point};
     use crate::peniko::{ColorStop, GradientKind};
     use crate::peniko::{ColorStops, Extend};
+    use smallvec::smallvec;
 
     #[test]
     fn gradient_missing_stops() {

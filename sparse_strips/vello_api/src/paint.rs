@@ -3,9 +3,9 @@
 
 //! Types for paints.
 
+use crate::kurbo::Affine;
 use peniko::color::{AlphaColor, PremulRgba8, Srgb};
 use peniko::{ColorStops, GradientKind};
-use crate::kurbo::Affine;
 
 /// A paint that needs to be resolved via its index.
 // In the future, we might add additional flags, that's why we have
