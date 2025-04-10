@@ -7,7 +7,7 @@
 mod gradient;
 use crate::fine::gradient::GradientFiller;
 use std::iter;
-use vello_common::encode::{EncodedKind, EncodedPaint};
+use vello_common::encode::{EncodedKind, EncodedPaint, GradientLike};
 use vello_common::paint::Paint;
 use vello_common::{
     coarse::{Cmd, WideTile},
@@ -118,6 +118,25 @@ impl<'a> Fine<'a> {
         let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
         let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
+        fn fill_gradient<T: GradientLike>(
+            color_buf: &mut [u8],
+            blend_buf: &mut [u8],
+            has_opacities: bool,
+            filler: GradientFiller<'_, T>,
+        ) {
+            if has_opacities {
+                filler.run(color_buf);
+                fill::src_over(
+                    blend_buf,
+                    color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+                );
+            } else {
+                // Similarly to solid colors we can just override the previous values
+                // if all colors in the gradient are fully opaque.
+                filler.run(blend_buf);
+            }
+        }
+
         match fill {
             Paint::Solid(color) => {
                 let color = &color.to_u8_array();
@@ -136,35 +155,19 @@ impl<'a> Fine<'a> {
             Paint::Indexed(i) => {
                 let paint = &encoded_paints[i.index()];
 
-                macro_rules! gradient {
-                    ($iter:expr,$opacities:expr) => {
-                        if $opacities {
-                            $iter.run(color_buf);
-                            fill::src_over(
-                                blend_buf,
-                                color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-                            );
-                        } else {
-                            // Similarly to solid colors we can just override the previous values
-                            // if all colors in the gradient are fully opaque.
-                            $iter.run(blend_buf);
-                        }
-                    };
-                }
-
                 match paint {
                     EncodedPaint::Gradient(g) => match &g.kind {
                         EncodedKind::Linear(l) => {
-                            let iter = GradientFiller::new(g, l, start_x, start_y);
-                            gradient!(iter, g.has_opacities);
+                            let filler = GradientFiller::new(g, l, start_x, start_y);
+                            fill_gradient(color_buf, blend_buf, g.has_opacities, filler);
                         }
                         EncodedKind::Radial(r) => {
-                            let iter = GradientFiller::new(g, r, start_x, start_y);
-                            gradient!(iter, g.has_opacities);
+                            let filler = GradientFiller::new(g, r, start_x, start_y);
+                            fill_gradient(color_buf, blend_buf, g.has_opacities, filler);
                         }
                         EncodedKind::Sweep(s) => {
-                            let iter = GradientFiller::new(g, s, start_x, start_y);
-                            gradient!(iter, g.has_opacities);
+                            let filler = GradientFiller::new(g, s, start_x, start_y);
+                            fill_gradient(color_buf, blend_buf, g.has_opacities, filler);
                         }
                     },
                 }
@@ -194,6 +197,20 @@ impl<'a> Fine<'a> {
         let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
         let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
+        fn strip_gradient<T: GradientLike>(
+            color_buf: &mut [u8],
+            blend_buf: &mut [u8],
+            filler: GradientFiller<'_, T>,
+            alphas: &[u8],
+        ) {
+            filler.run(color_buf);
+            strip::src_over(
+                blend_buf,
+                color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+                alphas,
+            );
+        }
+
         match fill {
             Paint::Solid(color) => {
                 strip::src_over(blend_buf, iter::repeat(color.to_u8_array()), alphas);
@@ -201,30 +218,19 @@ impl<'a> Fine<'a> {
             Paint::Indexed(i) => {
                 let encoded_paint = &paints[i.index()];
 
-                macro_rules! gradient {
-                    ($iter:expr) => {
-                        $iter.run(color_buf);
-                        strip::src_over(
-                            blend_buf,
-                            color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-                            alphas,
-                        );
-                    };
-                }
-
                 match encoded_paint {
                     EncodedPaint::Gradient(g) => match &g.kind {
                         EncodedKind::Linear(l) => {
-                            let iter = GradientFiller::new(g, l, start_x, start_y);
-                            gradient!(iter);
+                            let filler = GradientFiller::new(g, l, start_x, start_y);
+                            strip_gradient(color_buf, blend_buf, filler, alphas);
                         }
                         EncodedKind::Radial(r) => {
-                            let iter = GradientFiller::new(g, r, start_x, start_y);
-                            gradient!(iter);
+                            let filler = GradientFiller::new(g, r, start_x, start_y);
+                            strip_gradient(color_buf, blend_buf, filler, alphas);
                         }
                         EncodedKind::Sweep(s) => {
-                            let iter = GradientFiller::new(g, s, start_x, start_y);
-                            gradient!(iter);
+                            let filler = GradientFiller::new(g, s, start_x, start_y);
+                            strip_gradient(color_buf, blend_buf, filler, alphas);
                         }
                     },
                 }
