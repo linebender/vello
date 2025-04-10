@@ -16,26 +16,26 @@ use vello_common::{
 
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_COMPONENTS;
-pub(crate) const SCRATCH_BUF_SIZE: usize =
+#[doc(hidden)]
+pub const SCRATCH_BUF_SIZE: usize =
     WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
-
-pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
+#[doc(hidden)]
+pub type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
 
 #[derive(Debug)]
 #[doc(hidden)]
 /// This is an internal struct, do not access directly.
-pub struct Fine<'a> {
+pub struct Fine {
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) wide_coords: (u16, u16),
-    pub(crate) out_buf: &'a mut [u8],
     pub(crate) blend_buf: Vec<ScratchBuf>,
     pub(crate) color_buf: ScratchBuf,
 }
 
-impl<'a> Fine<'a> {
+impl Fine {
     /// Create a new fine rasterizer.
-    pub fn new(width: u16, height: u16, out_buf: &'a mut [u8]) -> Self {
+    pub fn new(width: u16, height: u16) -> Self {
         let blend_buf = [0; SCRATCH_BUF_SIZE];
         let color_buf = [0; SCRATCH_BUF_SIZE];
 
@@ -43,7 +43,6 @@ impl<'a> Fine<'a> {
             width,
             height,
             wide_coords: (0, 0),
-            out_buf,
             blend_buf: vec![blend_buf],
             color_buf,
         }
@@ -70,11 +69,12 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn pack(&mut self) {
+    #[doc(hidden)]
+    pub fn pack(&mut self, out_buf: &mut [u8]) {
         let blend_buf = self.blend_buf.last_mut().unwrap();
 
         pack(
-            self.out_buf,
+            out_buf,
             blend_buf,
             self.width.into(),
             self.height.into(),

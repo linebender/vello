@@ -169,6 +169,10 @@ impl RenderContext {
 
     /// Reset the render context.
     pub fn reset(&mut self) {
+        self.line_buf.clear();
+        self.tiles.reset();
+        self.alphas.clear();
+        self.strip_buf.clear();
         self.wide.reset();
     }
 
@@ -179,7 +183,7 @@ impl RenderContext {
                 panic!("All clips must be popped before rendering");
             }
         }
-        let mut fine = Fine::new(pixmap.width, pixmap.height, &mut pixmap.buf);
+        let mut fine = Fine::new(pixmap.width, pixmap.height);
 
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();
@@ -192,7 +196,7 @@ impl RenderContext {
                 for cmd in &wtile.cmds {
                     fine.run_cmd(cmd, &self.alphas, &self.encoded_paints);
                 }
-                fine.pack();
+                fine.pack(&mut pixmap.buf);
             }
         }
     }
@@ -260,5 +264,29 @@ impl GlyphRenderer for RenderContext {
                 self.render_path(Fill::NonZero, paint);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::RenderContext;
+    use vello_common::kurbo::Rect;
+
+    #[test]
+    fn reset_render_context() {
+        let mut ctx = RenderContext::new(100, 100);
+        let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+
+        ctx.fill_rect(&rect);
+
+        assert!(!ctx.line_buf.is_empty());
+        assert!(!ctx.strip_buf.is_empty());
+        assert!(!ctx.alphas.is_empty());
+
+        ctx.reset();
+
+        assert!(ctx.line_buf.is_empty());
+        assert!(ctx.strip_buf.is_empty());
+        assert!(ctx.alphas.is_empty());
     }
 }

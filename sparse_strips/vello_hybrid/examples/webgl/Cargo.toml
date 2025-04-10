@@ -20,13 +20,20 @@ js-sys = "0.3.77"
 log = { workspace = true }
 vello_common = { workspace = true }
 vello_hybrid = { workspace = true }
+vello_hybrid_scenes = { workspace = true }
 wasm-bindgen = "0.2.100"
 wasm-bindgen-futures = "0.4.50"
 web-sys = { version = "0.3.77", features = [
     "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
     "HtmlCanvasElement",
     "CssStyleDeclaration",
     "WebGl2RenderingContext",
+    "MouseEvent",
+    "WheelEvent",
+    "KeyboardEvent",
 ] }
 wgpu = { workspace = true, features = ["webgl"] }
 
