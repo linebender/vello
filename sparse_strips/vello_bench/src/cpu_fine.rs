@@ -11,7 +11,7 @@ use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, ROYAL_BLUE, YELLOW};
 use vello_common::encode::Encode;
 use vello_common::kurbo::{Affine, Point};
-use vello_common::paint::{Paint, Gradient};
+use vello_common::paint::{Gradient, Paint};
 use vello_common::peniko;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
 use vello_common::tile::Tile;
@@ -264,7 +264,7 @@ pub fn pack(c: &mut Criterion) {
         let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
 
         b.iter(|| {
-            fine.pack(0, 0, &mut buf);
+            fine.pack(&mut buf);
             std::hint::black_box(&buf);
         });
     });
