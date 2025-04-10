@@ -115,7 +115,7 @@ fn glyphs_skewed_long() {
     );
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(-10_f64.to_radians().tan(), 0.))
@@ -135,7 +135,7 @@ fn glyphs_skewed_long_unhinted() {
     );
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(-10_f64.to_radians().tan(), 0.))
@@ -155,7 +155,7 @@ fn glyphs_skewed_unskewed() {
         Affine::translate((0., f64::from(font_size)))
             * Affine::skew(-20_f64.to_radians().tan(), 0.),
     );
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(20_f64.to_radians().tan(), 0.))
@@ -175,7 +175,7 @@ fn glyphs_skewed_unskewed_unhinted() {
         Affine::translate((0., f64::from(font_size)))
             * Affine::skew(-20_f64.to_radians().tan(), 0.),
     );
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(20_f64.to_radians().tan(), 0.))

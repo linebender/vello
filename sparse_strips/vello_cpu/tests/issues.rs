@@ -296,7 +296,7 @@ fn eo_filling_missing_anti_aliasing() {
 fn fill_command_respects_clip_bounds() {
     let mut ctx = get_ctx(600, 600, true);
     ctx.clip(&Rect::new(400.0, 400.0, 500.0, 500.0).to_path(0.1));
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 600.0, 600.0));
     ctx.finish();
     check_ref(&ctx, "fill_command_respects_clip_bounds");
