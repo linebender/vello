@@ -5,15 +5,17 @@ use crate::SEED;
 use criterion::Criterion;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
+use smallvec::smallvec;
 use vello_common::coarse::WideTile;
+use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, ROYAL_BLUE, YELLOW};
+use vello_common::encode::Encode;
 use vello_common::kurbo::{Affine, Point};
-use vello_common::paint::Paint;
+use vello_common::paint::{Paint, Gradient};
 use vello_common::peniko;
-use vello_common::peniko::GradientKind;
+use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
 use vello_common::tile::Tile;
 use vello_cpu::fine::Fine;
-use vello_cpu::paint::{Gradient, Stop};
 
 pub fn fill(c: &mut Criterion) {
     let mut g = c.benchmark_group("fine/fill");
@@ -210,44 +212,44 @@ pub fn strip(c: &mut Criterion) {
     // as for filling.
 }
 
-fn stops_blue_green_red_yellow_opaque() -> Vec<Stop> {
-    vec![
-        Stop {
+fn stops_blue_green_red_yellow_opaque() -> ColorStops {
+    ColorStops(smallvec![
+        ColorStop {
             offset: 0.0,
-            color: BLUE,
+            color: DynamicColor::from_alpha_color(BLUE),
         },
-        Stop {
+        ColorStop {
             offset: 0.33,
-            color: GREEN,
+            color: DynamicColor::from_alpha_color(GREEN),
         },
-        Stop {
+        ColorStop {
             offset: 0.66,
-            color: RED,
+            color: DynamicColor::from_alpha_color(RED),
         },
-        Stop {
+        ColorStop {
             offset: 1.0,
-            color: YELLOW,
+            color: DynamicColor::from_alpha_color(YELLOW),
         },
-    ]
+    ])
 }
 
-fn stops_blue_green_red_yellow() -> Vec<Stop> {
-    vec![
-        Stop {
+fn stops_blue_green_red_yellow() -> ColorStops {
+    ColorStops(smallvec![
+        ColorStop {
             offset: 0.0,
-            color: BLUE,
+            color: DynamicColor::from_alpha_color(BLUE),
         },
-        Stop {
+        ColorStop {
             offset: 0.33,
-            color: GREEN.with_alpha(0.5),
+            color: DynamicColor::from_alpha_color(GREEN.with_alpha(0.5)),
         },
-        Stop {
+        ColorStop {
             offset: 0.66,
-            color: RED,
+            color: DynamicColor::from_alpha_color(RED),
         },
-        Stop {
+        ColorStop {
             offset: 1.0,
-            color: YELLOW.with_alpha(0.7),
+            color: DynamicColor::from_alpha_color(YELLOW.with_alpha(0.7)),
         },
-    ]
+    ])
 }

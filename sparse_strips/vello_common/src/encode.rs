@@ -3,65 +3,31 @@
 
 //! Paints for drawing shapes.
 
-use crate::fine::COLOR_COMPONENTS;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::f32::consts::PI;
 use std::iter;
-use vello_common::color::palette::css::BLACK;
-use vello_common::color::{AlphaColor, Srgb};
-use vello_common::kurbo::{Affine, Point, Vec2};
-use vello_common::paint::{IndexedPaint, Paint};
-use vello_common::peniko::{ColorStop, ColorStops, Extend, GradientKind};
+use vello_api::paint::{IndexedPaint, Paint, Gradient};
+use crate::color::palette::css::BLACK;
+use crate::color::Srgb;
+use crate::kurbo::{Affine, Point, Vec2};
+use crate::peniko::{ColorStop, Extend, GradientKind};
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
 
-/// A kind of paint used for drawing shapes.
-#[derive(Debug, Clone)]
-pub enum PaintType {
-    /// A solid color.
-    Solid(AlphaColor<Srgb>),
-    /// A gradient.
-    Gradient(Gradient),
+/// A trait for encoding gradients.
+pub trait Encode {
+    /// Encode the gradient and push it into a vector of encoded paints, returning
+    /// the corresponding paint in the process. This will also validate the gradient.
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint;
 }
 
-impl From<AlphaColor<Srgb>> for PaintType {
-    fn from(value: AlphaColor<Srgb>) -> Self {
-        Self::Solid(value)
-    }
-}
-
-impl From<Gradient> for PaintType {
-    fn from(value: Gradient) -> Self {
-        Self::Gradient(value)
-    }
-}
-
-/// A gradient.
-#[derive(Debug, Clone)]
-pub struct Gradient {
-    /// The underlying kind of gradient.
-    pub kind: GradientKind,
-    /// The stops that makes up the gradient.
-    ///
-    /// Note that the first stop must have an offset of 0.0 and the last stop
-    /// must have an offset of 1.0. In addition to that, the stops must be sorted
-    /// with offsets in ascending order.
-    pub stops: ColorStops,
-    /// A transformation to apply to the gradient.
-    pub transform: Affine,
-    /// The extend of the gradient.
-    pub extend: Extend,
-    /// An additional opacity to apply to all gradient stops.
-    pub opacity: f32,
-}
-
-impl Gradient {
+impl Encode for Gradient {
     /// Encode the gradient into a paint.
-    pub fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint {
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint {
         // First make sure that the gradient is valid and not degenerate.
-        if let Some(paint) = self.validate() {
+        if let Some(paint) = validate(self) {
             return paint;
         }
 
@@ -277,102 +243,102 @@ impl Gradient {
 
         Paint::Indexed(IndexedPaint::new(idx))
     }
+}
 
-    /// Returns a paint in case the gradient does not validate. The paint will be either
-    /// black or contain the color of the first stop of the gradient.
-    fn validate(&self) -> Option<Paint> {
-        let black = Some(BLACK.into());
+/// Returns a fallback paint in case the gradient is invalid. The paint will be either
+/// black or contain the color of the first stop of the gradient.
+fn validate(gradient: &Gradient) -> Option<Paint> {
+    let black = Some(BLACK.into());
 
-        // Gradients need at least two stops.
-        if self.stops.is_empty() {
-            return black;
-        }
-
-        let first = Some(self.stops[0].color.to_alpha_color::<Srgb>().into());
-
-        if self.stops.len() == 1 {
-            return first;
-        }
-
-        // First stop must be at offset 0.0 and last offset must be at 1.0.
-        if self.stops[0].offset != 0.0 || self.stops[self.stops.len() - 1].offset != 1.0 {
-            return first;
-        }
-
-        for stops in self.stops.windows(2) {
-            let f = stops[0];
-            let n = stops[1];
-
-            // Offsets must be between 0 and 1.
-            if f.offset > 1.0 || f.offset < 0.0 {
-                return first;
-            }
-
-            // Stops must be sorted by ascending offset.
-            if f.offset >= n.offset {
-                return first;
-            }
-        }
-
-        let degenerate_point = |p1: &Point, p2: &Point| {
-            (p1.x - p2.x).abs() as f32 <= DEGENERATE_THRESHOLD
-                && (p1.y - p2.y).abs() as f32 <= DEGENERATE_THRESHOLD
-        };
-
-        let degenerate_val = |v1: f32, v2: f32| (v2 - v1).abs() <= DEGENERATE_THRESHOLD;
-
-        match &self.kind {
-            GradientKind::Linear { start, end } => {
-                // Start and end points must not be too close together.
-                if degenerate_point(start, end) {
-                    return first;
-                }
-            }
-            GradientKind::Radial {
-                start_center,
-                start_radius,
-                end_center,
-                end_radius,
-            } => {
-                // Radii must not be negative.
-                if *start_radius < 0.0 || *end_radius < 0.0 {
-                    return first;
-                }
-
-                // Radii and center points must not be close to the same.
-                if degenerate_point(start_center, end_center)
-                    && degenerate_val(*start_radius, *end_radius)
-                {
-                    return first;
-                }
-            }
-            GradientKind::Sweep {
-                start_angle,
-                end_angle,
-                ..
-            } => {
-                // Angles must be between 0 and 360.
-                if *start_angle < 0.0
-                    || *start_angle > 360.0
-                    || *end_angle < 0.0
-                    || *end_angle > 360.0
-                {
-                    return first;
-                }
-
-                // The end angle must be larger than the start angle.
-                if degenerate_val(*start_angle, *end_angle) {
-                    return first;
-                }
-
-                if end_angle <= start_angle {
-                    return first;
-                }
-            }
-        }
-
-        None
+    // Gradients need at least two stops.
+    if gradient.stops.is_empty() {
+        return black;
     }
+
+    let first = Some(gradient.stops[0].color.to_alpha_color::<Srgb>().into());
+
+    if gradient.stops.len() == 1 {
+        return first;
+    }
+
+    // First stop must be at offset 0.0 and last offset must be at 1.0.
+    if gradient.stops[0].offset != 0.0 || gradient.stops[gradient.stops.len() - 1].offset != 1.0 {
+        return first;
+    }
+
+    for stops in gradient.stops.windows(2) {
+        let f = stops[0];
+        let n = stops[1];
+
+        // Offsets must be between 0 and 1.
+        if f.offset > 1.0 || f.offset < 0.0 {
+            return first;
+        }
+
+        // Stops must be sorted by ascending offset.
+        if f.offset >= n.offset {
+            return first;
+        }
+    }
+
+    let degenerate_point = |p1: &Point, p2: &Point| {
+        (p1.x - p2.x).abs() as f32 <= DEGENERATE_THRESHOLD
+            && (p1.y - p2.y).abs() as f32 <= DEGENERATE_THRESHOLD
+    };
+
+    let degenerate_val = |v1: f32, v2: f32| (v2 - v1).abs() <= DEGENERATE_THRESHOLD;
+
+    match &gradient.kind {
+        GradientKind::Linear { start, end } => {
+            // Start and end points must not be too close together.
+            if degenerate_point(start, end) {
+                return first;
+            }
+        }
+        GradientKind::Radial {
+            start_center,
+            start_radius,
+            end_center,
+            end_radius,
+        } => {
+            // Radii must not be negative.
+            if *start_radius < 0.0 || *end_radius < 0.0 {
+                return first;
+            }
+
+            // Radii and center points must not be close to the same.
+            if degenerate_point(start_center, end_center)
+                && degenerate_val(*start_radius, *end_radius)
+            {
+                return first;
+            }
+        }
+        GradientKind::Sweep {
+            start_angle,
+            end_angle,
+            ..
+        } => {
+            // Angles must be between 0 and 360.
+            if *start_angle < 0.0
+                || *start_angle > 360.0
+                || *end_angle < 0.0
+                || *end_angle > 360.0
+            {
+                return first;
+            }
+
+            // The end angle must be larger than the start angle.
+            if degenerate_val(*start_angle, *end_angle) {
+                return first;
+            }
+
+            if end_angle <= start_angle {
+                return first;
+            }
+        }
+    }
+
+    None
 }
 
 /// Extend the stops so that we can treat a repeated gradient like a reflected gradient.
@@ -426,7 +392,7 @@ fn encode_stops(
         let x1_minus_x0 = (x1 - x0).max(NUDGE_VAL);
         let mut factors = [0.0; 4];
 
-        for i in 0..COLOR_COMPONENTS {
+        for i in 0..4 {
             let c1_minus_c0 = c1[i] as f32 - c0[i] as f32;
             factors[i] = c1_minus_c0 / x1_minus_x0;
         }
@@ -485,19 +451,21 @@ impl From<EncodedGradient> for EncodedPaint {
     }
 }
 
+/// Computed properties of a linear gradient.
 #[derive(Debug)]
-pub(crate) struct LinearKind {
-    pub(crate) distance: f32,
-    pub(crate) y2_minus_y1: f32,
-    pub(crate) x2_minus_x1: f32,
+pub struct LinearKind {
+    distance: f32,
+    y2_minus_y1: f32,
+    x2_minus_x1: f32,
 }
 
+/// Computed properties of a radial gradient.
 #[derive(Debug)]
-pub(crate) struct RadialKind {
-    pub(crate) c1: (f32, f32),
-    pub(crate) r0: f32,
-    pub(crate) r1: f32,
-    pub(crate) cone_like: bool,
+pub struct RadialKind {
+    c1: (f32, f32),
+    r0: f32,
+    r1: f32,
+    cone_like: bool,
 }
 
 impl RadialKind {
@@ -553,13 +521,18 @@ impl RadialKind {
     }
 }
 
+/// Computed properties of a sweep gradient.
 #[derive(Debug)]
-pub(crate) struct SweepKind;
+pub struct SweepKind;
 
+/// A kind of encoded gradient.
 #[derive(Debug)]
-pub(crate) enum EncodedKind {
+pub enum EncodedKind {
+    /// An encoded linear gradient.
     Linear(LinearKind),
+    /// An encoded radial gradient.
     Radial(RadialKind),
+    /// An encoded sweep gradient.
     Sweep(SweepKind),
 }
 
@@ -567,38 +540,44 @@ pub(crate) enum EncodedKind {
 #[derive(Debug)]
 pub struct EncodedGradient {
     /// The underlying kind of gradient.
-    pub(crate) kind: EncodedKind,
+    pub kind: EncodedKind,
     /// A transform that needs to be applied to the position of the first processed pixel.
-    pub(crate) transform: Affine,
+    pub transform: Affine,
     /// How much to advance into the x/y direction for one step in the x direction.
-    pub(crate) x_advance: Vec2,
+    pub x_advance: Vec2,
     /// How much to advance into the x/y direction for one step in the y direction.
-    pub(crate) y_advance: Vec2,
+    pub y_advance: Vec2,
     /// The color ranges of the gradient.
-    pub(crate) ranges: Vec<GradientRange>,
+    pub ranges: Vec<GradientRange>,
     /// Whether the gradient should be padded.
-    pub(crate) pad: bool,
+    pub pad: bool,
     /// Whether the gradient requires `source_over` compositing.
-    pub(crate) has_opacities: bool,
+    pub has_opacities: bool,
     /// The values that should be used for clamping when applying the extend.
-    pub(crate) clamp_range: (f32, f32),
+    pub clamp_range: (f32, f32),
 }
 
+/// An encoded ange between two color stops.
 #[derive(Debug, Clone)]
-pub(crate) struct GradientRange {
+pub struct GradientRange {
     /// The start value of the range.
-    pub(crate) x0: f32,
+    pub x0: f32,
     /// The end value of the range.
-    pub(crate) x1: f32,
+    pub x1: f32,
     /// The start color of the range.
-    pub(crate) c0: [u8; 4],
+    pub c0: [u8; 4],
     /// The interpolation factors of the range.
-    pub(crate) factors: [f32; 4],
+    pub factors: [f32; 4],
 }
 
-pub(crate) trait GradientLike {
+/// Sampling positions in a gradient.
+pub trait GradientLike {
+    /// Given a position, return the position on the gradient range.
     fn cur_pos(&self, pos: &Point) -> f32;
+    /// Whether the gradient is possibly not defined over the whole domain of points.
     fn has_undefined(&self) -> bool;
+    /// Whether the current position is defined in the gradient. If `has_undefined` returns `false`,
+    /// this will return false for all possible points.
     fn is_defined(&self, pos: &Point) -> bool;
 }
 
@@ -655,13 +634,13 @@ impl GradientLike for RadialKind {
 
 #[cfg(test)]
 mod tests {
-    use crate::paint::Gradient;
+    use super::{Gradient, Encode};
     use smallvec::smallvec;
-    use vello_common::color::DynamicColor;
-    use vello_common::color::palette::css::{BLACK, BLUE, GREEN};
-    use vello_common::kurbo::{Affine, Point};
-    use vello_common::peniko::{ColorStop, GradientKind};
-    use vello_common::peniko::{ColorStops, Extend};
+    use crate::color::DynamicColor;
+    use crate::color::palette::css::{BLACK, BLUE, GREEN};
+    use crate::kurbo::{Affine, Point};
+    use crate::peniko::{ColorStop, GradientKind};
+    use crate::peniko::{ColorStops, Extend};
 
     #[test]
     fn gradient_missing_stops() {

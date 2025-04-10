@@ -3081,6 +3081,7 @@ version = "0.0.0"
 dependencies = [
  "criterion",
  "rand",
+ "smallvec",
  "usvg",
  "vello_common",
  "vello_cpu",
@@ -3093,6 +3094,7 @@ dependencies = [
  "bytemuck",
  "roxmltree",
  "skrifa",
+ "smallvec",
  "vello_api",
 ]
 

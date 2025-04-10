@@ -19,5 +19,6 @@ pub mod pico_svg;
 pub mod pixmap;
 pub mod strip;
 pub mod tile;
+pub mod encode;
 
 pub use vello_api::*;

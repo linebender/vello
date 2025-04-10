@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use vello_common::kurbo::{Affine, Point, Rect};
+use vello_common::paint::Gradient;
 use vello_common::peniko::GradientKind;
-use vello_cpu::paint::Gradient;
 use crate::util::{check_ref, get_ctx, stops_blue_green_red_yellow, stops_green_blue};
 
 pub(crate) fn tan_45() -> f64 {
@@ -61,8 +61,8 @@ mod linear {
     };
     use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
+    use vello_common::paint::Gradient;
     use vello_common::peniko::GradientKind;
-    use vello_cpu::paint::Gradient;
     use crate::gradient::tan_45;
 
     #[test]
@@ -468,7 +468,7 @@ mod radial {
     use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::GradientKind::Radial;
-    use vello_cpu::paint::Gradient;
+    use vello_common::paint::Gradient;
     use crate::gradient::tan_45;
 
     macro_rules! simple {
@@ -897,7 +897,7 @@ mod sweep {
     use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::GradientKind;
-    use vello_cpu::paint::Gradient;
+    use vello_common::paint::Gradient;
     use crate::gradient::tan_45;
 
     macro_rules! basic {

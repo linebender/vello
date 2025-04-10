@@ -4,7 +4,7 @@
 //! Rendering linear gradients.
 
 use crate::fine::{COLOR_COMPONENTS, TILE_HEIGHT_COMPONENTS};
-use crate::paint::{EncodedGradient, GradientLike, GradientRange};
+use vello_common::encode::{EncodedGradient, GradientLike, GradientRange};
 use vello_common::kurbo::Point;
 
 #[derive(Debug)]

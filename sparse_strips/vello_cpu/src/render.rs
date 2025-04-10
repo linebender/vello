@@ -4,12 +4,12 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
-use crate::paint::{EncodedPaint, PaintType};
 use vello_common::coarse::{SceneState, Wide};
+use vello_common::encode::{Encode, EncodedPaint};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
-use vello_common::paint::Paint;
+use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
