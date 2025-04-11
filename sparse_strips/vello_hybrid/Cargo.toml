@@ -20,9 +20,6 @@ bytemuck = { workspace = true, features = ["derive"] }
 wgpu = { workspace = true }
 
 [dev-dependencies]
-winit = "0.30.9"
-skrifa = { workspace = true }
-parley = { version = "0.3.0", default-features = false, features = ["std"] }
+png = { workspace = true }
 pollster = { workspace = true }
-png = "0.17.14"
 roxmltree = "0.20.0"

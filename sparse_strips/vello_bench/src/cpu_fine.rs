@@ -8,7 +8,7 @@ use rand::{Rng, SeedableRng};
 use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::tile::Tile;
-use vello_cpu::fine::Fine;
+use vello_cpu::fine::{Fine, SCRATCH_BUF_SIZE};
 
 pub fn fill(c: &mut Criterion) {
     let mut g = c.benchmark_group("fine/fill");
@@ -16,8 +16,7 @@ pub fn fill(c: &mut Criterion) {
     macro_rules! fill_single {
         ($name:ident, $paint:expr) => {
             g.bench_function(stringify!($name), |b| {
-                let mut out = vec![];
-                let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT, &mut out);
+                let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
 
                 b.iter(|| {
                     fine.fill(0, WideTile::WIDTH as usize, $paint);
@@ -45,8 +44,7 @@ pub fn strip(c: &mut Criterion) {
     macro_rules! strip_single {
         ($name:ident, $paint:expr) => {
             g.bench_function(stringify!($name), |b| {
-                let mut out = vec![];
-                let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT, &mut out);
+                let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
 
                 b.iter(|| {
                     fine.strip(0, WideTile::WIDTH as usize, &alphas, $paint);
@@ -58,4 +56,22 @@ pub fn strip(c: &mut Criterion) {
     }
 
     strip_single!(basic, &ROYAL_BLUE.into());
+}
+
+pub fn pack(c: &mut Criterion) {
+    c.bench_function("fine/pack", |b| {
+        let mut buf = vec![0_u8; SCRATCH_BUF_SIZE];
+        let mut scratch = [0_u8; SCRATCH_BUF_SIZE];
+
+        for (n, e) in scratch.iter_mut().enumerate() {
+            *e = u8::try_from(n % 256).unwrap();
+        }
+
+        let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
+
+        b.iter(|| {
+            fine.pack(0, 0, &mut buf);
+            std::hint::black_box(&buf);
+        });
+    });
 }

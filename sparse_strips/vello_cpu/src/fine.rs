@@ -12,30 +12,29 @@ use vello_common::{
 
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_COMPONENTS;
-pub(crate) const SCRATCH_BUF_SIZE: usize =
+#[doc(hidden)]
+pub const SCRATCH_BUF_SIZE: usize =
     WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
-
-pub(crate) type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
+#[doc(hidden)]
+pub type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
 
 #[derive(Debug)]
 #[doc(hidden)]
 /// This is an internal struct, do not access directly.
-pub struct Fine<'a> {
+pub struct Fine {
     pub(crate) width: u16,
     pub(crate) height: u16,
-    pub(crate) out_buf: &'a mut [u8],
     pub(crate) scratch: Vec<ScratchBuf>,
 }
 
-impl<'a> Fine<'a> {
+impl Fine {
     /// Create a new fine rasterizer.
-    pub fn new(width: u16, height: u16, out_buf: &'a mut [u8]) -> Self {
+    pub fn new(width: u16, height: u16) -> Self {
         let scratch = [0; SCRATCH_BUF_SIZE];
 
         Self {
             width,
             height,
-            out_buf,
             scratch: vec![scratch],
         }
     }
@@ -55,10 +54,11 @@ impl<'a> Fine<'a> {
         }
     }
 
-    pub(crate) fn pack(&mut self, x: u16, y: u16) {
+    #[doc(hidden)]
+    pub fn pack(&mut self, x: u16, y: u16, out_buf: &mut [u8]) {
         let scratch = self.scratch.last_mut().unwrap();
         pack(
-            self.out_buf,
+            out_buf,
             scratch,
             self.width.into(),
             self.height.into(),

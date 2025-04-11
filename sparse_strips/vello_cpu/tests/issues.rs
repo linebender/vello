@@ -4,8 +4,8 @@
 //! Tests for GitHub issues.
 
 use crate::util::{check_ref, get_ctx, render_pixmap};
-use vello_common::color::palette::css::{DARK_BLUE, LIME};
-use vello_common::kurbo::{BezPath, Stroke};
+use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
+use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
 
 #[test]
@@ -289,4 +289,15 @@ fn eo_filling_missing_anti_aliasing() {
     ctx.fill_path(&path);
 
     check_ref(&ctx, "eo_filling_missing_anti_aliasing");
+}
+
+#[test]
+// https://github.com/linebender/vello/issues/906
+fn fill_command_respects_clip_bounds() {
+    let mut ctx = get_ctx(600, 600, true);
+    ctx.clip(&Rect::new(400.0, 400.0, 500.0, 500.0).to_path(0.1));
+    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 600.0, 600.0));
+    ctx.finish();
+    check_ref(&ctx, "fill_command_respects_clip_bounds");
 }

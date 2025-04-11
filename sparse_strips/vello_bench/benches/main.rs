@@ -8,6 +8,7 @@ use vello_bench::{cpu_fine, strip, tile};
 
 criterion_group!(ff, cpu_fine::fill);
 criterion_group!(fs, cpu_fine::strip);
+criterion_group!(fp, cpu_fine::pack);
 criterion_group!(tt, tile::tile);
 criterion_group!(srs, strip::render_strips);
-criterion_main!(tt, srs, ff, fs);
+criterion_main!(tt, srs, ff, fs, fp);

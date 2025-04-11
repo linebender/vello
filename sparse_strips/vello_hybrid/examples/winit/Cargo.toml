@@ -1,0 +1,18 @@
+[package]
+name = "vello_hybrid_winit"
+description = "An example showing Vello Hybrid using winit."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+winit = { workspace = true }
+wgpu = { workspace = true }
+vello_common = { workspace = true }
+vello_hybrid = { workspace = true }
+vello_hybrid_scenes = { workspace = true }
+pollster = { workspace = true }
