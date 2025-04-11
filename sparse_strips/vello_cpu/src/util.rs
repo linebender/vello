@@ -17,11 +17,11 @@ pub(crate) mod scalar {
     ///    normal division by 255, but is much faster (see <https://github.com/linebender/vello/issues/904>)
     ///    and therefore preferable for the high-performance pipeline.
     ///
-    /// Three properties worth mentioning:
-    /// - Rounding errors do not appear for values divisible by 255, i.e. any call `div_255(x * 255)` will always yield x.
+    /// Four properties worth mentioning:
+    /// - This actually calculates the ceiling of `val / 256`.
+    /// - Within the allowed range for `val`, rounding errors do not appear for values divisible by 255, i.e. any call `div_255(val * 255)` will always yield `val`.
     /// - If there is a discrepancy, this division will always yield a value 1 higher than the original.
-    /// - This won't work for very high values of u16 due to overflow, but we won't call this method
-    ///   with values higher than 255 * 255.
+    /// - This holds for values of `val` up to and including `65279`. You should not call this function with higher values.
     #[inline(always)]
     pub(crate) const fn div_255(val: u16) -> u16 {
         debug_assert!(val < 65280, "the properties of `div_255` do not hold for values of `65280` or greater");
