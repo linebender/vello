@@ -32,7 +32,7 @@ impl ExampleScene for SvgScene {
 }
 
 impl SvgScene {
-    /// Create a new `SvgScene` with the default Ghost Tiger SVG
+    /// Create a new `SvgScene` with the Ghost Tiger SVG
     pub fn tiger() -> Self {
         // Load the ghost tiger SVG by default
         #[cfg(target_arch = "wasm32")]
