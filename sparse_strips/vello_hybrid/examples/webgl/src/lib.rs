@@ -52,21 +52,15 @@ impl RendererWrapper {
             .expect("Adapter to be valid");
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits {
-                        // WGPU's downlevel defaults use a generous number of color attachments
-                        // (8). Some devices (including CI) support only up to 4.
-                        max_color_attachments: 4,
-                        max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d,
-                        ..wgpu::Limits::downlevel_webgl2_defaults()
-                    },
-                    ..Default::default()
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits {
+                    max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d,
+                    ..wgpu::Limits::downlevel_webgl2_defaults()
                 },
-                None,
-            )
+                ..Default::default()
+            })
             .await
             .expect("Device to be valid");
 
