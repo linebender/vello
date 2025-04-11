@@ -59,7 +59,7 @@ pub fn get_example_scenes(svg_paths: Option<Vec<&str>>) -> Box<[AnyScene]> {
             ));
         }
     } else {
-        scenes.push(AnyScene::new(svg::SvgScene::new()));
+        scenes.push(AnyScene::new(svg::SvgScene::tiger()));
     }
 
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
