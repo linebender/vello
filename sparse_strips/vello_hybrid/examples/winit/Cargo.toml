@@ -11,7 +11,7 @@ publish = false
 workspace = true
 
 [dependencies]
-winit = "0.30.9"
+winit = { workspace = true }
 wgpu = { workspace = true }
 vello_common = { workspace = true }
 vello_hybrid = { workspace = true }
