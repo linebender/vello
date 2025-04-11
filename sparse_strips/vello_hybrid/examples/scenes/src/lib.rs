@@ -72,7 +72,7 @@ pub fn get_example_scenes(svg_paths: Option<Vec<&str>>) -> Box<[AnyScene]> {
 #[cfg(target_arch = "wasm32")]
 pub fn get_example_scenes() -> Box<[AnyScene]> {
     vec![
-        AnyScene::new(svg::SvgScene::new()),
+        AnyScene::new(svg::SvgScene::tiger()),
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(simple::SimpleScene::new()),
     ]
