@@ -288,14 +288,15 @@ fn transform_non_skewed_rect(rect: &Rect, affine: Affine) -> Rect {
 #[cfg(test)]
 mod tests {
     use crate::RenderContext;
-    use vello_common::kurbo::Rect;
+    use crate::render::DEFAULT_TOLERANCE;
+    use vello_common::kurbo::{Rect, Shape};
 
     #[test]
     fn reset_render_context() {
         let mut ctx = RenderContext::new(100, 100);
         let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
 
-        ctx.fill_rect(&rect);
+        ctx.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
 
         assert!(!ctx.line_buf.is_empty());
         assert!(!ctx.strip_buf.is_empty());

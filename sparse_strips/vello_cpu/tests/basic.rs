@@ -449,15 +449,16 @@ fn strip_inscribed_rect() {
     check_ref(&ctx, "strip_inscribed_rect");
 }
 
+// Should yield the same result as `strip_inscribed_rect`.
 #[test]
-fn filled_vertical_hairline_rect_as_path() {
-    let mut ctx = get_ctx(5, 8, false);
-    let rect = Rect::new(2.25, 0.0, 2.75, 8.0).to_path(0.1);
+fn strip_inscribed_rect_as_path() {
+    let mut ctx = get_ctx(30, 20, false);
+    let rect = Rect::new(1.5, 9.5, 28.5, 11.5);
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
-    ctx.fill_path(&rect);
+    ctx.fill_path(&rect.to_path(0.1));
 
-    check_ref(&ctx, "filled_vertical_hairline_rect_as_path");
+    check_ref(&ctx, "strip_inscribed_rect");
 }
 
 #[test]
@@ -471,6 +472,18 @@ fn filled_vertical_hairline_rect() {
     check_ref(&ctx, "filled_vertical_hairline_rect");
 }
 
+// Should yield the same result as `filled_vertical_hairline_rect`.
+#[test]
+fn filled_vertical_hairline_rect_as_path() {
+    let mut ctx = get_ctx(5, 8, false);
+    let rect = Rect::new(2.25, 0.0, 2.75, 8.0).to_path(0.1);
+
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.fill_path(&rect);
+
+    check_ref(&ctx, "filled_vertical_hairline_rect");
+}
+
 #[test]
 fn filled_vertical_hairline_rect_2() {
     let mut ctx = get_ctx(10, 10, false);
@@ -478,6 +491,18 @@ fn filled_vertical_hairline_rect_2() {
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
+
+    check_ref(&ctx, "filled_vertical_hairline_rect_2");
+}
+
+// Should yield the same result as `filled_vertical_hairline_rect_2`.
+#[test]
+fn filled_vertical_hairline_rect_as_path_2() {
+    let mut ctx = get_ctx(10, 10, false);
+    let rect = Rect::new(4.5, 0.5, 5.5, 9.5);
+
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.fill_path(&rect.to_path(0.1));
 
     check_ref(&ctx, "filled_vertical_hairline_rect_2");
 }
