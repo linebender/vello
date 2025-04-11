@@ -3248,7 +3248,7 @@ dependencies = [
 
 [[package]]
 name = "vello_hybrid_winit"
-version = "0.4.0"
+version = "0.0.0"
 dependencies = [
  "pollster",
  "vello_common",

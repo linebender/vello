@@ -9,13 +9,13 @@ cargo run -p vello_hybrid_winit --release
 Optionally, you can pass in paths to SVG files that you want to render:
 
 ```bash
-cargo run -p with_winit --release -- [SVG FILES]
+cargo run -p vello_hybrid_winit --release -- [SVG FILES]
 ```
 
 Alternatively, you can pass a scene index to render a specific scene from the built-in set:
 
 ```bash
-cargo run -p with_winit --release -- [SCENE INDEX]
+cargo run -p vello_hybrid_winit --release -- [SCENE INDEX]
 ```
 
 ## Controls
