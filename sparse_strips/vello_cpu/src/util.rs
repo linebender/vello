@@ -24,6 +24,7 @@ pub(crate) mod scalar {
     ///   with values higher than 255 * 255.
     #[inline(always)]
     pub(crate) const fn div_255(val: u16) -> u16 {
+        debug_assert!(val < 65280, "the properties of `div_255` do not hold for values of `65280` or greater");
         (val + 255) >> 8
     }
 
