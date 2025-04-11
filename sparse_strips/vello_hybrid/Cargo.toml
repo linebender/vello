@@ -20,6 +20,6 @@ bytemuck = { workspace = true, features = ["derive"] }
 wgpu = { workspace = true }
 
 [dev-dependencies]
+png = { workspace = true }
 pollster = { workspace = true }
-png = "0.17.14"
 roxmltree = "0.20.0"

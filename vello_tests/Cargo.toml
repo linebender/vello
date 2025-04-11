@@ -16,7 +16,7 @@ vello = { workspace = true }
 anyhow = { workspace = true }
 
 pollster = { workspace = true }
-png = "0.17.14"
+png = { workspace = true }
 futures-intrusive = { workspace = true }
 nv-flip = "0.1.2"
 image = { workspace = true, features = ["png"] }
