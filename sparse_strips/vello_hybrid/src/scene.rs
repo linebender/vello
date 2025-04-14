@@ -15,7 +15,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::strip::Strip;
 use vello_common::tile::{Tile, Tiles};
-use vello_common::{flatten, strip};
+use vello_common::{AffineExt, flatten, strip, transform_non_skewed_rect};
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -107,6 +107,12 @@ impl Scene {
 
     /// Fill a rectangle with the current paint and fill rule.
     pub fn fill_rect(&mut self, rect: &Rect) {
+        if self.transform.has_skew() {
+            self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        } else {
+            let rect = transform_non_skewed_rect(rect, self.transform);
+            self.render_rect(&rect, self.paint.clone());
+        }
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
@@ -191,6 +197,18 @@ impl Scene {
         );
 
         self.wide.generate(&self.strip_buf, fill_rule, paint);
+    }
+
+    fn render_rect(&mut self, rect: &Rect, paint: Paint) {
+        self.tiles.reset();
+        strip::render_rect(
+            rect,
+            &mut self.strip_buf,
+            &mut self.alphas,
+            self.width,
+            self.height,
+        );
+        self.wide.generate(&self.strip_buf, Fill::NonZero, paint);
     }
 }
 
