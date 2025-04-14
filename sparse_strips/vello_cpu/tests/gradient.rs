@@ -6,8 +6,8 @@ use vello_common::paint::Gradient;
 use vello_common::peniko::GradientKind;
 use crate::util::{check_ref, get_ctx, stops_blue_green_red_yellow, stops_green_blue};
 
-pub(crate) fn tan_45() -> f64 {
-    45.0_f64.to_radians().tan()
+pub(crate) const fn tan_45() -> f64 {
+    1.0
 }
 
 #[test]
