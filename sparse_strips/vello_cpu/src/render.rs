@@ -15,7 +15,7 @@ use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
-use vello_common::{flatten, strip};
+use vello_common::{AffineExt, flatten, strip, transform_non_skewed_rect};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -261,28 +261,6 @@ impl GlyphRenderer for RenderContext {
             }
         }
     }
-}
-
-trait AffineExt {
-    fn has_skew(&self) -> bool;
-}
-
-impl AffineExt for Affine {
-    fn has_skew(&self) -> bool {
-        let coeffs = self.as_coeffs();
-
-        coeffs[1] != 0.0 || coeffs[2] != 0.0
-    }
-}
-
-fn transform_non_skewed_rect(rect: &Rect, affine: Affine) -> Rect {
-    debug_assert!(
-        !affine.has_skew(),
-        "this method should only be called with non-skewing transforms"
-    );
-    let [a, _, _, d, _, _] = affine.as_coeffs();
-
-    Rect::new(a * rect.x0, d * rect.y0, a * rect.x1, d * rect.y1) + affine.translation()
 }
 
 #[cfg(test)]
