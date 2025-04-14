@@ -307,7 +307,7 @@ pub fn render(
 /// Draw the strips of a rectangle. This is faster than using the normal path, because we
 /// do not need to go through the "flatten", "tiling" and "sort" stages, but can instead
 /// directly emit strips.
-/// 
+///
 /// This method will clear the strip buffer initially.
 pub fn render_rect(
     rect: &Rect,
