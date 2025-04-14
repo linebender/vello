@@ -236,6 +236,18 @@ fn filled_aligned_rect() {
     check_ref(&ctx, "filled_aligned_rect");
 }
 
+// Keep in sync with `filled_aligned_rect`.
+#[test]
+fn filled_aligned_rect_as_path() {
+    let mut ctx = get_ctx(30, 20, false);
+    let rect = Rect::new(1.0, 1.0, 29.0, 19.0);
+
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.fill_rect(&rect);
+
+    check_ref(&ctx, "filled_aligned_rect");
+}
+
 #[test]
 fn stroked_unaligned_rect() {
     let mut ctx = get_ctx(30, 30, false);
