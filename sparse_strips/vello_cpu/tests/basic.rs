@@ -132,7 +132,7 @@ fn stroked_circle() {
     check_ref(&ctx, "stroked_circle");
 }
 
-/// Requires winding of the first row of tiles to be calculcated correctly for vertical lines.
+/// Requires winding of the first row of tiles to be calculated correctly for vertical lines.
 #[test]
 fn rectangle_above_viewport() {
     let mut ctx = get_ctx(10, 10, false);
@@ -144,7 +144,19 @@ fn rectangle_above_viewport() {
     check_ref(&ctx, "rectangle_above_viewport");
 }
 
-/// Requires winding of the first row of tiles to be calculcated correctly for sloped lines.
+// Keep in sync with `rectangle_above_viewport`.
+#[test]
+fn rectangle_as_path_above_viewport() {
+    let mut ctx = get_ctx(10, 10, false);
+    let rect = Rect::new(2.0, -5.0, 8.0, 8.0);
+
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.fill_path(&rect.to_path(0.1));
+
+    check_ref(&ctx, "rectangle_above_viewport");
+}
+
+/// Requires winding of the first row of tiles to be calculated correctly for sloped lines.
 #[test]
 fn triangle_above_and_wider_than_viewport() {
     let mut ctx = get_ctx(10, 10, false);
@@ -174,6 +186,18 @@ fn rectangle_left_of_viewport() {
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
     ctx.fill_rect(&rect);
+
+    check_ref(&ctx, "rectangle_left_of_viewport");
+}
+
+// Keep in sync with `rectangle_left_of_viewport`.
+#[test]
+fn rectangle_as_path_left_of_viewport() {
+    let mut ctx = get_ctx(10, 10, false);
+    let rect = Rect::new(-4.0, 3.0, 1.0, 8.0);
+
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.fill_path(&rect.to_path(0.1));
 
     check_ref(&ctx, "rectangle_left_of_viewport");
 }
