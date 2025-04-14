@@ -18,12 +18,23 @@ use vello::{
 use crate::{TestParams, env_var_relates_to, render_then_debug, write_png_to_file};
 use anyhow::{Result, anyhow, bail};
 
-fn snapshot_dir(directory: SnapshotDirectory) -> PathBuf {
-    let dir = match directory {
-        SnapshotDirectory::Smoke => "smoke_snapshots",
-        SnapshotDirectory::Lfs => "snapshots",
+fn current_dir(directory: SnapshotDirectory, use_cpu: bool) -> PathBuf {
+    let mut path_buf = Path::new(env!("CARGO_MANIFEST_DIR")).join("current");
+    path_buf.push(if use_cpu { "cpu" } else { "gpu" });
+    match directory {
+        SnapshotDirectory::Smoke => path_buf.push("smoke"),
+        SnapshotDirectory::Lfs => { /* Do nothing */ }
     };
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(dir)
+    path_buf
+}
+
+fn snapshot_dir(directory: SnapshotDirectory) -> PathBuf {
+    let mut path_buf = Path::new(env!("CARGO_MANIFEST_DIR")).join("snapshots");
+    match directory {
+        SnapshotDirectory::Smoke => path_buf.push("smoke"),
+        SnapshotDirectory::Lfs => { /* Do nothing */ }
+    };
+    path_buf
 }
 
 #[must_use = "A snapshot test doesn't do anything unless an assertion method is called on it"]
@@ -168,17 +179,13 @@ pub fn snapshot_test_image(
     params: &TestParams,
     directory: SnapshotDirectory,
 ) -> Result<Snapshot<'_>> {
+    let c_dir = current_dir(directory, params.use_cpu);
+    std::fs::create_dir_all(&c_dir)?;
+    let update_path = c_dir.join(&params.name).with_extension("png");
+
     let reference_path = snapshot_dir(directory)
         .join(&params.name)
         .with_extension("png");
-    let update_extension = if params.use_cpu {
-        "cpu.new.png"
-    } else {
-        "gpu.new.png"
-    };
-    let update_path = snapshot_dir(directory)
-        .join(&params.name)
-        .with_extension(update_extension);
 
     let expected_data = match image::open(&reference_path) {
         Ok(contents) => {
