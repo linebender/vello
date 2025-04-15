@@ -5,7 +5,7 @@
 
 use crate::util::{check_ref, circular_star, crossed_line_star, get_ctx};
 use std::f64::consts::PI;
-use vello_common::color::palette::css::{DARK_BLUE, DARK_GREEN, REBECCA_PURPLE};
+use vello_common::color::palette::css::{BLACK, DARK_BLUE, DARK_GREEN, REBECCA_PURPLE};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
 use vello_cpu::RenderContext;
@@ -257,6 +257,20 @@ fn clip_with_save_restore() {
     ctx.fill_rect(&rect2);
     ctx.finish();
     check_ref(&ctx, "clip_with_save_restore");
+}
+
+#[test]
+fn clip_with_opacity() {
+    // Main body of the shape should be RGB 127, 127, 127. Anti-aliased part should be
+    // 191, 191, 191.
+    let mut ctx = get_ctx(100, 100, false);
+    let clip_rect = Rect::new(10.5, 10.5, 89.5, 89.5);
+    ctx.clip(&clip_rect.to_path(0.1));
+    ctx.set_paint(BLACK.with_alpha(0.5).into());
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.finish();
+
+    check_ref(&ctx, "clip_with_opacity");
 }
 
 fn draw_clipping_outline(ctx: &mut RenderContext, path: &BezPath) {
