@@ -261,6 +261,8 @@ fn clip_with_save_restore() {
 
 #[test]
 fn clip_with_opacity() {
+    // Main body of the shape should be RGB 127, 127, 127. Anti-aliased part should be
+    // 191, 191, 191.
     let mut ctx = get_ctx(100, 100, false);
     let clip_rect = Rect::new(10.5, 10.5, 89.5, 89.5);
     ctx.clip(&clip_rect.to_path(0.1));
