@@ -153,7 +153,7 @@ impl Fine {
                     let dest = target_buffer[px_offset + channel_idx] as u16;
                     let src = source_buffer[px_offset + channel_idx] as u16;
                     target_buffer[px_offset + channel_idx] =
-                        div_255(dest * inverse_alpha + src * source_alpha) as u8;
+                        (src + div_255(dest * inverse_alpha)) as u8;
                 }
             }
         }
