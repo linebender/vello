@@ -45,6 +45,7 @@ impl From<AlphaColor<Srgb>> for Paint {
     }
 }
 
+// TODO: Replace this with the peniko type, once it supports transforms.
 /// A gradient.
 #[derive(Debug, Clone)]
 pub struct Gradient {
@@ -60,8 +61,18 @@ pub struct Gradient {
     pub transform: Affine,
     /// The extend of the gradient.
     pub extend: peniko::Extend,
-    /// An additional opacity to apply to all gradient stops.
-    pub opacity: f32,
+}
+
+impl Gradient {
+    /// Returns the gradient with the alpha component for all color stops
+    /// multiplied by `alpha`.
+    #[must_use]
+    pub fn multiply_alpha(mut self, alpha: f32) -> Self {
+        self.stops
+            .iter_mut()
+            .for_each(|stop| *stop = stop.multiply_alpha(alpha));
+        self
+    }
 }
 
 /// A kind of paint used for drawing shapes.

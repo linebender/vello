@@ -31,10 +31,8 @@ impl Encode for Gradient {
             return paint;
         }
 
-        let opacity = self.opacity.clamp(0.0, 1.0);
-
         let mut has_opacities =
-            self.stops.iter().any(|s| s.color.components[3] != 1.0) || opacity != 1.0;
+            self.stops.iter().any(|s| s.color.components[3] != 1.0);
         let pad = self.extend == Extend::Pad;
 
         let mut stops = Cow::Borrowed(&self.stops.0);
@@ -188,7 +186,7 @@ impl Encode for Gradient {
             }
         };
 
-        let ranges = encode_stops(&stops, clamp_range.0, clamp_range.1, pad, opacity);
+        let ranges = encode_stops(&stops, clamp_range.0, clamp_range.1, pad);
 
         // This represents the transform that needs to be applied to the starting point of a
         // command before starting with the rendering.
@@ -359,21 +357,18 @@ fn encode_stops(
     start: f32,
     end: f32,
     pad: bool,
-    opacity: f32,
 ) -> Vec<GradientRange> {
     let create_range = |left_stop: &ColorStop, right_stop: &ColorStop| {
         let x0 = start + (end - start) * left_stop.offset;
         let x1 = start + (end - start) * right_stop.offset;
         let c0 = left_stop
             .color
-            .multiply_alpha(opacity)
             .to_alpha_color::<Srgb>()
             .premultiply()
             .to_rgba8()
             .to_u8_array();
         let c1 = right_stop
             .color
-            .multiply_alpha(opacity)
             .to_alpha_color::<Srgb>()
             .premultiply()
             .to_rgba8()
@@ -651,7 +646,6 @@ mod tests {
             stops: ColorStops(smallvec![]),
             transform: Affine::IDENTITY,
             extend: Extend::Pad,
-            opacity: 1.0,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), BLACK.into());
@@ -671,8 +665,7 @@ mod tests {
                 color: DynamicColor::from_alpha_color(GREEN),
             }]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad,
-            opacity: 1.0,
+            extend: Extend::Pad
         };
 
         // Should return the color of the first stop.
@@ -699,8 +692,7 @@ mod tests {
                 },
             ]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad,
-            opacity: 1.0,
+            extend: Extend::Pad
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -726,8 +718,7 @@ mod tests {
                 },
             ]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad,
-            opacity: 1.0,
+            extend: Extend::Pad
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -753,8 +744,7 @@ mod tests {
                 },
             ]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad,
-            opacity: 1.0,
+            extend: Extend::Pad
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -781,8 +771,7 @@ mod tests {
                 },
             ]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad,
-            opacity: 1.0,
+            extend: Extend::Pad
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -810,8 +799,7 @@ mod tests {
                 },
             ]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad,
-            opacity: 1.0,
+            extend: Extend::Pad
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
