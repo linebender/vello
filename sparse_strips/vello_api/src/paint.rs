@@ -26,7 +26,14 @@ impl IndexedPaint {
     }
 }
 
-/// A paint used for filling or stroking paths.
+/// A paint that is used internally by a rendering frontend to store how a wide tile command 
+/// should be painted. There are only two types of paint:
+/// 
+/// 1) Simple solid colors, which are stored in premultiplied representation so that
+///    each wide tile doesn't have to recompute it.
+/// 2) Indexed paints, which can represent any arbitrary, more complex paint that is
+///    determined by the frontend. The intended way of using this is to store a vector
+///    of paints and store its index inside `IndexedPaint`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Paint {
     /// A premultiplied RGBA8 color.
@@ -75,7 +82,7 @@ impl Gradient {
     }
 }
 
-/// A kind of paint used for drawing shapes.
+/// A kind of paint that can be used for filling and stroking shapes.
 #[derive(Debug, Clone)]
 pub enum PaintType {
     /// A solid color.
