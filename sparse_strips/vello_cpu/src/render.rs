@@ -5,7 +5,7 @@
 
 use crate::fine::Fine;
 use vello_common::coarse::{SceneState, Wide};
-use vello_common::encode::{Encode, EncodedPaint};
+use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};

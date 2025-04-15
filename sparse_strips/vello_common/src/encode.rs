@@ -17,13 +17,13 @@ const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
 
 /// A trait for encoding gradients.
-pub trait Encode {
+pub trait EncodeExt: private::Sealed {
     /// Encode the gradient and push it into a vector of encoded paints, returning
     /// the corresponding paint in the process. This will also validate the gradient.
     fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint;
 }
 
-impl Encode for Gradient {
+impl EncodeExt for Gradient {
     /// Encode the gradient into a paint.
     fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint {
         // First make sure that the gradient is valid and not degenerate.
@@ -625,9 +625,18 @@ impl GradientLike for RadialKind {
     }
 }
 
+mod private {
+    use vello_api::paint::Gradient;
+
+    #[allow(unnameable_types, reason = "We make it unnameable on purpose")]
+    pub trait Sealed {}
+    
+    impl Sealed for Gradient {}
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Encode, Gradient};
+    use super::{EncodeExt, Gradient};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::{Affine, Point};

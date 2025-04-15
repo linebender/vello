@@ -9,7 +9,7 @@ use smallvec::smallvec;
 use vello_common::coarse::WideTile;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, ROYAL_BLUE, YELLOW};
-use vello_common::encode::Encode;
+use vello_common::encode::EncodeExt;
 use vello_common::kurbo::{Affine, Point};
 use vello_common::paint::{Gradient, Paint};
 use vello_common::peniko;
