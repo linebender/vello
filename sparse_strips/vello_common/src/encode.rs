@@ -27,7 +27,7 @@ impl Encode for Gradient {
     /// Encode the gradient into a paint.
     fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint {
         // First make sure that the gradient is valid and not degenerate.
-        if let Some(paint) = validate(self) {
+        if let Err(paint) = validate(self) {
             return paint;
         }
 
@@ -243,17 +243,18 @@ impl Encode for Gradient {
     }
 }
 
-/// Returns a fallback paint in case the gradient is invalid. The paint will be either
-/// black or contain the color of the first stop of the gradient.
-fn validate(gradient: &Gradient) -> Option<Paint> {
-    let black = Some(BLACK.into());
+/// Returns a fallback paint in case the gradient is invalid. 
+/// 
+/// The paint will be either black or contain the color of the first stop of the gradient.
+fn validate(gradient: &Gradient) -> Result<(), Paint> {
+    let black = Err(BLACK.into());
 
     // Gradients need at least two stops.
     if gradient.stops.is_empty() {
         return black;
     }
 
-    let first = Some(gradient.stops[0].color.to_alpha_color::<Srgb>().into());
+    let first = Err(gradient.stops[0].color.to_alpha_color::<Srgb>().into());
 
     if gradient.stops.len() == 1 {
         return first;
@@ -333,7 +334,7 @@ fn validate(gradient: &Gradient) -> Option<Paint> {
         }
     }
 
-    None
+    Ok(())
 }
 
 /// Extend the stops so that we can treat a repeated gradient like a reflected gradient.
