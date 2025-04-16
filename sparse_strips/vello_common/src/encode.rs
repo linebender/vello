@@ -31,8 +31,7 @@ impl EncodeExt for Gradient {
             return paint;
         }
 
-        let mut has_opacities =
-            self.stops.iter().any(|s| s.color.components[3] != 1.0);
+        let mut has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
         let pad = self.extend == Extend::Pad;
 
         let mut stops = Cow::Borrowed(&self.stops.0);
@@ -243,8 +242,8 @@ impl EncodeExt for Gradient {
     }
 }
 
-/// Returns a fallback paint in case the gradient is invalid. 
-/// 
+/// Returns a fallback paint in case the gradient is invalid.
+///
 /// The paint will be either black or contain the color of the first stop of the gradient.
 fn validate(gradient: &Gradient) -> Result<(), Paint> {
     let black = Err(BLACK.into());
@@ -353,12 +352,7 @@ fn apply_reflect(stops: &[ColorStop]) -> SmallVec<[ColorStop; 4]> {
 }
 
 /// Encode all stops into a sequence of ranges.
-fn encode_stops(
-    stops: &[ColorStop],
-    start: f32,
-    end: f32,
-    pad: bool,
-) -> Vec<GradientRange> {
+fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<GradientRange> {
     let create_range = |left_stop: &ColorStop, right_stop: &ColorStop| {
         let x0 = start + (end - start) * left_stop.offset;
         let x1 = start + (end - start) * right_stop.offset;
@@ -630,7 +624,7 @@ mod private {
 
     #[allow(unnameable_types, reason = "We make it unnameable on purpose")]
     pub trait Sealed {}
-    
+
     impl Sealed for Gradient {}
 }
 
@@ -675,7 +669,7 @@ mod tests {
                 color: DynamicColor::from_alpha_color(GREEN),
             }]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad
+            extend: Extend::Pad,
         };
 
         // Should return the color of the first stop.
@@ -702,7 +696,7 @@ mod tests {
                 },
             ]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad
+            extend: Extend::Pad,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -728,7 +722,7 @@ mod tests {
                 },
             ]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad
+            extend: Extend::Pad,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -754,7 +748,7 @@ mod tests {
                 },
             ]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad
+            extend: Extend::Pad,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -781,7 +775,7 @@ mod tests {
                 },
             ]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad
+            extend: Extend::Pad,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -809,7 +803,7 @@ mod tests {
                 },
             ]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad
+            extend: Extend::Pad,
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
