@@ -11,10 +11,12 @@ use std::cmp::max;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
-use vello_common::color::palette;
+use smallvec::smallvec;
+use vello_common::color::DynamicColor;
+use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
-use vello_common::peniko::{Blob, Font};
+use vello_common::peniko::{Blob, ColorStop, ColorStops, Font};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderContext;
 
@@ -28,7 +30,7 @@ pub(crate) fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderConte
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);
 
-        ctx.set_paint(palette::css::WHITE.into());
+        ctx.set_paint(WHITE);
         ctx.fill_path(&path);
     }
 
@@ -135,6 +137,55 @@ pub(crate) fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
 
     (font, glyphs)
 }
+
+
+pub(crate) fn stops_green_blue() -> ColorStops {
+    ColorStops(smallvec![
+        ColorStop {
+            offset: 0.0,
+            color: DynamicColor::from_alpha_color(GREEN),
+        },
+        ColorStop {
+            offset: 1.0,
+            color: DynamicColor::from_alpha_color(BLUE),
+        },
+    ])
+}
+
+pub(crate) fn stops_green_blue_with_alpha() -> ColorStops {
+    ColorStops(smallvec![
+        ColorStop {
+            offset: 0.0,
+            color: DynamicColor::from_alpha_color(GREEN.with_alpha(0.25)),
+        },
+        ColorStop {
+            offset: 1.0,
+            color: DynamicColor::from_alpha_color(BLUE.with_alpha(0.75)),
+        },
+    ])
+}
+
+pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
+    ColorStops(smallvec![
+        ColorStop {
+            offset: 0.0,
+            color: DynamicColor::from_alpha_color(BLUE),
+        },
+        ColorStop {
+            offset: 0.33,
+            color: DynamicColor::from_alpha_color(GREEN),
+        },
+        ColorStop {
+            offset: 0.66,
+            color: DynamicColor::from_alpha_color(RED),
+        },
+        ColorStop {
+            offset: 1.0,
+            color: DynamicColor::from_alpha_color(YELLOW),
+        },
+    ])
+}
+
 
 pub(crate) fn check_ref(ctx: &RenderContext, name: &str) {
     let mut pixmap = render_pixmap(ctx);

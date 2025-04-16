@@ -13,6 +13,7 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 pub mod coarse;
+pub mod encode;
 pub mod flatten;
 pub mod glyph;
 pub mod pico_svg;

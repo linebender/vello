@@ -14,7 +14,7 @@ fn glyphs_filled() {
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(true)
@@ -30,7 +30,7 @@ fn glyphs_filled_unhinted() {
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(false)
@@ -46,7 +46,7 @@ fn glyphs_stroked() {
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(true)
@@ -62,7 +62,7 @@ fn glyphs_stroked_unhinted() {
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(false)
@@ -78,7 +78,7 @@ fn glyphs_skewed() {
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.))
@@ -95,7 +95,7 @@ fn glyphs_skewed_unhinted() {
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.))
@@ -115,7 +115,7 @@ fn glyphs_skewed_long() {
     );
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(-10_f64.to_radians().tan(), 0.))
@@ -135,7 +135,7 @@ fn glyphs_skewed_long_unhinted() {
     );
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(-10_f64.to_radians().tan(), 0.))
@@ -155,7 +155,7 @@ fn glyphs_skewed_unskewed() {
         Affine::translate((0., f64::from(font_size)))
             * Affine::skew(-20_f64.to_radians().tan(), 0.),
     );
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(20_f64.to_radians().tan(), 0.))
@@ -175,7 +175,7 @@ fn glyphs_skewed_unskewed_unhinted() {
         Affine::translate((0., f64::from(font_size)))
             * Affine::skew(-20_f64.to_radians().tan(), 0.),
     );
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::skew(20_f64.to_radians().tan(), 0.))
@@ -192,7 +192,7 @@ fn glyphs_scaled() {
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(2.0));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(true)
@@ -208,7 +208,7 @@ fn glyphs_scaled_unhinted() {
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(2.0));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(false)
@@ -224,7 +224,7 @@ fn glyphs_glyph_transform() {
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(2.0));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::translate((10., 10.)))
@@ -241,7 +241,7 @@ fn glyphs_glyph_transform_unhinted() {
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(2.0));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5).into());
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .glyph_transform(Affine::translate((10., 10.)))
@@ -258,7 +258,7 @@ fn glyphs_small() {
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(true)
@@ -274,7 +274,7 @@ fn glyphs_small_unhinted() {
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.into());
+    ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(false)

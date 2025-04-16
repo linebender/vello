@@ -24,6 +24,7 @@ automod = "1.0"
 oxipng = { workspace = true, features = ["freestanding", "parallel"] }
 image = { workspace = true, features = ["png"] }
 skrifa = { workspace = true }
+smallvec = { workspace = true }
 
 [lints]
 workspace = true
