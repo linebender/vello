@@ -3,8 +3,10 @@
 
 //! Basic render operations.
 
+use std::ops::Range;
+
 use crate::render::{GpuStrip, RenderData};
-use vello_common::coarse::{Wide, WideTile};
+use vello_common::coarse::{CmdAlphaFill, CmdFill, Wide, WideTile};
 use vello_common::color::PremulRgba8;
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
@@ -208,65 +210,151 @@ impl Scene {
                 let wide_tile_idx = usize::from(wide_tile_row) * usize::from(wide_tiles_per_row)
                     + usize::from(wide_tile_col);
                 let wide_tile = &self.wide.tiles[wide_tile_idx];
-                let wide_tile_x = wide_tile_col * WideTile::WIDTH;
-                let wide_tile_y = wide_tile_row * Tile::HEIGHT;
-                let bg = wide_tile.bg.to_u32();
-                if bg != 0 {
-                    strips.push(GpuStrip {
-                        x: wide_tile_x,
-                        y: wide_tile_y,
-                        width: WideTile::WIDTH,
-                        dense_width: 0,
-                        col: 0,
-                        rgba: bg,
-                    });
-                }
-                for cmd in &wide_tile.cmds {
-                    match cmd {
-                        vello_common::coarse::Cmd::Fill(fill) => {
-                            let color: PremulRgba8 = match fill.paint {
-                                Paint::Solid(color) => color,
-                                Paint::Indexed(_) => unimplemented!(),
-                            };
-                            strips.push(GpuStrip {
-                                x: wide_tile_x + fill.x,
-                                y: wide_tile_y,
-                                width: fill.width,
-                                dense_width: 0,
-                                col: 0,
-                                rgba: color.to_u32(),
-                            });
-                        }
-                        vello_common::coarse::Cmd::AlphaFill(cmd_strip) => {
-                            let color: PremulRgba8 = match cmd_strip.paint {
-                                Paint::Solid(color) => color,
-                                Paint::Indexed(_) => unimplemented!(),
-                            };
-
-                            // msg is a variable here to work around rustfmt failure
-                            let msg = "GpuStrip fields use u16 and values are expected to fit within that range";
-                            strips.push(GpuStrip {
-                                x: wide_tile_x + cmd_strip.x,
-                                y: wide_tile_y,
-                                width: cmd_strip.width,
-                                dense_width: cmd_strip.width,
-                                col: (cmd_strip.alpha_idx / usize::from(Tile::HEIGHT))
-                                    .try_into()
-                                    .expect(msg),
-                                rgba: color.to_u32(),
-                            });
-                        }
-                        _ => {
-                            unimplemented!("unsupported command: {:?}", cmd);
-                        }
-                    }
-                }
+                process_wide_tile(&mut strips, wide_tile_row, wide_tile_col, wide_tile);
             }
         }
+        panic!();
         RenderData {
             strips,
             alphas: self.alphas.clone(),
         }
+    }
+}
+
+#[derive(PartialEq, Eq, Debug)]
+enum DrawKind {
+    Solid,
+    Other,
+}
+
+#[derive(Debug)]
+enum Step {
+    DrawBackground {
+        layer: u32,
+    },
+    Draw {
+        kind: DrawKind,
+        onto: u32,
+        commands: Range<u32>,
+    },
+    Blend {
+        source: u32,
+        layer: u32,
+        target: u32,
+        commands: Range<u32>,
+    },
+}
+
+struct Layer {
+    id: u32,
+    depth: u32,
+    steps: Range<u32>,
+}
+
+fn process_wide_tile(
+    strips: &mut Vec<GpuStrip>,
+    wide_tile_row: u16,
+    wide_tile_col: u16,
+    wide_tile: &WideTile,
+) {
+    let mut steps = Vec::new();
+    let wide_tile_x = wide_tile_col * WideTile::WIDTH;
+    let wide_tile_y = wide_tile_row * Tile::HEIGHT;
+    let bg = wide_tile.bg.to_u32();
+
+    let mut current_kind = None;
+    let mut current_start = 0;
+    let mut layer_stack: Vec<Layer> = Vec::new();
+    let mut alloc_index: u32 = 0;
+    let mut clip_is_ending = false;
+    // We iterate through the commands in reverse, because that allows us to track how many
+    // blend "zones" need this layer.
+    for (idx, cmd) in wide_tile.cmds.iter().enumerate().rev() {
+        let idx: u32 = idx.try_into().unwrap();
+        match cmd {
+            vello_common::coarse::Cmd::Fill(CmdFill { paint, .. })
+            | vello_common::coarse::Cmd::AlphaFill(CmdAlphaFill { paint, .. }) => {
+                debug_assert!(
+                    !clip_is_ending,
+                    "Draw operations shouldn't be scheduled *after* a blend operation but before it finishes."
+                );
+                let kind = match paint {
+                    Paint::Solid(_) => DrawKind::Solid,
+                    // TODO: Resolve to a more specific indexed kind.
+                    Paint::Indexed(_) => DrawKind::Other,
+                };
+                if let Some(current_kind) = current_kind {
+                    if current_kind != kind {
+                        steps.push(Step::Draw {
+                            kind: current_kind,
+                            onto: alloc_index,
+                            commands: idx..current_start,
+                        });
+                        current_start = idx;
+                    }
+                } else {
+                    current_start = idx;
+                }
+                current_kind = Some(kind);
+            }
+            vello_common::coarse::Cmd::PushClip => {
+                debug_assert!(
+                    !clip_is_ending,
+                    "Draw operations shouldn't be scheduled *after* a blend operation but before it finishes."
+                );
+                if let Some(current_kind) = current_kind.take() {
+                    steps.push(Step::Draw {
+                        kind: current_kind,
+                        onto: alloc_index,
+                        commands: current_start..idx,
+                    });
+                }
+                current_start = idx + 1;
+                layer_stack.push(alloc_index);
+                alloc_index += 1;
+            }
+            vello_common::coarse::Cmd::PopClip => {
+                debug_assert!(
+                    clip_is_ending,
+                    "A clip region should have a reason to exist."
+                );
+                clip_is_ending = false;
+                let blend_source = layer_stack.pop().expect("PopClip should be balanced");
+                let layer = alloc_index;
+                alloc_index += 1;
+                steps.push(Step::Blend {
+                    source: blend_source,
+                    layer,
+                    target: alloc_index,
+                    commands: current_start..idx,
+                });
+                current_start = idx + 1;
+            }
+            vello_common::coarse::Cmd::ClipFill(_) | vello_common::coarse::Cmd::ClipStrip(_) => {
+                // Nothing to do, but we know that a blend will be happening with the output
+                if !clip_is_ending {
+                    clip_is_ending = true;
+                    if let Some(current_kind) = current_kind.take() {
+                        steps.push(Step::Draw {
+                            kind: current_kind,
+                            onto: alloc_index,
+                            commands: current_start..idx,
+                        });
+                    }
+                    current_start = idx;
+                }
+            }
+        }
+    }
+    if let Some(current_kind) = current_kind.take() {
+        steps.push(Step::Draw {
+            kind: current_kind,
+            onto: alloc_index,
+            commands: current_start..wide_tile.cmds.len().try_into().unwrap(),
+        });
+    }
+    if bg != 0 {
+        steps.push(Step::DrawBackground { layer: alloc_index });
     }
 }
 
