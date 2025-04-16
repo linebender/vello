@@ -42,7 +42,7 @@ struct Clip {
     /// The intersected bounding box after clip
     pub clip_bbox: Bbox,
     /// The rendered path in sparse strip representation
-    pub strips: Vec<Strip>,
+    pub strips: Box<[Strip]>,
     /// The fill rule used for this clip
     pub fill_rule: Fill,
 }
@@ -301,7 +301,8 @@ impl Wide {
     ///    - If covered by zero winding: `push_zero_clip`
     ///    - If fully covered by non-zero winding: do nothing (clip is a no-op)
     ///    - If partially covered: `push_clip`
-    pub fn push_clip(&mut self, strips: Vec<Strip>, fill_rule: Fill) {
+    pub fn push_clip(&mut self, strips: impl Into<Box<[Strip]>>, fill_rule: Fill) {
+        let strips = strips.into();
         let n_strips = strips.len();
 
         // Calculate the bounding box of the clip path in strip coordinates
