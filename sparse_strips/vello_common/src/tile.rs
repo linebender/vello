@@ -281,6 +281,8 @@ impl Tiles {
 
                     // The line's y-coordinates at the line's top-and bottom-most points within the
                     // tile row.
+                    // The line's y-coordinates at the line's top- and bottom-most points within
+                    // the tile row.
                     let line_row_top_y = line_top_y.max(y).min(y + 1.);
                     let line_row_bottom_y = line_bottom_y.max(y).min(y + 1.);
 
