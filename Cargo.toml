@@ -103,6 +103,7 @@ smallvec = "1.13.2"
 static_assertions = "1.1.0"
 thiserror = "2.0.11"
 oxipng = { version = "9.1.4", default-features = false }
+png = "0.17.16"
 
 # The below crates are experimental!
 vello_api = { path = "sparse_strips/vello_api", default-features = false }
