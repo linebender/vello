@@ -1,3 +1,2 @@
 *.oversized.png
-*.new.png
 !.gitignore

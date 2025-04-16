@@ -17,6 +17,6 @@ anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 
 pollster = { workspace = true }
-env_logger = "0.11.6"
-png = "0.17.16"
+env_logger = "0.11.8"
+png = { workspace = true }
 futures-intrusive = { workspace = true }

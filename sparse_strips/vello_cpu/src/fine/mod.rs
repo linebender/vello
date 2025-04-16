@@ -9,6 +9,7 @@ use crate::fine::gradient::GradientFiller;
 use std::iter;
 use vello_common::encode::{EncodedKind, EncodedPaint, GradientLike};
 use vello_common::paint::Paint;
+use crate::util::scalar::div_255;
 use vello_common::{
     coarse::{Cmd, WideTile},
     tile::Tile,
@@ -245,14 +246,14 @@ impl Fine {
         for col_idx in 0..width {
             for row_idx in 0..usize::from(Tile::HEIGHT) {
                 let px_offset = (x + col_idx) * TILE_HEIGHT_COMPONENTS + row_idx * COLOR_COMPONENTS;
-                let source_alpha = source_buffer[px_offset + 3] as f32 / 255.0;
-                let inverse_alpha = 1.0 - source_alpha;
+                let source_alpha = source_buffer[px_offset + 3] as u16;
+                let inverse_alpha = 255 - source_alpha;
 
                 for channel_idx in 0..COLOR_COMPONENTS {
-                    let dest = target_buffer[px_offset + channel_idx] as f32;
-                    let src = source_buffer[px_offset + channel_idx] as f32;
+                    let dest = target_buffer[px_offset + channel_idx] as u16;
+                    let src = source_buffer[px_offset + channel_idx] as u16;
                     target_buffer[px_offset + channel_idx] =
-                        (dest * inverse_alpha + src * source_alpha) as u8;
+                        (src + div_255(dest * inverse_alpha)) as u8;
                 }
             }
         }
@@ -269,15 +270,15 @@ impl Fine {
         {
             for (row_idx, &alpha) in column_alphas.iter().enumerate() {
                 let px_offset = (x + col_idx) * TILE_HEIGHT_COMPONENTS + row_idx * COLOR_COMPONENTS;
-                let mask_alpha = alpha as f32 / 255.0;
-                let source_alpha = source_buffer[px_offset + 3] as f32 / 255.0;
-                let inverse_alpha = 1.0 - mask_alpha * source_alpha;
+                let mask_alpha = alpha as u16;
+                let source_alpha = source_buffer[px_offset + 3] as u16;
+                let inverse_alpha = 255 - div_255(mask_alpha * source_alpha);
 
                 for channel_idx in 0..COLOR_COMPONENTS {
-                    let dest = target_buffer[px_offset + channel_idx] as f32;
-                    let source = source_buffer[px_offset + channel_idx] as f32;
+                    let dest = target_buffer[px_offset + channel_idx] as u16;
+                    let source = source_buffer[px_offset + channel_idx] as u16;
                     target_buffer[px_offset + channel_idx] =
-                        (dest * inverse_alpha + mask_alpha * source) as u8;
+                        div_255(dest * inverse_alpha + mask_alpha * source) as u8;
                 }
             }
         }

@@ -32,8 +32,8 @@ impl ExampleScene for SvgScene {
 }
 
 impl SvgScene {
-    /// Create a new `SvgScene` with the default Ghost Tiger SVG
-    pub fn new() -> Self {
+    /// Create a new `SvgScene` with the Ghost Tiger SVG
+    pub fn tiger() -> Self {
         // Load the ghost tiger SVG by default
         #[cfg(target_arch = "wasm32")]
         let svg_content = include_str!("../../../../../examples/assets/Ghostscript_Tiger.svg");
@@ -66,12 +66,6 @@ impl SvgScene {
             transform: Affine::scale(3.0),
             svg,
         })
-    }
-}
-
-impl Default for SvgScene {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
