@@ -6,12 +6,15 @@
 use crate::color::Srgb;
 use crate::color::palette::css::BLACK;
 use crate::kurbo::{Affine, Point, Vec2};
-use crate::peniko::{ColorStop, Extend, GradientKind};
+use crate::peniko::{ColorStop, Extend, GradientKind, ImageQuality};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::f32::consts::PI;
 use std::iter;
-use vello_api::paint::{Gradient, IndexedPaint, Paint};
+use std::sync::Arc;
+use vello_api::paint::{Gradient, Image, IndexedPaint, Paint};
+use crate::encode::private::Sealed;
+use crate::pixmap::Pixmap;
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -209,20 +212,7 @@ impl EncodeExt for Gradient {
         // the above approach of incrementally updating the position, we need to calculate
         // how the x/y unit vectors are affected by the transform, and then use this as the
         // step delta for a step in the x/y direction.
-        let (x_advance, y_advance) = {
-            let scale_skew_transform = {
-                let c = transform.as_coeffs();
-                Affine::new([c[0], c[1], c[2], c[3], 0.0, 0.0])
-            };
-
-            let x_advance = scale_skew_transform * Point::new(1.0, 0.0);
-            let y_advance = scale_skew_transform * Point::new(0.0, 1.0);
-
-            (
-                Vec2::new(x_advance.x, x_advance.y),
-                Vec2::new(y_advance.x, y_advance.y),
-            )
-        };
+        let (x_advance, y_advance) = x_y_advances(&transform);
 
         let encoded = EncodedGradient {
             kind,
@@ -425,17 +415,82 @@ fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<Gra
     }
 }
 
+fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
+    let scale_skew_transform = {
+        let c = transform.as_coeffs();
+        Affine::new([c[0], c[1], c[2], c[3], 0.0, 0.0])
+    };
+
+    let x_advance = scale_skew_transform * Point::new(1.0, 0.0);
+    let y_advance = scale_skew_transform * Point::new(0.0, 1.0);
+
+    (
+        Vec2::new(x_advance.x, x_advance.y),
+        Vec2::new(y_advance.x, y_advance.y),
+    )
+}
+
+impl Sealed for Image {}
+
+impl EncodeExt for Image {
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint {
+        let idx = paints.len();
+
+        let transform = self.transform.inverse();
+        // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
+        // non-opaque images in the first place..
+        let has_opacities = self.pixmap.data().chunks(4).any(|c| c[3] != 255);
+
+        let (x_advance, y_advance) = x_y_advances(&transform);
+
+        let encoded = EncodedImage {
+            pixmap: self.pixmap.clone(),
+            extends: (self.x_extend, self.y_extend),
+            quality: self.quality,
+            has_opacities,
+            transform,
+            x_advance,
+            y_advance,
+        };
+
+        paints.push(EncodedPaint::Image(encoded));
+
+        Paint::Indexed(IndexedPaint::new(idx))
+    }
+}
+
 /// An encoded paint.
 #[derive(Debug)]
 pub enum EncodedPaint {
     /// An encoded gradient.
     Gradient(EncodedGradient),
+    /// An encoded image.
+    Image(EncodedImage),
 }
 
 impl From<EncodedGradient> for EncodedPaint {
     fn from(value: EncodedGradient) -> Self {
         Self::Gradient(value)
     }
+}
+
+/// An encoded image.
+#[derive(Debug)]
+pub struct EncodedImage {
+    /// The underlying pixmap of the image.
+    pub pixmap: Arc<Pixmap>,
+    /// The extends in the horizontal and vertical direction.
+    pub extends: (Extend, Extend),
+    /// The rendering quality of the image.
+    pub quality: ImageQuality,
+    /// Whether the image has opacities.
+    pub has_opacities: bool,
+    /// A transform to apply to the image.
+    pub transform: Affine,
+    /// The advance in image coordinates for one step in the x direction.
+    pub x_advance: Vec2,
+    /// The advance in image coordinates for one step in the y direction.
+    pub y_advance: Vec2,
 }
 
 /// Computed properties of a linear gradient.
