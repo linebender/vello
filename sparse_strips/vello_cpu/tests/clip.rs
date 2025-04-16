@@ -266,7 +266,7 @@ fn clip_with_opacity() {
     let mut ctx = get_ctx(100, 100, false);
     let clip_rect = Rect::new(10.5, 10.5, 89.5, 89.5);
     ctx.clip(&clip_rect.to_path(0.1));
-    ctx.set_paint(BLACK.with_alpha(0.5).into());
+    ctx.set_paint(BLACK.with_alpha(0.5));
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
     ctx.finish();
 

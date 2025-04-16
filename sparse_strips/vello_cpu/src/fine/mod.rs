@@ -6,10 +6,10 @@
 
 mod gradient;
 use crate::fine::gradient::GradientFiller;
+use crate::util::scalar::div_255;
 use std::iter;
 use vello_common::encode::{EncodedKind, EncodedPaint, GradientLike};
 use vello_common::paint::Paint;
-use crate::util::scalar::div_255;
 use vello_common::{
     coarse::{Cmd, WideTile},
     tile::Tile,
