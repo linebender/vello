@@ -333,7 +333,7 @@ impl Wide {
         let mut cur_wtile_y = clip_bbox.y0();
 
         // Process strips to determine the clipping state for each wide tile
-        for i in 0..n_strips - 1 {
+        for i in 0..n_strips.saturating_sub(1) {
             let strip = &strips[i];
             let strip_y = strip.strip_y();
 
@@ -452,7 +452,7 @@ impl Wide {
         let mut pop_pending = false;
 
         // Process each strip to determine the clipping state for each tile
-        for i in 0..n_strips - 1 {
+        for i in 0..n_strips.saturating_sub(1) {
             let strip = &strips[i];
             let strip_y = strip.strip_y();
 
