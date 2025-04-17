@@ -308,12 +308,12 @@ impl Wide {
         } else {
             // Calculate the y range from first to last strip in wide tile coordinates
             let wtile_y0 = strips[0].strip_y();
-            let wtile_y1 = strips[n_strips - 1].strip_y() + 1;
+            let wtile_y1 = strips[n_strips.saturating_sub(1)].strip_y() + 1;
 
             // Calculate the x range by examining all strips in wide tile coordinates
             let mut wtile_x0 = strips[0].x / WideTile::WIDTH;
             let mut wtile_x1 = wtile_x0;
-            for i in 0..n_strips - 1 {
+            for i in 0..n_strips.saturating_sub(1) {
                 let strip = &strips[i];
                 let next_strip = &strips[i + 1];
                 let width =
