@@ -3,9 +3,11 @@
 
 //! Types for paints.
 
+use alloc::sync::Arc;
 use crate::kurbo::Affine;
 use peniko::color::{AlphaColor, PremulRgba8, Srgb};
-use peniko::{ColorStops, GradientKind};
+use peniko::{ColorStops, GradientKind, ImageQuality};
+use crate::pixmap::Pixmap;
 
 /// A paint that needs to be resolved via its index.
 // In the future, we might add additional flags, that's why we have
@@ -82,6 +84,21 @@ impl Gradient {
     }
 }
 
+/// An image.
+#[derive(Debug, Clone)]
+pub struct Image {
+    /// The underlying pixmap of the image.
+    pub pixmap: Arc<Pixmap>,
+    /// Extend mode in the horizontal direction.
+    pub x_extend: peniko::Extend,
+    /// Extend mode in the vertical direction.
+    pub y_extend: peniko::Extend,
+    /// Hint for desired rendering quality.
+    pub quality: ImageQuality,
+    /// A transform to apply to the image.
+    pub transform: Affine,
+}
+
 /// A kind of paint that can be used for filling and stroking shapes.
 #[derive(Debug, Clone)]
 pub enum PaintType {
@@ -89,6 +106,8 @@ pub enum PaintType {
     Solid(AlphaColor<Srgb>),
     /// A gradient.
     Gradient(Gradient),
+    /// An image.
+    Image(Image),
 }
 
 impl From<AlphaColor<Srgb>> for PaintType {
@@ -100,5 +119,11 @@ impl From<AlphaColor<Srgb>> for PaintType {
 impl From<Gradient> for PaintType {
     fn from(value: Gradient) -> Self {
         Self::Gradient(value)
+    }
+}
+
+impl From<Image> for PaintType {
+    fn from(value: Image) -> Self {
+        Self::Image(value)
     }
 }

@@ -17,7 +17,6 @@ pub mod encode;
 pub mod flatten;
 pub mod glyph;
 pub mod pico_svg;
-pub mod pixmap;
 pub mod strip;
 pub mod tile;
 
