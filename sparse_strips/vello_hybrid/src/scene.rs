@@ -4,10 +4,10 @@
 //! Basic render operations.
 
 use std::ops::Range;
+use std::u32;
 
 use crate::render::{GpuStrip, RenderData};
-use vello_common::coarse::{CmdAlphaFill, CmdFill, Wide, WideTile};
-use vello_common::color::PremulRgba8;
+use vello_common::coarse::{self, CmdAlphaFill, CmdFill, Wide, WideTile};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
@@ -210,7 +210,7 @@ impl Scene {
                 let wide_tile_idx = usize::from(wide_tile_row) * usize::from(wide_tiles_per_row)
                     + usize::from(wide_tile_col);
                 let wide_tile = &self.wide.tiles[wide_tile_idx];
-                process_wide_tile(&mut strips, wide_tile_row, wide_tile_col, wide_tile);
+                process_wide_tile(wide_tile);
             }
         }
         panic!();
@@ -229,55 +229,50 @@ enum DrawKind {
 
 #[derive(Debug)]
 enum Step {
-    DrawBackground {
-        layer: u32,
-    },
+    DrawBackground {},
     Draw {
         kind: DrawKind,
-        onto: u32,
         commands: Range<u32>,
     },
     Blend {
+        /// The "destination" layer of the blend.
+        /// That is, the layer whose contents will be used as the "dest" in the blend.
+        /// Note that this is *NOT* where the output will actually be placed (necessarily).
+        /// That is, this is the layer which contains the current "state" *before* the `PushClip` operation happens.
+        dest: u32,
+        /// The "source" layer of the blend.
+        /// That is, the layer whose contents will be used as the "source" in the blend.
         source: u32,
-        layer: u32,
-        target: u32,
+        /// The range of commands in the [`WideTile::cmds`] which "operate" the blend.
         commands: Range<u32>,
     },
 }
 
+#[derive(Debug)]
 struct Layer {
-    id: u32,
     depth: u32,
     steps: Range<u32>,
 }
 
-fn process_wide_tile(
-    strips: &mut Vec<GpuStrip>,
-    wide_tile_row: u16,
-    wide_tile_col: u16,
-    wide_tile: &WideTile,
-) {
-    let mut steps = Vec::new();
-    let wide_tile_x = wide_tile_col * WideTile::WIDTH;
-    let wide_tile_y = wide_tile_row * Tile::HEIGHT;
+fn process_wide_tile(wide_tile: &WideTile) {
     let bg = wide_tile.bg.to_u32();
 
     let mut current_kind = None;
-    let mut current_start = 0;
-    let mut layer_stack: Vec<Layer> = Vec::new();
-    let mut alloc_index: u32 = 0;
-    let mut clip_is_ending = false;
-    // We iterate through the commands in reverse, because that allows us to track how many
-    // blend "zones" need this layer.
+    let mut current_end = 0;
+
+    let mut steps = Vec::new();
+    let mut layers: Vec<Layer> = Vec::new();
+    let mut steps_temp_stack = Vec::new();
+    let mut current_depth = 0;
+    let mut active_blend_layer_indices: Vec<usize> = Vec::new();
+
+    // We iterate through the commands in reverse. This allows us to track the current "depth" accurately
+    // (later blends being "realised" implicitly rely on everything came before).
     for (idx, cmd) in wide_tile.cmds.iter().enumerate().rev() {
         let idx: u32 = idx.try_into().unwrap();
         match cmd {
-            vello_common::coarse::Cmd::Fill(CmdFill { paint, .. })
-            | vello_common::coarse::Cmd::AlphaFill(CmdAlphaFill { paint, .. }) => {
-                debug_assert!(
-                    !clip_is_ending,
-                    "Draw operations shouldn't be scheduled *after* a blend operation but before it finishes."
-                );
+            coarse::Cmd::Fill(CmdFill { paint, .. })
+            | coarse::Cmd::AlphaFill(CmdAlphaFill { paint, .. }) => {
                 let kind = match paint {
                     Paint::Solid(_) => DrawKind::Solid,
                     // TODO: Resolve to a more specific indexed kind.
@@ -285,77 +280,120 @@ fn process_wide_tile(
                 };
                 if let Some(current_kind) = current_kind {
                     if current_kind != kind {
-                        steps.push(Step::Draw {
+                        steps_temp_stack.push(Step::Draw {
                             kind: current_kind,
-                            onto: alloc_index,
-                            commands: idx..current_start,
+                            commands: idx..current_end,
                         });
-                        current_start = idx;
+                        current_end = idx;
                     }
                 } else {
-                    current_start = idx;
+                    current_end = idx;
                 }
                 current_kind = Some(kind);
             }
-            vello_common::coarse::Cmd::PushClip => {
-                debug_assert!(
-                    !clip_is_ending,
-                    "Draw operations shouldn't be scheduled *after* a blend operation but before it finishes."
-                );
+            coarse::Cmd::PopClip => {
                 if let Some(current_kind) = current_kind.take() {
-                    steps.push(Step::Draw {
+                    steps_temp_stack.push(Step::Draw {
                         kind: current_kind,
-                        onto: alloc_index,
-                        commands: current_start..idx,
+                        commands: idx..current_end,
+                    });
+                    // We don't need to update `current_end`, as taking `current_kind` handles that.
+                }
+                let layer_steps_start = steps.len().try_into().unwrap();
+                let this_idx = layers.len();
+                steps.push(Step::Blend {
+                    // Tombstone: Will be updated when handling `PushClip`.
+                    dest: u32::MAX,
+                    // The "source" layer is the next layer we create (after the one we're about to push).
+                    source: u32::try_from(this_idx).unwrap() + 1,
+                    // If there is a `ClipFill` or `ClipStrip`, the start will be decremented.
+                    commands: idx..idx,
+                });
+                steps.extend(steps_temp_stack.drain(..).rev());
+
+                // Push the new layer's index to the stack.
+
+                active_blend_layer_indices.push(this_idx);
+                let next_step: u32 = steps.len().try_into().unwrap();
+                // Create a Layer for the current layer, i.e. the one whose drawing commands we just processed, whose "first" step is the blend.
+                layers.push(Layer {
+                    depth: current_depth,
+                    steps: layer_steps_start..next_step,
+                });
+                current_depth += 1;
+            }
+            coarse::Cmd::ClipFill(_) | coarse::Cmd::ClipStrip(_) => {
+                let this_layer = layers.last_mut().unwrap();
+                let Step::Blend { commands, .. } =
+                    &mut steps[usize::try_from(this_layer.steps.start).unwrap()]
+                else {
+                    unreachable!();
+                };
+                debug_assert_eq!(
+                    commands.start,
+                    idx + 1,
+                    "Should only be `ClipFill` or `ClipStrip` before a `PopClip`"
+                );
+                commands.start = idx;
+            }
+            coarse::Cmd::PushClip => {
+                if let Some(current_kind) = current_kind.take() {
+                    steps_temp_stack.push(Step::Draw {
+                        kind: current_kind,
+                        commands: idx..current_end,
                     });
                 }
-                current_start = idx + 1;
-                layer_stack.push(alloc_index);
-                alloc_index += 1;
-            }
-            vello_common::coarse::Cmd::PopClip => {
-                debug_assert!(
-                    clip_is_ending,
-                    "A clip region should have a reason to exist."
-                );
-                clip_is_ending = false;
-                let blend_source = layer_stack.pop().expect("PopClip should be balanced");
-                let layer = alloc_index;
-                alloc_index += 1;
-                steps.push(Step::Blend {
-                    source: blend_source,
-                    layer,
-                    target: alloc_index,
-                    commands: current_start..idx,
+                let new_depth = {
+                    // Resolve the source tombstone in the blend we're "opening".
+                    let pop_idx = active_blend_layer_indices.pop().unwrap();
+                    let layer = &mut layers[pop_idx];
+                    let Step::Blend { dest, .. } =
+                        &mut steps[usize::try_from(layer.steps.start).unwrap()]
+                    else {
+                        unreachable!()
+                    };
+                    debug_assert_eq!(*dest, u32::MAX, "Each tomstone should only be set once");
+                    let layer_depth = layer.depth;
+                    // Mark the dest as the next layer to be created (i.e. not the one we're about to make).
+                    *dest = u32::try_from(layers.len()).unwrap() + 1;
+                    layer_depth
+                };
+                // Finalise the layer which we just finished.
+                // Note that this is *not* necessarily the source layer, because there could have been other clips in between.
+                let layer_steps_start = steps.len().try_into().unwrap();
+                steps.extend(steps_temp_stack.drain(..).rev());
+                let layer_steps_end: u32 = steps.len().try_into().unwrap();
+                layers.push(Layer {
+                    depth: current_depth,
+                    steps: layer_steps_start..layer_steps_end,
                 });
-                current_start = idx + 1;
-            }
-            vello_common::coarse::Cmd::ClipFill(_) | vello_common::coarse::Cmd::ClipStrip(_) => {
-                // Nothing to do, but we know that a blend will be happening with the output
-                if !clip_is_ending {
-                    clip_is_ending = true;
-                    if let Some(current_kind) = current_kind.take() {
-                        steps.push(Step::Draw {
-                            kind: current_kind,
-                            onto: alloc_index,
-                            commands: current_start..idx,
-                        });
-                    }
-                    current_start = idx;
-                }
+                // Set the depth to the same as the `dest` of this blend.
+                current_depth = new_depth + 1;
             }
         }
     }
+    let layer_steps_start = steps.len().try_into().unwrap();
     if let Some(current_kind) = current_kind.take() {
-        steps.push(Step::Draw {
+        steps_temp_stack.push(Step::Draw {
             kind: current_kind,
-            onto: alloc_index,
-            commands: current_start..wide_tile.cmds.len().try_into().unwrap(),
+            commands: 0..current_end,
         });
     }
     if bg != 0 {
-        steps.push(Step::DrawBackground { layer: alloc_index });
+        steps.push(Step::DrawBackground {});
     }
+    steps.extend(steps_temp_stack.drain(..).rev());
+    let layer_steps_end: u32 = steps.len().try_into().unwrap();
+    layers.push(Layer {
+        depth: current_depth,
+        steps: layer_steps_start..layer_steps_end,
+    });
+    debug_assert!(
+        active_blend_layer_indices.is_empty(),
+        "All PopClips should have a corresponding PushClips"
+    );
+    dbg!(layers);
+    dbg!(steps);
 }
 
 impl GlyphRenderer for Scene {
