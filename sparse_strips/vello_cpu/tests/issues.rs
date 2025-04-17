@@ -301,3 +301,12 @@ fn fill_command_respects_clip_bounds() {
     ctx.finish();
     check_ref(&ctx, "fill_command_respects_clip_bounds");
 }
+
+#[test]
+fn out_of_viewport_clip() {
+    let mut ctx = get_ctx(100, 100, false);
+    ctx.clip(&Rect::new(-100.0, -100.0, 0.0, 0.0).to_path(0.1));
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.finish();
+}
