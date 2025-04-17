@@ -1,7 +1,7 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT OR Unlicense
 
-use vello_encoding::{Clip, ConfigUniform, DrawMonoid, PathBbox};
+use vello_encoding::{Clip, ClipBbox, ConfigUniform, DrawMonoid, PathBbox};
 
 use super::CpuBinding;
 
@@ -17,12 +17,12 @@ const BIG_BBOX: [f32; 4] = [-1e9, -1e9, 1e9, 1e9];
 // Note: this implementation doesn't rigorously follow the
 // WGSL original. In particular, it just computes the clips
 // sequentially rather than using the partition reductions.
-fn clip_leaf_main(
+pub fn clip_leaf_main(
     config: &ConfigUniform,
     clip_inp: &[Clip],
     path_bboxes: &[PathBbox],
     draw_monoids: &mut [DrawMonoid],
-    clip_bboxes: &mut [[f32; 4]],
+    clip_bboxes: &mut [ClipBbox],
 ) {
     let mut stack: Vec<ClipStackElement> = Vec::new();
     for global_ix in 0..config.layout.n_clips {
@@ -47,7 +47,7 @@ fn clip_leaf_main(
             } else {
                 p_bbox
             };
-            clip_bboxes[global_ix as usize] = bbox;
+            clip_bboxes[global_ix as usize] = ClipBbox { bbox };
             let parent_ix = clip_el.ix;
             stack.push(ClipStackElement {
                 parent_ix,
@@ -62,7 +62,7 @@ fn clip_leaf_main(
             } else {
                 BIG_BBOX
             };
-            clip_bboxes[global_ix as usize] = bbox;
+            clip_bboxes[global_ix as usize] = ClipBbox { bbox };
             draw_monoids[clip_el.ix as usize].path_ix = tos.path_ix;
             draw_monoids[clip_el.ix as usize].scene_offset =
                 draw_monoids[tos.parent_ix as usize].scene_offset;
