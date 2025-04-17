@@ -317,7 +317,7 @@ impl ApplicationHandler for App<'_> {
                 device_handle.queue.submit([encoder.finish()]);
                 surface_texture.present();
 
-                device_handle.device.poll(wgpu::Maintain::Poll);
+                device_handle.device.poll(wgpu::PollType::Poll).unwrap();
             }
             _ => {}
         }

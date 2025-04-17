@@ -112,7 +112,7 @@ vello_hybrid = { path = "sparse_strips/vello_hybrid" }
 vello_hybrid_scenes = { path = "sparse_strips/vello_hybrid/examples/scenes" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
-wgpu = { version = "24.0.1" }
+wgpu = { version = "25.0.0" }
 log = "0.4.27"
 image = { version = "0.25.6", default-features = false }
 
@@ -122,7 +122,7 @@ anyhow = "1.0.97"
 png = "0.17.16"
 pollster = "0.4.0"
 web-time = "1.1.0"
-wgpu-profiler = "0.21.0"
+wgpu-profiler = "0.23.0"
 winit = "0.30.9"
 scenes = { path = "examples/scenes" }
 svg = "0.18.0"
