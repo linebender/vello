@@ -445,7 +445,7 @@ pub fn render_rect(
     // If rect covers more than one strip vertically, we need to strip the vertical line
     // segments of the rectangle, and finally the bottom horizontal line segment.
     if top_strip_idx != bottom_strip_idx {
-        let alphas = [1.0, 1.0, 1.0, 1.0];
+        let alphas = [1.0; Tile::HEIGHT as usize];
 
         // Strip all parts that are inside the rectangle (i.e. neither the top nor the
         // bottom part. In this case, all pixels will have full opacity).
