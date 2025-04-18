@@ -14,25 +14,15 @@ use crate::{Promise, Rect};
 
 pub struct Backend {
     native_component: LayerMap<()>,
-
-    #[cfg(feature = "enable-winit")]
-    window: Option<Window>,
 }
 
 impl crate::Backend for Backend {
     type NativeConnection = ();
     type Host = ();
 
-    #[cfg_attr(
-        not(feature = "enable-winit"),
-        expect(unused_variables, reason = "Deferred")
-    )]
-    fn new(connection: Connection<Self::NativeConnection>) -> Result<Backend, ConnectionError> {
+    fn new(_connection: Connection<Self::NativeConnection>) -> Result<Backend, ConnectionError> {
         Ok(Backend {
             native_component: LayerMap::new(),
-
-            #[cfg(feature = "enable-winit")]
-            window: connection.into_window(),
         })
     }
 
@@ -137,14 +127,10 @@ impl crate::Backend for Backend {
     // `winit` integration
 
     #[cfg(feature = "enable-winit")]
-    fn window(&self) -> Option<&Window> {
-        unimplemented!()
-    }
-
-    #[cfg(feature = "enable-winit")]
     fn host_layer_in_window(
         &mut self,
         _layer: LayerId,
+        _window: &Window,
         _tree_component: &LayerMap<LayerTreeInfo>,
         _container_component: &LayerMap<LayerContainerInfo>,
         _geometry_component: &LayerMap<LayerGeometryInfo>,

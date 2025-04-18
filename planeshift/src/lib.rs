@@ -19,7 +19,7 @@
 )]
 #![cfg_attr(
     feature = "enable-winit",
-    expect(clippy::result_unit_err, clippy::todo, reason = "Deferred")
+    expect(clippy::result_unit_err, reason = "Deferred")
 )]
 #![cfg_attr(target_vendor = "apple", expect(unexpected_cfgs, reason = "Deferred"))]
 
@@ -69,9 +69,6 @@ pub struct LayerMap<T>(pub Vec<Option<T>>);
 pub enum Connection<N> {
     /// A native connection.
     Native(N),
-    /// A connection managed by `winit`.
-    #[cfg(feature = "enable-winit")]
-    Winit(), // TODO: Fix this ...
 }
 
 bitflags::bitflags! {
@@ -505,12 +502,7 @@ where
     // `winit` integration
 
     #[cfg(feature = "enable-winit")]
-    pub fn window(&self) -> Option<&Window> {
-        self.backend.window()
-    }
-
-    #[cfg(feature = "enable-winit")]
-    pub fn host_layer_in_window(&mut self, layer: LayerId) -> Result<(), ()> {
+    pub fn host_layer_in_window(&mut self, layer: LayerId, window: &Window) -> Result<(), ()> {
         debug_assert!(self.in_transaction());
 
         self.tree_component.add(
@@ -524,6 +516,7 @@ where
 
         self.backend.host_layer_in_window(
             layer,
+            window,
             &self.tree_component,
             &self.container_component,
             &self.geometry_component,
@@ -738,18 +731,6 @@ impl<T> IndexMut<LayerId> for LayerMap<T> {
     #[inline]
     fn index_mut(&mut self, layer_id: LayerId) -> &mut T {
         self.0[layer_id.0 as usize].as_mut().unwrap()
-    }
-}
-
-// Specific type infrastructure
-
-impl<N> Connection<N> {
-    #[cfg(feature = "enable-winit")]
-    pub fn into_window(self) -> Option<Window> {
-        match self {
-            Connection::Native(_) => None,
-            Connection::Winit() => todo!(),
-        }
     }
 }
 

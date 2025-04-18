@@ -42,21 +42,6 @@ where
             Connection::Native(NativeConnection::B(native_connection)) => {
                 Ok(Backend::B(B::new(Connection::Native(native_connection))?))
             }
-            #[cfg(feature = "enable-winit")]
-            Connection::Winit() => todo!(),
-            /*
-            Connection::Winit(window_builder, event_loop) => {
-                match A::new(Connection::Winit(window_builder, event_loop)) {
-                    Ok(backend) => Ok(Backend::A(backend)),
-                    Err(err) => {
-                        match B::new(Connection::Winit(err.window_builder.unwrap(), event_loop)) {
-                            Ok(backend) => Ok(Backend::B(backend)),
-                            Err(err) => Err(err),
-                        }
-                    }
-                }
-            }
-            */
         }
     }
 
@@ -286,17 +271,10 @@ where
     // `winit` integration
 
     #[cfg(feature = "enable-winit")]
-    fn window(&self) -> Option<&Window> {
-        match *self {
-            Backend::A(ref this) => this.window(),
-            Backend::B(ref this) => this.window(),
-        }
-    }
-
-    #[cfg(feature = "enable-winit")]
     fn host_layer_in_window(
         &mut self,
         layer: LayerId,
+        window: &Window,
         tree_component: &LayerMap<LayerTreeInfo>,
         container_component: &LayerMap<LayerContainerInfo>,
         geometry_component: &LayerMap<LayerGeometryInfo>,
@@ -304,12 +282,14 @@ where
         match *self {
             Backend::A(ref mut this) => this.host_layer_in_window(
                 layer,
+                window,
                 tree_component,
                 container_component,
                 geometry_component,
             ),
             Backend::B(ref mut this) => this.host_layer_in_window(
                 layer,
+                window,
                 tree_component,
                 container_component,
                 geometry_component,

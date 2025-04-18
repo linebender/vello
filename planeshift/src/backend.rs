@@ -94,11 +94,10 @@ pub trait Backend: Sized {
 
     // `winit` integration
     #[cfg(feature = "enable-winit")]
-    fn window(&self) -> Option<&Window>;
-    #[cfg(feature = "enable-winit")]
     fn host_layer_in_window(
         &mut self,
         layer: LayerId,
+        window: &Window,
         tree_component: &LayerMap<LayerTreeInfo>,
         container_component: &LayerMap<LayerContainerInfo>,
         geometry_component: &LayerMap<LayerGeometryInfo>,
