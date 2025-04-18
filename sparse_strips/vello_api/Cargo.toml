@@ -13,6 +13,7 @@ publish = false
 
 [dependencies]
 peniko = { workspace = true }
+png = { workspace = true }
 
 [features]
 default = ["std"]

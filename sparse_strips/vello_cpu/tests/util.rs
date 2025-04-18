@@ -51,14 +51,6 @@ pub(crate) fn miter_stroke_2() -> Stroke {
     }
 }
 
-pub(crate) fn bevel_stroke_2() -> Stroke {
-    Stroke {
-        width: 2.0,
-        join: Join::Bevel,
-        ..Default::default()
-    }
-}
-
 pub(crate) fn crossed_line_star() -> BezPath {
     let mut path = BezPath::new();
     path.move_to((50.0, 10.0));
