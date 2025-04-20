@@ -20,7 +20,9 @@ members = [
     "sparse_strips/vello_hybrid/examples/scenes",
     "sparse_strips/vello_hybrid/examples/webgl",
     "sparse_strips/vello_hybrid/examples/winit",
-    "sparse_strips/vello_toy",
+    "sparse_strips/vello_toy", 
+    "sparse_strips/vello_macros",
+    "sparse_strips/vello_sparse_tests",
 ]
 
 [workspace.package]
@@ -110,6 +112,7 @@ vello_common = { path = "sparse_strips/vello_common" }
 vello_cpu = { path = "sparse_strips/vello_cpu" }
 vello_hybrid = { path = "sparse_strips/vello_hybrid" }
 vello_hybrid_scenes = { path = "sparse_strips/vello_hybrid/examples/scenes" }
+vello_macros = { path = "sparse_strips/vello_macros" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
 wgpu = { version = "24.0.1" }
@@ -130,3 +133,6 @@ criterion = { version = "0.5.1", default-features = false }
 rand = { version = "0.9.0", default-features = false, features = ["std_rng"] }
 usvg = { version = "0.45.0" }
 once_cell = "1.21.3"
+proc-macro2 = "1.0.93"
+syn = { version = "2.0.100", features = ["full", "extra-traits"] }
+quote = "1.0.38"

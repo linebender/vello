@@ -3,30 +3,24 @@
 
 //! Tests for basic functionality.
 
-use crate::util::{
-    check_ref, circular_star, crossed_line_star, get_ctx, miter_stroke_2,
-};
+use crate::util::{circular_star, crossed_line_star, miter_stroke_2};
 use std::f64::consts::PI;
 use vello_common::color::palette::css::{
     BEIGE, BLUE, DARK_BLUE, GREEN, LIME, MAROON, REBECCA_PURPLE, RED,
 };
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
+use vello_cpu::RenderContext;
+use vello_macros::v_test;
 
-#[test]
-fn full_cover_1() {
-    let mut ctx = get_ctx(8, 8, true);
-
+#[v_test(width = 8, height = 8)]
+fn full_cover_1(ctx: &mut RenderContext) {
     ctx.set_paint(BEIGE);
     ctx.fill_path(&Rect::new(0.0, 0.0, 8.0, 8.0).to_path(0.1));
-
-    check_ref(&ctx, "full_cover_1");
 }
 
-#[test]
-fn filled_triangle() {
-    let mut ctx = get_ctx(100, 100, false);
-
+#[v_test]
+fn filled_triangle(ctx: &mut RenderContext) {
     let path = {
         let mut path = BezPath::new();
         path.move_to((5.0, 5.0));
@@ -39,13 +33,10 @@ fn filled_triangle() {
 
     ctx.set_paint(LIME);
     ctx.fill_path(&path);
-
-    check_ref(&ctx, "filled_triangle");
 }
 
-#[test]
-fn stroked_triangle() {
-    let mut ctx = get_ctx(100, 100, false);
+#[v_test]
+fn stroked_triangle(ctx: &mut RenderContext) {
     let path = {
         let mut path = BezPath::new();
         path.move_to((5.0, 5.0));
@@ -59,96 +50,70 @@ fn stroked_triangle() {
     ctx.set_stroke(Stroke::new(3.0));
     ctx.set_paint(LIME);
     ctx.stroke_path(&path);
-
-    check_ref(&ctx, "stroked_triangle");
 }
 
-#[test]
-fn filled_circle() {
-    let mut ctx = get_ctx(100, 100, false);
+#[v_test]
+fn filled_circle(ctx: &mut RenderContext) {
     let circle = Circle::new((50.0, 50.0), 45.0);
     ctx.set_paint(LIME);
     ctx.fill_path(&circle.to_path(0.1));
-
-    check_ref(&ctx, "filled_circle");
 }
 
-#[test]
-fn filled_overflowing_circle() {
-    let mut ctx = get_ctx(100, 100, false);
+#[v_test]
+fn filled_overflowing_circle(ctx: &mut RenderContext) {
     let circle = Circle::new((50.0, 50.0), 50.0 + 1.0);
 
     ctx.set_paint(LIME);
     ctx.fill_path(&circle.to_path(0.1));
-
-    check_ref(&ctx, "filled_overflowing_circle");
 }
 
-#[test]
-fn filled_fully_overflowing_circle() {
-    let mut ctx = get_ctx(100, 100, false);
+#[v_test]
+fn filled_fully_overflowing_circle(ctx: &mut RenderContext) {
     let circle = Circle::new((50.0, 50.0), 80.0);
 
     ctx.set_paint(LIME);
     ctx.fill_path(&circle.to_path(0.1));
-
-    check_ref(&ctx, "filled_fully_overflowing_circle");
 }
 
-#[test]
-fn filled_circle_with_opacity() {
-    let mut ctx = get_ctx(100, 100, false);
+#[v_test]
+fn filled_circle_with_opacity(ctx: &mut RenderContext) {
     let circle = Circle::new((50.0, 50.0), 45.0);
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_path(&circle.to_path(0.1));
-
-    check_ref(&ctx, "filled_circle_with_opacity");
 }
 
-#[test]
-fn filled_overlapping_circles() {
-    let mut ctx = get_ctx(100, 100, false);
-
+#[v_test]
+fn filled_overlapping_circles(ctx: &mut RenderContext) {
     for e in [(35.0, 35.0, RED), (65.0, 35.0, GREEN), (50.0, 65.0, BLUE)] {
         let circle = Circle::new((e.0, e.1), 30.0);
         ctx.set_paint(e.2.with_alpha(0.5));
         ctx.fill_path(&circle.to_path(0.1));
     }
-
-    check_ref(&ctx, "filled_overlapping_circles");
 }
 
-#[test]
-fn stroked_circle() {
-    let mut ctx = get_ctx(100, 100, false);
+#[v_test]
+fn stroked_circle(ctx: &mut RenderContext) {
     let circle = Circle::new((50.0, 50.0), 45.0);
     let stroke = Stroke::new(3.0);
 
     ctx.set_paint(LIME);
     ctx.set_stroke(stroke);
     ctx.stroke_path(&circle.to_path(0.1));
-
-    check_ref(&ctx, "stroked_circle");
 }
 
 /// Requires winding of the first row of tiles to be calculcated correctly for vertical lines.
-#[test]
-fn rectangle_above_viewport() {
-    let mut ctx = get_ctx(10, 10, false);
+#[v_test(width = 10, height = 10)]
+fn rectangle_above_viewport(ctx: &mut RenderContext) {
     let rect = Rect::new(2.0, -5.0, 8.0, 8.0);
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "rectangle_above_viewport");
 }
 
 /// Requires winding of the first row of tiles to be calculcated correctly for sloped lines.
-#[test]
-fn triangle_above_and_wider_than_viewport() {
-    let mut ctx = get_ctx(10, 10, false);
-
+#[v_test(width = 10, height = 10)]
+fn triangle_above_and_wider_than_viewport(ctx: &mut RenderContext) {
     let path = {
         let mut path = BezPath::new();
         path.move_to((5.0, -5.0));
@@ -161,60 +126,45 @@ fn triangle_above_and_wider_than_viewport() {
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_path(&path);
-
-    check_ref(&ctx, "triangle_above_and_wider_than_viewport");
 }
 
 /// Requires winding and pixel coverage to be calculcated correctly for tiles preceding the
 /// viewport in scan direction.
-#[test]
-fn rectangle_left_of_viewport() {
-    let mut ctx = get_ctx(10, 10, false);
+#[v_test(width = 10, height = 10)]
+fn rectangle_left_of_viewport(ctx: &mut RenderContext) {
     let rect = Rect::new(-4.0, 3.0, 1.0, 8.0);
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "rectangle_left_of_viewport");
 }
 
-#[test]
-fn filling_nonzero_rule() {
-    let mut ctx = get_ctx(100, 100, false);
+#[v_test]
+fn filling_nonzero_rule(ctx: &mut RenderContext) {
     let star = crossed_line_star();
 
     ctx.set_paint(MAROON);
     ctx.fill_path(&star);
-
-    check_ref(&ctx, "filling_nonzero_rule");
 }
 
-#[test]
-fn filling_evenodd_rule() {
-    let mut ctx = get_ctx(100, 100, false);
+#[v_test]
+fn filling_evenodd_rule(ctx: &mut RenderContext) {
     let star = crossed_line_star();
 
     ctx.set_paint(MAROON);
     ctx.set_fill_rule(Fill::EvenOdd);
     ctx.fill_path(&star);
-
-    check_ref(&ctx, "filling_evenodd_rule");
 }
 
-#[test]
-fn filled_aligned_rect() {
-    let mut ctx = get_ctx(30, 20, false);
+#[v_test(width = 30, height = 20)]
+fn filled_aligned_rect(ctx: &mut RenderContext) {
     let rect = Rect::new(1.0, 1.0, 29.0, 19.0);
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "filled_aligned_rect");
 }
 
-#[test]
-fn stroked_unaligned_rect() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn stroked_unaligned_rect(ctx: &mut RenderContext) {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0);
     let stroke = Stroke {
         width: 1.0,
@@ -225,13 +175,10 @@ fn stroked_unaligned_rect() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
-
-    check_ref(&ctx, "stroked_unaligned_rect");
 }
 
-#[test]
-fn stroked_unaligned_rect_as_path() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn stroked_unaligned_rect_as_path(ctx: &mut RenderContext) {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0).to_path(0.1);
     let stroke = Stroke {
         width: 1.0,
@@ -242,26 +189,20 @@ fn stroked_unaligned_rect_as_path() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_path(&rect);
-
-    check_ref(&ctx, "stroked_unaligned_rect_as_path");
 }
 
-#[test]
-fn stroked_aligned_rect() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn stroked_aligned_rect(ctx: &mut RenderContext) {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0);
     let stroke = miter_stroke_2();
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
-
-    check_ref(&ctx, "stroked_aligned_rect");
 }
 
-#[test]
-fn overflowing_stroked_rect() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn overflowing_stroked_rect(ctx: &mut RenderContext) {
     let rect = Rect::new(12.5, 12.5, 17.5, 17.5);
     let stroke = Stroke {
         width: 5.0,
@@ -272,26 +213,20 @@ fn overflowing_stroked_rect() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
-
-    check_ref(&ctx, "overflowing_stroked_rect");
 }
 
-#[test]
-fn round_stroked_rect() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn round_stroked_rect(ctx: &mut RenderContext) {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0);
     let stroke = Stroke::new(3.0);
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
-
-    check_ref(&ctx, "round_stroked_rect");
 }
 
-#[test]
-fn bevel_stroked_rect() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn bevel_stroked_rect(ctx: &mut RenderContext) {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0);
     let stroke = Stroke {
         width: 3.0,
@@ -302,60 +237,45 @@ fn bevel_stroked_rect() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
-
-    check_ref(&ctx, "bevel_stroked_rect");
 }
 
-#[test]
-fn filled_unaligned_rect() {
-    let mut ctx = get_ctx(30, 20, false);
+#[v_test(width = 30, height = 20)]
+fn filled_unaligned_rect(ctx: &mut RenderContext) {
     let rect = Rect::new(1.5, 1.5, 28.5, 18.5);
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "filled_unaligned_rect");
 }
 
-#[test]
-fn filled_transformed_rect_1() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn filled_transformed_rect_1(ctx: &mut RenderContext) {
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
 
     ctx.set_transform(Affine::translate((10.0, 10.0)));
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "filled_transformed_rect_1");
 }
 
-#[test]
-fn filled_transformed_rect_2() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn filled_transformed_rect_2(ctx: &mut RenderContext) {
     let rect = Rect::new(5.0, 5.0, 10.0, 10.0);
 
     ctx.set_transform(Affine::scale(2.0));
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "filled_transformed_rect_2");
 }
 
-#[test]
-fn filled_transformed_rect_3() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn filled_transformed_rect_3(ctx: &mut RenderContext) {
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
 
     ctx.set_transform(Affine::new([2.0, 0.0, 0.0, 2.0, 5.0, 5.0]));
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "filled_transformed_rect_3");
 }
 
-#[test]
-fn filled_transformed_rect_4() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn filled_transformed_rect_4(ctx: &mut RenderContext) {
     let rect = Rect::new(10.0, 10.0, 20.0, 20.0);
 
     ctx.set_transform(Affine::rotate_about(
@@ -364,13 +284,10 @@ fn filled_transformed_rect_4() {
     ));
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "filled_transformed_rect_4");
 }
 
-#[test]
-fn stroked_transformed_rect_1() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn stroked_transformed_rect_1(ctx: &mut RenderContext) {
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
     let stroke = miter_stroke_2();
 
@@ -378,13 +295,10 @@ fn stroked_transformed_rect_1() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
-
-    check_ref(&ctx, "stroked_transformed_rect_1");
 }
 
-#[test]
-fn stroked_transformed_rect_2() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn stroked_transformed_rect_2(ctx: &mut RenderContext) {
     let rect = Rect::new(5.0, 5.0, 10.0, 10.0);
     let stroke = miter_stroke_2();
 
@@ -392,13 +306,10 @@ fn stroked_transformed_rect_2() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
-
-    check_ref(&ctx, "stroked_transformed_rect_2");
 }
 
-#[test]
-fn stroked_transformed_rect_3() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn stroked_transformed_rect_3(ctx: &mut RenderContext) {
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
     let stroke = miter_stroke_2();
 
@@ -406,13 +317,10 @@ fn stroked_transformed_rect_3() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
-
-    check_ref(&ctx, "stroked_transformed_rect_3");
 }
 
-#[test]
-fn stroked_transformed_rect_4() {
-    let mut ctx = get_ctx(30, 30, false);
+#[v_test(width = 30, height = 30)]
+fn stroked_transformed_rect_4(ctx: &mut RenderContext) {
     let rect = Rect::new(10.0, 10.0, 20.0, 20.0);
     let stroke = miter_stroke_2();
 
@@ -423,47 +331,34 @@ fn stroked_transformed_rect_4() {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(stroke);
     ctx.stroke_rect(&rect);
-
-    check_ref(&ctx, "stroked_transformed_rect_4");
 }
 
-#[test]
-fn strip_inscribed_rect() {
-    let mut ctx = get_ctx(30, 20, false);
+#[v_test(width = 30, height = 20)]
+fn strip_inscribed_rect(ctx: &mut RenderContext) {
     let rect = Rect::new(1.5, 9.5, 28.5, 11.5);
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "strip_inscribed_rect");
 }
 
-#[test]
-fn filled_vertical_hairline_rect() {
-    let mut ctx = get_ctx(5, 8, false);
+#[v_test(width = 5, height = 8)]
+fn filled_vertical_hairline_rect(ctx: &mut RenderContext) {
     let rect = Rect::new(2.25, 0.0, 2.75, 8.0);
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "filled_vertical_hairline_rect");
 }
 
-#[test]
-fn filled_vertical_hairline_rect_2() {
-    let mut ctx = get_ctx(10, 10, false);
+#[v_test(width = 10, height = 10)]
+fn filled_vertical_hairline_rect_2(ctx: &mut RenderContext) {
     let rect = Rect::new(4.5, 0.5, 5.5, 9.5);
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "filled_vertical_hairline_rect_2");
 }
 
-#[test]
-fn oversized_star() {
-    let mut ctx = get_ctx(100, 100, true);
-
+#[v_test(transparent)]
+fn oversized_star(ctx: &mut RenderContext) {
     // Create a star path that extends beyond the render context boundaries
     // Center it in the middle of the viewport
     let star_path = circular_star(Point::new(50., 50.), 10, 30., 90.);
@@ -475,6 +370,4 @@ fn oversized_star() {
     ctx.set_paint(DARK_BLUE);
     ctx.set_stroke(stroke);
     ctx.stroke_path(&star_path);
-
-    check_ref(&ctx, "oversized_star");
 }

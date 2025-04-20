@@ -1,18 +1,19 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::util::{check_ref, get_ctx, stops_blue_green_red_yellow, stops_green_blue};
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::Gradient;
 use vello_common::peniko::GradientKind;
-use crate::util::{check_ref, get_ctx, stops_blue_green_red_yellow, stops_green_blue};
+use vello_cpu::RenderContext;
+use vello_macros::v_test;
 
 pub(crate) const fn tan_45() -> f64 {
     1.0
 }
 
-#[test]
-fn gradient_on_3_wide_tiles() {
-    let mut ctx = get_ctx(600, 32, false);
+#[v_test(width = 600, height = 32)]
+fn gradient_on_3_wide_tiles(ctx: &mut RenderContext) {
     let rect = Rect::new(4.0, 4.0, 596.0, 28.0);
 
     let gradient = Gradient {
@@ -27,13 +28,10 @@ fn gradient_on_3_wide_tiles() {
 
     ctx.set_paint(gradient);
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "gradient_on_3_wide_tiles");
 }
 
-#[test]
-fn gradient_with_global_alpha() {
-    let mut ctx = get_ctx(100, 100, false);
+#[v_test]
+fn gradient_with_global_alpha(ctx: &mut RenderContext) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
     let gradient = Gradient {
@@ -44,28 +42,29 @@ fn gradient_with_global_alpha() {
         stops: stops_blue_green_red_yellow(),
         transform: Affine::IDENTITY,
         extend: vello_common::peniko::Extend::Pad,
-    }.multiply_alpha(0.5);
+    }
+    .multiply_alpha(0.5);
 
     ctx.set_paint(gradient);
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "gradient_with_global_alpha");
 }
 
 mod linear {
+    use crate::gradient::tan_45;
     use crate::util::{
         check_ref, crossed_line_star, get_ctx, stops_blue_green_red_yellow, stops_green_blue,
         stops_green_blue_with_alpha,
     };
     use std::f64::consts::PI;
+    use vello_api::peniko;
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::paint::Gradient;
     use vello_common::peniko::GradientKind;
-    use crate::gradient::tan_45;
+    use vello_cpu::RenderContext;
+    use vello_macros::v_test;
 
-    #[test]
-    fn gradient_linear_2_stops() {
-        let mut ctx = get_ctx(100, 100, false);
+    #[v_test]
+    fn gradient_linear_2_stops(ctx: &mut RenderContext) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
         let gradient = Gradient {
@@ -75,18 +74,15 @@ mod linear {
             },
             stops: stops_green_blue(),
             transform: Affine::IDENTITY,
-            extend: vello_common::peniko::Extend::Pad,
+            extend: peniko::Extend::Pad,
         };
 
         ctx.set_paint(gradient);
         ctx.fill_rect(&rect);
-
-        check_ref(&ctx, "gradient_linear_2_stops");
     }
 
-    #[test]
-    fn gradient_linear_2_stops_with_alpha() {
-        let mut ctx = get_ctx(100, 100, false);
+    #[v_test]
+    fn gradient_linear_2_stops_with_alpha(ctx: &mut RenderContext) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
         let gradient = Gradient {
@@ -96,106 +92,81 @@ mod linear {
             },
             stops: stops_green_blue_with_alpha(),
             transform: Affine::IDENTITY,
+            extend: peniko::Extend::Pad,
+        };
+
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
+    }
+
+    fn directional(ctx: &mut RenderContext, start: Point, end: Point) {
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+        let gradient = Gradient {
+            kind: GradientKind::Linear { start, end },
+            stops: stops_green_blue(),
+            transform: Affine::IDENTITY,
             extend: vello_common::peniko::Extend::Pad,
         };
 
         ctx.set_paint(gradient);
         ctx.fill_rect(&rect);
-
-        check_ref(&ctx, "gradient_linear_2_stops_with_alpha");
     }
-    
-    macro_rules! directional {
-        ($name:expr, $start:expr, $end:expr) => {
-            let mut ctx = get_ctx(100, 100, false);
-            let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-    
-            let gradient = Gradient {
-                kind: GradientKind::Linear {
-                    start: $start,
-                    end: $end,
-                },
-                stops: stops_green_blue(),
-                transform: Affine::IDENTITY,
-                extend: vello_common::peniko::Extend::Pad,
-            };
-    
-            ctx.set_paint(gradient);
-            ctx.fill_rect(&rect);
-            
-             check_ref(&ctx, $name);
+
+    #[v_test]
+    fn gradient_linear_negative_direction(ctx: &mut RenderContext) {
+        directional(ctx, Point::new(90.0, 0.0), Point::new(10.0, 0.0));
+    }
+
+    #[v_test]
+    fn gradient_linear_with_downward_y(ctx: &mut RenderContext) {
+        directional(ctx, Point::new(20.0, 20.0), Point::new(80.0, 80.0));
+    }
+
+    #[v_test]
+    fn gradient_linear_with_upward_y(ctx: &mut RenderContext) {
+        directional(ctx, Point::new(20.0, 80.0), Point::new(80.0, 20.0));
+    }
+
+    #[v_test]
+    fn gradient_linear_vertical(ctx: &mut RenderContext) {
+        directional(ctx, Point::new(0.0, 10.0), Point::new(0.0, 90.0));
+    }
+
+    fn gradient_extend(ctx: &mut RenderContext, extend: peniko::Extend) {
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+        let gradient = Gradient {
+            kind: GradientKind::Linear {
+                start: Point::new(40.0, 40.0),
+                end: Point::new(60.0, 60.0),
+            },
+            stops: stops_blue_green_red_yellow(),
+            transform: Affine::IDENTITY,
+            extend,
         };
+
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
     }
 
-    #[test]
-    fn gradient_linear_negative_direction() {
-        directional!("gradient_linear_negative_direction", Point::new(90.0, 0.0), Point::new(10.0, 0.0));
+    #[v_test]
+    fn gradient_linear_spread_method_pad(ctx: &mut RenderContext) {
+        gradient_extend(ctx, peniko::Extend::Pad);
     }
 
-    #[test]
-    fn gradient_linear_with_downward_y() {
-        directional!("gradient_linear_with_downward_y", Point::new(20.0, 20.0), Point::new(80.0, 80.0));
+    #[v_test]
+    fn gradient_linear_spread_method_repeat(ctx: &mut RenderContext) {
+        gradient_extend(ctx, peniko::Extend::Repeat);
     }
 
-    #[test]
-    fn gradient_linear_with_upward_y() {
-        directional!("gradient_linear_with_upward_y", Point::new(20.0, 80.0), Point::new(80.0, 20.0));
+    #[v_test]
+    fn gradient_linear_spread_method_reflect(ctx: &mut RenderContext) {
+        gradient_extend(ctx, peniko::Extend::Reflect);
     }
 
-    #[test]
-    fn gradient_linear_vertical() {
-        directional!("gradient_linear_vertical", Point::new(0.0, 10.0), Point::new(0.0, 90.0));
-    }
-
-    macro_rules! gradient_pad {
-        ($extend:path, $name:expr) => {
-            let mut ctx = get_ctx(100, 100, false);
-            let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-
-            let gradient = Gradient {
-                kind: GradientKind::Linear {
-                    start: Point::new(40.0, 40.0),
-                    end: Point::new(60.0, 60.0),
-                },
-                stops: stops_blue_green_red_yellow(),
-                transform: Affine::IDENTITY,
-                extend: $extend,
-            };
-
-            ctx.set_paint(gradient);
-            ctx.fill_rect(&rect);
-
-            check_ref(&ctx, $name);
-        };
-    }
-
-    #[test]
-    fn gradient_linear_spread_method_pad() {
-        gradient_pad!(
-            vello_common::peniko::Extend::Pad,
-            "gradient_linear_with_pad"
-        );
-    }
-
-    #[test]
-    fn gradient_linear_spread_method_repeat() {
-        gradient_pad!(
-            vello_common::peniko::Extend::Repeat,
-            "gradient_linear_with_repeat"
-        );
-    }
-
-    #[test]
-    fn gradient_linear_spread_method_reflect() {
-        gradient_pad!(
-            vello_common::peniko::Extend::Reflect,
-            "gradient_linear_with_reflect"
-        );
-    }
-
-    #[test]
-    fn gradient_linear_4_stops() {
-        let mut ctx = get_ctx(100, 100, false);
+    #[v_test]
+    fn gradient_linear_4_stops(ctx: &mut RenderContext) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
         let gradient = Gradient {
@@ -210,13 +181,10 @@ mod linear {
 
         ctx.set_paint(gradient);
         ctx.fill_rect(&rect);
-
-        check_ref(&ctx, "gradient_linear_4_stops");
     }
 
-    #[test]
-    fn gradient_linear_complex_shape() {
-        let mut ctx = get_ctx(100, 100, false);
+    #[v_test]
+    fn gradient_linear_complex_shape(ctx: &mut RenderContext) {
         let path = crossed_line_star();
 
         let gradient = Gradient {
@@ -231,13 +199,10 @@ mod linear {
 
         ctx.set_paint(gradient);
         ctx.fill_path(&path);
-
-        check_ref(&ctx, "gradient_linear_complex_shape");
     }
 
-    #[test]
-    fn gradient_linear_with_y_repeat() {
-        let mut ctx = get_ctx(100, 100, false);
+    #[v_test]
+    fn gradient_linear_with_y_repeat(ctx: &mut RenderContext) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
         let gradient = Gradient {
@@ -252,13 +217,10 @@ mod linear {
 
         ctx.set_paint(gradient);
         ctx.fill_rect(&rect);
-
-        check_ref(&ctx, "gradient_linear_with_y_repeat");
     }
 
-    #[test]
-    fn gradient_linear_with_y_reflect() {
-        let mut ctx = get_ctx(100, 100, false);
+    #[v_test]
+    fn gradient_linear_with_y_reflect(ctx: &mut RenderContext) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
         let gradient = Gradient {
@@ -273,192 +235,143 @@ mod linear {
 
         ctx.set_paint(gradient);
         ctx.fill_rect(&rect);
-
-        check_ref(&ctx, "gradient_linear_with_y_reflect");
     }
 
-    macro_rules! gradient_with_transform {
-        ($name:expr, $transform:expr, $p0:expr, $p1: expr, $p2:expr, $p3: expr) => {
-            let mut ctx = get_ctx(100, 100, false);
-            let rect = Rect::new($p0, $p1, $p2, $p3);
+    fn gradient_with_transform(
+        ctx: &mut RenderContext,
+        transform: Affine,
+        p0: f64,
+        p1: f64,
+        p2: f64,
+        p3: f64,
+    ) {
+        let rect = Rect::new(p0, p1, p2, p3);
 
-            let gradient = Gradient {
-                kind: GradientKind::Linear {
-                    start: Point::new($p0, $p1),
-                    end: Point::new($p2, $p3),
-                },
-                stops: stops_blue_green_red_yellow(),
-                transform: Affine::IDENTITY,
-                extend: vello_common::peniko::Extend::Pad,
-            };
-
-            ctx.set_transform($transform);
-            ctx.set_paint(gradient);
-            ctx.fill_rect(&rect);
-
-            check_ref(&ctx, $name);
+        let gradient = Gradient {
+            kind: GradientKind::Linear {
+                start: Point::new(p0, p1),
+                end: Point::new(p2, p3),
+            },
+            stops: stops_blue_green_red_yellow(),
+            transform: Affine::IDENTITY,
+            extend: peniko::Extend::Pad,
         };
+
+        ctx.set_transform(transform);
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
     }
 
-    #[test]
-    fn gradient_linear_with_transform_identity() {
-        gradient_with_transform!(
-            "gradient_linear_with_transform_identity",
-            Affine::IDENTITY,
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+    #[v_test]
+    fn gradient_linear_with_transform_identity(ctx: &mut RenderContext) {
+        gradient_with_transform(ctx, Affine::IDENTITY, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[test]
-    fn gradient_linear_with_transform_translate() {
-        gradient_with_transform!(
-            "gradient_linear_with_transform_translate",
-            Affine::translate((25.0, 25.0)),
-            0.0,
-            0.0,
-            50.0,
-            50.0
-        );
+    #[v_test]
+    fn gradient_linear_with_transform_translate(ctx: &mut RenderContext) {
+        gradient_with_transform(ctx, Affine::translate((25.0, 25.0)), 0.0, 0.0, 50.0, 50.0);
     }
 
-    #[test]
-    fn gradient_linear_with_transform_scale() {
-        gradient_with_transform!(
-            "gradient_linear_with_transform_scale",
-            Affine::scale(2.0),
-            12.5,
-            12.5,
-            37.5,
-            37.5
-        );
+    #[v_test]
+    fn gradient_linear_with_transform_scale(ctx: &mut RenderContext) {
+        gradient_with_transform(ctx, Affine::scale(2.0), 12.5, 12.5, 37.5, 37.5);
     }
 
-    #[test]
-    fn gradient_linear_with_transform_negative_scale() {
-        gradient_with_transform!(
-            "gradient_linear_with_transform_negative_scale",
+    #[v_test]
+    fn gradient_linear_with_transform_negative_scale(ctx: &mut RenderContext) {
+        gradient_with_transform(
+            ctx,
             Affine::translate((100.0, 100.0)) * Affine::scale(-2.0),
             12.5,
             12.5,
             37.5,
-            37.5
+            37.5,
         );
     }
 
-    #[test]
-    fn gradient_linear_with_transform_scale_and_translate() {
-        gradient_with_transform!(
-            "gradient_linear_with_transform_scale_and_translate",
+    #[v_test]
+    fn gradient_linear_with_transform_scale_and_translate(ctx: &mut RenderContext) {
+        gradient_with_transform(
+            ctx,
             Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
             0.0,
             0.0,
             25.0,
-            25.0
+            25.0,
         );
     }
 
-    #[test]
-    fn gradient_linear_with_transform_rotate_1() {
-        gradient_with_transform!(
-            "gradient_linear_with_transform_rotate_1",
+    #[v_test]
+    fn gradient_linear_with_transform_rotate_1(ctx: &mut RenderContext) {
+        gradient_with_transform(
+            ctx,
             Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
             25.0,
             25.0,
             75.0,
-            75.0
+            75.0,
         );
     }
 
-    #[test]
-    fn gradient_linear_with_transform_rotate_2() {
-        gradient_with_transform!(
-            "gradient_linear_with_transform_rotate_2",
+    #[v_test]
+    fn gradient_linear_with_transform_rotate_2(ctx: &mut RenderContext) {
+        gradient_with_transform(
+            ctx,
             Affine::rotate_about(-PI / 4.0, Point::new(50.0, 50.0)),
             25.0,
             25.0,
             75.0,
-            75.0
+            75.0,
         );
     }
 
-    #[test]
-    fn gradient_linear_with_transform_scaling_non_uniform() {
-        gradient_with_transform!(
-            "gradient_linear_with_transform_scaling_non_uniform",
+    #[v_test]
+    fn gradient_linear_with_transform_scaling_non_uniform(ctx: &mut RenderContext) {
+        gradient_with_transform(
+            ctx,
             Affine::scale_non_uniform(1.0, 2.0),
             25.0,
             12.5,
             75.0,
-            37.5
+            37.5,
         );
     }
 
-    #[test]
-    fn gradient_linear_with_transform_skew_x_1() {
+    #[v_test]
+    fn gradient_linear_with_transform_skew_x_1(ctx: &mut RenderContext) {
         let transform = Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0);
-        gradient_with_transform!(
-            "gradient_linear_with_transform_skew_x_1",
-            transform,
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+        gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[test]
-    fn gradient_linear_with_transform_skew_x_2() {
+    #[v_test]
+    fn gradient_linear_with_transform_skew_x_2(ctx: &mut RenderContext) {
         let transform = Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0);
-        gradient_with_transform!(
-            "gradient_linear_with_transform_skew_x_2",
-            transform,
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+        gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[test]
-    fn gradient_linear_with_transform_skew_y_1() {
+    #[v_test]
+    fn gradient_linear_with_transform_skew_y_1(ctx: &mut RenderContext) {
         let transform = Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45());
-        gradient_with_transform!(
-            "gradient_linear_with_transform_skew_y_1",
-            transform,
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+        gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[test]
-    fn gradient_linear_with_transform_skew_y_2() {
+    #[v_test]
+    fn gradient_linear_with_transform_skew_y_2(ctx: &mut RenderContext) {
         let transform = Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45());
-        gradient_with_transform!(
-            "gradient_linear_with_transform_skew_y_2",
-            transform,
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+        gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 }
 
 mod radial {
+    use crate::gradient::tan_45;
     use crate::util::{
         check_ref, crossed_line_star, get_ctx, stops_blue_green_red_yellow, stops_green_blue,
         stops_green_blue_with_alpha,
     };
     use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
-    use vello_common::peniko::GradientKind::Radial;
     use vello_common::paint::Gradient;
-    use crate::gradient::tan_45;
+    use vello_common::peniko::GradientKind::Radial;
 
     macro_rules! simple {
         ($stops:expr, $name:expr) => {
@@ -872,15 +785,15 @@ mod radial {
 }
 
 mod sweep {
+    use crate::gradient::tan_45;
     use crate::util::{
         check_ref, crossed_line_star, get_ctx, stops_blue_green_red_yellow, stops_green_blue,
         stops_green_blue_with_alpha,
     };
     use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
-    use vello_common::peniko::GradientKind;
     use vello_common::paint::Gradient;
-    use crate::gradient::tan_45;
+    use vello_common::peniko::GradientKind;
 
     macro_rules! basic {
         ($stops:expr, $name:expr, $center:expr) => {

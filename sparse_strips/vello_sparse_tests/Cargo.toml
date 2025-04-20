@@ -1,0 +1,28 @@
+[package]
+name = "vello_sparse_tests"
+description = "The test suite for vello_cpu and vello_hybrid"
+categories = ["rendering", "graphics"]
+keywords = ["2d", "vector-graphics"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autotests = false
+
+[[test]]
+name = "tests"
+path = "tests/mod.rs"
+
+[dependencies]
+vello_api = { workspace = true }
+vello_common = { workspace = true }
+vello_cpu = { workspace = true }
+vello_macros = { workspace = true }
+oxipng = { workspace = true, features = ["freestanding", "parallel"] }
+image = { workspace = true, features = ["png"] }
+skrifa = { workspace = true }
+smallvec = { workspace = true }
+
+[lints]
+workspace = true

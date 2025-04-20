@@ -7,11 +7,11 @@ use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder, Rgba, RgbaImage, load_from_memory};
 use skrifa::MetadataProvider;
 use skrifa::raw::FileRef;
+use smallvec::smallvec;
 use std::cmp::max;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
-use smallvec::smallvec;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::glyph::Glyph;
@@ -21,9 +21,9 @@ use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderContext;
 
 static REFS_PATH: LazyLock<PathBuf> =
-    LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("snapshots"));
+    LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_cpu/snapshots"));
 static DIFFS_PATH: LazyLock<PathBuf> =
-    LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("diffs"));
+    LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_cpu/diffs"));
 
 pub(crate) fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderContext {
     let mut ctx = RenderContext::new(width, height);
@@ -138,7 +138,6 @@ pub(crate) fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
     (font, glyphs)
 }
 
-
 pub(crate) fn stops_green_blue() -> ColorStops {
     ColorStops(smallvec![
         ColorStop {
@@ -185,7 +184,6 @@ pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
         },
     ])
 }
-
 
 pub(crate) fn check_ref(ctx: &RenderContext, name: &str) {
     let mut pixmap = render_pixmap(ctx);
