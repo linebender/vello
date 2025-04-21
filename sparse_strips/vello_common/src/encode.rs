@@ -634,9 +634,9 @@ mod tests {
     use super::{EncodeExt, Gradient};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
-    use crate::kurbo::{Affine, Point};
+    use crate::kurbo::Point;
+    use crate::peniko::ColorStops;
     use crate::peniko::{ColorStop, GradientKind};
-    use crate::peniko::{ColorStops, Extend};
     use alloc::vec;
     use smallvec::smallvec;
 
@@ -649,9 +649,7 @@ mod tests {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
             },
-            stops: ColorStops(smallvec![]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), BLACK.into());
@@ -670,8 +668,7 @@ mod tests {
                 offset: 0.0,
                 color: DynamicColor::from_alpha_color(GREEN),
             }]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         // Should return the color of the first stop.
@@ -697,8 +694,7 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -723,8 +719,7 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -749,8 +744,7 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -776,8 +770,7 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -804,8 +797,7 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
