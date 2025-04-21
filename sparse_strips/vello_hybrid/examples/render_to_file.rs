@@ -91,7 +91,8 @@ async fn run() {
         width: width.into(),
         height: height.into(),
     };
-    renderer.prepare(&device, &queue, &scene, &render_size);
+    let render_data = scene.prepare_render_data();
+    renderer.prepare(&device, &queue, &render_data, &render_size);
     // Copy texture to buffer
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),
@@ -111,7 +112,7 @@ async fn run() {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        renderer.render(&scene, &mut pass);
+        renderer.render(&render_data, &mut pass);
     }
 
     // Create a buffer to copy the texture data

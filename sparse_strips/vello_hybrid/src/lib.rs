@@ -31,6 +31,7 @@
 
 mod render;
 mod scene;
+mod schedule;
 pub mod util;
 
 pub use render::{Config, GpuStrip, RenderData, RenderSize, RenderTargetConfig, Renderer};
