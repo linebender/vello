@@ -5,9 +5,12 @@
 //! of each pixel and pack it into the pixmap.
 
 mod gradient;
+
 use crate::fine::gradient::GradientFiller;
 use crate::util::scalar::div_255;
-use std::iter;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::iter;
 use vello_common::encode::{EncodedKind, EncodedPaint, GradientLike};
 use vello_common::paint::Paint;
 use vello_common::{

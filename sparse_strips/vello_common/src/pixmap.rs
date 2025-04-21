@@ -3,6 +3,9 @@
 
 //! A simple pixmap type.
 
+use alloc::vec;
+use alloc::vec::Vec;
+
 /// A pixmap backed by u8.
 #[derive(Debug)]
 pub struct Pixmap {

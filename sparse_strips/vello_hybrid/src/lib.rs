@@ -29,6 +29,10 @@
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
+#![no_std]
+
+extern crate alloc;
+
 mod render;
 mod scene;
 pub mod util;

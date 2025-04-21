@@ -12,7 +12,8 @@
 //! The hybrid approach combines CPU-side path processing with efficient GPU rendering
 //! to balance flexibility and performance.
 
-use std::fmt::Debug;
+use alloc::vec::Vec;
+use core::fmt::Debug;
 
 use bytemuck::{Pod, Zeroable};
 use vello_common::tile::Tile;

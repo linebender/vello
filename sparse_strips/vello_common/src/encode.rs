@@ -7,10 +7,11 @@ use crate::color::Srgb;
 use crate::color::palette::css::BLACK;
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::peniko::{ColorStop, Extend, GradientKind};
+use alloc::borrow::Cow;
+use alloc::vec::Vec;
+use core::f32::consts::PI;
+use core::iter;
 use smallvec::SmallVec;
-use std::borrow::Cow;
-use std::f32::consts::PI;
-use std::iter;
 use vello_api::paint::{Gradient, IndexedPaint, Paint};
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
@@ -53,7 +54,7 @@ impl EncodeExt for Gradient {
 
                 // For simplicity, ensure that the gradient line always goes from left to right.
                 if p0.x >= p1.x {
-                    std::mem::swap(&mut p0, &mut p1);
+                    core::mem::swap(&mut p0, &mut p1);
 
                     stops = Cow::Owned(
                         stops
@@ -636,6 +637,7 @@ mod tests {
     use crate::kurbo::{Affine, Point};
     use crate::peniko::{ColorStop, GradientKind};
     use crate::peniko::{ColorStops, Extend};
+    use alloc::vec;
     use smallvec::smallvec;
 
     #[test]
