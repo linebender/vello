@@ -3,7 +3,8 @@
 
 //! Types for paints.
 
-use crate::kurbo::Affine;
+use crate::color::{ColorSpaceTag, HueDirection};
+use crate::kurbo::{Affine, Point};
 use peniko::color::{AlphaColor, PremulRgba8, Srgb};
 use peniko::{ColorStops, GradientKind};
 
@@ -68,6 +69,34 @@ pub struct Gradient {
     pub transform: Affine,
     /// The extend of the gradient.
     pub extend: peniko::Extend,
+    /// The color space to be used for interpolation.
+    ///
+    /// The colors in the color stops will be converted to this color space.
+    ///
+    /// This defaults to [sRGB](ColorSpaceTag::Srgb).
+    pub interpolation_cs: ColorSpaceTag,
+    /// When interpolating within a cylindrical color space, the direction for the hue.
+    ///
+    /// This is interpreted as described in [CSS Color Module Level 4 § 12.4].
+    ///
+    /// [CSS Color Module Level 4 § 12.4]: https://drafts.csswg.org/css-color/#hue-interpolation
+    pub hue_direction: HueDirection,
+}
+
+impl Default for Gradient {
+    fn default() -> Self {
+        Self {
+            kind: GradientKind::Linear {
+                start: Point::default(),
+                end: Point::default(),
+            },
+            transform: Affine::IDENTITY,
+            interpolation_cs: ColorSpaceTag::Srgb,
+            extend: Default::default(),
+            hue_direction: Default::default(),
+            stops: Default::default(),
+        }
+    }
 }
 
 impl Gradient {

@@ -3,11 +3,12 @@
 
 //! Paints for drawing shapes.
 
-use crate::color::Srgb;
 use crate::color::palette::css::BLACK;
+use crate::color::{ColorSpaceTag, HueDirection, PremulColor, Srgb, gradient};
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::peniko::{ColorStop, Extend, GradientKind};
 use alloc::borrow::Cow;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::f32::consts::PI;
 use core::iter;
@@ -186,7 +187,14 @@ impl EncodeExt for Gradient {
             }
         };
 
-        let ranges = encode_stops(&stops, clamp_range.0, clamp_range.1, pad);
+        let ranges = encode_stops(
+            &stops,
+            clamp_range.0,
+            clamp_range.1,
+            pad,
+            self.interpolation_cs,
+            self.hue_direction,
+        );
 
         // This represents the transform that needs to be applied to the starting point of a
         // command before starting with the rendering.
@@ -353,22 +361,42 @@ fn apply_reflect(stops: &[ColorStop]) -> SmallVec<[ColorStop; 4]> {
 }
 
 /// Encode all stops into a sequence of ranges.
-fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<GradientRange> {
-    let create_range = |left_stop: &ColorStop, right_stop: &ColorStop| {
+fn encode_stops(
+    stops: &[ColorStop],
+    start: f32,
+    end: f32,
+    pad: bool,
+    cs: ColorSpaceTag,
+    hue_dir: HueDirection,
+) -> Vec<GradientRange> {
+    struct EncodedColorStop {
+        offset: f32,
+        color: PremulColor<Srgb>,
+    }
+
+    // Create additional (SRGB-encoded) stops in-between to approximate the color space we want to
+    // interpolate in.
+    let interpolated_stops = stops
+        .windows(2)
+        .flat_map(|s| {
+            let left_stop = &s[0];
+            let right_stop = &s[1];
+
+            let interpolated =
+                gradient::<Srgb>(left_stop.color, right_stop.color, cs, hue_dir, 0.01);
+
+            interpolated.map(|s| EncodedColorStop {
+                offset: left_stop.offset + (right_stop.offset - left_stop.offset) * s.0,
+                color: s.1,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let create_range = |left_stop: &EncodedColorStop, right_stop: &EncodedColorStop| {
         let x0 = start + (end - start) * left_stop.offset;
         let x1 = start + (end - start) * right_stop.offset;
-        let c0 = left_stop
-            .color
-            .to_alpha_color::<Srgb>()
-            .premultiply()
-            .to_rgba8()
-            .to_u8_array();
-        let c1 = right_stop
-            .color
-            .to_alpha_color::<Srgb>()
-            .premultiply()
-            .to_rgba8()
-            .to_u8_array();
+        let c0 = left_stop.color.to_rgba8().to_u8_array();
+        let c1 = right_stop.color.to_rgba8().to_u8_array();
 
         // Given two positions x0 and x1 as well as two corresponding colors c0 and c1,
         // the delta that needs to be applied to c0 to calculate the color of x between x0 and x1
@@ -385,15 +413,15 @@ fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<Gra
             factors[i] = c1_minus_c0 / x1_minus_x0;
         }
 
-        GradientRange {
+        vec![GradientRange {
             x0,
             x1,
             c0,
             factors,
-        }
+        }]
     };
 
-    let stop_ranges = stops.windows(2).map(|s| {
+    let stop_ranges = interpolated_stops.windows(2).map(|s| {
         let left_stop = &s[0];
         let right_stop = &s[1];
 
@@ -404,25 +432,28 @@ fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<Gra
         // We handle padding by inserting dummy stops in the beginning and end with a very big
         // range.
         let left_range = iter::once({
-            let first_stop = stops.first().unwrap();
+            let first_stop = interpolated_stops.first().unwrap();
             let mut encoded_range = create_range(first_stop, first_stop);
-            encoded_range.x0 = f32::MIN;
+            encoded_range[0].x0 = f32::MIN;
 
             encoded_range
         });
 
         let right_range = iter::once({
-            let last_stop = stops.last().unwrap();
+            let last_stop = interpolated_stops.last().unwrap();
 
             let mut encoded_range = create_range(last_stop, last_stop);
-            encoded_range.x1 = f32::MAX;
+            encoded_range[0].x1 = f32::MAX;
 
             encoded_range
         });
 
-        left_range.chain(stop_ranges.chain(right_range)).collect()
+        left_range
+            .chain(stop_ranges.chain(right_range))
+            .flatten()
+            .collect()
     } else {
-        stop_ranges.collect()
+        stop_ranges.flatten().collect()
     }
 }
 
@@ -634,9 +665,9 @@ mod tests {
     use super::{EncodeExt, Gradient};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
-    use crate::kurbo::{Affine, Point};
+    use crate::kurbo::Point;
+    use crate::peniko::ColorStops;
     use crate::peniko::{ColorStop, GradientKind};
-    use crate::peniko::{ColorStops, Extend};
     use alloc::vec;
     use smallvec::smallvec;
 
@@ -649,9 +680,7 @@ mod tests {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
             },
-            stops: ColorStops(smallvec![]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), BLACK.into());
@@ -670,8 +699,7 @@ mod tests {
                 offset: 0.0,
                 color: DynamicColor::from_alpha_color(GREEN),
             }]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         // Should return the color of the first stop.
@@ -697,8 +725,7 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -723,8 +750,7 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -749,8 +775,7 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -776,8 +801,7 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
@@ -804,8 +828,7 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
