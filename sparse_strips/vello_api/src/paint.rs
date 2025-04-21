@@ -3,10 +3,10 @@
 
 //! Types for paints.
 
+use crate::color::{ColorSpaceTag, HueDirection};
 use crate::kurbo::{Affine, Point};
 use peniko::color::{AlphaColor, PremulRgba8, Srgb};
 use peniko::{ColorStops, GradientKind};
-use crate::color::{ColorSpaceTag, HueDirection};
 
 /// A paint that needs to be resolved via its index.
 // In the future, we might add additional flags, that's why we have
