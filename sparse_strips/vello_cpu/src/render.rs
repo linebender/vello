@@ -88,6 +88,10 @@ impl RenderContext {
 
                 g.encode_into(&mut self.encoded_paints)
             }
+            PaintType::Image(mut i) => {
+                i.transform = self.transform * i.transform;
+                i.encode_into(&mut self.encoded_paints)
+            }
         }
     }
 

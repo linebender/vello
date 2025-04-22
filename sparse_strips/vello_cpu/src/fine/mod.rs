@@ -5,13 +5,15 @@
 //! of each pixel and pack it into the pixmap.
 
 mod gradient;
+mod image;
 
 use crate::fine::gradient::GradientFiller;
+use crate::fine::image::ImageFiller;
 use crate::util::scalar::div_255;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::iter;
-use vello_common::encode::{EncodedKind, EncodedPaint, GradientLike};
+use vello_common::encode::{EncodedKind, EncodedPaint};
 use vello_common::paint::Paint;
 use vello_common::{
     coarse::{Cmd, WideTile},
@@ -122,14 +124,14 @@ impl Fine {
         let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
         let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
-        fn fill_gradient<T: GradientLike>(
+        fn fill_complex_paint(
             color_buf: &mut [u8],
             blend_buf: &mut [u8],
             has_opacities: bool,
-            filler: GradientFiller<'_, T>,
+            filler: impl Painter,
         ) {
             if has_opacities {
-                filler.run(color_buf);
+                filler.paint(color_buf);
                 fill::src_over(
                     blend_buf,
                     color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
@@ -137,7 +139,7 @@ impl Fine {
             } else {
                 // Similarly to solid colors we can just override the previous values
                 // if all colors in the gradient are fully opaque.
-                filler.run(blend_buf);
+                filler.paint(blend_buf);
             }
         }
 
@@ -156,24 +158,28 @@ impl Fine {
 
                 fill::src_over(blend_buf, iter::repeat(*color));
             }
-            Paint::Indexed(i) => {
-                let paint = &encoded_paints[i.index()];
+            Paint::Indexed(paint) => {
+                let encoded_paint = &encoded_paints[paint.index()];
 
-                match paint {
+                match encoded_paint {
                     EncodedPaint::Gradient(g) => match &g.kind {
                         EncodedKind::Linear(l) => {
                             let filler = GradientFiller::new(g, l, start_x, start_y);
-                            fill_gradient(color_buf, blend_buf, g.has_opacities, filler);
+                            fill_complex_paint(color_buf, blend_buf, g.has_opacities, filler);
                         }
                         EncodedKind::Radial(r) => {
                             let filler = GradientFiller::new(g, r, start_x, start_y);
-                            fill_gradient(color_buf, blend_buf, g.has_opacities, filler);
+                            fill_complex_paint(color_buf, blend_buf, g.has_opacities, filler);
                         }
                         EncodedKind::Sweep(s) => {
                             let filler = GradientFiller::new(g, s, start_x, start_y);
-                            fill_gradient(color_buf, blend_buf, g.has_opacities, filler);
+                            fill_complex_paint(color_buf, blend_buf, g.has_opacities, filler);
                         }
                     },
+                    EncodedPaint::Image(i) => {
+                        let filler = ImageFiller::new(i, start_x, start_y);
+                        fill_complex_paint(color_buf, blend_buf, i.has_opacities, filler);
+                    }
                 }
             }
         }
@@ -201,13 +207,13 @@ impl Fine {
         let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
         let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
-        fn strip_gradient<T: GradientLike>(
+        fn strip_complex_paint(
             color_buf: &mut [u8],
             blend_buf: &mut [u8],
-            filler: GradientFiller<'_, T>,
+            filler: impl Painter,
             alphas: &[u8],
         ) {
-            filler.run(color_buf);
+            filler.paint(color_buf);
             strip::src_over(
                 blend_buf,
                 color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
@@ -219,24 +225,28 @@ impl Fine {
             Paint::Solid(color) => {
                 strip::src_over(blend_buf, iter::repeat(color.to_u8_array()), alphas);
             }
-            Paint::Indexed(i) => {
-                let encoded_paint = &paints[i.index()];
+            Paint::Indexed(paint) => {
+                let encoded_paint = &paints[paint.index()];
 
                 match encoded_paint {
                     EncodedPaint::Gradient(g) => match &g.kind {
                         EncodedKind::Linear(l) => {
                             let filler = GradientFiller::new(g, l, start_x, start_y);
-                            strip_gradient(color_buf, blend_buf, filler, alphas);
+                            strip_complex_paint(color_buf, blend_buf, filler, alphas);
                         }
                         EncodedKind::Radial(r) => {
                             let filler = GradientFiller::new(g, r, start_x, start_y);
-                            strip_gradient(color_buf, blend_buf, filler, alphas);
+                            strip_complex_paint(color_buf, blend_buf, filler, alphas);
                         }
                         EncodedKind::Sweep(s) => {
                             let filler = GradientFiller::new(g, s, start_x, start_y);
-                            strip_gradient(color_buf, blend_buf, filler, alphas);
+                            strip_complex_paint(color_buf, blend_buf, filler, alphas);
                         }
                     },
+                    EncodedPaint::Image(i) => {
+                        let filler = ImageFiller::new(i, start_x, start_y);
+                        strip_complex_paint(color_buf, blend_buf, filler, alphas);
+                    }
                 }
             }
         }
@@ -365,4 +375,8 @@ pub(crate) mod strip {
             }
         }
     }
+}
+
+trait Painter {
+    fn paint(self, target: &mut [u8]);
 }
