@@ -90,7 +90,7 @@ impl<'a> ImageFiller<'a> {
                 ImageQuality::Medium | ImageQuality::High => unimplemented!(),
             };
 
-            pixel.copy_from_slice(&sample);
+            pixel.copy_from_slice(sample);
         }
     }
 
@@ -120,7 +120,7 @@ impl<'a> ImageFiller<'a> {
                 ImageQuality::Low => {
                     let point = extend_point(pos);
                     let sample = self.image.pixmap.sample(point.x as u16, point.y as u16);
-                    pixel.copy_from_slice(&sample);
+                    pixel.copy_from_slice(sample);
                 }
                 ImageQuality::Medium | ImageQuality::High => {
                     // We have two versions of filtering: `Medium` (bilinear filtering) and
@@ -151,7 +151,7 @@ impl<'a> ImageFiller<'a> {
 
                         // In case we are in the negative we need to mirror the result.
                         if res.is_sign_negative() {
-                            res = 1.0 + res;
+                            res += 1.0;
                         }
 
                         res
@@ -160,7 +160,7 @@ impl<'a> ImageFiller<'a> {
                     let x_fract = fract(pos.x);
                     let y_fract = fract(pos.y);
 
-                    let mut f32_color = [0.0f32; 4];
+                    let mut f32_color = [0.0_f32; 4];
 
                     let sample = |p: Point| self.image.pixmap.sample(p.x as u16, p.y as u16);
 
@@ -267,7 +267,7 @@ const fn mf_resampler() -> [[f32; 4]; 4] {
 }
 
 /// Cubic resampling logic is borrowed from Skia. See
-/// https://github.com/google/skia/blob/220fef664978643a47d4559ae9e762b91aba534a/include/core/SkSamplingOptions.h#L33-L50
+/// <https://github.com/google/skia/blob/220fef664978643a47d4559ae9e762b91aba534a/include/core/SkSamplingOptions.h#L33-L50>
 /// for some links to understand how this works. In principle, this macro allows us to define a
 /// resampler kernel based on two variables B and C which can be between 0 and 1, allowing to
 /// change some properties of the cubic interpolation kernel.

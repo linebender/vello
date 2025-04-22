@@ -9,7 +9,7 @@ use crate::gradient::tan_45;
 use crate::util::{check_ref, crossed_line_star, get_ctx};
 
 fn load_image(name: &str) -> Arc<Pixmap> {
-    let path = PathBuf::from(Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/assets/{name}.png")));
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/assets/{name}.png"));
     Arc::new(Pixmap::from_png(&std::fs::read(path).unwrap()).unwrap())
 }
 
@@ -375,7 +375,7 @@ fn image_bilinear_10x_scale() {
 
 #[test]
 fn image_bilinear_with_rotation() {
-    quality!("image_bilinear_with_rotation", Affine::scale(5.0) * Affine::rotate(45.0f64.to_radians()), rgb_img_2x2(), ImageQuality::Medium, Extend::Reflect);
+    quality!("image_bilinear_with_rotation", Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()), rgb_img_2x2(), ImageQuality::Medium, Extend::Reflect);
 }
 
 #[test]
@@ -418,7 +418,7 @@ fn image_bicubic_10x_scale() {
 
 #[test]
 fn image_bicubic_with_rotation() {
-    quality!("image_bicubic_with_rotation", Affine::scale(5.0) * Affine::rotate(45.0f64.to_radians()), rgb_img_2x2(), ImageQuality::High, Extend::Reflect);
+    quality!("image_bicubic_with_rotation", Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()), rgb_img_2x2(), ImageQuality::High, Extend::Reflect);
 }
 
 #[test]
