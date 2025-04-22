@@ -278,14 +278,14 @@ fn sat(c: &[f32; 3]) -> f32 {
     c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2])
 }
 
-fn clip_color(c: &[f32; 3]) -> [f32; 3] {
-    let mut c = *c;
+fn clip_color(color: &[f32; 3]) -> [f32; 3] {
+    let mut c_new = *color;
 
-    let l = lum(&c);
-    let n = c[0].min(c[1].min(c[2]));
-    let x = c[0].max(c[1].max(c[2]));
+    let l = lum(&c_new);
+    let n = c_new[0].min(c_new[1].min(c_new[2]));
+    let x = c_new[0].max(c_new[1].max(c_new[2]));
 
-    for c in &mut c {
+    for c in &mut c_new {
         if n < 0.0 {
             *c = l + (((*c - l) * l) / (l - n));
         }
@@ -295,7 +295,7 @@ fn clip_color(c: &[f32; 3]) -> [f32; 3] {
         }
     }
 
-    c
+    c_new
 }
 
 fn set_lum(c: &[f32; 3], l: f32) -> [f32; 3] {
