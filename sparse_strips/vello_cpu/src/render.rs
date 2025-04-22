@@ -194,7 +194,7 @@ impl RenderContext {
                 let wtile = self.wide.get(x, y);
                 fine.set_coords(x, y);
 
-                fine.clear(wtile.bg.to_u8_array());
+                fine.clear(wtile.bg.rbga_u8());
                 for cmd in &wtile.cmds {
                     fine.run_cmd(cmd, &self.alphas, &self.encoded_paints);
                 }

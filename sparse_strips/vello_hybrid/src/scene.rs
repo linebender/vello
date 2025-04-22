@@ -7,7 +7,6 @@ use crate::render::{GpuStrip, RenderData};
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::coarse::{Wide, WideTile};
-use vello_common::color::PremulRgba8;
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
@@ -212,7 +211,7 @@ impl Scene {
                 let wide_tile = &self.wide.tiles[wide_tile_idx];
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
-                let bg = wide_tile.bg.to_u32();
+                let bg = wide_tile.bg.rbga_u32();
                 if bg != 0 {
                     strips.push(GpuStrip {
                         x: wide_tile_x,
@@ -226,8 +225,8 @@ impl Scene {
                 for cmd in &wide_tile.cmds {
                     match cmd {
                         vello_common::coarse::Cmd::Fill(fill) => {
-                            let color: PremulRgba8 = match fill.paint {
-                                Paint::Solid(color) => color,
+                            let rgba = match &fill.paint {
+                                Paint::Solid(color) => color.rbga_u32(),
                                 Paint::Indexed(_) => unimplemented!(),
                             };
                             strips.push(GpuStrip {
@@ -236,12 +235,12 @@ impl Scene {
                                 width: fill.width,
                                 dense_width: 0,
                                 col: 0,
-                                rgba: color.to_u32(),
+                                rgba,
                             });
                         }
                         vello_common::coarse::Cmd::AlphaFill(cmd_strip) => {
-                            let color: PremulRgba8 = match cmd_strip.paint {
-                                Paint::Solid(color) => color,
+                            let rgba = match &cmd_strip.paint {
+                                Paint::Solid(color) => color.rbga_u32(),
                                 Paint::Indexed(_) => unimplemented!(),
                             };
 
@@ -255,7 +254,7 @@ impl Scene {
                                 col: (cmd_strip.alpha_idx / usize::from(Tile::HEIGHT))
                                     .try_into()
                                     .expect(msg),
-                                rgba: color.to_u32(),
+                                rgba,
                             });
                         }
                         _ => {

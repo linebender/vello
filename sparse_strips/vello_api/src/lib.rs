@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 #![no_std]
+extern crate alloc;
 
 pub use peniko;
 pub use peniko::color;

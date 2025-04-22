@@ -4,6 +4,7 @@
 //! Types for paints.
 
 use crate::kurbo::Affine;
+use alloc::sync::Arc;
 use peniko::color::{AlphaColor, PremulRgba8, Srgb};
 use peniko::{ColorStops, GradientKind};
 
@@ -26,6 +27,55 @@ impl IndexedPaint {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ColorRepr {
+    // We pre-compute u8 and f32 forms of the color, so that clients can choose which one to
+    // use based on the targeted preciseness.
+    premul_u8: PremulRgba8,
+    premul_f32: [f32; 4],
+}
+
+/// A premultiplied color.
+#[derive(Debug, Clone, PartialEq)]
+// Wrap behind an Arc to keep the memory footprint small.
+pub struct PremulColor(Arc<ColorRepr>);
+
+impl PremulColor {
+    /// Create a new premultiplied color.
+    pub fn new(color: AlphaColor<Srgb>) -> Self {
+        let premul = color.premultiply();
+
+        Self(Arc::new(ColorRepr {
+            // TODO: This might be slow on x86, see https://github.com/linebender/color/issues/142.
+            // Since we only do that conversion once per path it might not be critical, but should
+            // still be measured. This also applies to all other usages of `to_rgba8` in the current
+            // code.
+            premul_u8: premul.to_rgba8(),
+            premul_f32: premul.components,
+        }))
+    }
+
+    /// Return the color as a premultiplied RGBA8 color.
+    pub fn rbga_u8(&self) -> [u8; 4] {
+        self.0.premul_u8.to_u8_array()
+    }
+
+    /// Return the color as a premultiplied RGBA8 color, packed as little-endian into an u32.
+    pub fn rbga_u32(&self) -> u32 {
+        self.0.premul_u8.to_u32()
+    }
+
+    /// Return the color as a premultiplied RGBA32 color in the range [0.0, 1.0].
+    pub fn rbga_f32(&self) -> [f32; 4] {
+        self.0.premul_f32
+    }
+
+    /// Return whether the color has transparency.
+    pub fn is_opaque(&self) -> bool {
+        self.0.premul_f32[3] == 1.0
+    }
+}
+
 /// A paint that is used internally by a rendering frontend to store how a wide tile command
 /// should be painted. There are only two types of paint:
 ///
@@ -34,21 +84,17 @@ impl IndexedPaint {
 /// 2) Indexed paints, which can represent any arbitrary, more complex paint that is
 ///    determined by the frontend. The intended way of using this is to store a vector
 ///    of paints and store its index inside `IndexedPaint`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Paint {
     /// A premultiplied RGBA8 color.
-    Solid(PremulRgba8),
+    Solid(PremulColor),
     /// A paint that needs to be resolved via an index.
     Indexed(IndexedPaint),
 }
 
 impl From<AlphaColor<Srgb>> for Paint {
     fn from(value: AlphaColor<Srgb>) -> Self {
-        // TODO: This might be slow on x86, see https://github.com/linebender/color/issues/142.
-        // Since we only do that conversion once per path it might not be critical, but should
-        // still be measured. This also applies to all other usages of `to_rgba8` in the current
-        // code.
-        Self::Solid(value.premultiply().to_rgba8())
+        Self::Solid(PremulColor::new(value))
     }
 }
 
