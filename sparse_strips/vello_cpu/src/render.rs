@@ -4,6 +4,8 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
+use alloc::vec;
+use alloc::vec::Vec;
 use vello_common::coarse::{SceneState, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;

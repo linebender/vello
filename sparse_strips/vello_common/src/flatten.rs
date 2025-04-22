@@ -3,6 +3,7 @@
 
 //! Flattening filled and stroked paths.
 
+use alloc::vec::Vec;
 use vello_api::kurbo;
 use vello_api::kurbo::{Affine, BezPath, Stroke, StrokeOpts};
 
@@ -28,7 +29,7 @@ impl Point {
     }
 }
 
-impl std::ops::Add for Point {
+impl core::ops::Add for Point {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self {
@@ -36,7 +37,7 @@ impl std::ops::Add for Point {
     }
 }
 
-impl std::ops::Sub for Point {
+impl core::ops::Sub for Point {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self {
@@ -44,7 +45,7 @@ impl std::ops::Sub for Point {
     }
 }
 
-impl std::ops::Mul<f32> for Point {
+impl core::ops::Mul<f32> for Point {
     type Output = Self;
 
     fn mul(self, rhs: f32) -> Self {

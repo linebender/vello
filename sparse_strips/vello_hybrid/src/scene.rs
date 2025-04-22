@@ -4,6 +4,8 @@
 //! Basic render operations.
 
 use crate::render::{GpuStrip, RenderData};
+use alloc::vec;
+use alloc::vec::Vec;
 use vello_common::coarse::{Wide, WideTile};
 use vello_common::color::PremulRgba8;
 use vello_common::flatten::Line;
