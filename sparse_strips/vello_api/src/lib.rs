@@ -6,7 +6,7 @@
 //! across different implementations
 
 #![forbid(unsafe_code)]
-#![cfg_attr(not(feature = "png"), no_std)]
+#![no_std]
 extern crate alloc;
 
 pub use peniko;
