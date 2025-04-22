@@ -24,15 +24,29 @@ pub fn fill(c: &mut Criterion) {
         ($name:ident, $paint:expr, $paints:expr) => {
             g.bench_function(stringify!($name), |b| {
                 let mut fine = Fine::<u8>::new(WideTile::WIDTH, Tile::HEIGHT);
+                let paints = $paints;
+                let paint = $paint;
 
                 b.iter(|| {
-                    fine.fill(0, WideTile::WIDTH as usize, $paint, $paints);
+                    fine.fill(0, WideTile::WIDTH as usize, paint, paints);
 
                     std::hint::black_box(&fine);
                 })
             });
         };
     }
+
+    // g.bench_function("solid_opaque", |b| {
+    //     let mut fine = Fine::<u8>::new(WideTile::WIDTH, Tile::HEIGHT);
+    //     let paints = vec![];
+    //     let paint = &Paint::Solid(PremulColor::new(ROYAL_BLUE));
+    // 
+    //     b.iter(|| {
+    //         fine.fill_bench(0, WideTile::WIDTH as usize, paint, &paints);
+    // 
+    //         std::hint::black_box(&fine);
+    //     })
+    // });
 
     fill_single!(
         solid_opaque,

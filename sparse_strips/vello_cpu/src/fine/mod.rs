@@ -37,6 +37,7 @@ pub struct Fine<T: FineType> {
     pub(crate) height: u16,
     pub(crate) wide_coords: (u16, u16),
     pub(crate) blend_buf: Vec<ScratchBuf<T>>,
+    pub(crate) blend_buf2: Vec<ScratchBuf<u8>>,
     pub(crate) color_buf: ScratchBuf<T>,
 }
 
@@ -44,6 +45,7 @@ impl<T: FineType> Fine<T> {
     /// Create a new fine rasterizer.
     pub fn new(width: u16, height: u16) -> Self {
         let blend_buf = [T::ZERO; SCRATCH_BUF_SIZE];
+        let blend_buf2 = [0; SCRATCH_BUF_SIZE];
         let color_buf = [T::ZERO; SCRATCH_BUF_SIZE];
 
         Self {
@@ -51,6 +53,7 @@ impl<T: FineType> Fine<T> {
             height,
             wide_coords: (0, 0),
             blend_buf: vec![blend_buf],
+            blend_buf2: vec![blend_buf2],
             color_buf,
         }
     }
@@ -117,11 +120,11 @@ impl<T: FineType> Fine<T> {
     pub fn fill(&mut self, x: usize, width: usize, fill: &Paint, encoded_paints: &[EncodedPaint]) {
         let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
             [..TILE_HEIGHT_COMPONENTS * width];
-        let color_buf =
-            &mut self.color_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
-
-        let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
-        let start_y = self.wide_coords.1 * Tile::HEIGHT;
+        // let color_buf =
+        //     &mut self.color_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
+        // 
+        // let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
+        // let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
         // fn fill_gradient<U: GradientLike>(
         //     color_buf: &mut [T],
@@ -160,25 +163,23 @@ impl<T: FineType> Fine<T> {
             }
             Paint::Indexed(i) => {
                 unimplemented!();
-                // let paint = &encoded_paints[i.index()];
-                //
-                // match paint {
-                //     EncodedPaint::Gradient(g) => match &g.kind {
-                //         EncodedKind::Linear(l) => {
-                //             let filler = GradientFiller::new(g, l, start_x, start_y);
-                //             fill_gradient(color_buf, blend_buf, g.has_opacities, filler);
-                //         }
-                //         EncodedKind::Radial(r) => {
-                //             let filler = GradientFiller::new(g, r, start_x, start_y);
-                //             fill_gradient(color_buf, blend_buf, g.has_opacities, filler);
-                //         }
-                //         EncodedKind::Sweep(s) => {
-                //             let filler = GradientFiller::new(g, s, start_x, start_y);
-                //             fill_gradient(color_buf, blend_buf, g.has_opacities, filler);
-                //         }
-                //     },
-                // }
             }
+        }
+    }
+
+    pub fn fill_bench(&mut self, x: usize, width: usize, fill: &Paint, encoded_paints: &[EncodedPaint]) {
+        let blend_buf = &mut self.blend_buf2.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
+            [..TILE_HEIGHT_COMPONENTS * width];
+        
+        match fill {
+            Paint::Solid(s) => {
+                let color = s.rgba_u8();
+
+                for t in blend_buf.chunks_exact_mut(COLOR_COMPONENTS) {
+                    t.copy_from_slice(&color);
+                }
+            },
+            _ => unimplemented!(),
         }
     }
 
