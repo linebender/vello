@@ -42,6 +42,7 @@ impl Pixmap {
     }
 
     /// Create a pixmap from a PNG file.
+    #[cfg(feature = "png")]
     pub fn from_png(data: &[u8]) -> Result<Self, png::DecodingError> {
         let mut decoder = png::Decoder::new(data);
         decoder.set_transformations(png::Transformations::ALPHA);
@@ -122,9 +123,9 @@ impl Pixmap {
         for rgba in self.buf.chunks_exact_mut(4) {
             let alpha = 255.0 / rgba[3] as f32;
             if alpha != 0.0 {
-                rgba[0] = (rgba[0] as f32 * alpha).round().min(255.0) as u8;
-                rgba[1] = (rgba[1] as f32 * alpha).round().min(255.0) as u8;
-                rgba[2] = (rgba[2] as f32 * alpha).round().min(255.0) as u8;
+                rgba[0] = (rgba[0] as f32 * alpha + 0.5) as u8;
+                rgba[1] = (rgba[1] as f32 * alpha + 0.5) as u8;
+                rgba[2] = (rgba[2] as f32 * alpha + 0.5) as u8;
             }
         }
     }
