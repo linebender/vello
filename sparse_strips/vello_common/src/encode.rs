@@ -3,15 +3,16 @@
 
 //! Paints for drawing shapes.
 
+use alloc::borrow::Cow;
+use alloc::sync::Arc;
 use crate::color::Srgb;
 use crate::color::palette::css::BLACK;
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::peniko::{ColorStop, Extend, GradientKind, ImageQuality};
 use smallvec::SmallVec;
-use std::borrow::Cow;
-use std::f32::consts::PI;
-use std::iter;
-use std::sync::Arc;
+use alloc::vec::Vec;
+use core::f32::consts::PI;
+use core::iter;
 use vello_api::paint::{Gradient, Image, IndexedPaint, Paint};
 use crate::encode::private::Sealed;
 use crate::pixmap::Pixmap;
@@ -56,7 +57,7 @@ impl EncodeExt for Gradient {
 
                 // For simplicity, ensure that the gradient line always goes from left to right.
                 if p0.x >= p1.x {
-                    std::mem::swap(&mut p0, &mut p1);
+                    core::mem::swap(&mut p0, &mut p1);
 
                     stops = Cow::Owned(
                         stops
@@ -685,6 +686,7 @@ mod private {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
     use super::{EncodeExt, Gradient};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
