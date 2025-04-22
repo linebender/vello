@@ -158,10 +158,10 @@ impl Fine {
 
                 fill::src_over(blend_buf, iter::repeat(*color));
             }
-            Paint::Indexed(i) => {
-                let paint = &encoded_paints[i.index()];
+            Paint::Indexed(paint) => {
+                let encoded_paint = &encoded_paints[paint.index()];
 
-                match paint {
+                match encoded_paint {
                     EncodedPaint::Gradient(g) => match &g.kind {
                         EncodedKind::Linear(l) => {
                             let filler = GradientFiller::new(g, l, start_x, start_y);
@@ -225,8 +225,8 @@ impl Fine {
             Paint::Solid(color) => {
                 strip::src_over(blend_buf, iter::repeat(color.to_u8_array()), alphas);
             }
-            Paint::Indexed(i) => {
-                let encoded_paint = &paints[i.index()];
+            Paint::Indexed(paint) => {
+                let encoded_paint = &paints[paint.index()];
 
                 match encoded_paint {
                     EncodedPaint::Gradient(g) => match &g.kind {

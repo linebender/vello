@@ -34,6 +34,10 @@ impl Pixmap {
         self.height
     }
 
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "cannot overflow in this case"
+    )]
     /// Apply an alpha value to the whole pixmap.
     pub fn multiply_alpha(&mut self, alpha: u8) {
         for comp in self.data_mut() {
@@ -43,6 +47,10 @@ impl Pixmap {
 
     /// Create a pixmap from a PNG file.
     #[cfg(feature = "png")]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "cannot overflow in this case"
+    )]
     pub fn from_png(data: &[u8]) -> Result<Self, png::DecodingError> {
         let mut decoder = png::Decoder::new(data);
         decoder.set_transformations(png::Transformations::ALPHA);
@@ -51,7 +59,7 @@ impl Pixmap {
         let mut img_data = vec![0; reader.output_buffer_size()];
         let info = reader.next_frame(&mut img_data)?;
 
-        let data = match info.color_type {
+        let decoded_data = match info.color_type {
             // We set a transformation to always convert to alpha.
             png::ColorType::Rgb => unreachable!(),
             png::ColorType::Grayscale => unreachable!(),
@@ -73,7 +81,7 @@ impl Pixmap {
             }
         };
 
-        let premultiplied = data
+        let premultiplied = decoded_data
             .chunks_exact(4)
             .flat_map(|d| {
                 let alpha = d[3] as u16;
@@ -119,7 +127,10 @@ impl Pixmap {
     /// Convert from premultiplied to separate alpha.
     ///
     /// Not fast, but useful for saving to PNG etc.
-    #[allow(clippy::cast_possible_truncation, "cannot overflow in this case")]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "cannot overflow in this case"
+    )]
     pub fn unpremultiply(&mut self) {
         for rgba in self.buf.chunks_exact_mut(4) {
             let alpha = 255.0 / rgba[3] as f32;

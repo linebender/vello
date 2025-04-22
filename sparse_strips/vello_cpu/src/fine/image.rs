@@ -241,7 +241,7 @@ fn extend(val: f32, extend: Extend, max: f32) -> f32 {
     }
 }
 
-impl<'a> Painter for ImageFiller<'a> {
+impl Painter for ImageFiller<'_> {
     fn paint(self, target: &mut [u8]) {
         self.run(target);
     }

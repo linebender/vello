@@ -114,7 +114,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
     }
 }
 
-impl<'a, T: GradientLike> Painter for GradientFiller<'a, T> {
+impl<T: GradientLike> Painter for GradientFiller<'_, T> {
     fn paint(self, target: &mut [u8]) {
         self.run(target);
     }

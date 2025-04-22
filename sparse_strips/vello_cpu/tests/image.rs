@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::f64::consts::PI;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::Image;
