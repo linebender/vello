@@ -27,59 +27,56 @@ impl IndexedPaint {
     }
 }
 
+/// A premultiplied color.
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct ColorRepr {
+// Wrap behind an Arc to keep the memory footprint small.
+pub struct PremulColor {
     // We pre-compute u8 and f32 forms of the color, so that clients can choose which one to
     // use based on the targeted preciseness.
     premul_u8: PremulRgba8,
     premul_f32: [f32; 4],
 }
 
-/// A premultiplied color.
-#[derive(Debug, Clone, PartialEq)]
-// Wrap behind an Arc to keep the memory footprint small.
-pub struct PremulColor(Arc<ColorRepr>);
-
 impl PremulColor {
     /// Create a new premultiplied color.
     pub fn new(color: AlphaColor<Srgb>) -> Self {
         let premul = color.premultiply();
 
-        Self(Arc::new(ColorRepr {
+        Self {
             // TODO: This might be slow on x86, see https://github.com/linebender/color/issues/142.
             // Since we only do that conversion once per path it might not be critical, but should
             // still be measured. This also applies to all other usages of `to_rgba8` in the current
             // code.
             premul_u8: premul.to_rgba8(),
             premul_f32: premul.components,
-        }))
+        }
     }
 
     /// Return the color as a premultiplied RGBA8 color.
     pub fn rgba_u8(&self) -> [u8; 4] {
-        self.0.premul_u8.to_u8_array()
+        self.premul_u8.to_u8_array()
     }
 
     /// Return the color as a premultiplied RGBA8 color, packed as little-endian into an u32.
     pub fn rgba_u32(&self) -> u32 {
-        self.0.premul_u8.to_u32()
+        self.premul_u8.to_u32()
     }
 
     /// Return the color as a premultiplied RGBA32 color in the range [0.0, 1.0].
     pub fn rgba_f32(&self) -> [f32; 4] {
-        self.0.premul_f32
+        self.premul_f32
     }
 
     /// Return whether the color has transparency.
     pub fn is_opaque(&self) -> bool {
-        self.0.premul_f32[3] == 1.0
+        self.premul_f32[3] == 1.0
     }
     
     /// Whether all components of the color are the same.
     pub fn all_components_same(&self) -> bool {
-        self.0.premul_f32[0] == self.0.premul_f32[1]
-            && self.0.premul_f32[1] == self.0.premul_f32[2]
-            && self.0.premul_f32[2] == self.0.premul_f32[3]
+        self.premul_f32[0] == self.premul_f32[1]
+            && self.premul_f32[1] == self.premul_f32[2]
+            && self.premul_f32[2] == self.premul_f32[3]
     }
 }
 

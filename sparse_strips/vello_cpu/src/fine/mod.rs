@@ -391,40 +391,42 @@ pub trait FineType: Sized + Copy {
 impl FineType for u8 {
     const ZERO: Self = 0;
 
-    #[inline]
+    #[inline(always)]
     fn add(&self, num2: Self) -> Self {
         self + num2
     }
 
-    #[inline]
+    #[inline(always)]
     fn norm_mul(&self, num2: Self) -> Self {
         div_255(*self as u16 * num2 as u16) as u8
     }
 
-    #[inline]
+    #[inline(always)]
     fn norm_mul_add(&self, num2: Self, num3: Self, num4: Self) -> Self {
         div_255(*self as u16 * num2 as u16 + num3 as u16 * num4 as u16) as u8
     }
 
-    #[inline]
+    #[inline(always)]
     fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
         color.rgba_u8()
     }
 
-    #[inline]
+    #[inline(always)]
     fn from_u8(num: u8) -> Self {
         num
     }
 
-    #[inline]
+    #[inline(always)]
     fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS] {
         [_in[0], _in[1], _in[2], _in[3]]
     }
 
+    #[inline(always)]
     fn is_max(&self) -> bool {
         *self == 255
     }
 
+    #[inline(always)]
     fn inv(&self) -> Self {
         255 - self
     }
@@ -433,26 +435,32 @@ impl FineType for u8 {
 impl FineType for f32 {
     const ZERO: Self = 0.0;
 
+    #[inline(always)]
     fn add(&self, num2: Self) -> Self {
         self + num2
     }
 
+    #[inline(always)]
     fn norm_mul(&self, num2: Self) -> Self {
         self * num2
     }
 
+    #[inline(always)]
     fn norm_mul_add(&self, num2: Self, num3: Self, num4: Self) -> Self {
         *self * num2 + num3 * num4
     }
 
+    #[inline(always)]
     fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
         color.rgba_f32()
     }
 
+    #[inline(always)]
     fn from_u8(num: u8) -> Self {
         num as f32 / 255.0
     }
 
+    #[inline(always)]
     fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS] {
         let mut out = [0; COLOR_COMPONENTS];
 
@@ -463,10 +471,12 @@ impl FineType for f32 {
         out
     }
 
+    #[inline(always)]
     fn is_max(&self) -> bool {
         *self == 1.0
     }
 
+    #[inline(always)]
     fn inv(&self) -> Self {
         1.0 - self
     }
