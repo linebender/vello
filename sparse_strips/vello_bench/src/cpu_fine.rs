@@ -11,7 +11,7 @@ use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, ROYAL_BLUE, YELLOW};
 use vello_common::encode::EncodeExt;
 use vello_common::kurbo::{Affine, Point};
-use vello_common::paint::{Gradient, Paint};
+use vello_common::paint::{Gradient, Paint, PremulColor};
 use vello_common::peniko;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
 use vello_common::tile::Tile;
@@ -36,12 +36,12 @@ pub fn fill(c: &mut Criterion) {
 
     fill_single!(
         solid_opaque,
-        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8()),
+        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
         &[]
     );
     fill_single!(
         sold_transparent,
-        &Paint::Solid(ROYAL_BLUE.with_alpha(0.2).premultiply().to_rgba8()),
+        &Paint::Solid(PremulColor::new(ROYAL_BLUE.with_alpha(0.2))),
         &[]
     );
 
@@ -196,11 +196,7 @@ pub fn strip(c: &mut Criterion) {
         };
     }
 
-    strip_single!(
-        basic,
-        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8()),
-        &[]
-    );
+    strip_single!(basic, &Paint::Solid(PremulColor::new(ROYAL_BLUE)), &[]);
 
     // There is not really a need to measure performance of complex paint types
     // for stripping because the code path for generating the gradient data is exactly the same
