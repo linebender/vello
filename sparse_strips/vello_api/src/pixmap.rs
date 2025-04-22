@@ -134,7 +134,7 @@ impl Pixmap {
     pub fn unpremultiply(&mut self) {
         for rgba in self.buf.chunks_exact_mut(4) {
             let alpha = 255.0 / rgba[3] as f32;
-            
+
             if rgba[3] != 0 {
                 rgba[0] = (rgba[0] as f32 * alpha + 0.5) as u8;
                 rgba[1] = (rgba[1] as f32 * alpha + 0.5) as u8;
