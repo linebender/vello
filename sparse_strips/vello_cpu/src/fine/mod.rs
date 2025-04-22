@@ -124,7 +124,7 @@ impl Fine {
         let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
         let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
-        fn fill_complex(
+        fn fill_complex_paint(
             color_buf: &mut [u8],
             blend_buf: &mut [u8],
             has_opacities: bool,
@@ -165,20 +165,20 @@ impl Fine {
                     EncodedPaint::Gradient(g) => match &g.kind {
                         EncodedKind::Linear(l) => {
                             let filler = GradientFiller::new(g, l, start_x, start_y);
-                            fill_complex(color_buf, blend_buf, g.has_opacities, filler);
+                            fill_complex_paint(color_buf, blend_buf, g.has_opacities, filler);
                         }
                         EncodedKind::Radial(r) => {
                             let filler = GradientFiller::new(g, r, start_x, start_y);
-                            fill_complex(color_buf, blend_buf, g.has_opacities, filler);
+                            fill_complex_paint(color_buf, blend_buf, g.has_opacities, filler);
                         }
                         EncodedKind::Sweep(s) => {
                             let filler = GradientFiller::new(g, s, start_x, start_y);
-                            fill_complex(color_buf, blend_buf, g.has_opacities, filler);
+                            fill_complex_paint(color_buf, blend_buf, g.has_opacities, filler);
                         }
                     },
                     EncodedPaint::Image(i) => {
                         let filler = ImageFiller::new(i, start_x, start_y);
-                        fill_complex(color_buf, blend_buf, i.has_opacities, filler);
+                        fill_complex_paint(color_buf, blend_buf, i.has_opacities, filler);
                     }
                 }
             }
@@ -207,7 +207,7 @@ impl Fine {
         let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
         let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
-        fn strip_complex(
+        fn strip_complex_paint(
             color_buf: &mut [u8],
             blend_buf: &mut [u8],
             filler: impl Painter,
@@ -232,20 +232,20 @@ impl Fine {
                     EncodedPaint::Gradient(g) => match &g.kind {
                         EncodedKind::Linear(l) => {
                             let filler = GradientFiller::new(g, l, start_x, start_y);
-                            strip_complex(color_buf, blend_buf, filler, alphas);
+                            strip_complex_paint(color_buf, blend_buf, filler, alphas);
                         }
                         EncodedKind::Radial(r) => {
                             let filler = GradientFiller::new(g, r, start_x, start_y);
-                            strip_complex(color_buf, blend_buf, filler, alphas);
+                            strip_complex_paint(color_buf, blend_buf, filler, alphas);
                         }
                         EncodedKind::Sweep(s) => {
                             let filler = GradientFiller::new(g, s, start_x, start_y);
-                            strip_complex(color_buf, blend_buf, filler, alphas);
+                            strip_complex_paint(color_buf, blend_buf, filler, alphas);
                         }
                     },
                     EncodedPaint::Image(i) => {
                         let filler = ImageFiller::new(i, start_x, start_y);
-                        strip_complex(color_buf, blend_buf, filler, alphas);
+                        strip_complex_paint(color_buf, blend_buf, filler, alphas);
                     }
                 }
             }
