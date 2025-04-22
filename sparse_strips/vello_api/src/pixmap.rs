@@ -23,12 +23,12 @@ impl Pixmap {
         let buf = vec![0; width as usize * height as usize * 4];
         Self { width, height, buf }
     }
-    
+
     /// Return the width of the pixmap.
     pub fn width(&self) -> u16 {
         self.width
     }
-    
+
     /// Return the height of the pixmap.
     pub fn height(&self) -> u16 {
         self.height
@@ -40,12 +40,12 @@ impl Pixmap {
             *comp = ((alpha as u16 * *comp as u16) / 255) as u8;
         }
     }
-    
+
     /// Create a pixmap from a PNG file.
     pub fn from_png(data: &[u8]) -> Result<Self, png::DecodingError> {
         let mut decoder = png::Decoder::new(data);
         decoder.set_transformations(png::Transformations::ALPHA);
-        
+
         let mut reader = decoder.read_info()?;
         let mut img_data = vec![0; reader.output_buffer_size()];
         let info = reader.next_frame(&mut img_data)?;
@@ -71,20 +71,26 @@ impl Pixmap {
                 rgba_data
             }
         };
-        
-        let premultiplied = data.chunks_exact(4).flat_map(|d| {
-            let alpha = d[3] as u16;
-            let premultiply = |e: u8| {
-                ((e as u16 * alpha) / 255) as u8
-            };
-            
-            if alpha == 0 {
-                [0, 0, 0, 0]
-            }   else {
-                [premultiply(d[0]), premultiply(d[1]), premultiply(d[2]), d[3]]
-            }
-        }).collect::<Vec<_>>();
-        
+
+        let premultiplied = data
+            .chunks_exact(4)
+            .flat_map(|d| {
+                let alpha = d[3] as u16;
+                let premultiply = |e: u8| ((e as u16 * alpha) / 255) as u8;
+
+                if alpha == 0 {
+                    [0, 0, 0, 0]
+                } else {
+                    [
+                        premultiply(d[0]),
+                        premultiply(d[1]),
+                        premultiply(d[2]),
+                        d[3],
+                    ]
+                }
+            })
+            .collect::<Vec<_>>();
+
         Ok(Self {
             width: info.width as u16,
             height: info.height as u16,
@@ -108,7 +114,7 @@ impl Pixmap {
         let idx = 4 * (self.width as usize * y as usize + x as usize);
         &self.buf[idx..][..4]
     }
-    
+
     /// Convert from premultiplied to separate alpha.
     ///
     /// Not fast, but useful for saving to PNG etc.

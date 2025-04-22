@@ -3,19 +3,19 @@
 
 //! Paints for drawing shapes.
 
-use alloc::borrow::Cow;
-use alloc::sync::Arc;
 use crate::color::Srgb;
 use crate::color::palette::css::BLACK;
+use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::peniko::{ColorStop, Extend, GradientKind, ImageQuality};
-use smallvec::SmallVec;
+use crate::pixmap::Pixmap;
+use alloc::borrow::Cow;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::f32::consts::PI;
 use core::iter;
+use smallvec::SmallVec;
 use vello_api::paint::{Gradient, Image, IndexedPaint, Paint};
-use crate::encode::private::Sealed;
-use crate::pixmap::Pixmap;
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -686,13 +686,13 @@ mod private {
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec;
     use super::{EncodeExt, Gradient};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::{Affine, Point};
     use crate::peniko::{ColorStop, GradientKind};
     use crate::peniko::{ColorStops, Extend};
+    use alloc::vec;
     use smallvec::smallvec;
 
     #[test]

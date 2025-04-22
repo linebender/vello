@@ -3,11 +3,11 @@
 
 //! Types for paints.
 
-use alloc::sync::Arc;
 use crate::kurbo::Affine;
+use crate::pixmap::Pixmap;
+use alloc::sync::Arc;
 use peniko::color::{AlphaColor, PremulRgba8, Srgb};
 use peniko::{ColorStops, GradientKind, ImageQuality};
-use crate::pixmap::Pixmap;
 
 /// A paint that needs to be resolved via its index.
 // In the future, we might add additional flags, that's why we have
