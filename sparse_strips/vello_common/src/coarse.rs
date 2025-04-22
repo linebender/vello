@@ -336,7 +336,7 @@ impl Wide {
         //    we only have a single opacity, this can easily be optimized.
         //
         // Finally, you can also add a clip path to the layer. However, clipping has its own
-        // more complicated logic for pushing/popping buffers where drawing is also surpressed
+        // more complicated logic for pushing/popping buffers where drawing is also suppressed
         // in clipped-out wide tiles. Because of this, in case we have one of the above properties
         // AND a clipping path, we will actually end up pushing two buffers, the first one handles
         // the three properties and the second one is just for clip paths. That is a bit wasteful
