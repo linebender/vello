@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use vello_common::color::palette::css::{BLUE, GREEN, REBECCA_PURPLE, RED, YELLOW};
 use vello_common::kurbo::{Circle, Rect, Shape};
 use crate::util::{check_ref, get_ctx};

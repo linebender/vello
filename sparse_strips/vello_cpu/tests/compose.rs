@@ -1,3 +1,5 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use vello_common::color::palette::css::{BLUE, YELLOW};
 use vello_common::kurbo::Rect;

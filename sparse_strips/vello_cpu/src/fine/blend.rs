@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Support for blending. See <https://www.w3.org/TR/compositing-1/#introduction> for
 //! an introduction as well as the corresponding formulas.
 

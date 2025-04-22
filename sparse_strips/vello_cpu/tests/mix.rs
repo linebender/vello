@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use smallvec::smallvec;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind, ImageQuality};
 use vello_common::paint::{Gradient, Image};
