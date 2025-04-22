@@ -245,7 +245,9 @@ impl<'a> Painter for ImageFiller<'a> {
 }
 
 /// Calculate the weights for a single fractional value.
-fn weights(fract: f32) -> [f32; 4] {
+const fn weights(fract: f32) -> [f32; 4] {
+    const MF: [[f32; 4]; 4] = mf_resampler();
+
     [
         single_weight(fract, MF[0][0], MF[0][1], MF[0][2], MF[0][3]),
         single_weight(fract, MF[1][0], MF[1][1], MF[1][2], MF[1][3]),
@@ -255,8 +257,13 @@ fn weights(fract: f32) -> [f32; 4] {
 }
 
 /// Calculate a weight based on the fractional value t and the cubic coefficients.
-fn single_weight(t: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
+const fn single_weight(t: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
     t * (t * (t * d + c) + b) + a
+}
+
+/// Mitchell filter with the variables B = 1/3 and C = 1/3.
+const fn mf_resampler() -> [[f32; 4]; 4] {
+    cubic_resampler(1.0 / 3.0, 1.0 / 3.0)
 }
 
 /// Cubic resampling logic is borrowed from Skia. See
@@ -269,31 +276,26 @@ fn single_weight(t: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
 /// target point and interpolating them with a cubic filter.
 /// The generated matrix is 4x4 and represent the coefficients of the cubic function used to
 /// calculate weights based on the `x_fract` and `y_fract` of the location we are looking at.
-macro_rules! cubic_resampler {
-    ($name:ident, $B:expr, $C:expr) => {
-        const $name: [[f32; 4]; 4] = [
-            [
-                (1.0 / 6.0) * $B,
-                -(3.0 / 6.0) * $B - $C,
-                (3.0 / 6.0) * $B + 2.0 * $C,
-                -(1.0 / 6.0) * $B - $C,
-            ],
-            [
-                1.0 - (2.0 / 6.0) * $B,
-                0.0,
-                -3.0 + (12.0 / 6.0) * $B + $C,
-                2.0 - (9.0 / 6.0) * $B - $C,
-            ],
-            [
-                (1.0 / 6.0) * $B,
-                (3.0 / 6.0) * $B + $C,
-                3.0 - (15.0 / 6.0) * $B - 2.0 * $C,
-                -2.0 + (9.0 / 6.0) * $B + $C,
-            ],
-            [0.0, 0.0, -$C, (1.0 / 6.0) * $B + $C],
-        ];
-    };
+const fn cubic_resampler(b: f32, c: f32) -> [[f32; 4]; 4] {
+    [
+        [
+            (1.0 / 6.0) * b,
+            -(3.0 / 6.0) * b - c,
+            (3.0 / 6.0) * b + 2.0 * c,
+            -(1.0 / 6.0) * b - c,
+        ],
+        [
+            1.0 - (2.0 / 6.0) * b,
+            0.0,
+            -3.0 + (12.0 / 6.0) * b + c,
+            2.0 - (9.0 / 6.0) * b - c,
+        ],
+        [
+            (1.0 / 6.0) * b,
+            (3.0 / 6.0) * b + c,
+            3.0 - (15.0 / 6.0) * b - 2.0 * c,
+            -2.0 + (9.0 / 6.0) * b + c,
+        ],
+        [0.0, 0.0, -c, (1.0 / 6.0) * b + c],
+    ]
 }
-
-// Mitchell filter with the variables B = 1/3 and C = 1/3.
-cubic_resampler!(MF, 1.0 / 3.0, 1.0 / 3.0);
