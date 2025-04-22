@@ -119,6 +119,7 @@ impl Pixmap {
     /// Convert from premultiplied to separate alpha.
     ///
     /// Not fast, but useful for saving to PNG etc.
+    #[allow(clippy::cast_possible_truncation, "cannot overflow in this case")]
     pub fn unpremultiply(&mut self) {
         for rgba in self.buf.chunks_exact_mut(4) {
             let alpha = 255.0 / rgba[3] as f32;
