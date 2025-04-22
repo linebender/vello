@@ -12,7 +12,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::iter;
 use vello_common::encode::{EncodedKind, EncodedPaint, GradientLike};
-use vello_common::paint::Paint;
+use vello_common::paint::{Paint, PremulColor};
 use vello_common::{
     coarse::{Cmd, WideTile},
     tile::Tile,
@@ -364,5 +364,57 @@ pub(crate) mod strip {
                 }
             }
         }
+    }
+}
+
+pub trait FineType: Sized {
+    fn zero() -> Self;
+    fn norm_mul(&self, num2: Self) -> Self;
+    fn norm_mul_add(&self, num2: Self, num3: Self, num4: Self) -> Self;
+    fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS];
+    fn inv(&self) -> Self;
+}
+
+impl FineType for u8 {
+    fn zero() -> Self {
+        0
+    }
+
+    fn norm_mul(&self, num2: Self) -> Self {
+        div_255(*self as u16 * num2 as u16) as u8
+    }
+
+    fn norm_mul_add(&self, num2: Self, num3: Self, num4: Self) -> Self {
+        div_255(*self as u16 * num2 as u16 + num3 as u16 * num4 as u16) as u8
+    }
+
+    fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
+        color.rbga_u8()
+    }
+
+    fn inv(&self) -> Self {
+        255 - self
+    }
+}
+
+impl FineType for f32 {
+    fn zero() -> Self {
+        0.0
+    }
+
+    fn norm_mul(&self, num2: Self) -> Self {
+        self * num2
+    }
+
+    fn norm_mul_add(&self, num2: Self, num3: Self, num4: Self) -> Self {
+        *self * num2 + num3 * num4
+    }
+
+    fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
+        color.rbga_f32()
+    }
+
+    fn inv(&self) -> Self {
+        1.0 - self
     }
 }
