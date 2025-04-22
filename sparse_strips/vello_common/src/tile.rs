@@ -281,8 +281,6 @@ impl Tiles {
                 for y_idx in y_top_tiles..y_bottom_tiles {
                     let y = y_idx as f32;
 
-                    // The line's y-coordinates at the line's top-and bottom-most points within the
-                    // tile row.
                     // The line's y-coordinates at the line's top- and bottom-most points within
                     // the tile row.
                     let line_row_top_y = line_top_y.max(y).min(y + 1.);
