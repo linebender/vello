@@ -31,8 +31,8 @@ use tracing::warn;
 
 use crate::ColorInterpolationFilters;
 
-pub mod gaussian_approx;
-// pub mod gaussian_exact;
+pub mod conventional_box;
+// pub mod gaussian_truncated;
 
 pub struct BlurParams {
     quality: BlurQuality,
