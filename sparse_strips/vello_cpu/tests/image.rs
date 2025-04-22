@@ -165,7 +165,7 @@ fn image_with_transform_scale_and_translate() {
         );
 }
 
-// TODO: The below two test cases fail on Windows CI for some reason
+// TODO: The below two test cases fail on Windows CI for some reason.
 #[test]
 #[ignore]
 fn image_with_transform_rotate_1() {
