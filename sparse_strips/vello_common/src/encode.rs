@@ -5,13 +5,17 @@
 
 use crate::color::Srgb;
 use crate::color::palette::css::BLACK;
+use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
-use crate::peniko::{ColorStop, Extend, GradientKind};
+use crate::peniko::{ColorStop, Extend, GradientKind, ImageQuality};
+use crate::pixmap::Pixmap;
+use alloc::borrow::Cow;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::f32::consts::PI;
+use core::iter;
 use smallvec::SmallVec;
-use std::borrow::Cow;
-use std::f32::consts::PI;
-use std::iter;
-use vello_api::paint::{Gradient, IndexedPaint, Paint};
+use vello_api::paint::{Gradient, Image, IndexedPaint, Paint};
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -31,8 +35,7 @@ impl EncodeExt for Gradient {
             return paint;
         }
 
-        let mut has_opacities =
-            self.stops.iter().any(|s| s.color.components[3] != 1.0);
+        let mut has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
         let pad = self.extend == Extend::Pad;
 
         let mut stops = Cow::Borrowed(&self.stops.0);
@@ -54,7 +57,7 @@ impl EncodeExt for Gradient {
 
                 // For simplicity, ensure that the gradient line always goes from left to right.
                 if p0.x >= p1.x {
-                    std::mem::swap(&mut p0, &mut p1);
+                    core::mem::swap(&mut p0, &mut p1);
 
                     stops = Cow::Owned(
                         stops
@@ -230,8 +233,8 @@ impl EncodeExt for Gradient {
     }
 }
 
-/// Returns a fallback paint in case the gradient is invalid. 
-/// 
+/// Returns a fallback paint in case the gradient is invalid.
+///
 /// The paint will be either black or contain the color of the first stop of the gradient.
 fn validate(gradient: &Gradient) -> Result<(), Paint> {
     let black = Err(BLACK.into());
@@ -340,12 +343,7 @@ fn apply_reflect(stops: &[ColorStop]) -> SmallVec<[ColorStop; 4]> {
 }
 
 /// Encode all stops into a sequence of ranges.
-fn encode_stops(
-    stops: &[ColorStop],
-    start: f32,
-    end: f32,
-    pad: bool,
-) -> Vec<GradientRange> {
+fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<GradientRange> {
     let create_range = |left_stop: &ColorStop, right_stop: &ColorStop| {
         let x0 = start + (end - start) * left_stop.offset;
         let x1 = start + (end - start) * right_stop.offset;
@@ -433,17 +431,67 @@ fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
     )
 }
 
+impl Sealed for Image {}
+
+impl EncodeExt for Image {
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint {
+        let idx = paints.len();
+
+        let transform = self.transform.inverse();
+        // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
+        // non-opaque images in the first place..
+        let has_opacities = self.pixmap.data().chunks(4).any(|c| c[3] != 255);
+
+        let (x_advance, y_advance) = x_y_advances(&transform);
+
+        let encoded = EncodedImage {
+            pixmap: self.pixmap.clone(),
+            extends: (self.x_extend, self.y_extend),
+            quality: self.quality,
+            has_opacities,
+            transform,
+            x_advance,
+            y_advance,
+        };
+
+        paints.push(EncodedPaint::Image(encoded));
+
+        Paint::Indexed(IndexedPaint::new(idx))
+    }
+}
+
 /// An encoded paint.
 #[derive(Debug)]
 pub enum EncodedPaint {
     /// An encoded gradient.
     Gradient(EncodedGradient),
+    /// An encoded image.
+    Image(EncodedImage),
 }
 
 impl From<EncodedGradient> for EncodedPaint {
     fn from(value: EncodedGradient) -> Self {
         Self::Gradient(value)
     }
+}
+
+/// An encoded image.
+#[derive(Debug)]
+pub struct EncodedImage {
+    /// The underlying pixmap of the image.
+    pub pixmap: Arc<Pixmap>,
+    /// The extends in the horizontal and vertical direction.
+    pub extends: (Extend, Extend),
+    /// The rendering quality of the image.
+    pub quality: ImageQuality,
+    /// Whether the image has opacities.
+    pub has_opacities: bool,
+    /// A transform to apply to the image.
+    pub transform: Affine,
+    /// The advance in image coordinates for one step in the x direction.
+    pub x_advance: Vec2,
+    /// The advance in image coordinates for one step in the y direction.
+    pub y_advance: Vec2,
 }
 
 /// Computed properties of a linear gradient.
@@ -632,7 +680,7 @@ mod private {
 
     #[allow(unnameable_types, reason = "We make it unnameable on purpose")]
     pub trait Sealed {}
-    
+
     impl Sealed for Gradient {}
 }
 
@@ -644,6 +692,7 @@ mod tests {
     use crate::kurbo::{Affine, Point};
     use crate::peniko::{ColorStop, GradientKind};
     use crate::peniko::{ColorStops, Extend};
+    use alloc::vec;
     use smallvec::smallvec;
 
     #[test]
@@ -677,7 +726,7 @@ mod tests {
                 color: DynamicColor::from_alpha_color(GREEN),
             }]),
             transform: Affine::IDENTITY,
-            extend: Extend::Pad
+            extend: Extend::Pad,
         };
 
         // Should return the color of the first stop.

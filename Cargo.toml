@@ -21,6 +21,8 @@ members = [
     "sparse_strips/vello_hybrid/examples/webgl",
     "sparse_strips/vello_hybrid/examples/winit",
     "sparse_strips/vello_toy",
+
+    "image_filters/vello_filters_cpu",
 ]
 
 [workspace.package]
@@ -103,6 +105,7 @@ smallvec = "1.15.0"
 static_assertions = "1.1.0"
 thiserror = "2.0.12"
 oxipng = { version = "9.1.4", default-features = false }
+png = "0.17.16"
 
 # The below crates are experimental!
 vello_api = { path = "sparse_strips/vello_api", default-features = false }
@@ -119,7 +122,6 @@ image = { version = "0.25.6", default-features = false }
 # Used for examples
 clap = "4.5.35"
 anyhow = "1.0.97"
-png = "0.17.16"
 pollster = "0.4.0"
 web-time = "1.1.0"
 wgpu-profiler = "0.21.0"

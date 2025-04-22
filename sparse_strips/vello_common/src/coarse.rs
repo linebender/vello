@@ -8,6 +8,8 @@ use crate::{
     strip::Strip,
     tile::Tile,
 };
+use alloc::vec;
+use alloc::vec::Vec;
 use vello_api::color::PremulRgba8;
 use vello_api::{paint::Paint, peniko::Fill};
 use vello_api::mask::Mask;

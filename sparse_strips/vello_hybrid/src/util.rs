@@ -5,7 +5,7 @@
 
 //! Simple helpers for managing wgpu state and surfaces.
 
-use std::ops::RangeInclusive;
+use core::ops::RangeInclusive;
 
 /// Represents dimension constraints for surfaces
 #[derive(Debug)]

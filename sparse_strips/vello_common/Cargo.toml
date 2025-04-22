@@ -22,6 +22,7 @@ smallvec = { workspace = true }
 
 [features]
 simd = ["vello_api/simd"]
+png = ["vello_api/png"]
 
 [lints]
 workspace = true

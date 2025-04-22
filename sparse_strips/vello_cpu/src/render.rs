@@ -4,7 +4,9 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
-use vello_common::coarse::Wide;
+use alloc::vec;
+use alloc::vec::Vec;
+use vello_common::coarse::{SceneState, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
@@ -82,6 +84,10 @@ impl RenderContext {
                 // TODO: Add caching?
                 g.transform = self.transform * g.transform;
                 g.encode_into(&mut self.encoded_paints)
+            }
+            PaintType::Image(mut i) => {
+                i.transform = self.transform * i.transform;
+                i.encode_into(&mut self.encoded_paints)
             }
         }
     }
