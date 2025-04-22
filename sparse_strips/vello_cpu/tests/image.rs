@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
