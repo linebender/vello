@@ -3230,6 +3230,10 @@ dependencies = [
 [[package]]
 name = "vello_filters_cpu"
 version = "0.4.0"
+dependencies = [
+ "color",
+ "tracing",
+]
 
 [[package]]
 name = "vello_hybrid"

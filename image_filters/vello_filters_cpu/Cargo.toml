@@ -10,7 +10,14 @@ repository.workspace = true
 # Prevent accidental publishing until the initial release
 publish = false
 
+[features]
+default = ["std"]
+std = ["color/std"]
+libm = ["color/libm"]
+
 [dependencies]
+tracing = { version = "0.1.41", default-features = false }
+color = { version = "0.2.3", default-features = false }
 
 [lints]
 workspace = true
