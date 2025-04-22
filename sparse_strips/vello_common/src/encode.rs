@@ -385,9 +385,9 @@ fn encode_stops(
             let interpolated =
                 gradient::<Srgb>(left_stop.color, right_stop.color, cs, hue_dir, 0.01);
 
-            interpolated.map(|s| EncodedColorStop {
-                offset: left_stop.offset + (right_stop.offset - left_stop.offset) * s.0,
-                color: s.1,
+            interpolated.map(|st| EncodedColorStop {
+                offset: left_stop.offset + (right_stop.offset - left_stop.offset) * st.0,
+                color: st.1,
             })
         })
         .collect::<Vec<_>>();
