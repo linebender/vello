@@ -95,7 +95,7 @@ impl<'a> ImageFiller<'a> {
     }
 
     fn run_complex_column(&mut self, col: &mut [u8]) {
-        let extend = |mut point: Point| {
+        let extend_point = |mut point: Point| {
             // For the same reason as mentioned above, we always floor.
             point.x = extend(
                 point.x.floor() as f32,
@@ -118,7 +118,7 @@ impl<'a> ImageFiller<'a> {
                 // Nearest neighbor filtering.
                 // Simply takes the nearest pixel to our current position.
                 ImageQuality::Low => {
-                    let point = extend(pos);
+                    let point = extend_point(pos);
                     let sample = self.image.pixmap.sample(point.x as u16, point.y as u16);
                     pixel.copy_from_slice(&sample);
                 }
@@ -175,7 +175,7 @@ impl<'a> ImageFiller<'a> {
                         // We sample the corners rectangle that covers our current position.
                         for (x_idx, x) in [-0.5, 0.5].into_iter().enumerate() {
                             for (y_idx, y) in [-0.5, 0.5].into_iter().enumerate() {
-                                let color_sample = sample(extend(pos + Vec2::new(x, y)));
+                                let color_sample = sample(extend_point(pos + Vec2::new(x, y)));
                                 let w = cx[x_idx] * cy[y_idx];
 
                                 for i in 0..COLOR_COMPONENTS {
@@ -194,7 +194,7 @@ impl<'a> ImageFiller<'a> {
                         // We sample the 4x4 grid around the position we are currently looking at.
                         for (x_idx, x) in [-1.5, -0.5, 0.5, 1.5].into_iter().enumerate() {
                             for (y_idx, y) in [-1.5, -0.5, 0.5, 1.5].into_iter().enumerate() {
-                                let color_sample = sample(extend(pos + Vec2::new(x, y)));
+                                let color_sample = sample(extend_point(pos + Vec2::new(x, y)));
                                 let c = cx[x_idx] * cy[y_idx];
 
                                 for i in 0..COLOR_COMPONENTS {
