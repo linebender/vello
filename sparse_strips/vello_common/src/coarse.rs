@@ -3,6 +3,7 @@
 
 //! Generating and processing wide tiles.
 
+use crate::peniko::{BlendMode, Compose, Mix};
 use crate::{
     color::{AlphaColor, Srgb},
     strip::Strip,
@@ -11,9 +12,8 @@ use crate::{
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_api::color::PremulRgba8;
-use vello_api::{paint::Paint, peniko::Fill};
 use vello_api::mask::Mask;
-use crate::peniko::{BlendMode, Compose, Mix};
+use vello_api::{paint::Paint, peniko::Fill};
 
 #[derive(Debug)]
 struct Layer {
@@ -25,17 +25,20 @@ struct Layer {
     /// An opacity to apply to the whole layer before blending it
     /// into the backdrop.
     opacity: u8,
-    /// A mask to apply to the layer before blending it back into 
+    /// A mask to apply to the layer before blending it back into
     /// the backdrop.
-    mask: Option<Mask>
+    mask: Option<Mask>,
 }
 
 impl Layer {
     /// Whether the layer actually requires allocating a new scratch buffer
     /// for drawing its contents.
     fn needs_buf(&self) -> bool {
-        self.blend_mode.mix != Mix::Normal || self.blend_mode.compose != Compose::SrcOver
-            || self.opacity != 255 || self.mask.is_some() || !self.clip
+        self.blend_mode.mix != Mix::Normal
+            || self.blend_mode.compose != Compose::SrcOver
+            || self.opacity != 255
+            || self.mask.is_some()
+            || !self.clip
     }
 }
 
@@ -144,12 +147,12 @@ impl Wide {
             clip_stack: vec![],
         }
     }
-    
+
     /// Whether there are any existing layers that haven't been popped yet.
     pub fn has_layers(&self) -> bool {
         !self.layer_stack.is_empty()
     }
-    
+
     /// Reset all tiles in the container.
     pub fn reset(&mut self) {
         for tile in &mut self.tiles {
@@ -276,7 +279,7 @@ impl Wide {
                     width,
                     alpha_idx: (col * u32::from(Tile::HEIGHT)) as usize,
                     paint: paint.clone(),
-                    blend_mode: None
+                    blend_mode: None,
                 };
                 x += width;
                 col += u32::from(width);
@@ -312,14 +315,14 @@ impl Wide {
             }
         }
     }
-    
+
     /// Push a new layer with the given properties.
-    pub fn push_layer(&mut self, 
-                      clip_path: Option<(Vec<Strip>, Fill)>,
-                      blend_mode: BlendMode,
-                      mask: Option<Mask>,
-                      opacity: u8
-                      
+    pub fn push_layer(
+        &mut self,
+        clip_path: Option<(Vec<Strip>, Fill)>,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+        opacity: u8,
     ) {
         // Some explanations about what is going on here: We support the concept of
         // layers, where a user can push a new layer (with certain properties), draw some
@@ -340,16 +343,16 @@ impl Wide {
         // and I believe it should be possible to process them all in just one go, but for now
         // this is good enough, and it allows us to implement blending without too deep changes to
         // the original clipping implementation.
-        
+
         let layer = Layer {
             clip: clip_path.is_some(),
             blend_mode,
             opacity,
             mask,
         };
-        
+
         let needs_buf = layer.needs_buf();
-        
+
         // In case we do blending, masking or opacity, push one buffer per wide tile.
         if needs_buf {
             for x in 0..self.width_tiles() {
@@ -358,7 +361,7 @@ impl Wide {
                 }
             }
         }
-        
+
         // If we have a clip path, push another buffer in the affected wide tiles.
         // Note that it is important that we FIRST push the buffer for blending etc. and
         // only then for clipping, otherwise we will use the empty clip buffer as the backdrop
@@ -373,20 +376,20 @@ impl Wide {
     /// Pop a previously pushed layer.
     pub fn pop_layer(&mut self) {
         // This method basically unwinds everything we did in `push_layer`.
-        
+
         let layer = self.layer_stack.pop().unwrap();
-        
+
         if layer.clip {
             self.pop_clip();
         }
 
         let needs_buf = layer.needs_buf();
-        
+
         if needs_buf {
             for x in 0..self.width_tiles() {
                 for y in 0..self.height_tiles() {
                     let t = self.get_mut(x, y);
-                    
+
                     if let Some(mask) = layer.mask.clone() {
                         t.mask(mask);
                     }
@@ -765,7 +768,12 @@ impl WideTile {
                 self.cmds.clear();
                 self.bg = bg;
             } else {
-                self.cmds.push(Cmd::Fill(CmdFill { x, width, paint, blend_mode: None }));
+                self.cmds.push(Cmd::Fill(CmdFill {
+                    x,
+                    width,
+                    paint,
+                    blend_mode: None,
+                }));
             }
         }
     }
@@ -820,7 +828,7 @@ impl WideTile {
             self.cmds.push(Cmd::ClipFill(CmdClipFill { x, width }));
         }
     }
-    
+
     /// Push a buffer.
     pub fn push_buf(&mut self) {
         self.cmds.push(Cmd::PushBuf);
@@ -829,7 +837,7 @@ impl WideTile {
     /// Pop the most recent buffer.
     pub fn pop_buf(&mut self) {
         if matches!(self.cmds.last(), Some(&Cmd::PushBuf)) {
-            // Optimization: If no drawing happened between the last `PushBuf`, 
+            // Optimization: If no drawing happened between the last `PushBuf`,
             // we can just pop it instead.
             self.cmds.pop();
         } else {
@@ -837,14 +845,14 @@ impl WideTile {
                 // If we have a non-destructive blend mode with just a single fill/strip,
                 // inline the blend mode instead.
                 let (_, tail) = self.cmds.split_at(self.cmds.len() - 3);
-                
+
                 let updated = match tail {
                     [Cmd::PushBuf, Cmd::AlphaFill(a), Cmd::Blend(b)] => {
                         if !b.is_destructive() && a.blend_mode.is_none() {
                             let mut blended = a.clone();
                             blended.blend_mode = Some(*b);
                             Some(Cmd::AlphaFill(blended))
-                        }   else {
+                        } else {
                             None
                         }
                     }
@@ -853,23 +861,23 @@ impl WideTile {
                             let mut blended = a.clone();
                             blended.blend_mode = Some(*b);
                             Some(Cmd::Fill(blended))
-                        }   else {
+                        } else {
                             None
                         }
                     }
-                    _ => None
+                    _ => None,
                 };
-                
+
                 if let Some(updated) = updated {
                     self.cmds.pop();
                     self.cmds.pop();
                     self.cmds.pop();
                     self.cmds.push(updated);
-                    
+
                     return;
                 }
             }
-            
+
             self.cmds.push(Cmd::PopBuf);
         }
     }
@@ -888,7 +896,7 @@ impl WideTile {
 
     /// Blend the current buffer into the previous buffer in the stack.
     pub fn blend(&mut self, blend_mode: BlendMode) {
-        // Optimization: If no drawing happened since the last `PushBuf` and the blend mode 
+        // Optimization: If no drawing happened since the last `PushBuf` and the blend mode
         // is not destructive, we do not need to do any blending at all.
         if !matches!(self.cmds.last(), Some(&Cmd::PushBuf)) || blend_mode.is_destructive() {
             self.cmds.push(Cmd::Blend(blend_mode));
@@ -918,7 +926,7 @@ pub enum Cmd {
     /// into the previous buffer in the stack, with an additional alpha mask.
     ClipStrip(CmdClipAlphaFill),
     /// Apply a blend.
-    /// 
+    ///
     /// This command will blend the contents of the current buffer into the previous buffer in
     /// the stack.
     Blend(BlendMode),
@@ -985,23 +993,31 @@ trait BlendModeExt {
 
 impl BlendModeExt for BlendMode {
     fn is_destructive(&self) -> bool {
-        matches!(self.compose, Compose::Clear | Compose::Copy | Compose::SrcIn | Compose::DestIn | Compose::SrcOut | Compose::DestAtop)
+        matches!(
+            self.compose,
+            Compose::Clear
+                | Compose::Copy
+                | Compose::SrcIn
+                | Compose::DestIn
+                | Compose::SrcOut
+                | Compose::DestAtop
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use vello_api::paint::Paint;
     use crate::coarse::{Cmd, CmdFill, WideTile};
     use crate::color::PremulRgba8;
     use crate::peniko::{BlendMode, Compose, Mix};
+    use vello_api::paint::Paint;
 
     #[test]
     fn optimize_empty_layers() {
         let mut wide = WideTile::new(0, 0);
         wide.push_buf();
         wide.pop_buf();
-        
+
         assert!(wide.cmds.is_empty());
     }
 
@@ -1009,8 +1025,16 @@ mod tests {
     fn basic_layer() {
         let mut wide = WideTile::new(0, 0);
         wide.push_buf();
-        wide.fill(0, 10, Paint::Solid(PremulRgba8::from_u8_array([0, 0, 0, 0])));
-        wide.fill(10, 10, Paint::Solid(PremulRgba8::from_u8_array([0, 0, 0, 0])));
+        wide.fill(
+            0,
+            10,
+            Paint::Solid(PremulRgba8::from_u8_array([0, 0, 0, 0])),
+        );
+        wide.fill(
+            10,
+            10,
+            Paint::Solid(PremulRgba8::from_u8_array([0, 0, 0, 0])),
+        );
         wide.pop_buf();
 
         assert_eq!(wide.cmds.len(), 4);
@@ -1020,7 +1044,7 @@ mod tests {
     fn inline_blend_with_one_fill() {
         let paint = Paint::Solid(PremulRgba8::from_u8_array([30, 30, 30, 255]));
         let blend_mode = BlendMode::new(Mix::Lighten, Compose::SrcOver);
-        
+
         let mut wide = WideTile::new(0, 0);
         wide.push_buf();
         wide.fill(0, 10, paint.clone());
@@ -1028,25 +1052,22 @@ mod tests {
         wide.pop_buf();
 
         assert_eq!(wide.cmds.len(), 1);
-        
+
         let expected = Cmd::Fill(CmdFill {
             x: 0,
             width: 10,
             paint,
             blend_mode: Some(blend_mode),
         });
-        
-        assert_eq!(
-            wide.cmds[0],
-            expected
-        );
+
+        assert_eq!(wide.cmds[0], expected);
     }
 
     #[test]
     fn dont_inline_blend_with_two_fills() {
         let paint = Paint::Solid(PremulRgba8::from_u8_array([30, 30, 30, 255]));
         let blend_mode = BlendMode::new(Mix::Lighten, Compose::SrcOver);
-        
+
         let mut wide = WideTile::new(0, 0);
         wide.push_buf();
         wide.fill(0, 10, paint.clone());
@@ -1061,7 +1082,7 @@ mod tests {
     fn dont_inline_destructive_blend() {
         let paint = Paint::Solid(PremulRgba8::from_u8_array([30, 30, 30, 255]));
         let blend_mode = BlendMode::new(Mix::Lighten, Compose::Clear);
-        
+
         let mut wide = WideTile::new(0, 0);
         wide.push_buf();
         wide.fill(0, 10, paint.clone());

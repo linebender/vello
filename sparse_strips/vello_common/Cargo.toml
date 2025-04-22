@@ -17,7 +17,6 @@ vello_api = { workspace = true, default-features = true }
 roxmltree = "0.20.0"
 bytemuck = { workspace = true, features = [] }
 skrifa = { workspace = true }
-png = { workspace = true }
 smallvec = { workspace = true }
 
 [features]

@@ -3199,7 +3199,6 @@ name = "vello_common"
 version = "0.4.0"
 dependencies = [
  "bytemuck",
- "png",
  "roxmltree",
  "skrifa",
  "smallvec",

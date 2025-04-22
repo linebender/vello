@@ -6,7 +6,7 @@
 use crate::fine::Fine;
 use alloc::vec;
 use alloc::vec::Vec;
-use vello_common::coarse::{SceneState, Wide};
+use vello_common::coarse::Wide;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
@@ -157,7 +157,7 @@ impl RenderContext {
 
     /// Push a new clip layer.
     pub fn push_clip_layer(&mut self, path: &BezPath) {
-        self.push_layer(Some(path), None, None, None)
+        self.push_layer(Some(path), None, None, None);
     }
 
     /// Push a new blend layer.

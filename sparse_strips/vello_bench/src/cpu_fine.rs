@@ -13,7 +13,7 @@ use vello_common::encode::EncodeExt;
 use vello_common::kurbo::{Affine, Point};
 use vello_common::paint::{Gradient, Paint};
 use vello_common::peniko;
-use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
+use vello_common::peniko::{BlendMode, ColorStop, ColorStops, Compose, GradientKind, Mix};
 use vello_common::tile::Tile;
 use vello_cpu::fine::{Fine, SCRATCH_BUF_SIZE};
 
@@ -26,7 +26,13 @@ pub fn fill(c: &mut Criterion) {
                 let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
 
                 b.iter(|| {
-                    fine.fill(0, WideTile::WIDTH as usize, $paint, $paints);
+                    fine.fill(
+                        0,
+                        WideTile::WIDTH as usize,
+                        $paint,
+                        BlendMode::new(Mix::Normal, Compose::SrcOver),
+                        $paints,
+                    );
 
                     std::hint::black_box(&fine);
                 })
@@ -188,7 +194,14 @@ pub fn strip(c: &mut Criterion) {
                 let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
 
                 b.iter(|| {
-                    fine.strip(0, WideTile::WIDTH as usize, &alphas, $paint, $paints);
+                    fine.strip(
+                        0,
+                        WideTile::WIDTH as usize,
+                        &alphas,
+                        $paint,
+                        BlendMode::new(Mix::Normal, Compose::SrcOver),
+                        $paints,
+                    );
 
                     std::hint::black_box(&fine);
                 })

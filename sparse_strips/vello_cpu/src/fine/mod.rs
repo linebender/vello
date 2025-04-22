@@ -148,22 +148,22 @@ impl Fine {
                 let start_x = self.wide_coords.0 * WideTile::WIDTH;
                 let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
-                for (x, s) in self
+                for (x, col) in self
                     .blend_buf
                     .last_mut()
                     .unwrap()
                     .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
                     .enumerate()
                 {
-                    for (y, s) in s.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
+                    for (y, pix) in col.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
                         let x = start_x + x as u16;
                         let y = start_y + y as u16;
 
                         if x < m.width() && y < m.height() {
                             let val = m.sample(x, y);
 
-                            for i in 0..COLOR_COMPONENTS {
-                                s[i] = div_255(s[i] as u16 * val as u16) as u8;
+                            for comp in pix.iter_mut() {
+                                *comp = div_255(*comp as u16 * val as u16) as u8;
                             }
                         }
                     }
@@ -234,20 +234,44 @@ impl Fine {
                     EncodedPaint::Gradient(g) => match &g.kind {
                         EncodedKind::Linear(l) => {
                             let filler = GradientFiller::new(g, l, start_x, start_y);
-                            fill_complex_paint(color_buf, blend_buf, g.has_opacities, blend_mode, filler);
+                            fill_complex_paint(
+                                color_buf,
+                                blend_buf,
+                                g.has_opacities,
+                                blend_mode,
+                                filler,
+                            );
                         }
                         EncodedKind::Radial(r) => {
                             let filler = GradientFiller::new(g, r, start_x, start_y);
-                            fill_complex_paint(color_buf, blend_buf, g.has_opacities, blend_mode, filler);
+                            fill_complex_paint(
+                                color_buf,
+                                blend_buf,
+                                g.has_opacities,
+                                blend_mode,
+                                filler,
+                            );
                         }
                         EncodedKind::Sweep(s) => {
                             let filler = GradientFiller::new(g, s, start_x, start_y);
-                            fill_complex_paint(color_buf, blend_buf, g.has_opacities, blend_mode, filler);
+                            fill_complex_paint(
+                                color_buf,
+                                blend_buf,
+                                g.has_opacities,
+                                blend_mode,
+                                filler,
+                            );
                         }
                     },
                     EncodedPaint::Image(i) => {
                         let filler = ImageFiller::new(i, start_x, start_y);
-                        fill_complex_paint(color_buf, blend_buf, i.has_opacities, filler);
+                        fill_complex_paint(
+                            color_buf,
+                            blend_buf,
+                            i.has_opacities,
+                            blend_mode,
+                            filler,
+                        );
                     }
                 }
             }
@@ -351,12 +375,11 @@ impl Fine {
         let target_buffer =
             &mut target_buffer[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
 
-        fill::blend(
+        fill::alpha_composite(
             target_buffer,
             source_buffer
                 .chunks_exact(4)
                 .map(|e| [e[0], e[1], e[2], e[3]]),
-            BlendMode::new(Mix::Normal, Compose::SrcOver),
         );
     }
 
@@ -369,12 +392,11 @@ impl Fine {
         let target_buffer =
             &mut target_buffer[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
 
-        strip::blend(
+        strip::alpha_composite(
             target_buffer,
             source_buffer
                 .chunks_exact(4)
                 .map(|e| [e[0], e[1], e[2], e[3]]),
-            BlendMode::new(Mix::Normal, Compose::SrcOver),
             alphas.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
         );
     }
@@ -421,12 +443,15 @@ pub(crate) mod fill {
         blend_mode: BlendMode,
     ) {
         match (blend_mode.mix, blend_mode.compose) {
-            (Mix::Normal, Compose::SrcOver) => src_over(target, source),
+            (Mix::Normal, Compose::SrcOver) => alpha_composite(target, source),
             _ => blend::fill::blend::<T>(target, source, blend_mode),
         }
     }
 
-    fn src_over<T: Iterator<Item = [u8; COLOR_COMPONENTS]>>(target: &mut [u8], mut source: T) {
+    pub(crate) fn alpha_composite<T: Iterator<Item = [u8; COLOR_COMPONENTS]>>(
+        target: &mut [u8],
+        mut source: T,
+    ) {
         for strip in target.chunks_exact_mut(TILE_HEIGHT_COMPONENTS) {
             for bg_c in strip.chunks_exact_mut(COLOR_COMPONENTS) {
                 let src_c = source.next().unwrap();
@@ -454,12 +479,12 @@ pub(crate) mod strip {
         alphas: A,
     ) {
         match (blend_mode.mix, blend_mode.compose) {
-            (Mix::Normal, Compose::SrcOver) => src_over(target, source, alphas),
+            (Mix::Normal, Compose::SrcOver) => alpha_composite(target, source, alphas),
             _ => blend::strip::blend::<T, A>(target, source, blend_mode, alphas),
         }
     }
 
-    pub(crate) fn src_over<
+    pub(crate) fn alpha_composite<
         T: Iterator<Item = [u8; COLOR_COMPONENTS]>,
         A: Iterator<Item = [u8; Tile::HEIGHT as usize]>,
     >(

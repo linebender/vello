@@ -40,13 +40,13 @@ pub(crate) mod strip {
         blend_mode: BlendMode,
         mut alphas: A,
     ) {
-        for bg_c in target.chunks_exact_mut(TILE_HEIGHT_COMPONENTS) {
+        for bg_col in target.chunks_exact_mut(TILE_HEIGHT_COMPONENTS) {
             let masks = alphas.next().unwrap();
 
-            for (bg_c, mask) in bg_c.chunks_exact_mut(Tile::HEIGHT as usize).zip(masks) {
-                let mixed_src_color = mix(color_iter.next().unwrap(), bg_c, blend_mode);
+            for (bg_pix, mask) in bg_col.chunks_exact_mut(Tile::HEIGHT as usize).zip(masks) {
+                let mixed_src_color = mix(color_iter.next().unwrap(), bg_pix, blend_mode);
 
-                blend_mode.compose(&mixed_src_color, bg_c, mask);
+                blend_mode.compose(&mixed_src_color, bg_pix, mask);
             }
         }
     }
@@ -316,15 +316,15 @@ fn set_sat(c: &[f32; 3], s: f32) -> [f32; 3] {
     let mut max = &mut max[0];
 
     if *min > *mid {
-        std::mem::swap(&mut min, &mut mid);
+        core::mem::swap(&mut min, &mut mid);
     }
 
     if *min > *max {
-        std::mem::swap(&mut min, &mut max);
+        core::mem::swap(&mut min, &mut max);
     }
 
     if *mid > *max {
-        std::mem::swap(&mut mid, &mut max);
+        core::mem::swap(&mut mid, &mut max);
     }
 
     if *max > *min {
