@@ -3,7 +3,7 @@
 
 //! Rendering linear gradients.
 
-use crate::fine::{COLOR_COMPONENTS, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{FineType, COLOR_COMPONENTS, TILE_HEIGHT_COMPONENTS};
 use vello_common::encode::{EncodedGradient, GradientLike, GradientRange};
 use vello_common::kurbo::Point;
 
@@ -49,7 +49,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
         }
     }
 
-    pub(super) fn run(mut self, target: &mut [u8]) {
+    pub(super) fn run<F: FineType>(mut self, target: &mut [F]) {
         let original_pos = self.cur_pos;
 
         target
@@ -73,7 +73,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
         }
     }
 
-    fn run_column(&mut self, col: &mut [u8]) {
+    fn run_column<F: FineType>(&mut self, col: &mut [F]) {
         let pad = self.gradient.pad;
         let extend = |val| extend(val, pad, self.gradient.clamp_range);
         let mut pos = self.cur_pos;
@@ -93,7 +93,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
         }
     }
 
-    fn run_undefined(mut self, target: &mut [u8]) {
+    fn run_undefined<F: FineType>(mut self, target: &mut [F]) {
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
             .for_each(|column| {
@@ -103,7 +103,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
                     let actual_pos = pos;
 
                     if !self.kind.is_defined(&actual_pos) {
-                        pixel.copy_from_slice(&[0, 0, 0, 0]);
+                        pixel.copy_from_slice(&[F::ZERO, F::ZERO, F::ZERO, F::ZERO]);
                     }
 
                     pos += self.gradient.y_advance;

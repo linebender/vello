@@ -11,7 +11,7 @@ use crate::util::scalar::div_255;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::iter;
-use vello_common::encode::{EncodedKind, EncodedPaint, GradientLike};
+use vello_common::encode::{EncodedKind, EncodedPaint, GradientLike, GradientRange};
 use vello_common::paint::{Paint, PremulColor};
 use vello_common::{
     coarse::{Cmd, WideTile},
@@ -386,6 +386,7 @@ pub trait FineType: Sized + Copy {
     fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS];
     fn is_max(&self) -> bool;
     fn inv(&self) -> Self;
+    fn grad_color(range: &GradientRange) -> [Self; COLOR_COMPONENTS];
 }
 
 impl FineType for u8 {
@@ -429,6 +430,10 @@ impl FineType for u8 {
     #[inline(always)]
     fn inv(&self) -> Self {
         255 - self
+    }
+
+    fn grad_color(range: &GradientRange) -> &[Self; COLOR_COMPONENTS] {
+        &range.c0
     }
 }
 
@@ -479,5 +484,9 @@ impl FineType for f32 {
     #[inline(always)]
     fn inv(&self) -> Self {
         1.0 - self
+    }
+
+    fn grad_color(range: &GradientRange) -> &[Self; COLOR_COMPONENTS] {
+        &range.c0_f32
     }
 }

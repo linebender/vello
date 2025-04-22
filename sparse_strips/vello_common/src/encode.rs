@@ -357,6 +357,10 @@ fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<Gra
     let create_range = |left_stop: &ColorStop, right_stop: &ColorStop| {
         let x0 = start + (end - start) * left_stop.offset;
         let x1 = start + (end - start) * right_stop.offset;
+        let c0_f32 = left_stop
+            .color
+            .to_alpha_color::<Srgb>()
+            .premultiply().components;
         let c0 = left_stop
             .color
             .to_alpha_color::<Srgb>()
@@ -389,6 +393,7 @@ fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<Gra
             x0,
             x1,
             c0,
+            c0_f32,
             factors,
         }
     };
@@ -554,6 +559,8 @@ pub struct GradientRange {
     pub x1: f32,
     /// The start color of the range.
     pub c0: [u8; 4],
+    /// The start color of the range.
+    pub c0_f32: [f32; 4],
     /// The interpolation factors of the range.
     pub factors: [f32; 4],
 }
