@@ -56,23 +56,30 @@ impl PremulColor {
     }
 
     /// Return the color as a premultiplied RGBA8 color.
-    pub fn rbga_u8(&self) -> [u8; 4] {
+    pub fn rgba_u8(&self) -> [u8; 4] {
         self.0.premul_u8.to_u8_array()
     }
 
     /// Return the color as a premultiplied RGBA8 color, packed as little-endian into an u32.
-    pub fn rbga_u32(&self) -> u32 {
+    pub fn rgba_u32(&self) -> u32 {
         self.0.premul_u8.to_u32()
     }
 
     /// Return the color as a premultiplied RGBA32 color in the range [0.0, 1.0].
-    pub fn rbga_f32(&self) -> [f32; 4] {
+    pub fn rgba_f32(&self) -> [f32; 4] {
         self.0.premul_f32
     }
 
     /// Return whether the color has transparency.
     pub fn is_opaque(&self) -> bool {
         self.0.premul_f32[3] == 1.0
+    }
+    
+    /// Whether all components of the color are the same.
+    pub fn all_components_same(&self) -> bool {
+        self.0.premul_f32[0] == self.0.premul_f32[1]
+            && self.0.premul_f32[1] == self.0.premul_f32[2]
+            && self.0.premul_f32[2] == self.0.premul_f32[3]
     }
 }
 

@@ -185,7 +185,7 @@ impl RenderContext {
                 panic!("All clips must be popped before rendering");
             }
         }
-        let mut fine = Fine::new(pixmap.width, pixmap.height);
+        let mut fine: Fine<u8> = Fine::new(pixmap.width, pixmap.height);
 
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();
@@ -194,7 +194,7 @@ impl RenderContext {
                 let wtile = self.wide.get(x, y);
                 fine.set_coords(x, y);
 
-                fine.clear(wtile.bg.rbga_u8());
+                fine.clear(wtile.bg.clone());
                 for cmd in &wtile.cmds {
                     fine.run_cmd(cmd, &self.alphas, &self.encoded_paints);
                 }
