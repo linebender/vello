@@ -1,7 +1,7 @@
 # Vello Image Filters
 
 In 2d Rendering, you often need to process images in ways which aren't just drawing of paths.
-For example, by blurring a background, zooming in, or inverting colours.
+For example, by blurring a background, zooming in, or inverting colors.
 This folder provides implementations of several different image filters, using different backends.
 
 These backends are:
