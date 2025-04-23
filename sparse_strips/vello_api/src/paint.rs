@@ -6,7 +6,7 @@
 use crate::kurbo::{Affine, Point};
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
-use peniko::color::{AlphaColor, PremulRgba8, Srgb, HueDirection, ColorSpaceTag};
+use peniko::color::{AlphaColor, ColorSpaceTag, HueDirection, PremulRgba8, Srgb};
 use peniko::{ColorStops, GradientKind, ImageQuality};
 
 /// A paint that needs to be resolved via its index.

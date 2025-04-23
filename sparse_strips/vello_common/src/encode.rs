@@ -3,8 +3,8 @@
 
 //! Paints for drawing shapes.
 
-use crate::color::{ColorSpaceTag, HueDirection, PremulColor, Srgb, gradient};
 use crate::color::palette::css::BLACK;
+use crate::color::{ColorSpaceTag, HueDirection, PremulColor, Srgb, gradient};
 use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::peniko::{ColorStop, Extend, GradientKind, ImageQuality};
