@@ -666,8 +666,7 @@ mod tests {
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::Point;
-    use crate::peniko::ColorStops;
-    use crate::peniko::{ColorStop, GradientKind};
+    use crate::peniko::{ColorStop, ColorStops, GradientKind};
     use alloc::vec;
     use smallvec::smallvec;
 
