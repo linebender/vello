@@ -410,6 +410,8 @@ fn encode_stops(
         }
     };
 
+    // Note: this could use `Iterator::map_windows` once stabilized, meaning `interpolated_stops`
+    // no longer needs to be collected.
     let stop_ranges = interpolated_stops.windows(2).map(|s| {
         let left_stop = &s[0];
         let right_stop = &s[1];
