@@ -104,10 +104,8 @@ pub struct Config {
 
 /// Represents a GPU strip for rendering
 /// If paint_type is 0 or 1:
-/// - paint_index is the column index into the alpha texture
 /// - paint_data is the packed rgba values
 /// If paint_type is 2:
-/// - paint_index is the packed (sample_x, sample_y)
 /// - paint_data is the packed (extend_x, extend_y)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
