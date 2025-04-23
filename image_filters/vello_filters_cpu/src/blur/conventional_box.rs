@@ -94,15 +94,15 @@ pub fn approx_gauss_box_blur(
     sigma_x: f32,
     sigma_y: f32,
     scratch: &mut Image<NaivePremulPixel>,
-) -> Result<(), ()> {
+) {
     if let Some(input) = input {
         if !(input.width == target.width && input.height != target.height) {
-            return Err(());
+            unimplemented!("Graceful error handling");
         }
     }
     if target.width == 0 || target.height == 0 {
         // Our code later assumes that the buffers are non-empty.
-        return Ok(());
+        return;
     }
     scratch.resize_for_scratch(target.width, target.height);
     let width = usize::from(target.width);
@@ -122,19 +122,32 @@ pub fn approx_gauss_box_blur(
         box_blur_row(x_b, scratch, target);
         box_blur_row(x_c, target, scratch);
     }
-    if true {
-        todo!("Transpose `scratch` to be column major");
-    }
+    let len = target.total_data_len();
+    // TODO: Does it make sense to instead transpose into the other buffer (since we need to do two transposes).
+    transpose::transpose_inplace(
+        &mut scratch.pixels[..len],
+        &mut target.pixels[..cmp::max(height, width)],
+        width,
+        height,
+    );
+    // Scratch (and soon target, are now in column-major order)
     let [y_a, y_b, y_c] = box_blur_radii(sigma_y);
     for column in 0..width {
         let start = column * height;
-        let scratch = &mut scratch.pixels[start..start + width];
-        let target = &mut target.pixels[start..start + width];
+        let scratch = &mut scratch.pixels[start..start + height];
+        let target = &mut target.pixels[start..start + height];
         box_blur_row(y_a, scratch, target);
         box_blur_row(y_b, target, scratch);
         box_blur_row(y_c, scratch, target);
     }
-    todo!("Transpose target to be row-major again.");
+    // Transpose target back to row-major order.
+    transpose::transpose_inplace(
+        &mut target.pixels[..len],
+        &mut scratch.pixels[..cmp::max(height, width)],
+        // Note that this is height is width, because of the same "column-major" cheat
+        height,
+        width,
+    );
 }
 
 /// Calculate box blur of slice `input`, outputting into `output`
@@ -142,7 +155,7 @@ pub fn approx_gauss_box_blur(
 /// Adapted from <https://github.com/fschutt/fastblur>
 fn box_blur_row(blur_width: usize, input: &[NaivePremulPixel], output: &mut [NaivePremulPixel]) {
     debug_assert!(
-        blur_width % 2 == 0,
+        blur_width % 2 == 1,
         "This implementation of box blurs is only correct for even widths."
     );
     // We know that the total width we're calculating is odd, so integer division gives the number of values on "either" side of the target pixel

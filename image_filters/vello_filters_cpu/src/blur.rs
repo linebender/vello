@@ -27,29 +27,7 @@
 //!
 //! [wikipedia::gaussian_blur]: https://en.wikipedia.org/wiki/Gaussian_blur.
 
-use tracing::warn;
-
-use crate::ColorInterpolationFilters;
-
 pub mod conventional_box;
 // pub mod gaussian_truncated;
 
-pub struct BlurParams {
-    quality: BlurQuality,
-    interpolation: ColorInterpolationFilters,
-}
-
-pub enum BlurQuality {
-    Approx,
-    Max,
-    AlwaysApprox,
-}
-
-pub fn gaussian_blur(params: &BlurParams) {
-    match params.quality {
-        BlurQuality::Max | BlurQuality::Approx => {
-            warn!("High quality blurs not yet implemented. Falling back to three-pass box blur");
-        }
-        BlurQuality::AlwaysApprox => {}
-    }
-}
+// TODO: Have a utility to dispatch to different blur implementations.

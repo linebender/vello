@@ -1,0 +1,19 @@
+[package]
+name = "vello_filters_cli"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# This is not intended for publishing
+publish = false
+
+
+[dependencies]
+png = { workspace = true }
+vello_filters_cpu = { path = "../vello_filters_cpu" }
+anyhow = "1.0.98"
+color = { version = "0.2.3", features = ["bytemuck"] }
+bytemuck = { version = "1.22.0", features = ["extern_crate_alloc"] }
+
+[lints]
+workspace = true

@@ -22,7 +22,7 @@ members = [
     "sparse_strips/vello_hybrid/examples/winit",
     "sparse_strips/vello_toy",
 
-    "image_filters/vello_filters_cpu",
+    "image_filters/vello_filters_cpu", "image_filters/vello_filters_cli",
 ]
 
 [workspace.package]

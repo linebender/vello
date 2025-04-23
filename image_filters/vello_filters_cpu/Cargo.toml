@@ -16,8 +16,9 @@ std = ["color/std"]
 libm = ["color/libm"]
 
 [dependencies]
-tracing = { version = "0.1.41", default-features = false }
+# tracing = { version = "0.1.41", default-features = false }
 color = { version = "0.2.3", default-features = false }
+transpose = "0.2.3"
 
 [lints]
 workspace = true

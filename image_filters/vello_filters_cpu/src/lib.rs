@@ -22,30 +22,58 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![no_std]
 
+// We currently use it for docs
+use color as _;
+
 extern crate alloc;
 
+use alloc::vec;
 use alloc::vec::Vec;
 
 pub mod blur;
 
-/// The color space filters should operate in
-///
-/// TODO: Should this be in the filter, or handled beforehand?
-pub enum ColorInterpolationFilters {
-    LinearRgb,
-    SRgb,
+// /// The color space filters should operate in
+// ///
+// /// TODO: Should this be in the filter, or handled beforehand?
+// pub enum ColorInterpolationFilters {
+//     LinearRgb,
+//     SRgb,
+// }
+
+#[derive(Debug)]
+/// An image.
+pub struct Image<Pixel> {
+    pub width: u16,
+    pub height: u16,
+    /// Pixels, stored in row-major order.
+    ///
+    /// Note that in some cases this might store *too many* pixels.
+    pub pixels: Vec<Pixel>,
 }
 
-pub struct Image<Pixel> {
-    width: u16,
-    height: u16,
-    /// Pixels, stored in row-major order.
-    pixels: Vec<Pixel>,
+impl<Pixel> Image<Pixel> {
+    /// Calculate the size of the data vector for this image.
+    pub fn calc_data_size(width: u16, height: u16) -> usize {
+        usize::from(width) * usize::from(height)
+    }
+
+    /// Calculate the size of the pixels needed.
+    pub fn total_data_len(&self) -> usize {
+        Self::calc_data_size(self.width, self.height)
+    }
 }
 
 impl Image<NaivePremulPixel> {
+    pub fn empty_scratch() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            pixels: vec![],
+        }
+    }
+    /// Resize this `Image` to be used as a scratch buffer.
     pub fn resize_for_scratch(&mut self, width: u16, height: u16) {
-        let total_size = usize::from(width) * usize::from(height);
+        let total_size = Self::calc_data_size(width, height);
         // We don't want to shrink here, because the garbage data will be handled later.
         if total_size > self.pixels.len() {
             self.pixels.resize(total_size, [0.; 4]);
@@ -62,4 +90,5 @@ impl Image<NaivePremulPixel> {
 // TODO: How reasonable is it to use f32 here?
 pub type NaivePremulPixel = [f32; 4];
 
-pub type NaiveAlpha = f32;
+// TODO: This will be useful for filters which only operate on alpha values. We don't currently have any of these.
+// pub type NaiveAlpha = f32;
