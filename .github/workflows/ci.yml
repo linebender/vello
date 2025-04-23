@@ -16,7 +16,7 @@ env:
   # This should be limited to packages that are intended for publishing.
   RUST_NO_STD_PKGS: "-p vello_api"
   # List of features that depend on the standard library and will be excluded from no_std checks.
-  FEATURES_DEPENDING_ON_STD: "std,default"
+  FEATURES_DEPENDING_ON_STD: "std,default,png"
   # List of packages that can not target Wasm.
   # `vello_tests` uses `nv-flip`, which doesn't support Wasm.
   NO_WASM_PKGS: "--exclude vello_tests"

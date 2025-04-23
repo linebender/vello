@@ -19,6 +19,10 @@ path = "tests/mod.rs"
 [dependencies]
 vello_common = { workspace = true }
 
+[features]
+default = ["png"]
+png = ["vello_common/png"]
+
 [dev-dependencies]
 automod = "1.0"
 oxipng = { workspace = true, features = ["freestanding", "parallel"] }

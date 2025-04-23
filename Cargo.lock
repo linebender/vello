@@ -3179,6 +3179,7 @@ name = "vello_api"
 version = "0.4.0"
 dependencies = [
  "peniko",
+ "png",
 ]
 
 [[package]]
@@ -3226,6 +3227,10 @@ dependencies = [
  "skrifa",
  "smallvec",
 ]
+
+[[package]]
+name = "vello_filters_cpu"
+version = "0.4.0"
 
 [[package]]
 name = "vello_hybrid"
