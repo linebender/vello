@@ -28,7 +28,7 @@ use alloc::vec::Vec;
 
 pub mod blur;
 
-/// The colour space filters should operate in
+/// The color space filters should operate in
 ///
 /// TODO: Should this be in the filter, or handled beforehand?
 pub enum ColorInterpolationFilters {
@@ -39,7 +39,20 @@ pub enum ColorInterpolationFilters {
 pub struct Image<Pixel> {
     width: u16,
     height: u16,
+    /// Pixels, stored in row-major order.
     pixels: Vec<Pixel>,
+}
+
+impl Image<NaivePremulPixel> {
+    pub fn resize_for_scratch(&mut self, width: u16, height: u16) {
+        let total_size = usize::from(width) * usize::from(height);
+        // We don't want to shrink here, because the garbage data will be handled later.
+        if total_size > self.pixels.len() {
+            self.pixels.resize(total_size, [0.; 4]);
+        }
+        self.height = height;
+        self.width = width;
+    }
 }
 
 /// The type used internally in most filters, to share core implementations between instantiations.
