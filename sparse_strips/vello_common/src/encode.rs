@@ -428,14 +428,14 @@ fn encode_stops(
             encoded_range.x0 = f32::MIN;
             encoded_range
         });
-        
+
         let right_range = iter::once({
             let last_stop = interpolated_stops.last().unwrap();
             let mut encoded_range = create_range(last_stop, last_stop);
             encoded_range.x1 = f32::MAX;
             encoded_range
         });
-        
+
         left_range.chain(stop_ranges.chain(right_range)).collect()
     } else {
         stop_ranges.collect()
