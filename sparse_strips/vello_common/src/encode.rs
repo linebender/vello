@@ -11,7 +11,6 @@ use crate::peniko::{ColorStop, Extend, GradientKind, ImageQuality};
 use crate::pixmap::Pixmap;
 use alloc::borrow::Cow;
 use alloc::sync::Arc;
-use alloc::vec;
 use alloc::vec::Vec;
 use core::f32::consts::PI;
 use core::iter;
@@ -403,7 +402,7 @@ fn encode_stops(
             factors[i] = c1_minus_c0 / x1_minus_x0;
         }
 
-        vec![GradientRange {
+        [GradientRange {
             x0,
             x1,
             c0,
