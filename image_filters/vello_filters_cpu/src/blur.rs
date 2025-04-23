@@ -13,8 +13,8 @@
 //! This would have abyssmal performance, as it would be quadratic in the number of pixels in the image.
 //! However, because this blur also has an exponential decay, it turns out to be reasonably easy to approximate.
 //! There are however several possible approximations which we can use.
-//! A good overview of possible implementation strategies is Gwosdek, P., Grewenig, S., Bruhn, A., Weickert, J. (2012).
-//! (Theoretical Foundations of Gaussian Convolution by Extended Box Filtering).
+//! A good overview of possible implementation strategies is Gwosdek, P., Grewenig, S., Bruhn, A., Weickert, J. (2012),
+//! "Theoretical Foundations of Gaussian Convolution by Extended Box Filtering".
 //!
 //! This can be found at
 //! <https://www.mia.uni-saarland.de/Publications/gwosdek-ssvm11.pdf>.
