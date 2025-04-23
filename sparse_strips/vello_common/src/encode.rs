@@ -402,12 +402,12 @@ fn encode_stops(
             factors[i] = c1_minus_c0 / x1_minus_x0;
         }
 
-        [GradientRange {
+        GradientRange {
             x0,
             x1,
             c0,
             factors,
-        }]
+        }
     };
 
     let stop_ranges = interpolated_stops.windows(2).map(|s| {
@@ -423,26 +423,20 @@ fn encode_stops(
         let left_range = iter::once({
             let first_stop = interpolated_stops.first().unwrap();
             let mut encoded_range = create_range(first_stop, first_stop);
-            encoded_range[0].x0 = f32::MIN;
-
+            encoded_range.x0 = f32::MIN;
             encoded_range
         });
-
+        
         let right_range = iter::once({
             let last_stop = interpolated_stops.last().unwrap();
-
             let mut encoded_range = create_range(last_stop, last_stop);
-            encoded_range[0].x1 = f32::MAX;
-
+            encoded_range.x1 = f32::MAX;
             encoded_range
         });
-
-        left_range
-            .chain(stop_ranges.chain(right_range))
-            .flatten()
-            .collect()
+        
+        left_range.chain(stop_ranges.chain(right_range)).collect()
     } else {
-        stop_ranges.flatten().collect()
+        stop_ranges.collect()
     }
 }
 
