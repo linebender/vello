@@ -145,7 +145,7 @@ impl Fine {
 
         match fill {
             Paint::Solid(color) => {
-                let color = &color.to_u8_array();
+                let color = color;
 
                 // If color is completely opaque we can just memcopy the colors.
                 if color[3] == 255 {
@@ -223,7 +223,7 @@ impl Fine {
 
         match fill {
             Paint::Solid(color) => {
-                strip::src_over(blend_buf, iter::repeat(color.to_u8_array()), alphas);
+                strip::src_over(blend_buf, iter::repeat(*color), alphas);
             }
             Paint::Indexed(paint) => {
                 let encoded_paint = &paints[paint.index()];

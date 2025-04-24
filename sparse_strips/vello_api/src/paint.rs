@@ -39,7 +39,7 @@ impl IndexedPaint {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Paint {
     /// A premultiplied RGBA8 color.
-    Solid(PremulRgba8),
+    Solid([u8; 4]),
     /// A paint that needs to be resolved via an index.
     Indexed(IndexedPaint),
 }
@@ -50,7 +50,7 @@ impl From<AlphaColor<Srgb>> for Paint {
         // Since we only do that conversion once per path it might not be critical, but should
         // still be measured. This also applies to all other usages of `to_rgba8` in the current
         // code.
-        Self::Solid(value.premultiply().to_rgba8())
+        Self::Solid(value.premultiply().to_rgba8().to_u8_array())
     }
 }
 

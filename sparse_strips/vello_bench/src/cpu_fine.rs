@@ -39,19 +39,25 @@ pub fn fill(c: &mut Criterion) {
 
     fill_single!(
         solid_opaque,
-        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8()),
+        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8().to_u8_array()),
         &[],
         WideTile::WIDTH as usize
     );
     fill_single!(
         solid_opaque_short,
-        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8()),
+        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8().to_u8_array()),
         &[],
         16
     );
     fill_single!(
         solid_transparent,
-        &Paint::Solid(ROYAL_BLUE.with_alpha(0.2).premultiply().to_rgba8()),
+        &Paint::Solid(
+            ROYAL_BLUE
+                .with_alpha(0.2)
+                .premultiply()
+                .to_rgba8()
+                .to_u8_array()
+        ),
         &[],
         WideTile::WIDTH as usize
     );
@@ -212,14 +218,14 @@ pub fn strip(c: &mut Criterion) {
 
     strip_single!(
         basic,
-        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8()),
+        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8().to_u8_array()),
         &[],
         WideTile::WIDTH as usize
     );
 
     strip_single!(
         basic_short,
-        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8()),
+        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8().to_u8_array()),
         &[],
         8
     );
