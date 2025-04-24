@@ -122,6 +122,11 @@ impl PremulColor {
         self.premul_u8.to_u8_array()
     }
 
+    /// Return the color as a premultiplied RGBA8 color, packed into a u32 in little-endian order.
+    pub fn rbga_u32(&self) -> u32 {
+        self.premul_u8.to_u32()
+    }
+
     /// Return the color as a premultiplied RGBA32 color in the range [0.0, 1.0].
     pub fn rbga_f32(&self) -> [f32; 4] {
         self.premul_f32.components

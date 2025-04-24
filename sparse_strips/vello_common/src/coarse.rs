@@ -4,14 +4,9 @@
 //! Generating and processing wide tiles.
 
 use crate::color::palette::css::TRANSPARENT;
-use crate::{
-    color::{AlphaColor, Srgb},
-    strip::Strip,
-    tile::Tile,
-};
+use crate::{strip::Strip, tile::Tile};
 use alloc::vec;
 use alloc::vec::Vec;
-use vello_api::color::PremulRgba8;
 use vello_api::paint::PremulColor;
 use vello_api::{paint::Paint, peniko::Fill};
 

@@ -56,131 +56,131 @@ pub fn fill(c: &mut Criterion) {
         WideTile::WIDTH as usize
     );
 
-    // macro_rules! fill_single_linear {
-    //     ($name:ident, $extend:ident, $stops:expr) => {
-    //         let mut paints = vec![];
-    //         let grad = Gradient {
-    //             kind: GradientKind::Linear {
-    //                 start: Point::new(0.0, 0.0),
-    //                 end: Point::new(WideTile::WIDTH as f64, Tile::HEIGHT as f64),
-    //             },
-    //             stops: $stops,
-    //             extend: peniko::Extend::$extend,
-    //             transform: Affine::IDENTITY,
-    //         };
-    //
-    //         let paint = grad.encode_into(&mut paints);
-    //
-    //         fill_single!($name, &paint, &paints);
-    //     };
-    // }
-    //
-    // fill_single_linear!(
-    //     linear_gradient_pad,
-    //     Pad,
-    //     stops_blue_green_red_yellow_opaque()
-    // );
-    // fill_single_linear!(
-    //     linear_gradient_repeat,
-    //     Repeat,
-    //     stops_blue_green_red_yellow_opaque()
-    // );
-    // fill_single_linear!(
-    //     linear_gradient_reflect,
-    //     Repeat,
-    //     stops_blue_green_red_yellow_opaque()
-    // );
-    // fill_single_linear!(
-    //     linear_gradient_transparent,
-    //     Pad,
-    //     stops_blue_green_red_yellow()
-    // );
-    //
-    // macro_rules! fill_single_sweep {
-    //     ($name:ident, $extend:ident, $stops:expr) => {
-    //         let mut paints = vec![];
-    //         let grad = Gradient {
-    //             kind: GradientKind::Sweep {
-    //                 center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
-    //                 start_angle: 150.0,
-    //                 end_angle: 210.0,
-    //             },
-    //             stops: $stops,
-    //             extend: peniko::Extend::$extend,
-    //             transform: Affine::default(),
-    //         };
-    //
-    //         let paint = grad.encode_into(&mut paints);
-    //
-    //         fill_single!($name, &paint, &paints);
-    //     };
-    // }
-    //
-    // fill_single_sweep!(
-    //     sweep_gradient_pad,
-    //     Pad,
-    //     stops_blue_green_red_yellow_opaque()
-    // );
-    // fill_single_sweep!(
-    //     sweep_gradient_repeat,
-    //     Repeat,
-    //     stops_blue_green_red_yellow_opaque()
-    // );
-    // fill_single_sweep!(
-    //     sweep_gradient_reflect,
-    //     Reflect,
-    //     stops_blue_green_red_yellow_opaque()
-    // );
-    // fill_single_sweep!(
-    //     sweep_gradient_transparent,
-    //     Pad,
-    //     stops_blue_green_red_yellow()
-    // );
-    //
-    // macro_rules! fill_single_radial {
-    //     ($name:ident, $extend:ident, $stops:expr) => {
-    //         let mut paints = vec![];
-    //         let grad = Gradient {
-    //             kind: GradientKind::Radial {
-    //                 start_center: Point::new(
-    //                     WideTile::WIDTH as f64 / 2.0,
-    //                     (Tile::HEIGHT / 2) as f64,
-    //                 ),
-    //                 start_radius: 25.0,
-    //                 end_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
-    //                 end_radius: 75.0,
-    //             },
-    //             stops: $stops,
-    //             extend: peniko::Extend::$extend,
-    //             transform: Affine::default(),
-    //         };
-    //
-    //         let paint = grad.encode_into(&mut paints);
-    //
-    //         fill_single!($name, &paint, &paints);
-    //     };
-    // }
-    //
-    // fill_single_radial!(
-    //     radial_gradient_pad,
-    //     Pad,
-    //     stops_blue_green_red_yellow_opaque()
-    // );
-    // fill_single_radial!(
-    //     radial_gradient_repeat,
-    //     Repeat,
-    //     stops_blue_green_red_yellow_opaque()
-    // );
-    // fill_single_radial!(
-    //     radial_gradient_reflect,
-    //     Reflect,
-    //     stops_blue_green_red_yellow_opaque()
-    // );
-    // fill_single_radial!(
-    //     radial_gradient_transparent,
-    //     Pad,
-    //     stops_blue_green_red_yellow()
-    // );
+    macro_rules! fill_single_linear {
+        ($name:ident, $extend:ident, $stops:expr) => {
+            let mut paints = vec![];
+            let grad = Gradient {
+                kind: GradientKind::Linear {
+                    start: Point::new(0.0, 0.0),
+                    end: Point::new(WideTile::WIDTH as f64, Tile::HEIGHT as f64),
+                },
+                stops: $stops,
+                extend: peniko::Extend::$extend,
+                transform: Affine::IDENTITY,
+            };
+
+            let paint = grad.encode_into(&mut paints);
+
+            fill_single!($name, &paint, &paints, WideTile::WIDTH as usize);
+        };
+    }
+
+    fill_single_linear!(
+        linear_gradient_pad,
+        Pad,
+        stops_blue_green_red_yellow_opaque()
+    );
+    fill_single_linear!(
+        linear_gradient_repeat,
+        Repeat,
+        stops_blue_green_red_yellow_opaque()
+    );
+    fill_single_linear!(
+        linear_gradient_reflect,
+        Repeat,
+        stops_blue_green_red_yellow_opaque()
+    );
+    fill_single_linear!(
+        linear_gradient_transparent,
+        Pad,
+        stops_blue_green_red_yellow()
+    );
+
+    macro_rules! fill_single_sweep {
+        ($name:ident, $extend:ident, $stops:expr) => {
+            let mut paints = vec![];
+            let grad = Gradient {
+                kind: GradientKind::Sweep {
+                    center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
+                    start_angle: 150.0,
+                    end_angle: 210.0,
+                },
+                stops: $stops,
+                extend: peniko::Extend::$extend,
+                transform: Affine::default(),
+            };
+
+            let paint = grad.encode_into(&mut paints);
+
+            fill_single!($name, &paint, &paints, WideTile::WIDTH as usize);
+        };
+    }
+
+    fill_single_sweep!(
+        sweep_gradient_pad,
+        Pad,
+        stops_blue_green_red_yellow_opaque()
+    );
+    fill_single_sweep!(
+        sweep_gradient_repeat,
+        Repeat,
+        stops_blue_green_red_yellow_opaque()
+    );
+    fill_single_sweep!(
+        sweep_gradient_reflect,
+        Reflect,
+        stops_blue_green_red_yellow_opaque()
+    );
+    fill_single_sweep!(
+        sweep_gradient_transparent,
+        Pad,
+        stops_blue_green_red_yellow()
+    );
+
+    macro_rules! fill_single_radial {
+        ($name:ident, $extend:ident, $stops:expr) => {
+            let mut paints = vec![];
+            let grad = Gradient {
+                kind: GradientKind::Radial {
+                    start_center: Point::new(
+                        WideTile::WIDTH as f64 / 2.0,
+                        (Tile::HEIGHT / 2) as f64,
+                    ),
+                    start_radius: 25.0,
+                    end_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
+                    end_radius: 75.0,
+                },
+                stops: $stops,
+                extend: peniko::Extend::$extend,
+                transform: Affine::default(),
+            };
+
+            let paint = grad.encode_into(&mut paints);
+
+            fill_single!($name, &paint, &paints, WideTile::WIDTH as usize);
+        };
+    }
+
+    fill_single_radial!(
+        radial_gradient_pad,
+        Pad,
+        stops_blue_green_red_yellow_opaque()
+    );
+    fill_single_radial!(
+        radial_gradient_repeat,
+        Repeat,
+        stops_blue_green_red_yellow_opaque()
+    );
+    fill_single_radial!(
+        radial_gradient_reflect,
+        Reflect,
+        stops_blue_green_red_yellow_opaque()
+    );
+    fill_single_radial!(
+        radial_gradient_transparent,
+        Pad,
+        stops_blue_green_red_yellow()
+    );
 }
 
 pub fn strip(c: &mut Criterion) {
