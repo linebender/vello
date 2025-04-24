@@ -103,6 +103,7 @@ pub struct Image {
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct PremulColor {
     premul_u8: [u8; 4],
+    premul_f32: [f32; 4],
 }
 
 impl PremulColor {
@@ -112,12 +113,18 @@ impl PremulColor {
 
         Self {
             premul_u8: premul.to_rgba8().to_u8_array(),
+            premul_f32: premul.components,
         }
     }
 
     /// Return the color as a premultiplied RGBA8 color.
     pub fn rbga_u8(&self) -> [u8; 4] {
         self.premul_u8
+    }
+
+    /// Return the color as a premultiplied RGBA32 color in the range [0.0, 1.0].
+    pub fn rbga_f32(&self) -> [f32; 4] {
+        self.premul_f32
     }
 
     /// Return whether the color has transparency.

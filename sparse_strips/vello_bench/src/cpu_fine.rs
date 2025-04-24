@@ -51,10 +51,7 @@ pub fn fill(c: &mut Criterion) {
     );
     fill_single!(
         solid_transparent,
-        &Paint::Solid(
-            PremulColor::new(ROYAL_BLUE
-                .with_alpha(0.2))
-        ),
+        &Paint::Solid(PremulColor::new(ROYAL_BLUE.with_alpha(0.2))),
         &[],
         WideTile::WIDTH as usize
     );
