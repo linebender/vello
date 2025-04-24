@@ -102,8 +102,8 @@ pub struct Image {
 /// A premultiplied color.
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct PremulColor {
-    premul_u8: [u8; 4],
-    premul_f32: [f32; 4],
+    premul_u8: PremulRgba8,
+    premul_f32: peniko::color::PremulColor<Srgb>,
 }
 
 impl PremulColor {
@@ -112,24 +112,24 @@ impl PremulColor {
         let premul = color.premultiply();
 
         Self {
-            premul_u8: premul.to_rgba8().to_u8_array(),
-            premul_f32: premul.components,
+            premul_u8: premul.to_rgba8(),
+            premul_f32: premul,
         }
     }
 
     /// Return the color as a premultiplied RGBA8 color.
     pub fn rbga_u8(&self) -> [u8; 4] {
-        self.premul_u8
+        self.premul_u8.to_u8_array()
     }
 
     /// Return the color as a premultiplied RGBA32 color in the range [0.0, 1.0].
     pub fn rbga_f32(&self) -> [f32; 4] {
-        self.premul_f32
+        self.premul_f32.components
     }
 
-    /// Return whether the color has transparency.
+    /// Return whether the color is opaque (i.e. has no transparency).
     pub fn is_opaque(&self) -> bool {
-        self.premul_u8[3] == 255
+        self.premul_f32.components[3] == 1.0
     }
 }
 
