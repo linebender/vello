@@ -211,7 +211,7 @@ impl Scene {
                 let wide_tile = &self.wide.tiles[wide_tile_idx];
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
-                let bg = wide_tile.bg.rbga_u32();
+                let bg = wide_tile.bg.rgba_u32();
                 if bg != 0 {
                     strips.push(GpuStrip {
                         x: wide_tile_x,
@@ -226,7 +226,7 @@ impl Scene {
                     match cmd {
                         vello_common::coarse::Cmd::Fill(fill) => {
                             let rgba = match &fill.paint {
-                                Paint::Solid(color) => color.rbga_u32(),
+                                Paint::Solid(color) => color.rgba_u32(),
                                 Paint::Indexed(_) => unimplemented!(),
                             };
                             strips.push(GpuStrip {
@@ -240,7 +240,7 @@ impl Scene {
                         }
                         vello_common::coarse::Cmd::AlphaFill(cmd_strip) => {
                             let rgba = match &cmd_strip.paint {
-                                Paint::Solid(color) => color.rbga_u32(),
+                                Paint::Solid(color) => color.rgba_u32(),
                                 Paint::Indexed(_) => unimplemented!(),
                             };
 
