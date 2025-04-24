@@ -3,6 +3,7 @@
 
 //! Generating and processing wide tiles.
 
+use crate::color::palette::css::TRANSPARENT;
 use crate::{
     color::{AlphaColor, Srgb},
     strip::Strip,
@@ -11,9 +12,8 @@ use crate::{
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_api::color::PremulRgba8;
-use vello_api::{paint::Paint, peniko::Fill};
 use vello_api::paint::PremulColor;
-use crate::color::palette::css::TRANSPARENT;
+use vello_api::{paint::Paint, peniko::Fill};
 
 /// A container for wide tiles.
 #[derive(Debug)]
@@ -657,7 +657,8 @@ impl WideTile {
                 //
                 // However, the extra cost of tracking such optimizations may outweigh the
                 // benefit, especially in hybrid mode with GPU painting.
-                let can_override = x == 0 && width == Self::WIDTH && s.is_opaque() && self.n_clip == 0;
+                let can_override =
+                    x == 0 && width == Self::WIDTH && s.is_opaque() && self.n_clip == 0;
                 can_override.then_some(*s)
             } else {
                 // TODO: Implement for indexed paints.
