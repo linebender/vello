@@ -10,7 +10,7 @@ use crate::{
     tile::Tile,
 };
 use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use vello_api::color::PremulRgba8;
 use vello_api::mask::Mask;
 use vello_api::{paint::Paint, peniko::Fill};
@@ -63,7 +63,7 @@ struct Clip {
     /// The intersected bounding box after clip
     pub clip_bbox: Bbox,
     /// The rendered path in sparse strip representation
-    pub strips: Vec<Strip>,
+    pub strips: Box<[Strip]>,
     /// The fill rule used for this clip
     pub fill_rule: Fill,
 }
@@ -319,7 +319,7 @@ impl Wide {
     /// Push a new layer with the given properties.
     pub fn push_layer(
         &mut self,
-        clip_path: Option<(Vec<Strip>, Fill)>,
+        clip_path: Option<(impl Into<Box<[Strip]>>, Fill)>,
         blend_mode: BlendMode,
         mask: Option<Mask>,
         opacity: u8,
@@ -413,7 +413,8 @@ impl Wide {
     ///    - If covered by zero winding: `push_zero_clip`
     ///    - If fully covered by non-zero winding: do nothing (clip is a no-op)
     ///    - If partially covered: `push_clip`
-    fn push_clip(&mut self, strips: Vec<Strip>, fill_rule: Fill) {
+    pub fn push_clip(&mut self, strips: impl Into<Box<[Strip]>>, fill_rule: Fill) {
+        let strips = strips.into();
         let n_strips = strips.len();
 
         // Calculate the bounding box of the clip path in strip coordinates

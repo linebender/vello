@@ -133,11 +133,13 @@ impl RenderContext {
         opacity: Option<u8>,
         mask: Option<Mask>,
     ) {
-        let clip = clip_path.map(|c| {
+        let clip = if let Some(c) = clip_path {
             flatten::fill(c, self.transform, &mut self.line_buf);
             self.make_strips(self.fill_rule);
-            (core::mem::take(&mut self.strip_buf), self.fill_rule)
-        });
+            Some((self.strip_buf.as_slice(), self.fill_rule))
+        } else {
+            None
+        };
 
         let mask = mask.and_then(|m| {
             if m.width() != self.width || m.height() != self.height {
