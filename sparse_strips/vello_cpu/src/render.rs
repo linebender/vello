@@ -18,7 +18,7 @@ use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
-use vello_common::{flatten, strip};
+use vello_common::{AffineExt, flatten, strip, transform_non_skewed_rect};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -122,7 +122,12 @@ impl RenderContext {
 
     /// Fill a rectangle.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        if self.transform.has_skew() {
+            self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        } else {
+            let rect = transform_non_skewed_rect(rect, self.transform);
+            self.render_rect(&rect, self.paint.clone());
+        }
     }
 
     /// Stroke a rectangle.
@@ -231,6 +236,18 @@ impl RenderContext {
         self.wide.generate(&self.strip_buf, fill_rule, paint);
     }
 
+    fn render_rect(&mut self, rect: &Rect, paint: Paint) {
+        self.tiles.reset();
+        strip::render_rect(
+            rect,
+            &mut self.strip_buf,
+            &mut self.alphas,
+            self.width,
+            self.height,
+        );
+        self.wide.generate(&self.strip_buf, Fill::NonZero, paint);
+    }
+
     fn make_strips(&mut self, fill_rule: Fill) {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
@@ -276,14 +293,15 @@ impl GlyphRenderer for RenderContext {
 #[cfg(test)]
 mod tests {
     use crate::RenderContext;
-    use vello_common::kurbo::Rect;
+    use crate::render::DEFAULT_TOLERANCE;
+    use vello_common::kurbo::{Rect, Shape};
 
     #[test]
     fn reset_render_context() {
         let mut ctx = RenderContext::new(100, 100);
         let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
 
-        ctx.fill_rect(&rect);
+        ctx.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
 
         assert!(!ctx.line_buf.is_empty());
         assert!(!ctx.strip_buf.is_empty());
