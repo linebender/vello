@@ -118,18 +118,13 @@ impl PremulColor {
     }
 
     /// Return the color as a premultiplied RGBA8 color.
-    pub fn rgba_u8(&self) -> [u8; 4] {
-        self.premul_u8.to_u8_array()
+    pub fn as_premul_rgba8(&self) -> PremulRgba8 {
+        self.premul_u8
     }
 
-    /// Return the color as a premultiplied RGBA8 color, packed into a u32 in little-endian order.
-    pub fn rgba_u32(&self) -> u32 {
-        self.premul_u8.to_u32()
-    }
-
-    /// Return the color as a premultiplied RGBA32 color in the range [0.0, 1.0].
-    pub fn rgba_f32(&self) -> [f32; 4] {
-        self.premul_f32.components
+    /// Return the color as a premultiplied RGBAF32 color.
+    pub fn as_premul_f32(&self) -> peniko::color::PremulColor<Srgb> {
+        self.premul_f32
     }
 
     /// Return whether the color is opaque (i.e. has no transparency).
