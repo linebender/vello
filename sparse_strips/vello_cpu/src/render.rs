@@ -139,8 +139,8 @@ impl RenderContext {
     pub fn clip(&mut self, path: &BezPath) {
         flatten::fill(path, self.transform, &mut self.line_buf);
         self.make_strips(self.fill_rule);
-        let strips = core::mem::take(&mut self.strip_buf);
-        self.wide.push_clip(strips, self.fill_rule);
+        self.wide
+            .push_clip(self.strip_buf.as_slice(), self.fill_rule);
     }
 
     /// Set the current blend mode.
