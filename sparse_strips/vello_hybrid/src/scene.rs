@@ -2,16 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Basic render operations.
+extern crate alloc;
+extern crate std;
+use alloc::collections::VecDeque;
+use std::println;
 
 use crate::render::{GpuStrip, RenderData};
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::coarse::{Wide, WideTile};
-use vello_common::color::PremulRgba8;
+use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
-use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
-use vello_common::paint::Paint;
+use vello_common::kurbo::{Affine, BezPath, Cap, Join, Point, Rect, Shape, Stroke};
+use vello_common::paint::{IndexedPaint, Paint, PaintType};
 use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
@@ -26,7 +30,7 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// the current transform.
 #[derive(Debug)]
 struct RenderState {
-    pub(crate) paint: Paint,
+    pub(crate) paint: PaintType,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
@@ -46,7 +50,9 @@ pub struct Scene {
     pub(crate) line_buf: Vec<Line>,
     pub(crate) tiles: Tiles,
     pub(crate) strip_buf: Vec<Strip>,
-    pub(crate) paint: Paint,
+    pub(crate) encoded_paints: Vec<EncodedPaint>,
+    pub(crate) upload_paints: VecDeque<IndexedPaint>,
+    pub(crate) paint: PaintType,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
@@ -65,6 +71,8 @@ impl Scene {
             line_buf: vec![],
             tiles: Tiles::new(),
             strip_buf: vec![],
+            encoded_paints: vec![],
+            upload_paints: VecDeque::new(),
             paint: render_state.paint,
             stroke: render_state.stroke,
             transform: render_state.transform,
@@ -77,7 +85,7 @@ impl Scene {
     fn default_render_state() -> RenderState {
         let transform = Affine::IDENTITY;
         let fill_rule = Fill::NonZero;
-        let paint = BLACK.into();
+        let paint = PaintType::Solid(BLACK);
         let stroke = Stroke {
             width: 1.0,
             join: Join::Bevel,
@@ -98,13 +106,15 @@ impl Scene {
     /// Fill a path with the current paint and fill rule.
     pub fn fill_path(&mut self, path: &BezPath) {
         flatten::fill(path, self.transform, &mut self.line_buf);
-        self.render_path(self.fill_rule, self.paint.clone());
+        let paint = self.encode_current_paint();
+        self.render_path(self.fill_rule, paint);
     }
 
     /// Stroke a path with the current paint and stroke settings.
     pub fn stroke_path(&mut self, path: &BezPath) {
         flatten::stroke(path, &self.stroke, self.transform, &mut self.line_buf);
-        self.render_path(Fill::NonZero, self.paint.clone());
+        let paint = self.encode_current_paint();
+        self.render_path(Fill::NonZero, paint);
     }
 
     /// Fill a rectangle with the current paint and fill rule.
@@ -133,8 +143,8 @@ impl Scene {
     }
 
     /// Set the paint for subsequent rendering operations.
-    pub fn set_paint(&mut self, paint: Paint) {
-        self.paint = paint;
+    pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
+        self.paint = paint.into();
     }
 
     /// Set the fill rule for subsequent fill operations.
@@ -194,6 +204,21 @@ impl Scene {
 
         self.wide.generate(&self.strip_buf, fill_rule, paint);
     }
+
+    fn encode_current_paint(&mut self) -> Paint {
+        match self.paint.clone() {
+            PaintType::Solid(s) => s.into(),
+            PaintType::Image(mut i) => {
+                i.transform = self.transform * i.transform;
+                let paint = i.encode_into(&mut self.encoded_paints);
+                if let Paint::Indexed(indexed_paint) = &paint {
+                    self.upload_paints.push_back(indexed_paint.clone());
+                }
+                paint
+            }
+            _ => unimplemented!("unsupported paint type: {:?}", self.paint),
+        }
+    }
 }
 
 impl Scene {
@@ -219,43 +244,123 @@ impl Scene {
                         y: wide_tile_y,
                         width: WideTile::WIDTH,
                         dense_width: 0,
-                        col: 0,
-                        rgba: bg,
+                        col_idx: 0,
+                        paint_type: 0,
+                        paint_data: bg,
+                        uv: 0,
+                        x_advance: [0.0, 0.0],
+                        y_advance: [0.0, 0.0],
                     });
                 }
                 for cmd in &wide_tile.cmds {
                     match cmd {
-                        vello_common::coarse::Cmd::Fill(fill) => {
-                            let color: PremulRgba8 = match fill.paint {
-                                Paint::Solid(color) => color,
-                                Paint::Indexed(_) => unimplemented!(),
-                            };
+                        vello_common::coarse::Cmd::Fill(cmd) => {
+                            let strip_x = wide_tile_x + cmd.x;
+                            let strip_y = wide_tile_y;
+                            let alpha_col = 0;
+
+                            let (col_idx, paint_type, paint_data, uv, x_advance, y_advance) =
+                                match &cmd.paint {
+                                    Paint::Solid(color) => {
+                                        let rgba = color.to_u32();
+                                        (alpha_col, 0, rgba, 0, [0.0, 0.0], [0.0, 0.0])
+                                    }
+                                    Paint::Indexed(indexed_paint) => {
+                                        let encoded_paint =
+                                            self.encoded_paints.get(indexed_paint.index());
+                                        match encoded_paint {
+                                            Some(EncodedPaint::Image(encoded_image)) => {
+                                                let start_p = encoded_image.transform
+                                                    * Point::new(strip_x as f64, strip_y as f64);
+                                                let u0 = start_p.x as u16;
+                                                let v0 = start_p.y as u16;
+                                                let extend_x = encoded_image.extends.0 as u16;
+                                                let extend_y = encoded_image.extends.1 as u16;
+                                                let x_advance = encoded_image.x_advance;
+                                                let y_advance = encoded_image.y_advance;
+                                                (
+                                                    alpha_col,
+                                                    2,
+                                                    pack_u16s_to_u32(extend_x, extend_y),
+                                                    pack_u16s_to_u32(u0, v0),
+                                                    [x_advance.x as f32, x_advance.y as f32],
+                                                    [y_advance.x as f32, y_advance.y as f32],
+                                                )
+                                            }
+                                            _ => (0, 0, 0, 0, [0.0, 0.0], [0.0, 0.0]),
+                                        }
+                                    }
+                                    _ => unimplemented!("unsupported paint type: {:?}", cmd.paint),
+                                };
+
                             strips.push(GpuStrip {
-                                x: wide_tile_x + fill.x,
-                                y: wide_tile_y,
-                                width: fill.width,
+                                x: strip_x,
+                                y: strip_y,
+                                width: cmd.width,
                                 dense_width: 0,
-                                col: 0,
-                                rgba: color.to_u32(),
+                                col_idx,
+                                paint_type,
+                                paint_data,
+                                uv,
+                                x_advance,
+                                y_advance,
                             });
                         }
-                        vello_common::coarse::Cmd::AlphaFill(cmd_strip) => {
-                            let color: PremulRgba8 = match cmd_strip.paint {
-                                Paint::Solid(color) => color,
-                                Paint::Indexed(_) => unimplemented!(),
-                            };
+                        vello_common::coarse::Cmd::AlphaFill(cmd) => {
+                            let strip_x = wide_tile_x + cmd.x;
+                            let strip_y = wide_tile_y;
 
                             // msg is a variable here to work around rustfmt failure
                             let msg = "GpuStrip fields use u16 and values are expected to fit within that range";
+                            let alpha_col = (cmd.alpha_idx / usize::from(Tile::HEIGHT))
+                                .try_into()
+                                .expect(msg);
+
+                            let (col_idx, paint_type, paint_data, uv, x_advance, y_advance) =
+                                match &cmd.paint {
+                                    Paint::Solid(color) => {
+                                        let rgba = color.to_u32();
+                                        (alpha_col, 1, rgba, 0, [0.0, 0.0], [0.0, 0.0])
+                                    }
+                                    Paint::Indexed(indexed_paint) => {
+                                        let encoded_paint =
+                                            self.encoded_paints.get(indexed_paint.index());
+                                        match encoded_paint {
+                                            Some(EncodedPaint::Image(encoded_image)) => {
+                                                let start_p = encoded_image.transform
+                                                    * Point::new(strip_x as f64, strip_y as f64);
+                                                let u0 = start_p.x as u16;
+                                                let v0 = start_p.y as u16;
+                                                let extend_x = encoded_image.extends.0 as u16;
+                                                let extend_y = encoded_image.extends.1 as u16;
+                                                let x_advance = encoded_image.x_advance;
+                                                let y_advance = encoded_image.y_advance;
+                                                (
+                                                    alpha_col,
+                                                    2,
+                                                    pack_u16s_to_u32(extend_x, extend_y),
+                                                    pack_u16s_to_u32(u0, v0),
+                                                    [x_advance.x as f32, x_advance.y as f32],
+                                                    [y_advance.x as f32, y_advance.y as f32],
+                                                )
+                                            }
+                                            _ => (alpha_col, 0, 0, 0, [0.0, 0.0], [0.0, 0.0]),
+                                        }
+                                    }
+                                    _ => unimplemented!("unsupported paint type: {:?}", cmd.paint),
+                                };
+
                             strips.push(GpuStrip {
-                                x: wide_tile_x + cmd_strip.x,
-                                y: wide_tile_y,
-                                width: cmd_strip.width,
-                                dense_width: cmd_strip.width,
-                                col: (cmd_strip.alpha_idx / usize::from(Tile::HEIGHT))
-                                    .try_into()
-                                    .expect(msg),
-                                rgba: color.to_u32(),
+                                x: strip_x,
+                                y: strip_y,
+                                width: cmd.width,
+                                dense_width: cmd.width,
+                                col_idx,
+                                paint_type,
+                                paint_data,
+                                uv,
+                                x_advance,
+                                y_advance,
                             });
                         }
                         _ => {
@@ -277,7 +382,8 @@ impl GlyphRenderer for Scene {
         match glyph {
             PreparedGlyph::Outline(glyph) => {
                 flatten::fill(glyph.path, glyph.transform, &mut self.line_buf);
-                self.render_path(Fill::NonZero, self.paint.clone());
+                let paint = self.encode_current_paint();
+                self.render_path(Fill::NonZero, paint);
             }
         }
     }
@@ -291,8 +397,17 @@ impl GlyphRenderer for Scene {
                     glyph.transform,
                     &mut self.line_buf,
                 );
-                self.render_path(Fill::NonZero, self.paint.clone());
+                let paint = self.encode_current_paint();
+                self.render_path(Fill::NonZero, paint);
             }
         }
     }
+}
+
+/// Pack two u16 values into a single u32 using byte representation.
+/// The first value goes into the high 16 bits, the second into the low 16 bits.
+fn pack_u16s_to_u32(a: u16, b: u16) -> u32 {
+    let a_bytes = a.to_ne_bytes();
+    let b_bytes = b.to_ne_bytes();
+    u32::from_ne_bytes([a_bytes[0], a_bytes[1], b_bytes[0], b_bytes[1]])
 }

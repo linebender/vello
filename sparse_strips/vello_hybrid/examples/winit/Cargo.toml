@@ -16,3 +16,4 @@ vello_common = { workspace = true }
 vello_hybrid = { workspace = true }
 vello_hybrid_scenes = { workspace = true }
 pollster = { workspace = true }
+image = { workspace = true, features = ["jpeg"] }

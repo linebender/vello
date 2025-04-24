@@ -11,7 +11,7 @@ use std::sync::Arc;
 use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Vec2};
-use vello_hybrid::{RenderSize, Renderer, Scene};
+use vello_hybrid::{ImageCache, RenderSize, Renderer, Scene};
 use vello_hybrid_scenes::{AnyScene, get_example_scenes};
 use wgpu::RenderPassDescriptor;
 use winit::{
@@ -45,12 +45,13 @@ struct App<'s> {
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Vec2>,
+    image_cache: ImageCache,
 }
 
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     let (scenes, start_scene_index) = {
-        let mut start_scene_index = 0;
+        let mut start_scene_index = 4;
         let args: Vec<String> = env::args().collect();
         let mut svg_paths: Vec<&str> = Vec::new();
 
@@ -83,10 +84,11 @@ fn main() {
         scenes,
         current_scene: start_scene_index,
         render_state: RenderState::Suspended(None),
-        scene: Scene::new(900, 600),
+        scene: Scene::new(1800, 1200),
         transform: Affine::IDENTITY,
         mouse_down: false,
         last_cursor_position: None,
+        image_cache: ImageCache::new(),
     };
 
     let event_loop = EventLoop::new().unwrap();
@@ -138,6 +140,9 @@ impl ApplicationHandler for App<'_> {
             .resize_with(self.context.devices.len(), || None);
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
+
+        let device_handle = &self.context.devices[surface.dev_id];
+        self.image_cache.create_bind_group(&device_handle.device);
 
         self.render_state = RenderState::Active {
             surface: Box::new(surface),
@@ -261,12 +266,12 @@ impl ApplicationHandler for App<'_> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                let device_handle = &self.context.devices[surface.dev_id];
                 self.scene.reset();
 
                 self.scene.set_transform(self.transform);
                 self.scenes[self.current_scene].render(&mut self.scene, self.transform);
 
-                let device_handle = &self.context.devices[surface.dev_id];
                 let render_size = RenderSize {
                     width: surface.config.width,
                     height: surface.config.height,
@@ -308,10 +313,14 @@ impl ApplicationHandler for App<'_> {
                         occlusion_query_set: None,
                         timestamp_writes: None,
                     });
-                    self.renderers[surface.dev_id]
-                        .as_mut()
-                        .unwrap()
-                        .render(&self.scene, &mut pass);
+
+                    self.renderers[surface.dev_id].as_mut().unwrap().render(
+                        &device_handle.device,
+                        &device_handle.queue,
+                        &mut self.scene,
+                        &mut pass,
+                        &mut self.image_cache,
+                    );
                 }
 
                 device_handle.queue.submit([encoder.finish()]);

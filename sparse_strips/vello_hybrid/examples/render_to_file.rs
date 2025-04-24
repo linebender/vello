@@ -10,7 +10,7 @@ use std::io::BufWriter;
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{DimensionConstraints, Scene};
+use vello_hybrid::{DimensionConstraints, ImageCache, Scene};
 use wgpu::RenderPassDescriptor;
 
 /// Main entry point for the headless rendering example.
@@ -30,6 +30,7 @@ async fn run() {
     let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
     let render_scale = 5.0;
     let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
+    let mut image_cache = ImageCache::new();
 
     let constraints = DimensionConstraints::default();
     let svg_width = parsed.size.width * render_scale;
@@ -111,7 +112,7 @@ async fn run() {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        renderer.render(&scene, &mut pass);
+        renderer.render(&device, &queue, &scene, &mut pass, &mut image_cache);
     }
 
     // Create a buffer to copy the texture data
@@ -186,13 +187,13 @@ fn render_svg(ctx: &mut Scene, items: &[Item], transform: Affine) {
     for item in items {
         match item {
             Item::Fill(fill_item) => {
-                ctx.set_paint(fill_item.color.into());
+                ctx.set_paint(fill_item.color);
                 ctx.fill_path(&fill_item.path);
             }
             Item::Stroke(stroke_item) => {
                 let style = Stroke::new(stroke_item.width);
                 ctx.set_stroke(style);
-                ctx.set_paint(stroke_item.color.into());
+                ctx.set_paint(stroke_item.color);
                 ctx.stroke_path(&stroke_item.path);
             }
             Item::Group(group_item) => {

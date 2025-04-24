@@ -33,10 +33,12 @@
 
 extern crate alloc;
 
+mod image_cache;
 mod render;
 mod scene;
 pub mod util;
 
+pub use image_cache::ImageCache;
 pub use render::{Config, GpuStrip, RenderData, RenderSize, RenderTargetConfig, Renderer};
 pub use scene::Scene;
 pub use util::DimensionConstraints;

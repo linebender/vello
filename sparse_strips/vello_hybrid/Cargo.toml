@@ -14,6 +14,10 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+default = ["std"]
+std = []
+
 [dependencies]
 vello_common = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }

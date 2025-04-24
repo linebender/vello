@@ -15,14 +15,16 @@
 use alloc::vec::Vec;
 use core::fmt::Debug;
 
+extern crate std;
+
 use bytemuck::{Pod, Zeroable};
-use vello_common::tile::Tile;
+use vello_common::{encode::EncodedPaint, tile::Tile};
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
     PipelineCompilationOptions, Queue, RenderPass, RenderPipeline, Texture, util::DeviceExt,
 };
 
-use crate::scene::Scene;
+use crate::{ImageCache, scene::Scene};
 
 /// Dimensions of the rendering target
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -64,6 +66,8 @@ pub struct Renderer {
     pub render_bind_group_layout: BindGroupLayout,
     /// Pipeline for rendering
     pub render_pipeline: RenderPipeline,
+    /// Bind group layout for image textures
+    pub image_bind_group_layout: BindGroupLayout,
     /// GPU resources for rendering (created during prepare)
     resources: Option<GpuResources>,
 
@@ -99,6 +103,10 @@ pub struct Config {
 }
 
 /// Represents a GPU strip for rendering
+/// If paint_type is 0 or 1:
+/// - paint_data is the packed rgba values
+/// If paint_type is 2:
+/// - paint_data is the packed (extend_x, extend_y)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub struct GpuStrip {
@@ -110,22 +118,32 @@ pub struct GpuStrip {
     pub width: u16,
     /// Width of the portion where alpha blending should be applied.
     pub dense_width: u16,
-    /// Column-index into the alpha texture where this strip's alpha values begin.
-    ///
-    /// There are [`Config::strip_height`] alpha values per column.
-    pub col: u32,
-    /// RGBA color value
-    pub rgba: u32,
+    /// Column index
+    pub col_idx: u32,
+    /// Paint type: 0 = solid, 1 = alpha, 2 = image
+    pub paint_type: u32,
+    /// Paint data
+    pub paint_data: u32,
+    /// Paint index
+    pub uv: u32,
+    /// Paint x_advance
+    pub x_advance: [f32; 2],
+    /// Paint y_advance
+    pub y_advance: [f32; 2],
 }
 
 impl GpuStrip {
     /// Vertex attributes for the strip
-    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 4] {
+    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 8] {
         wgpu::vertex_attr_array![
             0 => Uint32,
             1 => Uint32,
             2 => Uint32,
             3 => Uint32,
+            4 => Uint32,
+            5 => Uint32,
+            6 => Float32x2,
+            7 => Float32x2,
         ]
     }
 }
@@ -167,13 +185,38 @@ impl Renderer {
                     },
                 ],
             });
+
+        // Create image bind group layout
+        let image_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Image Texture Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&render_bind_group_layout],
+            bind_group_layouts: &[&render_bind_group_layout, &image_bind_group_layout],
             push_constant_ranges: &[],
         });
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
+            label: Some("Sparse Strip Renderer Pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &render_shader,
@@ -208,6 +251,7 @@ impl Renderer {
         Self {
             render_bind_group_layout,
             render_pipeline,
+            image_bind_group_layout,
             resources: None,
             alpha_data: Vec::new(),
             render_size: RenderSize {
@@ -420,7 +464,31 @@ impl Renderer {
     /// You must call [`prepare`](Self::prepare) with this scene before
     /// calling `render`.
     /// The provided pass can be rendering to a surface, or to a "off-screen" buffer.
-    pub fn render(&mut self, scene: &Scene, render_pass: &mut RenderPass<'_>) {
+    pub fn render(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        scene: &mut Scene,
+        render_pass: &mut RenderPass<'_>,
+        image_cache: &mut ImageCache,
+    ) {
+        while let Some(indexed_paint) = &scene.upload_paints.pop_front() {
+            let paint_id = indexed_paint.index();
+            let encoded_paint = &scene.encoded_paints[paint_id];
+
+            if let EncodedPaint::Image(encoded_image) = encoded_paint {
+                image_cache.upload_image(
+                    &device,
+                    &queue,
+                    paint_id as u32,
+                    encoded_image.pixmap.width() as u32,
+                    encoded_image.pixmap.height() as u32,
+                    &encoded_image.pixmap.buf,
+                    wgpu::TextureFormat::Bgra8Unorm,
+                );
+                image_cache.create_bind_groups(&device);
+            }
+        }
         // TODO: Consider API that forces the user to call `prepare` before `render`.
         // For example, `prepare` could return some struct that is consumed by `render`.
         let resources = &self
@@ -430,6 +498,13 @@ impl Renderer {
         let render_data = scene.prepare_render_data();
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &resources.render_bind_group, &[]);
+
+        for image_resource in image_cache.images.values() {
+            if let Some(bind_group) = &image_resource.bind_group {
+                render_pass.set_bind_group(1, bind_group, &[]);
+            }
+        }
+
         render_pass.set_vertex_buffer(0, resources.strips_buffer.slice(..));
         let strips_to_draw = render_data.strips.len();
         render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());

@@ -15,7 +15,14 @@ vello_hybrid = { workspace = true }
 vello_common = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-parley = { version = "0.3.0", default-features = false, features = ["std"] }
+# Commenteed because of panicking in the latest 0.3.0 release
+# More info: https://github.com/linebender/parley/pull/335
+# parley = { version = "0.3.0", default-features = false, features = ["std"] }
+parley = { git = "https://github.com/linebender/parley", branch = "main", default-features = false, features = [
+    "std",
+] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-parley = { version = "0.3.0", default-features = true }
+# parley = { version = "0.3.0", default-features = true }
+parley = { git = "https://github.com/linebender/parley", branch = "main", default-features = true }
+image = { workspace = true, features = ["jpeg"] }

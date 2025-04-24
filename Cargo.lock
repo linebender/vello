@@ -897,17 +897,17 @@ dependencies = [
 [[package]]
 name = "fontique"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b5fcb214137f01bc842c4fd633236255c51f8a24c6d3923eb8361c6d0940737"
+source = "git+https://github.com/linebender/parley?branch=main#2264a3cdae8f4b0b4a05d6b7885e8390dcaa3ca9"
 dependencies = [
  "bytemuck",
  "fontconfig-cache-parser",
  "hashbrown 0.15.2",
  "icu_locid",
  "memmap2",
+ "objc2 0.6.1",
  "objc2-core-foundation",
  "objc2-core-text",
- "objc2-foundation 0.3.0",
+ "objc2-foundation 0.3.1",
  "peniko",
  "read-fonts",
  "roxmltree",
@@ -1767,9 +1767,9 @@ dependencies = [
 
 [[package]]
 name = "objc2"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3531f65190d9cff863b77a99857e74c314dd16bf56c538c4b57c7cbc3f3a6e59"
+checksum = "88c6597e14493ab2e44ce58f2fdecf095a51f12ca57bec060a11c57332520551"
 dependencies = [
  "objc2-encode",
 ]
@@ -1828,9 +1828,9 @@ dependencies = [
 
 [[package]]
 name = "objc2-core-foundation"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "daeaf60f25471d26948a1c2f840e3f7d86f4109e3af4e8e4b5cd70c39690d925"
+checksum = "1c10c2894a6fed806ade6027bcd50662746363a9589d3ec9d9bef30a4e4bc166"
 dependencies = [
  "bitflags 2.9.0",
 ]
@@ -1861,9 +1861,9 @@ dependencies = [
 
 [[package]]
 name = "objc2-core-text"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fde15abfe00bf9f1eda220addbdfa6c62b0e5595e98208e8cdbc2ec0f6970a6"
+checksum = "3ba833d4a1cb1aac330f8c973fd92b6ff1858e4aef5cdd00a255eefb28022fb5"
 dependencies = [
  "bitflags 2.9.0",
  "objc2-core-foundation",
@@ -1890,12 +1890,12 @@ dependencies = [
 
 [[package]]
 name = "objc2-foundation"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a21c6c9014b82c39515db5b396f91645182611c97d24637cf56ac01e5f8d998"
+checksum = "900831247d2fe1a09a683278e5384cfb8c80c79fe6b166f9d14bfdde0ea1b03c"
 dependencies = [
  "bitflags 2.9.0",
- "objc2 0.6.0",
+ "objc2 0.6.1",
 ]
 
 [[package]]
@@ -2071,8 +2071,7 @@ dependencies = [
 [[package]]
 name = "parley"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d1c2b33b240c246f06cfceac48dc6c96040cb177d2aa5348899982b298b5577"
+source = "git+https://github.com/linebender/parley?branch=main#2264a3cdae8f4b0b4a05d6b7885e8390dcaa3ca9"
 dependencies = [
  "fontique",
  "hashbrown 0.15.2",
@@ -3249,6 +3248,7 @@ name = "vello_hybrid_scenes"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
+ "image",
  "parley",
  "vello_common",
  "vello_hybrid",
@@ -3258,6 +3258,7 @@ dependencies = [
 name = "vello_hybrid_winit"
 version = "0.0.0"
 dependencies = [
+ "image",
  "pollster",
  "vello_common",
  "vello_hybrid",
