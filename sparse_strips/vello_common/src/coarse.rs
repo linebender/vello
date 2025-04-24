@@ -9,7 +9,7 @@ use crate::{
     tile::Tile,
 };
 use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use vello_api::color::PremulRgba8;
 use vello_api::{paint::Paint, peniko::Fill};
 
