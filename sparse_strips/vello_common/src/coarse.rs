@@ -22,7 +22,7 @@ pub struct Wide {
     pub height: u16,
     /// The wide tiles in the container.
     pub tiles: Vec<WideTile>,
-    
+
     /// Stack of scene state, used for tracking clip regions.
     pub state_stack: Vec<SceneState>,
     /// Stack of active clip regions.
