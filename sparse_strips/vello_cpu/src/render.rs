@@ -198,7 +198,7 @@ impl RenderContext {
                 let wtile = self.wide.get(x, y);
                 fine.set_coords(x, y);
 
-                fine.clear(wtile.bg.to_u8_array());
+                fine.clear(wtile.bg.as_premul_rgba8().to_u8_array());
                 for cmd in &wtile.cmds {
                     fine.run_cmd(cmd, &self.alphas, &self.encoded_paints);
                 }
@@ -276,7 +276,6 @@ impl GlyphRenderer for RenderContext {
 #[cfg(test)]
 mod tests {
     use crate::RenderContext;
-    use core::iter;
     use vello_common::kurbo::{Rect, Shape};
 
     #[test]
@@ -302,7 +301,7 @@ mod tests {
         let mut ctx = RenderContext::new(100, 100);
 
         ctx.alphas
-            .extend(iter::repeat(255).take(u16::MAX as usize + 1));
+            .extend(core::iter::repeat_n(255, u16::MAX as usize + 1));
 
         ctx.clip(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
         ctx.finish();

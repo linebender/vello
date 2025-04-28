@@ -3,14 +3,11 @@
 
 //! Generating and processing wide tiles.
 
-use crate::{
-    color::{AlphaColor, Srgb},
-    strip::Strip,
-    tile::Tile,
-};
+use crate::color::palette::css::TRANSPARENT;
+use crate::{strip::Strip, tile::Tile};
 use alloc::vec;
 use alloc::{boxed::Box, vec::Vec};
-use vello_api::color::PremulRgba8;
+use vello_api::paint::PremulColor;
 use vello_api::{paint::Paint, peniko::Fill};
 
 /// A container for wide tiles.
@@ -130,7 +127,7 @@ impl Wide {
     /// Reset all tiles in the container.
     pub fn reset(&mut self) {
         for tile in &mut self.tiles {
-            tile.bg = AlphaColor::<Srgb>::TRANSPARENT.premultiply().to_rgba8();
+            tile.bg = PremulColor::new(TRANSPARENT);
             tile.cmds.clear();
         }
     }
@@ -616,7 +613,7 @@ pub struct WideTile {
     /// The y coordinate of the wide tile.
     pub y: u16,
     /// The background of the tile.
-    pub bg: PremulRgba8,
+    pub bg: PremulColor,
     /// The draw commands of the tile.
     pub cmds: Vec<Cmd>,
 
@@ -635,7 +632,7 @@ impl WideTile {
         Self {
             x,
             y,
-            bg: AlphaColor::<Srgb>::TRANSPARENT.premultiply().to_rgba8(),
+            bg: PremulColor::new(TRANSPARENT),
             cmds: vec![],
 
             n_zero_clip: 0,
@@ -656,7 +653,8 @@ impl WideTile {
                 //
                 // However, the extra cost of tracking such optimizations may outweigh the
                 // benefit, especially in hybrid mode with GPU painting.
-                let can_override = x == 0 && width == Self::WIDTH && s.a == 255 && self.n_clip == 0;
+                let can_override =
+                    x == 0 && width == Self::WIDTH && s.is_opaque() && self.n_clip == 0;
                 can_override.then_some(*s)
             } else {
                 // TODO: Implement for indexed paints.

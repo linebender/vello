@@ -145,18 +145,18 @@ impl Fine {
 
         match fill {
             Paint::Solid(color) => {
-                let color = &color.to_u8_array();
+                let color = color.as_premul_rgba8().to_u8_array();
 
                 // If color is completely opaque we can just memcopy the colors.
                 if color[3] == 255 {
                     for t in blend_buf.chunks_exact_mut(COLOR_COMPONENTS) {
-                        t.copy_from_slice(color);
+                        t.copy_from_slice(&color);
                     }
 
                     return;
                 }
 
-                fill::src_over(blend_buf, iter::repeat(*color));
+                fill::src_over(blend_buf, iter::repeat(color));
             }
             Paint::Indexed(paint) => {
                 let encoded_paint = &encoded_paints[paint.index()];
@@ -223,7 +223,11 @@ impl Fine {
 
         match fill {
             Paint::Solid(color) => {
-                strip::src_over(blend_buf, iter::repeat(color.to_u8_array()), alphas);
+                strip::src_over(
+                    blend_buf,
+                    iter::repeat(color.as_premul_rgba8().to_u8_array()),
+                    alphas,
+                );
             }
             Paint::Indexed(paint) => {
                 let encoded_paint = &paints[paint.index()];

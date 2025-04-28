@@ -36,10 +36,10 @@ impl IndexedPaint {
 /// 2) Indexed paints, which can represent any arbitrary, more complex paint that is
 ///    determined by the frontend. The intended way of using this is to store a vector
 ///    of paints and store its index inside `IndexedPaint`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Paint {
     /// A premultiplied RGBA8 color.
-    Solid(PremulRgba8),
+    Solid(PremulColor),
     /// A paint that needs to be resolved via an index.
     Indexed(IndexedPaint),
 }
@@ -50,7 +50,7 @@ impl From<AlphaColor<Srgb>> for Paint {
         // Since we only do that conversion once per path it might not be critical, but should
         // still be measured. This also applies to all other usages of `to_rgba8` in the current
         // code.
-        Self::Solid(value.premultiply().to_rgba8())
+        Self::Solid(PremulColor::new(value))
     }
 }
 
@@ -125,6 +125,40 @@ pub struct Image {
     pub quality: ImageQuality,
     /// A transform to apply to the image.
     pub transform: Affine,
+}
+
+/// A premultiplied color.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct PremulColor {
+    premul_u8: PremulRgba8,
+    premul_f32: peniko::color::PremulColor<Srgb>,
+}
+
+impl PremulColor {
+    /// Create a new premultiplied color.
+    pub fn new(color: AlphaColor<Srgb>) -> Self {
+        let premul = color.premultiply();
+
+        Self {
+            premul_u8: premul.to_rgba8(),
+            premul_f32: premul,
+        }
+    }
+
+    /// Return the color as a premultiplied RGBA8 color.
+    pub fn as_premul_rgba8(&self) -> PremulRgba8 {
+        self.premul_u8
+    }
+
+    /// Return the color as a premultiplied RGBAF32 color.
+    pub fn as_premul_f32(&self) -> peniko::color::PremulColor<Srgb> {
+        self.premul_f32
+    }
+
+    /// Return whether the color is opaque (i.e. doesn't have transparency).
+    pub fn is_opaque(&self) -> bool {
+        self.premul_f32.components[3] == 1.0
+    }
 }
 
 /// A kind of paint that can be used for filling and stroking shapes.
