@@ -623,10 +623,10 @@ impl Wide {
 
             // Calculate starting position and column for alpha mask
             let mut x = x0;
-            let mut col = (strip.alpha_idx / u32::from(Tile::HEIGHT)) as u16;
+            let mut col = strip.alpha_idx / u32::from(Tile::HEIGHT);
             let clip_x = clip_bbox.x0() * WideTile::WIDTH;
             if clip_x > x {
-                col += clip_x - x;
+                col += (clip_x - x) as u32;
                 x = clip_x;
             }
 
@@ -645,10 +645,10 @@ impl Wide {
                 let cmd = CmdClipAlphaFill {
                     x: x_rel,
                     width: width as u32,
-                    alpha_idx: (col * Tile::HEIGHT) as usize,
+                    alpha_idx: col as usize * Tile::HEIGHT as usize,
                 };
                 x += width;
-                col += width;
+                col += width as u32;
 
                 // Apply the clip strip command and update state
                 self.get_mut(wtile_x, cur_wtile_y).clip_strip(cmd);

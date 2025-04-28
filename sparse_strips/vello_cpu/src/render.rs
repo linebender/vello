@@ -306,7 +306,8 @@ impl GlyphRenderer for RenderContext {
 #[cfg(test)]
 mod tests {
     use crate::RenderContext;
-    use vello_common::kurbo::Rect;
+    use core::iter;
+    use vello_common::kurbo::{Rect, Shape};
 
     #[test]
     fn reset_render_context() {
@@ -324,5 +325,16 @@ mod tests {
         assert!(ctx.line_buf.is_empty());
         assert!(ctx.strip_buf.is_empty());
         assert!(ctx.alphas.is_empty());
+    }
+
+    #[test]
+    fn clip_overflow() {
+        let mut ctx = RenderContext::new(100, 100);
+
+        ctx.alphas
+            .extend(iter::repeat(255).take(u16::MAX as usize + 1));
+
+        ctx.clip(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
+        ctx.finish();
     }
 }
