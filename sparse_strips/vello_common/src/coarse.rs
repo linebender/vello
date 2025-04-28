@@ -1014,8 +1014,8 @@ impl BlendModeExt for BlendMode {
 #[cfg(test)]
 mod tests {
     use crate::coarse::{Cmd, CmdFill, WideTile};
-    use crate::color::palette::css::TRANSPARENT;
     use crate::color::AlphaColor;
+    use crate::color::palette::css::TRANSPARENT;
     use crate::peniko::{BlendMode, Compose, Mix};
     use vello_api::paint::{Paint, PremulColor};
 
