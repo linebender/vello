@@ -66,7 +66,7 @@ pub fn fill(c: &mut Criterion) {
                 },
                 stops: $stops,
                 extend: peniko::Extend::$extend,
-                transform: Affine::IDENTITY,
+                ..Default::default()
             };
 
             let paint = grad.encode_into(&mut paints);
@@ -107,7 +107,7 @@ pub fn fill(c: &mut Criterion) {
                 },
                 stops: $stops,
                 extend: peniko::Extend::$extend,
-                transform: Affine::default(),
+                ..Default::default()
             };
 
             let paint = grad.encode_into(&mut paints);
@@ -152,7 +152,7 @@ pub fn fill(c: &mut Criterion) {
                 },
                 stops: $stops,
                 extend: peniko::Extend::$extend,
-                transform: Affine::default(),
+                ..Default::default()
             };
 
             let paint = grad.encode_into(&mut paints);
