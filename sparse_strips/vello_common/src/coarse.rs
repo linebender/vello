@@ -721,11 +721,12 @@ pub struct WideTile {
     pub bg: PremulRgba8,
     /// The draw commands of the tile.
     pub cmds: Vec<Cmd>,
-
     /// The number of zero-winding clips.
     pub n_zero_clip: usize,
     /// The number of non-zero-winding clips.
     pub n_clip: usize,
+    /// The number of pushed buffers.
+    pub n_bufs: usize,
 }
 
 impl WideTile {
@@ -739,9 +740,9 @@ impl WideTile {
             y,
             bg: AlphaColor::<Srgb>::TRANSPARENT.premultiply().to_rgba8(),
             cmds: vec![],
-
             n_zero_clip: 0,
             n_clip: 0,
+            n_bufs: 0,
         }
     }
 
@@ -758,7 +759,7 @@ impl WideTile {
                 //
                 // However, the extra cost of tracking such optimizations may outweigh the
                 // benefit, especially in hybrid mode with GPU painting.
-                let can_override = x == 0 && width == Self::WIDTH && s.a == 255 && self.n_clip == 0;
+                let can_override = x == 0 && width == Self::WIDTH && s.a == 255 && self.n_clip == 0 && self.n_bufs == 0;
                 can_override.then_some(*s)
             } else {
                 // TODO: Implement for indexed paints.
@@ -833,6 +834,7 @@ impl WideTile {
     /// Push a buffer.
     pub fn push_buf(&mut self) {
         self.cmds.push(Cmd::PushBuf);
+        self.n_bufs += 1;
     }
 
     /// Pop the most recent buffer.
@@ -881,6 +883,8 @@ impl WideTile {
 
             self.cmds.push(Cmd::PopBuf);
         }
+        
+        self.n_bufs -= 1;
     }
 
     /// Apply an opacity to the whole buffer.
