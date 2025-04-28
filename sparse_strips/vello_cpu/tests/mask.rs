@@ -5,13 +5,13 @@ use smallvec::smallvec;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
 use vello_common::kurbo::{Point, Rect};
-use vello_common::mask::{Mask, MaskType};
+use vello_common::mask::Mask;
 use vello_common::paint::Gradient;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
 use vello_cpu::{Pixmap, RenderContext};
 use crate::util::{check_ref, get_ctx};
 
-pub(crate) fn example_mask(mask_type: MaskType) -> Mask {
+pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     let mut mask_pix = Pixmap::new(100, 100);
     let mut mask_ctx = RenderContext::new(100, 100);
 
@@ -43,7 +43,11 @@ pub(crate) fn example_mask(mask_type: MaskType) -> Mask {
     mask_ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
     mask_ctx.render_to_pixmap(&mut mask_pix);
 
-    Mask::new(&mask_pix, mask_type)
+    if alpha_mask {
+        Mask::new_alpha(&mask_pix)
+    }   else {
+        Mask::new_luminance(&mask_pix)
+    }
 }
 
 macro_rules! mask {
@@ -64,10 +68,10 @@ macro_rules! mask {
 
 #[test]
 fn mask_alpha() {
-    mask!("mask_alpha", MaskType::Alpha);
+    mask!("mask_alpha", true);
 }
 
 #[test]
 fn mask_luminance() {
-    mask!("mask_luminance", MaskType::Luminance);
+    mask!("mask_luminance", false);
 }

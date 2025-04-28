@@ -3,13 +3,13 @@
 
 //! Generating and processing wide tiles.
 
-use crate::peniko::{BlendMode, Compose, Mix};
 use crate::color::palette::css::TRANSPARENT;
+use crate::peniko::{BlendMode, Compose, Mix};
 use crate::{strip::Strip, tile::Tile};
 use alloc::vec;
 use alloc::{boxed::Box, vec::Vec};
-use vello_api::paint::PremulColor;
 use vello_api::mask::Mask;
+use vello_api::paint::PremulColor;
 use vello_api::{paint::Paint, peniko::Fill};
 
 #[derive(Debug)]
@@ -756,8 +756,11 @@ impl WideTile {
                 //
                 // However, the extra cost of tracking such optimizations may outweigh the
                 // benefit, especially in hybrid mode with GPU painting.
-                let can_override =
-                    x == 0 && width == Self::WIDTH && s.is_opaque() && self.n_clip == 0 && self.n_bufs == 0;
+                let can_override = x == 0
+                    && width == Self::WIDTH
+                    && s.is_opaque()
+                    && self.n_clip == 0
+                    && self.n_bufs == 0;
                 can_override.then_some(*s)
             } else {
                 // TODO: Implement for indexed paints.
@@ -1011,10 +1014,10 @@ impl BlendModeExt for BlendMode {
 #[cfg(test)]
 mod tests {
     use crate::coarse::{Cmd, CmdFill, WideTile};
-    use crate::color::{AlphaColor, PremulRgba8};
+    use crate::color::palette::css::TRANSPARENT;
+    use crate::color::AlphaColor;
     use crate::peniko::{BlendMode, Compose, Mix};
     use vello_api::paint::{Paint, PremulColor};
-    use crate::color::palette::css::TRANSPARENT;
 
     #[test]
     fn optimize_empty_layers() {
@@ -1029,16 +1032,8 @@ mod tests {
     fn basic_layer() {
         let mut wide = WideTile::new(0, 0);
         wide.push_buf();
-        wide.fill(
-            0,
-            10,
-            Paint::Solid(PremulColor::new(TRANSPARENT)),
-        );
-        wide.fill(
-            10,
-            10,
-            Paint::Solid(PremulColor::new(TRANSPARENT)),
-        );
+        wide.fill(0, 10, Paint::Solid(PremulColor::new(TRANSPARENT)));
+        wide.fill(10, 10, Paint::Solid(PremulColor::new(TRANSPARENT)));
         wide.pop_buf();
 
         assert_eq!(wide.cmds.len(), 4);

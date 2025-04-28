@@ -3,14 +3,13 @@
 
 use vello_common::color::palette::css::{BLUE, RED};
 use vello_common::kurbo::Rect;
-use vello_common::mask::MaskType;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use crate::mask::example_mask;
 use crate::util::{check_ref, crossed_line_star, get_ctx};
 
 #[test]
 fn layer_multiple_properties_1() {
-    let mask = example_mask(MaskType::Alpha);
+    let mask = example_mask(true);
     let star = crossed_line_star();
 
     let mut ctx = get_ctx(100, 100, false);

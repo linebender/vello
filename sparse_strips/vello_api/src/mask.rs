@@ -7,15 +7,6 @@ use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-/// A type of mask.
-#[derive(Debug, Copy, Clone)]
-pub enum MaskType {
-    /// A luminance mask.
-    Luminance,
-    /// An alpha mask.
-    Alpha,
-}
-
 /// A mask.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mask {
@@ -25,32 +16,38 @@ pub struct Mask {
 }
 
 impl Mask {
-    /// Create a new mask based on a pixmap and mask type.
-    pub fn new(pixmap: &Pixmap, mask_type: MaskType) -> Self {
+    /// Create a new alpha mask from the pixmap.
+    pub fn new_alpha(pixmap: &Pixmap) -> Self {
+        Self::new_with(pixmap, true)
+    }
+
+    /// Create a new luminance mask from the pixmap.
+    pub fn new_luminance(pixmap: &Pixmap) -> Self {
+        Self::new_with(pixmap, false)
+    }
+
+    fn new_with(pixmap: &Pixmap, alpha_mask: bool) -> Self {
         let mut data = Vec::with_capacity(pixmap.width() as usize * pixmap.height() as usize);
 
         for pixel in pixmap.data().chunks_exact(4) {
-            match mask_type {
-                MaskType::Luminance => {
-                    let mut r = pixel[0] as f32 / 255.0;
-                    let mut g = pixel[1] as f32 / 255.0;
-                    let mut b = pixel[2] as f32 / 255.0;
-                    let a = pixel[3] as f32 / 255.0;
+            if alpha_mask {
+                data.push(pixel[3]);
+            } else {
+                let mut r = pixel[0] as f32 / 255.0;
+                let mut g = pixel[1] as f32 / 255.0;
+                let mut b = pixel[2] as f32 / 255.0;
+                let a = pixel[3] as f32 / 255.0;
 
-                    if pixel[3] != 0 {
-                        r /= a;
-                        g /= a;
-                        b /= a;
-                    }
+                if pixel[3] != 0 {
+                    r /= a;
+                    g /= a;
+                    b /= a;
+                }
 
-                    // See https://www.w3.org/TR/filter-effects-1/#elementdef-fecolormatrix
-                    let luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
-                    #[allow(clippy::cast_possible_truncation, reason = "This cannot overflow")]
-                    data.push(((luma * a) * 255.0 + 0.5) as u8);
-                }
-                MaskType::Alpha => {
-                    data.push(pixel[3]);
-                }
+                // See https://www.w3.org/TR/filter-effects-1/#elementdef-fecolormatrix
+                let luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
+                #[allow(clippy::cast_possible_truncation, reason = "This cannot overflow")]
+                data.push(((luma * a) * 255.0 + 0.5) as u8);
             }
         }
 

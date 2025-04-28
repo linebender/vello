@@ -29,7 +29,13 @@ pub fn fill(c: &mut Criterion) {
                 let paints: &[EncodedPaint] = $paints;
 
                 b.iter(|| {
-                    fine.fill(0, $width, paint, BlendMode::new(Mix::Normal, Compose::SrcOver), paints);
+                    fine.fill(
+                        0,
+                        $width,
+                        paint,
+                        BlendMode::new(Mix::Normal, Compose::SrcOver),
+                        paints,
+                    );
 
                     std::hint::black_box(&fine);
                 })
@@ -202,7 +208,14 @@ pub fn strip(c: &mut Criterion) {
                 let paints: &[EncodedPaint] = $paints;
 
                 b.iter(|| {
-                    fine.strip(0, $width, &alphas, paint, BlendMode::new(Mix::Normal, Compose::SrcOver), paints);
+                    fine.strip(
+                        0,
+                        $width,
+                        &alphas,
+                        paint,
+                        BlendMode::new(Mix::Normal, Compose::SrcOver),
+                        paints,
+                    );
 
                     std::hint::black_box(&fine);
                 })
