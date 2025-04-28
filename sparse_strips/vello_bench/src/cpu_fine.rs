@@ -10,7 +10,7 @@ use vello_common::coarse::WideTile;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, ROYAL_BLUE, YELLOW};
 use vello_common::encode::{EncodeExt, EncodedPaint};
-use vello_common::kurbo::{Affine, Point};
+use vello_common::kurbo::Point;
 use vello_common::paint::{Gradient, Paint, PremulColor};
 use vello_common::peniko;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};

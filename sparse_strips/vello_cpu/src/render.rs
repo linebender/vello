@@ -302,7 +302,7 @@ mod tests {
         let mut ctx = RenderContext::new(100, 100);
 
         ctx.alphas
-            .extend(iter::repeat(255).take(u16::MAX as usize + 1));
+            .extend(core::iter::repeat_n(255, u16::MAX as usize + 1));
 
         ctx.clip(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
         ctx.finish();
