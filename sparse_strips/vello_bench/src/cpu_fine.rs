@@ -10,7 +10,7 @@ use vello_common::coarse::WideTile;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, ROYAL_BLUE, YELLOW};
 use vello_common::encode::EncodeExt;
-use vello_common::kurbo::{Affine, Point};
+use vello_common::kurbo::Point;
 use vello_common::paint::{Gradient, Paint};
 use vello_common::peniko;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
@@ -55,7 +55,7 @@ pub fn fill(c: &mut Criterion) {
                 },
                 stops: $stops,
                 extend: peniko::Extend::$extend,
-                transform: Affine::IDENTITY,
+                ..Default::default()
             };
 
             let paint = grad.encode_into(&mut paints);
@@ -96,7 +96,7 @@ pub fn fill(c: &mut Criterion) {
                 },
                 stops: $stops,
                 extend: peniko::Extend::$extend,
-                transform: Affine::default(),
+                ..Default::default()
             };
 
             let paint = grad.encode_into(&mut paints);
@@ -141,7 +141,7 @@ pub fn fill(c: &mut Criterion) {
                 },
                 stops: $stops,
                 extend: peniko::Extend::$extend,
-                transform: Affine::default(),
+                ..Default::default()
             };
 
             let paint = grad.encode_into(&mut paints);
