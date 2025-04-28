@@ -22,7 +22,7 @@ pub struct Wide {
     pub height: u16,
     /// The wide tiles in the container.
     pub tiles: Vec<WideTile>,
-
+    
     /// Stack of scene state, used for tracking clip regions.
     pub state_stack: Vec<SceneState>,
     /// Stack of active clip regions.
@@ -112,8 +112,8 @@ impl Wide {
         let height_tiles = height.div_ceil(Tile::HEIGHT);
         let mut tiles = Vec::with_capacity(usize::from(width_tiles) * usize::from(height_tiles));
 
-        for w in 0..width_tiles {
-            for h in 0..height_tiles {
+        for h in 0..height_tiles {
+            for w in 0..width_tiles {
                 tiles.push(WideTile::new(w * WideTile::WIDTH, h * Tile::HEIGHT));
             }
         }
@@ -801,4 +801,22 @@ pub struct CmdClipAlphaFill {
     pub width: u32,
     /// The start index into the alpha buffer of the command.
     pub alpha_idx: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::coarse::Wide;
+
+    #[test]
+    fn tile_coordinates() {
+        let wide = Wide::new(1000, 258);
+
+        let tile_1 = wide.get(1, 3);
+        assert_eq!(tile_1.x, 256);
+        assert_eq!(tile_1.y, 12);
+
+        let tile_2 = wide.get(2, 15);
+        assert_eq!(tile_2.x, 512);
+        assert_eq!(tile_2.y, 60);
+    }
 }
