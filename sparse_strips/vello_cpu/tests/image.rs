@@ -11,7 +11,7 @@ use vello_common::peniko::{Extend, ImageQuality};
 use crate::gradient::tan_45;
 use crate::util::{check_ref, crossed_line_star, get_ctx};
 
-fn load_image(name: &str) -> Arc<Pixmap> {
+pub(crate) fn load_image(name: &str) -> Arc<Pixmap> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/assets/{name}.png"));
     Arc::new(Pixmap::from_png(&std::fs::read(path).unwrap()).unwrap())
 }

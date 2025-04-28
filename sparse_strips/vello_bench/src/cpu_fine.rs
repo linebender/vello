@@ -13,7 +13,7 @@ use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::kurbo::Point;
 use vello_common::paint::{Gradient, Paint, PremulColor};
 use vello_common::peniko;
-use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
+use vello_common::peniko::{BlendMode, ColorStop, ColorStops, Compose, GradientKind, Mix};
 use vello_common::tile::Tile;
 use vello_cpu::fine::{Fine, SCRATCH_BUF_SIZE};
 
@@ -29,7 +29,13 @@ pub fn fill(c: &mut Criterion) {
                 let paints: &[EncodedPaint] = $paints;
 
                 b.iter(|| {
-                    fine.fill(0, $width, paint, paints);
+                    fine.fill(
+                        0,
+                        $width,
+                        paint,
+                        BlendMode::new(Mix::Normal, Compose::SrcOver),
+                        paints,
+                    );
 
                     std::hint::black_box(&fine);
                 })
@@ -202,7 +208,14 @@ pub fn strip(c: &mut Criterion) {
                 let paints: &[EncodedPaint] = $paints;
 
                 b.iter(|| {
-                    fine.strip(0, $width, &alphas, paint, paints);
+                    fine.strip(
+                        0,
+                        $width,
+                        &alphas,
+                        paint,
+                        BlendMode::new(Mix::Normal, Compose::SrcOver),
+                        paints,
+                    );
 
                     std::hint::black_box(&fine);
                 })
