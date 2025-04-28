@@ -4,10 +4,9 @@
 use smallvec::smallvec;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
-use vello_common::kurbo::{Affine, Point, Rect};
+use vello_common::kurbo::{Point, Rect};
 use vello_common::mask::{Mask, MaskType};
 use vello_common::paint::Gradient;
-use vello_common::peniko;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
 use vello_cpu::{Pixmap, RenderContext};
 use crate::util::{check_ref, get_ctx};
@@ -37,8 +36,7 @@ pub(crate) fn example_mask(mask_type: MaskType) -> Mask {
                     },
                 ]
         ),
-        transform: Affine::IDENTITY,
-        extend: peniko::Extend::Pad,
+        ..Default::default()
     };
 
     mask_ctx.set_paint(grad);

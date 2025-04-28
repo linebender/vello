@@ -908,7 +908,7 @@ impl WideTile {
 }
 
 /// A drawing command.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub enum Cmd {
     /// A fill command.
     Fill(CmdFill),
@@ -940,7 +940,7 @@ pub enum Cmd {
 }
 
 /// Fill a consecutive region of a wide tile.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CmdFill {
     /// The horizontal start position of the command in pixels.
     pub x: u16,
@@ -953,7 +953,7 @@ pub struct CmdFill {
 }
 
 /// Fill a consecutive region of a wide tile with an alpha mask.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CmdAlphaFill {
     /// The horizontal start position of the command in pixels.
     pub x: u16,
@@ -1011,9 +1011,10 @@ impl BlendModeExt for BlendMode {
 #[cfg(test)]
 mod tests {
     use crate::coarse::{Cmd, CmdFill, WideTile};
-    use crate::color::PremulRgba8;
+    use crate::color::{AlphaColor, PremulRgba8};
     use crate::peniko::{BlendMode, Compose, Mix};
-    use vello_api::paint::Paint;
+    use vello_api::paint::{Paint, PremulColor};
+    use crate::color::palette::css::TRANSPARENT;
 
     #[test]
     fn optimize_empty_layers() {
@@ -1031,12 +1032,12 @@ mod tests {
         wide.fill(
             0,
             10,
-            Paint::Solid(PremulRgba8::from_u8_array([0, 0, 0, 0])),
+            Paint::Solid(PremulColor::new(TRANSPARENT)),
         );
         wide.fill(
             10,
             10,
-            Paint::Solid(PremulRgba8::from_u8_array([0, 0, 0, 0])),
+            Paint::Solid(PremulColor::new(TRANSPARENT)),
         );
         wide.pop_buf();
 
@@ -1045,7 +1046,7 @@ mod tests {
 
     #[test]
     fn inline_blend_with_one_fill() {
-        let paint = Paint::Solid(PremulRgba8::from_u8_array([30, 30, 30, 255]));
+        let paint = Paint::Solid(PremulColor::new(AlphaColor::from_rgba8(30, 30, 30, 255)));
         let blend_mode = BlendMode::new(Mix::Lighten, Compose::SrcOver);
 
         let mut wide = WideTile::new(0, 0);
@@ -1068,7 +1069,7 @@ mod tests {
 
     #[test]
     fn dont_inline_blend_with_two_fills() {
-        let paint = Paint::Solid(PremulRgba8::from_u8_array([30, 30, 30, 255]));
+        let paint = Paint::Solid(PremulColor::new(AlphaColor::from_rgba8(30, 30, 30, 255)));
         let blend_mode = BlendMode::new(Mix::Lighten, Compose::SrcOver);
 
         let mut wide = WideTile::new(0, 0);
@@ -1083,7 +1084,7 @@ mod tests {
 
     #[test]
     fn dont_inline_destructive_blend() {
-        let paint = Paint::Solid(PremulRgba8::from_u8_array([30, 30, 30, 255]));
+        let paint = Paint::Solid(PremulColor::new(AlphaColor::from_rgba8(30, 30, 30, 255)));
         let blend_mode = BlendMode::new(Mix::Lighten, Compose::Clear);
 
         let mut wide = WideTile::new(0, 0);

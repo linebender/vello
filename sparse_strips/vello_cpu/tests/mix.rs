@@ -44,8 +44,7 @@ fn mix(name: &str, blend_mode: BlendMode) {
                     color: DynamicColor::from_alpha_color(LIME.with_alpha(0.86)),
                 },
             ]),
-        transform: Affine::IDENTITY,
-        extend: Extend::Pad,
+        ..Default::default()
     };
 
     let image = Image {
