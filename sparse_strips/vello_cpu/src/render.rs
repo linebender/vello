@@ -334,7 +334,7 @@ mod tests {
         ctx.alphas
             .extend(iter::repeat(255).take(u16::MAX as usize + 1));
 
-        ctx.clip(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
-        ctx.finish();
+        ctx.push_clip_layer(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
+        ctx.pop_layer();
     }
 }
