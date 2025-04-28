@@ -759,7 +759,11 @@ impl WideTile {
                 //
                 // However, the extra cost of tracking such optimizations may outweigh the
                 // benefit, especially in hybrid mode with GPU painting.
-                let can_override = x == 0 && width == Self::WIDTH && s.a == 255 && self.n_clip == 0 && self.n_bufs == 0;
+                let can_override = x == 0
+                    && width == Self::WIDTH
+                    && s.a == 255
+                    && self.n_clip == 0
+                    && self.n_bufs == 0;
                 can_override.then_some(*s)
             } else {
                 // TODO: Implement for indexed paints.
@@ -883,7 +887,7 @@ impl WideTile {
 
             self.cmds.push(Cmd::PopBuf);
         }
-        
+
         self.n_bufs -= 1;
     }
 
