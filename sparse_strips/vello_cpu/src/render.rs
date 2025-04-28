@@ -276,7 +276,6 @@ impl GlyphRenderer for RenderContext {
 #[cfg(test)]
 mod tests {
     use crate::RenderContext;
-    use core::iter;
     use vello_common::kurbo::{Rect, Shape};
 
     #[test]
