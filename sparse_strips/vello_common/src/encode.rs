@@ -272,7 +272,7 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
         }
 
         // Stops must be sorted by ascending offset.
-        if f.offset >= n.offset {
+        if f.offset > n.offset {
             return first;
         }
     }
@@ -314,12 +314,6 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
             end_angle,
             ..
         } => {
-            // Angles must be between 0 and 360.
-            if *start_angle < 0.0 || *start_angle > 360.0 || *end_angle < 0.0 || *end_angle > 360.0
-            {
-                return first;
-            }
-
             // The end angle must be larger than the start angle.
             if degenerate_val(*start_angle, *end_angle) {
                 return first;

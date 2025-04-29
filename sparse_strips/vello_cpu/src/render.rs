@@ -4,22 +4,27 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use skrifa::FontRef;
+use skrifa::raw::TableProvider;
 use vello_common::coarse::Wide;
+use vello_common::color::{AlphaColor, Srgb};
+use vello_common::colr::{ColrPainter, ColrRenderer};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{Paint, PaintType};
-use vello_common::peniko::Font;
+use vello_common::paint::{Gradient, Image, Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
+use vello_common::peniko::{Font, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
-use vello_common::{flatten, strip};
+use vello_common::{flatten, peniko, strip};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -277,17 +282,119 @@ impl RenderContext {
 }
 
 impl GlyphRenderer for RenderContext {
-    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
+    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>, font_ref: &FontRef<'_>) {
+        // Note that the glyphs already contain the transform from the render context, hence
+        // there is no need to apply them separately.
+
         match glyph {
             PreparedGlyph::Outline(glyph) => {
                 flatten::fill(glyph.path, glyph.transform, &mut self.line_buf);
                 let paint = self.encode_current_paint();
                 self.render_path(Fill::NonZero, paint);
             }
+            PreparedGlyph::Bitmap(glyph) => {
+                let old_transform = self.transform;
+                let old_paint = self.paint.clone();
+
+                self.transform = glyph.transform;
+
+                flatten::fill(
+                    &Rect::new(
+                        0.0,
+                        0.0,
+                        glyph.pixmap.width as f64,
+                        glyph.pixmap.height as f64,
+                    )
+                    .to_path(0.1),
+                    self.transform,
+                    &mut self.line_buf,
+                );
+
+                let quality = if glyph.transform.as_coeffs()[0] < 0.5
+                    || glyph.transform.as_coeffs()[3] < 0.5
+                {
+                    ImageQuality::High
+                } else {
+                    ImageQuality::Medium
+                };
+
+                let image = Image {
+                    pixmap: Arc::new(glyph.pixmap),
+                    x_extend: peniko::Extend::Pad,
+                    y_extend: peniko::Extend::Pad,
+                    quality,
+                    transform: Affine::IDENTITY,
+                };
+
+                self.set_paint(image);
+                let paint = self.encode_current_paint();
+                self.render_path(Fill::NonZero, paint);
+
+                self.set_paint(old_paint);
+                self.transform = old_transform;
+            }
+            PreparedGlyph::Colr(glyph) => {
+                let old_transform = self.transform;
+                let old_paint = self.paint.clone();
+                let context_color = match old_paint {
+                    PaintType::Solid(s) => s,
+                    _ => BLACK,
+                };
+
+                let upem: f64 = font_ref.head().map(|h| h.units_per_em()).unwrap().into();
+                let g_transform = glyph.transform();
+                let scale_factor = g_transform.as_coeffs()[0].max(g_transform.as_coeffs()[3]);
+                let bbox = glyph.bbox().unwrap_or(Rect::new(0.0, 0.0, upem, upem));
+                let scaled_bbox = bbox.scale_from_origin(scale_factor);
+
+                let (pix_width, pix_height) = (
+                    scaled_bbox.width().ceil() as u16,
+                    scaled_bbox.height().ceil() as u16,
+                );
+
+                let emoji_transform = Affine::translate((-scaled_bbox.x0, -scaled_bbox.y0))
+                    * Affine::scale(scale_factor);
+                let inv_emoji_transform = emoji_transform.inverse();
+
+                let emoji_pixmap = {
+                    let mut ctx = RenderContext::new(pix_width, pix_height);
+                    let mut pix = Pixmap::new(pix_width, pix_height);
+
+                    let mut colr_painter =
+                        ColrPainter::new(emoji_transform, font_ref, context_color, &mut ctx);
+
+                    glyph.paint(&mut colr_painter);
+
+                    let remaining_layers = colr_painter.remaining_layers();
+
+                    for _ in 0..remaining_layers {
+                        ctx.pop_layer();
+                    }
+
+                    ctx.render_to_pixmap(&mut pix);
+
+                    pix
+                };
+
+                let image = Image {
+                    pixmap: Arc::new(emoji_pixmap),
+                    x_extend: Default::default(),
+                    y_extend: Default::default(),
+                    quality: ImageQuality::Low,
+                    transform: inv_emoji_transform,
+                };
+
+                self.set_paint(image);
+                self.set_transform(g_transform * Affine::scale_non_uniform(1.0, -1.0));
+                self.fill_rect(&bbox);
+
+                self.set_paint(old_paint);
+                self.transform = old_transform;
+            }
         }
     }
 
-    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
+    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>, font_ref: &FontRef<'_>) {
         match glyph {
             PreparedGlyph::Outline(glyph) => {
                 flatten::stroke(
@@ -299,7 +406,41 @@ impl GlyphRenderer for RenderContext {
                 let paint = self.encode_current_paint();
                 self.render_path(Fill::NonZero, paint);
             }
+            PreparedGlyph::Bitmap(_) => {
+                self.fill_glyph(glyph, font_ref);
+            }
+            PreparedGlyph::Colr(_) => {
+                self.fill_glyph(glyph, font_ref);
+            }
         }
+    }
+}
+
+impl ColrRenderer for RenderContext {
+    fn push_clip_layer(&mut self, clip: &BezPath) {
+        RenderContext::push_clip_layer(self, clip);
+    }
+
+    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
+        RenderContext::push_blend_layer(self, blend_mode);
+    }
+
+    fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
+        self.set_paint(color);
+        self.fill_rect(&Rect::new(0.0, 0.0, self.width as f64, self.height as f64));
+    }
+
+    fn fill_gradient(&mut self, gradient: Gradient) {
+        self.set_paint(gradient);
+        self.fill_rect(&Rect::new(0.0, 0.0, self.width as f64, self.height as f64))
+    }
+
+    fn pop_clip_layer(&mut self) {
+        RenderContext::pop_layer(self);
+    }
+
+    fn pop_blend_layer(&mut self) {
+        RenderContext::pop_layer(self);
     }
 }
 

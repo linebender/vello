@@ -4,23 +4,31 @@
 //! Processing and drawing glyphs.
 
 use crate::peniko::Font;
-use skrifa::OutlineGlyphCollection;
-use skrifa::instance::Size;
+use core::fmt::{Debug, Formatter};
+use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::DrawSettings;
+use skrifa::raw::TableProvider;
+use skrifa::{FontRef, OutlineGlyphCollection};
 use skrifa::{
     GlyphId, MetadataProvider,
     outline::{HintingInstance, HintingOptions, OutlinePen},
 };
 use vello_api::kurbo::{Affine, BezPath, Vec2};
 
+use crate::colr::{ColrPainter, convert_bounding_box};
+use crate::kurbo::Rect;
+use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};
 pub use vello_api::glyph::*;
+use vello_api::pixmap::Pixmap;
 
 /// A glyph prepared for rendering.
 #[derive(Debug)]
 pub enum PreparedGlyph<'a> {
     /// A glyph defined by its outline.
     Outline(OutlineGlyph<'a>),
-    // TODO: Image and Colr variants.
+    /// A glyph defined by a bitmap.
+    Bitmap(BitmapGlyph),
+    Colr(ColorGlyph<'a>), // TODO: Colr variants.
 }
 
 /// A glyph defined by a path (its outline) and a local transform.
@@ -32,13 +40,53 @@ pub struct OutlineGlyph<'a> {
     pub transform: Affine,
 }
 
+/// A glyph defined by a bitmap.
+#[derive(Debug)]
+pub struct BitmapGlyph {
+    /// The pixmap of the glyph.
+    pub pixmap: Pixmap,
+    /// The global transform of the glyph.
+    pub transform: Affine,
+}
+
+pub struct ColorGlyph<'a> {
+    // We are keeping this private to not leak skrifa in the public API.
+    color_glyph: skrifa::color::ColorGlyph<'a>,
+    transform: Affine,
+}
+
+impl ColorGlyph<'_> {
+    /// Return the transform of the color glyph.
+    pub fn transform(&self) -> Affine {
+        self.transform
+    }
+
+    /// Return the bbox of the glyph at a specific font size, if available.
+    pub fn bbox(&self) -> Option<Rect> {
+        self.color_glyph
+            .bounding_box(LocationRef::default(), Size::unscaled())
+            .map(|b| convert_bounding_box(b))
+    }
+
+    pub fn paint(&self, painter: &mut ColrPainter) {
+        // Ignore errors for now
+        let _ = self.color_glyph.paint(LocationRef::default(), painter);
+    }
+}
+
+impl Debug for ColorGlyph<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "ColorGlyph")
+    }
+}
+
 /// Trait for types that can render glyphs.
 pub trait GlyphRenderer {
     /// Fill glyphs with the current paint and fill rule.
-    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>);
+    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>, font: &FontRef<'_>);
 
     /// Stroke glyphs with the current paint and stroke settings.
-    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>);
+    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>, font: &FontRef<'_>);
 }
 
 /// A builder for configuring and drawing glyphs.
@@ -103,12 +151,17 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
     }
 
     fn render(self, glyphs: impl Iterator<Item = Glyph>, style: Style) {
-        let font =
+        let font_ref =
             skrifa::FontRef::from_index(self.run.font.data.as_ref(), self.run.font.index).unwrap();
-        let outlines = font.outline_glyphs();
+
+        let upem: f32 = font_ref.head().map(|h| h.units_per_em()).unwrap().into();
+
+        let outlines = font_ref.outline_glyphs();
+        let color_glyphs = font_ref.color_glyphs();
+        let bitmaps = font_ref.bitmap_strikes();
 
         let PreparedGlyphRun {
-            transform,
+            transform: initial_transform,
             size,
             normalized_coords,
             hinting_instance,
@@ -118,48 +171,115 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             Style::Fill => GlyphRenderer::fill_glyph,
             Style::Stroke => GlyphRenderer::stroke_glyph,
         };
+
         // Reuse the same `path` allocation for each glyph.
-        let mut path = OutlinePath(BezPath::new());
+        let mut path = OutlinePath::new(true);
         for glyph in glyphs {
-            let draw_settings = if let Some(hinting_instance) = &hinting_instance {
-                DrawSettings::hinted(hinting_instance, false)
+            let bitmap_data: Option<(skrifa::bitmap::BitmapGlyph<'_>, Pixmap)> = bitmaps
+                .glyph_for_size(Size::new(self.run.font_size), GlyphId::new(glyph.id))
+                .and_then(|g| match g.data {
+                    #[cfg(feature = "png")]
+                    BitmapData::Png(data) => Pixmap::from_png(data).ok().map(|d| (g, d)),
+                    #[cfg(not(feature = "png"))]
+                    BitmapData::Png(_) => None,
+                    // The others are not worth implementing for now (unless we can find a test case),
+                    // they should be very rare.
+                    BitmapData::Bgra(_) => None,
+                    BitmapData::Mask(_) => None,
+                });
+
+            let prepared_glyph = if let Some(color_glyph) = color_glyphs.get(GlyphId::new(glyph.id))
+            {
+                let scale = self.run.font_size / upem;
+
+                let transform = initial_transform
+                    .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+                    .pre_scale(scale as f64);
+
+                PreparedGlyph::Colr(ColorGlyph {
+                    color_glyph,
+                    transform,
+                })
+            } else if let Some((bitmap_glyph, pixmap)) = bitmap_data {
+                let x_scale_factor = self.run.font_size / bitmap_glyph.ppem_x;
+                let y_scale_factor = self.run.font_size / bitmap_glyph.ppem_y;
+                let font_units_to_size = self.run.font_size / upem;
+
+                // CoreText appears to special case Apple Color Emoji, adding
+                // a 100 font unit vertical offset. We do the same but only
+                // when both vertical offsets are 0 to avoid incorrect
+                // rendering if Apple ever does encode the offset directly in
+                // the font.
+                let bearing_y = if bitmap_glyph.bearing_y == 0.0
+                    && bitmaps.format() == Some(BitmapFormat::Sbix)
+                {
+                    100.0
+                } else {
+                    bitmap_glyph.bearing_y
+                };
+
+                let origin_shift = match bitmap_glyph.placement_origin {
+                    Origin::TopLeft => Vec2::default(),
+                    Origin::BottomLeft => Vec2 {
+                        x: 0.,
+                        y: -f64::from(pixmap.height),
+                    },
+                };
+
+                let transform = initial_transform
+                    .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+                    .pre_translate(Vec2 {
+                        x: (-bitmap_glyph.bearing_x * font_units_to_size).into(),
+                        y: (bearing_y * font_units_to_size).into(),
+                    })
+                    .pre_scale_non_uniform(x_scale_factor as f64, y_scale_factor as f64)
+                    .pre_translate(Vec2 {
+                        x: (-bitmap_glyph.inner_bearing_x).into(),
+                        y: (-bitmap_glyph.inner_bearing_y).into(),
+                    })
+                    .pre_translate(origin_shift);
+
+                PreparedGlyph::Bitmap(BitmapGlyph { pixmap, transform })
             } else {
-                DrawSettings::unhinted(size, normalized_coords)
-            };
-            let Some(outline) = outlines.get(GlyphId::new(glyph.id)) else {
-                continue;
-            };
-            path.0.truncate(0);
-            if outline.draw(draw_settings, &mut path).is_err() {
-                continue;
-            }
+                let draw_settings = if let Some(hinting_instance) = &hinting_instance {
+                    DrawSettings::hinted(hinting_instance, false)
+                } else {
+                    DrawSettings::unhinted(size, normalized_coords)
+                };
+                let Some(outline) = outlines.get(GlyphId::new(glyph.id)) else {
+                    continue;
+                };
+                path.0.truncate(0);
+                if outline.draw(draw_settings, &mut path).is_err() {
+                    continue;
+                }
 
-            // Calculate the global glyph translation based on the glyph's local position within
-            // the run and the run's global transform.
-            //
-            // This is a partial affine matrix multiplication, calculating only the translation
-            // component that we need. It is added below to calculate the total transform of this
-            // glyph.
-            let [a, b, c, d, _, _] = self.run.transform.as_coeffs();
-            let translation = Vec2::new(
-                a * glyph.x as f64 + c * glyph.y as f64,
-                b * glyph.x as f64 + d * glyph.y as f64,
-            );
+                // Calculate the global glyph translation based on the glyph's local position within
+                // the run and the run's global transform.
+                //
+                // This is a partial affine matrix multiplication, calculating only the translation
+                // component that we need. It is added below to calculate the total transform of this
+                // glyph.
+                let [a, b, c, d, _, _] = self.run.transform.as_coeffs();
+                let translation = Vec2::new(
+                    a * glyph.x as f64 + c * glyph.y as f64,
+                    b * glyph.x as f64 + d * glyph.y as f64,
+                );
 
-            // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
-            // perform vertical-only hinting.
-            let mut total_transform = transform.then_translate(translation).as_coeffs();
-            if hinting_instance.is_some() {
-                total_transform[5] = total_transform[5].round();
-            }
+                // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
+                // perform vertical-only hinting.
+                let mut total_transform = initial_transform.then_translate(translation).as_coeffs();
+                if hinting_instance.is_some() {
+                    total_transform[5] = total_transform[5].round();
+                }
 
-            render_glyph(
-                self.renderer,
                 PreparedGlyph::Outline(OutlineGlyph {
                     path: &path.0,
                     transform: Affine::new(total_transform),
-                }),
-            );
+                })
+            };
+
+            render_glyph(self.renderer, prepared_glyph, &font_ref);
         }
     }
 }
@@ -263,28 +383,39 @@ const HINTING_OPTIONS: HintingOptions = HintingOptions {
     },
 };
 
-struct OutlinePath(BezPath);
+pub(crate) struct OutlinePath(pub(crate) BezPath, f32);
+
+impl OutlinePath {
+    pub(crate) fn new(invert_y: bool) -> Self {
+        let f = if invert_y { -1.0 } else { 1.0 };
+        Self {
+            0: BezPath::new(),
+            1: f,
+        }
+    }
+}
 
 // Note that we flip the y-axis to match our coordinate system.
 impl OutlinePen for OutlinePath {
     #[inline]
     fn move_to(&mut self, x: f32, y: f32) {
-        self.0.move_to((x, -y));
+        self.0.move_to((x, self.1 * y));
     }
 
     #[inline]
     fn line_to(&mut self, x: f32, y: f32) {
-        self.0.line_to((x, -y));
+        self.0.line_to((x, self.1 * y));
     }
 
     #[inline]
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
-        self.0.curve_to((cx0, -cy0), (cx1, -cy1), (x, -y));
+        self.0
+            .curve_to((cx0, self.1 * cy0), (cx1, self.1 * cy1), (x, self.1 * y));
     }
 
     #[inline]
     fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
-        self.0.quad_to((cx, -cy), (x, -y));
+        self.0.quad_to((cx, self.1 * cy), (x, self.1 * y));
     }
 
     #[inline]

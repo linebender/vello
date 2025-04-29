@@ -18,6 +18,7 @@ path = "tests/mod.rs"
 
 [dependencies]
 vello_common = { workspace = true }
+skrifa = { git = "https://github.com/googlefonts/fontations", rev = "3b15121" }
 
 [features]
 default = ["png"]
@@ -27,7 +28,6 @@ png = ["vello_common/png"]
 automod = "1.0"
 oxipng = { workspace = true, features = ["freestanding", "parallel"] }
 image = { workspace = true, features = ["png"] }
-skrifa = { workspace = true }
 smallvec = { workspace = true }
 
 [lints]

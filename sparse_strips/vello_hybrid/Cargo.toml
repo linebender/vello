@@ -18,6 +18,7 @@ workspace = true
 vello_common = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
 wgpu = { workspace = true }
+skrifa = { workspace = true }
 
 [dev-dependencies]
 png = { workspace = true }
