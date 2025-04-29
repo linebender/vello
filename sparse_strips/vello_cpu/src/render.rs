@@ -295,23 +295,7 @@ impl GlyphRenderer for RenderContext {
                 // so simulate a `save` and `restore` operation.
                 let old_transform = self.transform;
                 let old_paint = self.paint.clone();
-
-                self.transform = prepared_glyph.transform;
-
-                // The glyph transform already accounts for scaling of the bitmap,
-                // so we can just draw the pixmap at its normal resolution.
-                flatten::fill(
-                    &Rect::new(
-                        0.0,
-                        0.0,
-                        glyph.pixmap.width as f64,
-                        glyph.pixmap.height as f64,
-                    )
-                    .to_path(0.1),
-                    self.transform,
-                    &mut self.line_buf,
-                );
-
+                
                 // If we scale down by a large factor, fall back to cubic scaling.
                 let quality = if prepared_glyph.transform.as_coeffs()[0] < 0.5
                     || prepared_glyph.transform.as_coeffs()[3] < 0.5
@@ -330,8 +314,8 @@ impl GlyphRenderer for RenderContext {
                 };
 
                 self.set_paint(image);
-                let paint = self.encode_current_paint();
-                self.render_path(Fill::NonZero, paint);
+                self.set_transform(prepared_glyph.transform);
+                self.fill_rect(&glyph.area);
 
                 // Restore the state.
                 self.set_paint(old_paint);
@@ -358,7 +342,6 @@ impl GlyphRenderer for RenderContext {
 
                 let emoji_transform = Affine::translate((-scaled_bbox.x0, -scaled_bbox.y0))
                     * Affine::scale(scale_factor);
-                let inv_emoji_transform = emoji_transform.inverse();
 
                 let emoji_pixmap = {
                     let mut ctx = RenderContext::new(pix_width, pix_height);
@@ -382,15 +365,15 @@ impl GlyphRenderer for RenderContext {
 
                 let image = Image {
                     pixmap: Arc::new(emoji_pixmap),
-                    x_extend: Default::default(),
-                    y_extend: Default::default(),
+                    x_extend: peniko::Extend::Pad,
+                    y_extend: peniko::Extend::Pad,
                     quality: ImageQuality::Low,
-                    transform: inv_emoji_transform,
+                    transform: Affine::IDENTITY,
                 };
 
                 self.set_paint(image);
-                self.set_transform(g_transform * Affine::scale_non_uniform(1.0, -1.0));
-                self.fill_rect(&bbox);
+                self.set_transform(g_transform * Affine::scale_non_uniform(1.0, -1.0) * Affine::translate((bbox.x0, bbox.y0)) * Affine::scale(1.0 / scale_factor));
+                self.fill_rect(&Rect::new(0.0, 0.0, scaled_bbox.width(), scaled_bbox.height()));
 
                 self.set_paint(old_paint);
                 self.transform = old_transform;

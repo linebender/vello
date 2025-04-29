@@ -54,6 +54,8 @@ pub struct OutlineGlyph<'a> {
 pub struct BitmapGlyph {
     /// The pixmap of the glyph.
     pub pixmap: Pixmap,
+    /// The rectangular area that should be filled with the bitmap when painting.
+    pub area: Rect
 }
 
 pub struct ColorGlyph<'a> {
@@ -239,8 +241,12 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                         y: (-bitmap_glyph.inner_bearing_y).into(),
                     })
                     .pre_translate(origin_shift);
+                
+                // Scale factor already accounts for ppem, so we can just draw in the size of the
+                // actual image
+                let area = Rect::new(0.0, 0.0, pixmap.width as f64, pixmap.height as f64);
 
-                (GlyphType::Bitmap(BitmapGlyph { pixmap }), transform)
+                (GlyphType::Bitmap(BitmapGlyph { pixmap, area }), transform)
             } else {
                 let draw_settings = if let Some(hinting_instance) = &hinting_instance {
                     DrawSettings::hinted(hinting_instance, false)
