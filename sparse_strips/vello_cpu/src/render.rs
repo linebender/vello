@@ -14,7 +14,7 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::colr::{ColrPainter, ColrRenderer};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
-use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
+use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{Gradient, Image, Paint, PaintType};
@@ -282,22 +282,24 @@ impl RenderContext {
 }
 
 impl GlyphRenderer for RenderContext {
-    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>, font_ref: &FontRef<'_>) {
-        // Note that the glyphs already contain the transform from the render context, hence
-        // there is no need to apply them separately.
-
-        match glyph {
-            PreparedGlyph::Outline(glyph) => {
-                flatten::fill(glyph.path, glyph.transform, &mut self.line_buf);
+    fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>, font_ref: &FontRef<'_>) {
+        match prepared_glyph.glyph_type {
+            GlyphType::Outline(glyph) => {
+                flatten::fill(glyph.path, prepared_glyph.transform, &mut self.line_buf);
                 let paint = self.encode_current_paint();
                 self.render_path(Fill::NonZero, paint);
             }
-            PreparedGlyph::Bitmap(glyph) => {
+            GlyphType::Bitmap(glyph) => {
+                // We need to change the state of the render context
+                // to render the bitmap, but don't want to pollute the context,
+                // so simulate a `save` and `restore` operation.
                 let old_transform = self.transform;
                 let old_paint = self.paint.clone();
 
-                self.transform = glyph.transform;
+                self.transform = prepared_glyph.transform;
 
+                // The glyph transform already accounts for scaling of the bitmap,
+                // so we can just draw the pixmap at its normal resolution.
                 flatten::fill(
                     &Rect::new(
                         0.0,
@@ -310,8 +312,9 @@ impl GlyphRenderer for RenderContext {
                     &mut self.line_buf,
                 );
 
-                let quality = if glyph.transform.as_coeffs()[0] < 0.5
-                    || glyph.transform.as_coeffs()[3] < 0.5
+                // If we scale down by a large factor, fall back to cubic scaling.
+                let quality = if prepared_glyph.transform.as_coeffs()[0] < 0.5
+                    || prepared_glyph.transform.as_coeffs()[3] < 0.5
                 {
                     ImageQuality::High
                 } else {
@@ -330,10 +333,11 @@ impl GlyphRenderer for RenderContext {
                 let paint = self.encode_current_paint();
                 self.render_path(Fill::NonZero, paint);
 
+                // Restore the state.
                 self.set_paint(old_paint);
                 self.transform = old_transform;
             }
-            PreparedGlyph::Colr(glyph) => {
+            GlyphType::Colr(glyph) => {
                 let old_transform = self.transform;
                 let old_paint = self.paint.clone();
                 let context_color = match old_paint {
@@ -342,7 +346,7 @@ impl GlyphRenderer for RenderContext {
                 };
 
                 let upem: f64 = font_ref.head().map(|h| h.units_per_em()).unwrap().into();
-                let g_transform = glyph.transform();
+                let g_transform = prepared_glyph.transform;
                 let scale_factor = g_transform.as_coeffs()[0].max(g_transform.as_coeffs()[3]);
                 let bbox = glyph.bbox().unwrap_or(Rect::new(0.0, 0.0, upem, upem));
                 let scaled_bbox = bbox.scale_from_origin(scale_factor);
@@ -394,23 +398,23 @@ impl GlyphRenderer for RenderContext {
         }
     }
 
-    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>, font_ref: &FontRef<'_>) {
-        match glyph {
-            PreparedGlyph::Outline(glyph) => {
+    fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>, font_ref: &FontRef<'_>) {
+        match prepared_glyph.glyph_type {
+            GlyphType::Outline(glyph) => {
                 flatten::stroke(
                     glyph.path,
                     &self.stroke,
-                    glyph.transform,
+                    prepared_glyph.transform,
                     &mut self.line_buf,
                 );
                 let paint = self.encode_current_paint();
                 self.render_path(Fill::NonZero, paint);
             }
-            PreparedGlyph::Bitmap(_) => {
-                self.fill_glyph(glyph, font_ref);
+            GlyphType::Bitmap(_) => {
+                self.fill_glyph(prepared_glyph, font_ref);
             }
-            PreparedGlyph::Colr(_) => {
-                self.fill_glyph(glyph, font_ref);
+            GlyphType::Colr(_) => {
+                self.fill_glyph(prepared_glyph, font_ref);
             }
         }
     }

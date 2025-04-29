@@ -21,23 +21,32 @@ use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};
 pub use vello_api::glyph::*;
 use vello_api::pixmap::Pixmap;
 
-/// A glyph prepared for rendering.
+/// A type of glyph.
 #[derive(Debug)]
-pub enum PreparedGlyph<'a> {
-    /// A glyph defined by its outline.
+pub enum GlyphType<'a> {
+    /// An outline glyph.
     Outline(OutlineGlyph<'a>),
-    /// A glyph defined by a bitmap.
+    /// A bitmap glyph.
     Bitmap(BitmapGlyph),
-    Colr(ColorGlyph<'a>), // TODO: Colr variants.
+    /// A COLR glyph.
+    Colr(ColorGlyph<'a>), 
 }
+
+/// A simplified representation of a glyph, prepared for easy rendering.
+#[derive(Debug)]
+pub struct PreparedGlyph<'a> {
+    /// The type of glyph.
+    pub glyph_type: GlyphType<'a>,
+    /// The global transform of the glyph.
+    pub transform: Affine,
+}
+
 
 /// A glyph defined by a path (its outline) and a local transform.
 #[derive(Debug)]
 pub struct OutlineGlyph<'a> {
     /// The path of the glyph.
     pub path: &'a BezPath,
-    /// The global transform of the glyph.
-    pub transform: Affine,
 }
 
 /// A glyph defined by a bitmap.
@@ -45,22 +54,14 @@ pub struct OutlineGlyph<'a> {
 pub struct BitmapGlyph {
     /// The pixmap of the glyph.
     pub pixmap: Pixmap,
-    /// The global transform of the glyph.
-    pub transform: Affine,
 }
 
 pub struct ColorGlyph<'a> {
     // We are keeping this private to not leak skrifa in the public API.
     color_glyph: skrifa::color::ColorGlyph<'a>,
-    transform: Affine,
 }
 
 impl ColorGlyph<'_> {
-    /// Return the transform of the color glyph.
-    pub fn transform(&self) -> Affine {
-        self.transform
-    }
-
     /// Return the bbox of the glyph at a specific font size, if available.
     pub fn bbox(&self) -> Option<Rect> {
         self.color_glyph
@@ -188,7 +189,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                     BitmapData::Mask(_) => None,
                 });
 
-            let prepared_glyph = if let Some(color_glyph) = color_glyphs.get(GlyphId::new(glyph.id))
+            let (glyph_type, transform) = if let Some(color_glyph) = color_glyphs.get(GlyphId::new(glyph.id))
             {
                 let scale = self.run.font_size / upem;
 
@@ -196,10 +197,10 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                     .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
                     .pre_scale(scale as f64);
 
-                PreparedGlyph::Colr(ColorGlyph {
+
+                (GlyphType::Colr(ColorGlyph {
                     color_glyph,
-                    transform,
-                })
+                }), transform)
             } else if let Some((bitmap_glyph, pixmap)) = bitmap_data {
                 let x_scale_factor = self.run.font_size / bitmap_glyph.ppem_x;
                 let y_scale_factor = self.run.font_size / bitmap_glyph.ppem_y;
@@ -239,7 +240,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                     })
                     .pre_translate(origin_shift);
 
-                PreparedGlyph::Bitmap(BitmapGlyph { pixmap, transform })
+                (GlyphType::Bitmap(BitmapGlyph { pixmap }), transform)
             } else {
                 let draw_settings = if let Some(hinting_instance) = &hinting_instance {
                     DrawSettings::hinted(hinting_instance, false)
@@ -273,12 +274,16 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                     total_transform[5] = total_transform[5].round();
                 }
 
-                PreparedGlyph::Outline(OutlineGlyph {
+                (GlyphType::Outline(OutlineGlyph {
                     path: &path.0,
-                    transform: Affine::new(total_transform),
-                })
+                }), Affine::new(total_transform))
             };
 
+            let prepared_glyph = PreparedGlyph {
+                glyph_type,
+                transform,
+            };
+            
             render_glyph(self.renderer, prepared_glyph, &font_ref);
         }
     }
