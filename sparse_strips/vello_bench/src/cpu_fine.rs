@@ -9,11 +9,11 @@ use smallvec::smallvec;
 use vello_common::coarse::WideTile;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, ROYAL_BLUE, YELLOW};
-use vello_common::encode::EncodeExt;
-use vello_common::kurbo::{Affine, Point};
-use vello_common::paint::{Gradient, Paint};
+use vello_common::encode::{EncodeExt, EncodedPaint};
+use vello_common::kurbo::Point;
+use vello_common::paint::{Gradient, Paint, PremulColor};
 use vello_common::peniko;
-use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
+use vello_common::peniko::{BlendMode, ColorStop, ColorStops, Compose, GradientKind, Mix};
 use vello_common::tile::Tile;
 use vello_cpu::fine::{Fine, SCRATCH_BUF_SIZE};
 
@@ -21,12 +21,21 @@ pub fn fill(c: &mut Criterion) {
     let mut g = c.benchmark_group("fine/fill");
 
     macro_rules! fill_single {
-        ($name:ident, $paint:expr, $paints:expr) => {
+        ($name:ident, $paint:expr, $paints:expr, $width:expr) => {
             g.bench_function(stringify!($name), |b| {
                 let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
 
+                let paint = $paint;
+                let paints: &[EncodedPaint] = $paints;
+
                 b.iter(|| {
-                    fine.fill(0, WideTile::WIDTH as usize, $paint, $paints);
+                    fine.fill(
+                        0,
+                        $width,
+                        paint,
+                        BlendMode::new(Mix::Normal, Compose::SrcOver),
+                        paints,
+                    );
 
                     std::hint::black_box(&fine);
                 })
@@ -36,13 +45,21 @@ pub fn fill(c: &mut Criterion) {
 
     fill_single!(
         solid_opaque,
-        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8()),
-        &[]
+        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &[],
+        WideTile::WIDTH as usize
     );
     fill_single!(
-        sold_transparent,
-        &Paint::Solid(ROYAL_BLUE.with_alpha(0.2).premultiply().to_rgba8()),
-        &[]
+        solid_opaque_short,
+        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &[],
+        16
+    );
+    fill_single!(
+        solid_transparent,
+        &Paint::Solid(PremulColor::new(ROYAL_BLUE.with_alpha(0.2))),
+        &[],
+        WideTile::WIDTH as usize
     );
 
     macro_rules! fill_single_linear {
@@ -55,12 +72,12 @@ pub fn fill(c: &mut Criterion) {
                 },
                 stops: $stops,
                 extend: peniko::Extend::$extend,
-                transform: Affine::IDENTITY,
+                ..Default::default()
             };
 
             let paint = grad.encode_into(&mut paints);
 
-            fill_single!($name, &paint, &paints);
+            fill_single!($name, &paint, &paints, WideTile::WIDTH as usize);
         };
     }
 
@@ -96,12 +113,12 @@ pub fn fill(c: &mut Criterion) {
                 },
                 stops: $stops,
                 extend: peniko::Extend::$extend,
-                transform: Affine::default(),
+                ..Default::default()
             };
 
             let paint = grad.encode_into(&mut paints);
 
-            fill_single!($name, &paint, &paints);
+            fill_single!($name, &paint, &paints, WideTile::WIDTH as usize);
         };
     }
 
@@ -141,12 +158,12 @@ pub fn fill(c: &mut Criterion) {
                 },
                 stops: $stops,
                 extend: peniko::Extend::$extend,
-                transform: Affine::default(),
+                ..Default::default()
             };
 
             let paint = grad.encode_into(&mut paints);
 
-            fill_single!($name, &paint, &paints);
+            fill_single!($name, &paint, &paints, WideTile::WIDTH as usize);
         };
     }
 
@@ -183,12 +200,22 @@ pub fn strip(c: &mut Criterion) {
     }
 
     macro_rules! strip_single {
-        ($name:ident, $paint:expr, $paints:expr) => {
+        ($name:ident, $paint:expr, $paints:expr, $width:expr) => {
             g.bench_function(stringify!($name), |b| {
                 let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
 
+                let paint = $paint;
+                let paints: &[EncodedPaint] = $paints;
+
                 b.iter(|| {
-                    fine.strip(0, WideTile::WIDTH as usize, &alphas, $paint, $paints);
+                    fine.strip(
+                        0,
+                        $width,
+                        &alphas,
+                        paint,
+                        BlendMode::new(Mix::Normal, Compose::SrcOver),
+                        paints,
+                    );
 
                     std::hint::black_box(&fine);
                 })
@@ -198,8 +225,16 @@ pub fn strip(c: &mut Criterion) {
 
     strip_single!(
         basic,
-        &Paint::Solid(ROYAL_BLUE.premultiply().to_rgba8()),
-        &[]
+        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &[],
+        WideTile::WIDTH as usize
+    );
+
+    strip_single!(
+        basic_short,
+        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &[],
+        8
     );
 
     // There is not really a need to measure performance of complex paint types

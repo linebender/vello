@@ -1,9 +1,12 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_common::kurbo::{Affine, Point, Rect};
+use smallvec::smallvec;
+use vello_common::color::{ColorSpaceTag, DynamicColor};
+use vello_common::color::palette::css::{BLACK, BLUE, WHITE, YELLOW};
+use vello_common::kurbo::{Point, Rect};
 use vello_common::paint::Gradient;
-use vello_common::peniko::GradientKind;
+use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
 use crate::util::{check_ref, get_ctx, stops_blue_green_red_yellow, stops_green_blue};
 
 pub(crate) const fn tan_45() -> f64 {
@@ -21,8 +24,7 @@ fn gradient_on_3_wide_tiles() {
             end: Point::new(600.0, 0.0),
         },
         stops: stops_green_blue(),
-        transform: Affine::IDENTITY,
-        extend: vello_common::peniko::Extend::Pad,
+        ..Default::default()
     };
 
     ctx.set_paint(gradient);
@@ -42,14 +44,82 @@ fn gradient_with_global_alpha() {
             end: Point::new(90.0, 0.0),
         },
         stops: stops_blue_green_red_yellow(),
-        transform: Affine::IDENTITY,
-        extend: vello_common::peniko::Extend::Pad,
+        ..Default::default()
     }.multiply_alpha(0.5);
 
     ctx.set_paint(gradient);
     ctx.fill_rect(&rect);
 
     check_ref(&ctx, "gradient_with_global_alpha");
+}
+
+fn gradient_with_color_spaces(name: &str, stops: ColorStops) {
+    const COLOR_SPACES: &[ColorSpaceTag] = &[
+        ColorSpaceTag::Srgb, 
+        ColorSpaceTag::LinearSrgb,
+        ColorSpaceTag::Oklab,
+    ];
+    
+    const NUM_COLOR_SPACES: u16 = COLOR_SPACES.len() as u16;
+
+    let mut ctx = get_ctx(200, NUM_COLOR_SPACES * 40 + 10, false);
+    
+    let mut cur_y = 10.0;
+    
+    for cs in COLOR_SPACES {
+        let gradient = Gradient {
+            kind: GradientKind::Linear {
+                start: Point::new(10.0, 0.0),
+                end: Point::new(190.0, 0.0),
+            },
+            stops: stops.clone(),
+            interpolation_cs: *cs,
+            ..Default::default()
+        };
+
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&Rect::new(10.0, cur_y, 190.0, cur_y + 30.0));
+        cur_y += 40.0;
+    }
+
+    check_ref(&ctx, name);
+}
+
+#[test]
+fn gradient_with_color_spaces_1() {
+    let stops = ColorStops(smallvec![
+        ColorStop {
+            offset: 0.0,
+            color: DynamicColor::from_alpha_color(BLACK),
+        },
+        ColorStop {
+            offset: 1.0,
+            color: DynamicColor::from_alpha_color(WHITE),
+        },
+    ]);
+    
+    gradient_with_color_spaces("gradient_with_color_spaces_1", stops);
+}
+
+#[test]
+fn gradient_with_color_spaces_2() {
+    let stops = ColorStops(smallvec![
+        ColorStop {
+            offset: 0.0,
+            color: DynamicColor::from_alpha_color(BLUE),
+        },
+        ColorStop {
+            offset: 1.0,
+            color: DynamicColor::from_alpha_color(YELLOW),
+        },
+    ]);
+
+    gradient_with_color_spaces("gradient_with_color_spaces_2", stops);
+}
+
+#[test]
+fn gradient_with_color_spaces_3() {
+    gradient_with_color_spaces("gradient_with_color_spaces_3", stops_blue_green_red_yellow());
 }
 
 mod linear {
@@ -74,8 +144,7 @@ mod linear {
                 end: Point::new(90.0, 0.0),
             },
             stops: stops_green_blue(),
-            transform: Affine::IDENTITY,
-            extend: vello_common::peniko::Extend::Pad,
+            ..Default::default()
         };
 
         ctx.set_paint(gradient);
@@ -95,8 +164,7 @@ mod linear {
                 end: Point::new(90.0, 0.0),
             },
             stops: stops_green_blue_with_alpha(),
-            transform: Affine::IDENTITY,
-            extend: vello_common::peniko::Extend::Pad,
+            ..Default::default()
         };
 
         ctx.set_paint(gradient);
@@ -116,8 +184,7 @@ mod linear {
                     end: $end,
                 },
                 stops: stops_green_blue(),
-                transform: Affine::IDENTITY,
-                extend: vello_common::peniko::Extend::Pad,
+                ..Default::default()
             };
     
             ctx.set_paint(gradient);
@@ -158,8 +225,8 @@ mod linear {
                     end: Point::new(60.0, 60.0),
                 },
                 stops: stops_blue_green_red_yellow(),
-                transform: Affine::IDENTITY,
                 extend: $extend,
+                ..Default::default()
             };
 
             ctx.set_paint(gradient);
@@ -204,8 +271,7 @@ mod linear {
                 end: Point::new(90.0, 0.0),
             },
             stops: stops_blue_green_red_yellow(),
-            transform: Affine::IDENTITY,
-            extend: vello_common::peniko::Extend::Pad,
+            ..Default::default()
         };
 
         ctx.set_paint(gradient);
@@ -225,8 +291,7 @@ mod linear {
                 end: Point::new(100.0, 0.0),
             },
             stops: stops_blue_green_red_yellow(),
-            transform: Affine::IDENTITY,
-            extend: vello_common::peniko::Extend::Pad,
+            ..Default::default()
         };
 
         ctx.set_paint(gradient);
@@ -246,8 +311,8 @@ mod linear {
                 end: Point::new(50.5, 52.5),
             },
             stops: stops_blue_green_red_yellow(),
-            transform: Affine::IDENTITY,
             extend: vello_common::peniko::Extend::Repeat,
+            ..Default::default()
         };
 
         ctx.set_paint(gradient);
@@ -267,8 +332,8 @@ mod linear {
                 end: Point::new(50.5, 52.5),
             },
             stops: stops_blue_green_red_yellow(),
-            transform: Affine::IDENTITY,
             extend: vello_common::peniko::Extend::Reflect,
+            ..Default::default()
         };
 
         ctx.set_paint(gradient);
@@ -288,8 +353,7 @@ mod linear {
                     end: Point::new($p2, $p3),
                 },
                 stops: stops_blue_green_red_yellow(),
-                transform: Affine::IDENTITY,
-                extend: vello_common::peniko::Extend::Pad,
+                ..Default::default()
             };
 
             ctx.set_transform($transform);
@@ -473,8 +537,7 @@ mod radial {
                     end_radius: 40.0,
                 },
                 stops: $stops,
-                transform: Affine::IDENTITY,
-                extend: vello_common::peniko::Extend::Pad,
+                ..Default::default()
             };
 
             ctx.set_paint(gradient);
@@ -515,8 +578,8 @@ mod radial {
                     end_radius: 25.0,
                 },
                 stops: stops_blue_green_red_yellow(),
-                transform: Affine::IDENTITY,
                 extend: $extend,
+                ..Default::default()
             };
 
             ctx.set_paint(gradient);
@@ -563,8 +626,8 @@ mod radial {
                     end_radius: 40.0,
                 },
                 stops: stops_blue_green_red_yellow(),
-                transform: Affine::IDENTITY,
                 extend: vello_common::peniko::Extend::Repeat,
+                ..Default::default()
             };
 
             ctx.set_paint(gradient);
@@ -619,8 +682,7 @@ mod radial {
                 end_radius: 10.0,
             },
             stops: stops_blue_green_red_yellow(),
-            transform: Affine::IDENTITY,
-            extend: vello_common::peniko::Extend::Pad,
+            ..Default::default()
         };
 
         ctx.set_paint(gradient);
@@ -642,8 +704,7 @@ mod radial {
                     end_radius: 20.0,
                 },
                 stops: stops_blue_green_red_yellow(),
-                transform: Affine::IDENTITY,
-                extend: vello_common::peniko::Extend::Pad,
+                ..Default::default()
             };
 
             ctx.set_paint(gradient);
@@ -686,8 +747,7 @@ mod radial {
                 end_radius: 35.0,
             },
             stops: stops_blue_green_red_yellow(),
-            transform: Affine::IDENTITY,
-            extend: vello_common::peniko::Extend::Pad,
+            ..Default::default()
         };
 
         ctx.set_paint(gradient);
@@ -710,8 +770,7 @@ mod radial {
                     end_radius: 35.0,
                 },
                 stops: stops_blue_green_red_yellow(),
-                transform: Affine::IDENTITY,
-                extend: vello_common::peniko::Extend::Pad,
+                ..Default::default()
             };
 
             ctx.set_transform($transform);
@@ -894,8 +953,7 @@ mod sweep {
                     end_angle: 360.0,
                 },
                 stops: $stops,
-                extend: vello_common::peniko::Extend::Pad,
-                transform: Affine::IDENTITY,
+                ..Default::default()
             };
 
             ctx.set_paint(gradient);
@@ -953,8 +1011,7 @@ mod sweep {
                 end_angle: 360.0,
             },
             stops: stops_blue_green_red_yellow(),
-            extend: vello_common::peniko::Extend::Pad,
-            transform: Affine::IDENTITY,
+            ..Default::default()
         };
 
         ctx.set_paint(gradient);
@@ -976,7 +1033,7 @@ mod sweep {
                 },
                 stops: stops_blue_green_red_yellow(),
                 extend: $extend,
-                transform: Affine::IDENTITY,
+                ..Default::default()
             };
 
             ctx.set_paint(gradient);
@@ -1022,8 +1079,7 @@ mod sweep {
                     end_angle: 210.0,
                 },
                 stops: stops_blue_green_red_yellow(),
-                extend: vello_common::peniko::Extend::Pad,
-                transform: Affine::IDENTITY,
+                ..Default::default()
             };
 
             ctx.set_transform($transform);

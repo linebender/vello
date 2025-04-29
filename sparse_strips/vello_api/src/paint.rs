@@ -3,10 +3,10 @@
 
 //! Types for paints.
 
-use crate::kurbo::Affine;
+use crate::kurbo::{Affine, Point};
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
-use peniko::color::{AlphaColor, PremulRgba8, Srgb};
+use peniko::color::{AlphaColor, ColorSpaceTag, HueDirection, PremulRgba8, Srgb};
 use peniko::{ColorStops, GradientKind, ImageQuality};
 
 /// A paint that needs to be resolved via its index.
@@ -36,10 +36,10 @@ impl IndexedPaint {
 /// 2) Indexed paints, which can represent any arbitrary, more complex paint that is
 ///    determined by the frontend. The intended way of using this is to store a vector
 ///    of paints and store its index inside `IndexedPaint`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Paint {
     /// A premultiplied RGBA8 color.
-    Solid(PremulRgba8),
+    Solid(PremulColor),
     /// A paint that needs to be resolved via an index.
     Indexed(IndexedPaint),
 }
@@ -50,7 +50,7 @@ impl From<AlphaColor<Srgb>> for Paint {
         // Since we only do that conversion once per path it might not be critical, but should
         // still be measured. This also applies to all other usages of `to_rgba8` in the current
         // code.
-        Self::Solid(value.premultiply().to_rgba8())
+        Self::Solid(PremulColor::new(value))
     }
 }
 
@@ -70,6 +70,34 @@ pub struct Gradient {
     pub transform: Affine,
     /// The extend of the gradient.
     pub extend: peniko::Extend,
+    /// The color space to be used for interpolation.
+    ///
+    /// The colors in the color stops will be converted to this color space.
+    ///
+    /// This defaults to [sRGB](ColorSpaceTag::Srgb).
+    pub interpolation_cs: ColorSpaceTag,
+    /// When interpolating within a cylindrical color space, the direction for the hue.
+    ///
+    /// This is interpreted as described in [CSS Color Module Level 4 § 12.4].
+    ///
+    /// [CSS Color Module Level 4 § 12.4]: https://drafts.csswg.org/css-color/#hue-interpolation
+    pub hue_direction: HueDirection,
+}
+
+impl Default for Gradient {
+    fn default() -> Self {
+        Self {
+            kind: GradientKind::Linear {
+                start: Point::default(),
+                end: Point::default(),
+            },
+            transform: Affine::IDENTITY,
+            interpolation_cs: ColorSpaceTag::Srgb,
+            extend: Default::default(),
+            hue_direction: Default::default(),
+            stops: Default::default(),
+        }
+    }
 }
 
 impl Gradient {
@@ -97,6 +125,40 @@ pub struct Image {
     pub quality: ImageQuality,
     /// A transform to apply to the image.
     pub transform: Affine,
+}
+
+/// A premultiplied color.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct PremulColor {
+    premul_u8: PremulRgba8,
+    premul_f32: peniko::color::PremulColor<Srgb>,
+}
+
+impl PremulColor {
+    /// Create a new premultiplied color.
+    pub fn new(color: AlphaColor<Srgb>) -> Self {
+        let premul = color.premultiply();
+
+        Self {
+            premul_u8: premul.to_rgba8(),
+            premul_f32: premul,
+        }
+    }
+
+    /// Return the color as a premultiplied RGBA8 color.
+    pub fn as_premul_rgba8(&self) -> PremulRgba8 {
+        self.premul_u8
+    }
+
+    /// Return the color as a premultiplied RGBAF32 color.
+    pub fn as_premul_f32(&self) -> peniko::color::PremulColor<Srgb> {
+        self.premul_f32
+    }
+
+    /// Return whether the color is opaque (i.e. doesn't have transparency).
+    pub fn is_opaque(&self) -> bool {
+        self.premul_f32.components[3] == 1.0
+    }
 }
 
 /// A kind of paint that can be used for filling and stroking shapes.
