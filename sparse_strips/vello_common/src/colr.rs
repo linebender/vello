@@ -13,7 +13,7 @@ use skrifa::outline::DrawSettings;
 use skrifa::raw::TableProvider;
 use skrifa::raw::types::BoundingBox;
 use skrifa::{FontRef, GlyphId, MetadataProvider};
-use smallvec::{SmallVec, smallvec};
+use smallvec::SmallVec;
 use vello_api::color::{AlphaColor, DynamicColor};
 use vello_api::paint::Gradient;
 use vello_api::peniko::GradientKind;
@@ -53,7 +53,8 @@ impl<'a> ColrPainter<'a> {
     /// Create a new COLR painter.
     ///
     /// `initial_transform` represents an initial transformation that should be applied
-    /// to the whole glyphs.
+    /// to the whole glyph. By default, glyphs will be drawn in glyph space (i.e. with
+    /// coordinates based on the units per em of the font).
     /// `context_color` is the color that should be assumed for fills with a palette index
     /// of `u16::MAX`.
     pub fn new(
@@ -104,10 +105,11 @@ impl<'a> ColrPainter<'a> {
             })
             .collect::<SmallVec<[peniko::ColorStop; 4]>>();
 
-        // Pad stops if necessary.
-
+        // Pad stops if necessary, since vello requires offsets
+        // to start at 0.0 and end at 1.0.
         let first_stop = stops[0];
         let last_stop = *stops.last().unwrap();
+        
         if first_stop.offset != 0.0 {
             let mut new_stop = first_stop;
             new_stop.offset = 0.0;
@@ -123,6 +125,7 @@ impl<'a> ColrPainter<'a> {
         ColorStops(stops)
     }
 
+    /// Get the number of remaining layers in the painter.
     pub fn remaining_layers(&self) -> u32 {
         // In certain malformed fonts (i.e. if there is a cycle), skrifa will not
         // ensure that the push/pop count is the same, so the client needs to manually
@@ -130,6 +133,7 @@ impl<'a> ColrPainter<'a> {
         self.layer_count
     }
 
+    /// A shorthand for `std::mem::drop`.
     pub fn finish(self) {}
 }
 
@@ -188,8 +192,6 @@ impl ColorPainter for ColrPainter<'_> {
     }
 
     fn fill(&mut self, brush: Brush<'_>) {
-        eprintln!("Original: {:?}", brush);
-
         match brush {
             Brush::Solid {
                 palette_index,
@@ -234,7 +236,7 @@ impl ColorPainter for ColrPainter<'_> {
                 color_stops,
                 extend,
             } => {
-                // TODO: Radial gradients with negative radii.
+                // TODO: Radial gradients with negative r0.
 
                 let p0 = convert_point(c0);
                 let p1 = convert_point(c1);
@@ -282,7 +284,7 @@ impl ColorPainter for ColrPainter<'_> {
                 if start_angle == end_angle {
                     match extend {
                         Extend::Pad => {
-                            // vello_cpu doesn't accept sweep gradient with same start and end
+                            // Vello doesn't accept sweep gradient with same start and end
                             // angle, so add an artificial, small offset.
                             end_angle += 0.01;
                         }
@@ -305,8 +307,6 @@ impl ColorPainter for ColrPainter<'_> {
                     extend,
                     ..Default::default()
                 };
-
-                eprintln!("converted: {:?}", grad);
 
                 self.painter.fill_gradient(grad);
             }

@@ -289,7 +289,7 @@ fn glyphs_small_unhinted() {
 }
 
 #[test]
-fn glyphs_bitmap_cbdt() {
+fn glyphs_bitmap_noto() {
     let mut ctx = get_ctx(250, 70, false);
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size);
@@ -299,11 +299,11 @@ fn glyphs_bitmap_cbdt() {
         .font_size(font_size)
         .fill_glyphs(glyphs.into_iter());
 
-    check_ref(&ctx, "glyphs_bitmap_cbdt");
+    check_ref(&ctx, "glyphs_bitmap_noto");
 }
 
 #[test]
-fn glyphs_colr() {
+fn glyphs_colr_noto() {
     let mut ctx = get_ctx(250, 70, false);
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
@@ -313,7 +313,7 @@ fn glyphs_colr() {
         .font_size(font_size)
         .fill_glyphs(glyphs.into_iter());
 
-    check_ref(&ctx, "glyphs_colr");
+    check_ref(&ctx, "glyphs_colr_noto");
 }
 
 #[test]
