@@ -295,7 +295,7 @@ impl GlyphRenderer for RenderContext {
                 // so simulate a `save` and `restore` operation.
                 let old_transform = self.transform;
                 let old_paint = self.paint.clone();
-                
+
                 // If we scale down by a large factor, fall back to cubic scaling.
                 let quality = if prepared_glyph.transform.as_coeffs()[0] < 0.5
                     || prepared_glyph.transform.as_coeffs()[3] < 0.5
@@ -372,8 +372,18 @@ impl GlyphRenderer for RenderContext {
                 };
 
                 self.set_paint(image);
-                self.set_transform(g_transform * Affine::scale_non_uniform(1.0, -1.0) * Affine::translate((bbox.x0, bbox.y0)) * Affine::scale(1.0 / scale_factor));
-                self.fill_rect(&Rect::new(0.0, 0.0, scaled_bbox.width(), scaled_bbox.height()));
+                self.set_transform(
+                    g_transform
+                        * Affine::scale_non_uniform(1.0, -1.0)
+                        * Affine::translate((scaled_bbox.x0, scaled_bbox.y0))
+                        * Affine::scale(1.0 / scale_factor),
+                );
+                self.fill_rect(&Rect::new(
+                    0.0,
+                    0.0,
+                    scaled_bbox.width(),
+                    scaled_bbox.height(),
+                ));
 
                 self.set_paint(old_paint);
                 self.transform = old_transform;

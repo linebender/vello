@@ -29,7 +29,7 @@ pub enum GlyphType<'a> {
     /// A bitmap glyph.
     Bitmap(BitmapGlyph),
     /// A COLR glyph.
-    Colr(ColorGlyph<'a>), 
+    Colr(ColorGlyph<'a>),
 }
 
 /// A simplified representation of a glyph, prepared for easy rendering.
@@ -40,7 +40,6 @@ pub struct PreparedGlyph<'a> {
     /// The global transform of the glyph.
     pub transform: Affine,
 }
-
 
 /// A glyph defined by a path (its outline) and a local transform.
 #[derive(Debug)]
@@ -55,7 +54,7 @@ pub struct BitmapGlyph {
     /// The pixmap of the glyph.
     pub pixmap: Pixmap,
     /// The rectangular area that should be filled with the bitmap when painting.
-    pub area: Rect
+    pub area: Rect,
 }
 
 pub struct ColorGlyph<'a> {
@@ -191,7 +190,8 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                     BitmapData::Mask(_) => None,
                 });
 
-            let (glyph_type, transform) = if let Some(color_glyph) = color_glyphs.get(GlyphId::new(glyph.id))
+            let (glyph_type, transform) = if let Some(color_glyph) =
+                color_glyphs.get(GlyphId::new(glyph.id))
             {
                 let scale = self.run.font_size / upem;
 
@@ -199,10 +199,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                     .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
                     .pre_scale(scale as f64);
 
-
-                (GlyphType::Colr(ColorGlyph {
-                    color_glyph,
-                }), transform)
+                (GlyphType::Colr(ColorGlyph { color_glyph }), transform)
             } else if let Some((bitmap_glyph, pixmap)) = bitmap_data {
                 let x_scale_factor = self.run.font_size / bitmap_glyph.ppem_x;
                 let y_scale_factor = self.run.font_size / bitmap_glyph.ppem_y;
@@ -241,7 +238,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                         y: (-bitmap_glyph.inner_bearing_y).into(),
                     })
                     .pre_translate(origin_shift);
-                
+
                 // Scale factor already accounts for ppem, so we can just draw in the size of the
                 // actual image
                 let area = Rect::new(0.0, 0.0, pixmap.width as f64, pixmap.height as f64);
@@ -280,16 +277,17 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                     total_transform[5] = total_transform[5].round();
                 }
 
-                (GlyphType::Outline(OutlineGlyph {
-                    path: &path.0,
-                }), Affine::new(total_transform))
+                (
+                    GlyphType::Outline(OutlineGlyph { path: &path.0 }),
+                    Affine::new(total_transform),
+                )
             };
 
             let prepared_glyph = PreparedGlyph {
                 glyph_type,
                 transform,
             };
-            
+
             render_glyph(self.renderer, prepared_glyph, &font_ref);
         }
     }

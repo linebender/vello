@@ -109,7 +109,7 @@ impl<'a> ColrPainter<'a> {
         // to start at 0.0 and end at 1.0.
         let first_stop = stops[0];
         let last_stop = *stops.last().unwrap();
-        
+
         if first_stop.offset != 0.0 {
             let mut new_stop = first_stop;
             new_stop.offset = 0.0;
