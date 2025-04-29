@@ -130,8 +130,8 @@ impl Wide {
         let height_tiles = height.div_ceil(Tile::HEIGHT);
         let mut tiles = Vec::with_capacity(usize::from(width_tiles) * usize::from(height_tiles));
 
-        for w in 0..width_tiles {
-            for h in 0..height_tiles {
+        for h in 0..height_tiles {
+            for w in 0..width_tiles {
                 tiles.push(WideTile::new(w * WideTile::WIDTH, h * Tile::HEIGHT));
             }
         }
@@ -1013,7 +1013,7 @@ impl BlendModeExt for BlendMode {
 
 #[cfg(test)]
 mod tests {
-    use crate::coarse::{Cmd, CmdFill, WideTile};
+    use crate::coarse::{Cmd, CmdFill, Wide, WideTile};
     use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
     use crate::peniko::{BlendMode, Compose, Mix};
@@ -1089,5 +1089,18 @@ mod tests {
         wide.pop_buf();
 
         assert_eq!(wide.cmds.len(), 4);
+    }
+
+    #[test]
+    fn tile_coordinates() {
+        let wide = Wide::new(1000, 258);
+
+        let tile_1 = wide.get(1, 3);
+        assert_eq!(tile_1.x, 256);
+        assert_eq!(tile_1.y, 12);
+
+        let tile_2 = wide.get(2, 15);
+        assert_eq!(tile_2.x, 512);
+        assert_eq!(tile_2.y, 60);
     }
 }
