@@ -31,4 +31,5 @@ mod issues;
 mod layer;
 mod mask;
 mod mix;
+mod renderer;
 mod util;

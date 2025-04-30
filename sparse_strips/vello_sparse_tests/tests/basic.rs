@@ -12,6 +12,7 @@ use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Str
 use vello_common::peniko::Fill;
 use vello_cpu::RenderContext;
 use vello_macros::v_test;
+use crate::renderer::Renderer;
 
 #[v_test(width = 8, height = 8)]
 fn full_cover_1(ctx: &mut RenderContext) {
@@ -320,7 +321,7 @@ fn stroked_transformed_rect_3(ctx: &mut RenderContext) {
 }
 
 #[v_test(width = 30, height = 30)]
-fn stroked_transformed_rect_4(ctx: &mut RenderContext) {
+fn stroked_transformed_rect_4(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 20.0, 20.0);
     let stroke = miter_stroke_2();
 
