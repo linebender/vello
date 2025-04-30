@@ -1,4 +1,9 @@
-use crate::color::{ColorSpaceTag, HueDirection, Srgb};
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Drawing COLR glyphs.
+
+use crate::color::Srgb;
 use crate::glyph::{ColorGlyph, OutlinePath};
 use crate::kurbo::{Affine, BezPath, Point, Rect, Shape};
 use crate::peniko;
@@ -8,11 +13,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use skrifa::color::{Brush, ColorPainter, ColorStop, CompositeMode, Transform};
-use skrifa::instance::LocationRef;
 use skrifa::outline::DrawSettings;
 use skrifa::raw::TableProvider;
 use skrifa::raw::types::BoundingBox;
-use skrifa::{FontRef, GlyphId, MetadataProvider};
+use skrifa::{GlyphId, MetadataProvider};
 use smallvec::SmallVec;
 use vello_api::color::{AlphaColor, DynamicColor};
 use vello_api::paint::Gradient;
@@ -49,12 +53,6 @@ impl Debug for ColrPainter<'_> {
 
 impl<'a> ColrPainter<'a> {
     /// Create a new COLR painter.
-    ///
-    /// `initial_transform` represents an initial transformation that should be applied
-    /// to the whole glyph. By default, glyphs will be drawn in glyph space (i.e. with
-    /// coordinates based on the units per em of the font).
-    /// `context_color` is the color that should be assumed for fills with a palette index
-    /// of `u16::MAX`.
     pub fn new(
         color_glyph: ColorGlyph<'a>,
         context_color: AlphaColor<Srgb>,
@@ -69,6 +67,7 @@ impl<'a> ColrPainter<'a> {
         }
     }
 
+    /// Paint the underlying glyph.
     pub fn paint(&mut self) {
         let color_glyph = self.color_glyph.skrifa_glyph.clone();
         let location_ref = self.color_glyph.location;
@@ -238,9 +237,9 @@ impl ColorPainter for ColrPainter<'_> {
             }
             Brush::RadialGradient {
                 c0,
-                mut r0,
+                r0,
                 c1,
-                mut r1,
+                r1,
                 color_stops,
                 extend,
             } => {
@@ -249,7 +248,7 @@ impl ColorPainter for ColrPainter<'_> {
                 let p0 = convert_point(c0);
                 let p1 = convert_point(c1);
                 let extend = convert_extend(extend);
-                let mut stops = self.convert_stops(color_stops);
+                let stops = self.convert_stops(color_stops);
 
                 if r1 <= 0.0 || stops.len() == 1 {
                     self.painter.fill_solid(stops[0].color.to_alpha_color());
@@ -274,14 +273,14 @@ impl ColorPainter for ColrPainter<'_> {
             }
             Brush::SweepGradient {
                 c0,
-                mut start_angle,
+                start_angle,
                 mut end_angle,
                 color_stops,
                 extend,
             } => {
                 let p0 = convert_point(c0);
                 let extend = convert_extend(extend);
-                let mut stops = self.convert_stops(color_stops);
+                let stops = self.convert_stops(color_stops);
 
                 if stops.len() == 1 {
                     self.painter.fill_solid(stops[0].color.to_alpha_color());

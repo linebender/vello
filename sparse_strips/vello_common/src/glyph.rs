@@ -15,7 +15,7 @@ use skrifa::{
 };
 use vello_api::kurbo::{Affine, BezPath, Vec2};
 
-use crate::colr::{ColrPainter, convert_bounding_box};
+use crate::colr::convert_bounding_box;
 use crate::encode::x_y_advances;
 use crate::kurbo::Rect;
 use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};
@@ -293,7 +293,7 @@ fn prepare_outline_glyph<'a>(
 }
 
 fn prepare_bitmap_glyph<'a>(
-    bitmaps: &BitmapStrikes,
+    bitmaps: &BitmapStrikes<'_>,
     glyph: &Glyph,
     pixmap: Pixmap,
     font_size: f32,
