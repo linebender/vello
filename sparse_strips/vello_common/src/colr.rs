@@ -28,10 +28,8 @@ pub trait ColrRenderer {
     fn fill_solid(&mut self, color: AlphaColor<Srgb>);
     /// Fill the current area with the given gradient color.
     fn fill_gradient(&mut self, gradient: Gradient);
-    /// Pop the last clip layer.
-    fn pop_clip_layer(&mut self);
-    /// Pop the last blend layer.
-    fn pop_blend_layer(&mut self);
+    /// Pop the last clip/blend layer.
+    fn pop_layer(&mut self);
 }
 
 /// An abstraction for painting COLR glyphs.
@@ -197,7 +195,7 @@ impl ColorPainter for ColrPainter<'_> {
     }
 
     fn pop_clip(&mut self) {
-        self.painter.pop_clip_layer();
+        self.painter.pop_layer();
         self.layer_count -= 1;
     }
 
@@ -361,7 +359,7 @@ impl ColorPainter for ColrPainter<'_> {
     }
 
     fn pop_layer(&mut self) {
-        self.painter.pop_blend_layer();
+        self.painter.pop_layer();
         self.layer_count -= 1;
     }
 }

@@ -408,11 +408,7 @@ impl ColrRenderer for RenderContext {
         self.fill_rect(&Rect::new(0.0, 0.0, self.width as f64, self.height as f64))
     }
 
-    fn pop_clip_layer(&mut self) {
-        RenderContext::pop_layer(self);
-    }
-
-    fn pop_blend_layer(&mut self) {
+    fn pop_layer(&mut self) {
         RenderContext::pop_layer(self);
     }
 }
