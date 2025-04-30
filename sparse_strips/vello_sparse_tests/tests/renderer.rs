@@ -201,7 +201,7 @@ impl Renderer for Scene {
         let height = self.height();
 
         // Copied from vello_hybrid/examples/`render_to_file.rs`.
-        // TOOO: Deduplicate?
+        // TODO: Deduplicate?
 
         // Initialize wgpu device and queue for GPU rendering
         let instance = wgpu::Instance::default();
