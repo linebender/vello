@@ -141,6 +141,7 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 
             let mut ctx = get_ctx_inner::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
+            // TODO: When generating the diff, the suffix of the diff image should end with u8/hybrid.
             check_ref_inner(&ctx, #input_fn_name_str, #gpu_threshold);
         }
     };
