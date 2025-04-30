@@ -5,6 +5,7 @@
 
 use crate::util::{check_ref, circular_star, crossed_line_star, get_ctx};
 use std::f64::consts::PI;
+use vello_api::color::palette::css::BLACK;
 use vello_common::color::palette::css::{DARK_BLUE, DARK_GREEN, REBECCA_PURPLE};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
@@ -177,7 +178,7 @@ fn clip_with_multiple_transforms(ctx: &mut RenderContext) {
 
     // Create and apply first clip
     let clip_rect1 = Rect::new(20.0, 20.0, 80.0, 80.0);
-    draw_clipping_outline(&mut ctx, &clip_rect1.to_path(0.1));
+    draw_clipping_outline(ctx, &clip_rect1.to_path(0.1));
     ctx.push_clip_layer(&clip_rect1.to_path(0.1));
 
     // Apply another transform
@@ -185,7 +186,7 @@ fn clip_with_multiple_transforms(ctx: &mut RenderContext) {
 
     // Create and apply second clip
     let clip_rect2 = Rect::new(30.0, 30.0, 70.0, 70.0);
-    draw_clipping_outline(&mut ctx, &clip_rect2.to_path(0.1));
+    draw_clipping_outline(ctx, &clip_rect2.to_path(0.1));
     ctx.push_clip_layer(&clip_rect2.to_path(0.1));
 
     // Draw a rectangle that should be clipped by both regions
@@ -202,9 +203,6 @@ fn clip_with_save_restore(ctx: &mut RenderContext) {
     let clip_rect1 = Rect::new(10.0, 30.0, 50.0, 70.0);
     draw_clipping_outline(ctx, &clip_rect1.to_path(0.1));
     ctx.push_clip_layer(&clip_rect1.to_path(0.1));
-
-    // Save the state after first clip
-    ctx.save();
 
     // Add second clipping region - a circle on the right side
     let circle_center = Point::new(65.0, 50.0);
