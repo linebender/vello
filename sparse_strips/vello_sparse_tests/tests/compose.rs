@@ -1,12 +1,12 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::renderer::Renderer;
 use vello_common::color::palette::css::{BLUE, YELLOW};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_cpu::RenderContext;
 use vello_macros::v_test;
-use crate::renderer::Renderer;
 
 fn compose(ctx: &mut impl Renderer, compose: Compose) {
     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));

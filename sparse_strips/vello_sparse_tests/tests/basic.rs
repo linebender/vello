@@ -3,6 +3,7 @@
 
 //! Tests for basic functionality.
 
+use crate::renderer::Renderer;
 use crate::util::{circular_star, crossed_line_star, miter_stroke_2};
 use std::f64::consts::PI;
 use vello_common::color::palette::css::{
@@ -12,7 +13,6 @@ use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Str
 use vello_common::peniko::Fill;
 use vello_cpu::RenderContext;
 use vello_macros::v_test;
-use crate::renderer::Renderer;
 
 #[v_test(width = 8, height = 8)]
 fn full_cover_1(ctx: &mut impl Renderer) {

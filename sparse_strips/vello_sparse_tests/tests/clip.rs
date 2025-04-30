@@ -3,6 +3,7 @@
 
 //! Tests for clipping.
 
+use crate::renderer::Renderer;
 use crate::util::{circular_star, crossed_line_star};
 use std::f64::consts::PI;
 use vello_api::color::palette::css::BLACK;
@@ -11,7 +12,6 @@ use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
 use vello_cpu::RenderContext;
 use vello_macros::v_test;
-use crate::renderer::Renderer;
 
 #[v_test]
 fn clip_triangle_with_star(ctx: &mut impl Renderer) {

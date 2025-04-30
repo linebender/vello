@@ -3,6 +3,7 @@
 
 //! Utility functions shared across different tests.
 
+use crate::renderer::Renderer;
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder, Rgba, RgbaImage, load_from_memory};
 use skrifa::MetadataProvider;
@@ -19,7 +20,6 @@ use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, Font};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderContext;
-use crate::renderer::Renderer;
 
 static REFS_PATH: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_cpu/snapshots"));
@@ -27,12 +27,12 @@ static DIFFS_PATH: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_cpu/diffs"));
 
 pub(crate) fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderContext {
-    get_ctx_inner::<RenderContext>(width, height, transparent)   
+    get_ctx_inner::<RenderContext>(width, height, transparent)
 }
 
 pub(crate) fn get_ctx_inner<T: Renderer>(width: u16, height: u16, transparent: bool) -> T {
     let mut ctx = T::new(width, height);
-    
+
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);
 
@@ -185,17 +185,12 @@ pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
 
 pub(crate) fn pixmap_to_png(mut pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> {
     pixmap.unpremultiply();
-    
+
     let mut png_data = Vec::new();
     let cursor = Cursor::new(&mut png_data);
     let encoder = PngEncoder::new(cursor);
     encoder
-        .write_image(
-            pixmap.data(),
-            width,
-            height,
-            ExtendedColorType::Rgba8,
-        )
+        .write_image(pixmap.data(), width, height, ExtendedColorType::Rgba8)
         .expect("Failed to encode image");
     png_data
 }
@@ -206,7 +201,7 @@ pub(crate) fn check_ref(ctx: &impl Renderer, name: &str) {
 
 pub(crate) fn check_ref_inner(ctx: &impl Renderer, name: &str, threshold: u8) {
     let pixmap = render_pixmap(ctx);
-    
+
     let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
     let ref_path = REFS_PATH.join(format!("{}.png", name));
 
@@ -248,7 +243,11 @@ pub(crate) fn check_ref_inner(ctx: &impl Renderer, name: &str, threshold: u8) {
     }
 }
 
-fn get_diff(expected_image: &RgbaImage, actual_image: &RgbaImage, threshold: u8) -> Option<RgbaImage> {
+fn get_diff(
+    expected_image: &RgbaImage,
+    actual_image: &RgbaImage,
+    threshold: u8,
+) -> Option<RgbaImage> {
     let width = max(expected_image.width(), actual_image.width());
     let height = max(expected_image.height(), actual_image.height());
 
@@ -304,10 +303,10 @@ fn is_pix_diff(pixel1: &Rgba<u8>, pixel2: &Rgba<u8>, threshold: u8) -> bool {
     }
 
     let mut different = false;
-    
+
     for i in 0..3 {
         different |= pixel1.0[i].abs_diff(pixel2.0[i]) > threshold;
     }
-    
+
     different
 }

@@ -1,4 +1,4 @@
-use wgpu::RenderPassDescriptor;
+use crate::util::pixmap_to_png;
 use vello_api::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_api::mask::Mask;
 use vello_api::paint::PaintType;
@@ -7,7 +7,7 @@ use vello_api::pixmap::Pixmap;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_cpu::RenderContext;
 use vello_hybrid::{RenderTargetConfig, Scene};
-use crate::util::pixmap_to_png;
+use wgpu::RenderPassDescriptor;
 
 pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn new(width: u16, height: u16) -> Self;
@@ -39,71 +39,77 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
 
 impl Renderer for RenderContext {
     fn new(width: u16, height: u16) -> Self {
-       Self::new(width, height) 
+        Self::new(width, height)
     }
 
     fn fill_path(&mut self, path: &BezPath) {
-       Self::fill_path(self, path) 
+        Self::fill_path(self, path)
     }
 
     fn stroke_path(&mut self, path: &BezPath) {
-       Self::stroke_path(self, path) 
+        Self::stroke_path(self, path)
     }
 
     fn fill_rect(&mut self, rect: &Rect) {
-       Self::fill_rect(self, rect) 
+        Self::fill_rect(self, rect)
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
-       Self::stroke_rect(self, rect) 
+        Self::stroke_rect(self, rect)
     }
 
     fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
-       Self::glyph_run(self, font) 
+        Self::glyph_run(self, font)
     }
 
-    fn push_layer(&mut self, clip_path: Option<&BezPath>, blend_mode: Option<BlendMode>, opacity: Option<u8>, mask: Option<Mask>) {
-       Self::push_layer(self, clip_path, blend_mode, opacity, mask) 
+    fn push_layer(
+        &mut self,
+        clip_path: Option<&BezPath>,
+        blend_mode: Option<BlendMode>,
+        opacity: Option<u8>,
+        mask: Option<Mask>,
+    ) {
+        Self::push_layer(self, clip_path, blend_mode, opacity, mask)
     }
 
     fn push_clip_layer(&mut self, path: &BezPath) {
-       Self::push_clip_layer(self, path) 
+        Self::push_clip_layer(self, path)
     }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-       Self::push_blend_layer(self, blend_mode) 
+        Self::push_blend_layer(self, blend_mode)
     }
 
     fn push_opacity_layer(&mut self, opacity: u8) {
-       Self::push_opacity_layer(self, opacity) 
+        Self::push_opacity_layer(self, opacity)
     }
 
     fn push_mask_layer(&mut self, mask: Mask) {
-       Self::push_mask_layer(self, mask) 
+        Self::push_mask_layer(self, mask)
     }
 
     fn pop_layer(&mut self) {
-       Self::pop_layer(self) 
+        Self::pop_layer(self)
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
-       Self::set_stroke(self, stroke) 
+        Self::set_stroke(self, stroke)
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
-       Self::set_paint(self, paint) 
+        Self::set_paint(self, paint)
     }
 
     fn set_fill_rule(&mut self, fill_rule: Fill) {
-       Self::set_fill_rule(self, fill_rule) 
+        Self::set_fill_rule(self, fill_rule)
     }
 
     fn set_transform(&mut self, transform: Affine) {
-       Self::set_transform(self, transform) 
+        Self::set_transform(self, transform)
     }
 
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-       Self::render_to_pixmap(self, pixmap) 
+        Self::render_to_pixmap(self, pixmap)
     }
 
     fn width(&self) -> u16 {
@@ -125,22 +131,28 @@ impl Renderer for Scene {
     }
 
     fn stroke_path(&mut self, path: &BezPath) {
-       Self::stroke_path(self, path) 
+        Self::stroke_path(self, path)
     }
 
     fn fill_rect(&mut self, rect: &Rect) {
-       Self::fill_rect(self, rect) 
+        Self::fill_rect(self, rect)
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
-       Self::stroke_rect(self, rect) 
+        Self::stroke_rect(self, rect)
     }
 
     fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
-       Self::glyph_run(self, font) 
+        Self::glyph_run(self, font)
     }
 
-    fn push_layer(&mut self, _: Option<&BezPath>, _: Option<BlendMode>, _: Option<u8>, _: Option<Mask>) {
+    fn push_layer(
+        &mut self,
+        _: Option<&BezPath>,
+        _: Option<BlendMode>,
+        _: Option<u8>,
+        _: Option<Mask>,
+    ) {
         todo!()
     }
 
@@ -165,33 +177,33 @@ impl Renderer for Scene {
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
-       Self::set_stroke(self, stroke) 
+        Self::set_stroke(self, stroke)
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
-       let paint_type: PaintType = paint.into();
-       match paint_type {
-           PaintType::Solid(s) => Self::set_paint(self, s.into()),
-           PaintType::Gradient(_) => {}
-           PaintType::Image(_) => {}
-       }
+        let paint_type: PaintType = paint.into();
+        match paint_type {
+            PaintType::Solid(s) => Self::set_paint(self, s.into()),
+            PaintType::Gradient(_) => {}
+            PaintType::Image(_) => {}
+        }
     }
 
     fn set_fill_rule(&mut self, fill_rule: Fill) {
-       Self::set_fill_rule(self, fill_rule) 
+        Self::set_fill_rule(self, fill_rule)
     }
 
     fn set_transform(&mut self, transform: Affine) {
-       Self::set_transform(self, transform) 
+        Self::set_transform(self, transform)
     }
 
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         let width = self.width();
         let height = self.height();
-        
+
         // Copied from vello_hybrid/examples/`render_to_file.rs`.
         // TOOO: Deduplicate?
-        
+
         // Initialize wgpu device and queue for GPU rendering
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -199,7 +211,7 @@ impl Renderer for Scene {
             force_fallback_adapter: false,
             compatible_surface: None,
         }))
-            .expect("Failed to find an appropriate adapter");
+        .expect("Failed to find an appropriate adapter");
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 label: Some("Device"),
@@ -209,7 +221,7 @@ impl Renderer for Scene {
             },
             None,
         ))
-            .expect("Failed to create device");
+        .expect("Failed to create device");
 
         // Create a render target texture
         let texture = device.create_texture(&wgpu::TextureDescriptor {

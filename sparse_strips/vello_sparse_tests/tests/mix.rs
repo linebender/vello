@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::image::load_image;
+use crate::renderer::Renderer;
 use smallvec::smallvec;
 use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
@@ -11,7 +12,6 @@ use vello_common::peniko::{BlendMode, Compose, Extend, Mix};
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind, ImageQuality};
 use vello_cpu::RenderContext;
 use vello_macros::v_test;
-use crate::renderer::Renderer;
 
 // The outputs have been compared visually with tiny-skia, and except for two cases (where tiny-skia
 // is wrong), the overall visual effect looks the same.
@@ -67,98 +67,62 @@ fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
 
 #[v_test]
 fn mix_normal(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::Normal, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::Normal, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_multiply(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::Multiply, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::Multiply, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_screen(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::Screen, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::Screen, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_darken(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::Darken, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::Darken, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_lighten(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::Lighten, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::Lighten, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_color_dodge(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::ColorDodge, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::ColorDodge, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_color_burn(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::ColorBurn, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::ColorBurn, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_hard_light(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::HardLight, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::HardLight, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_soft_light(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::SoftLight, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::SoftLight, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_difference(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::Difference, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::Difference, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_exclusion(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::Exclusion, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::Exclusion, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_overlay(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::Overlay, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::Overlay, Compose::SrcOver));
 }
 
 #[v_test]
@@ -168,26 +132,17 @@ fn mix_hue(ctx: &mut impl Renderer) {
 
 #[v_test]
 fn mix_saturation(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::Saturation, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::Saturation, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_color(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::Color, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::Color, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_luminosity(ctx: &mut impl Renderer) {
-    mix(
-        ctx,
-        BlendMode::new(Mix::Luminosity, Compose::SrcOver),
-    );
+    mix(ctx, BlendMode::new(Mix::Luminosity, Compose::SrcOver));
 }
 
 #[v_test(transparent)]
