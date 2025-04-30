@@ -23,7 +23,12 @@
 
 mod basic;
 mod clip;
+mod compose;
 mod glyph;
 mod gradient;
+mod image;
 mod issues;
+mod layer;
+mod mask;
+mod mix;
 mod util;
