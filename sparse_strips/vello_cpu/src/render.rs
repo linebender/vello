@@ -329,38 +329,12 @@ impl GlyphRenderer for RenderContext {
                     _ => BLACK,
                 };
 
-                let upem: f64 = font_ref.head().map(|h| h.units_per_em()).unwrap().into();
-                let g_transform = prepared_glyph.transform;
-                let scale_factor = g_transform.as_coeffs()[0].max(g_transform.as_coeffs()[3]);
-                let bbox = glyph.bbox().unwrap_or(Rect::new(0.0, 0.0, upem, upem));
-                let scaled_bbox = bbox.scale_from_origin(scale_factor);
-                
-                let glyph_transform =                     g_transform
-                    * Affine::scale_non_uniform(1.0, -1.0)
-                    * Affine::translate((scaled_bbox.x0, scaled_bbox.y0))
-                    * Affine::scale(1.0 / scale_factor);
-
-                let (pix_width, pix_height) = (
-                    scaled_bbox.width().ceil() as u16,
-                    scaled_bbox.height().ceil() as u16,
-                );
-
-                let emoji_transform = Affine::translate((-scaled_bbox.x0, -scaled_bbox.y0))
-                    * Affine::scale(scale_factor);
-                
-                let area = Rect::new(
-                    0.0,
-                    0.0,
-                    scaled_bbox.width(),
-                    scaled_bbox.height(),
-                );
-
                 let emoji_pixmap = {
-                    let mut ctx = RenderContext::new(pix_width, pix_height);
-                    let mut pix = Pixmap::new(pix_width, pix_height);
+                    let mut ctx = RenderContext::new(glyph.pix_width, glyph.pix_height);
+                    let mut pix = Pixmap::new(glyph.pix_width, glyph.pix_height);
 
                     let mut colr_painter =
-                        ColrPainter::new(emoji_transform, font_ref, context_color, &mut ctx);
+                        ColrPainter::new(glyph.draw_transform, font_ref, context_color, &mut ctx);
 
                     glyph.paint(&mut colr_painter);
 
@@ -384,9 +358,10 @@ impl GlyphRenderer for RenderContext {
                 };
 
                 self.set_paint(image);
-                self.set_transform(glyph_transform);
-                self.fill_rect(&area);
+                self.set_transform(prepared_glyph.transform);
+                self.fill_rect(&glyph.area);
 
+                // Restore the state.
                 self.set_paint(old_paint);
                 self.transform = old_transform;
             }

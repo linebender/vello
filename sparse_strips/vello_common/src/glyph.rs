@@ -69,7 +69,8 @@ pub struct ColorGlyph<'a> {
     /// when painting.
     pub area: Rect,
     /// The size of the pixmap to which the glyph should be rendered to.
-    pub pixmap_size: Rect,
+    pub pix_width: u16,
+    pub pix_height: u16,
     /// The initial transform to supply to the COLR painter before drawing the glyph.
     pub draw_transform: Affine,
 }
@@ -210,8 +211,37 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 let transform = initial_transform
                     .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
                     .pre_scale(scale as f64);
+                
+                let g_transform = transform;
+                let scale_factor = g_transform.as_coeffs()[0].max(g_transform.as_coeffs()[3]);
+                let bbox = color_glyph
+                    .bounding_box(LocationRef::default(), Size::unscaled())
+                    .map(|b| convert_bounding_box(b)).unwrap_or(Rect::new(0.0, 0.0, upem as f64, upem as f64));
+                let scaled_bbox = bbox.scale_from_origin(scale_factor);
 
-                (GlyphType::Colr(ColorGlyph { color_glyph }), transform)
+                let glyph_transform = g_transform
+                    * Affine::scale_non_uniform(1.0, -1.0)
+                    * Affine::translate((bbox.x0, bbox.y0))
+                    * Affine::scale(1.0 / scale_factor);
+
+                let (pix_width, pix_height) = (
+                    scaled_bbox.width().ceil() as u16,
+                    scaled_bbox.height().ceil() as u16,
+                );
+
+                let draw_transform = Affine::translate((-scaled_bbox.x0, -scaled_bbox.y0))
+                    * Affine::scale(scale_factor);
+
+                let area = Rect::new(
+                    0.0,
+                    0.0,
+                    scaled_bbox.width(),
+                    scaled_bbox.height(),
+                );
+
+                (GlyphType::Colr(ColorGlyph { color_glyph, area, 
+                    pix_width, pix_height, 
+                    draw_transform }), glyph_transform)
             } else if let Some((bitmap_glyph, pixmap)) = bitmap_data {
                 let x_scale_factor = self.run.font_size / bitmap_glyph.ppem_x;
                 let y_scale_factor = self.run.font_size / bitmap_glyph.ppem_y;
