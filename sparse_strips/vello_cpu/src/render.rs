@@ -346,6 +346,8 @@ impl GlyphRenderer for RenderContext {
                     pixmap: Arc::new(emoji_pixmap),
                     x_extend: peniko::Extend::Pad,
                     y_extend: peniko::Extend::Pad,
+                    // Since the pixmap will already have the correct size, no need to
+                    // use a different image quality here.
                     quality: ImageQuality::Low,
                     transform: Affine::IDENTITY,
                 };
