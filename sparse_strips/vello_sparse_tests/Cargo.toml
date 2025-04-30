@@ -18,6 +18,9 @@ path = "tests/mod.rs"
 vello_api = { workspace = true }
 vello_common = { workspace = true }
 vello_cpu = { workspace = true }
+vello_hybrid = { workspace = true }
+wgpu = { workspace = true }
+pollster = { workspace = true }
 vello_macros = { workspace = true }
 oxipng = { workspace = true, features = ["freestanding", "parallel"] }
 image = { workspace = true, features = ["png"] }

@@ -3277,12 +3277,15 @@ version = "0.0.0"
 dependencies = [
  "image",
  "oxipng",
+ "pollster",
  "skrifa",
  "smallvec",
  "vello_api",
  "vello_common",
  "vello_cpu",
+ "vello_hybrid",
  "vello_macros",
+ "wgpu",
 ]
 
 [[package]]

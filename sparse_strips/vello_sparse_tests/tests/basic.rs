@@ -241,7 +241,7 @@ fn bevel_stroked_rect(ctx: &mut RenderContext) {
 }
 
 #[v_test(width = 30, height = 20)]
-fn filled_unaligned_rect(ctx: &mut RenderContext) {
+fn filled_unaligned_rect(ctx: &mut impl Renderer) {
     let rect = Rect::new(1.5, 1.5, 28.5, 18.5);
 
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
@@ -321,7 +321,7 @@ fn stroked_transformed_rect_3(ctx: &mut RenderContext) {
 }
 
 #[v_test(width = 30, height = 30)]
-fn stroked_transformed_rect_4(ctx: &mut impl Renderer) {
+fn stroked_transformed_rect_4(ctx: &mut RenderContext) {
     let rect = Rect::new(10.0, 10.0, 20.0, 20.0);
     let stroke = miter_stroke_2();
 

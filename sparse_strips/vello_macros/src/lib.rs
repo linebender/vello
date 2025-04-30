@@ -107,6 +107,25 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn_name_str = input_fn_name.to_string();
 
     let u8_fn_name = Ident::new(&format!("{}_u8", input_fn_name), input_fn_name.span());
+    let hybrid_fn_name = Ident::new(&format!("{}_hybrid", input_fn_name), input_fn_name.span());
+    
+    let hybrid = if input_fn_name.to_string() == "filled_unaligned_rect".to_string() {
+        quote! {
+            #[test]
+            fn #hybrid_fn_name() {
+                use crate::util::{
+                    check_ref, get_ctx_inner
+                };
+                use vello_hybrid::Scene;
+    
+                let mut ctx = get_ctx_inner::<Scene>(#width, #height, #transparent);
+                #input_fn_name(&mut ctx);
+                check_ref(&ctx, #input_fn_name_str);
+            }
+        }
+    }   else { 
+        quote! {}
+    };
 
     let expanded = quote! {
         #input_fn
@@ -121,6 +140,8 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             #input_fn_name(&mut ctx);
             check_ref(&ctx, #input_fn_name_str);
         }
+        
+        #hybrid
     };
 
     expanded.into()

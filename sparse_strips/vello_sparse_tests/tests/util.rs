@@ -19,6 +19,7 @@ use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, Font};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderContext;
+use crate::renderer::Renderer;
 
 static REFS_PATH: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_cpu/snapshots"));
@@ -26,7 +27,12 @@ static DIFFS_PATH: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_cpu/diffs"));
 
 pub(crate) fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderContext {
-    let mut ctx = RenderContext::new(width, height);
+    get_ctx_inner::<RenderContext>(width, height, transparent)   
+}
+
+pub(crate) fn get_ctx_inner<T: Renderer>(width: u16, height: u16, transparent: bool) -> T {
+    let mut ctx = T::new(width, height);
+    
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);
 
@@ -37,7 +43,7 @@ pub(crate) fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderConte
     ctx
 }
 
-pub(crate) fn render_pixmap(ctx: &RenderContext) -> Pixmap {
+pub(crate) fn render_pixmap(ctx: &impl Renderer) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
     ctx.render_to_pixmap(&mut pixmap);
     pixmap
@@ -177,25 +183,28 @@ pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
     ])
 }
 
-pub(crate) fn check_ref(ctx: &RenderContext, name: &str) {
-    let mut pixmap = render_pixmap(ctx);
+pub(crate) fn pixmap_to_png(mut pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> {
     pixmap.unpremultiply();
 
-    let encoded_image = {
-        let mut png_data = Vec::new();
-        let cursor = Cursor::new(&mut png_data);
-        let encoder = PngEncoder::new(cursor);
-        encoder
-            .write_image(
-                pixmap.data(),
-                ctx.width() as u32,
-                ctx.height() as u32,
-                ExtendedColorType::Rgba8,
-            )
-            .expect("Failed to encode image");
-        png_data
-    };
+    
+    let mut png_data = Vec::new();
+    let cursor = Cursor::new(&mut png_data);
+    let encoder = PngEncoder::new(cursor);
+    encoder
+        .write_image(
+            pixmap.data(),
+            width,
+            height,
+            ExtendedColorType::Rgba8,
+        )
+        .expect("Failed to encode image");
+    png_data
+}
 
+pub(crate) fn check_ref(ctx: &impl Renderer, name: &str) {
+    let pixmap = render_pixmap(ctx);
+    
+    let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
     let ref_path = REFS_PATH.join(format!("{}.png", name));
 
     let write_ref_image = || {
