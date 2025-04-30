@@ -59,8 +59,8 @@ pub struct BitmapGlyph {
 
 /// A glyph defined by a COLR glyph description.
 ///
-/// Clients are supposed to first draw the glyph into an intermediate image texture
-/// and then render the texture into the actual scene, in a similar fashion to
+/// Clients are supposed to first draw the glyph into an intermediate image texture/pixmap
+/// and then render that into the actual scene, in a similar fashion to
 /// bitmap glyphs.
 pub struct ColorGlyph<'a> {
     /// The underlying skrifa color glyph.
@@ -75,15 +75,6 @@ pub struct ColorGlyph<'a> {
     pub pix_height: u16,
     /// The initial transform to supply to the COLR painter before drawing the glyph.
     pub draw_transform: Affine,
-}
-
-impl ColorGlyph<'_> {
-    /// Return the bbox of the glyph at a specific font size, if available.
-    pub fn bbox(&self) -> Option<Rect> {
-        self.color_glyph
-            .bounding_box(LocationRef::default(), Size::unscaled())
-            .map(|b| convert_bounding_box(b))
-    }
 }
 
 impl Debug for ColorGlyph<'_> {
@@ -186,8 +177,9 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
         // Reuse the same `path` allocation for each glyph.
         let mut path = OutlinePath::new();
+
         for glyph in glyphs {
-            let bitmap_data: Option<(skrifa::bitmap::BitmapGlyph<'_>, Pixmap)> = bitmaps
+            let bitmap_data = bitmaps
                 .glyph_for_size(Size::new(self.run.font_size), GlyphId::new(glyph.id))
                 .and_then(|g| match g.data {
                     #[cfg(feature = "png")]
@@ -202,90 +194,24 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
             let (glyph_type, transform) =
                 if let Some(color_glyph) = color_glyphs.get(GlyphId::new(glyph.id)) {
-                    let scale = self.run.font_size / upem;
-
-                    let transform = initial_transform
-                        .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
-                        .pre_scale(scale as f64);
-
-                    let g_transform = transform;
-                    let scale_factor = g_transform.as_coeffs()[0].max(g_transform.as_coeffs()[3]);
-                    let bbox = color_glyph
-                        .bounding_box(LocationRef::default(), Size::unscaled())
-                        .map(|b| convert_bounding_box(b))
-                        .unwrap_or(Rect::new(0.0, 0.0, upem as f64, upem as f64));
-                    let scaled_bbox = bbox.scale_from_origin(scale_factor);
-
-                    let glyph_transform = g_transform
-                        * Affine::scale_non_uniform(1.0, -1.0)
-                        * Affine::translate((bbox.x0, bbox.y0))
-                        * Affine::scale(1.0 / scale_factor);
-
-                    let (pix_width, pix_height) = (
-                        scaled_bbox.width().ceil() as u16,
-                        scaled_bbox.height().ceil() as u16,
-                    );
-
-                    let draw_transform = Affine::translate((-scaled_bbox.x0, -scaled_bbox.y0))
-                        * Affine::scale(scale_factor);
-
-                    let area = Rect::new(0.0, 0.0, scaled_bbox.width(), scaled_bbox.height());
-
-                    (
-                        GlyphType::Colr(ColorGlyph {
-                            color_glyph,
-                            font_ref: &font_ref,
-                            area,
-                            pix_width,
-                            pix_height,
-                            draw_transform,
-                        }),
-                        glyph_transform,
+                    prepare_colr_glyph(
+                        &font_ref,
+                        &glyph,
+                        self.run.font_size,
+                        upem,
+                        initial_transform,
+                        color_glyph,
                     )
                 } else if let Some((bitmap_glyph, pixmap)) = bitmap_data {
-                    let x_scale_factor = self.run.font_size / bitmap_glyph.ppem_x;
-                    let y_scale_factor = self.run.font_size / bitmap_glyph.ppem_y;
-                    let font_units_to_size = self.run.font_size / upem;
-
-                    // CoreText appears to special case Apple Color Emoji, adding
-                    // a 100 font unit vertical offset. We do the same but only
-                    // when both vertical offsets are 0 to avoid incorrect
-                    // rendering if Apple ever does encode the offset directly in
-                    // the font.
-                    let bearing_y = if bitmap_glyph.bearing_y == 0.0
-                        && bitmaps.format() == Some(BitmapFormat::Sbix)
-                    {
-                        100.0
-                    } else {
-                        bitmap_glyph.bearing_y
-                    };
-
-                    let origin_shift = match bitmap_glyph.placement_origin {
-                        Origin::TopLeft => Vec2::default(),
-                        Origin::BottomLeft => Vec2 {
-                            x: 0.,
-                            y: -f64::from(pixmap.height),
-                        },
-                    };
-
-                    let transform = initial_transform
-                        .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
-                        .pre_translate(Vec2 {
-                            x: (-bitmap_glyph.bearing_x * font_units_to_size).into(),
-                            y: (bearing_y * font_units_to_size).into(),
-                        })
-                        .pre_scale_non_uniform(x_scale_factor as f64, y_scale_factor as f64)
-                        .pre_translate(Vec2 {
-                            x: (-bitmap_glyph.inner_bearing_x).into(),
-                            y: (-bitmap_glyph.inner_bearing_y).into(),
-                        })
-                        .pre_translate(origin_shift);
-
-                    // Scale factor already accounts for ppem, so we can just draw in the size of the
-                    // actual image
-                    let area = Rect::new(0.0, 0.0, pixmap.width as f64, pixmap.height as f64);
-
-                    (GlyphType::Bitmap(BitmapGlyph { pixmap, area }), transform)
+                    prepare_bitmap_glyph(
+                        &bitmaps,
+                        &glyph,
+                        pixmap,
+                        self.run.font_size,
+                        upem,
+                        initial_transform,
+                        bitmap_glyph,
+                    )
                 } else {
                     let draw_settings = if let Some(hinting_instance) = &hinting_instance {
                         DrawSettings::hinted(hinting_instance, false)
@@ -338,6 +264,109 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             render_glyph(self.renderer, prepared_glyph);
         }
     }
+}
+
+fn prepare_bitmap_glyph<'a>(
+    bitmaps: &BitmapStrikes,
+    glyph: &Glyph,
+    pixmap: Pixmap,
+    font_size: f32,
+    upem: f32,
+    initial_transform: Affine,
+    bitmap_glyph: skrifa::bitmap::BitmapGlyph<'a>,
+) -> (GlyphType<'a>, Affine) {
+    let x_scale_factor = font_size / bitmap_glyph.ppem_x;
+    let y_scale_factor = font_size / bitmap_glyph.ppem_y;
+    let font_units_to_size = font_size / upem;
+
+    // CoreText appears to special case Apple Color Emoji, adding
+    // a 100 font unit vertical offset. We do the same but only
+    // when both vertical offsets are 0 to avoid incorrect
+    // rendering if Apple ever does encode the offset directly in
+    // the font.
+    let bearing_y = if bitmap_glyph.bearing_y == 0.0 && bitmaps.format() == Some(BitmapFormat::Sbix)
+    {
+        100.0
+    } else {
+        bitmap_glyph.bearing_y
+    };
+
+    let origin_shift = match bitmap_glyph.placement_origin {
+        Origin::TopLeft => Vec2::default(),
+        Origin::BottomLeft => Vec2 {
+            x: 0.,
+            y: -f64::from(pixmap.height),
+        },
+    };
+
+    let transform = initial_transform
+        .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+        .pre_translate(Vec2 {
+            x: (-bitmap_glyph.bearing_x * font_units_to_size).into(),
+            y: (bearing_y * font_units_to_size).into(),
+        })
+        .pre_scale_non_uniform(x_scale_factor as f64, y_scale_factor as f64)
+        .pre_translate(Vec2 {
+            x: (-bitmap_glyph.inner_bearing_x).into(),
+            y: (-bitmap_glyph.inner_bearing_y).into(),
+        })
+        .pre_translate(origin_shift);
+
+    // Scale factor already accounts for ppem, so we can just draw in the size of the
+    // actual image
+    let area = Rect::new(0.0, 0.0, pixmap.width as f64, pixmap.height as f64);
+
+    (GlyphType::Bitmap(BitmapGlyph { pixmap, area }), transform)
+}
+
+fn prepare_colr_glyph<'a>(
+    font_ref: &'a FontRef<'a>,
+    glyph: &Glyph,
+    font_size: f32,
+    upem: f32,
+    initial_transform: Affine,
+    color_glyph: skrifa::color::ColorGlyph<'a>,
+) -> (GlyphType<'a>, Affine) {
+    let scale = font_size / upem;
+
+    let transform = initial_transform
+        .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+        .pre_scale(scale as f64);
+
+    let g_transform = transform;
+    let scale_factor = g_transform.as_coeffs()[0].max(g_transform.as_coeffs()[3]);
+    let bbox = color_glyph
+        .bounding_box(LocationRef::default(), Size::unscaled())
+        .map(|b| convert_bounding_box(b))
+        .unwrap_or(Rect::new(0.0, 0.0, upem as f64, upem as f64));
+    let scaled_bbox = bbox.scale_from_origin(scale_factor);
+
+    let glyph_transform = g_transform
+        * Affine::scale_non_uniform(1.0, -1.0)
+        * Affine::translate((bbox.x0, bbox.y0))
+        * Affine::scale(1.0 / scale_factor);
+
+    let (pix_width, pix_height) = (
+        scaled_bbox.width().ceil() as u16,
+        scaled_bbox.height().ceil() as u16,
+    );
+
+    let draw_transform =
+        Affine::translate((-scaled_bbox.x0, -scaled_bbox.y0)) * Affine::scale(scale_factor);
+
+    let area = Rect::new(0.0, 0.0, scaled_bbox.width(), scaled_bbox.height());
+
+    (
+        GlyphType::Colr(ColorGlyph {
+            color_glyph,
+            font_ref: &font_ref,
+            area,
+            pix_width,
+            pix_height,
+            draw_transform,
+        }),
+        glyph_transform,
+    )
 }
 
 enum Style {

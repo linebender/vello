@@ -320,6 +320,7 @@ impl GlyphRenderer for RenderContext {
                 self.transform = old_transform;
             }
             GlyphType::Colr(glyph) => {
+                // Same as for bitmap glyphs, save the state and restore it later on.
                 let old_transform = self.transform;
                 let old_paint = self.paint.clone();
                 let context_color = match old_paint {

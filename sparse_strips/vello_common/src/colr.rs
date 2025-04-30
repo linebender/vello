@@ -71,7 +71,7 @@ impl<'a> ColrPainter<'a> {
 
     pub fn paint(&mut self) {
         let color_glyph = self.color_glyph.color_glyph.clone();
-        // Ignore errors for now
+        // Ignore errors for now.
         let _ = color_glyph.paint(LocationRef::default(), self);
 
         // In certain malformed fonts (i.e. if there is a cycle), skrifa will not
@@ -164,6 +164,7 @@ impl ColorPainter for ColrPainter<'_> {
         let Some(outline_glyph) = outline_glyphs.get(glyph_id) else {
             return;
         };
+
         let _ = outline_glyph.draw(
             DrawSettings::unhinted(skrifa::instance::Size::unscaled(), LocationRef::default()),
             &mut outline_builder,
