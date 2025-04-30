@@ -3,6 +3,7 @@
 
 //! Rendering strips.
 
+use alloc::vec::Vec;
 use vello_api::peniko::Fill;
 
 use crate::flatten::Line;

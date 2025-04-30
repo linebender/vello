@@ -14,5 +14,9 @@ publish = false
 [dependencies]
 vello_common = { workspace = true }
 
+[features]
+default = ["png"]
+png = ["vello_common/png"]
+
 [lints]
 workspace = true

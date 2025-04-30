@@ -9,7 +9,13 @@
 //! for demonstration purposes. It supports basic SVG features like paths,
 //! fill, stroke, and grouping.
 
-use std::str::FromStr;
+extern crate std;
+
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::str::FromStr;
+use std::eprintln;
 
 use roxmltree::{Document, Node};
 use vello_api::kurbo::{Affine, BezPath, Point, Size, Vec2};
@@ -70,7 +76,7 @@ struct Parser {
 
 impl PicoSvg {
     /// Load an SVG document from a string
-    pub fn load(xml_string: &str, scale: f64) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load(xml_string: &str, scale: f64) -> Result<Self, Box<dyn core::error::Error>> {
         let doc = Document::parse(xml_string)?;
         let root = doc.root_element();
         let mut parser = Parser::new(scale);
@@ -163,7 +169,7 @@ impl Parser {
         node: Node<'_, '_>,
         properties: &RecursiveProperties,
         items: &mut Vec<Item>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn core::error::Error>> {
         if node.is_element() {
             let mut properties = properties.clone();
             if let Some(fill_color) = node.attribute("fill") {

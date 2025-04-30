@@ -13,11 +13,13 @@ publish = false
 
 [dependencies]
 peniko = { workspace = true }
+png = { workspace = true, optional = true }
 
 [features]
-default = ["std"]
+default = ["std", "png"]
 std = ["peniko/std"]
 libm = ["peniko/libm"]
+png = ["std", "dep:png"]
 simd = []
 
 [lints]
