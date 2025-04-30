@@ -330,7 +330,7 @@ impl GlyphRenderer for RenderContext {
 
                 let area = glyph.area;
 
-                let emoji_pixmap = {
+                let glyph_pixmap = {
                     let mut ctx = Self::new(glyph.pix_width, glyph.pix_height);
                     let mut pix = Pixmap::new(glyph.pix_width, glyph.pix_height);
 
@@ -343,7 +343,7 @@ impl GlyphRenderer for RenderContext {
                 };
 
                 let image = Image {
-                    pixmap: Arc::new(emoji_pixmap),
+                    pixmap: Arc::new(glyph_pixmap),
                     x_extend: peniko::Extend::Pad,
                     y_extend: peniko::Extend::Pad,
                     // Since the pixmap will already have the correct size, no need to
