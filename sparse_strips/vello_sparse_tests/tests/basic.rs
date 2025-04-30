@@ -357,7 +357,7 @@ fn filled_vertical_hairline_rect_2(ctx: &mut RenderContext) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test(transparent)]
+#[v_test]
 fn oversized_star(ctx: &mut RenderContext) {
     // Create a star path that extends beyond the render context boundaries
     // Center it in the middle of the viewport
