@@ -1,4 +1,4 @@
-//! Proc-macros for testing vello_cpu and vello_hybrid.
+//! Proc-macros for testing `vello_cpu` and `vello_hybrid`.
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -25,11 +25,11 @@ impl Parse for AttributeArg {
         let key = input.parse()?;
 
         if is_flag(&key) {
-            Ok(AttributeArg::Flag(key))
+            Ok(Self::Flag(key))
         } else {
             let eq_token = input.parse()?;
             let expr = input.parse()?;
-            Ok(AttributeArg::Pair {
+            Ok(Self::Pair {
                 key,
                 eq_token,
                 expr,
@@ -45,7 +45,7 @@ struct AttributeInput {
 
 impl Parse for AttributeInput {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        Ok(AttributeInput {
+        Ok(Self {
             args: input.parse_terminated(AttributeArg::parse, Token![,])?,
         })
     }

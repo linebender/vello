@@ -1,7 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::util::{check_ref, get_ctx};
 use smallvec::smallvec;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};

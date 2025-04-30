@@ -3,7 +3,7 @@
 
 //! Tests for glyph rendering.
 
-use crate::util::{check_ref, get_ctx, layout_glyphs};
+use crate::util::layout_glyphs;
 use vello_common::color::palette::css::REBECCA_PURPLE;
 use vello_common::kurbo::Affine;
 use vello_cpu::RenderContext;

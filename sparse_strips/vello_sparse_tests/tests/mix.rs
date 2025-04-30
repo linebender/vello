@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::image::load_image;
-use crate::util::{check_ref, get_ctx};
 use smallvec::smallvec;
 use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};

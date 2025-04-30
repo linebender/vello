@@ -3,7 +3,7 @@
 
 //! Tests for clipping.
 
-use crate::util::{check_ref, circular_star, crossed_line_star, get_ctx};
+use crate::util::{circular_star, crossed_line_star};
 use std::f64::consts::PI;
 use vello_api::color::palette::css::BLACK;
 use vello_common::color::palette::css::{DARK_BLUE, DARK_GREEN, REBECCA_PURPLE};
