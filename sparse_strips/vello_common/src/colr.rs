@@ -71,8 +71,9 @@ impl<'a> ColrPainter<'a> {
 
     pub fn paint(&mut self) {
         let color_glyph = self.color_glyph.color_glyph.clone();
+        let location_ref = self.color_glyph.location;
         // Ignore errors for now.
-        let _ = color_glyph.paint(LocationRef::default(), self);
+        let _ = color_glyph.paint(location_ref, self);
 
         // In certain malformed fonts (i.e. if there is a cycle), skrifa will not
         // ensure that the push/pop count is the same, so we pop the remaining ones here.
@@ -166,7 +167,10 @@ impl ColorPainter for ColrPainter<'_> {
         };
 
         let _ = outline_glyph.draw(
-            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), LocationRef::default()),
+            DrawSettings::unhinted(
+                skrifa::instance::Size::unscaled(),
+                self.color_glyph.location,
+            ),
             &mut outline_builder,
         );
 

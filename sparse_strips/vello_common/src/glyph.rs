@@ -65,6 +65,7 @@ pub struct BitmapGlyph {
 pub struct ColorGlyph<'a> {
     /// The underlying skrifa color glyph.
     pub(crate) color_glyph: skrifa::color::ColorGlyph<'a>,
+    pub(crate) location: LocationRef<'a>,
     /// The underlying FontRef.
     pub(crate) font_ref: &'a FontRef<'a>,
     /// The rectangular area that should be filled with the rendered COLR glyph
@@ -201,6 +202,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                         upem,
                         initial_transform,
                         color_glyph,
+                        normalized_coords,
                     )
                 } else if let Some((bitmap_glyph, pixmap)) = bitmap_data {
                     prepare_bitmap_glyph(
@@ -348,6 +350,7 @@ fn prepare_colr_glyph<'a>(
     upem: f32,
     initial_transform: Affine,
     color_glyph: skrifa::color::ColorGlyph<'a>,
+    normalized_coords: &'a [skrifa::instance::NormalizedCoord],
 ) -> (GlyphType<'a>, Affine) {
     let scale = font_size / upem;
 
@@ -382,6 +385,7 @@ fn prepare_colr_glyph<'a>(
         GlyphType::Colr(ColorGlyph {
             color_glyph,
             font_ref: &font_ref,
+            location: LocationRef::new(normalized_coords),
             area,
             pix_width,
             pix_height,
