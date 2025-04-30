@@ -1,13 +1,13 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::util::{check_ref, get_ctx, stops_blue_green_red_yellow, stops_green_blue};
 use smallvec::smallvec;
-use vello_common::color::{ColorSpaceTag, DynamicColor};
 use vello_common::color::palette::css::{BLACK, BLUE, WHITE, YELLOW};
+use vello_common::color::{ColorSpaceTag, DynamicColor};
 use vello_common::kurbo::{Point, Rect};
 use vello_common::paint::Gradient;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
-use crate::util::{check_ref, get_ctx, stops_blue_green_red_yellow, stops_green_blue};
 
 pub(crate) const fn tan_45() -> f64 {
     1.0
@@ -45,7 +45,8 @@ fn gradient_with_global_alpha() {
         },
         stops: stops_blue_green_red_yellow(),
         ..Default::default()
-    }.multiply_alpha(0.5);
+    }
+    .multiply_alpha(0.5);
 
     ctx.set_paint(gradient);
     ctx.fill_rect(&rect);
@@ -55,17 +56,17 @@ fn gradient_with_global_alpha() {
 
 fn gradient_with_color_spaces(name: &str, stops: ColorStops) {
     const COLOR_SPACES: &[ColorSpaceTag] = &[
-        ColorSpaceTag::Srgb, 
+        ColorSpaceTag::Srgb,
         ColorSpaceTag::LinearSrgb,
         ColorSpaceTag::Oklab,
     ];
-    
+
     const NUM_COLOR_SPACES: u16 = COLOR_SPACES.len() as u16;
 
     let mut ctx = get_ctx(200, NUM_COLOR_SPACES * 40 + 10, false);
-    
+
     let mut cur_y = 10.0;
-    
+
     for cs in COLOR_SPACES {
         let gradient = Gradient {
             kind: GradientKind::Linear {
@@ -97,7 +98,7 @@ fn gradient_with_color_spaces_1() {
             color: DynamicColor::from_alpha_color(WHITE),
         },
     ]);
-    
+
     gradient_with_color_spaces("gradient_with_color_spaces_1", stops);
 }
 
@@ -119,10 +120,14 @@ fn gradient_with_color_spaces_2() {
 
 #[test]
 fn gradient_with_color_spaces_3() {
-    gradient_with_color_spaces("gradient_with_color_spaces_3", stops_blue_green_red_yellow());
+    gradient_with_color_spaces(
+        "gradient_with_color_spaces_3",
+        stops_blue_green_red_yellow(),
+    );
 }
 
 mod linear {
+    use crate::gradient::tan_45;
     use crate::util::{
         check_ref, crossed_line_star, get_ctx, stops_blue_green_red_yellow, stops_green_blue,
         stops_green_blue_with_alpha,
@@ -131,7 +136,6 @@ mod linear {
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::paint::Gradient;
     use vello_common::peniko::GradientKind;
-    use crate::gradient::tan_45;
 
     #[test]
     fn gradient_linear_2_stops() {
@@ -172,12 +176,12 @@ mod linear {
 
         check_ref(&ctx, "gradient_linear_2_stops_with_alpha");
     }
-    
+
     macro_rules! directional {
         ($name:expr, $start:expr, $end:expr) => {
             let mut ctx = get_ctx(100, 100, false);
             let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-    
+
             let gradient = Gradient {
                 kind: GradientKind::Linear {
                     start: $start,
@@ -186,32 +190,48 @@ mod linear {
                 stops: stops_green_blue(),
                 ..Default::default()
             };
-    
+
             ctx.set_paint(gradient);
             ctx.fill_rect(&rect);
-            
-             check_ref(&ctx, $name);
+
+            check_ref(&ctx, $name);
         };
     }
 
     #[test]
     fn gradient_linear_negative_direction() {
-        directional!("gradient_linear_negative_direction", Point::new(90.0, 0.0), Point::new(10.0, 0.0));
+        directional!(
+            "gradient_linear_negative_direction",
+            Point::new(90.0, 0.0),
+            Point::new(10.0, 0.0)
+        );
     }
 
     #[test]
     fn gradient_linear_with_downward_y() {
-        directional!("gradient_linear_with_downward_y", Point::new(20.0, 20.0), Point::new(80.0, 80.0));
+        directional!(
+            "gradient_linear_with_downward_y",
+            Point::new(20.0, 20.0),
+            Point::new(80.0, 80.0)
+        );
     }
 
     #[test]
     fn gradient_linear_with_upward_y() {
-        directional!("gradient_linear_with_upward_y", Point::new(20.0, 80.0), Point::new(80.0, 20.0));
+        directional!(
+            "gradient_linear_with_upward_y",
+            Point::new(20.0, 80.0),
+            Point::new(80.0, 20.0)
+        );
     }
 
     #[test]
     fn gradient_linear_vertical() {
-        directional!("gradient_linear_vertical", Point::new(0.0, 10.0), Point::new(0.0, 90.0));
+        directional!(
+            "gradient_linear_vertical",
+            Point::new(0.0, 10.0),
+            Point::new(0.0, 90.0)
+        );
     }
 
     macro_rules! gradient_pad {
@@ -514,15 +534,15 @@ mod linear {
 }
 
 mod radial {
+    use crate::gradient::tan_45;
     use crate::util::{
         check_ref, crossed_line_star, get_ctx, stops_blue_green_red_yellow, stops_green_blue,
         stops_green_blue_with_alpha,
     };
     use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
-    use vello_common::peniko::GradientKind::Radial;
     use vello_common::paint::Gradient;
-    use crate::gradient::tan_45;
+    use vello_common::peniko::GradientKind::Radial;
 
     macro_rules! simple {
         ($stops:expr, $name:expr) => {
@@ -931,15 +951,15 @@ mod radial {
 }
 
 mod sweep {
+    use crate::gradient::tan_45;
     use crate::util::{
         check_ref, crossed_line_star, get_ctx, stops_blue_green_red_yellow, stops_green_blue,
         stops_green_blue_with_alpha,
     };
     use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
-    use vello_common::peniko::GradientKind;
     use vello_common::paint::Gradient;
-    use crate::gradient::tan_45;
+    use vello_common::peniko::GradientKind;
 
     macro_rules! basic {
         ($stops:expr, $name:expr, $center:expr) => {

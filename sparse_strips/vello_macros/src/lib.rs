@@ -4,7 +4,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{parse_macro_input, Expr, Ident, ItemFn, Token};
+use syn::{Expr, Ident, ItemFn, Token, parse_macro_input};
 
 #[derive(Debug)]
 enum AttributeArg {
@@ -23,13 +23,17 @@ fn is_flag(key: &Ident) -> bool {
 impl Parse for AttributeArg {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let key = input.parse()?;
-        
+
         if is_flag(&key) {
             Ok(AttributeArg::Flag(key))
         } else {
             let eq_token = input.parse()?;
             let expr = input.parse()?;
-            Ok(AttributeArg::Pair { key, eq_token, expr })
+            Ok(AttributeArg::Pair {
+                key,
+                eq_token,
+                expr,
+            })
         }
     }
 }
@@ -106,13 +110,13 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         #input_fn
-        
+
         #[test]
         fn #u8_fn_name() {
             use crate::util::{
                 check_ref, get_ctx
             };
-            
+
             let mut ctx = get_ctx(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             check_ref(&ctx, #input_fn_name_str);
@@ -123,7 +127,11 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 fn parse_int_lit(expr: &Expr) -> Option<u16> {
-    if let Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(lit_int), .. }) = expr {
+    if let Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Int(lit_int),
+        ..
+    }) = expr
+    {
         lit_int.base10_parse::<u16>().ok()
     } else {
         None

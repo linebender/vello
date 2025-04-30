@@ -1,15 +1,15 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::gradient::tan_45;
+use crate::util::{check_ref, crossed_line_star, get_ctx};
 use std::f64::consts::PI;
 use std::path::Path;
 use std::sync::Arc;
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::Image;
-use vello_common::pixmap::Pixmap;
 use vello_common::peniko::{Extend, ImageQuality};
-use crate::gradient::tan_45;
-use crate::util::{check_ref, crossed_line_star, get_ctx};
+use vello_common::pixmap::Pixmap;
 
 pub(crate) fn load_image(name: &str) -> Arc<Pixmap> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/assets/{name}.png"));
@@ -43,19 +43,19 @@ fn lumaa_img_10x10() -> Arc<Pixmap> {
 macro_rules! repeat {
     ($name:expr, $x_repeat:expr, $y_repeat:expr) => {
         let mut ctx = get_ctx(100, 100, false);
-    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-    let im = rgb_img_10x10();
-    
-    ctx.set_paint(Image {
-        pixmap: im,
-        x_extend: $x_repeat,
-        y_extend: $y_repeat,
-        quality: ImageQuality::Low,
-        transform: Affine::translate((45.0, 45.0)),
-    });
-    ctx.fill_rect(&rect);
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+        let im = rgb_img_10x10();
 
-    check_ref(&ctx, $name);
+        ctx.set_paint(Image {
+            pixmap: im,
+            x_extend: $x_repeat,
+            y_extend: $y_repeat,
+            quality: ImageQuality::Low,
+            transform: Affine::translate((45.0, 45.0)),
+        });
+        ctx.fill_rect(&rect);
+
+        check_ref(&ctx, $name);
     };
 }
 
@@ -71,7 +71,11 @@ fn image_pad_x_repeat_y() {
 
 #[test]
 fn image_reflect_x_reflect_y() {
-    repeat!("image_reflect_x_reflect_y", Extend::Reflect, Extend::Reflect);
+    repeat!(
+        "image_reflect_x_reflect_y",
+        Extend::Reflect,
+        Extend::Reflect
+    );
 }
 
 #[test]
@@ -108,61 +112,61 @@ macro_rules! transform {
 #[test]
 fn image_with_transform_identity() {
     transform!(
-            "image_with_transform_identity",
-            Affine::IDENTITY,
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+        "image_with_transform_identity",
+        Affine::IDENTITY,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
 }
 
 #[test]
 fn image_with_transform_translate() {
     transform!(
-            "image_with_transform_translate",
-            Affine::translate((25.0, 25.0)),
-            0.0,
-            0.0,
-            50.0,
-            50.0
-        );
+        "image_with_transform_translate",
+        Affine::translate((25.0, 25.0)),
+        0.0,
+        0.0,
+        50.0,
+        50.0
+    );
 }
 
 #[test]
 fn image_with_transform_scale() {
     transform!(
-            "image_with_transform_scale",
-            Affine::scale(2.0),
-            12.5,
-            12.5,
-            37.5,
-            37.5
-        );
+        "image_with_transform_scale",
+        Affine::scale(2.0),
+        12.5,
+        12.5,
+        37.5,
+        37.5
+    );
 }
 
 #[test]
 fn image_with_transform_negative_scale() {
     transform!(
-            "image_with_transform_negative_scale",
-            Affine::translate((100.0, 100.0)) * Affine::scale(-2.0),
-            12.5,
-            12.5,
-            37.5,
-            37.5
-        );
+        "image_with_transform_negative_scale",
+        Affine::translate((100.0, 100.0)) * Affine::scale(-2.0),
+        12.5,
+        12.5,
+        37.5,
+        37.5
+    );
 }
 
 #[test]
 fn image_with_transform_scale_and_translate() {
     transform!(
-            "image_with_transform_scale_and_translate",
-            Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
-            0.0,
-            0.0,
-            25.0,
-            25.0
-        );
+        "image_with_transform_scale_and_translate",
+        Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
+        0.0,
+        0.0,
+        25.0,
+        25.0
+    );
 }
 
 // TODO: The below two test cases fail on Windows CI for some reason.
@@ -170,90 +174,90 @@ fn image_with_transform_scale_and_translate() {
 #[ignore]
 fn image_with_transform_rotate_1() {
     transform!(
-            "image_with_transform_rotate_1",
-            Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+        "image_with_transform_rotate_1",
+        Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
 }
 
 #[test]
 #[ignore]
 fn image_with_transform_rotate_2() {
     transform!(
-            "image_with_transform_rotate_2",
-            Affine::rotate_about(-PI / 4.0, Point::new(50.0, 50.0)),
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+        "image_with_transform_rotate_2",
+        Affine::rotate_about(-PI / 4.0, Point::new(50.0, 50.0)),
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
 }
 
 #[test]
 fn image_with_transform_scaling_non_uniform() {
     transform!(
-            "image_with_transform_scaling_non_uniform",
-            Affine::scale_non_uniform(1.0, 2.0),
-            25.0,
-            12.5,
-            75.0,
-            37.5
-        );
+        "image_with_transform_scaling_non_uniform",
+        Affine::scale_non_uniform(1.0, 2.0),
+        25.0,
+        12.5,
+        75.0,
+        37.5
+    );
 }
 
 #[test]
 fn image_with_transform_skew_x_1() {
     let transform = Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0);
     transform!(
-            "image_with_transform_skew_x_1",
-            transform,
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+        "image_with_transform_skew_x_1",
+        transform,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
 }
 
 #[test]
 fn image_with_transform_skew_x_2() {
     let transform = Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0);
     transform!(
-            "image_with_transform_skew_x_2",
-            transform,
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+        "image_with_transform_skew_x_2",
+        transform,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
 }
 
 #[test]
 fn image_with_transform_skew_y_1() {
     let transform = Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45());
     transform!(
-            "image_with_transform_skew_y_1",
-            transform,
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+        "image_with_transform_skew_y_1",
+        transform,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
 }
 
 #[test]
 fn image_with_transform_skew_y_2() {
     let transform = Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45());
     transform!(
-            "image_with_transform_skew_y_2",
-            transform,
-            25.0,
-            25.0,
-            75.0,
-            75.0
-        );
+        "image_with_transform_skew_y_2",
+        transform,
+        25.0,
+        25.0,
+        75.0,
+        75.0
+    );
 }
 
 #[test]
@@ -278,8 +282,8 @@ fn image_complex_shape() {
 #[test]
 fn image_global_alpha() {
     let mut ctx = get_ctx(100, 100, false);
-    let rect = Rect::new(10.0, 10.0, 90.0 ,90.0);
-    
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
     let mut pix = rgb_img_10x10();
     Arc::make_mut(&mut pix).multiply_alpha(75);
 
@@ -300,8 +304,8 @@ fn image_global_alpha() {
 macro_rules! image_format {
     ($name:expr, $image:expr) => {
         let mut ctx = get_ctx(100, 100, false);
-        let rect = Rect::new(10.0, 10.0, 90.0 ,90.0);
-    
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
         let image = Image {
             pixmap: $image,
             x_extend: Extend::Repeat,
@@ -309,10 +313,10 @@ macro_rules! image_format {
             quality: ImageQuality::Low,
             transform: Affine::IDENTITY,
         };
-    
+
         ctx.set_paint(image);
         ctx.fill_rect(&rect);
-    
+
         check_ref(&ctx, $name);
     };
 }
@@ -341,7 +345,7 @@ macro_rules! quality {
     ($name:expr, $transform:expr, $image:expr, $quality:expr, $extend:expr) => {
         let mut ctx = get_ctx(100, 100, false);
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-    
+
         let image = Image {
             pixmap: $image,
             x_extend: $extend,
@@ -349,10 +353,10 @@ macro_rules! quality {
             quality: $quality,
             transform: $transform,
         };
-    
+
         ctx.set_paint(image);
         ctx.fill_rect(&rect);
-    
+
         check_ref(&ctx, $name);
     };
 }
@@ -361,37 +365,79 @@ macro_rules! quality {
 
 #[test]
 fn image_bilinear_identity() {
-    quality!("image_bilinear_identity", Affine::IDENTITY, rgb_img_2x2(), ImageQuality::Medium, Extend::Reflect);
+    quality!(
+        "image_bilinear_identity",
+        Affine::IDENTITY,
+        rgb_img_2x2(),
+        ImageQuality::Medium,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bilinear_2x_scale() {
-    quality!("image_bilinear_2x_scale", Affine::scale(2.0), rgb_img_2x2(), ImageQuality::Medium, Extend::Reflect);
+    quality!(
+        "image_bilinear_2x_scale",
+        Affine::scale(2.0),
+        rgb_img_2x2(),
+        ImageQuality::Medium,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bilinear_5x_scale() {
-    quality!("image_bilinear_5x_scale", Affine::scale(5.0), rgb_img_2x2(), ImageQuality::Medium, Extend::Reflect);
+    quality!(
+        "image_bilinear_5x_scale",
+        Affine::scale(5.0),
+        rgb_img_2x2(),
+        ImageQuality::Medium,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bilinear_10x_scale() {
-    quality!("image_bilinear_10x_scale", Affine::scale(10.0), rgb_img_2x2(), ImageQuality::Medium, Extend::Reflect);
+    quality!(
+        "image_bilinear_10x_scale",
+        Affine::scale(10.0),
+        rgb_img_2x2(),
+        ImageQuality::Medium,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bilinear_with_rotation() {
-    quality!("image_bilinear_with_rotation", Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()), rgb_img_2x2(), ImageQuality::Medium, Extend::Reflect);
+    quality!(
+        "image_bilinear_with_rotation",
+        Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()),
+        rgb_img_2x2(),
+        ImageQuality::Medium,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bilinear_with_translation() {
-    quality!("image_bilinear_with_translation", Affine::scale(5.0) * Affine::translate((10.0, 10.0)), rgb_img_2x2(), ImageQuality::Medium, Extend::Reflect);
+    quality!(
+        "image_bilinear_with_translation",
+        Affine::scale(5.0) * Affine::translate((10.0, 10.0)),
+        rgb_img_2x2(),
+        ImageQuality::Medium,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bilinear_10x_scale_2() {
-    quality!("image_bilinear_10x_scale_2", Affine::scale(10.0), rgb_img_2x3(), ImageQuality::Medium, Extend::Reflect);
+    quality!(
+        "image_bilinear_10x_scale_2",
+        Affine::scale(10.0),
+        rgb_img_2x3(),
+        ImageQuality::Medium,
+        Extend::Reflect
+    );
 }
 
 // This one looks slightly different from tiny-skia. In tiny-skia, it looks exactly the same as with
@@ -404,35 +450,77 @@ fn image_bilinear_10x_scale_2() {
 // either an outdated version or a slightly adapted one.
 #[test]
 fn image_bicubic_identity() {
-    quality!("image_bicubic_identity", Affine::IDENTITY, rgb_img_2x2(), ImageQuality::High, Extend::Reflect);
+    quality!(
+        "image_bicubic_identity",
+        Affine::IDENTITY,
+        rgb_img_2x2(),
+        ImageQuality::High,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bicubic_2x_scale() {
-    quality!("image_bicubic_2x_scale", Affine::scale(2.0), rgb_img_2x2(), ImageQuality::High, Extend::Reflect);
+    quality!(
+        "image_bicubic_2x_scale",
+        Affine::scale(2.0),
+        rgb_img_2x2(),
+        ImageQuality::High,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bicubic_5x_scale() {
-    quality!("image_bicubic_5x_scale", Affine::scale(5.0), rgb_img_2x2(), ImageQuality::High, Extend::Reflect);
+    quality!(
+        "image_bicubic_5x_scale",
+        Affine::scale(5.0),
+        rgb_img_2x2(),
+        ImageQuality::High,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bicubic_10x_scale() {
-    quality!("image_bicubic_10x_scale", Affine::scale(10.0), rgb_img_2x2(), ImageQuality::High, Extend::Reflect);
+    quality!(
+        "image_bicubic_10x_scale",
+        Affine::scale(10.0),
+        rgb_img_2x2(),
+        ImageQuality::High,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bicubic_with_rotation() {
-    quality!("image_bicubic_with_rotation", Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()), rgb_img_2x2(), ImageQuality::High, Extend::Reflect);
+    quality!(
+        "image_bicubic_with_rotation",
+        Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()),
+        rgb_img_2x2(),
+        ImageQuality::High,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bicubic_with_translation() {
-    quality!("image_bicubic_with_translation", Affine::scale(5.0) * Affine::translate((10.0, 10.0)), rgb_img_2x2(), ImageQuality::High, Extend::Reflect);
+    quality!(
+        "image_bicubic_with_translation",
+        Affine::scale(5.0) * Affine::translate((10.0, 10.0)),
+        rgb_img_2x2(),
+        ImageQuality::High,
+        Extend::Reflect
+    );
 }
 
 #[test]
 fn image_bicubic_10x_scale_2() {
-    quality!("image_bicubic_10x_scale_2", Affine::scale(10.0), rgb_img_2x3(), ImageQuality::High, Extend::Reflect);
+    quality!(
+        "image_bicubic_10x_scale_2",
+        Affine::scale(10.0),
+        rgb_img_2x3(),
+        ImageQuality::High,
+        Extend::Reflect
+    );
 }
