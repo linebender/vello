@@ -16,6 +16,7 @@ use skrifa::{
 use vello_api::kurbo::{Affine, BezPath, Vec2};
 
 use crate::colr::{ColrPainter, convert_bounding_box};
+use crate::encode::x_y_advances;
 use crate::kurbo::Rect;
 use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};
 pub use vello_api::glyph::*;
@@ -63,19 +64,17 @@ pub struct BitmapGlyph {
 /// and then render that into the actual scene, in a similar fashion to
 /// bitmap glyphs.
 pub struct ColorGlyph<'a> {
-    /// The underlying skrifa color glyph.
-    pub(crate) color_glyph: skrifa::color::ColorGlyph<'a>,
+    pub(crate) skrifa_glyph: skrifa::color::ColorGlyph<'a>,
     pub(crate) location: LocationRef<'a>,
-    /// The underlying FontRef.
     pub(crate) font_ref: &'a FontRef<'a>,
-    /// The rectangular area that should be filled with the rendered COLR glyph
-    /// when painting.
+    pub(crate) draw_transform: Affine,
+    /// The rectangular area that should be filled with the rendered representation of the
+    /// COLR glyph when painting.
     pub area: Rect,
-    /// The size of the pixmap to which the glyph should be rendered to.
+    /// The width of the pixmap/texture in pixels to which the glyph should be rendered to.
     pub pix_width: u16,
+    /// The height of the pixmap/texture in pixels to which the glyph should be rendered to.
     pub pix_height: u16,
-    /// The initial transform to supply to the COLR painter before drawing the glyph.
-    pub draw_transform: Affine,
 }
 
 impl Debug for ColorGlyph<'_> {
@@ -282,7 +281,7 @@ fn prepare_outline_glyph<'a>(
         // is upside down.
         .pre_scale_non_uniform(1.0, -1.0)
         .as_coeffs();
-    
+
     if hinting_instance.is_some() {
         final_transform[5] = final_transform[5].round();
     }
@@ -328,11 +327,14 @@ fn prepare_bitmap_glyph<'a>(
 
     let transform = initial_transform
         .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+        // Apply outer bearings.
         .pre_translate(Vec2 {
             x: (-bitmap_glyph.bearing_x * font_units_to_size).into(),
             y: (bearing_y * font_units_to_size).into(),
         })
+        // Scale to pixel-space.
         .pre_scale_non_uniform(x_scale_factor as f64, y_scale_factor as f64)
+        // Apply inner bearings.
         .pre_translate(Vec2 {
             x: (-bitmap_glyph.inner_bearing_x).into(),
             y: (-bitmap_glyph.inner_bearing_y).into(),
@@ -351,28 +353,65 @@ fn prepare_colr_glyph<'a>(
     glyph: &Glyph,
     font_size: f32,
     upem: f32,
-    initial_transform: Affine,
+    run_transform: Affine,
     color_glyph: skrifa::color::ColorGlyph<'a>,
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
 ) -> (GlyphType<'a>, Affine) {
+    // A couple of notes on the implementation here:
+    //
+    // Firstly, COLR glyphs, similarly to normal outline
+    // glyphs, are by default specified in an upside-down coordinate system. They operate
+    // on a layer-based push/pop system, where you push new clip or blend layers and then
+    // fill the whole available area (within the current clipping area) with a specific paint.
+    // Rendering those glyphs in the main scene would be very expensive, as we have to push/pop
+    // layers on the whole canvas just to draw a small glyph (at least with the current architecture).
+    // Because of this, clients are instead supposed to create an intermediate texture to render the
+    // glyph onto and then render it similarly to a bitmap glyph. This also makes it possible to cache
+    // the glyphs.
+    //
+    // Next, there is a problem when rendering COLR glyphs to an intermediate pixmap: The bounding box
+    // of a glyph can reach into the negative, meaning that parts of it might be cut off when
+    // rendering it directly. Because of this, before drawing we first apply a shift transform so
+    // that the bounding box of the glyph starts at (0, 0), then we draw the whole glyph, and
+    // finally when positioning the actual pixmap in the scene, we reverse that transform so that
+    // the position stays the same as the original one.
+
     let scale = font_size / upem;
 
-    let transform = initial_transform
-        .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
-        .pre_scale(scale as f64);
+    let transform = run_transform.pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()));
 
-    let g_transform = transform;
-    let scale_factor = g_transform.as_coeffs()[0].max(g_transform.as_coeffs()[3]);
+    // Estimate the size of the intermediate pixmap. Ideally, the intermediate bitmap should have
+    // exactly one pixel (or more) per device pixel, to ensure that no quality is lost. Therefore,
+    // we simply use the scaling/skewing factor to calculate how much to scale by, and use the
+    // maximum of both dimensions.
+    let scale_factor = {
+        let (x_vec, y_vec) = x_y_advances(&transform.pre_scale(scale as f64));
+        x_vec.length().max(y_vec.length())
+    };
+
     let bbox = color_glyph
         .bounding_box(LocationRef::default(), Size::unscaled())
         .map(|b| convert_bounding_box(b))
         .unwrap_or(Rect::new(0.0, 0.0, upem as f64, upem as f64));
+
+    // Calculate the position of the rectangle that will contain the rendered pixmap in device
+    // coordinates.
     let scaled_bbox = bbox.scale_from_origin(scale_factor);
 
-    let glyph_transform = g_transform
+    let glyph_transform = transform
+        // There are two things going on here:
+        // - On the one hand, for images, the position (0, 0) will be at the top-left, while
+        //   for images, the position will be at the bottom-left.
+        // - COLR glyphs have a flipped y-axis, so in the intermediate image they will be
+        //   upside down.
+        // Because of both of these, all we simply need to do is to flip the image on the y-axis.
+        // This will ensure that the glyph in the image isn't upside down anymore, and at the same
+        // time also flips from having the origin in the top-left to having the origin in the
+        // bottom-right.
         * Affine::scale_non_uniform(1.0, -1.0)
-        * Affine::translate((bbox.x0, bbox.y0))
-        * Affine::scale(1.0 / scale_factor);
+        // Shift the pixmap back so that the bbox aligns with the original position
+        // of where the glyph should be placed.
+        * Affine::translate((scaled_bbox.x0, scaled_bbox.y0));
 
     let (pix_width, pix_height) = (
         scaled_bbox.width().ceil() as u16,
@@ -380,13 +419,19 @@ fn prepare_colr_glyph<'a>(
     );
 
     let draw_transform =
-        Affine::translate((-scaled_bbox.x0, -scaled_bbox.y0)) * Affine::scale(scale_factor);
+        // Shift everything so that the bbox starts at (0, 0) and the whole visible area of
+        // the glyph will be contained in the intermediate pixmap.
+        Affine::translate((-scaled_bbox.x0, -scaled_bbox.y0)) *
+        // Scale down to the actual size that the COLR glyph will have in device units.
+        Affine::scale(scale_factor);
 
+    // The shift-back happens in `glyph_transform`, so here we can assume (0.0, 0.0) as the origin
+    // of the area we want to draw to.
     let area = Rect::new(0.0, 0.0, scaled_bbox.width(), scaled_bbox.height());
 
     (
         GlyphType::Colr(ColorGlyph {
-            color_glyph,
+            skrifa_glyph: color_glyph,
             font_ref: &font_ref,
             location: LocationRef::new(normalized_coords),
             area,

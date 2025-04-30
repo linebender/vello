@@ -436,7 +436,7 @@ fn encode_stops(
     }
 }
 
-fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
+pub(crate) fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
     let scale_skew_transform = {
         let c = transform.as_coeffs();
         Affine::new([c[0], c[1], c[2], c[3], 0.0, 0.0])
