@@ -331,7 +331,7 @@ impl GlyphRenderer for RenderContext {
                 let area = glyph.area;
 
                 let emoji_pixmap = {
-                    let mut ctx = RenderContext::new(glyph.pix_width, glyph.pix_height);
+                    let mut ctx = Self::new(glyph.pix_width, glyph.pix_height);
                     let mut pix = Pixmap::new(glyph.pix_width, glyph.pix_height);
 
                     let mut colr_painter = ColrPainter::new(glyph, context_color, &mut ctx);
@@ -385,11 +385,11 @@ impl GlyphRenderer for RenderContext {
 
 impl ColrRenderer for RenderContext {
     fn push_clip_layer(&mut self, clip: &BezPath) {
-        RenderContext::push_clip_layer(self, clip);
+        Self::push_clip_layer(self, clip);
     }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        RenderContext::push_blend_layer(self, blend_mode);
+        Self::push_blend_layer(self, blend_mode);
     }
 
     fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
@@ -399,11 +399,11 @@ impl ColrRenderer for RenderContext {
 
     fn fill_gradient(&mut self, gradient: Gradient) {
         self.set_paint(gradient);
-        self.fill_rect(&Rect::new(0.0, 0.0, self.width as f64, self.height as f64))
+        self.fill_rect(&Rect::new(0.0, 0.0, self.width as f64, self.height as f64));
     }
 
     fn pop_layer(&mut self) {
-        RenderContext::pop_layer(self);
+        Self::pop_layer(self);
     }
 }
 

@@ -4,6 +4,7 @@
 //! Processing and drawing glyphs.
 
 use crate::peniko::Font;
+use alloc::boxed::Box;
 use core::fmt::{Debug, Formatter};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::DrawSettings;
@@ -30,7 +31,7 @@ pub enum GlyphType<'a> {
     /// A bitmap glyph.
     Bitmap(BitmapGlyph),
     /// A COLR glyph.
-    Colr(ColorGlyph<'a>),
+    Colr(Box<ColorGlyph<'a>>),
 }
 
 /// A simplified representation of a glyph, prepared for easy rendering.
@@ -391,7 +392,7 @@ fn prepare_colr_glyph<'a>(
 
     let bbox = color_glyph
         .bounding_box(LocationRef::default(), Size::unscaled())
-        .map(|b| convert_bounding_box(b))
+        .map(convert_bounding_box)
         .unwrap_or(Rect::new(0.0, 0.0, upem as f64, upem as f64));
 
     // Calculate the position of the rectangle that will contain the rendered pixmap in device
@@ -430,15 +431,15 @@ fn prepare_colr_glyph<'a>(
     let area = Rect::new(0.0, 0.0, scaled_bbox.width(), scaled_bbox.height());
 
     (
-        GlyphType::Colr(ColorGlyph {
+        GlyphType::Colr(Box::new(ColorGlyph {
             skrifa_glyph: color_glyph,
-            font_ref: &font_ref,
+            font_ref,
             location: LocationRef::new(normalized_coords),
             area,
             pix_width,
             pix_height,
             draw_transform,
-        }),
+        })),
         glyph_transform,
     )
 }

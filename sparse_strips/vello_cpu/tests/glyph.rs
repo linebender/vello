@@ -322,7 +322,7 @@ fn glyphs_colr_test_glyphs() {
     let font = Font::new(Blob::new(Arc::new(TEST_FONT)), 0);
     let num_glyphs = 221;
 
-    let font_size = 40f64;
+    let font_size = 40_f64;
     let cols = 10.0;
     let rows = 24.0;
     
@@ -339,7 +339,7 @@ fn glyphs_colr_test_glyphs() {
     let mut cur_x = 0.0;
     let mut cur_y = font_size;
     
-    let draw_glyphs = (0..=num_glyphs).into_iter().filter(|n| match n {
+    let draw_glyphs = (0..=num_glyphs).filter(|n| match n {
         // Those are not COLR glyphs.
         0..8 => false,
         161..=165 => false,

@@ -39,9 +39,9 @@ pub trait ColrRenderer {
 /// An abstraction for painting COLR glyphs.
 pub struct ColrPainter<'a> {
     transforms: Vec<Affine>,
-    color_glyph: ColorGlyph<'a>,
+    color_glyph: Box<ColorGlyph<'a>>,
     context_color: AlphaColor<Srgb>,
-    painter: Box<&'a mut dyn ColrRenderer>,
+    painter: &'a mut dyn ColrRenderer,
     layer_count: u32,
 }
 
@@ -54,7 +54,7 @@ impl Debug for ColrPainter<'_> {
 impl<'a> ColrPainter<'a> {
     /// Create a new COLR painter.
     pub fn new(
-        color_glyph: ColorGlyph<'a>,
+        color_glyph: Box<ColorGlyph<'a>>,
         context_color: AlphaColor<Srgb>,
         painter: &'a mut impl ColrRenderer,
     ) -> Self {
@@ -62,7 +62,7 @@ impl<'a> ColrPainter<'a> {
             transforms: vec![color_glyph.draw_transform],
             color_glyph,
             context_color,
-            painter: Box::new(painter),
+            painter,
             layer_count: 0,
         }
     }

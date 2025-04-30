@@ -284,7 +284,7 @@ impl GlyphRenderer for Scene {
     }
 
     fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
-        match prepared_glyph {
+        match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
                 flatten::stroke(
                     glyph.path,
