@@ -5,7 +5,6 @@ use vello_common::color::palette::css::{BLUE, GREEN, REBECCA_PURPLE, RED, YELLOW
 use vello_common::kurbo::{Circle, Rect, Shape};
 use vello_macros::v_test;
 use crate::renderer::Renderer;
-use crate::util::{check_ref, get_ctx};
 
 #[v_test]
 fn opacity_on_layer(ctx: &mut impl Renderer) {

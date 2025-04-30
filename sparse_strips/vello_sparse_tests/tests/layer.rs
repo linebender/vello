@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::mask::example_mask;
-use crate::util::{check_ref, crossed_line_star, get_ctx};
+use crate::util::crossed_line_star;
 use vello_common::color::palette::css::{BLUE, RED};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
