@@ -244,8 +244,10 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 fn prepare_outline_glyph<'a>(
     glyph: &Glyph,
     size: Size,
+    // The transform of the run + the per-glyph transform.
     initial_transform: Affine,
-    transform: Affine,
+    // The transform of the run, without the per-glyph transform.
+    run_transform: Affine,
     path: &'a mut OutlinePath,
     outline_glyph: &skrifa::outline::OutlineGlyph<'a>,
     hinting_instance: Option<&HintingInstance>,
@@ -266,7 +268,7 @@ fn prepare_outline_glyph<'a>(
     // This is a partial affine matrix multiplication, calculating only the translation
     // component that we need. It is added below to calculate the total transform of this
     // glyph.
-    let [a, b, c, d, _, _] = transform.as_coeffs();
+    let [a, b, c, d, _, _] = run_transform.as_coeffs();
     let translation = Vec2::new(
         a * glyph.x as f64 + c * glyph.y as f64,
         b * glyph.x as f64 + d * glyph.y as f64,
@@ -274,19 +276,20 @@ fn prepare_outline_glyph<'a>(
 
     // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
     // perform vertical-only hinting.
-    let mut total_transform = initial_transform
+    let mut final_transform = initial_transform
         .then_translate(translation)
         // Account for the fact that the coordinate system of fonts
         // is upside down.
         .pre_scale_non_uniform(1.0, -1.0)
         .as_coeffs();
+    
     if hinting_instance.is_some() {
-        total_transform[5] = total_transform[5].round();
+        final_transform[5] = final_transform[5].round();
     }
 
     (
         GlyphType::Outline(OutlineGlyph { path: &path.0 }),
-        Affine::new(total_transform),
+        Affine::new(final_transform),
     )
 }
 
