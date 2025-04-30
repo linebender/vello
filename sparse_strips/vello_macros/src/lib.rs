@@ -106,7 +106,7 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         no_ref,
     } = parse_args(&attrs);
 
-    // These tests currently don't work on vello_hybrid.
+    // These tests currently don't work with `vello_hybrid`.
     skip_gpu |= {
         input_fn_name_str.contains("clip")
             || input_fn_name_str.contains("compose")
@@ -115,6 +115,7 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             || input_fn_name_str.contains("layer")
             || input_fn_name_str.contains("mask")
             || input_fn_name_str.contains("mix")
+            || input_fn_name_str.contains("opacity")
     };
 
     let empty_snippet = quote! {};

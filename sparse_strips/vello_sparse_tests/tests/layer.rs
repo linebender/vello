@@ -6,13 +6,14 @@ use crate::util::{check_ref, crossed_line_star, get_ctx};
 use vello_common::color::palette::css::{BLUE, RED};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
+use vello_macros::v_test;
+use crate::renderer::Renderer;
 
-#[test]
-fn layer_multiple_properties_1() {
+#[v_test]
+fn layer_multiple_properties_1(ctx: &mut impl Renderer) {
     let mask = example_mask(true);
     let star = crossed_line_star();
 
-    let mut ctx = get_ctx(100, 100, false);
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
     ctx.push_layer(
@@ -24,6 +25,4 @@ fn layer_multiple_properties_1() {
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
     ctx.pop_layer();
-
-    check_ref(&ctx, "layer_multiple_properties_1");
 }
