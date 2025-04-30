@@ -15,7 +15,7 @@ use crate::renderer::Renderer;
 
 // The outputs have been compared visually with tiny-skia, and except for two cases (where tiny-skia
 // is wrong), the overall visual effect looks the same.
-fn mix(ctx: &mut impl Renderer, name: &str, blend_mode: BlendMode) {
+fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
     let rect = Rect::new(0.0, 0.0, 80.0, 80.0);
 
     let gradient = Gradient {
@@ -69,7 +69,6 @@ fn mix(ctx: &mut impl Renderer, name: &str, blend_mode: BlendMode) {
 fn mix_normal(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_normal",
         BlendMode::new(Mix::Normal, Compose::SrcOver),
     );
 }
@@ -78,7 +77,6 @@ fn mix_normal(ctx: &mut impl Renderer) {
 fn mix_multiply(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_multiply",
         BlendMode::new(Mix::Multiply, Compose::SrcOver),
     );
 }
@@ -87,7 +85,6 @@ fn mix_multiply(ctx: &mut impl Renderer) {
 fn mix_screen(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_screen",
         BlendMode::new(Mix::Screen, Compose::SrcOver),
     );
 }
@@ -96,7 +93,6 @@ fn mix_screen(ctx: &mut impl Renderer) {
 fn mix_darken(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_darken",
         BlendMode::new(Mix::Darken, Compose::SrcOver),
     );
 }
@@ -105,7 +101,6 @@ fn mix_darken(ctx: &mut impl Renderer) {
 fn mix_lighten(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_lighten",
         BlendMode::new(Mix::Lighten, Compose::SrcOver),
     );
 }
@@ -114,7 +109,6 @@ fn mix_lighten(ctx: &mut impl Renderer) {
 fn mix_color_dodge(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_color_dodge",
         BlendMode::new(Mix::ColorDodge, Compose::SrcOver),
     );
 }
@@ -123,7 +117,6 @@ fn mix_color_dodge(ctx: &mut impl Renderer) {
 fn mix_color_burn(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_color_burn",
         BlendMode::new(Mix::ColorBurn, Compose::SrcOver),
     );
 }
@@ -132,7 +125,6 @@ fn mix_color_burn(ctx: &mut impl Renderer) {
 fn mix_hard_light(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_hard_light",
         BlendMode::new(Mix::HardLight, Compose::SrcOver),
     );
 }
@@ -141,7 +133,6 @@ fn mix_hard_light(ctx: &mut impl Renderer) {
 fn mix_soft_light(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_soft_light",
         BlendMode::new(Mix::SoftLight, Compose::SrcOver),
     );
 }
@@ -150,7 +141,6 @@ fn mix_soft_light(ctx: &mut impl Renderer) {
 fn mix_difference(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_difference",
         BlendMode::new(Mix::Difference, Compose::SrcOver),
     );
 }
@@ -159,7 +149,6 @@ fn mix_difference(ctx: &mut impl Renderer) {
 fn mix_exclusion(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_exclusion",
         BlendMode::new(Mix::Exclusion, Compose::SrcOver),
     );
 }
@@ -168,21 +157,19 @@ fn mix_exclusion(ctx: &mut impl Renderer) {
 fn mix_overlay(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_overlay",
         BlendMode::new(Mix::Overlay, Compose::SrcOver),
     );
 }
 
 #[v_test]
 fn mix_hue(ctx: &mut impl Renderer) {
-    mix(ctx, "mix_hue", BlendMode::new(Mix::Hue, Compose::SrcOver));
+    mix(ctx, BlendMode::new(Mix::Hue, Compose::SrcOver));
 }
 
 #[v_test]
 fn mix_saturation(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_saturation",
         BlendMode::new(Mix::Saturation, Compose::SrcOver),
     );
 }
@@ -191,7 +178,6 @@ fn mix_saturation(ctx: &mut impl Renderer) {
 fn mix_color(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_color",
         BlendMode::new(Mix::Color, Compose::SrcOver),
     );
 }
@@ -200,7 +186,6 @@ fn mix_color(ctx: &mut impl Renderer) {
 fn mix_luminosity(ctx: &mut impl Renderer) {
     mix(
         ctx,
-        "mix_luminosity",
         BlendMode::new(Mix::Luminosity, Compose::SrcOver),
     );
 }

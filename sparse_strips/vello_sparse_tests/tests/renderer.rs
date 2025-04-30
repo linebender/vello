@@ -140,23 +140,23 @@ impl Renderer for Scene {
        Self::glyph_run(self, font) 
     }
 
-    fn push_layer(&mut self, clip_path: Option<&BezPath>, blend_mode: Option<BlendMode>, opacity: Option<u8>, mask: Option<Mask>) {
+    fn push_layer(&mut self, _: Option<&BezPath>, _: Option<BlendMode>, _: Option<u8>, _: Option<Mask>) {
         todo!()
     }
 
-    fn push_clip_layer(&mut self, path: &BezPath) {
+    fn push_clip_layer(&mut self, _: &BezPath) {
         todo!()
     }
 
-    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
+    fn push_blend_layer(&mut self, _: BlendMode) {
         todo!()
     }
 
-    fn push_opacity_layer(&mut self, opacity: u8) {
+    fn push_opacity_layer(&mut self, _: u8) {
         todo!()
     }
 
-    fn push_mask_layer(&mut self, mask: Mask) {
+    fn push_mask_layer(&mut self, _: Mask) {
         todo!()
     }
 
