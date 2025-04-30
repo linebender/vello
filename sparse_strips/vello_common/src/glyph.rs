@@ -188,7 +188,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         };
 
         // Reuse the same `path` allocation for each glyph.
-        let mut path = OutlinePath::new(true);
+        let mut path = OutlinePath::new();
         for glyph in glyphs {
             let bitmap_data: Option<(skrifa::bitmap::BitmapGlyph<'_>, Pixmap)> = bitmaps
                 .glyph_for_size(Size::new(self.run.font_size), GlyphId::new(glyph.id))
@@ -314,7 +314,12 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
                 // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
                 // perform vertical-only hinting.
-                let mut total_transform = initial_transform.then_translate(translation).as_coeffs();
+                let mut total_transform = initial_transform
+                    .then_translate(translation)
+                    // Account for the fact that the coordinate system of fonts
+                    // is upside down.
+                    .pre_scale_non_uniform(1.0, -1.0)
+                    .as_coeffs();
                 if hinting_instance.is_some() {
                     total_transform[5] = total_transform[5].round();
                 }
@@ -434,15 +439,11 @@ const HINTING_OPTIONS: HintingOptions = HintingOptions {
     },
 };
 
-pub(crate) struct OutlinePath(pub(crate) BezPath, f32);
+pub(crate) struct OutlinePath(pub(crate) BezPath);
 
 impl OutlinePath {
-    pub(crate) fn new(invert_y: bool) -> Self {
-        let f = if invert_y { -1.0 } else { 1.0 };
-        Self {
-            0: BezPath::new(),
-            1: f,
-        }
+    pub(crate) fn new() -> Self {
+        Self(BezPath::new())
     }
 }
 
@@ -450,23 +451,23 @@ impl OutlinePath {
 impl OutlinePen for OutlinePath {
     #[inline]
     fn move_to(&mut self, x: f32, y: f32) {
-        self.0.move_to((x, self.1 * y));
+        self.0.move_to((x, y));
     }
 
     #[inline]
     fn line_to(&mut self, x: f32, y: f32) {
-        self.0.line_to((x, self.1 * y));
+        self.0.line_to((x, y));
     }
 
     #[inline]
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
         self.0
-            .curve_to((cx0, self.1 * cy0), (cx1, self.1 * cy1), (x, self.1 * y));
+            .curve_to((cx0, cy0), (cx1, cy1), (x, y));
     }
 
     #[inline]
     fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
-        self.0.quad_to((cx, self.1 * cy), (x, self.1 * y));
+        self.0.quad_to((cx, cy), (x, y));
     }
 
     #[inline]
