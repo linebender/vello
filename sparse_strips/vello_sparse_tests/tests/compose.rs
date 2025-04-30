@@ -6,8 +6,9 @@ use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_cpu::RenderContext;
 use vello_macros::v_test;
+use crate::renderer::Renderer;
 
-fn compose(ctx: &mut RenderContext, compose: Compose) {
+fn compose(ctx: &mut impl Renderer, compose: Compose) {
     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
 
     // Draw the destination layer.
@@ -23,66 +24,66 @@ fn compose(ctx: &mut RenderContext, compose: Compose) {
 }
 
 #[v_test]
-fn compose_src_over(ctx: &mut RenderContext) {
+fn compose_src_over(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcOver);
 }
 
 #[v_test]
-fn compose_xor(ctx: &mut RenderContext) {
+fn compose_xor(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Xor);
 }
 
 #[v_test]
-fn compose_clear(ctx: &mut RenderContext) {
+fn compose_clear(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Clear);
 }
 
 #[v_test]
-fn compose_copy(ctx: &mut RenderContext) {
+fn compose_copy(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Copy);
 }
 
 #[v_test]
-fn compose_dest(ctx: &mut RenderContext) {
+fn compose_dest(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Dest);
 }
 
 #[v_test]
-fn compose_dest_over(ctx: &mut RenderContext) {
+fn compose_dest_over(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestOver);
 }
 
 #[v_test]
-fn compose_src_in(ctx: &mut RenderContext) {
+fn compose_src_in(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcIn);
 }
 
 #[v_test]
-fn compose_src_out(ctx: &mut RenderContext) {
+fn compose_src_out(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcOut);
 }
 
 #[v_test]
-fn compose_dest_in(ctx: &mut RenderContext) {
+fn compose_dest_in(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestIn);
 }
 
 #[v_test]
-fn compose_dest_out(ctx: &mut RenderContext) {
+fn compose_dest_out(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestOut);
 }
 
 #[v_test]
-fn compose_src_atop(ctx: &mut RenderContext) {
+fn compose_src_atop(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcAtop);
 }
 
 #[v_test]
-fn compose_dest_atop(ctx: &mut RenderContext) {
+fn compose_dest_atop(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestAtop);
 }
 
 #[v_test]
-fn compose_plus(ctx: &mut RenderContext) {
+fn compose_plus(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Plus);
 }

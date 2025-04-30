@@ -11,10 +11,11 @@ use vello_common::peniko::{BlendMode, Compose, Extend, Mix};
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind, ImageQuality};
 use vello_cpu::RenderContext;
 use vello_macros::v_test;
+use crate::renderer::Renderer;
 
 // The outputs have been compared visually with tiny-skia, and except for two cases (where tiny-skia
 // is wrong), the overall visual effect looks the same.
-fn mix(ctx: &mut RenderContext, name: &str, blend_mode: BlendMode) {
+fn mix(ctx: &mut impl Renderer, name: &str, blend_mode: BlendMode) {
     let rect = Rect::new(0.0, 0.0, 80.0, 80.0);
 
     let gradient = Gradient {
@@ -65,7 +66,7 @@ fn mix(ctx: &mut RenderContext, name: &str, blend_mode: BlendMode) {
 }
 
 #[v_test]
-fn mix_normal(ctx: &mut RenderContext) {
+fn mix_normal(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_normal",
@@ -74,7 +75,7 @@ fn mix_normal(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_multiply(ctx: &mut RenderContext) {
+fn mix_multiply(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_multiply",
@@ -83,7 +84,7 @@ fn mix_multiply(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_screen(ctx: &mut RenderContext) {
+fn mix_screen(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_screen",
@@ -92,7 +93,7 @@ fn mix_screen(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_darken(ctx: &mut RenderContext) {
+fn mix_darken(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_darken",
@@ -101,7 +102,7 @@ fn mix_darken(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_lighten(ctx: &mut RenderContext) {
+fn mix_lighten(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_lighten",
@@ -110,7 +111,7 @@ fn mix_lighten(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_color_dodge(ctx: &mut RenderContext) {
+fn mix_color_dodge(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_color_dodge",
@@ -119,7 +120,7 @@ fn mix_color_dodge(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_color_burn(ctx: &mut RenderContext) {
+fn mix_color_burn(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_color_burn",
@@ -128,7 +129,7 @@ fn mix_color_burn(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_hard_light(ctx: &mut RenderContext) {
+fn mix_hard_light(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_hard_light",
@@ -137,7 +138,7 @@ fn mix_hard_light(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_soft_light(ctx: &mut RenderContext) {
+fn mix_soft_light(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_soft_light",
@@ -146,7 +147,7 @@ fn mix_soft_light(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_difference(ctx: &mut RenderContext) {
+fn mix_difference(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_difference",
@@ -155,7 +156,7 @@ fn mix_difference(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_exclusion(ctx: &mut RenderContext) {
+fn mix_exclusion(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_exclusion",
@@ -164,7 +165,7 @@ fn mix_exclusion(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_overlay(ctx: &mut RenderContext) {
+fn mix_overlay(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_overlay",
@@ -173,12 +174,12 @@ fn mix_overlay(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_hue(ctx: &mut RenderContext) {
+fn mix_hue(ctx: &mut impl Renderer) {
     mix(ctx, "mix_hue", BlendMode::new(Mix::Hue, Compose::SrcOver));
 }
 
 #[v_test]
-fn mix_saturation(ctx: &mut RenderContext) {
+fn mix_saturation(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_saturation",
@@ -187,7 +188,7 @@ fn mix_saturation(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_color(ctx: &mut RenderContext) {
+fn mix_color(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_color",
@@ -196,7 +197,7 @@ fn mix_color(ctx: &mut RenderContext) {
 }
 
 #[v_test]
-fn mix_luminosity(ctx: &mut RenderContext) {
+fn mix_luminosity(ctx: &mut impl Renderer) {
     mix(
         ctx,
         "mix_luminosity",
@@ -205,7 +206,7 @@ fn mix_luminosity(ctx: &mut RenderContext) {
 }
 
 #[v_test(transparent)]
-fn mix_with_transparent_bg(ctx: &mut RenderContext) {
+fn mix_with_transparent_bg(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     ctx.set_paint(AlphaColor::<Srgb>::from_rgba8(0, 0, 128, 128));
     ctx.fill_rect(&rect);
@@ -215,7 +216,7 @@ fn mix_with_transparent_bg(ctx: &mut RenderContext) {
     ctx.pop_layer();
 }
 
-fn mix_solid(ctx: &mut RenderContext, mix: Mix) {
+fn mix_solid(ctx: &mut impl Renderer, mix: Mix) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     ctx.set_paint(AlphaColor::<Srgb>::from_rgba8(122, 85, 73, 255));
     ctx.fill_rect(&rect);
@@ -230,12 +231,12 @@ fn mix_solid(ctx: &mut RenderContext, mix: Mix) {
 // the test case into SVG and viewing it in Chrome, and our version should be right.
 // Color of rectangle should be (106, 106, 0).
 #[v_test]
-fn mix_color_with_solid(ctx: &mut RenderContext) {
+fn mix_color_with_solid(ctx: &mut impl Renderer) {
     mix_solid(ctx, Mix::Color);
 }
 
 // Color of rectangle should be (213, 52, 0).
 #[v_test]
-fn mix_saturation_with_solid(ctx: &mut RenderContext) {
+fn mix_saturation_with_solid(ctx: &mut impl Renderer) {
     mix_solid(ctx, Mix::Saturation);
 }

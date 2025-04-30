@@ -189,6 +189,9 @@ impl Renderer for Scene {
         let width = self.width();
         let height = self.height();
         
+        // Copied from vello_hybrid/examples/`render_to_file.rs`.
+        // TOOO: Deduplicate?
+        
         // Initialize wgpu device and queue for GPU rendering
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

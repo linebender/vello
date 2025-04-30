@@ -10,6 +10,7 @@ use vello_common::paint::Gradient;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
 use vello_cpu::{Pixmap, RenderContext};
 use vello_macros::v_test;
+use crate::renderer::Renderer;
 
 pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     let mut mask_pix = Pixmap::new(100, 100);
@@ -48,7 +49,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     }
 }
 
-fn mask(ctx: &mut RenderContext, alpha_mask: bool) {
+fn mask(ctx: &mut impl Renderer, alpha_mask: bool) {
     let mask = example_mask(alpha_mask);
 
     ctx.set_paint(BLACK);
@@ -60,11 +61,11 @@ fn mask(ctx: &mut RenderContext, alpha_mask: bool) {
 }
 
 #[v_test]
-fn mask_alpha(ctx: &mut RenderContext) {
+fn mask_alpha(ctx: &mut impl Renderer) {
     mask(ctx, true);
 }
 
 #[v_test]
-fn mask_luminance(ctx: &mut RenderContext) {
+fn mask_luminance(ctx: &mut impl Renderer) {
     mask(ctx, false);
 }
