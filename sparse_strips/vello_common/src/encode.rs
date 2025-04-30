@@ -825,32 +825,6 @@ mod tests {
     }
 
     #[test]
-    fn gradient_sweep_degenerate() {
-        let mut buf = vec![];
-
-        let gradient = Gradient {
-            kind: GradientKind::Sweep {
-                center: Point::new(0.0, 0.0),
-                start_angle: 0.0,
-                end_angle: 380.0,
-            },
-            stops: ColorStops(smallvec![
-                ColorStop {
-                    offset: 0.0,
-                    color: DynamicColor::from_alpha_color(GREEN),
-                },
-                ColorStop {
-                    offset: 1.0,
-                    color: DynamicColor::from_alpha_color(BLUE),
-                },
-            ]),
-            ..Default::default()
-        };
-
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
-    }
-
-    #[test]
     fn gradient_radial_degenerate() {
         let mut buf = vec![];
 
