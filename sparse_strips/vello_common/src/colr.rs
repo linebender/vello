@@ -1,5 +1,5 @@
 use crate::color::{ColorSpaceTag, HueDirection, Srgb};
-use crate::glyph::OutlinePath;
+use crate::glyph::{ColorGlyph, OutlinePath};
 use crate::kurbo::{Affine, BezPath, Point, Rect, Shape};
 use crate::peniko;
 use crate::peniko::{BlendMode, ColorStops, Compose, Extend, Mix};
@@ -37,7 +37,7 @@ pub trait ColrRenderer {
 /// An abstraction for painting COLR glyphs.
 pub struct ColrPainter<'a> {
     transforms: Vec<Affine>,
-    font_ref: &'a FontRef<'a>,
+    color_glyph: ColorGlyph<'a>,
     context_color: AlphaColor<Srgb>,
     painter: Box<&'a mut dyn ColrRenderer>,
     layer_count: u32,
@@ -58,18 +58,23 @@ impl<'a> ColrPainter<'a> {
     /// `context_color` is the color that should be assumed for fills with a palette index
     /// of `u16::MAX`.
     pub fn new(
-        initial_transform: Affine,
-        font_ref: &'a FontRef<'a>,
+        color_glyph: ColorGlyph<'a>,
         context_color: AlphaColor<Srgb>,
         painter: &'a mut impl ColrRenderer,
     ) -> Self {
         Self {
-            transforms: vec![initial_transform],
-            font_ref,
+            transforms: vec![color_glyph.draw_transform],
+            color_glyph,
             context_color,
             painter: Box::new(painter),
             layer_count: 0,
         }
+    }
+
+    pub fn paint(&mut self) {
+        let color_glyph = self.color_glyph.color_glyph.clone();
+        // Ignore errors for now
+        let _ = color_glyph.paint(LocationRef::default(), self);
     }
 
     fn cur_transform(&self) -> Affine {
@@ -78,8 +83,13 @@ impl<'a> ColrPainter<'a> {
 
     fn palette_index_to_color(&self, palette_index: u16, alpha: f32) -> Option<AlphaColor<Srgb>> {
         if palette_index != u16::MAX {
-            let color =
-                self.font_ref.cpal().ok()?.color_records_array()?.ok()?[palette_index as usize];
+            let color = self
+                .color_glyph
+                .font_ref
+                .cpal()
+                .ok()?
+                .color_records_array()?
+                .ok()?[palette_index as usize];
 
             Some(
                 AlphaColor::from_rgba8(color.red, color.green, color.blue, color.alpha)
@@ -157,7 +167,7 @@ impl ColorPainter for ColrPainter<'_> {
     fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
         let mut outline_builder = OutlinePath::new();
 
-        let outline_glyphs = self.font_ref.outline_glyphs();
+        let outline_glyphs = self.color_glyph.font_ref.outline_glyphs();
         let Some(outline_glyph) = outline_glyphs.get(glyph_id) else {
             return;
         };

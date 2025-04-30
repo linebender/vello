@@ -58,13 +58,15 @@ pub struct BitmapGlyph {
 }
 
 /// A glyph defined by a COLR glyph description.
-/// 
+///
 /// Clients are supposed to first draw the glyph into an intermediate image texture
-/// and then render the texture into the actual scene, in a similar fashion to 
+/// and then render the texture into the actual scene, in a similar fashion to
 /// bitmap glyphs.
 pub struct ColorGlyph<'a> {
     /// The underlying skrifa color glyph.
-    color_glyph: skrifa::color::ColorGlyph<'a>,
+    pub(crate) color_glyph: skrifa::color::ColorGlyph<'a>,
+    /// The underlying FontRef.
+    pub(crate) font_ref: &'a FontRef<'a>,
     /// The rectangular area that should be filled with the rendered COLR glyph
     /// when painting.
     pub area: Rect,
@@ -82,11 +84,6 @@ impl ColorGlyph<'_> {
             .bounding_box(LocationRef::default(), Size::unscaled())
             .map(|b| convert_bounding_box(b))
     }
-
-    pub fn paint(&self, painter: &mut ColrPainter) {
-        // Ignore errors for now
-        let _ = self.color_glyph.paint(LocationRef::default(), painter);
-    }
 }
 
 impl Debug for ColorGlyph<'_> {
@@ -98,10 +95,10 @@ impl Debug for ColorGlyph<'_> {
 /// Trait for types that can render glyphs.
 pub trait GlyphRenderer {
     /// Fill glyphs with the current paint and fill rule.
-    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>, font: &FontRef<'_>);
+    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>);
 
     /// Stroke glyphs with the current paint and stroke settings.
-    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>, font: &FontRef<'_>);
+    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>);
 }
 
 /// A builder for configuring and drawing glyphs.
@@ -203,139 +200,142 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                     BitmapData::Mask(_) => None,
                 });
 
-            let (glyph_type, transform) = if let Some(color_glyph) =
-                color_glyphs.get(GlyphId::new(glyph.id))
-            {
-                let scale = self.run.font_size / upem;
+            let (glyph_type, transform) =
+                if let Some(color_glyph) = color_glyphs.get(GlyphId::new(glyph.id)) {
+                    let scale = self.run.font_size / upem;
 
-                let transform = initial_transform
-                    .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
-                    .pre_scale(scale as f64);
-                
-                let g_transform = transform;
-                let scale_factor = g_transform.as_coeffs()[0].max(g_transform.as_coeffs()[3]);
-                let bbox = color_glyph
-                    .bounding_box(LocationRef::default(), Size::unscaled())
-                    .map(|b| convert_bounding_box(b)).unwrap_or(Rect::new(0.0, 0.0, upem as f64, upem as f64));
-                let scaled_bbox = bbox.scale_from_origin(scale_factor);
+                    let transform = initial_transform
+                        .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+                        .pre_scale(scale as f64);
 
-                let glyph_transform = g_transform
-                    * Affine::scale_non_uniform(1.0, -1.0)
-                    * Affine::translate((bbox.x0, bbox.y0))
-                    * Affine::scale(1.0 / scale_factor);
+                    let g_transform = transform;
+                    let scale_factor = g_transform.as_coeffs()[0].max(g_transform.as_coeffs()[3]);
+                    let bbox = color_glyph
+                        .bounding_box(LocationRef::default(), Size::unscaled())
+                        .map(|b| convert_bounding_box(b))
+                        .unwrap_or(Rect::new(0.0, 0.0, upem as f64, upem as f64));
+                    let scaled_bbox = bbox.scale_from_origin(scale_factor);
 
-                let (pix_width, pix_height) = (
-                    scaled_bbox.width().ceil() as u16,
-                    scaled_bbox.height().ceil() as u16,
-                );
+                    let glyph_transform = g_transform
+                        * Affine::scale_non_uniform(1.0, -1.0)
+                        * Affine::translate((bbox.x0, bbox.y0))
+                        * Affine::scale(1.0 / scale_factor);
 
-                let draw_transform = Affine::translate((-scaled_bbox.x0, -scaled_bbox.y0))
-                    * Affine::scale(scale_factor);
+                    let (pix_width, pix_height) = (
+                        scaled_bbox.width().ceil() as u16,
+                        scaled_bbox.height().ceil() as u16,
+                    );
 
-                let area = Rect::new(
-                    0.0,
-                    0.0,
-                    scaled_bbox.width(),
-                    scaled_bbox.height(),
-                );
+                    let draw_transform = Affine::translate((-scaled_bbox.x0, -scaled_bbox.y0))
+                        * Affine::scale(scale_factor);
 
-                (GlyphType::Colr(ColorGlyph { color_glyph, area, 
-                    pix_width, pix_height, 
-                    draw_transform }), glyph_transform)
-            } else if let Some((bitmap_glyph, pixmap)) = bitmap_data {
-                let x_scale_factor = self.run.font_size / bitmap_glyph.ppem_x;
-                let y_scale_factor = self.run.font_size / bitmap_glyph.ppem_y;
-                let font_units_to_size = self.run.font_size / upem;
+                    let area = Rect::new(0.0, 0.0, scaled_bbox.width(), scaled_bbox.height());
 
-                // CoreText appears to special case Apple Color Emoji, adding
-                // a 100 font unit vertical offset. We do the same but only
-                // when both vertical offsets are 0 to avoid incorrect
-                // rendering if Apple ever does encode the offset directly in
-                // the font.
-                let bearing_y = if bitmap_glyph.bearing_y == 0.0
-                    && bitmaps.format() == Some(BitmapFormat::Sbix)
-                {
-                    100.0
+                    (
+                        GlyphType::Colr(ColorGlyph {
+                            color_glyph,
+                            font_ref: &font_ref,
+                            area,
+                            pix_width,
+                            pix_height,
+                            draw_transform,
+                        }),
+                        glyph_transform,
+                    )
+                } else if let Some((bitmap_glyph, pixmap)) = bitmap_data {
+                    let x_scale_factor = self.run.font_size / bitmap_glyph.ppem_x;
+                    let y_scale_factor = self.run.font_size / bitmap_glyph.ppem_y;
+                    let font_units_to_size = self.run.font_size / upem;
+
+                    // CoreText appears to special case Apple Color Emoji, adding
+                    // a 100 font unit vertical offset. We do the same but only
+                    // when both vertical offsets are 0 to avoid incorrect
+                    // rendering if Apple ever does encode the offset directly in
+                    // the font.
+                    let bearing_y = if bitmap_glyph.bearing_y == 0.0
+                        && bitmaps.format() == Some(BitmapFormat::Sbix)
+                    {
+                        100.0
+                    } else {
+                        bitmap_glyph.bearing_y
+                    };
+
+                    let origin_shift = match bitmap_glyph.placement_origin {
+                        Origin::TopLeft => Vec2::default(),
+                        Origin::BottomLeft => Vec2 {
+                            x: 0.,
+                            y: -f64::from(pixmap.height),
+                        },
+                    };
+
+                    let transform = initial_transform
+                        .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+                        .pre_translate(Vec2 {
+                            x: (-bitmap_glyph.bearing_x * font_units_to_size).into(),
+                            y: (bearing_y * font_units_to_size).into(),
+                        })
+                        .pre_scale_non_uniform(x_scale_factor as f64, y_scale_factor as f64)
+                        .pre_translate(Vec2 {
+                            x: (-bitmap_glyph.inner_bearing_x).into(),
+                            y: (-bitmap_glyph.inner_bearing_y).into(),
+                        })
+                        .pre_translate(origin_shift);
+
+                    // Scale factor already accounts for ppem, so we can just draw in the size of the
+                    // actual image
+                    let area = Rect::new(0.0, 0.0, pixmap.width as f64, pixmap.height as f64);
+
+                    (GlyphType::Bitmap(BitmapGlyph { pixmap, area }), transform)
                 } else {
-                    bitmap_glyph.bearing_y
+                    let draw_settings = if let Some(hinting_instance) = &hinting_instance {
+                        DrawSettings::hinted(hinting_instance, false)
+                    } else {
+                        DrawSettings::unhinted(size, normalized_coords)
+                    };
+                    let Some(outline) = outlines.get(GlyphId::new(glyph.id)) else {
+                        continue;
+                    };
+                    path.0.truncate(0);
+                    if outline.draw(draw_settings, &mut path).is_err() {
+                        continue;
+                    }
+
+                    // Calculate the global glyph translation based on the glyph's local position within
+                    // the run and the run's global transform.
+                    //
+                    // This is a partial affine matrix multiplication, calculating only the translation
+                    // component that we need. It is added below to calculate the total transform of this
+                    // glyph.
+                    let [a, b, c, d, _, _] = self.run.transform.as_coeffs();
+                    let translation = Vec2::new(
+                        a * glyph.x as f64 + c * glyph.y as f64,
+                        b * glyph.x as f64 + d * glyph.y as f64,
+                    );
+
+                    // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
+                    // perform vertical-only hinting.
+                    let mut total_transform = initial_transform
+                        .then_translate(translation)
+                        // Account for the fact that the coordinate system of fonts
+                        // is upside down.
+                        .pre_scale_non_uniform(1.0, -1.0)
+                        .as_coeffs();
+                    if hinting_instance.is_some() {
+                        total_transform[5] = total_transform[5].round();
+                    }
+
+                    (
+                        GlyphType::Outline(OutlineGlyph { path: &path.0 }),
+                        Affine::new(total_transform),
+                    )
                 };
-
-                let origin_shift = match bitmap_glyph.placement_origin {
-                    Origin::TopLeft => Vec2::default(),
-                    Origin::BottomLeft => Vec2 {
-                        x: 0.,
-                        y: -f64::from(pixmap.height),
-                    },
-                };
-
-                let transform = initial_transform
-                    .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
-                    .pre_translate(Vec2 {
-                        x: (-bitmap_glyph.bearing_x * font_units_to_size).into(),
-                        y: (bearing_y * font_units_to_size).into(),
-                    })
-                    .pre_scale_non_uniform(x_scale_factor as f64, y_scale_factor as f64)
-                    .pre_translate(Vec2 {
-                        x: (-bitmap_glyph.inner_bearing_x).into(),
-                        y: (-bitmap_glyph.inner_bearing_y).into(),
-                    })
-                    .pre_translate(origin_shift);
-
-                // Scale factor already accounts for ppem, so we can just draw in the size of the
-                // actual image
-                let area = Rect::new(0.0, 0.0, pixmap.width as f64, pixmap.height as f64);
-
-                (GlyphType::Bitmap(BitmapGlyph { pixmap, area }), transform)
-            } else {
-                let draw_settings = if let Some(hinting_instance) = &hinting_instance {
-                    DrawSettings::hinted(hinting_instance, false)
-                } else {
-                    DrawSettings::unhinted(size, normalized_coords)
-                };
-                let Some(outline) = outlines.get(GlyphId::new(glyph.id)) else {
-                    continue;
-                };
-                path.0.truncate(0);
-                if outline.draw(draw_settings, &mut path).is_err() {
-                    continue;
-                }
-
-                // Calculate the global glyph translation based on the glyph's local position within
-                // the run and the run's global transform.
-                //
-                // This is a partial affine matrix multiplication, calculating only the translation
-                // component that we need. It is added below to calculate the total transform of this
-                // glyph.
-                let [a, b, c, d, _, _] = self.run.transform.as_coeffs();
-                let translation = Vec2::new(
-                    a * glyph.x as f64 + c * glyph.y as f64,
-                    b * glyph.x as f64 + d * glyph.y as f64,
-                );
-
-                // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
-                // perform vertical-only hinting.
-                let mut total_transform = initial_transform
-                    .then_translate(translation)
-                    // Account for the fact that the coordinate system of fonts
-                    // is upside down.
-                    .pre_scale_non_uniform(1.0, -1.0)
-                    .as_coeffs();
-                if hinting_instance.is_some() {
-                    total_transform[5] = total_transform[5].round();
-                }
-
-                (
-                    GlyphType::Outline(OutlineGlyph { path: &path.0 }),
-                    Affine::new(total_transform),
-                )
-            };
 
             let prepared_glyph = PreparedGlyph {
                 glyph_type,
                 transform,
             };
 
-            render_glyph(self.renderer, prepared_glyph, &font_ref);
+            render_glyph(self.renderer, prepared_glyph);
         }
     }
 }
@@ -461,8 +461,7 @@ impl OutlinePen for OutlinePath {
 
     #[inline]
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
-        self.0
-            .curve_to((cx0, cy0), (cx1, cy1), (x, y));
+        self.0.curve_to((cx0, cy0), (cx1, cy1), (x, y));
     }
 
     #[inline]

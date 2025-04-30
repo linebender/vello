@@ -3238,7 +3238,7 @@ dependencies = [
  "automod",
  "image",
  "oxipng",
- "skrifa 0.30.0",
+ "skrifa 0.26.6",
  "smallvec",
  "vello_common",
 ]
@@ -3266,7 +3266,6 @@ dependencies = [
  "png",
  "pollster",
  "roxmltree",
- "skrifa 0.26.6",
  "vello_common",
  "wgpu",
 ]

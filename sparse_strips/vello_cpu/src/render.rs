@@ -7,8 +7,6 @@ use crate::fine::Fine;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use skrifa::FontRef;
-use skrifa::raw::TableProvider;
 use vello_common::coarse::Wide;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::colr::{ColrPainter, ColrRenderer};
@@ -282,7 +280,7 @@ impl RenderContext {
 }
 
 impl GlyphRenderer for RenderContext {
-    fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>, font_ref: &FontRef<'_>) {
+    fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
                 flatten::fill(glyph.path, prepared_glyph.transform, &mut self.line_buf);
@@ -329,14 +327,15 @@ impl GlyphRenderer for RenderContext {
                     _ => BLACK,
                 };
 
+                let area = glyph.area;
+
                 let emoji_pixmap = {
                     let mut ctx = RenderContext::new(glyph.pix_width, glyph.pix_height);
                     let mut pix = Pixmap::new(glyph.pix_width, glyph.pix_height);
 
-                    let mut colr_painter =
-                        ColrPainter::new(glyph.draw_transform, font_ref, context_color, &mut ctx);
+                    let mut colr_painter = ColrPainter::new(glyph, context_color, &mut ctx);
 
-                    glyph.paint(&mut colr_painter);
+                    colr_painter.paint();
 
                     let remaining_layers = colr_painter.remaining_layers();
 
@@ -359,7 +358,7 @@ impl GlyphRenderer for RenderContext {
 
                 self.set_paint(image);
                 self.set_transform(prepared_glyph.transform);
-                self.fill_rect(&glyph.area);
+                self.fill_rect(&area);
 
                 // Restore the state.
                 self.set_paint(old_paint);
@@ -368,7 +367,7 @@ impl GlyphRenderer for RenderContext {
         }
     }
 
-    fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>, font_ref: &FontRef<'_>) {
+    fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
                 flatten::stroke(
@@ -381,10 +380,10 @@ impl GlyphRenderer for RenderContext {
                 self.render_path(Fill::NonZero, paint);
             }
             GlyphType::Bitmap(_) => {
-                self.fill_glyph(prepared_glyph, font_ref);
+                self.fill_glyph(prepared_glyph);
             }
             GlyphType::Colr(_) => {
-                self.fill_glyph(prepared_glyph, font_ref);
+                self.fill_glyph(prepared_glyph);
             }
         }
     }
