@@ -73,6 +73,12 @@ impl<'a> ColrPainter<'a> {
         let color_glyph = self.color_glyph.color_glyph.clone();
         // Ignore errors for now
         let _ = color_glyph.paint(LocationRef::default(), self);
+
+        // In certain malformed fonts (i.e. if there is a cycle), skrifa will not
+        // ensure that the push/pop count is the same, so we pop the remaining ones here.
+        for _ in 0..self.layer_count {
+            self.painter.pop_layer();
+        }
     }
 
     fn cur_transform(&self) -> Affine {
@@ -132,17 +138,6 @@ impl<'a> ColrPainter<'a> {
 
         ColorStops(stops)
     }
-
-    /// Get the number of remaining layers in the painter.
-    pub fn remaining_layers(&self) -> u32 {
-        // In certain malformed fonts (i.e. if there is a cycle), skrifa will not
-        // ensure that the push/pop count is the same, so the client needs to manually
-        // pop any remaining layers.
-        self.layer_count
-    }
-
-    /// A shorthand for `std::mem::drop`.
-    pub fn finish(self) {}
 }
 
 impl ColorPainter for ColrPainter<'_> {

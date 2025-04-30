@@ -334,14 +334,7 @@ impl GlyphRenderer for RenderContext {
                     let mut pix = Pixmap::new(glyph.pix_width, glyph.pix_height);
 
                     let mut colr_painter = ColrPainter::new(glyph, context_color, &mut ctx);
-
                     colr_painter.paint();
-
-                    let remaining_layers = colr_painter.remaining_layers();
-
-                    for _ in 0..remaining_layers {
-                        ctx.pop_layer();
-                    }
 
                     ctx.render_to_pixmap(&mut pix);
 
