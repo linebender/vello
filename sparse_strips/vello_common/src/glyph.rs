@@ -176,7 +176,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         };
 
         // Reuse the same `path` allocation for each glyph.
-        let mut path = OutlinePath::new();
+        let mut outline_path = OutlinePath::new();
 
         for glyph in glyphs {
             let bitmap_data = bitmaps
@@ -213,46 +213,19 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                         bitmap_glyph,
                     )
                 } else {
-                    let draw_settings = if let Some(hinting_instance) = &hinting_instance {
-                        DrawSettings::hinted(hinting_instance, false)
-                    } else {
-                        DrawSettings::unhinted(size, normalized_coords)
-                    };
                     let Some(outline) = outlines.get(GlyphId::new(glyph.id)) else {
                         continue;
                     };
-                    path.0.truncate(0);
-                    if outline.draw(draw_settings, &mut path).is_err() {
-                        continue;
-                    }
 
-                    // Calculate the global glyph translation based on the glyph's local position within
-                    // the run and the run's global transform.
-                    //
-                    // This is a partial affine matrix multiplication, calculating only the translation
-                    // component that we need. It is added below to calculate the total transform of this
-                    // glyph.
-                    let [a, b, c, d, _, _] = self.run.transform.as_coeffs();
-                    let translation = Vec2::new(
-                        a * glyph.x as f64 + c * glyph.y as f64,
-                        b * glyph.x as f64 + d * glyph.y as f64,
-                    );
-
-                    // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
-                    // perform vertical-only hinting.
-                    let mut total_transform = initial_transform
-                        .then_translate(translation)
-                        // Account for the fact that the coordinate system of fonts
-                        // is upside down.
-                        .pre_scale_non_uniform(1.0, -1.0)
-                        .as_coeffs();
-                    if hinting_instance.is_some() {
-                        total_transform[5] = total_transform[5].round();
-                    }
-
-                    (
-                        GlyphType::Outline(OutlineGlyph { path: &path.0 }),
-                        Affine::new(total_transform),
+                    prepare_outline_glyph(
+                        &glyph,
+                        size,
+                        initial_transform,
+                        self.run.transform,
+                        &mut outline_path,
+                        &outline,
+                        hinting_instance.as_ref(),
+                        normalized_coords,
                     )
                 };
 
@@ -264,6 +237,55 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             render_glyph(self.renderer, prepared_glyph);
         }
     }
+}
+
+fn prepare_outline_glyph<'a>(
+    glyph: &Glyph,
+    size: Size,
+    initial_transform: Affine,
+    transform: Affine,
+    path: &'a mut OutlinePath,
+    outline_glyph: &skrifa::outline::OutlineGlyph<'a>,
+    hinting_instance: Option<&HintingInstance>,
+    normalized_coords: &[skrifa::instance::NormalizedCoord],
+) -> (GlyphType<'a>, Affine) {
+    let draw_settings = if let Some(hinting_instance) = hinting_instance {
+        DrawSettings::hinted(hinting_instance, false)
+    } else {
+        DrawSettings::unhinted(size, normalized_coords)
+    };
+
+    path.0.truncate(0);
+    let _ = outline_glyph.draw(draw_settings, path);
+
+    // Calculate the global glyph translation based on the glyph's local position within
+    // the run and the run's global transform.
+    //
+    // This is a partial affine matrix multiplication, calculating only the translation
+    // component that we need. It is added below to calculate the total transform of this
+    // glyph.
+    let [a, b, c, d, _, _] = transform.as_coeffs();
+    let translation = Vec2::new(
+        a * glyph.x as f64 + c * glyph.y as f64,
+        b * glyph.x as f64 + d * glyph.y as f64,
+    );
+
+    // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
+    // perform vertical-only hinting.
+    let mut total_transform = initial_transform
+        .then_translate(translation)
+        // Account for the fact that the coordinate system of fonts
+        // is upside down.
+        .pre_scale_non_uniform(1.0, -1.0)
+        .as_coeffs();
+    if hinting_instance.is_some() {
+        total_transform[5] = total_transform[5].round();
+    }
+
+    (
+        GlyphType::Outline(OutlineGlyph { path: &path.0 }),
+        Affine::new(total_transform),
+    )
 }
 
 fn prepare_bitmap_glyph<'a>(
