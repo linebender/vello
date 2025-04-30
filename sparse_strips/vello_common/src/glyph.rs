@@ -57,9 +57,21 @@ pub struct BitmapGlyph {
     pub area: Rect,
 }
 
+/// A glyph defined by a COLR glyph description.
+/// 
+/// Clients are supposed to first draw the glyph into an intermediate image texture
+/// and then render the texture into the actual scene, in a similar fashion to 
+/// bitmap glyphs.
 pub struct ColorGlyph<'a> {
-    // We are keeping this private to not leak skrifa in the public API.
+    /// The underlying skrifa color glyph.
     color_glyph: skrifa::color::ColorGlyph<'a>,
+    /// The rectangular area that should be filled with the rendered COLR glyph
+    /// when painting.
+    pub area: Rect,
+    /// The size of the pixmap to which the glyph should be rendered to.
+    pub pixmap_size: Rect,
+    /// The initial transform to supply to the COLR painter before drawing the glyph.
+    pub draw_transform: Affine,
 }
 
 impl ColorGlyph<'_> {
@@ -154,7 +166,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
     fn render(self, glyphs: impl Iterator<Item = Glyph>, style: Style) {
         let font_ref =
-            skrifa::FontRef::from_index(self.run.font.data.as_ref(), self.run.font.index).unwrap();
+            FontRef::from_index(self.run.font.data.as_ref(), self.run.font.index).unwrap();
 
         let upem: f32 = font_ref.head().map(|h| h.units_per_em()).unwrap().into();
 
