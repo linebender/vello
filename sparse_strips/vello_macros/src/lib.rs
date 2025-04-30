@@ -109,18 +109,30 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let u8_fn_name = Ident::new(&format!("{}_u8", input_fn_name), input_fn_name.span());
     let hybrid_fn_name = Ident::new(&format!("{}_hybrid", input_fn_name), input_fn_name.span());
     
-    let hybrid = if input_fn_name.to_string() == "filled_unaligned_rect".to_string() {
+    let use_hybrid = !{
+        let name = input_fn_name.to_string();
+        
+        name.contains("clip_") 
+            || name.contains(("compose_"))
+            || name.contains("gradient_")
+            || name.contains("image_")
+            || name.contains("layer_")
+            || name.contains("mask_")
+            || name.contains("mix_")
+    };
+    
+    let hybrid = if use_hybrid {
         quote! {
             #[test]
             fn #hybrid_fn_name() {
                 use crate::util::{
-                    check_ref, get_ctx_inner
+                    check_ref_inner, get_ctx_inner
                 };
                 use vello_hybrid::Scene;
     
                 let mut ctx = get_ctx_inner::<Scene>(#width, #height, #transparent);
                 #input_fn_name(&mut ctx);
-                check_ref(&ctx, #input_fn_name_str);
+                check_ref_inner(&ctx, #input_fn_name_str, 1);
             }
         }
     }   else { 
@@ -133,12 +145,12 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         #[test]
         fn #u8_fn_name() {
             use crate::util::{
-                check_ref, get_ctx
+                check_ref_inner, get_ctx
             };
 
             let mut ctx = get_ctx(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
-            check_ref(&ctx, #input_fn_name_str);
+            check_ref_inner(&ctx, #input_fn_name_str, 0);
         }
         
         #hybrid

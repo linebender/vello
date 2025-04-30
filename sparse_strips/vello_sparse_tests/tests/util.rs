@@ -185,7 +185,6 @@ pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
 
 pub(crate) fn pixmap_to_png(mut pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> {
     pixmap.unpremultiply();
-
     
     let mut png_data = Vec::new();
     let cursor = Cursor::new(&mut png_data);
@@ -202,6 +201,10 @@ pub(crate) fn pixmap_to_png(mut pixmap: Pixmap, width: u32, height: u32) -> Vec<
 }
 
 pub(crate) fn check_ref(ctx: &impl Renderer, name: &str) {
+    check_ref_inner(ctx, name, 0);
+}
+
+pub(crate) fn check_ref_inner(ctx: &impl Renderer, name: &str, threshold: u8) {
     let pixmap = render_pixmap(ctx);
     
     let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
@@ -224,7 +227,7 @@ pub(crate) fn check_ref(ctx: &impl Renderer, name: &str) {
         .into_rgba8();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
-    let diff_image = get_diff(&ref_image, &actual);
+    let diff_image = get_diff(&ref_image, &actual, threshold);
 
     if let Some(diff_image) = diff_image {
         if std::env::var("REPLACE").is_ok() {
@@ -245,7 +248,7 @@ pub(crate) fn check_ref(ctx: &impl Renderer, name: &str) {
     }
 }
 
-fn get_diff(expected_image: &RgbaImage, actual_image: &RgbaImage) -> Option<RgbaImage> {
+fn get_diff(expected_image: &RgbaImage, actual_image: &RgbaImage, threshold: u8) -> Option<RgbaImage> {
     let width = max(expected_image.width(), actual_image.width());
     let height = max(expected_image.height(), actual_image.height());
 
@@ -262,7 +265,7 @@ fn get_diff(expected_image: &RgbaImage, actual_image: &RgbaImage) -> Option<Rgba
                 (Some(actual), Some(expected)) => {
                     diff_image.put_pixel(x, y, *expected);
                     diff_image.put_pixel(x + 2 * width, y, *actual);
-                    if is_pix_diff(expected, actual) {
+                    if is_pix_diff(expected, actual, threshold) {
                         pixel_diff += 1;
                         diff_image.put_pixel(x + width, y, Rgba([255, 0, 0, 255]));
                     } else {
@@ -295,10 +298,16 @@ fn get_diff(expected_image: &RgbaImage, actual_image: &RgbaImage) -> Option<Rgba
     }
 }
 
-fn is_pix_diff(pixel1: &Rgba<u8>, pixel2: &Rgba<u8>) -> bool {
+fn is_pix_diff(pixel1: &Rgba<u8>, pixel2: &Rgba<u8>, threshold: u8) -> bool {
     if pixel1.0[3] == 0 && pixel2.0[3] == 0 {
         return false;
     }
 
-    pixel1 != pixel2
+    let mut different = false;
+    
+    for i in 0..3 {
+        different |= pixel1.0[i].abs_diff(pixel2.0[i]) > threshold;
+    }
+    
+    different
 }
