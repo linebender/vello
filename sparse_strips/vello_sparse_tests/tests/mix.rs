@@ -10,7 +10,6 @@ use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::{Gradient, Image};
 use vello_common::peniko::{BlendMode, Compose, Extend, Mix};
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind, ImageQuality};
-use vello_cpu::RenderContext;
 use vello_macros::v_test;
 
 // The outputs have been compared visually with tiny-skia, and except for two cases (where tiny-skia

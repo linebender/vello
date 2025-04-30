@@ -61,9 +61,9 @@ struct Arguments {
     threshold: u8,
     /// Whether the background should be transparent.
     transparent: bool,
-    /// Whether the test should not be run on the CPU (vello_cpu).
+    /// Whether the test should not be run on the CPU (`vello_cpu`).
     skip_cpu: bool,
-    /// Whether the test should not be run on the GPU (vello_hybrid).
+    /// Whether the test should not be run on the GPU (`vello_hybrid`).
     skip_gpu: bool,
     /// Whether no reference image should actually be created (for tests that only check
     /// for panics, but are not interested in the actual output).
@@ -180,6 +180,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                 match key_str.as_str() {
                     "width" => args.width = parse_int_lit(expr, "width"),
                     "height" => args.height = parse_int_lit(expr, "height"),
+                    #[allow(clippy::cast_possible_truncation, reason = "user-supplied value")]
                     "threshold" => args.threshold = parse_int_lit(expr, "threshold") as u8,
                     _ => panic!("unknown pair attribute {}", key_str),
                 }

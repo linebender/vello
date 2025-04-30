@@ -1,4 +1,3 @@
-use crate::util::pixmap_to_png;
 use vello_api::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_api::mask::Mask;
 use vello_api::paint::PaintType;
@@ -6,7 +5,7 @@ use vello_api::peniko::{BlendMode, Fill, Font};
 use vello_api::pixmap::Pixmap;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_cpu::RenderContext;
-use vello_hybrid::{RenderTargetConfig, Scene};
+use vello_hybrid::Scene;
 use wgpu::RenderPassDescriptor;
 
 pub(crate) trait Renderer: Sized + GlyphRenderer {
@@ -43,19 +42,19 @@ impl Renderer for RenderContext {
     }
 
     fn fill_path(&mut self, path: &BezPath) {
-        Self::fill_path(self, path)
+        Self::fill_path(self, path);
     }
 
     fn stroke_path(&mut self, path: &BezPath) {
-        Self::stroke_path(self, path)
+        Self::stroke_path(self, path);
     }
 
     fn fill_rect(&mut self, rect: &Rect) {
-        Self::fill_rect(self, rect)
+        Self::fill_rect(self, rect);
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
-        Self::stroke_rect(self, rect)
+        Self::stroke_rect(self, rect);
     }
 
     fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
@@ -69,47 +68,47 @@ impl Renderer for RenderContext {
         opacity: Option<u8>,
         mask: Option<Mask>,
     ) {
-        Self::push_layer(self, clip_path, blend_mode, opacity, mask)
+        Self::push_layer(self, clip_path, blend_mode, opacity, mask);
     }
 
     fn push_clip_layer(&mut self, path: &BezPath) {
-        Self::push_clip_layer(self, path)
+        Self::push_clip_layer(self, path);
     }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        Self::push_blend_layer(self, blend_mode)
+        Self::push_blend_layer(self, blend_mode);
     }
 
     fn push_opacity_layer(&mut self, opacity: u8) {
-        Self::push_opacity_layer(self, opacity)
+        Self::push_opacity_layer(self, opacity);
     }
 
     fn push_mask_layer(&mut self, mask: Mask) {
-        Self::push_mask_layer(self, mask)
+        Self::push_mask_layer(self, mask);
     }
 
     fn pop_layer(&mut self) {
-        Self::pop_layer(self)
+        Self::pop_layer(self);
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
-        Self::set_stroke(self, stroke)
+        Self::set_stroke(self, stroke);
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
-        Self::set_paint(self, paint)
+        Self::set_paint(self, paint);
     }
 
     fn set_fill_rule(&mut self, fill_rule: Fill) {
-        Self::set_fill_rule(self, fill_rule)
+        Self::set_fill_rule(self, fill_rule);
     }
 
     fn set_transform(&mut self, transform: Affine) {
-        Self::set_transform(self, transform)
+        Self::set_transform(self, transform);
     }
 
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        Self::render_to_pixmap(self, pixmap)
+        Self::render_to_pixmap(self, pixmap);
     }
 
     fn width(&self) -> u16 {
@@ -127,19 +126,19 @@ impl Renderer for Scene {
     }
 
     fn fill_path(&mut self, path: &BezPath) {
-        Self::fill_path(self, path)
+        Self::fill_path(self, path);
     }
 
     fn stroke_path(&mut self, path: &BezPath) {
-        Self::stroke_path(self, path)
+        Self::stroke_path(self, path);
     }
 
     fn fill_rect(&mut self, rect: &Rect) {
-        Self::fill_rect(self, rect)
+        Self::fill_rect(self, rect);
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
-        Self::stroke_rect(self, rect)
+        Self::stroke_rect(self, rect);
     }
 
     fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
@@ -153,31 +152,31 @@ impl Renderer for Scene {
         _: Option<u8>,
         _: Option<Mask>,
     ) {
-        todo!()
+        unimplemented!()
     }
 
     fn push_clip_layer(&mut self, _: &BezPath) {
-        todo!()
+        unimplemented!()
     }
 
     fn push_blend_layer(&mut self, _: BlendMode) {
-        todo!()
+        unimplemented!()
     }
 
     fn push_opacity_layer(&mut self, _: u8) {
-        todo!()
+        unimplemented!()
     }
 
     fn push_mask_layer(&mut self, _: Mask) {
-        todo!()
+        unimplemented!()
     }
 
     fn pop_layer(&mut self) {
-        todo!()
+        unimplemented!()
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
-        Self::set_stroke(self, stroke)
+        Self::set_stroke(self, stroke);
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
@@ -190,11 +189,11 @@ impl Renderer for Scene {
     }
 
     fn set_fill_rule(&mut self, fill_rule: Fill) {
-        Self::set_fill_rule(self, fill_rule)
+        Self::set_fill_rule(self, fill_rule);
     }
 
     fn set_transform(&mut self, transform: Affine) {
-        Self::set_transform(self, transform)
+        Self::set_transform(self, transform);
     }
 
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
@@ -253,7 +252,7 @@ impl Renderer for Scene {
             width: width.into(),
             height: height.into(),
         };
-        renderer.prepare(&device, &queue, &self, &render_size);
+        renderer.prepare(&device, &queue, self, &render_size);
         // Copy texture to buffer
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Vello Render To Buffer"),
@@ -273,7 +272,7 @@ impl Renderer for Scene {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-            renderer.render(&self, &mut pass);
+            renderer.render(self, &mut pass);
         }
 
         // Create a buffer to copy the texture data

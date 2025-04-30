@@ -4,7 +4,6 @@
 //! Tests for GitHub issues.
 
 use crate::renderer::Renderer;
-use crate::util::{check_ref, get_ctx, render_pixmap};
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;

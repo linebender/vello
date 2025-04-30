@@ -10,7 +10,6 @@ use vello_api::color::palette::css::BLACK;
 use vello_common::color::palette::css::{DARK_BLUE, DARK_GREEN, REBECCA_PURPLE};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
-use vello_cpu::RenderContext;
 use vello_macros::v_test;
 
 #[v_test]
