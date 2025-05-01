@@ -20,7 +20,7 @@ enum Attribute {
 fn is_flag(key: &Ident) -> bool {
     matches!(
         key.to_string().as_str(),
-        "transparent" | "skip_cpu" | "skip_gpu" | "no_ref"
+        "transparent" | "skip_cpu" | "skip_gpu" | "no_ref" | "ignore"
     )
 }
 
@@ -199,6 +199,10 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "skip_cpu" => args.skip_cpu = true,
                     "skip_gpu" => args.skip_gpu = true,
                     "no_ref" => args.no_ref = true,
+                    "ignore" => {
+                        args.skip_cpu = true;
+                        args.skip_gpu = true;
+                    }
                     _ => panic!("unknown flag attribute {}", flag_str),
                 }
             }

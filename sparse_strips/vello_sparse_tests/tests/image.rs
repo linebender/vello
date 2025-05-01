@@ -137,8 +137,7 @@ fn image_with_transform_scale_and_translate(ctx: &mut impl Renderer) {
 }
 
 // TODO: The below two test cases fail on Windows CI for some reason.
-#[ignore]
-#[v_test]
+#[v_test(ignore)]
 fn image_with_transform_rotate_1(ctx: &mut impl Renderer) {
     transform(
         ctx,
@@ -150,8 +149,7 @@ fn image_with_transform_rotate_1(ctx: &mut impl Renderer) {
     );
 }
 
-#[ignore]
-#[v_test]
+#[v_test(ignore)]
 fn image_with_transform_rotate_2(ctx: &mut impl Renderer) {
     transform(
         ctx,
