@@ -4,7 +4,6 @@
 //! Simple example.
 
 use anyhow::Result;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
 use vello::peniko::Color;
@@ -206,11 +205,7 @@ fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
 fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface<'_>) -> Renderer {
     Renderer::new(
         &render_cx.devices[surface.dev_id].device,
-        RendererOptions {
-            use_cpu: false,
-            antialiasing_support: vello::AaSupport::all(),
-            num_init_threads: NonZeroUsize::new(1),
-        },
+        RendererOptions::default(),
     )
     .expect("Couldn't create renderer")
 }
