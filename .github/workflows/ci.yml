@@ -21,7 +21,7 @@ env:
   # `vello_tests` uses `nv-flip`, which doesn't support Wasm.
   NO_WASM_PKGS: "--exclude vello_tests"
   # The files stored in LFS the tests need to access, in JSON format
-  LFS_FILES: '["vello_tests/snapshots/*.png", "sparse_strips/vello_cpu/snapshots/*.png"]'
+  LFS_FILES: '["vello_tests/snapshots/*.png", "sparse_strips/vello_sparse_tests/snapshots/*.png"]'
 
 
 # Rationale
