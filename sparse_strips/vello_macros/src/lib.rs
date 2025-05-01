@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Proc-macros for testing `vello_cpu` and `vello_hybrid`.
 
 use proc_macro::TokenStream;

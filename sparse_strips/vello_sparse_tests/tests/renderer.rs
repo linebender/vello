@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use vello_api::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_api::mask::Mask;
 use vello_api::paint::PaintType;
