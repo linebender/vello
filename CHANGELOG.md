@@ -43,13 +43,6 @@ This release has an [MSRV][] of 1.85.
   (Note that we do not guarantee that our latest release will always match Bevy's wgpu version)
 - Breaking: `override_image` has been updated to remove its use of `Arc`, as `wgpu::Texture`s are now internally reference counted. ([#802][] by [@DJMcNab][])
 
-### Internals
-
-The crates were switched to edition 2024 of Rust.
-
-- The example which uses sdl2 has been removed.
-  The sdl2 crates no longer compile, and this example previously existing shows that it was possible. ([#886][] by [@DJMcNab][])
-
 ## [0.4.1][] - 2025-03-10
 
 This release has an [MSRV][] of 1.82.
