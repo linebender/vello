@@ -90,11 +90,14 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attrs = parse_macro_input!(attr as AttributeInput);
 
     let input_fn = parse_macro_input!(item as ItemFn);
-    let input_fn_name = input_fn.sig.ident.clone();
-    let input_fn_name_str = input_fn_name.to_string();
 
+    let input_fn_name = input_fn.sig.ident.clone();
     let u8_fn_name = Ident::new(&format!("{}_cpu_u8", input_fn_name), input_fn_name.span());
     let hybrid_fn_name = Ident::new(&format!("{}_gpu", input_fn_name), input_fn_name.span());
+
+    let input_fn_name_str = input_fn_name.to_string();
+    let u8_fn_name_str = u8_fn_name.to_string();
+    let hybrid_fn_name_str = hybrid_fn_name.to_string();
 
     let Arguments {
         width,
@@ -148,7 +151,7 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #cpu_threshold);
+                check_ref(&ctx, #input_fn_name_str, #u8_fn_name_str, #cpu_threshold, true);
             }
         }
 
@@ -162,9 +165,8 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 
             let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
-            // TODO: When generating the diff, the suffix of the diff image should end with u8/hybrid.
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #gpu_threshold);
+                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #gpu_threshold, false);
             }
         }
     };

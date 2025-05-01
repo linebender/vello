@@ -19,7 +19,6 @@ use vello_common::glyph::Glyph;
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, Font};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::RenderContext;
 
 static REFS_PATH: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_cpu/snapshots"));
@@ -191,11 +190,23 @@ pub(crate) fn pixmap_to_png(mut pixmap: Pixmap, width: u32, height: u32) -> Vec<
     png_data
 }
 
-pub(crate) fn check_ref(ctx: &impl Renderer, name: &str, threshold: u8) {
+pub(crate) fn check_ref(
+    ctx: &impl Renderer,
+    // The name of the test.
+    test_name: &str,
+    // The name of the specific instance of the test that is being run
+    // (e.g. test_gpu, test_cpu_u8, etc.)
+    specific_name: &str,
+    // Tolerance for pixel differences.
+    threshold: u8,
+    // Whether the test instance the "gold standard" and should be used
+    // for creating reference images.
+    is_reference: bool,
+) {
     let pixmap = render_pixmap(ctx);
 
     let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
-    let ref_path = REFS_PATH.join(format!("{}.png", name));
+    let ref_path = REFS_PATH.join(format!("{}.png", test_name));
 
     let write_ref_image = || {
         let optimized =
@@ -205,8 +216,12 @@ pub(crate) fn check_ref(ctx: &impl Renderer, name: &str, threshold: u8) {
     };
 
     if !ref_path.exists() {
-        write_ref_image();
-        panic!("new reference image was created");
+        if is_reference {
+            write_ref_image();
+            panic!("new reference image was created");
+        } else {
+            panic!("no reference image exists");
+        }
     }
 
     let ref_image = load_from_memory(&std::fs::read(&ref_path).unwrap())
@@ -217,7 +232,7 @@ pub(crate) fn check_ref(ctx: &impl Renderer, name: &str, threshold: u8) {
     let diff_image = get_diff(&ref_image, &actual, threshold);
 
     if let Some(diff_image) = diff_image {
-        if std::env::var("REPLACE").is_ok() {
+        if std::env::var("REPLACE").is_ok() && is_reference {
             write_ref_image();
             panic!("test was replaced");
         }
@@ -226,7 +241,7 @@ pub(crate) fn check_ref(ctx: &impl Renderer, name: &str, threshold: u8) {
             let _ = std::fs::create_dir_all(DIFFS_PATH.as_path());
         }
 
-        let diff_path = DIFFS_PATH.join(format!("{}.png", name));
+        let diff_path = DIFFS_PATH.join(format!("{}.png", specific_name));
         diff_image
             .save_with_format(&diff_path, image::ImageFormat::Png)
             .unwrap();

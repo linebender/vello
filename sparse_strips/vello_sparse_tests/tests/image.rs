@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::gradient::tan_45;
-use crate::util::{check_ref, crossed_line_star, get_ctx};
+use crate::renderer::Renderer;
+use crate::util::crossed_line_star;
 use std::f64::consts::PI;
 use std::path::Path;
 use std::sync::Arc;
@@ -11,7 +12,6 @@ use vello_common::paint::Image;
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_macros::v_test;
-use crate::renderer::Renderer;
 
 pub(crate) fn load_image(name: &str) -> Arc<Pixmap> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/assets/{name}.png"));
@@ -68,11 +68,7 @@ fn image_pad_x_repeat_y(ctx: &mut impl Renderer) {
 
 #[v_test]
 fn image_reflect_x_reflect_y(ctx: &mut impl Renderer) {
-    repeat(
-        ctx,
-        Extend::Reflect,
-        Extend::Reflect
-    );
+    repeat(ctx, Extend::Reflect, Extend::Reflect);
 }
 
 #[v_test]
@@ -103,38 +99,17 @@ fn transform(ctx: &mut impl Renderer, transform: Affine, l: f64, t: f64, r: f64,
 
 #[v_test]
 fn image_with_transform_identity(ctx: &mut impl Renderer) {
-    transform(
-        ctx,
-        Affine::IDENTITY,
-        25.0,
-        25.0,
-        75.0,
-        75.0
-    );
+    transform(ctx, Affine::IDENTITY, 25.0, 25.0, 75.0, 75.0);
 }
 
 #[v_test]
 fn image_with_transform_translate(ctx: &mut impl Renderer) {
-    transform(
-        ctx,
-        Affine::translate((25.0, 25.0)),
-        0.0,
-        0.0,
-        50.0,
-        50.0
-    );
+    transform(ctx, Affine::translate((25.0, 25.0)), 0.0, 0.0, 50.0, 50.0);
 }
 
 #[v_test]
 fn image_with_transform_scale(ctx: &mut impl Renderer) {
-    transform(
-        ctx,
-        Affine::scale(2.0),
-        12.5,
-        12.5,
-        37.5,
-        37.5
-    );
+    transform(ctx, Affine::scale(2.0), 12.5, 12.5, 37.5, 37.5);
 }
 
 #[v_test]
@@ -145,7 +120,7 @@ fn image_with_transform_negative_scale(ctx: &mut impl Renderer) {
         12.5,
         12.5,
         37.5,
-        37.5
+        37.5,
     );
 }
 
@@ -157,7 +132,7 @@ fn image_with_transform_scale_and_translate(ctx: &mut impl Renderer) {
         0.0,
         0.0,
         25.0,
-        25.0
+        25.0,
     );
 }
 
@@ -171,7 +146,7 @@ fn image_with_transform_rotate_1(ctx: &mut impl Renderer) {
         25.0,
         25.0,
         75.0,
-        75.0
+        75.0,
     );
 }
 
@@ -184,7 +159,7 @@ fn image_with_transform_rotate_2(ctx: &mut impl Renderer) {
         25.0,
         25.0,
         75.0,
-        75.0
+        75.0,
     );
 }
 
@@ -196,7 +171,7 @@ fn image_with_transform_scaling_non_uniform(ctx: &mut impl Renderer) {
         25.0,
         12.5,
         75.0,
-        37.5
+        37.5,
     );
 }
 
@@ -208,7 +183,7 @@ fn image_with_transform_skew_x_1(ctx: &mut impl Renderer) {
         25.0,
         25.0,
         75.0,
-        75.0
+        75.0,
     );
 }
 
@@ -220,19 +195,19 @@ fn image_with_transform_skew_x_2(ctx: &mut impl Renderer) {
         25.0,
         25.0,
         75.0,
-        75.0
+        75.0,
     );
 }
 
 #[v_test]
 fn image_with_transform_skew_y_1(ctx: &mut impl Renderer) {
     transform(
-       ctx,
-       Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45()),
+        ctx,
+        Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45()),
         25.0,
         25.0,
         75.0,
-        75.0
+        75.0,
     );
 }
 
@@ -244,7 +219,7 @@ fn image_with_transform_skew_y_2(ctx: &mut impl Renderer) {
         25.0,
         25.0,
         75.0,
-        75.0
+        75.0,
     );
 }
 
@@ -318,7 +293,13 @@ fn image_lumaa_image(ctx: &mut impl Renderer) {
     image_format(ctx, lumaa_img_10x10());
 }
 
-fn quality(ctx: &mut impl Renderer, transform: Affine, image: Arc<Pixmap>, quality: ImageQuality, extend: Extend) {
+fn quality(
+    ctx: &mut impl Renderer,
+    transform: Affine,
+    image: Arc<Pixmap>,
+    quality: ImageQuality,
+    extend: Extend,
+) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
     let image = Image {
@@ -342,7 +323,7 @@ fn image_bilinear_identity(ctx: &mut impl Renderer) {
         Affine::IDENTITY,
         rgb_img_2x2(),
         ImageQuality::Medium,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -353,7 +334,7 @@ fn image_bilinear_2x_scale(ctx: &mut impl Renderer) {
         Affine::scale(2.0),
         rgb_img_2x2(),
         ImageQuality::Medium,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -364,7 +345,7 @@ fn image_bilinear_5x_scale(ctx: &mut impl Renderer) {
         Affine::scale(5.0),
         rgb_img_2x2(),
         ImageQuality::Medium,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -375,7 +356,7 @@ fn image_bilinear_10x_scale(ctx: &mut impl Renderer) {
         Affine::scale(10.0),
         rgb_img_2x2(),
         ImageQuality::Medium,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -386,7 +367,7 @@ fn image_bilinear_with_rotation(ctx: &mut impl Renderer) {
         Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()),
         rgb_img_2x2(),
         ImageQuality::Medium,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -397,7 +378,7 @@ fn image_bilinear_with_translation(ctx: &mut impl Renderer) {
         Affine::scale(5.0) * Affine::translate((10.0, 10.0)),
         rgb_img_2x2(),
         ImageQuality::Medium,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -408,7 +389,7 @@ fn image_bilinear_10x_scale_2(ctx: &mut impl Renderer) {
         Affine::scale(10.0),
         rgb_img_2x3(),
         ImageQuality::Medium,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -427,7 +408,7 @@ fn image_bicubic_identity(ctx: &mut impl Renderer) {
         Affine::IDENTITY,
         rgb_img_2x2(),
         ImageQuality::High,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -438,7 +419,7 @@ fn image_bicubic_2x_scale(ctx: &mut impl Renderer) {
         Affine::scale(2.0),
         rgb_img_2x2(),
         ImageQuality::High,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -449,7 +430,7 @@ fn image_bicubic_5x_scale(ctx: &mut impl Renderer) {
         Affine::scale(5.0),
         rgb_img_2x2(),
         ImageQuality::High,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -460,7 +441,7 @@ fn image_bicubic_10x_scale(ctx: &mut impl Renderer) {
         Affine::scale(10.0),
         rgb_img_2x2(),
         ImageQuality::High,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -471,7 +452,7 @@ fn image_bicubic_with_rotation(ctx: &mut impl Renderer) {
         Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()),
         rgb_img_2x2(),
         ImageQuality::High,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -482,7 +463,7 @@ fn image_bicubic_with_translation(ctx: &mut impl Renderer) {
         Affine::scale(5.0) * Affine::translate((10.0, 10.0)),
         rgb_img_2x2(),
         ImageQuality::High,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
 
@@ -493,6 +474,6 @@ fn image_bicubic_10x_scale_2(ctx: &mut impl Renderer) {
         Affine::scale(10.0),
         rgb_img_2x3(),
         ImageQuality::High,
-        Extend::Reflect
+        Extend::Reflect,
     );
 }
