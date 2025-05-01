@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::util::{check_ref, get_ctx};
 use smallvec::smallvec;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
@@ -9,7 +10,6 @@ use vello_common::mask::Mask;
 use vello_common::paint::Gradient;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
 use vello_cpu::{Pixmap, RenderContext};
-use crate::util::{check_ref, get_ctx};
 
 pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     let mut mask_pix = Pixmap::new(100, 100);
@@ -18,24 +18,22 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     let grad = Gradient {
         kind: GradientKind::Linear {
             start: Point::new(10.0, 0.0),
-            end: Point::new(90.0, 0.0)
+            end: Point::new(90.0, 0.0),
         },
-        stops: ColorStops(
-            smallvec![
-                    ColorStop {
-                        offset: 0.0 , 
-                        color: DynamicColor::from_alpha_color(RED),
-                    },
-                    ColorStop {
-                        offset: 0.5, 
-                        color: DynamicColor::from_alpha_color(YELLOW.with_alpha(0.5)),
-                    },
-                    ColorStop {
-                        offset: 1.0, 
-                        color: DynamicColor::from_alpha_color(LIME.with_alpha(0.0)),
-                    },
-                ]
-        ),
+        stops: ColorStops(smallvec![
+            ColorStop {
+                offset: 0.0,
+                color: DynamicColor::from_alpha_color(RED),
+            },
+            ColorStop {
+                offset: 0.5,
+                color: DynamicColor::from_alpha_color(YELLOW.with_alpha(0.5)),
+            },
+            ColorStop {
+                offset: 1.0,
+                color: DynamicColor::from_alpha_color(LIME.with_alpha(0.0)),
+            },
+        ]),
         ..Default::default()
     };
 
@@ -45,7 +43,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
 
     if alpha_mask {
         Mask::new_alpha(&mask_pix)
-    }   else {
+    } else {
         Mask::new_luminance(&mask_pix)
     }
 }
@@ -53,7 +51,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
 macro_rules! mask {
     ($name:expr, $mask:expr) => {
         let mask = example_mask($mask);
-        
+
         let mut ctx = get_ctx(100, 100, false);
         ctx.set_paint(BLACK);
         ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
@@ -61,7 +59,7 @@ macro_rules! mask {
         ctx.set_paint(RED);
         ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
         ctx.pop_layer();
-    
+
         check_ref(&ctx, $name);
     };
 }

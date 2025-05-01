@@ -3,9 +3,7 @@
 
 //! Tests for basic functionality.
 
-use crate::util::{
-    check_ref, circular_star, crossed_line_star, get_ctx, miter_stroke_2,
-};
+use crate::util::{check_ref, circular_star, crossed_line_star, get_ctx, miter_stroke_2};
 use std::f64::consts::PI;
 use vello_common::color::palette::css::{
     BEIGE, BLUE, DARK_BLUE, GREEN, LIME, MAROON, REBECCA_PURPLE, RED,

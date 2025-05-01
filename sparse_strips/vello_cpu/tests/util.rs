@@ -7,11 +7,11 @@ use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder, Rgba, RgbaImage, load_from_memory};
 use skrifa::MetadataProvider;
 use skrifa::raw::FileRef;
+use smallvec::smallvec;
 use std::cmp::max;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
-use smallvec::smallvec;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::glyph::Glyph;
@@ -130,7 +130,6 @@ pub(crate) fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
     (font, glyphs)
 }
 
-
 pub(crate) fn stops_green_blue() -> ColorStops {
     ColorStops(smallvec![
         ColorStop {
@@ -177,7 +176,6 @@ pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
         },
     ])
 }
-
 
 pub(crate) fn check_ref(ctx: &RenderContext, name: &str) {
     let mut pixmap = render_pixmap(ctx);
