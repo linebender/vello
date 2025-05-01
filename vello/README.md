@@ -64,11 +64,7 @@ let device: wgpu::Device = ...;
 let queue: wgpu::Queue = ...;
 let mut renderer = Renderer::new(
    &device,
-   RendererOptions {
-      use_cpu: false,
-      antialiasing_support: vello::AaSupport::all(),
-      num_init_threads: NonZeroUsize::new(1),
-   },
+   RendererOptions::default()
 ).expect("Failed to create renderer");
 // Create scene and draw stuff in it
 let mut scene = vello::Scene::new();
