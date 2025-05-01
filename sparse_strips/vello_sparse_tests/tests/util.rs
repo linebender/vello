@@ -26,11 +26,7 @@ static REFS_PATH: LazyLock<PathBuf> =
 static DIFFS_PATH: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_cpu/diffs"));
 
-pub(crate) fn get_ctx(width: u16, height: u16, transparent: bool) -> RenderContext {
-    get_ctx_inner::<RenderContext>(width, height, transparent)
-}
-
-pub(crate) fn get_ctx_inner<T: Renderer>(width: u16, height: u16, transparent: bool) -> T {
+pub(crate) fn get_ctx<T: Renderer>(width: u16, height: u16, transparent: bool) -> T {
     let mut ctx = T::new(width, height);
 
     if !transparent {
