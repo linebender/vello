@@ -1,10 +1,10 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::util::{check_ref, get_ctx};
 use vello_common::color::palette::css::{BLUE, YELLOW};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
-use crate::util::{check_ref, get_ctx};
 
 fn compose(name: &str, compose: Compose) {
     let mut ctx = get_ctx(100, 100, false);

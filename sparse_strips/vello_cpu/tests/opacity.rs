@@ -1,9 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::util::{check_ref, get_ctx};
 use vello_common::color::palette::css::{BLUE, GREEN, REBECCA_PURPLE, RED, YELLOW};
 use vello_common::kurbo::{Circle, Rect, Shape};
-use crate::util::{check_ref, get_ctx};
 
 #[test]
 fn opacity_on_layer() {
@@ -15,7 +15,7 @@ fn opacity_on_layer() {
         ctx.set_paint(e.2);
         ctx.fill_path(&circle.to_path(0.1));
     }
-    
+
     ctx.pop_layer();
 
     check_ref(&ctx, "opacity_on_layer");
@@ -24,7 +24,7 @@ fn opacity_on_layer() {
 #[test]
 fn opacity_nested_on_layer() {
     let mut ctx = get_ctx(100, 100, false);
-    
+
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
     ctx.push_opacity_layer(128);
@@ -36,7 +36,5 @@ fn opacity_nested_on_layer() {
     ctx.pop_layer();
     ctx.pop_layer();
 
-
     check_ref(&ctx, "opacity_nested_on_layer");
 }
-

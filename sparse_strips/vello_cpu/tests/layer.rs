@@ -1,11 +1,11 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::mask::example_mask;
+use crate::util::{check_ref, crossed_line_star, get_ctx};
 use vello_common::color::palette::css::{BLUE, RED};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
-use crate::mask::example_mask;
-use crate::util::{check_ref, crossed_line_star, get_ctx};
 
 #[test]
 fn layer_multiple_properties_1() {
@@ -16,7 +16,10 @@ fn layer_multiple_properties_1() {
     ctx.set_paint(BLUE);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
     ctx.push_layer(
-        Some(&star), Some(BlendMode::new(Mix::Lighten, Compose::SrcOver)), Some(200), Some(mask)
+        Some(&star),
+        Some(BlendMode::new(Mix::Lighten, Compose::SrcOver)),
+        Some(200),
+        Some(mask),
     );
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
