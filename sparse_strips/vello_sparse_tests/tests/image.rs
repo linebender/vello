@@ -10,6 +10,8 @@ use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::Image;
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::pixmap::Pixmap;
+use vello_macros::v_test;
+use crate::renderer::Renderer;
 
 pub(crate) fn load_image(name: &str) -> Arc<Pixmap> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/assets/{name}.png"));
@@ -40,79 +42,69 @@ fn lumaa_img_10x10() -> Arc<Pixmap> {
     load_image("lumaa_image_10x10")
 }
 
-macro_rules! repeat {
-    ($name:expr, $x_repeat:expr, $y_repeat:expr) => {
-        let mut ctx = get_ctx(100, 100, false);
-        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-        let im = rgb_img_10x10();
+fn repeat(ctx: &mut impl Renderer, x_extend: Extend, y_extend: Extend) {
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    let im = rgb_img_10x10();
 
-        ctx.set_paint(Image {
-            pixmap: im,
-            x_extend: $x_repeat,
-            y_extend: $y_repeat,
-            quality: ImageQuality::Low,
-            transform: Affine::translate((45.0, 45.0)),
-        });
-        ctx.fill_rect(&rect);
-
-        check_ref(&ctx, $name);
-    };
+    ctx.set_paint(Image {
+        pixmap: im,
+        x_extend,
+        y_extend,
+        quality: ImageQuality::Low,
+        transform: Affine::translate((45.0, 45.0)),
+    });
+    ctx.fill_rect(&rect);
 }
 
-#[test]
-fn image_reflect_x_pad_y() {
-    repeat!("image_reflect_x", Extend::Reflect, Extend::Pad);
+#[v_test]
+fn image_reflect_x_pad_y(ctx: &mut impl Renderer) {
+    repeat(ctx, Extend::Reflect, Extend::Pad);
 }
 
-#[test]
-fn image_pad_x_repeat_y() {
-    repeat!("image_repeat_y", Extend::Pad, Extend::Repeat);
+#[v_test]
+fn image_pad_x_repeat_y(ctx: &mut impl Renderer) {
+    repeat(ctx, Extend::Pad, Extend::Repeat);
 }
 
-#[test]
-fn image_reflect_x_reflect_y() {
-    repeat!(
-        "image_reflect_x_reflect_y",
+#[v_test]
+fn image_reflect_x_reflect_y(ctx: &mut impl Renderer) {
+    repeat(
+        ctx,
         Extend::Reflect,
         Extend::Reflect
     );
 }
 
-#[test]
-fn image_repeat_x_repeat_y() {
-    repeat!("image_repeat_x_repeat_y", Extend::Repeat, Extend::Repeat);
+#[v_test]
+fn image_repeat_x_repeat_y(ctx: &mut impl Renderer) {
+    repeat(ctx, Extend::Repeat, Extend::Repeat);
 }
 
-#[test]
-fn image_pad_x_pad_y() {
-    repeat!("image_pad_x_pad_y", Extend::Pad, Extend::Pad);
+#[v_test]
+fn image_pad_x_pad_y(ctx: &mut impl Renderer) {
+    repeat(ctx, Extend::Pad, Extend::Pad);
 }
 
-macro_rules! transform {
-    ($name:expr, $transform:expr, $p0:expr, $p1: expr, $p2:expr, $p3: expr) => {
-        let mut ctx = get_ctx(100, 100, false);
-        let rect = Rect::new($p0, $p1, $p2, $p3);
+fn transform(ctx: &mut impl Renderer, transform: Affine, l: f64, t: f64, r: f64, b: f64) {
+    let rect = Rect::new(l, t, r, b);
 
-        let image = Image {
-            pixmap: rgb_img_10x10(),
-            x_extend: Extend::Repeat,
-            y_extend: Extend::Repeat,
-            quality: ImageQuality::Low,
-            transform: Affine::IDENTITY,
-        };
-
-        ctx.set_transform($transform);
-        ctx.set_paint(image);
-        ctx.fill_rect(&rect);
-
-        check_ref(&ctx, $name);
+    let image = Image {
+        pixmap: rgb_img_10x10(),
+        x_extend: Extend::Repeat,
+        y_extend: Extend::Repeat,
+        quality: ImageQuality::Low,
+        transform: Affine::IDENTITY,
     };
+
+    ctx.set_transform(transform);
+    ctx.set_paint(image);
+    ctx.fill_rect(&rect);
 }
 
-#[test]
-fn image_with_transform_identity() {
-    transform!(
-        "image_with_transform_identity",
+#[v_test]
+fn image_with_transform_identity(ctx: &mut impl Renderer) {
+    transform(
+        ctx,
         Affine::IDENTITY,
         25.0,
         25.0,
@@ -121,10 +113,10 @@ fn image_with_transform_identity() {
     );
 }
 
-#[test]
-fn image_with_transform_translate() {
-    transform!(
-        "image_with_transform_translate",
+#[v_test]
+fn image_with_transform_translate(ctx: &mut impl Renderer) {
+    transform(
+        ctx,
         Affine::translate((25.0, 25.0)),
         0.0,
         0.0,
@@ -133,10 +125,10 @@ fn image_with_transform_translate() {
     );
 }
 
-#[test]
-fn image_with_transform_scale() {
-    transform!(
-        "image_with_transform_scale",
+#[v_test]
+fn image_with_transform_scale(ctx: &mut impl Renderer) {
+    transform(
+        ctx,
         Affine::scale(2.0),
         12.5,
         12.5,
@@ -145,10 +137,10 @@ fn image_with_transform_scale() {
     );
 }
 
-#[test]
-fn image_with_transform_negative_scale() {
-    transform!(
-        "image_with_transform_negative_scale",
+#[v_test]
+fn image_with_transform_negative_scale(ctx: &mut impl Renderer) {
+    transform(
+        ctx,
         Affine::translate((100.0, 100.0)) * Affine::scale(-2.0),
         12.5,
         12.5,
@@ -157,10 +149,10 @@ fn image_with_transform_negative_scale() {
     );
 }
 
-#[test]
-fn image_with_transform_scale_and_translate() {
-    transform!(
-        "image_with_transform_scale_and_translate",
+#[v_test]
+fn image_with_transform_scale_and_translate(ctx: &mut impl Renderer) {
+    transform(
+        ctx,
         Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
         0.0,
         0.0,
@@ -170,11 +162,11 @@ fn image_with_transform_scale_and_translate() {
 }
 
 // TODO: The below two test cases fail on Windows CI for some reason.
-#[test]
 #[ignore]
-fn image_with_transform_rotate_1() {
-    transform!(
-        "image_with_transform_rotate_1",
+#[v_test]
+fn image_with_transform_rotate_1(ctx: &mut impl Renderer) {
+    transform(
+        ctx,
         Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
         25.0,
         25.0,
@@ -183,11 +175,11 @@ fn image_with_transform_rotate_1() {
     );
 }
 
-#[test]
 #[ignore]
-fn image_with_transform_rotate_2() {
-    transform!(
-        "image_with_transform_rotate_2",
+#[v_test]
+fn image_with_transform_rotate_2(ctx: &mut impl Renderer) {
+    transform(
+        ctx,
         Affine::rotate_about(-PI / 4.0, Point::new(50.0, 50.0)),
         25.0,
         25.0,
@@ -196,10 +188,10 @@ fn image_with_transform_rotate_2() {
     );
 }
 
-#[test]
-fn image_with_transform_scaling_non_uniform() {
-    transform!(
-        "image_with_transform_scaling_non_uniform",
+#[v_test]
+fn image_with_transform_scaling_non_uniform(ctx: &mut impl Renderer) {
+    transform(
+        ctx,
         Affine::scale_non_uniform(1.0, 2.0),
         25.0,
         12.5,
@@ -208,12 +200,11 @@ fn image_with_transform_scaling_non_uniform() {
     );
 }
 
-#[test]
-fn image_with_transform_skew_x_1() {
-    let transform = Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0);
-    transform!(
-        "image_with_transform_skew_x_1",
-        transform,
+#[v_test]
+fn image_with_transform_skew_x_1(ctx: &mut impl Renderer) {
+    transform(
+        ctx,
+        Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0),
         25.0,
         25.0,
         75.0,
@@ -221,12 +212,11 @@ fn image_with_transform_skew_x_1() {
     );
 }
 
-#[test]
-fn image_with_transform_skew_x_2() {
-    let transform = Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0);
-    transform!(
-        "image_with_transform_skew_x_2",
-        transform,
+#[v_test]
+fn image_with_transform_skew_x_2(ctx: &mut impl Renderer) {
+    transform(
+        ctx,
+        Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0),
         25.0,
         25.0,
         75.0,
@@ -234,12 +224,11 @@ fn image_with_transform_skew_x_2() {
     );
 }
 
-#[test]
-fn image_with_transform_skew_y_1() {
-    let transform = Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45());
-    transform!(
-        "image_with_transform_skew_y_1",
-        transform,
+#[v_test]
+fn image_with_transform_skew_y_1(ctx: &mut impl Renderer) {
+    transform(
+       ctx,
+       Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45()),
         25.0,
         25.0,
         75.0,
@@ -247,12 +236,11 @@ fn image_with_transform_skew_y_1() {
     );
 }
 
-#[test]
-fn image_with_transform_skew_y_2() {
-    let transform = Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45());
-    transform!(
-        "image_with_transform_skew_y_2",
-        transform,
+#[v_test]
+fn image_with_transform_skew_y_2(ctx: &mut impl Renderer) {
+    transform(
+        ctx,
+        Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45()),
         25.0,
         25.0,
         75.0,
@@ -260,9 +248,8 @@ fn image_with_transform_skew_y_2() {
     );
 }
 
-#[test]
-fn image_complex_shape() {
-    let mut ctx = get_ctx(100, 100, false);
+#[v_test]
+fn image_complex_shape(ctx: &mut impl Renderer) {
     let path = crossed_line_star();
 
     let image = Image {
@@ -275,13 +262,10 @@ fn image_complex_shape() {
 
     ctx.set_paint(image);
     ctx.fill_path(&path);
-
-    check_ref(&ctx, "image_complex_shape");
 }
 
-#[test]
-fn image_global_alpha() {
-    let mut ctx = get_ctx(100, 100, false);
+#[v_test]
+fn image_global_alpha(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
     let mut pix = rgb_img_10x10();
@@ -297,76 +281,64 @@ fn image_global_alpha() {
 
     ctx.set_paint(image);
     ctx.fill_rect(&rect);
-
-    check_ref(&ctx, "image_global_alpha");
 }
 
-macro_rules! image_format {
-    ($name:expr, $image:expr) => {
-        let mut ctx = get_ctx(100, 100, false);
-        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+fn image_format(ctx: &mut impl Renderer, image: Arc<Pixmap>) {
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-        let image = Image {
-            pixmap: $image,
-            x_extend: Extend::Repeat,
-            y_extend: Extend::Repeat,
-            quality: ImageQuality::Low,
-            transform: Affine::IDENTITY,
-        };
-
-        ctx.set_paint(image);
-        ctx.fill_rect(&rect);
-
-        check_ref(&ctx, $name);
+    let image = Image {
+        pixmap: image,
+        x_extend: Extend::Repeat,
+        y_extend: Extend::Repeat,
+        quality: ImageQuality::Low,
+        transform: Affine::IDENTITY,
     };
+
+    ctx.set_paint(image);
+    ctx.fill_rect(&rect);
 }
 
-#[test]
-fn image_rgb_image() {
-    image_format!("image_rgb_image", rgb_img_10x10());
+#[v_test]
+fn image_rgb_image(ctx: &mut impl Renderer) {
+    image_format(ctx, rgb_img_10x10());
 }
 
-#[test]
-fn image_rgba_image() {
-    image_format!("image_rgba_image", rgba_img_10x10());
+#[v_test]
+fn image_rgba_image(ctx: &mut impl Renderer) {
+    image_format(ctx, rgba_img_10x10());
 }
 
-#[test]
-fn image_luma_image() {
-    image_format!("image_luma_image", luma_img_10x10());
+#[v_test]
+fn image_luma_image(ctx: &mut impl Renderer) {
+    image_format(ctx, luma_img_10x10());
 }
 
-#[test]
-fn image_lumaa_image() {
-    image_format!("image_lumaa_image", lumaa_img_10x10());
+#[v_test]
+fn image_lumaa_image(ctx: &mut impl Renderer) {
+    image_format(ctx, lumaa_img_10x10());
 }
 
-macro_rules! quality {
-    ($name:expr, $transform:expr, $image:expr, $quality:expr, $extend:expr) => {
-        let mut ctx = get_ctx(100, 100, false);
-        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+fn quality(ctx: &mut impl Renderer, transform: Affine, image: Arc<Pixmap>, quality: ImageQuality, extend: Extend) {
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-        let image = Image {
-            pixmap: $image,
-            x_extend: $extend,
-            y_extend: $extend,
-            quality: $quality,
-            transform: $transform,
-        };
-
-        ctx.set_paint(image);
-        ctx.fill_rect(&rect);
-
-        check_ref(&ctx, $name);
+    let image = Image {
+        pixmap: image,
+        x_extend: extend,
+        y_extend: extend,
+        quality,
+        transform,
     };
+
+    ctx.set_paint(image);
+    ctx.fill_rect(&rect);
 }
 
 // Outputs of those tests were compared against Blend2D and tiny-skia.
 
-#[test]
-fn image_bilinear_identity() {
-    quality!(
-        "image_bilinear_identity",
+#[v_test]
+fn image_bilinear_identity(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::IDENTITY,
         rgb_img_2x2(),
         ImageQuality::Medium,
@@ -374,10 +346,10 @@ fn image_bilinear_identity() {
     );
 }
 
-#[test]
-fn image_bilinear_2x_scale() {
-    quality!(
-        "image_bilinear_2x_scale",
+#[v_test]
+fn image_bilinear_2x_scale(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(2.0),
         rgb_img_2x2(),
         ImageQuality::Medium,
@@ -385,10 +357,10 @@ fn image_bilinear_2x_scale() {
     );
 }
 
-#[test]
-fn image_bilinear_5x_scale() {
-    quality!(
-        "image_bilinear_5x_scale",
+#[v_test]
+fn image_bilinear_5x_scale(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(5.0),
         rgb_img_2x2(),
         ImageQuality::Medium,
@@ -396,10 +368,10 @@ fn image_bilinear_5x_scale() {
     );
 }
 
-#[test]
-fn image_bilinear_10x_scale() {
-    quality!(
-        "image_bilinear_10x_scale",
+#[v_test]
+fn image_bilinear_10x_scale(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(10.0),
         rgb_img_2x2(),
         ImageQuality::Medium,
@@ -407,10 +379,10 @@ fn image_bilinear_10x_scale() {
     );
 }
 
-#[test]
-fn image_bilinear_with_rotation() {
-    quality!(
-        "image_bilinear_with_rotation",
+#[v_test]
+fn image_bilinear_with_rotation(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()),
         rgb_img_2x2(),
         ImageQuality::Medium,
@@ -418,10 +390,10 @@ fn image_bilinear_with_rotation() {
     );
 }
 
-#[test]
-fn image_bilinear_with_translation() {
-    quality!(
-        "image_bilinear_with_translation",
+#[v_test]
+fn image_bilinear_with_translation(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(5.0) * Affine::translate((10.0, 10.0)),
         rgb_img_2x2(),
         ImageQuality::Medium,
@@ -429,10 +401,10 @@ fn image_bilinear_with_translation() {
     );
 }
 
-#[test]
-fn image_bilinear_10x_scale_2() {
-    quality!(
-        "image_bilinear_10x_scale_2",
+#[v_test]
+fn image_bilinear_10x_scale_2(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(10.0),
         rgb_img_2x3(),
         ImageQuality::Medium,
@@ -448,10 +420,10 @@ fn image_bilinear_10x_scale_2() {
 //
 // We also ported the cubic polynomials directly from current Skia, while tiny-skia (seems?) to use
 // either an outdated version or a slightly adapted one.
-#[test]
-fn image_bicubic_identity() {
-    quality!(
-        "image_bicubic_identity",
+#[v_test]
+fn image_bicubic_identity(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::IDENTITY,
         rgb_img_2x2(),
         ImageQuality::High,
@@ -459,10 +431,10 @@ fn image_bicubic_identity() {
     );
 }
 
-#[test]
-fn image_bicubic_2x_scale() {
-    quality!(
-        "image_bicubic_2x_scale",
+#[v_test]
+fn image_bicubic_2x_scale(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(2.0),
         rgb_img_2x2(),
         ImageQuality::High,
@@ -470,10 +442,10 @@ fn image_bicubic_2x_scale() {
     );
 }
 
-#[test]
-fn image_bicubic_5x_scale() {
-    quality!(
-        "image_bicubic_5x_scale",
+#[v_test]
+fn image_bicubic_5x_scale(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(5.0),
         rgb_img_2x2(),
         ImageQuality::High,
@@ -481,10 +453,10 @@ fn image_bicubic_5x_scale() {
     );
 }
 
-#[test]
-fn image_bicubic_10x_scale() {
-    quality!(
-        "image_bicubic_10x_scale",
+#[v_test]
+fn image_bicubic_10x_scale(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(10.0),
         rgb_img_2x2(),
         ImageQuality::High,
@@ -492,10 +464,10 @@ fn image_bicubic_10x_scale() {
     );
 }
 
-#[test]
-fn image_bicubic_with_rotation() {
-    quality!(
-        "image_bicubic_with_rotation",
+#[v_test]
+fn image_bicubic_with_rotation(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()),
         rgb_img_2x2(),
         ImageQuality::High,
@@ -503,10 +475,10 @@ fn image_bicubic_with_rotation() {
     );
 }
 
-#[test]
-fn image_bicubic_with_translation() {
-    quality!(
-        "image_bicubic_with_translation",
+#[v_test]
+fn image_bicubic_with_translation(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(5.0) * Affine::translate((10.0, 10.0)),
         rgb_img_2x2(),
         ImageQuality::High,
@@ -514,10 +486,10 @@ fn image_bicubic_with_translation() {
     );
 }
 
-#[test]
-fn image_bicubic_10x_scale_2() {
-    quality!(
-        "image_bicubic_10x_scale_2",
+#[v_test]
+fn image_bicubic_10x_scale_2(ctx: &mut impl Renderer) {
+    quality(
+        ctx,
         Affine::scale(10.0),
         rgb_img_2x3(),
         ImageQuality::High,
