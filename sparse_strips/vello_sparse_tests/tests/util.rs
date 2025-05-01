@@ -195,11 +195,7 @@ pub(crate) fn pixmap_to_png(mut pixmap: Pixmap, width: u32, height: u32) -> Vec<
     png_data
 }
 
-pub(crate) fn check_ref(ctx: &impl Renderer, name: &str) {
-    check_ref_inner(ctx, name, 0);
-}
-
-pub(crate) fn check_ref_inner(ctx: &impl Renderer, name: &str, threshold: u8) {
+pub(crate) fn check_ref(ctx: &impl Renderer, name: &str, threshold: u8) {
     let pixmap = render_pixmap(ctx);
 
     let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);

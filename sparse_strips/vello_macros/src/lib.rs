@@ -141,13 +141,13 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         #[test]
         fn #u8_fn_name() {
             use crate::util::{
-                check_ref_inner, get_ctx
+                check_ref, get_ctx
             };
 
             let mut ctx = get_ctx(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref_inner(&ctx, #input_fn_name_str, #cpu_threshold);
+                check_ref(&ctx, #input_fn_name_str, #cpu_threshold);
             }
         }
 
@@ -155,7 +155,7 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         #[test]
         fn #hybrid_fn_name() {
             use crate::util::{
-                check_ref_inner, get_ctx_inner
+                check_ref, get_ctx_inner
             };
             use vello_hybrid::Scene;
 
@@ -163,7 +163,7 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             #input_fn_name(&mut ctx);
             // TODO: When generating the diff, the suffix of the diff image should end with u8/hybrid.
             if !#no_ref {
-                check_ref_inner(&ctx, #input_fn_name_str, #gpu_threshold);
+                check_ref(&ctx, #input_fn_name_str, #gpu_threshold);
             }
         }
     };

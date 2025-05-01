@@ -148,8 +148,6 @@ mod linear {
 
         ctx.set_paint(gradient);
         ctx.fill_rect(&rect);
-
-        check_ref(ctx, "gradient_linear_2_stops");
     }
 
     #[v_test]
@@ -167,8 +165,6 @@ mod linear {
 
         ctx.set_paint(gradient);
         ctx.fill_rect(&rect);
-
-        check_ref(ctx, "gradient_linear_2_stops_with_alpha");
     }
     
     fn directional(ctx: &mut impl Renderer, start: Point, end: Point) {
