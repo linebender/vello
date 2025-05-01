@@ -7,8 +7,7 @@ use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
 use vello_common::kurbo::{Point, Rect};
 use vello_common::mask::Mask;
-use vello_common::paint::Gradient;
-use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
+use vello_common::peniko::{ColorStop, ColorStops, Gradient, GradientKind};
 use vello_cpu::{Pixmap, RenderContext};
 
 pub(crate) fn example_mask(alpha_mask: bool) -> Mask {

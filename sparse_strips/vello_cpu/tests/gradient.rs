@@ -6,8 +6,7 @@ use smallvec::smallvec;
 use vello_common::color::palette::css::{BLACK, BLUE, WHITE, YELLOW};
 use vello_common::color::{ColorSpaceTag, DynamicColor};
 use vello_common::kurbo::{Point, Rect};
-use vello_common::paint::Gradient;
-use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
+use vello_common::peniko::{ColorStop, ColorStops, Gradient, GradientKind};
 
 pub(crate) const fn tan_45() -> f64 {
     1.0
@@ -134,8 +133,7 @@ mod linear {
     };
     use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
-    use vello_common::paint::Gradient;
-    use vello_common::peniko::GradientKind;
+    use vello_common::peniko::{Gradient, GradientKind};
 
     #[test]
     fn gradient_linear_2_stops() {
@@ -541,8 +539,7 @@ mod radial {
     };
     use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
-    use vello_common::paint::Gradient;
-    use vello_common::peniko::GradientKind::Radial;
+    use vello_common::peniko::{Gradient, GradientKind::Radial};
 
     macro_rules! simple {
         ($stops:expr, $name:expr) => {
@@ -958,8 +955,7 @@ mod sweep {
     };
     use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
-    use vello_common::paint::Gradient;
-    use vello_common::peniko::GradientKind;
+    use vello_common::peniko::{Gradient, GradientKind};
 
     macro_rules! basic {
         ($stops:expr, $name:expr, $center:expr) => {
