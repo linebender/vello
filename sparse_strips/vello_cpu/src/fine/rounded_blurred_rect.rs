@@ -12,14 +12,14 @@ use vello_common::kurbo::Point;
 use vello_common::math::compute_erf7;
 
 #[derive(Debug)]
-pub(crate) struct BlurredRectFiller<'a> {
+pub(crate) struct RoundedBlurredRectFiller<'a> {
     /// The current position that should be processed.
     cur_pos: Point,
     /// The underlying encoded blurred rectangle.
     rect: &'a EncodedBlurredRoundedRectangle,
 }
 
-impl<'a> BlurredRectFiller<'a> {
+impl<'a> RoundedBlurredRectFiller<'a> {
     pub(crate) fn new(rect: &'a EncodedBlurredRoundedRectangle, start_x: u16, start_y: u16) -> Self {
         Self {
             cur_pos: rect.transform * Point::new(start_x as f64, start_y as f64),
@@ -84,7 +84,7 @@ impl<'a> BlurredRectFiller<'a> {
     }
 }
 
-impl Painter for BlurredRectFiller<'_> {
+impl Painter for RoundedBlurredRectFiller<'_> {
     fn paint(self, target: &mut [u8]) {
         self.run(target);
     }
