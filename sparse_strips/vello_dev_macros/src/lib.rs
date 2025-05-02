@@ -70,7 +70,9 @@ struct Arguments {
     /// when comparing to the reference images. Some renderers already have an existing tolerance
     /// (see the constants at the top of the file), this value will simply be added
     /// to the currently existing threshold.
-    threshold: u8,
+    cpu_tolerance: u8,
+    /// Same as above, but for the hybrid renderer.
+    hybrid_tolerance: u8,
     /// Whether the background should be transparent.
     transparent: bool,
     /// Whether the test should not be run on the CPU (`vello_cpu`).
@@ -87,7 +89,8 @@ impl Default for Arguments {
         Self {
             width: 100,
             height: 100,
-            threshold: 0,
+            cpu_tolerance: 0,
+            hybrid_tolerance: 0,
             transparent: false,
             skip_cpu: false,
             skip_hybrid: false,
@@ -118,7 +121,8 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let Arguments {
         width,
         height,
-        threshold,
+        mut cpu_tolerance,
+        mut hybrid_tolerance,
         transparent,
         skip_cpu,
         mut skip_hybrid,
@@ -150,8 +154,8 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         empty_snippet.clone()
     };
-    let cpu_threshold = threshold + DEFAULT_CPU_U8_TOLERANCE;
-    let hybrid_threshold = threshold + DEFAULT_HYBRID_TOLERANCE;
+    cpu_tolerance += DEFAULT_CPU_U8_TOLERANCE;
+     hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
 
     let expanded = quote! {
         #input_fn
@@ -167,7 +171,7 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #u8_fn_name_str, #cpu_threshold, true);
+                check_ref(&ctx, #input_fn_name_str, #u8_fn_name_str, #cpu_tolerance, true);
             }
         }
 
@@ -182,7 +186,7 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_threshold, false);
+                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false);
             }
         }
     };
@@ -201,7 +205,9 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "width" => args.width = parse_int_lit(expr, "width"),
                     "height" => args.height = parse_int_lit(expr, "height"),
                     #[allow(clippy::cast_possible_truncation, reason = "user-supplied value")]
-                    "threshold" => args.threshold = parse_int_lit(expr, "threshold") as u8,
+                    "cpu_tolerance" => args.cpu_tolerance = parse_int_lit(expr, "cpu_tolerance") as u8,
+                    #[allow(clippy::cast_possible_truncation, reason = "user-supplied value")]
+                    "hybrid_tolerance" => args.hybrid_tolerance = parse_int_lit(expr, "hybrid_tolerance") as u8,
                     _ => panic!("unknown pair attribute {}", key_str),
                 }
             }
