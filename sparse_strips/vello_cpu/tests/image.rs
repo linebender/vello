@@ -51,8 +51,8 @@ macro_rules! repeat {
             x_extend: $x_repeat,
             y_extend: $y_repeat,
             quality: ImageQuality::Low,
-            transform: Affine::translate((45.0, 45.0)),
         });
+        ctx.set_paint_transform(Affine::translate((45.0, 45.0)));
         ctx.fill_rect(&rect);
 
         check_ref(&ctx, $name);
@@ -98,7 +98,6 @@ macro_rules! transform {
             x_extend: Extend::Repeat,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
-            transform: Affine::IDENTITY,
         };
 
         ctx.set_transform($transform);
@@ -270,7 +269,6 @@ fn image_complex_shape() {
         x_extend: Extend::Repeat,
         y_extend: Extend::Repeat,
         quality: ImageQuality::Low,
-        transform: Affine::IDENTITY,
     };
 
     ctx.set_paint(image);
@@ -292,7 +290,6 @@ fn image_global_alpha() {
         x_extend: Extend::Repeat,
         y_extend: Extend::Repeat,
         quality: ImageQuality::Low,
-        transform: Affine::IDENTITY,
     };
 
     ctx.set_paint(image);
@@ -311,7 +308,6 @@ macro_rules! image_format {
             x_extend: Extend::Repeat,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
-            transform: Affine::IDENTITY,
         };
 
         ctx.set_paint(image);
@@ -351,10 +347,10 @@ macro_rules! quality {
             x_extend: $extend,
             y_extend: $extend,
             quality: $quality,
-            transform: $transform,
         };
 
         ctx.set_paint(image);
+        ctx.set_paint_transform($transform);
         ctx.fill_rect(&rect);
 
         check_ref(&ctx, $name);

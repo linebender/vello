@@ -3,11 +3,12 @@
 
 //! Types for paints.
 
-use crate::kurbo::{Affine, Point};
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
-use peniko::color::{AlphaColor, ColorSpaceTag, HueDirection, PremulRgba8, Srgb};
-use peniko::{ColorStops, GradientKind, ImageQuality};
+use peniko::{
+    Gradient, ImageQuality,
+    color::{AlphaColor, PremulRgba8, Srgb},
+};
 
 /// A paint that needs to be resolved via its index.
 // In the future, we might add additional flags, that's why we have
@@ -54,64 +55,6 @@ impl From<AlphaColor<Srgb>> for Paint {
     }
 }
 
-// TODO: Replace this with the peniko type, once it supports transforms.
-/// A gradient.
-#[derive(Debug, Clone)]
-pub struct Gradient {
-    /// The underlying kind of gradient.
-    pub kind: GradientKind,
-    /// The stops that makes up the gradient.
-    ///
-    /// Note that the first stop must have an offset of 0.0 and the last stop
-    /// must have an offset of 1.0. In addition to that, the stops must be sorted
-    /// with offsets in ascending order.
-    pub stops: ColorStops,
-    /// A transformation to apply to the gradient.
-    pub transform: Affine,
-    /// The extend of the gradient.
-    pub extend: peniko::Extend,
-    /// The color space to be used for interpolation.
-    ///
-    /// The colors in the color stops will be converted to this color space.
-    ///
-    /// This defaults to [sRGB](ColorSpaceTag::Srgb).
-    pub interpolation_cs: ColorSpaceTag,
-    /// When interpolating within a cylindrical color space, the direction for the hue.
-    ///
-    /// This is interpreted as described in [CSS Color Module Level 4 § 12.4].
-    ///
-    /// [CSS Color Module Level 4 § 12.4]: https://drafts.csswg.org/css-color/#hue-interpolation
-    pub hue_direction: HueDirection,
-}
-
-impl Default for Gradient {
-    fn default() -> Self {
-        Self {
-            kind: GradientKind::Linear {
-                start: Point::default(),
-                end: Point::default(),
-            },
-            transform: Affine::IDENTITY,
-            interpolation_cs: ColorSpaceTag::Srgb,
-            extend: Default::default(),
-            hue_direction: Default::default(),
-            stops: Default::default(),
-        }
-    }
-}
-
-impl Gradient {
-    /// Returns the gradient with the alpha component for all color stops
-    /// multiplied by `alpha`.
-    #[must_use]
-    pub fn multiply_alpha(mut self, alpha: f32) -> Self {
-        self.stops
-            .iter_mut()
-            .for_each(|stop| *stop = stop.multiply_alpha(alpha));
-        self
-    }
-}
-
 /// An image.
 #[derive(Debug, Clone)]
 pub struct Image {
@@ -123,8 +66,6 @@ pub struct Image {
     pub y_extend: peniko::Extend,
     /// Hint for desired rendering quality.
     pub quality: ImageQuality,
-    /// A transform to apply to the image.
-    pub transform: Affine,
 }
 
 /// A premultiplied color.

@@ -7,8 +7,8 @@ use smallvec::smallvec;
 use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
 use vello_common::kurbo::{Affine, Point, Rect};
-use vello_common::paint::{Gradient, Image};
-use vello_common::peniko::{BlendMode, Compose, Extend, Mix};
+use vello_common::paint::Image;
+use vello_common::peniko::{BlendMode, Compose, Extend, Gradient, Mix};
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind, ImageQuality};
 
 // The outputs have been compared visually with tiny-skia, and except for two cases (where tiny-skia
@@ -52,7 +52,6 @@ fn mix(name: &str, blend_mode: BlendMode) {
         x_extend: Extend::Pad,
         y_extend: Extend::Pad,
         quality: ImageQuality::Low,
-        transform: Affine::IDENTITY,
     };
 
     ctx.set_transform(Affine::translate((10.0, 10.0)));
