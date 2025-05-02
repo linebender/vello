@@ -5,7 +5,7 @@
 
 //! Proc-macros for testing `vello_cpu` and `vello_hybrid`.
 
-// How much different renderers are allowed to deviate from the reference images
+// How much renderers are allowed to deviate from the reference images
 // per color component. A value of 0 means that it must be an exact match, i.e.
 // each pixel must have the exact same value as the reference pixel. A value of 1
 // means that the absolute difference of each component of a pixel must not be higher
