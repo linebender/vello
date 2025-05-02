@@ -33,7 +33,7 @@ impl Parse for Attribute {
         let key = input.parse()?;
 
         let is_flag = !input.peek(Token![=]);
-        
+
         if is_flag {
             Ok(Self::Flag(key))
         } else {
@@ -131,7 +131,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     // TODO: Tests with the same names in different modules can clash, see
     // https://github.com/linebender/vello/pull/925#discussion_r2070710362.
     // We should take the module path into consideration for naming the tests.
-    
+
     let input_fn_name_str = input_fn_name.to_string();
     let u8_fn_name_str = u8_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
@@ -163,7 +163,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let empty_snippet = quote! {};
     let ignore_snippet = if let Some(reason) = ignore_reason {
         quote! {#[ignore = #reason]}
-    }   else {
+    } else {
         quote! {#[ignore]}
     };
 
@@ -172,15 +172,15 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         empty_snippet.clone()
     };
-    
+
     let ignore_cpu = if skip_cpu {
         ignore_snippet.clone()
     } else {
         empty_snippet.clone()
     };
-    
+
     cpu_tolerance += DEFAULT_CPU_U8_TOLERANCE;
-     hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
+    hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
 
     let expanded = quote! {
         #input_fn
@@ -227,13 +227,21 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
             Attribute::KeyValue { key, expr, .. } => {
                 let key_str = key.to_string();
                 match key_str.as_str() {
-                    "ignore" => args.ignore_reason = Some(parse_string_lit(expr, "ignore")),
+                    "ignore" => {
+                        args.skip_cpu = true;
+                        args.skip_hybrid = true;
+                        args.ignore_reason = Some(parse_string_lit(expr, "ignore"));
+                    },
                     "width" => args.width = parse_int_lit(expr, "width"),
                     "height" => args.height = parse_int_lit(expr, "height"),
                     #[allow(clippy::cast_possible_truncation, reason = "user-supplied value")]
-                    "cpu_tolerance" => args.cpu_tolerance = parse_int_lit(expr, "cpu_tolerance") as u8,
+                    "cpu_tolerance" => {
+                        args.cpu_tolerance = parse_int_lit(expr, "cpu_tolerance") as u8
+                    }
                     #[allow(clippy::cast_possible_truncation, reason = "user-supplied value")]
-                    "hybrid_tolerance" => args.hybrid_tolerance = parse_int_lit(expr, "hybrid_tolerance") as u8,
+                    "hybrid_tolerance" => {
+                        args.hybrid_tolerance = parse_int_lit(expr, "hybrid_tolerance") as u8
+                    }
                     _ => panic!("unknown pair attribute {}", key_str),
                 }
             }
