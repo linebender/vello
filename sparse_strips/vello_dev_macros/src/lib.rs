@@ -69,11 +69,12 @@ struct Arguments {
     /// The (additional) maximum tolerance for how much two pixels are allowed to deviate from each other
     /// when comparing to the reference images. Some renderers already have an existing tolerance
     /// (see the constants at the top of the file), this value will simply be added
-    /// to the currently existing threshold.
+    /// to the currently existing threshold. See the top of the file for an explanation of
+    /// how exactly the tolerance is interpreted.
     cpu_tolerance: u8,
     /// Same as above, but for the hybrid renderer.
     hybrid_tolerance: u8,
-    /// Whether the background should be transparent.
+    /// Whether the background should be transparent (the default is white).
     transparent: bool,
     /// Whether the test should not be run on the CPU (`vello_cpu`).
     skip_cpu: bool,
