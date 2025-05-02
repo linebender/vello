@@ -3277,6 +3277,7 @@ version = "0.0.0"
 dependencies = [
  "image",
  "oxipng",
+ "png",
  "pollster",
  "skrifa",
  "smallvec",

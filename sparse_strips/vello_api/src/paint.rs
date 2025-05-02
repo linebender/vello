@@ -3,10 +3,8 @@
 
 //! Types for paints.
 
-use crate::pixmap::Pixmap;
-use alloc::sync::Arc;
 use peniko::{
-    Gradient, ImageQuality,
+    Gradient, Image,
     color::{AlphaColor, PremulRgba8, Srgb},
 };
 
@@ -53,19 +51,6 @@ impl From<AlphaColor<Srgb>> for Paint {
         // code.
         Self::Solid(PremulColor::new(value))
     }
-}
-
-/// An image.
-#[derive(Debug, Clone)]
-pub struct Image {
-    /// The underlying pixmap of the image.
-    pub pixmap: Arc<Pixmap>,
-    /// Extend mode in the horizontal direction.
-    pub x_extend: peniko::Extend,
-    /// Extend mode in the vertical direction.
-    pub y_extend: peniko::Extend,
-    /// Hint for desired rendering quality.
-    pub quality: ImageQuality,
 }
 
 /// A premultiplied color.
