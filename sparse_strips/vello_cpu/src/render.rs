@@ -117,6 +117,10 @@ impl RenderContext {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
+    /// Fill a blurred rectangle with the given radius and standard deviation.
+    /// 
+    /// Note that this only works properly if the current paint is set to a solid color.
+    /// If not, it will fall back to using black as the fill color.
     pub fn fill_blurred_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
         let color = match self.paint {
             PaintType::Solid(s) => s,
