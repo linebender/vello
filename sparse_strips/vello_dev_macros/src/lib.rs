@@ -96,7 +96,7 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let input_fn_name = input_fn.sig.ident.clone();
     let u8_fn_name = Ident::new(&format!("{}_cpu_u8", input_fn_name), input_fn_name.span());
-    let hybrid_fn_name = Ident::new(&format!("{}_gpu", input_fn_name), input_fn_name.span());
+    let hybrid_fn_name = Ident::new(&format!("{}_hybrid", input_fn_name), input_fn_name.span());
 
     let input_fn_name_str = input_fn_name.to_string();
     let u8_fn_name_str = u8_fn_name.to_string();
