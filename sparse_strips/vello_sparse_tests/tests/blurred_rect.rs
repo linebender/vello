@@ -1,6 +1,6 @@
 use crate::renderer::Renderer;
 use vello_api::color::palette::css::REBECCA_PURPLE;
-use vello_api::kurbo::{Affine, Rect};
+use vello_api::kurbo::{Affine, Point, Rect};
 use vello_dev_macros::vello_test;
 
 fn rect_with(ctx: &mut impl Renderer, radius: f32, std_dev: f32, affine: Affine) {
@@ -38,4 +38,14 @@ fn blurred_rect_with_radius(ctx: &mut impl Renderer) {
 #[vello_test]
 fn blurred_rect_with_large_radius(ctx: &mut impl Renderer) {
     rect_with(ctx, 30.0, 10.0, Affine::IDENTITY);
+}
+
+#[vello_test]
+fn blurred_rect_with_transform(ctx: &mut impl Renderer) {
+    rect_with(
+        ctx,
+        10.0,
+        10.0,
+        Affine::rotate_about(45.0f64.to_radians(), Point::new(50.0, 50.0)),
+    );
 }

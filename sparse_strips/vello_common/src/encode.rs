@@ -750,11 +750,13 @@ impl EncodeExt for BlurredRectangle {
             rect
         };
 
+        let transform = Affine::translate((-rect.x0, -rect.y0)) * transform.inverse();
+
+        let (x_advance, y_advance) = x_y_advances(&transform);
+
         let width = rect.width() as f32;
         let height = rect.height() as f32;
         let radius = self.radius.min(0.5 * width.min(height));
-
-        let transform = Affine::translate((-rect.x0, -rect.y0));
 
         // To avoid divide by 0; potentially should be a bigger number for antialiasing.
         let std_dev = self.std_dev.max(1e-6);
@@ -792,8 +794,8 @@ impl EncodeExt for BlurredRectangle {
             w,
             h,
             transform,
-            x_advance: Vec2::new(1.0, 0.0),
-            y_advance: Vec2::new(0.0, 1.0),
+            x_advance,
+            y_advance,
         };
 
         let idx = paints.len();

@@ -136,10 +136,11 @@ impl RenderContext {
         // The impulse response of a gaussian filter is infinite.
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 2.5 * std_dev;
-        let inflated = rect.inflate(kernel_size as f64, kernel_size as f64);
+        let inflated_rect = rect.inflate(kernel_size as f64, kernel_size as f64);
+        let transform = self.transform * self.paint_transform;
 
-        let paint = blurred_rect.encode_into(&mut self.encoded_paints, Affine::IDENTITY);
-        flatten::fill(&inflated.to_path(0.1), self.transform, &mut self.line_buf);
+        let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform);
+        flatten::fill(&inflated_rect.to_path(0.1), transform, &mut self.line_buf);
         self.render_path(Fill::NonZero, paint)
     }
 
