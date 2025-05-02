@@ -11,7 +11,7 @@ use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::Image;
 use vello_common::peniko::{BlendMode, Compose, Extend, Mix};
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind, ImageQuality};
-use vello_dev_macros::v_test;
+use vello_dev_macros::vello_test;
 
 // The outputs have been compared visually with tiny-skia, and except for two cases (where tiny-skia
 // is wrong), the overall visual effect looks the same.
@@ -64,87 +64,87 @@ fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn mix_normal(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Normal, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_multiply(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Multiply, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_screen(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Screen, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_darken(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Darken, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_lighten(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Lighten, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_color_dodge(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorDodge, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_color_burn(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorBurn, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_hard_light(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::HardLight, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_soft_light(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::SoftLight, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_difference(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Difference, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_exclusion(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Exclusion, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_overlay(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Overlay, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_hue(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Hue, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_saturation(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Saturation, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_color(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Color, Compose::SrcOver));
 }
 
-#[v_test]
+#[vello_test]
 fn mix_luminosity(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Luminosity, Compose::SrcOver));
 }
 
-#[v_test(transparent)]
+#[vello_test(transparent)]
 fn mix_with_transparent_bg(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     ctx.set_paint(AlphaColor::<Srgb>::from_rgba8(0, 0, 128, 128));
@@ -169,13 +169,13 @@ fn mix_solid(ctx: &mut impl Renderer, mix: Mix) {
 // The below 2 test cases yield different results than in tiny-skia, but I checked by converting
 // the test case into SVG and viewing it in Chrome, and our version should be right.
 // Color of rectangle should be (106, 106, 0).
-#[v_test]
+#[vello_test]
 fn mix_color_with_solid(ctx: &mut impl Renderer) {
     mix_solid(ctx, Mix::Color);
 }
 
 // Color of rectangle should be (213, 52, 0).
-#[v_test]
+#[vello_test]
 fn mix_saturation_with_solid(ctx: &mut impl Renderer) {
     mix_solid(ctx, Mix::Saturation);
 }

@@ -5,7 +5,7 @@ use crate::renderer::Renderer;
 use vello_common::color::palette::css::{BLUE, YELLOW};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
-use vello_dev_macros::v_test;
+use vello_dev_macros::vello_test;
 
 fn compose(ctx: &mut impl Renderer, compose: Compose) {
     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
@@ -22,67 +22,67 @@ fn compose(ctx: &mut impl Renderer, compose: Compose) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn compose_src_over(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcOver);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_xor(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Xor);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_clear(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Clear);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_copy(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Copy);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_dest(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Dest);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_dest_over(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestOver);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_src_in(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcIn);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_src_out(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcOut);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_dest_in(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestIn);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_dest_out(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestOut);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_src_atop(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcAtop);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_dest_atop(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestAtop);
 }
 
-#[v_test]
+#[vello_test]
 fn compose_plus(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Plus);
 }

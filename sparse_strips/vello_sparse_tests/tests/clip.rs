@@ -10,9 +10,9 @@ use vello_api::color::palette::css::BLACK;
 use vello_common::color::palette::css::{DARK_BLUE, DARK_GREEN, REBECCA_PURPLE};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
-use vello_dev_macros::v_test;
+use vello_dev_macros::vello_test;
 
-#[v_test]
+#[vello_test]
 fn clip_triangle_with_star(ctx: &mut impl Renderer) {
     let mut triangle_path = BezPath::new();
     triangle_path.move_to((10.0, 10.0));
@@ -33,7 +33,7 @@ fn clip_triangle_with_star(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn clip_rectangle_with_star_nonzero(ctx: &mut impl Renderer) {
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
     // Create a self-intersecting star shape that will show the difference between fill rules
@@ -50,7 +50,7 @@ fn clip_rectangle_with_star_nonzero(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn clip_rectangle_with_star_evenodd(ctx: &mut impl Renderer) {
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
     // Create a self-intersecting star shape that will show the difference between fill rules
@@ -67,7 +67,7 @@ fn clip_rectangle_with_star_evenodd(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn clip_rectangle_and_circle(ctx: &mut impl Renderer) {
     // Create first clipping region - a rectangle on the left side
     let clip_rect = Rect::new(10.0, 30.0, 50.0, 70.0);
@@ -96,7 +96,7 @@ fn clip_rectangle_and_circle(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn clip_with_translation(ctx: &mut impl Renderer) {
     // Apply a translation transform
     ctx.set_transform(Affine::translate((30.0, 30.0)));
@@ -113,7 +113,7 @@ fn clip_with_translation(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn clip_with_scale(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::scale(2.0));
 
@@ -129,7 +129,7 @@ fn clip_with_scale(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn clip_with_rotate(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::rotate_about(
         45.0 * PI / 180.0,
@@ -148,7 +148,7 @@ fn clip_with_rotate(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn clip_transformed_rect(ctx: &mut impl Renderer) {
     let clip_rect = Rect::new(20.0, 20.0, 80.0, 80.0);
 
@@ -168,7 +168,7 @@ fn clip_transformed_rect(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn clip_with_multiple_transforms(ctx: &mut impl Renderer) {
     // Apply initial transform
     ctx.set_transform(Affine::rotate_about(
@@ -197,7 +197,7 @@ fn clip_with_multiple_transforms(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn clip_with_save_restore(ctx: &mut impl Renderer) {
     // Create first clipping region - a rectangle on the left side
     let clip_rect1 = Rect::new(10.0, 30.0, 50.0, 70.0);
@@ -226,7 +226,7 @@ fn clip_with_save_restore(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn clip_with_opacity(ctx: &mut impl Renderer) {
     // Main body of the shape should be RGB 127, 127, 127. Anti-aliased part should be
     // 191, 191, 191.

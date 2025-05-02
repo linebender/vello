@@ -7,9 +7,9 @@ use crate::renderer::Renderer;
 use crate::util::layout_glyphs;
 use vello_common::color::palette::css::REBECCA_PURPLE;
 use vello_common::kurbo::Affine;
-use vello_dev_macros::v_test;
+use vello_dev_macros::vello_test;
 
-#[v_test(width = 300, height = 70)]
+#[vello_test(width = 300, height = 70)]
 fn glyphs_filled(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
@@ -22,7 +22,7 @@ fn glyphs_filled(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 300, height = 70)]
+#[vello_test(width = 300, height = 70)]
 fn glyphs_filled_unhinted(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
@@ -35,7 +35,7 @@ fn glyphs_filled_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 300, height = 70)]
+#[vello_test(width = 300, height = 70)]
 fn glyphs_stroked(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
@@ -48,7 +48,7 @@ fn glyphs_stroked(ctx: &mut impl Renderer) {
         .stroke_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 300, height = 70)]
+#[vello_test(width = 300, height = 70)]
 fn glyphs_stroked_unhinted(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
@@ -61,7 +61,7 @@ fn glyphs_stroked_unhinted(ctx: &mut impl Renderer) {
         .stroke_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 300, height = 70)]
+#[vello_test(width = 300, height = 70)]
 fn glyphs_skewed(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
@@ -75,7 +75,7 @@ fn glyphs_skewed(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 300, height = 70)]
+#[vello_test(width = 300, height = 70)]
 fn glyphs_skewed_unhinted(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
@@ -89,7 +89,7 @@ fn glyphs_skewed_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 250, height = 75)]
+#[vello_test(width = 250, height = 75)]
 fn glyphs_skewed_long(ctx: &mut impl Renderer) {
     let font_size: f32 = 20_f32;
     let (font, glyphs) = layout_glyphs(
@@ -106,7 +106,7 @@ fn glyphs_skewed_long(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 250, height = 75)]
+#[vello_test(width = 250, height = 75)]
 fn glyphs_skewed_long_unhinted(ctx: &mut impl Renderer) {
     let font_size: f32 = 20_f32;
     let (font, glyphs) = layout_glyphs(
@@ -123,7 +123,7 @@ fn glyphs_skewed_long_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 150, height = 125)]
+#[vello_test(width = 150, height = 125)]
 fn glyphs_skewed_unskewed(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
@@ -140,7 +140,7 @@ fn glyphs_skewed_unskewed(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 150, height = 125)]
+#[vello_test(width = 150, height = 125)]
 fn glyphs_skewed_unskewed_unhinted(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
@@ -157,7 +157,7 @@ fn glyphs_skewed_unskewed_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 150, height = 125)]
+#[vello_test(width = 150, height = 125)]
 fn glyphs_scaled(ctx: &mut impl Renderer) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
@@ -170,7 +170,7 @@ fn glyphs_scaled(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 150, height = 125)]
+#[vello_test(width = 150, height = 125)]
 fn glyphs_scaled_unhinted(ctx: &mut impl Renderer) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
@@ -183,7 +183,7 @@ fn glyphs_scaled_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 150, height = 125)]
+#[vello_test(width = 150, height = 125)]
 fn glyphs_glyph_transform(ctx: &mut impl Renderer) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
@@ -197,7 +197,7 @@ fn glyphs_glyph_transform(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 150, height = 125)]
+#[vello_test(width = 150, height = 125)]
 fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs("Hello,\nworld!", font_size);
@@ -211,7 +211,7 @@ fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 60, height = 12)]
+#[vello_test(width = 60, height = 12)]
 fn glyphs_small(ctx: &mut impl Renderer) {
     let font_size: f32 = 10_f32;
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);
@@ -224,7 +224,7 @@ fn glyphs_small(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[v_test(width = 60, height = 12)]
+#[vello_test(width = 60, height = 12)]
 fn glyphs_small_unhinted(ctx: &mut impl Renderer) {
     let font_size: f32 = 10_f32;
     let (font, glyphs) = layout_glyphs("Hello, world!", font_size);

@@ -10,7 +10,7 @@ use vello_common::kurbo::{Point, Rect};
 use vello_common::mask::Mask;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
 use vello_cpu::{Pixmap, RenderContext};
-use vello_dev_macros::v_test;
+use vello_dev_macros::vello_test;
 
 pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     let mut mask_pix = Pixmap::new(100, 100);
@@ -60,12 +60,12 @@ fn mask(ctx: &mut impl Renderer, alpha_mask: bool) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn mask_alpha(ctx: &mut impl Renderer) {
     mask(ctx, true);
 }
 
-#[v_test]
+#[vello_test]
 fn mask_luminance(ctx: &mut impl Renderer) {
     mask(ctx, false);
 }

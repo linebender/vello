@@ -11,15 +11,15 @@ use vello_common::color::palette::css::{
 };
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
-use vello_dev_macros::v_test;
+use vello_dev_macros::vello_test;
 
-#[v_test(width = 8, height = 8)]
+#[vello_test(width = 8, height = 8)]
 fn full_cover_1(ctx: &mut impl Renderer) {
     ctx.set_paint(BEIGE);
     ctx.fill_path(&Rect::new(0.0, 0.0, 8.0, 8.0).to_path(0.1));
 }
 
-#[v_test]
+#[vello_test]
 fn filled_triangle(ctx: &mut impl Renderer) {
     let path = {
         let mut path = BezPath::new();
@@ -35,7 +35,7 @@ fn filled_triangle(ctx: &mut impl Renderer) {
     ctx.fill_path(&path);
 }
 
-#[v_test]
+#[vello_test]
 fn stroked_triangle(ctx: &mut impl Renderer) {
     let path = {
         let mut path = BezPath::new();
@@ -52,14 +52,14 @@ fn stroked_triangle(ctx: &mut impl Renderer) {
     ctx.stroke_path(&path);
 }
 
-#[v_test]
+#[vello_test]
 fn filled_circle(ctx: &mut impl Renderer) {
     let circle = Circle::new((50.0, 50.0), 45.0);
     ctx.set_paint(LIME);
     ctx.fill_path(&circle.to_path(0.1));
 }
 
-#[v_test]
+#[vello_test]
 fn filled_overflowing_circle(ctx: &mut impl Renderer) {
     let circle = Circle::new((50.0, 50.0), 50.0 + 1.0);
 
@@ -67,7 +67,7 @@ fn filled_overflowing_circle(ctx: &mut impl Renderer) {
     ctx.fill_path(&circle.to_path(0.1));
 }
 
-#[v_test]
+#[vello_test]
 fn filled_fully_overflowing_circle(ctx: &mut impl Renderer) {
     let circle = Circle::new((50.0, 50.0), 80.0);
 
@@ -75,7 +75,7 @@ fn filled_fully_overflowing_circle(ctx: &mut impl Renderer) {
     ctx.fill_path(&circle.to_path(0.1));
 }
 
-#[v_test]
+#[vello_test]
 fn filled_circle_with_opacity(ctx: &mut impl Renderer) {
     let circle = Circle::new((50.0, 50.0), 45.0);
 
@@ -83,7 +83,7 @@ fn filled_circle_with_opacity(ctx: &mut impl Renderer) {
     ctx.fill_path(&circle.to_path(0.1));
 }
 
-#[v_test(hybrid_tolerance = 1)]
+#[vello_test(hybrid_tolerance = 1)]
 fn filled_overlapping_circles(ctx: &mut impl Renderer) {
     for e in [(35.0, 35.0, RED), (65.0, 35.0, GREEN), (50.0, 65.0, BLUE)] {
         let circle = Circle::new((e.0, e.1), 30.0);
@@ -92,7 +92,7 @@ fn filled_overlapping_circles(ctx: &mut impl Renderer) {
     }
 }
 
-#[v_test]
+#[vello_test]
 fn stroked_circle(ctx: &mut impl Renderer) {
     let circle = Circle::new((50.0, 50.0), 45.0);
     let stroke = Stroke::new(3.0);
@@ -103,7 +103,7 @@ fn stroked_circle(ctx: &mut impl Renderer) {
 }
 
 /// Requires winding of the first row of tiles to be calculcated correctly for vertical lines.
-#[v_test(width = 10, height = 10)]
+#[vello_test(width = 10, height = 10)]
 fn rectangle_above_viewport(ctx: &mut impl Renderer) {
     let rect = Rect::new(2.0, -5.0, 8.0, 8.0);
 
@@ -112,7 +112,7 @@ fn rectangle_above_viewport(ctx: &mut impl Renderer) {
 }
 
 /// Requires winding of the first row of tiles to be calculcated correctly for sloped lines.
-#[v_test(width = 10, height = 10)]
+#[vello_test(width = 10, height = 10)]
 fn triangle_above_and_wider_than_viewport(ctx: &mut impl Renderer) {
     let path = {
         let mut path = BezPath::new();
@@ -130,7 +130,7 @@ fn triangle_above_and_wider_than_viewport(ctx: &mut impl Renderer) {
 
 /// Requires winding and pixel coverage to be calculcated correctly for tiles preceding the
 /// viewport in scan direction.
-#[v_test(width = 10, height = 10)]
+#[vello_test(width = 10, height = 10)]
 fn rectangle_left_of_viewport(ctx: &mut impl Renderer) {
     let rect = Rect::new(-4.0, 3.0, 1.0, 8.0);
 
@@ -138,7 +138,7 @@ fn rectangle_left_of_viewport(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test]
+#[vello_test]
 fn filling_nonzero_rule(ctx: &mut impl Renderer) {
     let star = crossed_line_star();
 
@@ -146,7 +146,7 @@ fn filling_nonzero_rule(ctx: &mut impl Renderer) {
     ctx.fill_path(&star);
 }
 
-#[v_test]
+#[vello_test]
 fn filling_evenodd_rule(ctx: &mut impl Renderer) {
     let star = crossed_line_star();
 
@@ -155,7 +155,7 @@ fn filling_evenodd_rule(ctx: &mut impl Renderer) {
     ctx.fill_path(&star);
 }
 
-#[v_test(width = 30, height = 20)]
+#[vello_test(width = 30, height = 20)]
 fn filled_aligned_rect(ctx: &mut impl Renderer) {
     let rect = Rect::new(1.0, 1.0, 29.0, 19.0);
 
@@ -163,7 +163,7 @@ fn filled_aligned_rect(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn stroked_unaligned_rect(ctx: &mut impl Renderer) {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0);
     let stroke = Stroke {
@@ -177,7 +177,7 @@ fn stroked_unaligned_rect(ctx: &mut impl Renderer) {
     ctx.stroke_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn stroked_unaligned_rect_as_path(ctx: &mut impl Renderer) {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0).to_path(0.1);
     let stroke = Stroke {
@@ -191,7 +191,7 @@ fn stroked_unaligned_rect_as_path(ctx: &mut impl Renderer) {
     ctx.stroke_path(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn stroked_aligned_rect(ctx: &mut impl Renderer) {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0);
     let stroke = miter_stroke_2();
@@ -201,7 +201,7 @@ fn stroked_aligned_rect(ctx: &mut impl Renderer) {
     ctx.stroke_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn overflowing_stroked_rect(ctx: &mut impl Renderer) {
     let rect = Rect::new(12.5, 12.5, 17.5, 17.5);
     let stroke = Stroke {
@@ -215,7 +215,7 @@ fn overflowing_stroked_rect(ctx: &mut impl Renderer) {
     ctx.stroke_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn round_stroked_rect(ctx: &mut impl Renderer) {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0);
     let stroke = Stroke::new(3.0);
@@ -225,7 +225,7 @@ fn round_stroked_rect(ctx: &mut impl Renderer) {
     ctx.stroke_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn bevel_stroked_rect(ctx: &mut impl Renderer) {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0);
     let stroke = Stroke {
@@ -239,7 +239,7 @@ fn bevel_stroked_rect(ctx: &mut impl Renderer) {
     ctx.stroke_rect(&rect);
 }
 
-#[v_test(width = 30, height = 20)]
+#[vello_test(width = 30, height = 20)]
 fn filled_unaligned_rect(ctx: &mut impl Renderer) {
     let rect = Rect::new(1.5, 1.5, 28.5, 18.5);
 
@@ -247,7 +247,7 @@ fn filled_unaligned_rect(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn filled_transformed_rect_1(ctx: &mut impl Renderer) {
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
 
@@ -256,7 +256,7 @@ fn filled_transformed_rect_1(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn filled_transformed_rect_2(ctx: &mut impl Renderer) {
     let rect = Rect::new(5.0, 5.0, 10.0, 10.0);
 
@@ -265,7 +265,7 @@ fn filled_transformed_rect_2(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn filled_transformed_rect_3(ctx: &mut impl Renderer) {
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
 
@@ -274,7 +274,7 @@ fn filled_transformed_rect_3(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn filled_transformed_rect_4(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 20.0, 20.0);
 
@@ -286,7 +286,7 @@ fn filled_transformed_rect_4(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn stroked_transformed_rect_1(ctx: &mut impl Renderer) {
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
     let stroke = miter_stroke_2();
@@ -297,7 +297,7 @@ fn stroked_transformed_rect_1(ctx: &mut impl Renderer) {
     ctx.stroke_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn stroked_transformed_rect_2(ctx: &mut impl Renderer) {
     let rect = Rect::new(5.0, 5.0, 10.0, 10.0);
     let stroke = miter_stroke_2();
@@ -308,7 +308,7 @@ fn stroked_transformed_rect_2(ctx: &mut impl Renderer) {
     ctx.stroke_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn stroked_transformed_rect_3(ctx: &mut impl Renderer) {
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
     let stroke = miter_stroke_2();
@@ -319,7 +319,7 @@ fn stroked_transformed_rect_3(ctx: &mut impl Renderer) {
     ctx.stroke_rect(&rect);
 }
 
-#[v_test(width = 30, height = 30)]
+#[vello_test(width = 30, height = 30)]
 fn stroked_transformed_rect_4(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 20.0, 20.0);
     let stroke = miter_stroke_2();
@@ -333,7 +333,7 @@ fn stroked_transformed_rect_4(ctx: &mut impl Renderer) {
     ctx.stroke_rect(&rect);
 }
 
-#[v_test(width = 30, height = 20)]
+#[vello_test(width = 30, height = 20)]
 fn strip_inscribed_rect(ctx: &mut impl Renderer) {
     let rect = Rect::new(1.5, 9.5, 28.5, 11.5);
 
@@ -341,7 +341,7 @@ fn strip_inscribed_rect(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test(width = 5, height = 8)]
+#[vello_test(width = 5, height = 8)]
 fn filled_vertical_hairline_rect(ctx: &mut impl Renderer) {
     let rect = Rect::new(2.25, 0.0, 2.75, 8.0);
 
@@ -349,7 +349,7 @@ fn filled_vertical_hairline_rect(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test(width = 10, height = 10)]
+#[vello_test(width = 10, height = 10)]
 fn filled_vertical_hairline_rect_2(ctx: &mut impl Renderer) {
     let rect = Rect::new(4.5, 0.5, 5.5, 9.5);
 
@@ -357,7 +357,7 @@ fn filled_vertical_hairline_rect_2(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test]
+#[vello_test]
 fn oversized_star(ctx: &mut impl Renderer) {
     // Create a star path that extends beyond the render context boundaries
     // Center it in the middle of the viewport

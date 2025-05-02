@@ -4,9 +4,9 @@
 use crate::renderer::Renderer;
 use vello_common::color::palette::css::{BLUE, GREEN, REBECCA_PURPLE, RED, YELLOW};
 use vello_common::kurbo::{Circle, Rect, Shape};
-use vello_dev_macros::v_test;
+use vello_dev_macros::vello_test;
 
-#[v_test]
+#[vello_test]
 fn opacity_on_layer(ctx: &mut impl Renderer) {
     ctx.push_opacity_layer(70);
 
@@ -19,7 +19,7 @@ fn opacity_on_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[v_test]
+#[vello_test]
 fn opacity_nested_on_layer(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));

@@ -9,13 +9,13 @@ use vello_common::color::palette::css::{BLACK, BLUE, WHITE, YELLOW};
 use vello_common::color::{ColorSpaceTag, DynamicColor};
 use vello_common::kurbo::{Point, Rect};
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
-use vello_dev_macros::v_test;
+use vello_dev_macros::vello_test;
 
 pub(crate) const fn tan_45() -> f64 {
     1.0
 }
 
-#[v_test(width = 600, height = 32)]
+#[vello_test(width = 600, height = 32)]
 fn gradient_on_3_wide_tiles(ctx: &mut impl Renderer) {
     let rect = Rect::new(4.0, 4.0, 596.0, 28.0);
 
@@ -32,7 +32,7 @@ fn gradient_on_3_wide_tiles(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[v_test]
+#[vello_test]
 fn gradient_with_global_alpha(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
@@ -76,7 +76,7 @@ fn gradient_with_color_spaces(ctx: &mut impl Renderer, stops: ColorStops) {
     }
 }
 
-#[v_test(width = 200, height = 130)]
+#[vello_test(width = 200, height = 130)]
 fn gradient_with_color_spaces_1(ctx: &mut impl Renderer) {
     let stops = ColorStops(smallvec![
         ColorStop {
@@ -92,7 +92,7 @@ fn gradient_with_color_spaces_1(ctx: &mut impl Renderer) {
     gradient_with_color_spaces(ctx, stops);
 }
 
-#[v_test(width = 200, height = 130)]
+#[vello_test(width = 200, height = 130)]
 fn gradient_with_color_spaces_2(ctx: &mut impl Renderer) {
     let stops = ColorStops(smallvec![
         ColorStop {
@@ -108,7 +108,7 @@ fn gradient_with_color_spaces_2(ctx: &mut impl Renderer) {
     gradient_with_color_spaces(ctx, stops);
 }
 
-#[v_test(width = 200, height = 130)]
+#[vello_test(width = 200, height = 130)]
 fn gradient_with_color_spaces_3(ctx: &mut impl Renderer) {
     gradient_with_color_spaces(ctx, stops_blue_green_red_yellow());
 }
@@ -126,9 +126,9 @@ mod linear {
     use vello_api::peniko::Gradient;
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::GradientKind;
-    use vello_dev_macros::v_test;
+    use vello_dev_macros::vello_test;
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_2_stops(ctx: &mut impl Renderer) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
@@ -145,7 +145,7 @@ mod linear {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_2_stops_with_alpha(ctx: &mut impl Renderer) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
@@ -175,22 +175,22 @@ mod linear {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_negative_direction(ctx: &mut impl Renderer) {
         directional(ctx, Point::new(90.0, 0.0), Point::new(10.0, 0.0));
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_downward_y(ctx: &mut impl Renderer) {
         directional(ctx, Point::new(20.0, 20.0), Point::new(80.0, 80.0));
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_upward_y(ctx: &mut impl Renderer) {
         directional(ctx, Point::new(20.0, 80.0), Point::new(80.0, 20.0));
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_vertical(ctx: &mut impl Renderer) {
         directional(ctx, Point::new(0.0, 10.0), Point::new(0.0, 90.0));
     }
@@ -212,22 +212,22 @@ mod linear {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_spread_method_pad(ctx: &mut impl Renderer) {
         gradient_pad(ctx, Extend::Pad);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_spread_method_repeat(ctx: &mut impl Renderer) {
         gradient_pad(ctx, Extend::Repeat);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_spread_method_reflect(ctx: &mut impl Renderer) {
         gradient_pad(ctx, Extend::Reflect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_4_stops(ctx: &mut impl Renderer) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
@@ -244,7 +244,7 @@ mod linear {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_complex_shape(ctx: &mut impl Renderer) {
         let path = crossed_line_star();
 
@@ -261,7 +261,7 @@ mod linear {
         ctx.fill_path(&path);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_y_repeat(ctx: &mut impl Renderer) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
@@ -279,7 +279,7 @@ mod linear {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_y_reflect(ctx: &mut impl Renderer) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
@@ -321,22 +321,22 @@ mod linear {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_identity(ctx: &mut impl Renderer) {
         gradient_with_transform(ctx, Affine::IDENTITY, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_translate(ctx: &mut impl Renderer) {
         gradient_with_transform(ctx, Affine::translate((25.0, 25.0)), 0.0, 0.0, 50.0, 50.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_scale(ctx: &mut impl Renderer) {
         gradient_with_transform(ctx, Affine::scale(2.0), 12.5, 12.5, 37.5, 37.5);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_negative_scale(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -348,7 +348,7 @@ mod linear {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_scale_and_translate(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -360,7 +360,7 @@ mod linear {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_rotate_1(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -372,7 +372,7 @@ mod linear {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_rotate_2(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -384,7 +384,7 @@ mod linear {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_scaling_non_uniform(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -396,25 +396,25 @@ mod linear {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_skew_x_1(ctx: &mut impl Renderer) {
         let transform = Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0);
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_skew_x_2(ctx: &mut impl Renderer) {
         let transform = Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0);
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_skew_y_1(ctx: &mut impl Renderer) {
         let transform = Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45());
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_linear_with_transform_skew_y_2(ctx: &mut impl Renderer) {
         let transform = Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45());
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
@@ -434,7 +434,7 @@ mod radial {
     use vello_api::peniko::{ColorStops, Gradient};
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::GradientKind::Radial;
-    use vello_dev_macros::v_test;
+    use vello_dev_macros::vello_test;
 
     fn simple(ctx: &mut impl Renderer, stops: ColorStops) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
@@ -454,17 +454,17 @@ mod radial {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_2_stops(ctx: &mut impl Renderer) {
         simple(ctx, stops_green_blue());
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_4_stops(ctx: &mut impl Renderer) {
         simple(ctx, stops_blue_green_red_yellow());
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_2_stops_with_alpha(ctx: &mut impl Renderer) {
         simple(ctx, stops_green_blue_with_alpha());
     }
@@ -488,17 +488,17 @@ mod radial {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_spread_method_pad(ctx: &mut impl Renderer) {
         gradient_pad(ctx, Extend::Pad);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_spread_method_reflect(ctx: &mut impl Renderer) {
         gradient_pad(ctx, Extend::Reflect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_spread_method_repeat(ctx: &mut impl Renderer) {
         gradient_pad(ctx, Extend::Repeat);
     }
@@ -522,27 +522,27 @@ mod radial {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_center_offset_top_left(ctx: &mut impl Renderer) {
         offset(ctx, Point::new(30.0, 30.0));
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_center_offset_top_right(ctx: &mut impl Renderer) {
         offset(ctx, Point::new(70.0, 30.0));
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_center_offset_bottom_left(ctx: &mut impl Renderer) {
         offset(ctx, Point::new(30.0, 70.0));
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_center_offset_bottom_right(ctx: &mut impl Renderer) {
         offset(ctx, Point::new(70.0, 70.0));
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_c0_bigger(ctx: &mut impl Renderer) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
@@ -579,27 +579,27 @@ mod radial {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_non_overlapping_same_size(ctx: &mut impl Renderer) {
         non_overlapping(ctx, 20.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_non_overlapping_c0_smaller(ctx: &mut impl Renderer) {
         non_overlapping(ctx, 15.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_non_overlapping_c0_larger(ctx: &mut impl Renderer) {
         non_overlapping(ctx, 25.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_non_overlapping_cone(ctx: &mut impl Renderer) {
         non_overlapping(ctx, 5.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_complex_shape(ctx: &mut impl Renderer) {
         let path = crossed_line_star();
 
@@ -645,22 +645,22 @@ mod radial {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_identity(ctx: &mut impl Renderer) {
         gradient_with_transform(ctx, Affine::IDENTITY, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_translate(ctx: &mut impl Renderer) {
         gradient_with_transform(ctx, Affine::translate((25.0, 25.0)), 0.0, 0.0, 50.0, 50.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_scale(ctx: &mut impl Renderer) {
         gradient_with_transform(ctx, Affine::scale(2.0), 12.5, 12.5, 37.5, 37.5);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_negative_scale(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -672,7 +672,7 @@ mod radial {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_scale_and_translate(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -684,7 +684,7 @@ mod radial {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_rotate_1(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -696,7 +696,7 @@ mod radial {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_rotate_2(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -708,7 +708,7 @@ mod radial {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_scale_non_uniform(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -720,25 +720,25 @@ mod radial {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_skew_x_1(ctx: &mut impl Renderer) {
         let transform = Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0);
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_skew_x_2(ctx: &mut impl Renderer) {
         let transform = Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0);
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_skew_y_1(ctx: &mut impl Renderer) {
         let transform = Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45());
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_radial_with_transform_skew_y_2(ctx: &mut impl Renderer) {
         let transform = Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45());
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
@@ -758,7 +758,7 @@ mod sweep {
     use vello_api::peniko::{ColorStops, Gradient};
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::GradientKind;
-    use vello_dev_macros::v_test;
+    use vello_dev_macros::vello_test;
 
     fn basic(ctx: &mut impl Renderer, stops: ColorStops, center: Point) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
@@ -777,27 +777,27 @@ mod sweep {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_2_stops(ctx: &mut impl Renderer) {
         basic(ctx, stops_green_blue(), Point::new(50.0, 50.0));
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_2_stops_with_alpha(ctx: &mut impl Renderer) {
         basic(ctx, stops_green_blue_with_alpha(), Point::new(50.0, 50.0));
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_4_stops(ctx: &mut impl Renderer) {
         basic(ctx, stops_blue_green_red_yellow(), Point::new(50.0, 50.0));
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_not_in_center(ctx: &mut impl Renderer) {
         basic(ctx, stops_green_blue(), Point::new(30.0, 30.0));
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_complex_shape(ctx: &mut impl Renderer) {
         let path = crossed_line_star();
 
@@ -833,17 +833,17 @@ mod sweep {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_spread_method_pad(ctx: &mut impl Renderer) {
         spread_method(ctx, Extend::Pad);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_spread_method_repeat(ctx: &mut impl Renderer) {
         spread_method(ctx, Extend::Repeat);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_spread_method_reflect(ctx: &mut impl Renderer) {
         spread_method(ctx, Extend::Reflect);
     }
@@ -873,22 +873,22 @@ mod sweep {
         ctx.fill_rect(&rect);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_identity(ctx: &mut impl Renderer) {
         gradient_with_transform(ctx, Affine::IDENTITY, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_translate(ctx: &mut impl Renderer) {
         gradient_with_transform(ctx, Affine::translate((25.0, 25.0)), 0.0, 0.0, 50.0, 50.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_scale(ctx: &mut impl Renderer) {
         gradient_with_transform(ctx, Affine::scale(2.0), 12.5, 12.5, 37.5, 37.5);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_negative_scale(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -900,7 +900,7 @@ mod sweep {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_scale_and_translate(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -912,7 +912,7 @@ mod sweep {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_rotate_1(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -924,7 +924,7 @@ mod sweep {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_rotate_2(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -936,7 +936,7 @@ mod sweep {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_scale_non_uniform(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -948,25 +948,25 @@ mod sweep {
         );
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_skew_x_1(ctx: &mut impl Renderer) {
         let transform = Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0);
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_skew_x_2(ctx: &mut impl Renderer) {
         let transform = Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0);
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_skew_y_1(ctx: &mut impl Renderer) {
         let transform = Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45());
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[v_test]
+    #[vello_test]
     fn gradient_sweep_with_transform_skew_y_2(ctx: &mut impl Renderer) {
         let transform = Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45());
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
