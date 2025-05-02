@@ -21,9 +21,9 @@ members = [
     "sparse_strips/vello_hybrid/examples/webgl",
     "sparse_strips/vello_hybrid/examples/winit",
     "sparse_strips/vello_toy",
-    "image_filters/vello_filters_cpu",
     "sparse_strips/vello_macros",
     "sparse_strips/vello_sparse_tests",
+    "image_filters/vello_filters_cpu",
 ]
 
 [workspace.package]
