@@ -3,8 +3,8 @@ use crate::kurbo::Rect;
 
 #[derive(Debug)]
 pub struct BlurredRectangle {
-    pub(crate) rect: Rect,
-    pub(crate) color: AlphaColor<Srgb>,
-    pub(crate) radius: f32,
-    pub(crate) std_dev: f32,
+    pub rect: Rect,
+    pub color: AlphaColor<Srgb>,
+    pub radius: f32,
+    pub std_dev: f32,
 }

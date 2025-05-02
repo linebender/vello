@@ -20,6 +20,7 @@ use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
+use vello_common::blurred_rect::BlurredRectangle;
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -109,6 +110,37 @@ impl RenderContext {
     /// Fill a rectangle.
     pub fn fill_rect(&mut self, rect: &Rect) {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+    }
+    
+    pub fn fill_blurred_rect(
+        &mut self,
+        rect: &Rect,
+        radius: f32,
+        std_dev: f32,
+    ) {
+        let color = match self.paint {
+            PaintType::Solid(s) => s,
+            // Fallback to black when attempting to blur a rectangle with an image/gradient paint
+            _ => BLACK
+        };
+        
+        let blurred_rect = BlurredRectangle {
+            rect: *rect,
+            color,
+            radius,
+            std_dev,
+        };
+
+        // The actual rectangle we paint needs to be larger so that the blurring effect
+        // is not cut off.
+        // The impulse response of a gaussian filter is infinite.
+        // For performance reason we cut off the filter at some extent where the response is close to zero.
+        let kernel_size = 2.5 * std_dev;
+        let inflated = rect.inflate(kernel_size as f64, kernel_size as f64);
+        
+        let paint = blurred_rect.encode_into(&mut self.encoded_paints);
+        flatten::fill(&inflated.to_path(0.1), self.transform, &mut self.line_buf);
+        self.render_path(Fill::NonZero, paint)
     }
 
     /// Stroke a rectangle.

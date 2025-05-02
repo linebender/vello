@@ -5,7 +5,7 @@
 
 use crate::blurred_rect::BlurredRectangle;
 use crate::color::palette::css::BLACK;
-use crate::color::{ColorSpaceTag, HueDirection, PremulColor, Srgb, gradient};
+use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::compute_erf7;
@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 use core::f32::consts::PI;
 use core::iter;
 use smallvec::SmallVec;
-use vello_api::paint::{Gradient, Image, IndexedPaint, Paint};
+use vello_api::paint::{Gradient, Image, IndexedPaint, Paint, PremulColor};
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -362,7 +362,7 @@ fn encode_stops(
 ) -> Vec<GradientRange> {
     struct EncodedColorStop {
         offset: f32,
-        color: PremulColor<Srgb>,
+        color: vello_api::color::PremulColor<Srgb>,
     }
 
     // Create additional (SRGB-encoded) stops in-between to approximate the color space we want to
@@ -720,6 +720,7 @@ pub struct EncodedBlurredRectangle {
     pub min_edge: f32,
     pub w: f32,
     pub h: f32,
+    pub color: PremulColor,
     pub transform: Affine,
     pub x_advance: Vec2,
     pub y_advance: Vec2,
@@ -781,6 +782,7 @@ impl EncodeExt for BlurredRectangle {
             scale,
             std_dev_inv,
             min_edge,
+            color: PremulColor::new(self.color),
             w,
             h,
             transform,
