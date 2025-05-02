@@ -471,6 +471,9 @@ name = "color"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61c387f6cef110ee8eaf12fca5586d3d303c07c594f4a5f02c768b6470b70dbd"
+dependencies = [
+ "libm",
+]
 
 [[package]]
 name = "color"
@@ -3189,7 +3192,7 @@ dependencies = [
  "bytemuck",
  "futures-intrusive",
  "log",
- "peniko 0.4.0",
+ "peniko 0.3.2",
  "png",
  "skrifa 0.30.0",
  "static_assertions",
@@ -3204,7 +3207,7 @@ dependencies = [
 name = "vello_api"
 version = "0.4.0"
 dependencies = [
- "peniko 0.4.0",
+ "peniko 0.3.2",
  "png",
 ]
 
@@ -3255,7 +3258,7 @@ version = "0.4.0"
 dependencies = [
  "bytemuck",
  "guillotiere",
- "peniko 0.4.0",
+ "peniko 0.3.2",
  "skrifa 0.30.0",
  "smallvec",
 ]
