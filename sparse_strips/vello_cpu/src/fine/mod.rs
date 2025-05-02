@@ -5,13 +5,13 @@
 //! of each pixel and pack it into the pixmap.
 
 mod blend;
-mod rounded_blurred_rect;
 mod gradient;
 mod image;
+mod rounded_blurred_rect;
 
-use crate::fine::rounded_blurred_rect::RoundedBlurredRectFiller;
 use crate::fine::gradient::GradientFiller;
 use crate::fine::image::ImageFiller;
+use crate::fine::rounded_blurred_rect::RoundedBlurredRectFiller;
 use crate::util::scalar::div_255;
 use alloc::vec;
 use alloc::vec::Vec;

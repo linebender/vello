@@ -20,7 +20,11 @@ pub(crate) struct RoundedBlurredRectFiller<'a> {
 }
 
 impl<'a> RoundedBlurredRectFiller<'a> {
-    pub(crate) fn new(rect: &'a EncodedBlurredRoundedRectangle, start_x: u16, start_y: u16) -> Self {
+    pub(crate) fn new(
+        rect: &'a EncodedBlurredRoundedRectangle,
+        start_x: u16,
+        start_y: u16,
+    ) -> Self {
         Self {
             cur_pos: rect.transform * Point::new(start_x as f64, start_y as f64),
             rect,
