@@ -6,6 +6,7 @@
 use crate::fine::Fine;
 use alloc::vec;
 use alloc::vec::Vec;
+use vello_common::blurred_rect::BlurredRectangle;
 use vello_common::coarse::Wide;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
@@ -20,7 +21,6 @@ use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
-use vello_common::blurred_rect::BlurredRectangle;
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -116,19 +116,14 @@ impl RenderContext {
     pub fn fill_rect(&mut self, rect: &Rect) {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
-    
-    pub fn fill_blurred_rect(
-        &mut self,
-        rect: &Rect,
-        radius: f32,
-        std_dev: f32,
-    ) {
+
+    pub fn fill_blurred_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
         let color = match self.paint {
             PaintType::Solid(s) => s,
             // Fallback to black when attempting to blur a rectangle with an image/gradient paint
-            _ => BLACK
+            _ => BLACK,
         };
-        
+
         let blurred_rect = BlurredRectangle {
             rect: *rect,
             color,
@@ -142,7 +137,7 @@ impl RenderContext {
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 2.5 * std_dev;
         let inflated = rect.inflate(kernel_size as f64, kernel_size as f64);
-        
+
         let paint = blurred_rect.encode_into(&mut self.encoded_paints, Affine::IDENTITY);
         flatten::fill(&inflated.to_path(0.1), self.transform, &mut self.line_buf);
         self.render_path(Fill::NonZero, paint)

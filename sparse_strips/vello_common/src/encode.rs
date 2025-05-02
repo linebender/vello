@@ -8,6 +8,7 @@ use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
+use crate::math::compute_erf7;
 use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
 use crate::pixmap::Pixmap;
 use alloc::borrow::Cow;
@@ -17,7 +18,6 @@ use core::f32::consts::PI;
 use core::iter;
 use smallvec::SmallVec;
 use vello_api::paint::{Image, IndexedPaint, Paint, PremulColor};
-use crate::math::compute_erf7;
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -720,6 +720,9 @@ pub struct EncodedBlurredRectangle {
     pub min_edge: f32,
     pub w: f32,
     pub h: f32,
+    pub width: f32,
+    pub height: f32,
+    pub r1: f32,
     pub color: PremulColor,
     pub transform: Affine,
     pub x_advance: Vec2,
@@ -749,7 +752,7 @@ impl EncodeExt for BlurredRectangle {
 
         let width = rect.width() as f32;
         let height = rect.height() as f32;
-        let radius = self.radius;
+        let radius = self.radius.min(0.5 * width.min(height));
 
         let transform = Affine::translate((-rect.x0, -rect.y0));
 
@@ -779,7 +782,10 @@ impl EncodeExt for BlurredRectangle {
         let encoded = EncodedBlurredRectangle {
             exponent,
             recip_exponent,
+            width,
+            height,
             scale,
+            r1,
             std_dev_inv,
             min_edge,
             color: PremulColor::new(self.color),
@@ -810,7 +816,7 @@ mod tests {
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::Point;
-    use crate::peniko::{ColorStop, ColorStops, Gradient, GradientKind};
+    use crate::peniko::{ColorStop, ColorStops, GradientKind};
     use alloc::vec;
     use smallvec::smallvec;
     use vello_api::kurbo::Affine;

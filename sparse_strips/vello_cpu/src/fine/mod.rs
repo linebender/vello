@@ -5,9 +5,11 @@
 //! of each pixel and pack it into the pixmap.
 
 mod blend;
+mod blurred_rect;
 mod gradient;
 mod image;
 
+use crate::fine::blurred_rect::BlurredRectFiller;
 use crate::fine::gradient::GradientFiller;
 use crate::fine::image::ImageFiller;
 use crate::util::scalar::div_255;
@@ -273,7 +275,10 @@ impl Fine {
                             filler,
                         );
                     }
-                    EncodedPaint::BlurredRect(_) => todo!(),
+                    EncodedPaint::BlurredRect(b) => {
+                        let filler = BlurredRectFiller::new(b, start_x, start_y);
+                        fill_complex_paint(color_buf, blend_buf, true, blend_mode, filler);
+                    }
                 }
             }
         }
@@ -349,7 +354,10 @@ impl Fine {
                         let filler = ImageFiller::new(i, start_x, start_y);
                         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
                     }
-                    EncodedPaint::BlurredRect(_) => todo!(),
+                    EncodedPaint::BlurredRect(b) => {
+                        let filler = BlurredRectFiller::new(b, start_x, start_y);
+                        strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas)
+                    }
                 }
             }
         }
