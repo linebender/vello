@@ -8,7 +8,7 @@ use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
-use crate::peniko::{ColorStop, Extend, GradientKind, ImageQuality};
+use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
 use crate::pixmap::Pixmap;
 use alloc::borrow::Cow;
 use alloc::sync::Arc;
@@ -16,7 +16,8 @@ use alloc::vec::Vec;
 use core::f32::consts::PI;
 use core::iter;
 use smallvec::SmallVec;
-use vello_api::paint::{Gradient, Image, IndexedPaint, Paint};
+use vello_api::paint::{Image, IndexedPaint, Paint, PremulColor};
+use crate::math::compute_erf7;
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -728,7 +729,7 @@ pub struct EncodedBlurredRectangle {
 impl Sealed for BlurredRectangle {}
 
 impl EncodeExt for BlurredRectangle {
-    fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint {
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
         let rect = {
             // Ensure rectangle has positive width/height.
             let mut rect = self.rect;
@@ -809,7 +810,7 @@ mod tests {
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::Point;
-    use crate::peniko::{ColorStop, ColorStops, GradientKind};
+    use crate::peniko::{ColorStop, ColorStops, Gradient, GradientKind};
     use alloc::vec;
     use smallvec::smallvec;
     use vello_api::kurbo::Affine;

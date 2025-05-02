@@ -143,7 +143,7 @@ impl RenderContext {
         let kernel_size = 2.5 * std_dev;
         let inflated = rect.inflate(kernel_size as f64, kernel_size as f64);
         
-        let paint = blurred_rect.encode_into(&mut self.encoded_paints);
+        let paint = blurred_rect.encode_into(&mut self.encoded_paints, Affine::IDENTITY);
         flatten::fill(&inflated.to_path(0.1), self.transform, &mut self.line_buf);
         self.render_path(Fill::NonZero, paint)
     }
