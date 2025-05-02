@@ -200,7 +200,7 @@ pub(crate) fn check_ref(
     specific_name: &str,
     // Tolerance for pixel differences.
     threshold: u8,
-    // Whether the test instance the "gold standard" and should be used
+    // Whether the test instance is the "gold standard" and should be used
     // for creating reference images.
     is_reference: bool,
 ) {
