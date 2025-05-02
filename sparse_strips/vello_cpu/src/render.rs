@@ -6,7 +6,7 @@
 use crate::fine::Fine;
 use alloc::vec;
 use alloc::vec::Vec;
-use vello_common::blurred_rect::BlurredRectangle;
+use vello_common::blurred_rect::BlurredRoundedRectangle;
 use vello_common::coarse::Wide;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
@@ -128,7 +128,7 @@ impl RenderContext {
             _ => BLACK,
         };
 
-        let blurred_rect = BlurredRectangle {
+        let blurred_rect = BlurredRoundedRectangle {
             rect: *rect,
             color,
             radius,

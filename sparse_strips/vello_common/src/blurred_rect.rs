@@ -1,13 +1,13 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Blurred rectangles.
+//! Blurred, rounded rectangles.
 use crate::color::{AlphaColor, Srgb};
 use crate::kurbo::Rect;
 
-/// A blurred rectangle.
+/// A blurred, rounded rectangle.
 #[derive(Debug)]
-pub struct BlurredRectangle {
+pub struct BlurredRoundedRectangle {
     /// The base rectangle to use for the blur effect.
     pub rect: Rect,
     /// The color of the blurred rectangle.

@@ -3,7 +3,7 @@
 
 //! Paints for drawing shapes.
 
-use crate::blurred_rect::BlurredRectangle;
+use crate::blurred_rect::BlurredRoundedRectangle;
 use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::encode::private::Sealed;
@@ -744,9 +744,9 @@ pub struct EncodedBlurredRoundedRectangle {
     pub y_advance: Vec2,
 }
 
-impl Sealed for BlurredRectangle {}
+impl Sealed for BlurredRoundedRectangle {}
 
-impl EncodeExt for BlurredRectangle {
+impl EncodeExt for BlurredRoundedRectangle {
     fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
         let rect = {
             // Ensure rectangle has positive width/height.
