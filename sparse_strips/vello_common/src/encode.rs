@@ -3,10 +3,12 @@
 
 //! Paints for drawing shapes.
 
+use crate::blurred_rect::BlurredRectangle;
 use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, PremulColor, Srgb, gradient};
 use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
+use crate::math::compute_erf7;
 use crate::peniko::{ColorStop, Extend, GradientKind, ImageQuality};
 use crate::pixmap::Pixmap;
 use alloc::borrow::Cow;
@@ -493,11 +495,19 @@ pub enum EncodedPaint {
     Gradient(EncodedGradient),
     /// An encoded image.
     Image(EncodedImage),
+    /// A blurred rectangle.
+    BlurredRect(EncodedBlurredRectangle),
 }
 
 impl From<EncodedGradient> for EncodedPaint {
     fn from(value: EncodedGradient) -> Self {
         Self::Gradient(value)
+    }
+}
+
+impl From<EncodedBlurredRectangle> for EncodedPaint {
+    fn from(value: EncodedBlurredRectangle) -> Self {
+        Self::BlurredRect(value)
     }
 }
 
@@ -698,6 +708,90 @@ impl GradientLike for RadialKind {
 
     fn is_defined(&self, pos: &Point) -> bool {
         self.pos_inner(pos).is_some()
+    }
+}
+
+#[derive(Debug)]
+pub struct EncodedBlurredRectangle {
+    pub exponent: f32,
+    pub recip_exponent: f32,
+    pub scale: f32,
+    pub std_dev_inv: f32,
+    pub min_edge: f32,
+    pub w: f32,
+    pub h: f32,
+    pub transform: Affine,
+    pub x_advance: Vec2,
+    pub y_advance: Vec2,
+}
+
+impl Sealed for BlurredRectangle {}
+
+impl EncodeExt for BlurredRectangle {
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint {
+        let rect = {
+            // Ensure rectangle has positive width/height.
+            let mut rect = self.rect;
+
+            self.rect;
+
+            if self.rect.x0 > self.rect.x1 {
+                core::mem::swap(&mut rect.x0, &mut rect.x1);
+            }
+
+            if self.rect.y0 > self.rect.y1 {
+                core::mem::swap(&mut rect.x0, &mut rect.x1);
+            }
+
+            rect
+        };
+
+        let width = rect.width() as f32;
+        let height = rect.height() as f32;
+        let radius = self.radius;
+
+        let transform = Affine::translate((-rect.x0, -rect.y0));
+
+        // To avoid divide by 0; potentially should be a bigger number for antialiasing.
+        let std_dev = self.std_dev.max(1e-6);
+
+        let min_edge = width.min(height);
+        let rmax = 0.5 * min_edge;
+        let r0 = radius.hypot(std_dev * 1.15).min(rmax);
+        let r1 = radius.hypot(std_dev * 2.0).min(rmax);
+
+        let exponent = 2.0 * r1 / r0;
+
+        let std_dev_inv = std_dev.max(1e-6).recip();
+
+        // Pull in long end (make less eccentric).
+        let delta = 1.25
+            * std_dev
+            * ((-(0.5 * std_dev_inv * width).powi(2)).exp()
+                - (-(0.5 * std_dev_inv * height).powi(2)).exp());
+        let w = width + delta.min(0.0);
+        let h = height - delta.max(0.0);
+
+        let recip_exponent = exponent.recip();
+        let scale = 0.5 * compute_erf7(std_dev_inv * 0.5 * (w.max(h) - 0.5 * radius));
+
+        let encoded = EncodedBlurredRectangle {
+            exponent,
+            recip_exponent,
+            scale,
+            std_dev_inv,
+            min_edge,
+            w,
+            h,
+            transform,
+            x_advance: Vec2::new(1.0, 0.0),
+            y_advance: Vec2::new(0.0, 1.0),
+        };
+
+        let idx = paints.len();
+        paints.push(encoded.into());
+
+        Paint::Indexed(IndexedPaint::new(idx))
     }
 }
 

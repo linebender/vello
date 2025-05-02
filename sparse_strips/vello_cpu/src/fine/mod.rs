@@ -273,6 +273,7 @@ impl Fine {
                             filler,
                         );
                     }
+                    EncodedPaint::BlurredRect(_) => todo!(),
                 }
             }
         }
@@ -348,6 +349,7 @@ impl Fine {
                         let filler = ImageFiller::new(i, start_x, start_y);
                         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
                     }
+                    EncodedPaint::BlurredRect(_) => todo!(),
                 }
             }
         }
