@@ -7,7 +7,7 @@ use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, PremulColor, Srgb, gradient};
 use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
-use crate::peniko::{ColorStop, Extend, GradientKind, ImageQuality};
+use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
 use crate::pixmap::Pixmap;
 use alloc::borrow::Cow;
 use alloc::sync::Arc;
@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 use core::f32::consts::PI;
 use core::iter;
 use smallvec::SmallVec;
-use vello_api::paint::{Gradient, Image, IndexedPaint, Paint};
+use vello_api::paint::{Image, IndexedPaint, Paint};
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -24,12 +24,12 @@ const NUDGE_VAL: f32 = 1.0e-7;
 pub trait EncodeExt: private::Sealed {
     /// Encode the gradient and push it into a vector of encoded paints, returning
     /// the corresponding paint in the process. This will also validate the gradient.
-    fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint;
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint;
 }
 
 impl EncodeExt for Gradient {
     /// Encode the gradient into a paint.
-    fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint {
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
         // First make sure that the gradient is valid and not degenerate.
         if let Err(paint) = validate(self) {
             return paint;
@@ -205,8 +205,8 @@ impl EncodeExt for Gradient {
         // adding 0.5.
         // Finally, we need to apply the _inverse_ transform to the point so that we can account
         // for the transform on the gradient.
-        let transform = Affine::translate((x_offset as f64 + 0.5, y_offset as f64 + 0.5))
-            * self.transform.inverse();
+        let transform =
+            Affine::translate((x_offset as f64 + 0.5, y_offset as f64 + 0.5)) * transform.inverse();
 
         // One possible approach of calculating the positions would be to apply the above
         // transform to _each_ pixel that we render in the wide tile. However, a much better
@@ -454,10 +454,10 @@ pub(crate) fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
 impl Sealed for Image {}
 
 impl EncodeExt for Image {
-    fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint {
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
         let idx = paints.len();
 
-        let transform = self.transform.inverse();
+        let transform = transform.inverse();
         // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
         // non-opaque images in the first place..
         let has_opacities = self.pixmap.data().chunks(4).any(|c| c[3] != 255);
@@ -696,12 +696,10 @@ impl GradientLike for RadialKind {
 }
 
 mod private {
-    use vello_api::paint::Gradient;
-
     #[allow(unnameable_types, reason = "We make it unnameable on purpose")]
     pub trait Sealed {}
 
-    impl Sealed for Gradient {}
+    impl Sealed for super::Gradient {}
 }
 
 #[cfg(test)]
@@ -713,6 +711,7 @@ mod tests {
     use crate::peniko::{ColorStop, ColorStops, GradientKind};
     use alloc::vec;
     use smallvec::smallvec;
+    use vello_api::kurbo::Affine;
 
     #[test]
     fn gradient_missing_stops() {
@@ -726,7 +725,10 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), BLACK.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            BLACK.into()
+        );
     }
 
     #[test]
@@ -746,7 +748,10 @@ mod tests {
         };
 
         // Should return the color of the first stop.
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            GREEN.into()
+        );
     }
 
     #[test]
@@ -771,7 +776,10 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            GREEN.into()
+        );
     }
 
     #[test]
@@ -796,7 +804,10 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            GREEN.into()
+        );
     }
 
     #[test]
@@ -821,7 +832,10 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            GREEN.into()
+        );
     }
 
     #[test]
@@ -848,6 +862,9 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            GREEN.into()
+        );
     }
 }

@@ -10,10 +10,12 @@ use vello_common::coarse::WideTile;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, ROYAL_BLUE, YELLOW};
 use vello_common::encode::{EncodeExt, EncodedPaint};
-use vello_common::kurbo::Point;
-use vello_common::paint::{Gradient, Paint, PremulColor};
+use vello_common::kurbo::{Affine, Point};
+use vello_common::paint::{Paint, PremulColor};
 use vello_common::peniko;
-use vello_common::peniko::{BlendMode, ColorStop, ColorStops, Compose, GradientKind, Mix};
+use vello_common::peniko::{
+    BlendMode, ColorStop, ColorStops, Compose, Gradient, GradientKind, Mix,
+};
 use vello_common::tile::Tile;
 use vello_cpu::fine::{Fine, SCRATCH_BUF_SIZE};
 
@@ -75,7 +77,7 @@ pub fn fill(c: &mut Criterion) {
                 ..Default::default()
             };
 
-            let paint = grad.encode_into(&mut paints);
+            let paint = grad.encode_into(&mut paints, Affine::IDENTITY);
 
             fill_single!($name, &paint, &paints, WideTile::WIDTH as usize);
         };
@@ -116,7 +118,7 @@ pub fn fill(c: &mut Criterion) {
                 ..Default::default()
             };
 
-            let paint = grad.encode_into(&mut paints);
+            let paint = grad.encode_into(&mut paints, Affine::IDENTITY);
 
             fill_single!($name, &paint, &paints, WideTile::WIDTH as usize);
         };
@@ -161,7 +163,7 @@ pub fn fill(c: &mut Criterion) {
                 ..Default::default()
             };
 
-            let paint = grad.encode_into(&mut paints);
+            let paint = grad.encode_into(&mut paints, Affine::IDENTITY);
 
             fill_single!($name, &paint, &paints, WideTile::WIDTH as usize);
         };

@@ -216,17 +216,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
-name = "automod"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebb4bd301db2e2ca1f5be131c24eb8ebf2d9559bc3744419e93baf8ddea7e670"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -862,14 +851,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "font-types"
-version = "0.8.4"
-source = "git+https://github.com/googlefonts/fontations?rev=3b15121#3b151215d6fe9be70bf4cd12d52c75b7612dead2"
-dependencies = [
- "bytemuck",
-]
-
-[[package]]
 name = "fontconfig-cache-parser"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -917,7 +898,7 @@ dependencies = [
  "objc2-core-text",
  "objc2-foundation 0.3.0",
  "peniko",
- "read-fonts 0.25.3",
+ "read-fonts",
  "roxmltree",
  "smallvec",
  "windows",
@@ -2085,7 +2066,7 @@ dependencies = [
  "fontique",
  "hashbrown 0.15.2",
  "peniko",
- "skrifa 0.26.6",
+ "skrifa",
  "swash",
 ]
 
@@ -2351,16 +2332,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6f9e8a4f503e5c8750e4cd3b32a4e090035c46374b305a15c70bad833dca05f"
 dependencies = [
  "bytemuck",
- "font-types 0.8.4 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "read-fonts"
-version = "0.28.0"
-source = "git+https://github.com/googlefonts/fontations?rev=3b15121#3b151215d6fe9be70bf4cd12d52c75b7612dead2"
-dependencies = [
- "bytemuck",
- "font-types 0.8.4 (git+https://github.com/googlefonts/fontations?rev=3b15121)",
+ "font-types",
 ]
 
 [[package]]
@@ -2532,7 +2504,7 @@ dependencies = [
  "image",
  "rand",
  "roxmltree",
- "skrifa 0.26.6",
+ "skrifa",
  "vello",
  "web-time",
 ]
@@ -2689,16 +2661,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8cc1aa86c26dbb1b63875a7180aa0819709b33348eb5b1491e4321fae388179d"
 dependencies = [
  "bytemuck",
- "read-fonts 0.25.3",
-]
-
-[[package]]
-name = "skrifa"
-version = "0.30.0"
-source = "git+https://github.com/googlefonts/fontations?rev=3b15121#3b151215d6fe9be70bf4cd12d52c75b7612dead2"
-dependencies = [
- "bytemuck",
- "read-fonts 0.28.0",
+ "read-fonts",
 ]
 
 [[package]]
@@ -2845,7 +2808,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fae9a562c7b46107d9c78cd78b75bbe1e991c16734c0aee8ff0ee711fb8b620a"
 dependencies = [
- "skrifa 0.26.6",
+ "skrifa",
  "yazi",
  "zeno",
 ]
@@ -3191,7 +3154,7 @@ dependencies = [
  "log",
  "peniko",
  "png",
- "skrifa 0.26.6",
+ "skrifa",
  "static_assertions",
  "thiserror 2.0.12",
  "vello_encoding",
@@ -3226,7 +3189,7 @@ version = "0.4.0"
 dependencies = [
  "bytemuck",
  "roxmltree",
- "skrifa 0.30.0",
+ "skrifa",
  "smallvec",
  "vello_api",
 ]
@@ -3235,11 +3198,17 @@ dependencies = [
 name = "vello_cpu"
 version = "0.4.0"
 dependencies = [
- "automod",
- "image",
- "oxipng",
- "skrifa 0.26.6",
- "smallvec",
+ "vello_common",
+]
+
+[[package]]
+name = "vello_dev_macros"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "vello_api",
  "vello_common",
 ]
 
@@ -3250,7 +3219,7 @@ dependencies = [
  "bytemuck",
  "guillotiere",
  "peniko",
- "skrifa 0.26.6",
+ "skrifa",
  "smallvec",
 ]
 
@@ -3300,6 +3269,23 @@ dependencies = [
  "naga",
  "thiserror 2.0.12",
  "vello_encoding",
+]
+
+[[package]]
+name = "vello_sparse_tests"
+version = "0.0.0"
+dependencies = [
+ "image",
+ "oxipng",
+ "pollster",
+ "skrifa",
+ "smallvec",
+ "vello_api",
+ "vello_common",
+ "vello_cpu",
+ "vello_dev_macros",
+ "vello_hybrid",
+ "wgpu",
 ]
 
 [[package]]
@@ -4209,6 +4195,7 @@ dependencies = [
  "console_log",
  "env_logger",
  "getrandom 0.3.2",
+ "jni",
  "kurbo",
  "log",
  "notify-debouncer-full",

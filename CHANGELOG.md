@@ -15,22 +15,33 @@ You can find its changes [documented below](#041---2025-03-10).
 
 This release has an [MSRV][] of 1.85.
 
-<!-- TODO: Wgpu 24 (#791); override_image change (#802) -->
+## Added
+
+- Breaking: Support for pipeline caches. ([#524][] by [@DJMcNab][])
+- Implement `Default` for `RendererOptions`. ([#524][] by [@DJMcNab][])
+
+```diff
+ RendererOptions { 
+     // ...
++    ..Default::default()
+ }
+```
 
 ### Removed
 
-- Breaking: The `Renderer::render_to_surface` has been removed. ([#803][] by [@DJMcNab][])
-  This API was not fit for purpose for several reasons, for example, it assumed that you would only ever use a single window.
-  The new recommended way to use Vello to render to a surface is to use `Renderer::render_to_texture`, then copy from that to the surface yourself.
-  This can use the new [`TextureBlitter`](https://docs.rs/wgpu/latest/wgpu/util/struct.TextureBlitter.html) type from `wgpu` for this blitting.
-  The `util` module has been updated to create a blit pipeline and intermediate texture for each surface.
+- Breaking: `Renderer::render_to_surface` has been removed. ([#803][] by [@DJMcNab][])
+  This API was not fit for purpose, as it assumed that you would only ever use a single window.
+  The new recommended way to use Vello to render to a surface is to use `Renderer::render_to_texture` to render to an
+  intermediate texture, then blit from that to the surface yourself.
+  We suggest using the [`TextureBlitter`](https://docs.rs/wgpu/latest/wgpu/util/struct.TextureBlitter.html) utility from `wgpu`.
+  For users of the `util` module, it has been updated to create a suitable blit pipeline and intermediate texture for each surface.
 
-### Internals
+### Changed
 
-The crates were switched to edition 2024 of Rust.
-
-- The example which uses sdl2 has been removed.
-  The sdl2 crates no longer compile, and this example previously existing shows that it was possible. ([#886][] by [@DJMcNab][])
+- Breaking: wgpu has been updated to wgpu 24. ([#791][] by [@songhuaixu][])
+  This has been chosen to match the version used by Bevy 0.16.
+  (Note that we do not guarantee that our latest release will always match Bevy's wgpu version)
+- Breaking: `override_image` has been updated to remove its use of `Arc`, as `wgpu::Texture`s are now internally reference counted. ([#802][] by [@DJMcNab][])
 
 ## [0.4.1][] - 2025-03-10
 
@@ -182,6 +193,7 @@ This release has an [MSRV][] of 1.75.
 [@nicoburns]: https://github.com/nicoburns
 [@ratmice]: https://github.com/ratmice
 [@simbleau]: https://github.com/simbleau
+[@songhuaixu]: https://github.com/songhuaixu
 [@TheNachoBIT]: https://github.com/TheNachoBIT
 [@timtom-dev]: https://github.com/timtom-dev
 [@tomcur]: https://github.com/tomcur
@@ -197,6 +209,7 @@ This release has an [MSRV][] of 1.75.
 [#516]: https://github.com/linebender/vello/pull/516
 [#521]: https://github.com/linebender/vello/pull/521
 [#522]: https://github.com/linebender/vello/pull/522
+[#524]: https://github.com/linebender/vello/pull/524
 [#526]: https://github.com/linebender/vello/pull/526
 [#535]: https://github.com/linebender/vello/pull/535
 [#537]: https://github.com/linebender/vello/pull/537
@@ -256,8 +269,10 @@ This release has an [MSRV][] of 1.75.
 [#757]: https://github.com/linebender/vello/pull/757
 [#758]: https://github.com/linebender/vello/pull/758
 [#766]: https://github.com/linebender/vello/pull/766
+[#791]: https://github.com/linebender/vello/pull/791
 [#792]: https://github.com/linebender/vello/pull/792
 [#796]: https://github.com/linebender/vello/pull/796
+[#802]: https://github.com/linebender/vello/pull/802
 [#803]: https://github.com/linebender/vello/pull/803
 [#841]: https://github.com/linebender/vello/pull/841
 [#886]: https://github.com/linebender/vello/pull/886
