@@ -28,18 +28,13 @@ enum Attribute {
     Flag(Ident),
 }
 
-fn is_flag(key: &Ident) -> bool {
-    matches!(
-        key.to_string().as_str(),
-        "transparent" | "skip_cpu" | "skip_hybrid" | "no_ref" | "ignore"
-    )
-}
-
 impl Parse for Attribute {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let key = input.parse()?;
 
-        if is_flag(&key) {
+        let is_flag = !input.peek(Token![=]);
+        
+        if is_flag {
             Ok(Self::Flag(key))
         } else {
             // Skip equality token.
@@ -85,6 +80,8 @@ struct Arguments {
     /// Whether no reference image should actually be created (for tests that only check
     /// for panics, but are not interested in the actual output).
     no_ref: bool,
+    /// A reason for ignoring a test.
+    ignore_reason: Option<String>,
 }
 
 impl Default for Arguments {
@@ -98,6 +95,7 @@ impl Default for Arguments {
             skip_cpu: false,
             skip_hybrid: false,
             no_ref: false,
+            ignore_reason: None,
         }
     }
 }
@@ -146,6 +144,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         transparent,
         skip_cpu,
         mut skip_hybrid,
+        ignore_reason,
         no_ref,
     } = parse_args(&attrs);
 
@@ -162,18 +161,24 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let empty_snippet = quote! {};
-    let ignore_snippet = quote! {#[ignore]};
+    let ignore_snippet = if let Some(reason) = ignore_reason {
+        quote! {#[ignore = #reason]}
+    }   else {
+        quote! {#[ignore]}
+    };
 
     let ignore_hybrid = if skip_hybrid {
         ignore_snippet.clone()
     } else {
         empty_snippet.clone()
     };
+    
     let ignore_cpu = if skip_cpu {
         ignore_snippet.clone()
     } else {
         empty_snippet.clone()
     };
+    
     cpu_tolerance += DEFAULT_CPU_U8_TOLERANCE;
      hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
 
@@ -222,6 +227,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
             Attribute::KeyValue { key, expr, .. } => {
                 let key_str = key.to_string();
                 match key_str.as_str() {
+                    "ignore" => args.ignore_reason = Some(parse_string_lit(expr, "ignore")),
                     "width" => args.width = parse_int_lit(expr, "width"),
                     "height" => args.height = parse_int_lit(expr, "height"),
                     #[allow(clippy::cast_possible_truncation, reason = "user-supplied value")]
@@ -258,6 +264,18 @@ fn parse_int_lit(expr: &Expr, name: &str) -> u16 {
     }) = expr
     {
         lit_int.base10_parse::<u16>().unwrap()
+    } else {
+        panic!("invalid expression supplied to `{name}`")
+    }
+}
+
+fn parse_string_lit(expr: &Expr, name: &str) -> String {
+    if let Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Str(lit_str),
+        ..
+    }) = expr
+    {
+        lit_str.value()
     } else {
         panic!("invalid expression supplied to `{name}`")
     }

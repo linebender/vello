@@ -135,8 +135,7 @@ fn image_with_transform_scale_and_translate(ctx: &mut impl Renderer) {
     );
 }
 
-// TODO: The below two test cases fail on Windows CI for some reason.
-#[vello_test(ignore)]
+#[vello_test(ignore = "fails in Windows CI for some reason.")]
 fn image_with_transform_rotate_1(ctx: &mut impl Renderer) {
     transform(
         ctx,
@@ -148,7 +147,7 @@ fn image_with_transform_rotate_1(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(ignore)]
+#[vello_test(ignore = "fails in Windows CI for some reason.")]
 fn image_with_transform_rotate_2(ctx: &mut impl Renderer) {
     transform(
         ctx,
