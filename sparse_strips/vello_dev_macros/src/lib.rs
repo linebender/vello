@@ -231,7 +231,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                         args.skip_cpu = true;
                         args.skip_hybrid = true;
                         args.ignore_reason = Some(parse_string_lit(expr, "ignore"));
-                    },
+                    }
                     "width" => args.width = parse_int_lit(expr, "width"),
                     "height" => args.height = parse_int_lit(expr, "height"),
                     #[allow(clippy::cast_possible_truncation, reason = "user-supplied value")]
