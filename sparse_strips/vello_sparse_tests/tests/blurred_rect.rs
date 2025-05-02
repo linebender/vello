@@ -10,7 +10,7 @@ fn rect_with(ctx: &mut impl Renderer, radius: f32, std_dev: f32, affine: Affine)
     let rect = Rect::new(20.0, 20.0, 80.0, 80.0);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.set_transform(affine);
-    ctx.fill_blurred_rect(&rect, radius, std_dev);
+    ctx.fill_blurred_rounded_rect(&rect, radius, std_dev);
 }
 
 #[vello_test]

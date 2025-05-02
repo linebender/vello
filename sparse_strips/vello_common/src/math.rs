@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Mathematical helpfer functions.
+//! Mathematical helper functions.
 
 // See https://raphlinus.github.io/audio/2018/09/05/sigmoid.html for a little
 // explanation of this approximation to the erf function.

@@ -15,7 +15,7 @@ use vello_common::math::compute_erf7;
 pub(crate) struct BlurredRectFiller<'a> {
     /// The current position that should be processed.
     cur_pos: Point,
-    /// The underlying gradient.
+    /// The underlying encoded blurred rectangle.
     rect: &'a EncodedBlurredRectangle,
 }
 
