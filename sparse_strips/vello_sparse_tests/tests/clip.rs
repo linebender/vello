@@ -10,7 +10,7 @@ use vello_api::color::palette::css::BLACK;
 use vello_common::color::palette::css::{DARK_BLUE, DARK_GREEN, REBECCA_PURPLE};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
-use vello_macros::v_test;
+use vello_dev_macros::v_test;
 
 #[v_test]
 fn clip_triangle_with_star(ctx: &mut impl Renderer) {

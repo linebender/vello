@@ -7,7 +7,7 @@ use crate::util::crossed_line_star;
 use vello_common::color::palette::css::{BLUE, RED};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
-use vello_macros::v_test;
+use vello_dev_macros::v_test;
 
 #[v_test]
 fn layer_multiple_properties_1(ctx: &mut impl Renderer) {

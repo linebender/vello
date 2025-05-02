@@ -5,7 +5,7 @@ use crate::renderer::Renderer;
 use vello_common::color::palette::css::{BLUE, YELLOW};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
-use vello_macros::v_test;
+use vello_dev_macros::v_test;
 
 fn compose(ctx: &mut impl Renderer, compose: Compose) {
     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));

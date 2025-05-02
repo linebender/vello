@@ -9,7 +9,7 @@ use vello_common::color::palette::css::{BLACK, BLUE, WHITE, YELLOW};
 use vello_common::color::{ColorSpaceTag, DynamicColor};
 use vello_common::kurbo::{Point, Rect};
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
-use vello_macros::v_test;
+use vello_dev_macros::v_test;
 
 pub(crate) const fn tan_45() -> f64 {
     1.0
@@ -126,7 +126,7 @@ mod linear {
     use vello_api::peniko::Gradient;
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::GradientKind;
-    use vello_macros::v_test;
+    use vello_dev_macros::v_test;
 
     #[v_test]
     fn gradient_linear_2_stops(ctx: &mut impl Renderer) {
@@ -434,7 +434,7 @@ mod radial {
     use vello_api::peniko::{ColorStops, Gradient};
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::GradientKind::Radial;
-    use vello_macros::v_test;
+    use vello_dev_macros::v_test;
 
     fn simple(ctx: &mut impl Renderer, stops: ColorStops) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
@@ -758,7 +758,7 @@ mod sweep {
     use vello_api::peniko::{ColorStops, Gradient};
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::GradientKind;
-    use vello_macros::v_test;
+    use vello_dev_macros::v_test;
 
     fn basic(ctx: &mut impl Renderer, stops: ColorStops, center: Point) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);

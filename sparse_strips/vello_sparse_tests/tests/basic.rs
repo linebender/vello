@@ -11,7 +11,7 @@ use vello_common::color::palette::css::{
 };
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
-use vello_macros::v_test;
+use vello_dev_macros::v_test;
 
 #[v_test(width = 8, height = 8)]
 fn full_cover_1(ctx: &mut impl Renderer) {

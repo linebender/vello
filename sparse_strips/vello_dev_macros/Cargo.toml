@@ -1,6 +1,6 @@
 [package]
-name = "vello_macros"
-description = "A number of macros used for testing in vello."
+name = "vello_dev_macros"
+description = "Procedural macros used for testing and benchmarking vello sparse strip implementations."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
 edition.workspace = true

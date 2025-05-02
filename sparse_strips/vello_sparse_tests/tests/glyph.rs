@@ -7,7 +7,7 @@ use crate::renderer::Renderer;
 use crate::util::layout_glyphs;
 use vello_common::color::palette::css::REBECCA_PURPLE;
 use vello_common::kurbo::Affine;
-use vello_macros::v_test;
+use vello_dev_macros::v_test;
 
 #[v_test(width = 300, height = 70)]
 fn glyphs_filled(ctx: &mut impl Renderer) {

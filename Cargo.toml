@@ -21,7 +21,7 @@ members = [
     "sparse_strips/vello_hybrid/examples/webgl",
     "sparse_strips/vello_hybrid/examples/winit",
     "sparse_strips/vello_toy",
-    "sparse_strips/vello_macros",
+    "sparse_strips/vello_dev_macros",
     "sparse_strips/vello_sparse_tests",
     "image_filters/vello_filters_cpu",
 ]
@@ -114,7 +114,7 @@ vello_common = { path = "sparse_strips/vello_common" }
 vello_cpu = { path = "sparse_strips/vello_cpu" }
 vello_hybrid = { path = "sparse_strips/vello_hybrid" }
 vello_hybrid_scenes = { path = "sparse_strips/vello_hybrid/examples/scenes" }
-vello_macros = { path = "sparse_strips/vello_macros" }
+vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
 wgpu = { version = "24.0.1" }

@@ -7,7 +7,7 @@ use crate::renderer::Renderer;
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
-use vello_macros::v_test;
+use vello_dev_macros::v_test;
 
 #[v_test(width = 8, height = 8)]
 // https://github.com/LaurenzV/cpu-sparse-experiments/issues/2

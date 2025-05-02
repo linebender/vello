@@ -11,7 +11,7 @@ use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::Image;
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::pixmap::Pixmap;
-use vello_macros::v_test;
+use vello_dev_macros::v_test;
 
 pub(crate) fn load_image(name: &str) -> Arc<Pixmap> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/assets/{name}.png"));

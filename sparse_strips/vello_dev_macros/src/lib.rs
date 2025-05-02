@@ -20,7 +20,7 @@ enum Attribute {
 fn is_flag(key: &Ident) -> bool {
     matches!(
         key.to_string().as_str(),
-        "transparent" | "skip_cpu" | "skip_gpu" | "no_ref" | "ignore"
+        "transparent" | "skip_cpu" | "skip_hybrid" | "no_ref" | "ignore"
     )
 }
 
@@ -67,7 +67,7 @@ struct Arguments {
     /// Whether the test should not be run on the CPU (`vello_cpu`).
     skip_cpu: bool,
     /// Whether the test should not be run on the GPU (`vello_hybrid`).
-    skip_gpu: bool,
+    skip_hybrid: bool,
     /// Whether no reference image should actually be created (for tests that only check
     /// for panics, but are not interested in the actual output).
     no_ref: bool,
@@ -81,7 +81,7 @@ impl Default for Arguments {
             threshold: 0,
             transparent: false,
             skip_cpu: false,
-            skip_gpu: false,
+            skip_hybrid: false,
             no_ref: false,
         }
     }
@@ -108,12 +108,12 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         threshold,
         transparent,
         skip_cpu,
-        mut skip_gpu,
+        mut skip_hybrid,
         no_ref,
     } = parse_args(&attrs);
 
     // These tests currently don't work with `vello_hybrid`.
-    skip_gpu |= {
+    skip_hybrid |= {
         input_fn_name_str.contains("clip")
             || input_fn_name_str.contains("compose")
             || input_fn_name_str.contains("gradient")
@@ -127,7 +127,7 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let empty_snippet = quote! {};
     let ignore_snippet = quote! {#[ignore]};
 
-    let ignore_hybrid = if skip_gpu {
+    let ignore_hybrid = if skip_hybrid {
         ignore_snippet.clone()
     } else {
         empty_snippet.clone()
@@ -197,11 +197,11 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                 match flag_str.as_str() {
                     "transparent" => args.transparent = true,
                     "skip_cpu" => args.skip_cpu = true,
-                    "skip_gpu" => args.skip_gpu = true,
+                    "skip_hybrid" => args.skip_hybrid = true,
                     "no_ref" => args.no_ref = true,
                     "ignore" => {
                         args.skip_cpu = true;
-                        args.skip_gpu = true;
+                        args.skip_hybrid = true;
                     }
                     _ => panic!("unknown flag attribute {}", flag_str),
                 }

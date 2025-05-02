@@ -3202,6 +3202,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vello_dev_macros"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "vello_api",
+ "vello_common",
+]
+
+[[package]]
 name = "vello_encoding"
 version = "0.4.0"
 dependencies = [
@@ -3251,17 +3262,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vello_macros"
-version = "0.0.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
- "vello_api",
- "vello_common",
-]
-
-[[package]]
 name = "vello_shaders"
 version = "0.4.0"
 dependencies = [
@@ -3283,8 +3283,8 @@ dependencies = [
  "vello_api",
  "vello_common",
  "vello_cpu",
+ "vello_dev_macros",
  "vello_hybrid",
- "vello_macros",
  "wgpu",
 ]
 
