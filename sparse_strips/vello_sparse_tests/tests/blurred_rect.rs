@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::renderer::Renderer;
 use vello_api::color::palette::css::REBECCA_PURPLE;
 use vello_api::kurbo::{Affine, Point, Rect};
@@ -46,6 +49,6 @@ fn blurred_rect_with_transform(ctx: &mut impl Renderer) {
         ctx,
         10.0,
         10.0,
-        Affine::rotate_about(45.0f64.to_radians(), Point::new(50.0, 50.0)),
+        Affine::rotate_about(45.0_f64.to_radians(), Point::new(50.0, 50.0)),
     );
 }

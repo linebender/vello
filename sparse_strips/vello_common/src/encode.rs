@@ -711,21 +711,36 @@ impl GradientLike for RadialKind {
     }
 }
 
+/// An encoded blurred rectangle.
 #[derive(Debug)]
 pub struct EncodedBlurredRectangle {
+    /// An component for computing the blur effect.
     pub exponent: f32,
+    /// An component for computing the blur effect.
     pub recip_exponent: f32,
+    /// An component for computing the blur effect.
     pub scale: f32,
+    /// An component for computing the blur effect.
     pub std_dev_inv: f32,
+    /// An component for computing the blur effect.
     pub min_edge: f32,
+    /// An component for computing the blur effect.
     pub w: f32,
+    /// An component for computing the blur effect.
     pub h: f32,
+    /// An component for computing the blur effect.
     pub width: f32,
+    /// An component for computing the blur effect.
     pub height: f32,
+    /// An component for computing the blur effect.
     pub r1: f32,
+    /// The base color for the blurred rectangle.
     pub color: PremulColor,
+    /// A transform that needs to be applied to the position of the first processed pixel.
     pub transform: Affine,
+    /// How much to advance into the x/y direction for one step in the x direction.
     pub x_advance: Vec2,
+    /// How much to advance into the x/y direction for one step in the y direction.
     pub y_advance: Vec2,
 }
 

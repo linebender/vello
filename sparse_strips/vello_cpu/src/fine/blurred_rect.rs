@@ -1,6 +1,9 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Drawing blurred rectangles.
-//! 
-//! Implementation is taken from: https://git.sr.ht/~raph/blurrr/tree/master/src/distfield.rs
+//!
+//! Implementation is adapted from: <https://git.sr.ht>/~raph/blurrr/tree/master/src/distfield.rs.
 
 use crate::fine::{COLOR_COMPONENTS, Painter, TILE_HEIGHT_COMPONENTS};
 use crate::util::scalar::div_255;
@@ -19,12 +22,13 @@ pub(crate) struct BlurredRectFiller<'a> {
 impl<'a> BlurredRectFiller<'a> {
     pub(crate) fn new(rect: &'a EncodedBlurredRectangle, start_x: u16, start_y: u16) -> Self {
         Self {
-            // We want to sample values of the pixels at the center, so add an offset of 0.5.
             cur_pos: rect.transform * Point::new(start_x as f64, start_y as f64),
             rect,
         }
     }
 
+    // TODO: Add optimized version for non-rotated rectangles. We can precompute all of the
+    // variables that only depend on y.
     pub(super) fn run(mut self, target: &mut [u8]) {
         let h = self.rect.h;
         let w = self.rect.w;
@@ -37,7 +41,7 @@ impl<'a> BlurredRectFiller<'a> {
         let min_edge = self.rect.min_edge;
         let std_dev_inv = self.rect.std_dev_inv;
 
-        let mut col = self.rect.color.as_premul_rgba8().to_u8_array();
+        let col = self.rect.color.as_premul_rgba8().to_u8_array();
 
         for column in target.chunks_exact_mut(TILE_HEIGHT_COMPONENTS) {
             let mut col_pos = self.cur_pos;
@@ -69,9 +73,9 @@ impl<'a> BlurredRectFiller<'a> {
                 for col in &mut pixel_color {
                     *col = div_255(*col as u16 * alpha_val as u16) as u8;
                 }
-                
+
                 pixel.copy_from_slice(&pixel_color);
-                
+
                 col_pos += self.rect.y_advance;
             }
 

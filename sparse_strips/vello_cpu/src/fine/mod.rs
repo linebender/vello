@@ -356,7 +356,7 @@ impl Fine {
                     }
                     EncodedPaint::BlurredRect(b) => {
                         let filler = BlurredRectFiller::new(b, start_x, start_y);
-                        strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas)
+                        strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
                     }
                 }
             }

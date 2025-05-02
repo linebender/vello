@@ -141,7 +141,7 @@ impl RenderContext {
 
         let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform);
         flatten::fill(&inflated_rect.to_path(0.1), transform, &mut self.line_buf);
-        self.render_path(Fill::NonZero, paint)
+        self.render_path(Fill::NonZero, paint);
     }
 
     /// Stroke a rectangle.
