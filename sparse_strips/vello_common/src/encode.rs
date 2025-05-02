@@ -495,8 +495,8 @@ pub enum EncodedPaint {
     Gradient(EncodedGradient),
     /// An encoded image.
     Image(EncodedImage),
-    /// A blurred rectangle.
-    BlurredRect(EncodedBlurredRoundedRectangle),
+    /// A blurred, rounded rectangle.
+    BlurredRoundedRect(EncodedBlurredRoundedRectangle),
 }
 
 impl From<EncodedGradient> for EncodedPaint {
@@ -507,7 +507,7 @@ impl From<EncodedGradient> for EncodedPaint {
 
 impl From<EncodedBlurredRoundedRectangle> for EncodedPaint {
     fn from(value: EncodedBlurredRoundedRectangle) -> Self {
-        Self::BlurredRect(value)
+        Self::BlurredRoundedRect(value)
     }
 }
 

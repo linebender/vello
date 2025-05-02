@@ -14,37 +14,37 @@ fn rect_with(ctx: &mut impl Renderer, radius: f32, std_dev: f32, affine: Affine)
 }
 
 #[vello_test]
-fn rounded_blurred_rect_none(ctx: &mut impl Renderer) {
+fn blurred_rounded_rect_none(ctx: &mut impl Renderer) {
     rect_with(ctx, 0.0, 0.1, Affine::IDENTITY);
 }
 
 #[vello_test]
-fn rounded_blurred_rect_small_std_dev(ctx: &mut impl Renderer) {
+fn blurred_rounded_rect_small_std_dev(ctx: &mut impl Renderer) {
     rect_with(ctx, 0.0, 5.0, Affine::IDENTITY);
 }
 
 #[vello_test]
-fn rounded_blurred_rect_medium_std_dev(ctx: &mut impl Renderer) {
+fn blurred_rounded_rect_medium_std_dev(ctx: &mut impl Renderer) {
     rect_with(ctx, 0.0, 10.0, Affine::IDENTITY);
 }
 
 #[vello_test]
-fn rounded_blurred_rect_large_std_dev(ctx: &mut impl Renderer) {
+fn blurred_rounded_rect_large_std_dev(ctx: &mut impl Renderer) {
     rect_with(ctx, 0.0, 20.0, Affine::IDENTITY);
 }
 
 #[vello_test]
-fn rounded_blurred_rect_with_radius(ctx: &mut impl Renderer) {
+fn blurred_rounded_rect_with_radius(ctx: &mut impl Renderer) {
     rect_with(ctx, 10.0, 10.0, Affine::IDENTITY);
 }
 
 #[vello_test]
-fn rounded_blurred_rect_with_large_radius(ctx: &mut impl Renderer) {
+fn blurred_rounded_rect_with_large_radius(ctx: &mut impl Renderer) {
     rect_with(ctx, 30.0, 10.0, Affine::IDENTITY);
 }
 
 #[vello_test]
-fn rounded_blurred_rect_with_transform(ctx: &mut impl Renderer) {
+fn blurred_rounded_rect_with_transform(ctx: &mut impl Renderer) {
     rect_with(
         ctx,
         10.0,
