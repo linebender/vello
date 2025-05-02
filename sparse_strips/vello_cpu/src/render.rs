@@ -202,6 +202,10 @@ impl RenderContext {
     }
 
     /// Set the current paint transform.
+    ///
+    /// The paint transform is applied to the paint after the transform of the geometry the paint
+    /// is drawn in, i.e., the paint transform is applied after the global transform. This allows
+    /// transforming the paint independently from the drawn geometry.
     pub fn set_paint_transform(&mut self, paint_transform: Affine) {
         self.paint_transform = paint_transform;
     }
