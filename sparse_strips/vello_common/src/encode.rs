@@ -506,7 +506,7 @@ impl From<EncodedGradient> for EncodedPaint {
 /// An encoded image.
 #[derive(Debug)]
 pub struct EncodedImage {
-    /// The underlying pixmap of the image.
+    /// The underlying color data of the image.
     pub blob: Blob<u8>,
     /// Width of the image.
     pub width: u16,
