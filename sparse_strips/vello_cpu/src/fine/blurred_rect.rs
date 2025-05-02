@@ -1,6 +1,9 @@
+//! Drawing blurred rectangles.
+//! 
+//! Implementation is taken from: https://git.sr.ht/~raph/blurrr/tree/master/src/distfield.rs
+
 use crate::fine::{COLOR_COMPONENTS, Painter, TILE_HEIGHT_COMPONENTS};
 use crate::util::scalar::div_255;
-use vello_common::blurred_rect::BlurredRectangle;
 use vello_common::encode::EncodedBlurredRectangle;
 use vello_common::kurbo::Point;
 use vello_common::math::compute_erf7;
@@ -17,7 +20,7 @@ impl<'a> BlurredRectFiller<'a> {
     pub(crate) fn new(rect: &'a EncodedBlurredRectangle, start_x: u16, start_y: u16) -> Self {
         Self {
             // We want to sample values of the pixels at the center, so add an offset of 0.5.
-            cur_pos: rect.transform * Point::new(start_x as f64 + 0.5, start_y as f64 + 0.5),
+            cur_pos: rect.transform * Point::new(start_x as f64, start_y as f64),
             rect,
         }
     }
@@ -45,7 +48,7 @@ impl<'a> BlurredRectFiller<'a> {
                 let j = col_pos.y as f32;
                 let i = col_pos.x as f32;
 
-                let alpha = {
+                let alpha_val = {
                     let y = j + 0.5 - 0.5 * height;
                     let y0 = y.abs() - (h * 0.5 - r1);
                     let y1 = y0.max(0.0);
@@ -60,13 +63,15 @@ impl<'a> BlurredRectFiller<'a> {
                         * (compute_erf7(std_dev_inv * (min_edge + d))
                             - compute_erf7(std_dev_inv * d));
 
-                    (z * 255.0).round() as u8
+                    ((z * 255.0) + 0.5) as u8
                 };
 
                 for col in &mut pixel_color {
-                    *col = div_255(*col as u16 * alpha as u16) as u8;
+                    *col = div_255(*col as u16 * alpha_val as u16) as u8;
                 }
+                
                 pixel.copy_from_slice(&pixel_color);
+                
                 col_pos += self.rect.y_advance;
             }
 
