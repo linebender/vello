@@ -100,7 +100,24 @@ impl Default for Arguments {
     }
 }
 
-/// Create a new vello snapshot test.
+/// Create a new Vello snapshot test.
+/// See [`Arguments`] for documentation of the arguments, which are comma-separated.
+/// Boolean flags are set on their own, and others are in the form of key-value pairs.
+///
+/// ## Example
+/// ```ignore
+/// use vello_dev_macros::v_test;
+/// use vello_api::kurbo::Rect;
+/// use vello_api::color::palette::css::REBECCA_PURPLE;
+///
+/// #[v_test(width = 10, height = 10)]
+/// fn rectangle_above_viewport(ctx: &mut impl Renderer) {
+///     let rect = Rect::new(2.0, -5.0, 8.0, 8.0);
+///
+///     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
+///     ctx.fill_rect(&rect);
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attrs = parse_macro_input!(attr as AttributeInput);
