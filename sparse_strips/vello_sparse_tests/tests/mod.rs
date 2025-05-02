@@ -22,6 +22,7 @@
 #![allow(clippy::cast_possible_truncation, reason = "not critical for testing")]
 
 mod basic;
+mod blurred_rounded_rect;
 mod clip;
 mod compose;
 mod glyph;

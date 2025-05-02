@@ -6,6 +6,7 @@
 use crate::fine::Fine;
 use alloc::vec;
 use alloc::vec::Vec;
+use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::coarse::Wide;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
@@ -114,6 +115,37 @@ impl RenderContext {
     /// Fill a rectangle.
     pub fn fill_rect(&mut self, rect: &Rect) {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+    }
+
+    /// Fill a blurred rectangle with the given radius and standard deviation.
+    ///
+    /// Note that this only works properly if the current paint is set to a solid color.
+    /// If not, it will fall back to using black as the fill color.
+    pub fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        let color = match self.paint {
+            PaintType::Solid(s) => s,
+            // Fallback to black when attempting to blur a rectangle with an image/gradient paint
+            _ => BLACK,
+        };
+
+        let blurred_rect = BlurredRoundedRectangle {
+            rect: *rect,
+            color,
+            radius,
+            std_dev,
+        };
+
+        // The actual rectangle we paint needs to be larger so that the blurring effect
+        // is not cut off.
+        // The impulse response of a gaussian filter is infinite.
+        // For performance reason we cut off the filter at some extent where the response is close to zero.
+        let kernel_size = 2.5 * std_dev;
+        let inflated_rect = rect.inflate(kernel_size as f64, kernel_size as f64);
+        let transform = self.transform * self.paint_transform;
+
+        let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform);
+        flatten::fill(&inflated_rect.to_path(0.1), transform, &mut self.line_buf);
+        self.render_path(Fill::NonZero, paint);
     }
 
     /// Stroke a rectangle.

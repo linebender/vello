@@ -15,10 +15,12 @@ only break in edge cases, and some of them are also only related to conversions 
 
 extern crate alloc;
 
+pub mod blurred_rounded_rect;
 pub mod coarse;
 pub mod encode;
 pub mod flatten;
 pub mod glyph;
+pub mod math;
 pub mod pico_svg;
 pub mod strip;
 pub mod tile;

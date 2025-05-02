@@ -3,10 +3,12 @@
 
 //! Paints for drawing shapes.
 
+use crate::blurred_rounded_rect::BlurredRoundedRectangle;
 use crate::color::palette::css::BLACK;
-use crate::color::{ColorSpaceTag, HueDirection, PremulColor, Srgb, gradient};
+use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
+use crate::math::compute_erf7;
 use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
 use crate::pixmap::Pixmap;
 use alloc::borrow::Cow;
@@ -15,7 +17,7 @@ use alloc::vec::Vec;
 use core::f32::consts::PI;
 use core::iter;
 use smallvec::SmallVec;
-use vello_api::paint::{Image, IndexedPaint, Paint};
+use vello_api::paint::{Image, IndexedPaint, Paint, PremulColor};
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -360,7 +362,7 @@ fn encode_stops(
 ) -> Vec<GradientRange> {
     struct EncodedColorStop {
         offset: f32,
-        color: PremulColor<Srgb>,
+        color: vello_api::color::PremulColor<Srgb>,
     }
 
     // Create additional (SRGB-encoded) stops in-between to approximate the color space we want to
@@ -493,11 +495,19 @@ pub enum EncodedPaint {
     Gradient(EncodedGradient),
     /// An encoded image.
     Image(EncodedImage),
+    /// A blurred, rounded rectangle.
+    BlurredRoundedRect(EncodedBlurredRoundedRectangle),
 }
 
 impl From<EncodedGradient> for EncodedPaint {
     fn from(value: EncodedGradient) -> Self {
         Self::Gradient(value)
+    }
+}
+
+impl From<EncodedBlurredRoundedRectangle> for EncodedPaint {
+    fn from(value: EncodedBlurredRoundedRectangle) -> Self {
+        Self::BlurredRoundedRect(value)
     }
 }
 
@@ -698,6 +708,113 @@ impl GradientLike for RadialKind {
 
     fn is_defined(&self, pos: &Point) -> bool {
         self.pos_inner(pos).is_some()
+    }
+}
+
+/// An encoded blurred, rounded rectangle.
+#[derive(Debug)]
+pub struct EncodedBlurredRoundedRectangle {
+    /// An component for computing the blur effect.
+    pub exponent: f32,
+    /// An component for computing the blur effect.
+    pub recip_exponent: f32,
+    /// An component for computing the blur effect.
+    pub scale: f32,
+    /// An component for computing the blur effect.
+    pub std_dev_inv: f32,
+    /// An component for computing the blur effect.
+    pub min_edge: f32,
+    /// An component for computing the blur effect.
+    pub w: f32,
+    /// An component for computing the blur effect.
+    pub h: f32,
+    /// An component for computing the blur effect.
+    pub width: f32,
+    /// An component for computing the blur effect.
+    pub height: f32,
+    /// An component for computing the blur effect.
+    pub r1: f32,
+    /// The base color for the blurred rectangle.
+    pub color: PremulColor,
+    /// A transform that needs to be applied to the position of the first processed pixel.
+    pub transform: Affine,
+    /// How much to advance into the x/y direction for one step in the x direction.
+    pub x_advance: Vec2,
+    /// How much to advance into the x/y direction for one step in the y direction.
+    pub y_advance: Vec2,
+}
+
+impl Sealed for BlurredRoundedRectangle {}
+
+impl EncodeExt for BlurredRoundedRectangle {
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
+        let rect = {
+            // Ensure rectangle has positive width/height.
+            let mut rect = self.rect;
+
+            if self.rect.x0 > self.rect.x1 {
+                core::mem::swap(&mut rect.x0, &mut rect.x1);
+            }
+
+            if self.rect.y0 > self.rect.y1 {
+                core::mem::swap(&mut rect.x0, &mut rect.x1);
+            }
+
+            rect
+        };
+
+        let transform = Affine::translate((-rect.x0, -rect.y0)) * transform.inverse();
+
+        let (x_advance, y_advance) = x_y_advances(&transform);
+
+        let width = rect.width() as f32;
+        let height = rect.height() as f32;
+        let radius = self.radius.min(0.5 * width.min(height));
+
+        // To avoid divide by 0; potentially should be a bigger number for antialiasing.
+        let std_dev = self.std_dev.max(1e-6);
+
+        let min_edge = width.min(height);
+        let rmax = 0.5 * min_edge;
+        let r0 = radius.hypot(std_dev * 1.15).min(rmax);
+        let r1 = radius.hypot(std_dev * 2.0).min(rmax);
+
+        let exponent = 2.0 * r1 / r0;
+
+        let std_dev_inv = std_dev.recip();
+
+        // Pull in long end (make less eccentric).
+        let delta = 1.25
+            * std_dev
+            * ((-(0.5 * std_dev_inv * width).powi(2)).exp()
+                - (-(0.5 * std_dev_inv * height).powi(2)).exp());
+        let w = width + delta.min(0.0);
+        let h = height - delta.max(0.0);
+
+        let recip_exponent = exponent.recip();
+        let scale = 0.5 * compute_erf7(std_dev_inv * 0.5 * (w.max(h) - 0.5 * radius));
+
+        let encoded = EncodedBlurredRoundedRectangle {
+            exponent,
+            recip_exponent,
+            width,
+            height,
+            scale,
+            r1,
+            std_dev_inv,
+            min_edge,
+            color: PremulColor::new(self.color),
+            w,
+            h,
+            transform,
+            x_advance,
+            y_advance,
+        };
+
+        let idx = paints.len();
+        paints.push(encoded.into());
+
+        Paint::Indexed(IndexedPaint::new(idx))
     }
 }
 
