@@ -3,6 +3,15 @@
 
 //! Proc-macros for testing `vello_cpu` and `vello_hybrid`.
 
+// How much different renderers are allowed to deviate from the reference images
+// per color component. A value of 0 means that it must be an exact match, i.e.
+// each pixel must have the exact same value as the reference pixel. A value of 1
+// means that the absolute difference of each component of a pixel must not be higher
+// than 1. For example, if the target pixel is (233, 43, 64, 100), then permissible
+// values are (232, 43, 65, 101) or (233, 42, 64, 100), but not (231, 43, 64, 100).
+const DEFAULT_CPU_U8_TOLERANCE: u8 = 0;
+const DEFAULT_HYBRID_TOLERANCE: u8 = 1;
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
@@ -59,8 +68,8 @@ struct Arguments {
     height: u16,
     /// The (additional) maximum tolerance for how much two pixels are allowed to deviate from each other
     /// when comparing to the reference images. Some renderers already have an existing tolerance
-    /// (currently 0 for the CPU and 1 for the hybrid renderer), this value will simply be added
-    /// to the currently existing threshold
+    /// (see the constants at the top of the file), this value will simply be added
+    /// to the currently existing threshold.
     threshold: u8,
     /// Whether the background should be transparent.
     transparent: bool,
@@ -137,8 +146,8 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         empty_snippet.clone()
     };
-    let cpu_threshold = threshold;
-    let gpu_threshold = threshold + 1;
+    let cpu_threshold = threshold + DEFAULT_CPU_U8_TOLERANCE;
+    let hybrid_threshold = threshold + DEFAULT_HYBRID_TOLERANCE;
 
     let expanded = quote! {
         #input_fn
@@ -169,7 +178,7 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #gpu_threshold, false);
+                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_threshold, false);
             }
         }
     };
