@@ -34,6 +34,7 @@ pub struct RenderContext {
     pub(crate) tiles: Tiles,
     pub(crate) strip_buf: Vec<Strip>,
     pub(crate) paint: PaintType,
+    pub(crate) paint_transform: Affine,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
@@ -53,6 +54,7 @@ impl RenderContext {
         let transform = Affine::IDENTITY;
         let fill_rule = Fill::NonZero;
         let paint = BLACK.into();
+        let paint_transform = Affine::IDENTITY;
         let stroke = Stroke {
             width: 1.0,
             join: Join::Bevel,
@@ -72,6 +74,7 @@ impl RenderContext {
             strip_buf,
             transform,
             paint,
+            paint_transform,
             fill_rule,
             stroke,
             encoded_paints,
@@ -81,15 +84,17 @@ impl RenderContext {
     fn encode_current_paint(&mut self) -> Paint {
         match self.paint.clone() {
             PaintType::Solid(s) => s.into(),
-            PaintType::Gradient(mut g) => {
+            PaintType::Gradient(g) => {
                 // TODO: Add caching?
-                g.transform = self.transform * g.transform;
-                g.encode_into(&mut self.encoded_paints)
+                g.encode_into(
+                    &mut self.encoded_paints,
+                    self.transform * self.paint_transform,
+                )
             }
-            PaintType::Image(mut i) => {
-                i.transform = self.transform * i.transform;
-                i.encode_into(&mut self.encoded_paints)
-            }
+            PaintType::Image(i) => i.encode_into(
+                &mut self.encoded_paints,
+                self.transform * self.paint_transform,
+            ),
         }
     }
 
@@ -226,6 +231,20 @@ impl RenderContext {
     /// Set the current paint.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.paint = paint.into();
+    }
+
+    /// Set the current paint transform.
+    ///
+    /// The paint transform is applied to the paint after the transform of the geometry the paint
+    /// is drawn in, i.e., the paint transform is applied after the global transform. This allows
+    /// transforming the paint independently from the drawn geometry.
+    pub fn set_paint_transform(&mut self, paint_transform: Affine) {
+        self.paint_transform = paint_transform;
+    }
+
+    /// Reset the current paint transform.
+    pub fn reset_paint_transform(&mut self) {
+        self.paint_transform = Affine::IDENTITY;
     }
 
     /// Set the current fill rule.

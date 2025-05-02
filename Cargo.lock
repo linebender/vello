@@ -216,17 +216,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
-name = "automod"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebb4bd301db2e2ca1f5be131c24eb8ebf2d9559bc3744419e93baf8ddea7e670"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3209,11 +3198,17 @@ dependencies = [
 name = "vello_cpu"
 version = "0.4.0"
 dependencies = [
- "automod",
- "image",
- "oxipng",
- "skrifa",
- "smallvec",
+ "vello_common",
+]
+
+[[package]]
+name = "vello_dev_macros"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "vello_api",
  "vello_common",
 ]
 
@@ -3274,6 +3269,23 @@ dependencies = [
  "naga",
  "thiserror 2.0.12",
  "vello_encoding",
+]
+
+[[package]]
+name = "vello_sparse_tests"
+version = "0.0.0"
+dependencies = [
+ "image",
+ "oxipng",
+ "pollster",
+ "skrifa",
+ "smallvec",
+ "vello_api",
+ "vello_common",
+ "vello_cpu",
+ "vello_dev_macros",
+ "vello_hybrid",
+ "wgpu",
 ]
 
 [[package]]
