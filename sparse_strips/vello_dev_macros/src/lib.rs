@@ -236,11 +236,11 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "height" => args.height = parse_int_lit(expr, "height"),
                     #[allow(clippy::cast_possible_truncation, reason = "user-supplied value")]
                     "cpu_tolerance" => {
-                        args.cpu_tolerance = parse_int_lit(expr, "cpu_tolerance") as u8
+                        args.cpu_tolerance = parse_int_lit(expr, "cpu_tolerance") as u8;
                     }
                     #[allow(clippy::cast_possible_truncation, reason = "user-supplied value")]
                     "hybrid_tolerance" => {
-                        args.hybrid_tolerance = parse_int_lit(expr, "hybrid_tolerance") as u8
+                        args.hybrid_tolerance = parse_int_lit(expr, "hybrid_tolerance") as u8;
                     }
                     _ => panic!("unknown pair attribute {}", key_str),
                 }
