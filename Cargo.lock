@@ -4195,6 +4195,7 @@ dependencies = [
  "console_log",
  "env_logger",
  "getrandom 0.3.2",
+ "jni",
  "kurbo",
  "log",
  "notify-debouncer-full",
