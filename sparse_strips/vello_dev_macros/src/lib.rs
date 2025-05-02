@@ -1,6 +1,8 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+#![allow(rustdoc::private_intra_doc_links, reason = "not a public-facing crate")]
+
 //! Proc-macros for testing `vello_cpu` and `vello_hybrid`.
 
 // How much different renderers are allowed to deviate from the reference images
