@@ -20,6 +20,7 @@ vello_common = { workspace = true }
 vello_cpu = { workspace = true }
 vello_hybrid = { workspace = true }
 wgpu = { workspace = true }
+png = { workspace = true }
 pollster = { workspace = true }
 vello_dev_macros = { workspace = true }
 oxipng = { workspace = true, features = ["freestanding", "parallel"] }

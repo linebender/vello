@@ -8,9 +8,7 @@ use vello_api::peniko::Gradient;
 use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
 use vello_common::kurbo::{Affine, Point, Rect};
-use vello_common::paint::Image;
-use vello_common::peniko::{BlendMode, Compose, Extend, Mix};
-use vello_common::peniko::{ColorStop, ColorStops, GradientKind, ImageQuality};
+use vello_common::peniko::{BlendMode, ColorStop, ColorStops, Compose, Extend, GradientKind, Mix};
 use vello_dev_macros::vello_test;
 
 // The outputs have been compared visually with tiny-skia, and except for two cases (where tiny-skia
@@ -48,12 +46,7 @@ fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
         ..Default::default()
     };
 
-    let image = Image {
-        pixmap: load_image("cowboy"),
-        x_extend: Extend::Pad,
-        y_extend: Extend::Pad,
-        quality: ImageQuality::Low,
-    };
+    let image = load_image("cowboy").with_extend(Extend::Pad);
 
     ctx.set_transform(Affine::translate((10.0, 10.0)));
     ctx.set_paint(image);

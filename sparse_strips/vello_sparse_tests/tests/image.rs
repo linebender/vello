@@ -6,39 +6,72 @@ use crate::renderer::Renderer;
 use crate::util::crossed_line_star;
 use std::f64::consts::PI;
 use std::path::Path;
-use std::sync::Arc;
 use vello_common::kurbo::{Affine, Point, Rect};
-use vello_common::paint::Image;
-use vello_common::peniko::{Extend, ImageQuality};
-use vello_common::pixmap::Pixmap;
+use vello_common::peniko::{Extend, Image, ImageFormat, ImageQuality};
 use vello_dev_macros::vello_test;
 
-pub(crate) fn load_image(name: &str) -> Arc<Pixmap> {
+pub(crate) fn load_image(name: &str) -> Image {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/assets/{name}.png"));
-    Arc::new(Pixmap::from_png(&std::fs::read(path).unwrap()).unwrap())
+    let data = std::fs::read(path).unwrap();
+
+    let mut decoder = png::Decoder::new(data.as_slice());
+    decoder.set_transformations(png::Transformations::ALPHA);
+
+    let mut reader = decoder.read_info().unwrap();
+    let mut img_data = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut img_data).unwrap();
+
+    let decoded_data = match info.color_type {
+        png::ColorType::Rgb => unreachable!(),
+        png::ColorType::Grayscale => unreachable!(),
+        png::ColorType::Indexed => unreachable!(),
+        png::ColorType::Rgba => img_data,
+        png::ColorType::GrayscaleAlpha => {
+            let mut rgba_data = Vec::with_capacity(img_data.len() * 2);
+            for slice in img_data.chunks(2) {
+                let gray = slice[0];
+                let alpha = slice[1];
+                rgba_data.push(gray);
+                rgba_data.push(gray);
+                rgba_data.push(gray);
+                rgba_data.push(alpha);
+            }
+
+            rgba_data
+        }
+    };
+
+    Image::new(
+        decoded_data.into(),
+        ImageFormat::Rgba8,
+        info.width,
+        info.height,
+    )
+    .with_extend(Extend::Repeat)
+    .with_quality(ImageQuality::Low)
 }
 
-fn rgb_img_10x10() -> Arc<Pixmap> {
+fn rgb_img_10x10() -> Image {
     load_image("rgb_image_10x10")
 }
 
-fn rgb_img_2x2() -> Arc<Pixmap> {
+fn rgb_img_2x2() -> Image {
     load_image("rgb_image_2x2")
 }
 
-fn rgb_img_2x3() -> Arc<Pixmap> {
+fn rgb_img_2x3() -> Image {
     load_image("rgb_image_2x3")
 }
 
-fn rgba_img_10x10() -> Arc<Pixmap> {
+fn rgba_img_10x10() -> Image {
     load_image("rgba_image_10x10")
 }
 
-fn luma_img_10x10() -> Arc<Pixmap> {
+fn luma_img_10x10() -> Image {
     load_image("luma_image_10x10")
 }
 
-fn lumaa_img_10x10() -> Arc<Pixmap> {
+fn lumaa_img_10x10() -> Image {
     load_image("lumaa_image_10x10")
 }
 
@@ -47,12 +80,7 @@ fn repeat(ctx: &mut impl Renderer, x_extend: Extend, y_extend: Extend) {
     let im = rgb_img_10x10();
 
     ctx.set_paint_transform(Affine::translate((45.0, 45.0)));
-    ctx.set_paint(Image {
-        pixmap: im,
-        x_extend,
-        y_extend,
-        quality: ImageQuality::Low,
-    });
+    ctx.set_paint(im.with_x_extend(x_extend).with_y_extend(y_extend));
     ctx.fill_rect(&rect);
 }
 
@@ -84,12 +112,7 @@ fn image_pad_x_pad_y(ctx: &mut impl Renderer) {
 fn transform(ctx: &mut impl Renderer, transform: Affine, l: f64, t: f64, r: f64, b: f64) {
     let rect = Rect::new(l, t, r, b);
 
-    let image = Image {
-        pixmap: rgb_img_10x10(),
-        x_extend: Extend::Repeat,
-        y_extend: Extend::Repeat,
-        quality: ImageQuality::Low,
-    };
+    let image = rgb_img_10x10();
 
     ctx.set_transform(transform);
     ctx.set_paint(image);
@@ -223,12 +246,7 @@ fn image_with_transform_skew_y_2(ctx: &mut impl Renderer) {
 fn image_complex_shape(ctx: &mut impl Renderer) {
     let path = crossed_line_star();
 
-    let image = Image {
-        pixmap: rgb_img_10x10(),
-        x_extend: Extend::Repeat,
-        y_extend: Extend::Repeat,
-        quality: ImageQuality::Low,
-    };
+    let image = rgb_img_10x10();
 
     ctx.set_paint(image);
     ctx.fill_path(&path);
@@ -238,29 +256,14 @@ fn image_complex_shape(ctx: &mut impl Renderer) {
 fn image_global_alpha(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-    let mut pix = rgb_img_10x10();
-    Arc::make_mut(&mut pix).multiply_alpha(75);
-
-    let image = Image {
-        pixmap: pix,
-        x_extend: Extend::Repeat,
-        y_extend: Extend::Repeat,
-        quality: ImageQuality::Low,
-    };
+    let image = rgb_img_10x10().with_alpha(75. / 255.);
 
     ctx.set_paint(image);
     ctx.fill_rect(&rect);
 }
 
-fn image_format(ctx: &mut impl Renderer, image: Arc<Pixmap>) {
+fn image_format(ctx: &mut impl Renderer, image: Image) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-
-    let image = Image {
-        pixmap: image,
-        x_extend: Extend::Repeat,
-        y_extend: Extend::Repeat,
-        quality: ImageQuality::Low,
-    };
 
     ctx.set_paint(image);
     ctx.fill_rect(&rect);
@@ -289,21 +292,14 @@ fn image_lumaa_image(ctx: &mut impl Renderer) {
 fn quality(
     ctx: &mut impl Renderer,
     transform: Affine,
-    image: Arc<Pixmap>,
+    image: Image,
     quality: ImageQuality,
     extend: Extend,
 ) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
     ctx.set_paint_transform(transform);
-    let image = Image {
-        pixmap: image,
-        x_extend: extend,
-        y_extend: extend,
-        quality,
-    };
-
-    ctx.set_paint(image);
+    ctx.set_paint(image.with_extend(extend).with_quality(quality));
     ctx.fill_rect(&rect);
 }
 
