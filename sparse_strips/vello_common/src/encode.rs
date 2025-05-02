@@ -752,8 +752,6 @@ impl EncodeExt for BlurredRectangle {
             // Ensure rectangle has positive width/height.
             let mut rect = self.rect;
 
-            self.rect;
-
             if self.rect.x0 > self.rect.x1 {
                 core::mem::swap(&mut rect.x0, &mut rect.x1);
             }

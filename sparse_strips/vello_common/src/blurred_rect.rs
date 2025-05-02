@@ -1,4 +1,7 @@
-///! Blurred rectangles.
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Blurred rectangles.
 use crate::color::{AlphaColor, Srgb};
 use crate::kurbo::Rect;
 
