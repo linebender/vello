@@ -107,6 +107,10 @@ pub fn v_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let u8_fn_name = Ident::new(&format!("{}_cpu_u8", input_fn_name), input_fn_name.span());
     let hybrid_fn_name = Ident::new(&format!("{}_hybrid", input_fn_name), input_fn_name.span());
 
+    // TODO: Tests with the same names in different modules can clash, see
+    // https://github.com/linebender/vello/pull/925#discussion_r2070710362.
+    // We should take the module path into consideration for naming the tests.
+    
     let input_fn_name_str = input_fn_name.to_string();
     let u8_fn_name_str = u8_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
