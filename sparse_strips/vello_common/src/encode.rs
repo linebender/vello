@@ -3,7 +3,7 @@
 
 //! Paints for drawing shapes.
 
-use crate::blurred_rect::BlurredRoundedRectangle;
+use crate::blurred_rounded_rect::BlurredRoundedRectangle;
 use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::encode::private::Sealed;

@@ -6,7 +6,7 @@
 use crate::fine::Fine;
 use alloc::vec;
 use alloc::vec::Vec;
-use vello_common::blurred_rect::BlurredRoundedRectangle;
+use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::coarse::Wide;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
