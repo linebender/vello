@@ -15,9 +15,9 @@ use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{Gradient, Image, Paint, PaintType};
+use vello_common::paint::{Image, Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
+use vello_common::peniko::{BlendMode, Compose, Fill, Gradient, Mix};
 use vello_common::peniko::{Font, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
@@ -327,7 +327,6 @@ impl GlyphRenderer for RenderContext {
                     x_extend: peniko::Extend::Pad,
                     y_extend: peniko::Extend::Pad,
                     quality,
-                    transform: Affine::IDENTITY,
                 };
 
                 self.set_paint(image);
@@ -368,7 +367,6 @@ impl GlyphRenderer for RenderContext {
                     // Since the pixmap will already have the correct size, no need to
                     // use a different image quality here.
                     quality: ImageQuality::Low,
-                    transform: Affine::IDENTITY,
                 };
 
                 self.set_paint(image);
@@ -421,6 +419,10 @@ impl ColrRenderer for RenderContext {
     fn fill_gradient(&mut self, gradient: Gradient) {
         self.set_paint(gradient);
         self.fill_rect(&Rect::new(0.0, 0.0, self.width as f64, self.height as f64));
+    }
+
+    fn set_paint_transform(&mut self, affine: Affine) {
+        Self::set_paint_transform(self, affine);
     }
 
     fn pop_layer(&mut self) {

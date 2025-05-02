@@ -7,7 +7,7 @@ use crate::color::Srgb;
 use crate::glyph::{ColorGlyph, OutlinePath};
 use crate::kurbo::{Affine, BezPath, Point, Rect, Shape};
 use crate::peniko;
-use crate::peniko::{BlendMode, ColorStops, Compose, Extend, Mix};
+use crate::peniko::{BlendMode, ColorStops, Compose, Extend, Gradient, Mix};
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -19,7 +19,6 @@ use skrifa::raw::types::BoundingBox;
 use skrifa::{GlyphId, MetadataProvider};
 use smallvec::SmallVec;
 use vello_api::color::{AlphaColor, DynamicColor};
-use vello_api::paint::Gradient;
 use vello_api::peniko::GradientKind;
 
 /// A trait for clients capable of rendering COLR glyphs.
@@ -32,6 +31,8 @@ pub trait ColrRenderer {
     fn fill_solid(&mut self, color: AlphaColor<Srgb>);
     /// Fill the current area with the given gradient color.
     fn fill_gradient(&mut self, gradient: Gradient);
+    /// Set the transform for paints.
+    fn set_paint_transform(&mut self, affine: Affine);
     /// Pop the last clip/blend layer.
     fn pop_layer(&mut self);
 }
@@ -227,11 +228,10 @@ impl ColorPainter for ColrPainter<'_> {
                     let grad = Gradient {
                         kind: GradientKind::Linear { start: p0, end: p1 },
                         stops,
-                        transform: self.cur_transform(),
                         extend,
                         ..Default::default()
                     };
-
+                    self.painter.set_paint_transform(self.cur_transform());
                     self.painter.fill_gradient(grad);
                 }
             }
@@ -264,11 +264,11 @@ impl ColorPainter for ColrPainter<'_> {
                         end_radius: r1,
                     },
                     stops,
-                    transform: self.cur_transform(),
                     extend,
                     ..Default::default()
                 };
 
+                self.painter.set_paint_transform(self.cur_transform());
                 self.painter.fill_gradient(grad);
             }
             Brush::SweepGradient {
@@ -310,11 +310,11 @@ impl ColorPainter for ColrPainter<'_> {
                         end_angle,
                     },
                     stops,
-                    transform: self.cur_transform(),
                     extend,
                     ..Default::default()
                 };
 
+                self.painter.set_paint_transform(self.cur_transform());
                 self.painter.fill_gradient(grad);
             }
         };
