@@ -74,8 +74,8 @@ impl<'a> BlurredRoundedRectFiller<'a> {
                     ((z * 255.0) + 0.5) as u8
                 };
 
-                for col in &mut pixel_color {
-                    *col = div_255(*col as u16 * alpha_val as u16) as u8;
+                for component in &mut pixel_color {
+                    *component = div_255(*component as u16 * alpha_val as u16) as u8;
                 }
 
                 pixel.copy_from_slice(&pixel_color);
