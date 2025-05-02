@@ -46,12 +46,12 @@ fn repeat(ctx: &mut impl Renderer, x_extend: Extend, y_extend: Extend) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     let im = rgb_img_10x10();
 
+    ctx.set_paint_transform(Affine::translate((45.0, 45.0)));
     ctx.set_paint(Image {
         pixmap: im,
         x_extend,
         y_extend,
         quality: ImageQuality::Low,
-        transform: Affine::translate((45.0, 45.0)),
     });
     ctx.fill_rect(&rect);
 }
@@ -89,7 +89,6 @@ fn transform(ctx: &mut impl Renderer, transform: Affine, l: f64, t: f64, r: f64,
         x_extend: Extend::Repeat,
         y_extend: Extend::Repeat,
         quality: ImageQuality::Low,
-        transform: Affine::IDENTITY,
     };
 
     ctx.set_transform(transform);
@@ -230,7 +229,6 @@ fn image_complex_shape(ctx: &mut impl Renderer) {
         x_extend: Extend::Repeat,
         y_extend: Extend::Repeat,
         quality: ImageQuality::Low,
-        transform: Affine::IDENTITY,
     };
 
     ctx.set_paint(image);
@@ -249,7 +247,6 @@ fn image_global_alpha(ctx: &mut impl Renderer) {
         x_extend: Extend::Repeat,
         y_extend: Extend::Repeat,
         quality: ImageQuality::Low,
-        transform: Affine::IDENTITY,
     };
 
     ctx.set_paint(image);
@@ -264,7 +261,6 @@ fn image_format(ctx: &mut impl Renderer, image: Arc<Pixmap>) {
         x_extend: Extend::Repeat,
         y_extend: Extend::Repeat,
         quality: ImageQuality::Low,
-        transform: Affine::IDENTITY,
     };
 
     ctx.set_paint(image);
@@ -300,12 +296,12 @@ fn quality(
 ) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
+    ctx.set_paint_transform(transform);
     let image = Image {
         pixmap: image,
         x_extend: extend,
         y_extend: extend,
         quality,
-        transform,
     };
 
     ctx.set_paint(image);

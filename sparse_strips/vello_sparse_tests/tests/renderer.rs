@@ -32,6 +32,7 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn pop_layer(&mut self);
     fn set_stroke(&mut self, stroke: Stroke);
     fn set_paint(&mut self, paint: impl Into<PaintType>);
+    fn set_paint_transform(&mut self, affine: Affine);
     fn set_fill_rule(&mut self, fill_rule: Fill);
     fn set_transform(&mut self, transform: Affine);
     fn render_to_pixmap(&self, pixmap: &mut Pixmap);
@@ -100,6 +101,10 @@ impl Renderer for RenderContext {
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
         Self::set_paint(self, paint);
+    }
+
+    fn set_paint_transform(&mut self, affine: Affine) {
+        Self::set_paint_transform(self, affine);
     }
 
     fn set_fill_rule(&mut self, fill_rule: Fill) {
@@ -189,6 +194,10 @@ impl Renderer for Scene {
             PaintType::Gradient(_) => {}
             PaintType::Image(_) => {}
         }
+    }
+
+    fn set_paint_transform(&mut self, _: Affine) {
+        unimplemented!();
     }
 
     fn set_fill_rule(&mut self, fill_rule: Fill) {
