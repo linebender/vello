@@ -36,11 +36,19 @@ extern crate alloc;
 mod render;
 mod scene;
 pub mod util;
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+mod webgl_render;
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+mod wgpu_render;
 
-pub use render::{Config, GpuStrip, RenderData, RenderSize, RenderTargetConfig, Renderer};
+pub use render::{GpuStrip, RenderData, RenderSize};
 pub use scene::Scene;
 pub use util::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+pub use wgpu_render::{Config, RenderTargetConfig, Renderer};
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+pub use webgl_render::WebGLRenderer;
 
 #[cfg(test)]
 const _: () = if vello_common::tile::Tile::HEIGHT != 4 {

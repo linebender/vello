@@ -1,7 +1,7 @@
 [package]
-name = "webgl"
+name = "wgpu_webgl"
 version.workspace = true
-description = "An example showing Vello Hybrid using WebGL2 renderer backend."
+description = "An example showing Vello Hybrid using WebGL2."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -19,7 +19,7 @@ console_log = "1.0"
 js-sys = "0.3.77"
 log = { workspace = true }
 vello_common = { workspace = true }
-vello_hybrid = { workspace = true, features = ["webgl"] }
+vello_hybrid = { workspace = true }
 vello_hybrid_scenes = { workspace = true }
 wasm-bindgen = "0.2.100"
 wasm-bindgen-futures = "0.4.50"
@@ -35,6 +35,7 @@ web-sys = { version = "0.3.77", features = [
     "WheelEvent",
     "KeyboardEvent",
 ] }
+wgpu = { workspace = true, features = ["webgl"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.50"

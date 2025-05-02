@@ -19,6 +19,7 @@ members = [
     "sparse_strips/vello_hybrid",
     "sparse_strips/vello_hybrid/examples/scenes",
     "sparse_strips/vello_hybrid/examples/webgl",
+    "sparse_strips/vello_hybrid/examples/wgpu_webgl",
     "sparse_strips/vello_hybrid/examples/winit",
     "sparse_strips/vello_toy",
 

@@ -3237,10 +3237,13 @@ name = "vello_hybrid"
 version = "0.4.0"
 dependencies = [
  "bytemuck",
+ "js-sys",
+ "naga",
  "png",
  "pollster",
  "roxmltree",
  "vello_common",
+ "web-sys",
  "wgpu",
 ]
 
@@ -3701,7 +3704,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
- "wgpu",
 ]
 
 [[package]]
@@ -3822,6 +3824,24 @@ dependencies = [
  "js-sys",
  "log",
  "web-sys",
+]
+
+[[package]]
+name = "wgpu_webgl"
+version = "0.4.0"
+dependencies = [
+ "console_error_panic_hook",
+ "console_log",
+ "js-sys",
+ "log",
+ "vello_common",
+ "vello_hybrid",
+ "vello_hybrid_scenes",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+ "wgpu",
 ]
 
 [[package]]

@@ -11,7 +11,7 @@
 fn main() {
     #[cfg(target_arch = "wasm32")]
     {
-        use webgl::run_interactive;
+        use wgpu_webgl::run_interactive;
 
         console_error_panic_hook::set_once();
         console_log::init_with_level(log::Level::Debug).unwrap();

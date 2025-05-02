@@ -4,7 +4,7 @@ Uses Vello Hybrid with the wgpu WebGL2 backend in the browser.
 
 ## Development
 
-Run with `cargo run_wasm -p webgl`.
+Run with `cargo run_wasm -p wgpu_webgl`.
 
 ## Testing
 

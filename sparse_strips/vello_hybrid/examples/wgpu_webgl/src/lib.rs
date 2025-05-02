@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Demonstrates using Vello with the WebGL2 renderer in the browser.
+//! Demonstrates using Vello Hybrid using a WebGL2 backend in the browser.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -19,35 +19,100 @@ use vello_hybrid_scenes::AnyScene;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
-use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WebGl2RenderingContext, WheelEvent};
+use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
 #[cfg(target_arch = "wasm32")]
 struct RendererWrapper {
-    renderer: vello_hybrid::WebGLRenderer,
-    canvas: HtmlCanvasElement,
+    renderer: vello_hybrid::Renderer,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    surface: wgpu::Surface<'static>,
 }
 
 #[cfg(target_arch = "wasm32")]
 impl RendererWrapper {
     #[cfg(target_arch = "wasm32")]
-    fn new(canvas: web_sys::HtmlCanvasElement) -> Self {
-        let context = canvas
-            .get_context("webgl2")
-            .expect("WebGL2 context to be available")
-            .unwrap()
-            .dyn_into::<WebGl2RenderingContext>()
-            .expect("Context to be a WebGL2 context");
+    async fn new(canvas: web_sys::HtmlCanvasElement) -> Self {
+        let width = canvas.width();
+        let height = canvas.height();
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::GL,
+            ..Default::default()
+        });
+        let surface = instance
+            .create_surface(wgpu::SurfaceTarget::Canvas(canvas.clone()))
+            .expect("Canvas surface to be valid");
 
-        let renderer = vello_hybrid::WebGLRenderer::new(&context);
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                compatible_surface: Some(&surface),
+                ..Default::default()
+            })
+            .await
+            .expect("Adapter to be valid");
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits {
+                        // WGPU's downlevel defaults use a generous number of color attachments
+                        // (8). Some devices (including CI) support only up to 4.
+                        max_color_attachments: 4,
+                        max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d,
+                        ..wgpu::Limits::downlevel_webgl2_defaults()
+                    },
+                    ..Default::default()
+                },
+                None,
+            )
+            .await
+            .expect("Device to be valid");
+
+        // Configure the surface
+        let surface_format = wgpu::TextureFormat::Rgba8Unorm;
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+            desired_maximum_frame_latency: 2,
+            view_formats: vec![],
+        };
+        surface.configure(&device, &surface_config);
+
+        let renderer = vello_hybrid::Renderer::new(
+            &device,
+            &vello_hybrid::RenderTargetConfig {
+                format: surface_format,
+                width,
+                height,
+            },
+        );
 
         Self {
             renderer,
-            canvas,
+            device,
+            queue,
+            surface,
         }
     }
 
     fn resize(&mut self, width: u32, height: u32) {
-        self.renderer.resize(width, height);
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+            desired_maximum_frame_latency: 2,
+            view_formats: vec![],
+        };
+        self.surface.configure(&self.device, &surface_config);
     }
 }
 
@@ -69,11 +134,11 @@ struct AppState {
 
 #[cfg(target_arch = "wasm32")]
 impl AppState {
-    fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene]>) -> Self {
+    async fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene]>) -> Self {
         let width = canvas.width();
         let height = canvas.height();
 
-        let renderer_wrapper = RendererWrapper::new(canvas.clone());
+        let renderer_wrapper = RendererWrapper::new(canvas.clone()).await;
 
         Self {
             scenes,
@@ -106,11 +171,45 @@ impl AppState {
         };
 
         self.renderer_wrapper.renderer.prepare(
+            &self.renderer_wrapper.device,
+            &self.renderer_wrapper.queue,
             &self.scene,
             &render_size,
         );
 
-        self.renderer_wrapper.renderer.render(&self.scene);
+        let surface_texture = self.renderer_wrapper.surface.get_current_texture().unwrap();
+        let surface_texture_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self
+            .renderer_wrapper
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &surface_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            self.renderer_wrapper
+                .renderer
+                .render(&self.scene, &mut pass);
+        }
+
+        self.renderer_wrapper.queue.submit([encoder.finish()]);
+        surface_texture.present();
+
         self.need_render = false;
     }
 
@@ -232,7 +331,7 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
 
     let scenes = vello_hybrid_scenes::get_example_scenes();
 
-    let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes)));
+    let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes).await));
 
     // Set up animation frame loop
     {
@@ -394,20 +493,44 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
         .append_child(&canvas)
         .unwrap();
 
-    let context = canvas
-        .get_context("webgl2")
-        .expect("WebGL2 context to be available")
-        .unwrap()
-        .dyn_into::<WebGl2RenderingContext>()
-        .expect("Context to be a WebGL2 context");
-
-    let mut renderer = vello_hybrid::WebGLRenderer::new(&context);
+    let RendererWrapper {
+        mut renderer,
+        device,
+        queue,
+        surface,
+    } = RendererWrapper::new(canvas).await;
 
     let render_size = vello_hybrid::RenderSize {
         width: width as u32,
         height: height as u32,
     };
-    
-    renderer.prepare(&scene, &render_size);
-    renderer.render(&scene);
+    renderer.prepare(&device, &queue, &scene, &render_size);
+
+    let surface_texture = surface.get_current_texture().unwrap();
+    let surface_texture_view = surface_texture
+        .texture
+        .create_view(&wgpu::TextureViewDescriptor::default());
+
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &surface_texture_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        renderer.render(&scene, &mut pass);
+    }
+
+    queue.submit([encoder.finish()]);
+    surface_texture.present();
 }
