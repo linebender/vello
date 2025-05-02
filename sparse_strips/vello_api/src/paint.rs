@@ -112,6 +112,11 @@ impl From<Gradient> for PaintType {
 
 impl From<Image> for PaintType {
     fn from(value: Image) -> Self {
+        assert!(
+            value.width < u16::MAX as u32 && value.height < u16::MAX as u32,
+            "the image is too big, the width and height can be no larger than {} pixels",
+            u16::MAX,
+        );
         Self::Image(value)
     }
 }
