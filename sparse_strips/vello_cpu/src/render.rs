@@ -239,14 +239,23 @@ impl RenderContext {
         self.wide.reset();
     }
 
-    /// Render the current context into a pixmap.
-    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+    /// Render the current context into a buffer.
+    /// The buffer is expected to be in premultiplied RGBA8 format with length `width * height * 4`
+    pub fn render_to_buffer(&self, buffer: &mut [u8], width: u16, height: u16) {
         assert!(
             !self.wide.has_layers(),
             "some layers haven't been popped yet"
         );
+        assert_eq!(
+            buffer.len(),
+            (width as usize) * (height as usize) * 4,
+            "provided width ({}) and height ({}) do not match buffer size ({})",
+            width,
+            height,
+            buffer.len(),
+        );
 
-        let mut fine = Fine::new(pixmap.width, pixmap.height);
+        let mut fine = Fine::new(width, height);
 
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();
@@ -259,9 +268,14 @@ impl RenderContext {
                 for cmd in &wtile.cmds {
                     fine.run_cmd(cmd, &self.alphas, &self.encoded_paints);
                 }
-                fine.pack(&mut pixmap.buf);
+                fine.pack(buffer);
             }
         }
+    }
+
+    /// Render the current context into a pixmap.
+    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+        self.render_to_buffer(&mut pixmap.buf, pixmap.width, pixmap.height);
     }
 
     /// Return the width of the pixmap.
