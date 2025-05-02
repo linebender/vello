@@ -1,13 +1,13 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Drawing blurred rectangles.
+//! Drawing blurred, rounded rectangles.
 //!
-//! Implementation is adapted from: <https://git.sr.ht>/~raph/blurrr/tree/master/src/distfield.rs.
+//! Implementation is adapted from: <https://git.sr.ht/~raph/blurrr/tree/master/src/distfield.rs>.
 
 use crate::fine::{COLOR_COMPONENTS, Painter, TILE_HEIGHT_COMPONENTS};
 use crate::util::scalar::div_255;
-use vello_common::encode::EncodedBlurredRectangle;
+use vello_common::encode::EncodedBlurredRoundedRectangle;
 use vello_common::kurbo::Point;
 use vello_common::math::compute_erf7;
 
@@ -16,11 +16,11 @@ pub(crate) struct BlurredRectFiller<'a> {
     /// The current position that should be processed.
     cur_pos: Point,
     /// The underlying encoded blurred rectangle.
-    rect: &'a EncodedBlurredRectangle,
+    rect: &'a EncodedBlurredRoundedRectangle,
 }
 
 impl<'a> BlurredRectFiller<'a> {
-    pub(crate) fn new(rect: &'a EncodedBlurredRectangle, start_x: u16, start_y: u16) -> Self {
+    pub(crate) fn new(rect: &'a EncodedBlurredRoundedRectangle, start_x: u16, start_y: u16) -> Self {
         Self {
             cur_pos: rect.transform * Point::new(start_x as f64, start_y as f64),
             rect,

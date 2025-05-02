@@ -150,7 +150,7 @@ impl Renderer for Scene {
         Self::fill_rect(self, rect);
     }
 
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+    fn fill_blurred_rounded_rect(&mut self, _: &Rect, _: f32, _: f32) {
         unimplemented!()
     }
 

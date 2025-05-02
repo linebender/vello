@@ -496,7 +496,7 @@ pub enum EncodedPaint {
     /// An encoded image.
     Image(EncodedImage),
     /// A blurred rectangle.
-    BlurredRect(EncodedBlurredRectangle),
+    BlurredRect(EncodedBlurredRoundedRectangle),
 }
 
 impl From<EncodedGradient> for EncodedPaint {
@@ -505,8 +505,8 @@ impl From<EncodedGradient> for EncodedPaint {
     }
 }
 
-impl From<EncodedBlurredRectangle> for EncodedPaint {
-    fn from(value: EncodedBlurredRectangle) -> Self {
+impl From<EncodedBlurredRoundedRectangle> for EncodedPaint {
+    fn from(value: EncodedBlurredRoundedRectangle) -> Self {
         Self::BlurredRect(value)
     }
 }
@@ -711,9 +711,9 @@ impl GradientLike for RadialKind {
     }
 }
 
-/// An encoded blurred rectangle.
+/// An encoded blurred, rounded rectangle.
 #[derive(Debug)]
-pub struct EncodedBlurredRectangle {
+pub struct EncodedBlurredRoundedRectangle {
     /// An component for computing the blur effect.
     pub exponent: f32,
     /// An component for computing the blur effect.
@@ -781,7 +781,7 @@ impl EncodeExt for BlurredRectangle {
 
         let exponent = 2.0 * r1 / r0;
 
-        let std_dev_inv = std_dev.max(1e-6).recip();
+        let std_dev_inv = std_dev.recip();
 
         // Pull in long end (make less eccentric).
         let delta = 1.25
@@ -794,7 +794,7 @@ impl EncodeExt for BlurredRectangle {
         let recip_exponent = exponent.recip();
         let scale = 0.5 * compute_erf7(std_dev_inv * 0.5 * (w.max(h) - 0.5 * radius));
 
-        let encoded = EncodedBlurredRectangle {
+        let encoded = EncodedBlurredRoundedRectangle {
             exponent,
             recip_exponent,
             width,
