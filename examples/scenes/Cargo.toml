@@ -15,7 +15,7 @@ skrifa = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 image = { workspace = true, features = ["jpeg"] }
-rand = "0.9.0"
+rand = { workspace = true, features = ["thread_rng"] }
 
 # for pico_svg
 roxmltree = "0.20.0"
