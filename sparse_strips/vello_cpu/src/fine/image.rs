@@ -59,7 +59,7 @@ impl<'a> ImageFiller<'a> {
                     // we always floor to get the target pixel.
                     (self.cur_pos.y + y_advance * idx as f64).floor() as f32,
                     self.image.extends.1,
-                    self.image.height as f32,
+                    self.image.pixmap.height as f32,
                 );
             }
 
@@ -70,7 +70,7 @@ impl<'a> ImageFiller<'a> {
                         // As above, always floor.
                         x_pos.floor() as f32,
                         self.image.extends.0,
-                        self.image.width as f32,
+                        self.image.pixmap.width as f32,
                     );
                     self.run_simple_column(column, extended_x_pos, &y_positions);
                     x_pos += x_advance;
@@ -89,11 +89,11 @@ impl<'a> ImageFiller<'a> {
             .zip(y_positions.iter())
         {
             let sample = match self.image.quality {
-                ImageQuality::Low => self.image.sample(x_pos as u16, *y_pos as u16),
+                ImageQuality::Low => self.image.pixmap.sample(x_pos as u16, *y_pos as u16),
                 ImageQuality::Medium | ImageQuality::High => unimplemented!(),
             };
 
-            pixel.copy_from_slice(&sample.to_u8_array());
+            pixel.copy_from_slice(sample);
         }
     }
 
@@ -103,12 +103,12 @@ impl<'a> ImageFiller<'a> {
             point.x = extend(
                 point.x.floor() as f32,
                 self.image.extends.0,
-                self.image.width as f32,
+                self.image.pixmap.width as f32,
             ) as f64;
             point.y = extend(
                 point.y.floor() as f32,
                 self.image.extends.1,
-                self.image.height as f32,
+                self.image.pixmap.height as f32,
             ) as f64;
 
             point
@@ -122,8 +122,8 @@ impl<'a> ImageFiller<'a> {
                 // Simply takes the nearest pixel to our current position.
                 ImageQuality::Low => {
                     let point = extend_point(pos);
-                    let sample = self.image.sample(point.x as u16, point.y as u16);
-                    pixel.copy_from_slice(&sample.to_u8_array());
+                    let sample = self.image.pixmap.sample(point.x as u16, point.y as u16);
+                    pixel.copy_from_slice(sample);
                 }
                 ImageQuality::Medium | ImageQuality::High => {
                     // We have two versions of filtering: `Medium` (bilinear filtering) and
@@ -165,7 +165,7 @@ impl<'a> ImageFiller<'a> {
 
                     let mut f32_color = [0.0_f32; 4];
 
-                    let sample = |p: Point| self.image.sample(p.x as u16, p.y as u16).to_u8_array();
+                    let sample = |p: Point| self.image.pixmap.sample(p.x as u16, p.y as u16);
 
                     if self.image.quality == ImageQuality::Medium {
                         let cx = [1.0 - x_fract, x_fract];

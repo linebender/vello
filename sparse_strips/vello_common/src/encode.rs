@@ -7,14 +7,16 @@ use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, PremulColor, Srgb, gradient};
 use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
-use crate::peniko::{Blob, ColorStop, Extend, Gradient, GradientKind, Image, ImageQuality};
+use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, Image, ImageQuality};
 use alloc::borrow::Cow;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::f32::consts::PI;
 use core::iter;
 use smallvec::SmallVec;
-use vello_api::color::PremulRgba8;
 use vello_api::paint::{IndexedPaint, Paint};
+use vello_api::peniko::ImageFormat;
+use vello_api::pixmap::Pixmap;
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -463,19 +465,48 @@ impl EncodeExt for Image {
         let idx = paints.len();
 
         let transform = transform.inverse();
-        // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
-        // non-opaque images in the first place..
-        let has_opacities = self.alpha != 1. || self.data.data().chunks(4).any(|c| c[3] != 255);
-
         let (x_advance, y_advance) = x_y_advances(&transform);
 
+        let mut pixmap = Pixmap::new(self.width as u16, self.height as u16);
+        let has_opacities = match self.format {
+            ImageFormat::Rgba8 => {
+                let has_opacities =
+                    self.alpha != 1. || self.data.data().chunks(4).any(|c| c[3] != 255);
+
+                if has_opacities {
+                    let global_alpha = (self.alpha * 255.) as u8;
+                    for (src_px, dest_px) in self
+                        .data
+                        .data()
+                        .chunks_exact(4)
+                        .zip(pixmap.buf.chunks_exact_mut(4))
+                    {
+                        let alpha = (src_px[3] as u16 * global_alpha as u16) / 255;
+                        dest_px.copy_from_slice(&[
+                            ((src_px[0] as u16 * alpha) / 255) as u8,
+                            ((src_px[1] as u16 * alpha) / 255) as u8,
+                            ((src_px[2] as u16 * alpha) / 255) as u8,
+                            alpha as u8,
+                        ]);
+                    }
+                } else {
+                    pixmap.buf.copy_from_slice(self.data.data());
+                }
+
+                has_opacities
+            }
+            format => {
+                #[cfg(debug_assertions)]
+                {
+                    panic!("Image format '{:?}' is not supported.", format);
+                }
+            }
+        };
+
         let encoded = EncodedImage {
-            blob: self.data.clone(),
-            width: self.width as u16,
-            height: self.height as u16,
+            pixmap: pixmap.into(),
             extends: (self.x_extend, self.y_extend),
             quality: self.quality,
-            alpha: self.alpha,
             has_opacities,
             transform,
             x_advance,
@@ -506,18 +537,12 @@ impl From<EncodedGradient> for EncodedPaint {
 /// An encoded image.
 #[derive(Debug)]
 pub struct EncodedImage {
-    /// The underlying color data of the image.
-    pub blob: Blob<u8>,
-    /// Width of the image.
-    pub width: u16,
-    /// Height of the image.
-    pub height: u16,
+    /// The underlying pixmap of the image.
+    pub pixmap: Arc<Pixmap>,
     /// The extends in the horizontal and vertical direction.
     pub extends: (Extend, Extend),
     /// The rendering quality of the image.
     pub quality: ImageQuality,
-    /// An additional alpha multiplier to use with the image.
-    pub alpha: f32,
     /// Whether the image has opacities.
     pub has_opacities: bool,
     /// A transform to apply to the image.
@@ -526,24 +551,6 @@ pub struct EncodedImage {
     pub x_advance: Vec2,
     /// The advance in image coordinates for one step in the y direction.
     pub y_advance: Vec2,
-}
-
-impl EncodedImage {
-    /// Sample a premultiplied RGBA8 pixel from the encoded image.
-    #[inline(always)]
-    pub fn sample(&self, x: u16, y: u16) -> PremulRgba8 {
-        let idx = 4 * (self.width as usize * y as usize + x as usize);
-        let data = &self.blob.data()[idx..][..4];
-
-        let global_alpha = (self.alpha * 255. + 0.5) as u8;
-        let alpha = ((data[3] as u16 * global_alpha as u16) / 255) as u8;
-        PremulRgba8 {
-            r: ((data[0] as u16 * alpha as u16) / 255) as u8,
-            g: ((data[1] as u16 * alpha as u16) / 255) as u8,
-            b: ((data[2] as u16 * alpha as u16) / 255) as u8,
-            a: alpha,
-        }
-    }
 }
 
 /// Computed properties of a linear gradient.
