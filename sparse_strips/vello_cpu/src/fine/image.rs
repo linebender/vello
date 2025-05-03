@@ -59,7 +59,7 @@ impl<'a> ImageFiller<'a> {
                     // we always floor to get the target pixel.
                     (self.cur_pos.y + y_advance * idx as f64).floor() as f32,
                     self.image.extends.1,
-                    self.image.pixmap.height as f32,
+                    self.image.pixmap.height() as f32,
                 );
             }
 
@@ -70,7 +70,7 @@ impl<'a> ImageFiller<'a> {
                         // As above, always floor.
                         x_pos.floor() as f32,
                         self.image.extends.0,
-                        self.image.pixmap.width as f32,
+                        self.image.pixmap.width() as f32,
                     );
                     self.run_simple_column(column, extended_x_pos, &y_positions);
                     x_pos += x_advance;
@@ -103,12 +103,12 @@ impl<'a> ImageFiller<'a> {
             point.x = extend(
                 point.x.floor() as f32,
                 self.image.extends.0,
-                self.image.pixmap.width as f32,
+                self.image.pixmap.width() as f32,
             ) as f64;
             point.y = extend(
                 point.y.floor() as f32,
                 self.image.extends.1,
-                self.image.pixmap.height as f32,
+                self.image.pixmap.height() as f32,
             ) as f64;
 
             point
