@@ -156,6 +156,8 @@ impl Wide {
             tile.bg = PremulColor::new(TRANSPARENT);
             tile.cmds.clear();
         }
+        self.layer_stack.clear();
+        self.clip_stack.clear();
     }
 
     /// Return the number of horizontal tiles.
@@ -1016,7 +1018,9 @@ mod tests {
     use crate::coarse::{Cmd, CmdFill, Wide, WideTile};
     use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
-    use crate::peniko::{BlendMode, Compose, Mix};
+    use crate::peniko::{BlendMode, Compose, Fill, Mix};
+    use crate::strip::Strip;
+    use alloc::{boxed::Box, vec};
     use vello_api::paint::{Paint, PremulColor};
 
     #[test]
@@ -1102,5 +1106,34 @@ mod tests {
         let tile_2 = wide.get(2, 15);
         assert_eq!(tile_2.x, 512);
         assert_eq!(tile_2.y, 60);
+    }
+
+    #[test]
+    fn reset_clears_layer_and_clip_stacks() {
+        type ClipPath = Option<(Box<[Strip]>, Fill)>;
+
+        let mut wide = Wide::new(1000, 258);
+        let no_clip_path: ClipPath = None;
+        wide.push_layer(no_clip_path, BlendMode::default(), None, 128);
+
+        assert_eq!(wide.layer_stack.len(), 1);
+        assert_eq!(wide.clip_stack.len(), 0);
+
+        let strip = Strip {
+            x: 2,
+            y: 2,
+            alpha_idx: 0,
+            winding: 1,
+        };
+        let clip_path = Some((vec![strip].into_boxed_slice(), Fill::NonZero));
+        wide.push_layer(clip_path, BlendMode::default(), None, 24);
+
+        assert_eq!(wide.layer_stack.len(), 2);
+        assert_eq!(wide.clip_stack.len(), 1);
+
+        wide.reset();
+
+        assert_eq!(wide.layer_stack.len(), 0);
+        assert_eq!(wide.clip_stack.len(), 0);
     }
 }
