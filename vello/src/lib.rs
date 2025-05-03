@@ -449,9 +449,12 @@ impl Renderer {
             #[cfg(feature = "debug_layers")]
             debug,
             #[cfg(feature = "wgpu-profiler")]
-            profiler: GpuProfiler::new(GpuProfilerSettings {
-                ..Default::default()
-            })?,
+            profiler: GpuProfiler::new(
+                device,
+                GpuProfilerSettings {
+                    ..Default::default()
+                },
+            )?,
             #[cfg(feature = "wgpu-profiler")]
             profile_result: None,
         })

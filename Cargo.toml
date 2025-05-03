@@ -126,7 +126,7 @@ clap = "4.5.35"
 anyhow = "1.0.97"
 pollster = "0.4.0"
 web-time = "1.1.0"
-wgpu-profiler = "0.21.0"
+wgpu-profiler = "0.22.0"
 winit = "0.30.9"
 scenes = { path = "examples/scenes" }
 svg = "0.18.0"
