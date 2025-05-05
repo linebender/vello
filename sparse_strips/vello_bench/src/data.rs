@@ -60,12 +60,12 @@ impl DataItem {
             name: file_name,
             fills: ctx.fills,
             strokes: ctx.strokes,
-            #[allow(
+            #[expect(
                 clippy::cast_possible_truncation,
                 reason = "It's okay to ignore for benchmarking."
             )]
             width: tree.size().width() as u16,
-            #[allow(
+            #[expect(
                 clippy::cast_possible_truncation,
                 reason = "It's okay to ignore for benchmarking."
             )]

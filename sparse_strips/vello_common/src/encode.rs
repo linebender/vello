@@ -819,7 +819,7 @@ impl EncodeExt for BlurredRoundedRectangle {
 }
 
 mod private {
-    #[allow(unnameable_types, reason = "We make it unnameable on purpose")]
+    #[expect(unnameable_types, reason = "Sealed trait pattern.")]
     pub trait Sealed {}
 
     impl Sealed for super::Gradient {}

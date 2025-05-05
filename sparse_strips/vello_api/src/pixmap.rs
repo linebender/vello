@@ -34,7 +34,7 @@ impl Pixmap {
         self.height
     }
 
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "cannot overflow in this case"
     )]
@@ -47,7 +47,7 @@ impl Pixmap {
 
     /// Create a pixmap from a PNG file.
     #[cfg(feature = "png")]
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "cannot overflow in this case"
     )]
@@ -127,7 +127,7 @@ impl Pixmap {
     /// Convert from premultiplied to separate alpha.
     ///
     /// Not fast, but useful for saving to PNG etc.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "cannot overflow in this case"
     )]

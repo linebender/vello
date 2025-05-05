@@ -46,7 +46,7 @@ impl Mask {
 
                 // See https://www.w3.org/TR/filter-effects-1/#elementdef-fecolormatrix
                 let luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
-                #[allow(clippy::cast_possible_truncation, reason = "This cannot overflow")]
+                #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow")]
                 data.push(((luma * a) * 255.0 + 0.5) as u8);
             }
         }
