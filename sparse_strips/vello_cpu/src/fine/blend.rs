@@ -4,17 +4,16 @@
 //! Support for blending. See <https://www.w3.org/TR/compositing-1/#introduction> for
 //! an introduction as well as the corresponding formulas.
 
-use crate::fine::COLOR_COMPONENTS;
-use crate::util::scalar::div_255;
+use crate::fine::{COLOR_COMPONENTS, FineType};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 
 pub(crate) mod fill {
     use crate::fine::blend::{BlendModeExt, mix};
-    use crate::fine::{COLOR_COMPONENTS, TILE_HEIGHT_COMPONENTS};
+    use crate::fine::{COLOR_COMPONENTS, FineType, TILE_HEIGHT_COMPONENTS};
     use vello_common::peniko::BlendMode;
 
-    pub(crate) fn blend<T: Iterator<Item = [u8; COLOR_COMPONENTS]>>(
-        target: &mut [u8],
+    pub(crate) fn blend<F: FineType, T: Iterator<Item = [F; COLOR_COMPONENTS]>>(
+        target: &mut [F],
         mut color_iter: T,
         blend_mode: BlendMode,
     ) {
@@ -22,7 +21,7 @@ pub(crate) mod fill {
             for bg_c in strip.chunks_exact_mut(COLOR_COMPONENTS) {
                 let mixed_src_color = mix(color_iter.next().unwrap(), bg_c, blend_mode);
 
-                blend_mode.compose(&mixed_src_color, bg_c, 255);
+                blend_mode.compose(&mixed_src_color, bg_c, F::from_u8(255));
             }
         }
     }
@@ -30,15 +29,16 @@ pub(crate) mod fill {
 
 pub(crate) mod strip {
     use crate::fine::blend::{BlendModeExt, mix};
-    use crate::fine::{COLOR_COMPONENTS, TILE_HEIGHT_COMPONENTS};
+    use crate::fine::{COLOR_COMPONENTS, FineType, TILE_HEIGHT_COMPONENTS};
     use vello_common::peniko::BlendMode;
     use vello_common::tile::Tile;
 
     pub(crate) fn blend<
-        T: Iterator<Item = [u8; COLOR_COMPONENTS]>,
+        F: FineType,
+        T: Iterator<Item = [F; COLOR_COMPONENTS]>,
         A: Iterator<Item = [u8; Tile::HEIGHT as usize]>,
     >(
-        target: &mut [u8],
+        target: &mut [F],
         mut color_iter: T,
         blend_mode: BlendMode,
         mut alphas: A,
@@ -49,13 +49,13 @@ pub(crate) mod strip {
             for (bg_pix, mask) in bg_col.chunks_exact_mut(Tile::HEIGHT as usize).zip(masks) {
                 let mixed_src_color = mix(color_iter.next().unwrap(), bg_pix, blend_mode);
 
-                blend_mode.compose(&mixed_src_color, bg_pix, mask);
+                blend_mode.compose(&mixed_src_color, bg_pix, F::from_u8(mask));
             }
         }
     }
 }
 
-fn mix(mut src_c: [u8; 4], bg_c: &[u8], blend_mode: BlendMode) -> [u8; 4] {
+fn mix<F: FineType>(mut src_c: [F; 4], bg_c: &[F], blend_mode: BlendMode) -> [F; 4] {
     // See https://www.w3.org/TR/compositing-1/#blending
 
     let mut mix_bg = [bg_c[0], bg_c[1], bg_c[2], bg_c[3]];
@@ -73,9 +73,7 @@ fn mix(mut src_c: [u8; 4], bg_c: &[u8], blend_mode: BlendMode) -> [u8; 4] {
 
     // Account for alpha.
     for i in 0..3 {
-        src_c[i] =
-            div_255((255 - bg_alpha) as u16 * src_c[i] as u16 + bg_alpha as u16 * mixed[i] as u16)
-                as u8;
+        src_c[i] = bg_alpha.inv().norm_mul_add(src_c[i], bg_alpha, mixed[i]);
     }
 
     // Premultiply again.
@@ -85,12 +83,12 @@ fn mix(mut src_c: [u8; 4], bg_c: &[u8], blend_mode: BlendMode) -> [u8; 4] {
 }
 
 pub(crate) trait BlendModeExt {
-    fn mix(&self, src: &mut [u8], bg: &[u8]);
-    fn compose(&self, src_c: &[u8; 4], bg_c: &mut [u8], mask: u8);
+    fn mix<F: FineType>(&self, src: &mut [F], bg: &[F]);
+    fn compose<F: FineType>(&self, src_c: &[F; 4], bg_c: &mut [F], mask: F);
 }
 
 impl BlendModeExt for BlendMode {
-    fn mix(&self, src: &mut [u8], bg: &[u8]) {
+    fn mix<F: FineType>(&self, src: &mut [F], bg: &[F]) {
         match self.mix {
             Mix::Normal => {}
             Mix::Multiply => Multiply::mix(src, bg),
@@ -113,7 +111,7 @@ impl BlendModeExt for BlendMode {
         }
     }
 
-    fn compose(&self, src_c: &[u8; 4], bg_c: &mut [u8], alpha_mask: u8) {
+    fn compose<F: FineType>(&self, src_c: &[F; 4], bg_c: &mut [F], alpha_mask: F) {
         match self.compose {
             Compose::SrcOver => SrcOver::compose(src_c, bg_c, alpha_mask),
             Compose::Clear => Clear::compose(src_c, bg_c, alpha_mask),
@@ -138,7 +136,7 @@ macro_rules! separable_mix {
     ($name:ident, $calc:expr) => {
         pub(crate) struct $name;
         impl $name {
-            fn mix(source: &mut [u8], background: &[u8]) {
+            fn mix<F: FineType>(source: &mut [F], background: &[F]) {
                 for i in 0..(COLOR_COMPONENTS - 1) {
                     source[i] = $calc(source[i], background[i]);
                 }
@@ -151,7 +149,7 @@ macro_rules! non_separable_mix {
     ($name:ident, $calc:expr) => {
         pub(crate) struct $name;
         impl $name {
-            fn mix(source: &mut [u8], background: &[u8]) {
+            fn mix<F: FineType>(source: &mut [F], background: &[F]) {
                 let cs = to_f32(source);
                 let cb = to_f32(background);
 
@@ -163,63 +161,62 @@ macro_rules! non_separable_mix {
 }
 
 impl Multiply {
-    fn single(src: u8, bg: u8) -> u8 {
-        div_255(src as u16 * bg as u16) as u8
+    fn single<F: FineType>(src: F, bg: F) -> F {
+        src.norm_mul(bg)
     }
 }
 
 impl Screen {
-    fn single(src: u8, bg: u8) -> u8 {
-        (bg as u16 + src as u16 - div_255(src as u16 * bg as u16)) as u8
+    fn single<F: FineType>(src: F, bg: F) -> F {
+        bg.add(src).add(src.norm_mul(bg))
     }
 }
 
 impl HardLight {
-    fn single(src: u8, bg: u8) -> u8 {
-        if src <= 127 {
-            Multiply::single(bg, 2 * src)
+    fn single<F: FineType>(src: F, bg: F) -> F {
+        let two = F::from_u8(2);
+
+        if src <= F::from_f32(0.5) {
+            Multiply::single(bg, src.mul(two))
         } else {
-            Screen::single(bg, ((2 * src as u16) - 255) as u8)
+            Screen::single(bg, two.norm_mul(src).minus(F::ONE))
         }
     }
 }
 
-separable_mix!(Multiply, |cs, cb| div_255(cs as u16 * cb as u16) as u8);
-separable_mix!(
-    Screen,
-    |cs, cb| (cb as u16 + cs as u16 - div_255(cs as u16 * cb as u16)) as u8
-);
-separable_mix!(Overlay, |cs, cb| HardLight::single(cb, cs));
-separable_mix!(Darken, |cs: u8, cb| cs.min(cb));
-separable_mix!(Lighten, |cs: u8, cb| cs.max(cb));
-separable_mix!(ColorDodge, |cs: u8, cb| {
-    if cb == 0 {
-        0
-    } else if cs == 255 {
-        255
+separable_mix!(Multiply, |cs: F, cb| cs.norm_mul(cb));
+separable_mix!(Screen, |cs: F, cb: F| cb.add_minus(cs, cs.norm_mul(cb)));
+separable_mix!(Overlay, |cs: F, cb: F| HardLight::single(cb, cs));
+separable_mix!(Darken, |cs: F, cb: F| cs.min(cb));
+separable_mix!(Lighten, |cs: F, cb: F| cs.max(cb));
+separable_mix!(ColorDodge, |cs: F, cb: F| {
+    if cb == F::ZERO {
+        F::ZERO
+    } else if cs == F::ONE {
+        F::ONE
     } else {
-        255.min((cb as u16 * 255) / (255 - cs) as u16) as u8
+        F::ONE.min(cb.mul_div(F::ONE, cs.inv()))
     }
 });
-separable_mix!(ColorBurn, |cs: u8, cb| {
-    if cb == 255 {
-        255
-    } else if cs == 0 {
-        0
+separable_mix!(ColorBurn, |cs: F, cb: F| {
+    if cb == F::ONE {
+        F::ONE
+    } else if cs == F::ZERO {
+        F::ZERO
     } else {
-        255 - 255.min((255 - cb) as u16 * 255 / cs as u16) as u8
+        F::ONE.minus(F::ONE.min(cb.inv().mul_div(F::ONE, cs)))
     }
 });
-separable_mix!(HardLight, |cs: u8, cb| {
-    if cs <= 127 {
-        Multiply::single(cb, 2 * cs)
+separable_mix!(HardLight, |cs: F, cb: F| {
+    if cs <= F::from_f32(0.5) {
+        Multiply::single(cb, cs.mul(F::from_u8(2)))
     } else {
-        Screen::single(cb, ((2 * cs as u16) - 255) as u8)
+        Screen::single(cb, cs.mul_minus(F::from_u8(2), F::ONE))
     }
 });
-separable_mix!(SoftLight, |cs: u8, cb| {
-    let new_src = cs as f32 / 255.0;
-    let cb = cb as f32 / 255.0;
+separable_mix!(SoftLight, |cs: F, cb: F| {
+    let new_src = cs.to_f32();
+    let cb = cb.to_f32();
 
     let d = if cb <= 0.25 {
         ((16.0 * cb - 12.0) * cb + 4.0) * cb
@@ -233,14 +230,17 @@ separable_mix!(SoftLight, |cs: u8, cb| {
         cb + (2.0 * new_src - 1.0) * (d - cb)
     };
 
-    (res * 255.0 + 0.5) as u8
+    F::from_f32(res)
 });
-separable_mix!(Difference, |cs: u8, cb| {
-    if cs <= cb { cb - cs } else { cs - cb }
+separable_mix!(Difference, |cs: F, cb: F| {
+    if cs <= cb { cb.minus(cs) } else { cs.minus(cb) }
 });
-separable_mix!(Exclusion, |cs: u8, cb| ((cs as u16 + cb as u16)
-    - 2 * div_255(cs as u16 * cb as u16))
-    as u8);
+separable_mix!(Exclusion, |cs: F, cb: F| {
+    let new_src = cs.to_f32();
+    let cb = cb.to_f32();
+
+    F::from_f32((new_src + cb) - 2.0 * (new_src * cb))
+});
 
 non_separable_mix!(Hue, |cs, cb| set_lum(&set_sat(&cs, sat(&cb)), lum(&cb)));
 non_separable_mix!(Saturation, |cs, cb| set_lum(
@@ -250,21 +250,21 @@ non_separable_mix!(Saturation, |cs, cb| set_lum(
 non_separable_mix!(Color, |cs, cb| set_lum(&cs, lum(&cb)));
 non_separable_mix!(Luminosity, |cs, cb| set_lum(&cb, lum(&cs)));
 
-fn to_f32(c: &[u8]) -> [f32; 3] {
+fn to_f32<F: FineType>(c: &[F]) -> [f32; 3] {
     let mut nums = [0.0; 3];
 
     for i in 0..3 {
-        nums[i] = c[i] as f32 / 255.0;
+        nums[i] = c[i].to_f32();
     }
 
     nums
 }
 
-fn from_f32(c: &[f32; 3]) -> [u8; 3] {
-    let mut nums = [0; 3];
+fn from_f32<F: FineType>(c: &[f32; 3]) -> [F; 3] {
+    let mut nums = [F::ZERO; 3];
 
     for i in 0..3 {
-        nums[i] = (c[i] * 255.0 + 0.5) as u8;
+        nums[i] = F::from_f32(c[i]);
     }
 
     nums
@@ -343,21 +343,21 @@ fn set_sat(c: &[f32; 3], s: f32) -> [f32; 3] {
     c
 }
 
-fn unpremultiply(color: &mut [u8; 4]) {
-    let alpha = color[3] as u16;
+fn unpremultiply<F: FineType>(color: &mut [F; 4]) {
+    let alpha = color[3];
 
-    if alpha != 0 {
+    if alpha != F::ZERO {
         for c in &mut color[0..3] {
-            *c = ((*c as u16 * 255) / alpha) as u8;
+            *c = c.mul_div(F::ONE, alpha);
         }
     }
 }
 
-fn premultiply(color: &mut [u8; 4]) {
-    let alpha = color[3] as u16;
+fn premultiply<F: FineType>(color: &mut [F; 4]) {
+    let alpha = color[3];
 
     for c in &mut color[0..3] {
-        *c = div_255(*c as u16 * alpha) as u8;
+        *c = c.norm_mul(alpha);
     }
 }
 
@@ -366,21 +366,20 @@ macro_rules! compose {
         struct $name;
 
         impl $name {
-            fn compose(src_c: &[u8; 4], bg_c: &mut [u8], mask: u8) {
-                let al_b = bg_c[3] as u16;
-                let al_s = div_255(src_c[3] as u16 * mask as u16);
+            fn compose<F: FineType>(src_c: &[F; 4], bg_c: &mut [F], mask: F) {
+                let al_b = bg_c[3];
+                let al_s = src_c[3].norm_mul(mask);
 
                 for i in 0..4 {
                     let fa = $fa(al_s, al_b);
                     let fb = $fb(al_s, al_b);
 
-                    let src_c = div_255(src_c[i] as u16 * mask as u16);
+                    let src_c = src_c[i].norm_mul(mask);
 
                     if $sat {
-                        bg_c[i] = (div_255(src_c * fa) as u8)
-                            .saturating_add(div_255(fb * bg_c[i] as u16) as u8);
+                        bg_c[i] = src_c.norm_mul(fa).saturating_add(fb.norm_mul(bg_c[i]));
                     } else {
-                        bg_c[i] = (div_255(src_c * fa) + div_255(fb * bg_c[i] as u16)) as u8;
+                        bg_c[i] = src_c.norm_mul(fa).add(fb.norm_mul(bg_c[i]));
                     }
                 }
             }
@@ -388,16 +387,16 @@ macro_rules! compose {
     };
 }
 
-compose!(Clear, |_, _| 0, |_, _| 0, false);
-compose!(Copy, |_, _| 255, |_, _| 0, false);
-compose!(SrcOver, |_, _| 255, |al_s, _| 255 - al_s, false);
-compose!(DestOver, |_, al_b| 255 - al_b, |_, _| 255, false);
-compose!(Dest, |_, _| 0, |_, _| 255, false);
-compose!(Xor, |_, al_b| 255 - al_b, |al_s, _| 255 - al_s, false);
-compose!(SrcIn, |_, al_b| al_b, |_, _| 0, false);
-compose!(DestIn, |_, _| 0, |al_s, _| al_s, false);
-compose!(SrcOut, |_, al_b| 255 - al_b, |_, _| 0, false);
-compose!(DestOut, |_, _| 0, |al_s, _| 255 - al_s, false);
-compose!(SrcAtop, |_, al_b| al_b, |al_s, _| 255 - al_s, false);
-compose!(DestAtop, |_, al_b| 255 - al_b, |al_s, _| al_s, false);
-compose!(Plus, |_, _| 255, |_, _| 255, true);
+compose!(Clear, |_, _| F::ZERO, |_, _| F::ZERO, false);
+compose!(Copy, |_, _| F::ONE, |_, _| F::ZERO, false);
+compose!(SrcOver, |_, _| F::ONE, |al_s: F, _| al_s.inv(), false);
+compose!(DestOver, |_, al_b: F| al_b.inv(), |_, _| F::ONE, false);
+compose!(Dest, |_, _| F::ZERO, |_, _| F::ONE, false);
+compose!(Xor, |_, al_b: F| al_b.inv(), |al_s: F, _| al_s.inv(), false);
+compose!(SrcIn, |_, al_b: F| al_b, |_, _| F::ZERO, false);
+compose!(DestIn, |_, _| F::ZERO, |al_s: F, _| al_s, false);
+compose!(SrcOut, |_, al_b: F| al_b.inv(), |_, _| F::ZERO, false);
+compose!(DestOut, |_, _| F::ZERO, |al_s: F, _| al_s.inv(), false);
+compose!(SrcAtop, |_, al_b: F| al_b, |al_s: F, _| al_s.inv(), false);
+compose!(DestAtop, |_, al_b: F| al_b.inv(), |al_s: F, _| al_s, false);
+compose!(Plus, |_, _| F::ONE, |_, _| F::ONE, true);

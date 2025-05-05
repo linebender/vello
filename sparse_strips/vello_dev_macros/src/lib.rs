@@ -169,11 +169,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             || input_fn_name_str.contains("blurred_rounded_rect")
     };
 
-    skip_cpu |= {
-        input_fn_name_str.contains("compose")
-            || input_fn_name_str.contains("layer")
-            || input_fn_name_str.contains("mix")
-    };
+    skip_cpu |= input_fn_name_str.contains("layer") || input_fn_name_str.contains("mix") ;
 
     let empty_snippet = quote! {};
     let ignore_snippet = if let Some(reason) = ignore_reason {

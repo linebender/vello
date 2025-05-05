@@ -296,22 +296,16 @@ impl RenderContext {
         match render_mode {
             RenderMode::OptimizeSpeed => {
                 let mut fine = Fine::<u8>::new(width, height);
-                self.do_fine(buffer, &mut fine, width, height);
+                self.do_fine(buffer, &mut fine);
             }
             RenderMode::OptimizeQuality => {
                 let mut fine = Fine::<f32>::new(width, height);
-                self.do_fine(buffer, &mut fine, width, height);
+                self.do_fine(buffer, &mut fine);
             }
         }
     }
 
-    fn do_fine<F: FineType + PartialEq>(
-        &self,
-        buffer: &mut [u8],
-        fine: &mut Fine<F>,
-        width: u16,
-        height: u16,
-    ) {
+    fn do_fine<F: FineType + PartialEq>(&self, buffer: &mut [u8], fine: &mut Fine<F>) {
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();
         for y in 0..height_tiles {

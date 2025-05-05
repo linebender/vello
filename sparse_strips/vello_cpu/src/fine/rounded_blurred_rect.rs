@@ -6,7 +6,6 @@
 //! Implementation is adapted from: <https://git.sr.ht/~raph/blurrr/tree/master/src/distfield.rs>.
 
 use crate::fine::{COLOR_COMPONENTS, FineType, Painter, TILE_HEIGHT_COMPONENTS};
-use crate::util::scalar::div_255;
 use vello_common::encode::EncodedBlurredRoundedRectangle;
 use vello_common::kurbo::Point;
 use vello_common::math::compute_erf7;
