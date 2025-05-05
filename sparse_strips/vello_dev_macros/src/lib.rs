@@ -20,7 +20,6 @@ use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Expr, Ident, ItemFn, Token, parse_macro_input};
-use vello_common::RenderMode;
 
 #[derive(Debug)]
 enum Attribute {
@@ -173,7 +172,6 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     skip_cpu |= {
         input_fn_name_str.contains("compose")
             || input_fn_name_str.contains("layer")
-            || input_fn_name_str.contains("mask")
             || input_fn_name_str.contains("mix")
     };
 
