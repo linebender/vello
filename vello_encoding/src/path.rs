@@ -460,19 +460,18 @@ impl<'a> PathEncoder<'a> {
     ///
     ///    The algorithm is as follows:
     ///
-    ///    a) If a GPU thread is processing a regular segment (i.e. `SUBPATH_END_BIT` is 0), it
-    ///    outputs the offset curves for the segment. If the segment is immediately followed by
-    ///    the marker segment, then the same thread draws an end cap if the subpath is open
-    ///    (i.e. the marker is a quad-to) or a join if the subpath is closed (i.e. the marker is
-    ///    a line-to) using the tangent encoded in the marker segment.
+    ///    - If a GPU thread is processing a regular segment (i.e. `SUBPATH_END_BIT` is 0), it
+    ///      outputs the offset curves for the segment. If the segment is immediately followed by
+    ///      the marker segment, then the same thread draws an end cap if the subpath is open
+    ///      (i.e. the marker is a quad-to) or a join if the subpath is closed (i.e. the marker is
+    ///      a line-to) using the tangent encoded in the marker segment.
+    ///      If the segment is immediately followed by another regular segment, then the thread
+    ///      draws a join using the start tangent of the neighboring segment.
     ///
-    ///    If the segment is immediately followed by another regular segment, then the thread
-    ///    draws a join using the start tangent of the neighboring segment.
-    ///
-    ///    b) If a GPU thread is processing the marker segment (i.e. `SUBPATH_END_BIT` is 1), then
-    ///    it draws a start cap using the information encoded in the segment IF the subpath is
-    ///    open (i.e. the marker is a quad-to). If the subpath is closed (i.e. the marker is a
-    ///    line-to), the thread draws nothing.
+    ///    - If a GPU thread is processing the marker segment (i.e. `SUBPATH_END_BIT` is 1), then
+    ///      it draws a start cap using the information encoded in the segment IF the subpath is
+    ///      open (i.e. the marker is a quad-to). If the subpath is closed (i.e. the marker is a
+    ///      line-to), the thread draws nothing.
     pub fn new(
         tags: &'a mut Vec<PathTag>,
         data: &'a mut Vec<u32>,
