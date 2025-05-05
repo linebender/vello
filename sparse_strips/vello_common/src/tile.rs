@@ -123,28 +123,28 @@ impl Tile {
     }
 }
 
-impl core::cmp::PartialEq for Tile {
+impl PartialEq for Tile {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.to_bits() == other.to_bits()
     }
 }
 
-impl core::cmp::Ord for Tile {
+impl Ord for Tile {
     #[inline(always)]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.to_bits().cmp(&other.to_bits())
     }
 }
 
-impl core::cmp::PartialOrd for Tile {
+impl PartialOrd for Tile {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl core::cmp::Eq for Tile {}
+impl Eq for Tile {}
 
 /// Handles the tiling of paths.
 #[derive(Clone, Debug)]
