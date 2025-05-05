@@ -1,0 +1,16 @@
+[package]
+name = "vello_filters_cpu"
+version.workspace = true
+categories = ["rendering", "graphics"]
+keywords = ["2d", "render", "filter", "blur"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Prevent accidental publishing until the initial release
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true
