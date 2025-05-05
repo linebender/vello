@@ -24,12 +24,12 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
         &mut self,
         clip_path: Option<&BezPath>,
         blend_mode: Option<BlendMode>,
-        opacity: Option<u8>,
+        opacity: Option<f32>,
         mask: Option<Mask>,
     );
     fn push_clip_layer(&mut self, path: &BezPath);
     fn push_blend_layer(&mut self, blend_mode: BlendMode);
-    fn push_opacity_layer(&mut self, opacity: u8);
+    fn push_opacity_layer(&mut self, opacity: f32);
     fn push_mask_layer(&mut self, mask: Mask);
     fn pop_layer(&mut self);
     fn set_stroke(&mut self, stroke: Stroke);
@@ -75,7 +75,7 @@ impl Renderer for RenderContext {
         &mut self,
         clip_path: Option<&BezPath>,
         blend_mode: Option<BlendMode>,
-        opacity: Option<u8>,
+        opacity: Option<f32>,
         mask: Option<Mask>,
     ) {
         Self::push_layer(self, clip_path, blend_mode, opacity, mask);
@@ -89,7 +89,7 @@ impl Renderer for RenderContext {
         Self::push_blend_layer(self, blend_mode);
     }
 
-    fn push_opacity_layer(&mut self, opacity: u8) {
+    fn push_opacity_layer(&mut self, opacity: f32) {
         Self::push_opacity_layer(self, opacity);
     }
 
@@ -167,7 +167,7 @@ impl Renderer for Scene {
         &mut self,
         _: Option<&BezPath>,
         _: Option<BlendMode>,
-        _: Option<u8>,
+        _: Option<f32>,
         _: Option<Mask>,
     ) {
         unimplemented!()
@@ -181,7 +181,7 @@ impl Renderer for Scene {
         unimplemented!()
     }
 
-    fn push_opacity_layer(&mut self, _: u8) {
+    fn push_opacity_layer(&mut self, _: f32) {
         unimplemented!()
     }
 

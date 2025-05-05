@@ -21,7 +21,7 @@ struct Layer {
     blend_mode: BlendMode,
     /// An opacity to apply to the whole layer before blending it
     /// into the backdrop.
-    opacity: u8,
+    opacity: f32,
     /// A mask to apply to the layer before blending it back into
     /// the backdrop.
     mask: Option<Mask>,
@@ -33,7 +33,7 @@ impl Layer {
     fn needs_buf(&self) -> bool {
         self.blend_mode.mix != Mix::Normal
             || self.blend_mode.compose != Compose::SrcOver
-            || self.opacity != 255
+            || self.opacity != 1.0
             || self.mask.is_some()
             || !self.clip
     }
@@ -321,7 +321,7 @@ impl Wide {
         clip_path: Option<(impl Into<Box<[Strip]>>, Fill)>,
         blend_mode: BlendMode,
         mask: Option<Mask>,
-        opacity: u8,
+        opacity: f32,
     ) {
         // Some explanations about what is going on here: We support the concept of
         // layers, where a user can push a new layer (with certain properties), draw some
@@ -891,8 +891,8 @@ impl WideTile {
     }
 
     /// Apply an opacity to the whole buffer.
-    pub fn opacity(&mut self, opacity: u8) {
-        if opacity != 255 {
+    pub fn opacity(&mut self, opacity: f32) {
+        if opacity != 1.0 {
             self.cmds.push(Cmd::Opacity(opacity));
         }
     }
@@ -939,8 +939,7 @@ pub enum Cmd {
     /// the stack.
     Blend(BlendMode),
     /// Apply an opacity mask to the current buffer.
-    // TODO: Use f32?
-    Opacity(u8),
+    Opacity(f32),
     /// Apply a mask to the current buffer.
     Mask(Mask),
 }
@@ -1115,7 +1114,7 @@ mod tests {
 
         let mut wide = Wide::new(1000, 258);
         let no_clip_path: ClipPath = None;
-        wide.push_layer(no_clip_path, BlendMode::default(), None, 128);
+        wide.push_layer(no_clip_path, BlendMode::default(), None, 0.5);
 
         assert_eq!(wide.layer_stack.len(), 1);
         assert_eq!(wide.clip_stack.len(), 0);
@@ -1127,7 +1126,7 @@ mod tests {
             winding: 1,
         };
         let clip_path = Some((vec![strip].into_boxed_slice(), Fill::NonZero));
-        wide.push_layer(clip_path, BlendMode::default(), None, 24);
+        wide.push_layer(clip_path, BlendMode::default(), None, 0.09);
 
         assert_eq!(wide.layer_stack.len(), 2);
         assert_eq!(wide.clip_stack.len(), 1);

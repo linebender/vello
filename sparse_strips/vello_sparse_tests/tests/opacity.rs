@@ -8,7 +8,7 @@ use vello_dev_macros::vello_test;
 
 #[vello_test]
 fn opacity_on_layer(ctx: &mut impl Renderer) {
-    ctx.push_opacity_layer(70);
+    ctx.push_opacity_layer(0.27);
 
     for e in [(35.0, 35.0, RED), (65.0, 35.0, GREEN), (50.0, 65.0, BLUE)] {
         let circle = Circle::new((e.0, e.1), 30.0);
@@ -23,10 +23,10 @@ fn opacity_on_layer(ctx: &mut impl Renderer) {
 fn opacity_nested_on_layer(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
-    ctx.push_opacity_layer(128);
+    ctx.push_opacity_layer(0.5);
     ctx.set_paint(YELLOW);
     ctx.fill_rect(&Rect::new(25.0, 25.0, 75.0, 75.0));
-    ctx.push_opacity_layer(128);
+    ctx.push_opacity_layer(0.5);
     ctx.set_paint(GREEN);
     ctx.fill_rect(&Rect::new(40.0, 40.0, 60.0, 60.0));
     ctx.pop_layer();

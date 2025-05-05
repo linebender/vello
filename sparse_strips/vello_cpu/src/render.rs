@@ -167,7 +167,7 @@ impl RenderContext {
         &mut self,
         clip_path: Option<&BezPath>,
         blend_mode: Option<BlendMode>,
-        opacity: Option<u8>,
+        opacity: Option<f32>,
         mask: Option<Mask>,
     ) {
         let clip = if let Some(c) = clip_path {
@@ -190,7 +190,7 @@ impl RenderContext {
             clip,
             blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
             mask,
-            opacity.unwrap_or(255),
+            opacity.unwrap_or(1.0),
         );
     }
 
@@ -205,7 +205,7 @@ impl RenderContext {
     }
 
     /// Push a new opacity layer.
-    pub fn push_opacity_layer(&mut self, opacity: u8) {
+    pub fn push_opacity_layer(&mut self, opacity: f32) {
         self.push_layer(None, None, Some(opacity), None);
     }
 

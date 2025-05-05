@@ -137,14 +137,14 @@ impl<F: FineType + PartialEq> Fine<F> {
                 self.apply_blend(*cb);
             }
             Cmd::Opacity(o) => {
-                if *o != 255 {
+                if *o != 1.0 {
                     self.blend_buf
                         .last_mut()
                         .unwrap()
                         .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
                         .for_each(|s| {
                             for c in s {
-                                *c = F::from_u8(*o).norm_mul(*c);
+                                *c = F::from_f32(*o).norm_mul(*c);
                             }
                         });
                 }

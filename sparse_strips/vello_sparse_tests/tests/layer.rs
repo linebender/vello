@@ -19,7 +19,7 @@ fn layer_multiple_properties_1(ctx: &mut impl Renderer) {
     ctx.push_layer(
         Some(&star),
         Some(BlendMode::new(Mix::Lighten, Compose::SrcOver)),
-        Some(200),
+        Some(0.78),
         Some(mask),
     );
     ctx.set_paint(RED);
