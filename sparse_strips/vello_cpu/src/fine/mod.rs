@@ -16,8 +16,8 @@ use crate::util::scalar::div_255;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::iter;
-use vello_common::encode::{EncodedKind, EncodedPaint};
-use vello_common::paint::Paint;
+use vello_common::encode::{EncodedKind, EncodedPaint, GradientRange};
+use vello_common::paint::{Paint, PremulColor};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, WideTile},
@@ -523,4 +523,129 @@ pub(crate) mod strip {
 
 trait Painter {
     fn paint(self, target: &mut [u8]);
+}
+
+pub trait FineType: Sized + Copy {
+    const ZERO: Self;
+
+    fn add(&self, num2: Self) -> Self;
+    fn norm_mul(&self, num2: Self) -> Self;
+    fn norm_mul_add(&self, num2: Self, num3: Self, num4: Self) -> Self;
+    fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS];
+    fn from_u8(num: u8) -> Self;
+    fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS];
+    fn is_max(&self) -> bool;
+    fn inv(&self) -> Self;
+    fn grad_color(range: &GradientRange) -> [Self; COLOR_COMPONENTS];
+    fn grad_factors(range: &GradientRange) -> [f32; COLOR_COMPONENTS];
+}
+
+impl FineType for u8 {
+    const ZERO: Self = 0;
+
+    #[inline(always)]
+    fn add(&self, num2: Self) -> Self {
+        self + num2
+    }
+
+    #[inline(always)]
+    fn norm_mul(&self, num2: Self) -> Self {
+        div_255(*self as u16 * num2 as u16) as u8
+    }
+
+    #[inline(always)]
+    fn norm_mul_add(&self, num2: Self, num3: Self, num4: Self) -> Self {
+        div_255(*self as u16 * num2 as u16 + num3 as u16 * num4 as u16) as u8
+    }
+
+    #[inline(always)]
+    fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
+        color.as_premul_rgba8().to_u8_array()
+    }
+
+    #[inline(always)]
+    fn from_u8(num: u8) -> Self {
+        num
+    }
+
+    #[inline(always)]
+    fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS] {
+        [_in[0], _in[1], _in[2], _in[3]]
+    }
+
+    #[inline(always)]
+    fn is_max(&self) -> bool {
+        *self == 255
+    }
+
+    #[inline(always)]
+    fn inv(&self) -> Self {
+        255 - self
+    }
+
+    fn grad_color(range: &GradientRange) -> [Self; COLOR_COMPONENTS] {
+        range.c0.as_premul_rgba8().to_u8_array()
+    }
+
+    fn grad_factors(range: &GradientRange) -> [f32; COLOR_COMPONENTS] {
+        range.factors_u8
+    }
+}
+
+impl FineType for f32 {
+    const ZERO: Self = 0.0;
+
+    #[inline(always)]
+    fn add(&self, num2: Self) -> Self {
+        self + num2
+    }
+
+    #[inline(always)]
+    fn norm_mul(&self, num2: Self) -> Self {
+        self * num2
+    }
+
+    #[inline(always)]
+    fn norm_mul_add(&self, num2: Self, num3: Self, num4: Self) -> Self {
+        *self * num2 + num3 * num4
+    }
+
+    #[inline(always)]
+    fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
+        color.as_premul_f32().components
+    }
+
+    #[inline(always)]
+    fn from_u8(num: u8) -> Self {
+        num as f32 / 255.0
+    }
+
+    #[inline(always)]
+    fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS] {
+        let mut out = [0; COLOR_COMPONENTS];
+
+        for i in 0..COLOR_COMPONENTS {
+            out[i] = (_in[i] * 255.0 + 0.5) as u8;
+        }
+
+        out
+    }
+
+    #[inline(always)]
+    fn is_max(&self) -> bool {
+        *self == 1.0
+    }
+
+    #[inline(always)]
+    fn inv(&self) -> Self {
+        1.0 - self
+    }
+
+    fn grad_color(range: &GradientRange) -> [Self; COLOR_COMPONENTS] {
+        range.c0.as_premul_f32().components
+    }
+
+    fn grad_factors(range: &GradientRange) -> [Self; COLOR_COMPONENTS] {
+        range.factors_f32
+    }
 }
