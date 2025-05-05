@@ -405,10 +405,14 @@ impl Programs {
         );
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        let alpha_texture_height = 2;
-        let alphas_texture =
-            Self::make_alphas_texture(device, max_texture_dimension_2d, alpha_texture_height);
-        let alpha_data = vec![0; (max_texture_dimension_2d * alpha_texture_height * 16) as usize];
+        const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
+        let alphas_texture = Self::make_alphas_texture(
+            device,
+            max_texture_dimension_2d,
+            INITIAL_ALPHA_TEXTURE_HEIGHT,
+        );
+        let alpha_data =
+            vec![0; (max_texture_dimension_2d * INITIAL_ALPHA_TEXTURE_HEIGHT * 16) as usize];
         let view_config_buffer = Self::make_config_buffer(
             device,
             &RenderSize {
