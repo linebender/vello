@@ -325,18 +325,20 @@ impl Scheduler {
             slot_ix: !0,
             round: self.round,
         });
-        let bg = tile.bg.as_premul_rgba8().to_u32();
-        // If the background has a non-zero alpha then we need to render it.
-        if has_non_zero_alpha(bg) {
-            let draw = self.draw_mut(self.round, 1);
-            draw.0.push(GpuStrip {
-                x: wide_tile_x,
-                y: wide_tile_y,
-                width: WideTile::WIDTH,
-                dense_width: 0,
-                col: 0,
-                rgba: bg,
-            });
+        {
+            // If the background has a non-zero alpha then we need to render it.
+            let bg = tile.bg.as_premul_rgba8().to_u32();
+            if has_non_zero_alpha(bg) {
+                let draw = self.draw_mut(self.round, 1);
+                draw.0.push(GpuStrip {
+                    x: wide_tile_x,
+                    y: wide_tile_y,
+                    width: WideTile::WIDTH,
+                    dense_width: 0,
+                    col: 0,
+                    rgba: bg,
+                });
+            }
         }
         for cmd in &tile.cmds {
             // Note: this starts at 1 (for the final target)
