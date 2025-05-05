@@ -9,6 +9,7 @@ mod gradient;
 mod image;
 mod rounded_blurred_rect;
 
+use crate::fine::gradient::GradientFiller;
 use crate::fine::image::ImageFiller;
 use crate::fine::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::util::scalar::div_255;
@@ -235,38 +236,38 @@ impl<F: FineType + PartialEq> Fine<F> {
                 let encoded_paint = &encoded_paints[paint.index()];
 
                 match encoded_paint {
-                    // EncodedPaint::Gradient(g) => match &g.kind {
-                    //     EncodedKind::Linear(l) => {
-                    //         let filler = GradientFiller::new(g, l, start_x, start_y);
-                    //         fill_complex_paint(
-                    //             color_buf,
-                    //             blend_buf,
-                    //             g.has_opacities,
-                    //             blend_mode,
-                    //             filler,
-                    //         );
-                    //     }
-                    //     EncodedKind::Radial(r) => {
-                    //         let filler = GradientFiller::new(g, r, start_x, start_y);
-                    //         fill_complex_paint(
-                    //             color_buf,
-                    //             blend_buf,
-                    //             g.has_opacities,
-                    //             blend_mode,
-                    //             filler,
-                    //         );
-                    //     }
-                    //     EncodedKind::Sweep(s) => {
-                    //         let filler = GradientFiller::new(g, s, start_x, start_y);
-                    //         fill_complex_paint(
-                    //             color_buf,
-                    //             blend_buf,
-                    //             g.has_opacities,
-                    //             blend_mode,
-                    //             filler,
-                    //         );
-                    //     }
-                    // },
+                    EncodedPaint::Gradient(g) => match &g.kind {
+                        EncodedKind::Linear(l) => {
+                            let filler = GradientFiller::new(g, l, start_x, start_y);
+                            fill_complex_paint(
+                                color_buf,
+                                blend_buf,
+                                g.has_opacities,
+                                blend_mode,
+                                filler,
+                            );
+                        }
+                        EncodedKind::Radial(r) => {
+                            let filler = GradientFiller::new(g, r, start_x, start_y);
+                            fill_complex_paint(
+                                color_buf,
+                                blend_buf,
+                                g.has_opacities,
+                                blend_mode,
+                                filler,
+                            );
+                        }
+                        EncodedKind::Sweep(s) => {
+                            let filler = GradientFiller::new(g, s, start_x, start_y);
+                            fill_complex_paint(
+                                color_buf,
+                                blend_buf,
+                                g.has_opacities,
+                                blend_mode,
+                                filler,
+                            );
+                        }
+                    },
                     EncodedPaint::Image(i) => {
                         let filler = ImageFiller::new(i, start_x, start_y);
                         fill_complex_paint(
@@ -339,20 +340,20 @@ impl<F: FineType + PartialEq> Fine<F> {
                 let encoded_paint = &paints[paint.index()];
 
                 match encoded_paint {
-                    // EncodedPaint::Gradient(g) => match &g.kind {
-                    //     EncodedKind::Linear(l) => {
-                    //         let filler = GradientFiller::new(g, l, start_x, start_y);
-                    //         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                    //     }
-                    //     EncodedKind::Radial(r) => {
-                    //         let filler = GradientFiller::new(g, r, start_x, start_y);
-                    //         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                    //     }
-                    //     EncodedKind::Sweep(s) => {
-                    //         let filler = GradientFiller::new(g, s, start_x, start_y);
-                    //         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                    //     }
-                    // },
+                    EncodedPaint::Gradient(g) => match &g.kind {
+                        EncodedKind::Linear(l) => {
+                            let filler = GradientFiller::new(g, l, start_x, start_y);
+                            strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
+                        }
+                        EncodedKind::Radial(r) => {
+                            let filler = GradientFiller::new(g, r, start_x, start_y);
+                            strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
+                        }
+                        EncodedKind::Sweep(s) => {
+                            let filler = GradientFiller::new(g, s, start_x, start_y);
+                            strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
+                        }
+                    },
                     EncodedPaint::Image(i) => {
                         let filler = ImageFiller::new(i, start_x, start_y);
                         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
@@ -454,7 +455,6 @@ pub(crate) mod fill {
     // formulas.
 
     use crate::fine::{COLOR_COMPONENTS, FineType, TILE_HEIGHT_COMPONENTS, blend};
-    use crate::util::scalar::div_255;
     use vello_common::peniko::{BlendMode, Compose, Mix};
 
     pub(crate) fn blend<F: FineType, T: Iterator<Item = [F; COLOR_COMPONENTS]>>(
@@ -555,7 +555,6 @@ pub trait FineType: Sized + Copy {
     fn is_max(&self) -> bool;
     fn inv(&self) -> Self;
     fn grad_color(range: &GradientRange) -> [Self; COLOR_COMPONENTS];
-    fn grad_factors(range: &GradientRange) -> [f32; COLOR_COMPONENTS];
 }
 
 impl FineType for u8 {
@@ -617,10 +616,6 @@ impl FineType for u8 {
 
     fn grad_color(range: &GradientRange) -> [Self; COLOR_COMPONENTS] {
         range.c0.as_premul_rgba8().to_u8_array()
-    }
-
-    fn grad_factors(range: &GradientRange) -> [f32; COLOR_COMPONENTS] {
-        range.factors_u8
     }
 }
 
@@ -689,9 +684,5 @@ impl FineType for f32 {
 
     fn grad_color(range: &GradientRange) -> [Self; COLOR_COMPONENTS] {
         range.c0.as_premul_f32().components
-    }
-
-    fn grad_factors(range: &GradientRange) -> [Self; COLOR_COMPONENTS] {
-        range.factors_f32
     }
 }

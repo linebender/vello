@@ -407,12 +407,10 @@ fn encode_stops(
         // sure we don't actually end up with a 0 here.
         let x1_minus_x0 = (x1 - x0).max(NUDGE_VAL);
         let mut factors_f32 = [0.0; 4];
-        let mut factors_u8 = [0.0; 4];
 
         for i in 0..4 {
             let mut c1_minus_c0 = c1[i] - c0[i];
             factors_f32[i] = c1_minus_c0 / x1_minus_x0;
-            factors_u8[i] = 255.0 * c1_minus_c0 / x1_minus_x0;
         }
 
         GradientRange {
@@ -420,7 +418,6 @@ fn encode_stops(
             x1,
             c0: PremulColor::from_premul(left_stop.color),
             factors_f32,
-            factors_u8,
         }
     };
 
@@ -659,7 +656,6 @@ pub struct GradientRange {
     pub c0: PremulColor,
     /// The interpolation factors of the range.
     pub factors_f32: [f32; 4],
-    pub factors_u8: [f32; 4],
 }
 
 /// Sampling positions in a gradient.

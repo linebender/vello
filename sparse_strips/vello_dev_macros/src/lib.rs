@@ -172,7 +172,6 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     skip_cpu |= {
         input_fn_name_str.contains("compose")
-            || input_fn_name_str.contains("gradient")
             || input_fn_name_str.contains("layer")
             || input_fn_name_str.contains("mask")
             || input_fn_name_str.contains("mix")
