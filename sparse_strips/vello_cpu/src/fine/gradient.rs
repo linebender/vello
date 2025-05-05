@@ -115,11 +115,11 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
     }
 }
 
-impl<T: GradientLike> Painter for GradientFiller<'_, T> {
-    fn paint(self, target: &mut [u8]) {
-        self.run(target);
-    }
-}
+// impl<T: GradientLike> Painter for GradientFiller<'_, T> {
+//     fn paint(self, target: &mut [u8]) {
+//         self.run(target);
+//     }
+// }
 
 pub(crate) fn extend(mut val: f32, pad: bool, clamp_range: (f32, f32)) -> f32 {
     let start = clamp_range.0;

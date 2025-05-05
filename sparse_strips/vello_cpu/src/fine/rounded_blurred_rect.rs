@@ -88,8 +88,8 @@ impl<'a> BlurredRoundedRectFiller<'a> {
     }
 }
 
-impl Painter for BlurredRoundedRectFiller<'_> {
-    fn paint(self, target: &mut [u8]) {
-        self.run(target);
-    }
-}
+// impl Painter for BlurredRoundedRectFiller<'_> {
+//     fn paint(self, target: &mut [u8]) {
+//         self.run(target);
+//     }
+// }

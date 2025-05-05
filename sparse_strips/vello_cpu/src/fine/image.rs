@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::fine::{COLOR_COMPONENTS, Painter, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{COLOR_COMPONENTS, FineType, Painter, TILE_HEIGHT_COMPONENTS};
 use vello_common::encode::EncodedImage;
 use vello_common::kurbo::{Point, Vec2};
 use vello_common::peniko::{Extend, ImageQuality};
@@ -24,7 +24,7 @@ impl<'a> ImageFiller<'a> {
         }
     }
 
-    pub(super) fn run(mut self, target: &mut [u8]) {
+    pub(super) fn run<F: FineType>(mut self, target: &mut [F]) {
         // We currently have two branches for filling images: The first case is used for
         // nearest neighbor filtering and for images with no skewing-transform (this is checked
         // by the first two conditions), which allows us to take a faster path.
@@ -78,9 +78,9 @@ impl<'a> ImageFiller<'a> {
         }
     }
 
-    fn run_simple_column(
+    fn run_simple_column<F: FineType>(
         &mut self,
-        col: &mut [u8],
+        col: &mut [F],
         x_pos: f32,
         y_positions: &[f32; Tile::HEIGHT as usize],
     ) {
@@ -89,15 +89,17 @@ impl<'a> ImageFiller<'a> {
             .zip(y_positions.iter())
         {
             let sample = match self.image.quality {
-                ImageQuality::Low => self.image.pixmap.sample(x_pos as u16, *y_pos as u16),
+                ImageQuality::Low => {
+                    F::from_rgba8(&self.image.pixmap.sample(x_pos as u16, *y_pos as u16))
+                }
                 ImageQuality::Medium | ImageQuality::High => unimplemented!(),
             };
 
-            pixel.copy_from_slice(sample);
+            pixel.copy_from_slice(&sample);
         }
     }
 
-    fn run_complex_column(&mut self, col: &mut [u8]) {
+    fn run_complex_column<F: FineType>(&mut self, col: &mut [F]) {
         let extend_point = |mut point: Point| {
             // For the same reason as mentioned above, we always floor.
             point.x = extend(
@@ -122,8 +124,9 @@ impl<'a> ImageFiller<'a> {
                 // Simply takes the nearest pixel to our current position.
                 ImageQuality::Low => {
                     let point = extend_point(pos);
-                    let sample = self.image.pixmap.sample(point.x as u16, point.y as u16);
-                    pixel.copy_from_slice(sample);
+                    let sample =
+                        F::from_rgba8(&self.image.pixmap.sample(point.x as u16, point.y as u16));
+                    pixel.copy_from_slice(&sample);
                 }
                 ImageQuality::Medium | ImageQuality::High => {
                     // We have two versions of filtering: `Medium` (bilinear filtering) and
@@ -163,9 +166,14 @@ impl<'a> ImageFiller<'a> {
                     let x_fract = fract(pos.x);
                     let y_fract = fract(pos.y);
 
-                    let mut f32_color = [0.0_f32; 4];
+                    let mut interpolated_color = [0.0_f32; 4];
 
-                    let sample = |p: Point| self.image.pixmap.sample(p.x as u16, p.y as u16);
+                    let sample = |p: Point| {
+                        let c = |val: u8| val as f32 / 255.0;
+                        let s = self.image.pixmap.sample(p.x as u16, p.y as u16);
+
+                        [c(s[0]), c(s[1]), c(s[2]), c(s[3])]
+                    };
 
                     if self.image.quality == ImageQuality::Medium {
                         let cx = [1.0 - x_fract, x_fract];
@@ -182,7 +190,7 @@ impl<'a> ImageFiller<'a> {
                                 let w = cx[x_idx] * cy[y_idx];
 
                                 for i in 0..COLOR_COMPONENTS {
-                                    f32_color[i] += w * color_sample[i] as f32;
+                                    interpolated_color[i] += w * color_sample[i];
                                 }
                             }
                         }
@@ -201,19 +209,13 @@ impl<'a> ImageFiller<'a> {
                                 let c = cx[x_idx] * cy[y_idx];
 
                                 for i in 0..COLOR_COMPONENTS {
-                                    f32_color[i] += c * color_sample[i] as f32;
+                                    interpolated_color[i] += c * color_sample[i];
                                 }
                             }
                         }
                     }
 
-                    let mut u8_color = [0; 4];
-
-                    for i in 0..COLOR_COMPONENTS {
-                        u8_color[i] = (f32_color[i] + 0.5) as u8;
-                    }
-
-                    pixel.copy_from_slice(&u8_color);
+                    pixel.copy_from_slice(&F::from_rgbf32(&interpolated_color));
                 }
             };
 
@@ -242,7 +244,7 @@ fn extend(val: f32, extend: Extend, max: f32) -> f32 {
 }
 
 impl Painter for ImageFiller<'_> {
-    fn paint(self, target: &mut [u8]) {
+    fn paint<F: FineType>(self, target: &mut [F]) {
         self.run(target);
     }
 }

@@ -203,19 +203,18 @@ impl<F: FineType + PartialEq> Fine<F> {
             blend_mode: BlendMode,
             filler: impl Painter,
         ) {
-            unimplemented!();
-            // if has_opacities {
-            //     filler.paint(color_buf);
-            //     fill::blend(
-            //         blend_buf,
-            //         color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-            //         blend_mode,
-            //     );
-            // } else {
-            //     // Similarly to solid colors we can just override the previous values
-            //     // if all colors in the gradient are fully opaque.
-            //     filler.paint(blend_buf);
-            // }
+            if has_opacities {
+                filler.paint(color_buf);
+                fill::blend(
+                    blend_buf,
+                    color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+                    blend_mode,
+                );
+            } else {
+                // Similarly to solid colors we can just override the previous values
+                // if all colors in the gradient are fully opaque.
+                filler.paint(blend_buf);
+            }
         }
 
         match fill {
@@ -237,38 +236,38 @@ impl<F: FineType + PartialEq> Fine<F> {
                 let encoded_paint = &encoded_paints[paint.index()];
 
                 match encoded_paint {
-                    EncodedPaint::Gradient(g) => match &g.kind {
-                        EncodedKind::Linear(l) => {
-                            let filler = GradientFiller::new(g, l, start_x, start_y);
-                            fill_complex_paint(
-                                color_buf,
-                                blend_buf,
-                                g.has_opacities,
-                                blend_mode,
-                                filler,
-                            );
-                        }
-                        EncodedKind::Radial(r) => {
-                            let filler = GradientFiller::new(g, r, start_x, start_y);
-                            fill_complex_paint(
-                                color_buf,
-                                blend_buf,
-                                g.has_opacities,
-                                blend_mode,
-                                filler,
-                            );
-                        }
-                        EncodedKind::Sweep(s) => {
-                            let filler = GradientFiller::new(g, s, start_x, start_y);
-                            fill_complex_paint(
-                                color_buf,
-                                blend_buf,
-                                g.has_opacities,
-                                blend_mode,
-                                filler,
-                            );
-                        }
-                    },
+                    // EncodedPaint::Gradient(g) => match &g.kind {
+                    //     EncodedKind::Linear(l) => {
+                    //         let filler = GradientFiller::new(g, l, start_x, start_y);
+                    //         fill_complex_paint(
+                    //             color_buf,
+                    //             blend_buf,
+                    //             g.has_opacities,
+                    //             blend_mode,
+                    //             filler,
+                    //         );
+                    //     }
+                    //     EncodedKind::Radial(r) => {
+                    //         let filler = GradientFiller::new(g, r, start_x, start_y);
+                    //         fill_complex_paint(
+                    //             color_buf,
+                    //             blend_buf,
+                    //             g.has_opacities,
+                    //             blend_mode,
+                    //             filler,
+                    //         );
+                    //     }
+                    //     EncodedKind::Sweep(s) => {
+                    //         let filler = GradientFiller::new(g, s, start_x, start_y);
+                    //         fill_complex_paint(
+                    //             color_buf,
+                    //             blend_buf,
+                    //             g.has_opacities,
+                    //             blend_mode,
+                    //             filler,
+                    //         );
+                    //     }
+                    // },
                     EncodedPaint::Image(i) => {
                         let filler = ImageFiller::new(i, start_x, start_y);
                         fill_complex_paint(
@@ -279,10 +278,11 @@ impl<F: FineType + PartialEq> Fine<F> {
                             filler,
                         );
                     }
-                    EncodedPaint::BlurredRoundedRect(b) => {
-                        let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
-                        fill_complex_paint(color_buf, blend_buf, true, blend_mode, filler);
-                    }
+                    _ => unimplemented!(),
+                    // EncodedPaint::BlurredRoundedRect(b) => {
+                    //     let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
+                    //     fill_complex_paint(color_buf, blend_buf, true, blend_mode, filler);
+                    // }
                 }
             }
         }
@@ -318,14 +318,13 @@ impl<F: FineType + PartialEq> Fine<F> {
             filler: impl Painter,
             alphas: &[u8],
         ) {
-            unimplemented!();
-            // filler.paint(color_buf);
-            // strip::blend(
-            //     blend_buf,
-            //     color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-            //     blend_mode,
-            //     alphas.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-            // );
+            filler.paint(color_buf);
+            strip::blend(
+                blend_buf,
+                color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+                blend_mode,
+                alphas.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+            );
         }
 
         match fill {
@@ -341,28 +340,29 @@ impl<F: FineType + PartialEq> Fine<F> {
                 let encoded_paint = &paints[paint.index()];
 
                 match encoded_paint {
-                    EncodedPaint::Gradient(g) => match &g.kind {
-                        EncodedKind::Linear(l) => {
-                            let filler = GradientFiller::new(g, l, start_x, start_y);
-                            strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                        }
-                        EncodedKind::Radial(r) => {
-                            let filler = GradientFiller::new(g, r, start_x, start_y);
-                            strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                        }
-                        EncodedKind::Sweep(s) => {
-                            let filler = GradientFiller::new(g, s, start_x, start_y);
-                            strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                        }
-                    },
+                    // EncodedPaint::Gradient(g) => match &g.kind {
+                    //     EncodedKind::Linear(l) => {
+                    //         let filler = GradientFiller::new(g, l, start_x, start_y);
+                    //         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
+                    //     }
+                    //     EncodedKind::Radial(r) => {
+                    //         let filler = GradientFiller::new(g, r, start_x, start_y);
+                    //         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
+                    //     }
+                    //     EncodedKind::Sweep(s) => {
+                    //         let filler = GradientFiller::new(g, s, start_x, start_y);
+                    //         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
+                    //     }
+                    // },
                     EncodedPaint::Image(i) => {
                         let filler = ImageFiller::new(i, start_x, start_y);
                         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
                     }
-                    EncodedPaint::BlurredRoundedRect(b) => {
-                        let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
-                        strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                    }
+                    _ => unimplemented!(),
+                    // EncodedPaint::BlurredRoundedRect(b) => {
+                    //     let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
+                    //     strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
+                    // }
                 }
             }
         }
@@ -487,7 +487,6 @@ pub(crate) mod fill {
 
 pub(crate) mod strip {
     use crate::fine::{COLOR_COMPONENTS, FineType, TILE_HEIGHT_COMPONENTS, blend};
-    use crate::util::scalar::div_255;
     use vello_common::peniko::{BlendMode, Compose, Mix};
     use vello_common::tile::Tile;
 
@@ -538,7 +537,7 @@ pub(crate) mod strip {
 }
 
 trait Painter {
-    fn paint(self, target: &mut [u8]);
+    fn paint<F: FineType>(self, target: &mut [F]);
 }
 
 pub trait FineType: Sized + Copy {
@@ -551,6 +550,8 @@ pub trait FineType: Sized + Copy {
     fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS];
     fn from_u8(num: u8) -> Self;
     fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS];
+    fn from_rgba8(_in: &[u8]) -> [Self; COLOR_COMPONENTS];
+    fn from_rgbf32(_in: &[f32; 4]) -> [Self; COLOR_COMPONENTS];
     fn is_max(&self) -> bool;
     fn inv(&self) -> Self;
     fn grad_color(range: &GradientRange) -> [Self; COLOR_COMPONENTS];
@@ -589,6 +590,15 @@ impl FineType for u8 {
     #[inline(always)]
     fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS] {
         [_in[0], _in[1], _in[2], _in[3]]
+    }
+
+    fn from_rgba8(_in: &[u8]) -> [Self; COLOR_COMPONENTS] {
+        [_in[0], _in[1], _in[2], _in[3]]
+    }
+
+    fn from_rgbf32(_in: &[f32; 4]) -> [Self; COLOR_COMPONENTS] {
+        let r = |val: f32| (val * 255.0 + 0.5) as u8;
+        [r(_in[0]), r(_in[1]), r(_in[2]), r(_in[3])]
     }
 
     #[inline(always)]
@@ -648,6 +658,15 @@ impl FineType for f32 {
         }
 
         out
+    }
+
+    fn from_rgba8(_in: &[u8]) -> [Self; COLOR_COMPONENTS] {
+        let c = |val: u8| val as f32 / 255.0;
+        [c(_in[0]), c(_in[1]), c(_in[2]), c(_in[3])]
+    }
+
+    fn from_rgbf32(_in: &[f32; 4]) -> [Self; COLOR_COMPONENTS] {
+        *_in
     }
 
     #[inline(always)]
