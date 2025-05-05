@@ -6,7 +6,6 @@
 use crate::blurred_rounded_rect::BlurredRoundedRectangle;
 use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
-use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::compute_erf7;
 use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
@@ -459,7 +458,7 @@ fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
     )
 }
 
-impl Sealed for Image {}
+impl private::Sealed for Image {}
 
 impl EncodeExt for Image {
     fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
@@ -744,7 +743,7 @@ pub struct EncodedBlurredRoundedRectangle {
     pub y_advance: Vec2,
 }
 
-impl Sealed for BlurredRoundedRectangle {}
+impl private::Sealed for BlurredRoundedRectangle {}
 
 impl EncodeExt for BlurredRoundedRectangle {
     fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
@@ -819,7 +818,7 @@ impl EncodeExt for BlurredRoundedRectangle {
 }
 
 mod private {
-    #[allow(unnameable_types, reason = "We make it unnameable on purpose")]
+    #[expect(unnameable_types, reason = "Sealed trait pattern.")]
     pub trait Sealed {}
 
     impl Sealed for super::Gradient {}

@@ -60,12 +60,12 @@ impl DataItem {
             name: file_name,
             fills: ctx.fills,
             strokes: ctx.strokes,
-            #[allow(
+            #[expect(
                 clippy::cast_possible_truncation,
                 reason = "It's okay to ignore for benchmarking."
             )]
             width: tree.size().width() as u16,
-            #[allow(
+            #[expect(
                 clippy::cast_possible_truncation,
                 reason = "It's okay to ignore for benchmarking."
             )]
@@ -155,8 +155,7 @@ fn convert(ctx: &mut ConversionContext, g: &Group) {
                     ctx.add_stroked_path(converted);
                 }
             }
-            Node::Image(_) => {}
-            Node::Text(_) => {}
+            Node::Image(_) | Node::Text(_) => {}
         }
     }
 

@@ -34,7 +34,7 @@ impl Pixmap {
         self.height
     }
 
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "cannot overflow in this case"
     )]
@@ -47,7 +47,7 @@ impl Pixmap {
 
     /// Create a pixmap from a PNG file.
     #[cfg(feature = "png")]
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "cannot overflow in this case"
     )]
@@ -60,11 +60,12 @@ impl Pixmap {
         let info = reader.next_frame(&mut img_data)?;
 
         let decoded_data = match info.color_type {
-            // We set a transformation to always convert to alpha.
-            png::ColorType::Rgb => unreachable!(),
-            png::ColorType::Grayscale => unreachable!(),
-            // I believe the above transformation also expands indexed images.
-            png::ColorType::Indexed => unreachable!(),
+            png::ColorType::Rgb | png::ColorType::Grayscale => {
+                unreachable!("We set a transformation to always convert to alpha")
+            }
+            png::ColorType::Indexed => {
+                unreachable!("Transformation should have expanded indexed images")
+            }
             png::ColorType::Rgba => img_data,
             png::ColorType::GrayscaleAlpha => {
                 let mut rgba_data = Vec::with_capacity(img_data.len() * 2);
@@ -127,7 +128,7 @@ impl Pixmap {
     /// Convert from premultiplied to separate alpha.
     ///
     /// Not fast, but useful for saving to PNG etc.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "cannot overflow in this case"
     )]
