@@ -287,7 +287,7 @@ impl RenderContext {
             buffer.len(),
         );
 
-        let mut fine = Fine::new(width, height);
+        let mut fine = Fine::<u8>::new(width, height);
 
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();

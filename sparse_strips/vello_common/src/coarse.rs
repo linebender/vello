@@ -939,6 +939,7 @@ pub enum Cmd {
     /// the stack.
     Blend(BlendMode),
     /// Apply an opacity mask to the current buffer.
+    // TODO: Use f32?
     Opacity(u8),
     /// Apply a mask to the current buffer.
     Mask(Mask),

@@ -80,7 +80,7 @@ impl PremulColor {
     pub fn new(color: AlphaColor<Srgb>) -> Self {
         Self::from_premul(color.premultiply())
     }
-    
+
     pub fn from_premul(color: peniko::color::PremulColor<Srgb>) -> Self {
         Self {
             premul_u8: color.to_rgba8(),

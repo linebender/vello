@@ -142,7 +142,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         mut cpu_tolerance,
         mut hybrid_tolerance,
         transparent,
-        skip_cpu,
+        mut skip_cpu,
         mut skip_hybrid,
         ignore_reason,
         no_ref,
@@ -152,6 +152,17 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     skip_hybrid |= {
         input_fn_name_str.contains("clip")
             || input_fn_name_str.contains("compose")
+            || input_fn_name_str.contains("gradient")
+            || input_fn_name_str.contains("image")
+            || input_fn_name_str.contains("layer")
+            || input_fn_name_str.contains("mask")
+            || input_fn_name_str.contains("mix")
+            || input_fn_name_str.contains("opacity")
+            || input_fn_name_str.contains("blurred_rounded_rect")
+    };
+
+    skip_cpu |= {
+        input_fn_name_str.contains("compose")
             || input_fn_name_str.contains("gradient")
             || input_fn_name_str.contains("image")
             || input_fn_name_str.contains("layer")

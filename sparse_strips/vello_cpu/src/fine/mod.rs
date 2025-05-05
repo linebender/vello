@@ -29,25 +29,28 @@ pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_C
 #[doc(hidden)]
 pub const SCRATCH_BUF_SIZE: usize =
     WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
-#[doc(hidden)]
-pub type ScratchBuf = [u8; SCRATCH_BUF_SIZE];
+
+pub type ScratchBuf<F> = [F; SCRATCH_BUF_SIZE];
+
+pub type FineU8 = ScratchBuf<u8>;
+pub type FineF32 = ScratchBuf<f32>;
 
 #[derive(Debug)]
 #[doc(hidden)]
 /// This is an internal struct, do not access directly.
-pub struct Fine {
+pub struct Fine<F: FineType + PartialEq> {
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) wide_coords: (u16, u16),
-    pub(crate) blend_buf: Vec<ScratchBuf>,
-    pub(crate) color_buf: ScratchBuf,
+    pub(crate) blend_buf: Vec<ScratchBuf<F>>,
+    pub(crate) color_buf: ScratchBuf<F>,
 }
 
-impl Fine {
+impl<F: FineType + PartialEq> Fine<F> {
     /// Create a new fine rasterizer.
     pub fn new(width: u16, height: u16) -> Self {
-        let blend_buf = [0; SCRATCH_BUF_SIZE];
-        let color_buf = [0; SCRATCH_BUF_SIZE];
+        let blend_buf = [F::ZERO; SCRATCH_BUF_SIZE];
+        let color_buf = [F::ZERO; SCRATCH_BUF_SIZE];
 
         Self {
             width,
@@ -63,7 +66,7 @@ impl Fine {
         self.wide_coords = (x, y);
     }
 
-    pub fn clear(&mut self, premul_color: [u8; 4]) {
+    pub fn clear(&mut self, premul_color: [F; 4]) {
         let blend_buf = self.blend_buf.last_mut().unwrap();
 
         if premul_color[0] == premul_color[1]
@@ -118,7 +121,7 @@ impl Fine {
                 );
             }
             Cmd::PushBuf => {
-                self.blend_buf.push([0; SCRATCH_BUF_SIZE]);
+                self.blend_buf.push([F::ZERO; SCRATCH_BUF_SIZE]);
             }
             Cmd::PopBuf => {
                 self.blend_buf.pop();
@@ -141,7 +144,7 @@ impl Fine {
                         .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
                         .for_each(|s| {
                             for c in s {
-                                *c = div_255(*o as u16 * *c as u16) as u8;
+                                *c = F::from_u8(*o).norm_mul(*c);
                             }
                         });
                 }
@@ -162,10 +165,10 @@ impl Fine {
                         let y = start_y + y as u16;
 
                         if x < m.width() && y < m.height() {
-                            let val = m.sample(x, y);
+                            let val = F::from_u8(m.sample(x, y));
 
                             for comp in pix.iter_mut() {
-                                *comp = div_255(*comp as u16 * val as u16) as u8;
+                                *comp = comp.norm_mul(val);
                             }
                         }
                     }
@@ -193,33 +196,34 @@ impl Fine {
 
         let default_blend = blend_mode == BlendMode::new(Mix::Normal, Compose::SrcOver);
 
-        fn fill_complex_paint(
-            color_buf: &mut [u8],
-            blend_buf: &mut [u8],
+        fn fill_complex_paint<T: FineType>(
+            color_buf: &mut [T],
+            blend_buf: &mut [T],
             has_opacities: bool,
             blend_mode: BlendMode,
             filler: impl Painter,
         ) {
-            if has_opacities {
-                filler.paint(color_buf);
-                fill::blend(
-                    blend_buf,
-                    color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-                    blend_mode,
-                );
-            } else {
-                // Similarly to solid colors we can just override the previous values
-                // if all colors in the gradient are fully opaque.
-                filler.paint(blend_buf);
-            }
+            unimplemented!();
+            // if has_opacities {
+            //     filler.paint(color_buf);
+            //     fill::blend(
+            //         blend_buf,
+            //         color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+            //         blend_mode,
+            //     );
+            // } else {
+            //     // Similarly to solid colors we can just override the previous values
+            //     // if all colors in the gradient are fully opaque.
+            //     filler.paint(blend_buf);
+            // }
         }
 
         match fill {
             Paint::Solid(color) => {
-                let color = color.as_premul_rgba8().to_u8_array();
+                let color = F::extract_solid(color);
 
                 // If color is completely opaque we can just memcopy the colors.
-                if color[3] == 255 && default_blend {
+                if color[3] == F::ONE && default_blend {
                     for t in blend_buf.chunks_exact_mut(COLOR_COMPONENTS) {
                         t.copy_from_slice(&color);
                     }
@@ -307,27 +311,28 @@ impl Fine {
         let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
         let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
-        fn strip_complex_paint(
-            color_buf: &mut [u8],
-            blend_buf: &mut [u8],
+        fn strip_complex_paint<F: FineType + PartialEq>(
+            color_buf: &mut [F],
+            blend_buf: &mut [F],
             blend_mode: BlendMode,
             filler: impl Painter,
             alphas: &[u8],
         ) {
-            filler.paint(color_buf);
-            strip::blend(
-                blend_buf,
-                color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-                blend_mode,
-                alphas.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-            );
+            unimplemented!();
+            // filler.paint(color_buf);
+            // strip::blend(
+            //     blend_buf,
+            //     color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+            //     blend_mode,
+            //     alphas.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
+            // );
         }
 
         match fill {
             Paint::Solid(color) => {
                 strip::blend(
                     blend_buf,
-                    iter::repeat(color.as_premul_rgba8().to_u8_array()),
+                    iter::repeat(F::extract_solid(color)),
                     blend_mode,
                     alphas.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
                 );
@@ -412,7 +417,14 @@ impl Fine {
     }
 }
 
-fn pack(out_buf: &mut [u8], scratch: &ScratchBuf, width: usize, height: usize, x: usize, y: usize) {
+fn pack<F: FineType>(
+    out_buf: &mut [u8],
+    scratch: &ScratchBuf<F>,
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+) {
     let base_ix = (y * usize::from(Tile::HEIGHT) * width + x * usize::from(WideTile::WIDTH))
         * COLOR_COMPONENTS;
 
@@ -433,8 +445,7 @@ fn pack(out_buf: &mut [u8], scratch: &ScratchBuf, width: usize, height: usize, x
         for i in 0..max_width {
             let src = &scratch[(i * usize::from(Tile::HEIGHT) + j) * COLOR_COMPONENTS..]
                 [..COLOR_COMPONENTS];
-            dest[i * COLOR_COMPONENTS..][..COLOR_COMPONENTS]
-                .copy_from_slice(&src[..COLOR_COMPONENTS]);
+            dest[i * COLOR_COMPONENTS..][..COLOR_COMPONENTS].copy_from_slice(&F::to_rgba8(src));
         }
     }
 }
@@ -443,30 +454,31 @@ pub(crate) mod fill {
     // See https://www.w3.org/TR/compositing-1/#porterduffcompositingoperators for the
     // formulas.
 
-    use crate::fine::{COLOR_COMPONENTS, TILE_HEIGHT_COMPONENTS, blend};
+    use crate::fine::{COLOR_COMPONENTS, FineType, TILE_HEIGHT_COMPONENTS, blend};
     use crate::util::scalar::div_255;
     use vello_common::peniko::{BlendMode, Compose, Mix};
 
-    pub(crate) fn blend<T: Iterator<Item = [u8; COLOR_COMPONENTS]>>(
-        target: &mut [u8],
+    pub(crate) fn blend<F: FineType, T: Iterator<Item = [F; COLOR_COMPONENTS]>>(
+        target: &mut [F],
         source: T,
         blend_mode: BlendMode,
     ) {
         match (blend_mode.mix, blend_mode.compose) {
             (Mix::Normal, Compose::SrcOver) => alpha_composite(target, source),
-            _ => blend::fill::blend::<T>(target, source, blend_mode),
+            _ => unimplemented!(),
+            // _ => blend::fill::blend(target, source, blend_mode),
         }
     }
 
-    pub(crate) fn alpha_composite<T: Iterator<Item = [u8; COLOR_COMPONENTS]>>(
-        target: &mut [u8],
+    pub(crate) fn alpha_composite<F: FineType, T: Iterator<Item = [F; COLOR_COMPONENTS]>>(
+        target: &mut [F],
         mut source: T,
     ) {
         for strip in target.chunks_exact_mut(TILE_HEIGHT_COMPONENTS) {
             for bg_c in strip.chunks_exact_mut(COLOR_COMPONENTS) {
                 let src_c = source.next().unwrap();
                 for i in 0..COLOR_COMPONENTS {
-                    bg_c[i] = src_c[i] + div_255(bg_c[i] as u16 * (255 - src_c[3] as u16)) as u8;
+                    bg_c[i] = src_c[i].add(bg_c[i].norm_mul(src_c[3].inv()));
                 }
             }
         }
@@ -474,31 +486,34 @@ pub(crate) mod fill {
 }
 
 pub(crate) mod strip {
-    use crate::fine::{COLOR_COMPONENTS, TILE_HEIGHT_COMPONENTS, blend};
+    use crate::fine::{COLOR_COMPONENTS, FineType, TILE_HEIGHT_COMPONENTS, blend};
     use crate::util::scalar::div_255;
     use vello_common::peniko::{BlendMode, Compose, Mix};
     use vello_common::tile::Tile;
 
     pub(crate) fn blend<
-        T: Iterator<Item = [u8; COLOR_COMPONENTS]>,
+        F: FineType,
+        T: Iterator<Item = [F; COLOR_COMPONENTS]>,
         A: Iterator<Item = [u8; Tile::HEIGHT as usize]>,
     >(
-        target: &mut [u8],
+        target: &mut [F],
         source: T,
         blend_mode: BlendMode,
         alphas: A,
     ) {
         match (blend_mode.mix, blend_mode.compose) {
             (Mix::Normal, Compose::SrcOver) => alpha_composite(target, source, alphas),
-            _ => blend::strip::blend::<T, A>(target, source, blend_mode, alphas),
+            _ => unimplemented!(),
+            // _ => blend::strip::blend::<T, A>(target, source, blend_mode, alphas),
         }
     }
 
     pub(crate) fn alpha_composite<
-        T: Iterator<Item = [u8; COLOR_COMPONENTS]>,
+        F: FineType,
+        T: Iterator<Item = [F; COLOR_COMPONENTS]>,
         A: Iterator<Item = [u8; Tile::HEIGHT as usize]>,
     >(
-        target: &mut [u8],
+        target: &mut [F],
         mut source: T,
         mut alphas: A,
     ) {
@@ -507,14 +522,15 @@ pub(crate) mod strip {
 
             for j in 0..usize::from(Tile::HEIGHT) {
                 let src_c = source.next().unwrap();
-                let mask_a = u16::from(masks[j]);
-                let inv_src_a_mask_a = 255 - div_255(mask_a * src_c[3] as u16);
+                let mask_a = F::from_u8(masks[j]);
+                let inv_src_a_mask_a = mask_a.norm_mul(src_c[3]).inv();
 
                 for i in 0..COLOR_COMPONENTS {
-                    let im1 = bg_c[j * COLOR_COMPONENTS + i] as u16 * inv_src_a_mask_a;
-                    let im2 = src_c[i] as u16 * mask_a;
-                    let im3 = div_255(im1 + im2);
-                    bg_c[j * COLOR_COMPONENTS + i] = im3 as u8;
+                    bg_c[j * COLOR_COMPONENTS + i] = bg_c[j * COLOR_COMPONENTS + i].norm_mul_add(
+                        inv_src_a_mask_a,
+                        src_c[i],
+                        mask_a,
+                    );
                 }
             }
         }
@@ -527,6 +543,7 @@ trait Painter {
 
 pub trait FineType: Sized + Copy {
     const ZERO: Self;
+    const ONE: Self;
 
     fn add(&self, num2: Self) -> Self;
     fn norm_mul(&self, num2: Self) -> Self;
@@ -542,6 +559,7 @@ pub trait FineType: Sized + Copy {
 
 impl FineType for u8 {
     const ZERO: Self = 0;
+    const ONE: Self = 255;
 
     #[inline(always)]
     fn add(&self, num2: Self) -> Self {
@@ -594,6 +612,7 @@ impl FineType for u8 {
 
 impl FineType for f32 {
     const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
 
     #[inline(always)]
     fn add(&self, num2: Self) -> Self {
