@@ -155,8 +155,7 @@ fn convert(ctx: &mut ConversionContext, g: &Group) {
                     ctx.add_stroked_path(converted);
                 }
             }
-            Node::Image(_) => {}
-            Node::Text(_) => {}
+            Node::Image(_) | Node::Text(_) => {}
         }
     }
 
