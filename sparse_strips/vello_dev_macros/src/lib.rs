@@ -20,6 +20,7 @@ use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Expr, Ident, ItemFn, Token, parse_macro_input};
+use vello_common::RenderMode;
 
 #[derive(Debug)]
 enum Attribute {
@@ -199,40 +200,51 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         empty_snippet.clone()
     };
 
+    let cpu_snippet = |fn_name: Ident,
+                       fn_name_str: String,
+                       tolerance: u8,
+                       is_reference: bool,
+                       render_mode: proc_macro2::TokenStream| {
+        quote! {
+            #ignore_cpu
+            #[test]
+            fn #fn_name() {
+                use crate::util::{
+                    check_ref, get_ctx
+                };
+                use vello_cpu::RenderContext;
+                use vello_common::RenderMode;
+
+                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
+                #input_fn_name(&mut ctx);
+                if !#no_ref {
+                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #is_reference, #render_mode);
+                }
+            }
+        }
+    };
+
+    let u8_snippet = cpu_snippet(
+        u8_fn_name,
+        u8_fn_name_str,
+        cpu_u8_tolerance,
+        false,
+        quote! { RenderMode::OptimizeSpeed },
+    );
+    let f32_snippet = cpu_snippet(
+        f32_fn_name,
+        f32_fn_name_str,
+        cpu_f32_tolerance,
+        true,
+        quote! { RenderMode::OptimizeQuality },
+    );
+
     let expanded = quote! {
         #input_fn
 
-        #ignore_cpu
-        #[test]
-        fn #f32_fn_name() {
-            use crate::util::{
-                check_ref, get_ctx
-            };
-            use vello_cpu::RenderContext;
-            use vello_common::RenderMode;
-
-            let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
-            #input_fn_name(&mut ctx);
-            if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #f32_fn_name_str, #cpu_f32_tolerance, true, RenderMode::OptimizeQuality);
-            }
-        }
-
-        #ignore_cpu
-        #[test]
-        fn #u8_fn_name() {
-            use crate::util::{
-                check_ref, get_ctx
-            };
-            use vello_cpu::RenderContext;
-            use vello_common::RenderMode;
-
-            let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
-            #input_fn_name(&mut ctx);
-            if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #u8_fn_name_str, #cpu_u8_tolerance, false, RenderMode::OptimizeSpeed);
-            }
-        }
+        #u8_snippet
+        
+        #f32_snippet
 
         #ignore_hybrid
         #[test]
