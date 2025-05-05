@@ -14,18 +14,19 @@ pub struct Style {
     /// Encodes the stroke and fill style parameters. This field is split into two 16-bit
     /// parts:
     ///
-    /// - `flags: u16` - encodes fill vs stroke, even-odd vs non-zero fill mode for fills and cap
-    ///                  and join style for strokes. See the FLAGS_* constants below for more
-    ///                  information.
-    /// ```text
-    /// flags: |style|fill|join|start cap|end cap|reserved|
-    ///  bits:  0     1    2-3  4-5       6-7     8-15
-    /// ```
+    /// - `flags: u16` - encodes fill vs stroke, even-odd vs non-zero fill
+    ///   mode for fills and cap and join style for strokes. See the
+    ///   `FLAGS_*` constants below for more information.
     ///
-    /// - `miter_limit: u16` - The miter limit for a stroke, encoded in binary16 (half) floating
-    ///                        point representation. This field is only meaningful for the
-    ///                        `Join::Miter` join style. It's ignored for other stroke styles and
-    ///                        fills.
+    ///   ```text
+    ///   flags: |style|fill|join|start cap|end cap|reserved|
+    ///    bits:  0     1    2-3  4-5       6-7     8-15
+    ///   ```
+    ///
+    /// - `miter_limit: u16` - The miter limit for a stroke, encoded in
+    ///   binary16 (half) floating point representation. This field is
+    ///   only meaningful for the `Join::Miter` join style. It's ignored
+    ///   for other stroke styles and fills.
     pub flags_and_miter_limit: u32,
 
     /// Encodes the stroke width. This field is ignored for fills.
@@ -459,19 +460,18 @@ impl<'a> PathEncoder<'a> {
     ///
     ///    The algorithm is as follows:
     ///
-    ///    a) If a GPU thread is processing a regular segment (i.e. `SUBPATH_END_BIT` is 0), it
-    ///       outputs the offset curves for the segment. If the segment is immediately followed by
-    ///       the marker segment, then the same thread draws an end cap if the subpath is open
-    ///       (i.e. the marker is a quad-to) or a join if the subpath is closed (i.e. the marker is
-    ///       a line-to) using the tangent encoded in the marker segment.
+    ///    - If a GPU thread is processing a regular segment (i.e. `SUBPATH_END_BIT` is 0), it
+    ///      outputs the offset curves for the segment. If the segment is immediately followed by
+    ///      the marker segment, then the same thread draws an end cap if the subpath is open
+    ///      (i.e. the marker is a quad-to) or a join if the subpath is closed (i.e. the marker is
+    ///      a line-to) using the tangent encoded in the marker segment.
+    ///      If the segment is immediately followed by another regular segment, then the thread
+    ///      draws a join using the start tangent of the neighboring segment.
     ///
-    ///       If the segment is immediately followed by another regular segment, then the thread
-    ///       draws a join using the start tangent of the neighboring segment.
-    ///
-    ///    b) If a GPU thread is processing the marker segment (i.e. `SUBPATH_END_BIT` is 1), then
-    ///       it draws a start cap using the information encoded in the segment IF the subpath is
-    ///       open (i.e. the marker is a quad-to). If the subpath is closed (i.e. the marker is a
-    ///       line-to), the thread draws nothing.
+    ///    - If a GPU thread is processing the marker segment (i.e. `SUBPATH_END_BIT` is 1), then
+    ///      it draws a start cap using the information encoded in the segment IF the subpath is
+    ///      open (i.e. the marker is a quad-to). If the subpath is closed (i.e. the marker is a
+    ///      line-to), the thread draws nothing.
     pub fn new(
         tags: &'a mut Vec<PathTag>,
         data: &'a mut Vec<u32>,
