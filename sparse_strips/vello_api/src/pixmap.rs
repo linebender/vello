@@ -47,17 +47,20 @@ impl Pixmap {
 
     /// Create a pixmap from a PNG file.
     #[cfg(feature = "png")]
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "cannot overflow in this case"
-    )]
     pub fn from_png(data: &[u8]) -> Result<Self, png::DecodingError> {
         let mut decoder = png::Decoder::new(data);
-        decoder.set_transformations(png::Transformations::ALPHA);
+        decoder.set_transformations(
+            png::Transformations::normalize_to_color8() | png::Transformations::ALPHA,
+        );
 
         let mut reader = decoder.read_info()?;
         let mut img_data = vec![0; reader.output_buffer_size()];
         let info = reader.next_frame(&mut img_data)?;
+        debug_assert_eq!(
+            info.bit_depth,
+            png::BitDepth::Eight,
+            "normalize_to_color8 means the bit depth is always 8."
+        );
 
         let decoded_data = match info.color_type {
             png::ColorType::Rgb | png::ColorType::Grayscale => {
@@ -86,6 +89,10 @@ impl Pixmap {
             .chunks_exact(4)
             .flat_map(|d| {
                 let alpha = d[3] as u16;
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "Overflow should be impossible."
+                )]
                 let premultiply = |e: u8| ((e as u16 * alpha) / 255) as u8;
 
                 if alpha == 0 {
@@ -102,8 +109,14 @@ impl Pixmap {
             .collect::<Vec<_>>();
 
         Ok(Self {
-            width: info.width as u16,
-            height: info.height as u16,
+            width: info
+                .width
+                .try_into()
+                .map_err(|_| png::DecodingError::LimitsExceeded)?,
+            height: info
+                .height
+                .try_into()
+                .map_err(|_| png::DecodingError::LimitsExceeded)?,
             buf: premultiplied,
         })
     }
