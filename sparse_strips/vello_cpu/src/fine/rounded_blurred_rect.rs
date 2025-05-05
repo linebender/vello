@@ -5,7 +5,7 @@
 //!
 //! Implementation is adapted from: <https://git.sr.ht/~raph/blurrr/tree/master/src/distfield.rs>.
 
-use crate::fine::{COLOR_COMPONENTS, Painter, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{COLOR_COMPONENTS, FineType, Painter, TILE_HEIGHT_COMPONENTS};
 use crate::util::scalar::div_255;
 use vello_common::encode::EncodedBlurredRoundedRectangle;
 use vello_common::kurbo::Point;
@@ -33,7 +33,7 @@ impl<'a> BlurredRoundedRectFiller<'a> {
 
     // TODO: Add optimized version for non-rotated rectangles. We can precompute all of the
     // variables that only depend on y.
-    pub(super) fn run(mut self, target: &mut [u8]) {
+    pub(super) fn run<F: FineType>(mut self, target: &mut [F]) {
         let h = self.rect.h;
         let w = self.rect.w;
         let width = self.rect.width;
@@ -45,7 +45,7 @@ impl<'a> BlurredRoundedRectFiller<'a> {
         let min_edge = self.rect.min_edge;
         let std_dev_inv = self.rect.std_dev_inv;
 
-        let col = self.rect.color.as_premul_rgba8().to_u8_array();
+        let col = F::extract_solid(&self.rect.color);
 
         for column in target.chunks_exact_mut(TILE_HEIGHT_COMPONENTS) {
             let mut col_pos = self.cur_pos;
@@ -71,11 +71,11 @@ impl<'a> BlurredRoundedRectFiller<'a> {
                         * (compute_erf7(std_dev_inv * (min_edge + d))
                             - compute_erf7(std_dev_inv * d));
 
-                    ((z * 255.0) + 0.5) as u8
+                    F::from_f32(z)
                 };
 
                 for component in &mut pixel_color {
-                    *component = div_255(*component as u16 * alpha_val as u16) as u8;
+                    *component = component.norm_mul(alpha_val);
                 }
 
                 pixel.copy_from_slice(&pixel_color);
@@ -88,8 +88,8 @@ impl<'a> BlurredRoundedRectFiller<'a> {
     }
 }
 
-// impl Painter for BlurredRoundedRectFiller<'_> {
-//     fn paint(self, target: &mut [u8]) {
-//         self.run(target);
-//     }
-// }
+impl Painter for BlurredRoundedRectFiller<'_> {
+    fn paint<F: FineType>(self, target: &mut [F]) {
+        self.run(target);
+    }
+}

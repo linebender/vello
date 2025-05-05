@@ -9,7 +9,6 @@ mod gradient;
 mod image;
 mod rounded_blurred_rect;
 
-use crate::fine::gradient::GradientFiller;
 use crate::fine::image::ImageFiller;
 use crate::fine::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::util::scalar::div_255;
@@ -278,11 +277,11 @@ impl<F: FineType + PartialEq> Fine<F> {
                             filler,
                         );
                     }
+                    EncodedPaint::BlurredRoundedRect(b) => {
+                        let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
+                        fill_complex_paint(color_buf, blend_buf, true, blend_mode, filler);
+                    }
                     _ => unimplemented!(),
-                    // EncodedPaint::BlurredRoundedRect(b) => {
-                    //     let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
-                    //     fill_complex_paint(color_buf, blend_buf, true, blend_mode, filler);
-                    // }
                 }
             }
         }
@@ -358,11 +357,11 @@ impl<F: FineType + PartialEq> Fine<F> {
                         let filler = ImageFiller::new(i, start_x, start_y);
                         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
                     }
+                    EncodedPaint::BlurredRoundedRect(b) => {
+                        let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
+                        strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
+                    }
                     _ => unimplemented!(),
-                    // EncodedPaint::BlurredRoundedRect(b) => {
-                    //     let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
-                    //     strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                    // }
                 }
             }
         }
@@ -549,6 +548,7 @@ pub trait FineType: Sized + Copy {
     fn norm_mul_add(&self, num2: Self, num3: Self, num4: Self) -> Self;
     fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS];
     fn from_u8(num: u8) -> Self;
+    fn from_f32(num: f32) -> Self;
     fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS];
     fn from_rgba8(_in: &[u8]) -> [Self; COLOR_COMPONENTS];
     fn from_rgbf32(_in: &[f32; 4]) -> [Self; COLOR_COMPONENTS];
@@ -585,6 +585,10 @@ impl FineType for u8 {
     #[inline(always)]
     fn from_u8(num: u8) -> Self {
         num
+    }
+
+    fn from_f32(num: f32) -> Self {
+        (num * 255.0 + 0.5) as u8
     }
 
     #[inline(always)]
@@ -647,6 +651,10 @@ impl FineType for f32 {
     #[inline(always)]
     fn from_u8(num: u8) -> Self {
         num as f32 / 255.0
+    }
+
+    fn from_f32(num: f32) -> Self {
+        num
     }
 
     #[inline(always)]

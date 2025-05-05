@@ -177,7 +177,6 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             || input_fn_name_str.contains("mask")
             || input_fn_name_str.contains("mix")
             || input_fn_name_str.contains("opacity")
-            || input_fn_name_str.contains("blurred_rounded_rect")
     };
 
     let empty_snippet = quote! {};
