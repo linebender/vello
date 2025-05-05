@@ -406,7 +406,7 @@ fn encode_stops(
         GradientRange {
             x0,
             x1,
-            c0,
+            c0: PremulColor::from_premul(left_stop.color),
             factors,
         }
     };
@@ -643,7 +643,7 @@ pub struct GradientRange {
     /// The end value of the range.
     pub x1: f32,
     /// The start color of the range.
-    pub c0: [u8; 4],
+    pub c0: PremulColor,
     /// The interpolation factors of the range.
     pub factors: [f32; 4],
 }

@@ -78,11 +78,13 @@ pub struct PremulColor {
 impl PremulColor {
     /// Create a new premultiplied color.
     pub fn new(color: AlphaColor<Srgb>) -> Self {
-        let premul = color.premultiply();
-
+        Self::from_premul(color.premultiply())
+    }
+    
+    pub fn from_premul(color: peniko::color::PremulColor<Srgb>) -> Self {
         Self {
-            premul_u8: premul.to_rgba8(),
-            premul_f32: premul,
+            premul_u8: color.to_rgba8(),
+            premul_f32: color,
         }
     }
 

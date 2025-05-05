@@ -82,11 +82,12 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
             let dist = extend(self.kind.cur_pos(&pos));
             self.advance(dist);
             let range = self.cur_range;
+            let c0 = range.c0.as_premul_rgba8().to_u8_array();
 
             for (comp_idx, comp) in pixel.iter_mut().enumerate() {
                 let factor = (range.factors[comp_idx] * (dist - range.x0) + 0.5) as i16;
 
-                *comp = (range.c0[comp_idx] as i16 + factor) as u8;
+                *comp = (c0[comp_idx] as i16 + factor) as u8;
             }
 
             pos += self.gradient.y_advance;
