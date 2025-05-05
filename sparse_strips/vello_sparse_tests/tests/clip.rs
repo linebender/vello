@@ -67,7 +67,7 @@ fn clip_rectangle_with_star_evenodd(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test]
+#[vello_test(cpu_tolerance = 1)]
 fn clip_rectangle_and_circle(ctx: &mut impl Renderer) {
     // Create first clipping region - a rectangle on the left side
     let clip_rect = Rect::new(10.0, 30.0, 50.0, 70.0);

@@ -11,8 +11,8 @@
 // means that the absolute difference of each component of a pixel must not be higher
 // than 1. For example, if the target pixel is (233, 43, 64, 100), then permissible
 // values are (232, 43, 65, 101) or (233, 42, 64, 100), but not (231, 43, 64, 100).
-const DEFAULT_CPU_U8_TOLERANCE: u8 = 0;
-const DEFAULT_CPU_F32_TOLERANCE: u8 = 2;
+const DEFAULT_CPU_U8_TOLERANCE: u8 = 1;
+const DEFAULT_CPU_F32_TOLERANCE: u8 = 0;
 const DEFAULT_HYBRID_TOLERANCE: u8 = 1;
 
 use proc_macro::TokenStream;
@@ -20,7 +20,6 @@ use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Expr, Ident, ItemFn, Token, parse_macro_input};
-use vello_common::RenderMode;
 
 #[derive(Debug)]
 enum Attribute {
@@ -153,7 +152,8 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     } = parse_args(&attrs);
 
     let cpu_u8_tolerance = cpu_tolerance + DEFAULT_CPU_U8_TOLERANCE;
-    let cpu_f32_tolerance = cpu_tolerance + DEFAULT_CPU_F32_TOLERANCE;
+    // Since f32 is our gold standard, we always require exact matches for this one.
+    let cpu_f32_tolerance = DEFAULT_CPU_F32_TOLERANCE;
     hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
 
     // These tests currently don't work with `vello_hybrid`.
@@ -214,7 +214,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #f32_fn_name_str, #cpu_f32_tolerance, false, RenderMode::OptimizeQuality);
+                check_ref(&ctx, #input_fn_name_str, #f32_fn_name_str, #cpu_f32_tolerance, true, RenderMode::OptimizeQuality);
             }
         }
 
@@ -230,7 +230,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #u8_fn_name_str, #cpu_u8_tolerance, true, RenderMode::OptimizeSpeed);
+                check_ref(&ctx, #input_fn_name_str, #u8_fn_name_str, #cpu_u8_tolerance, false, RenderMode::OptimizeSpeed);
             }
         }
 
