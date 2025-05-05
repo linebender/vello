@@ -1,0 +1,23 @@
+[package]
+name = "vello_dev_macros"
+description = "Procedural macros used for testing and benchmarking vello sparse strip implementations."
+categories = ["rendering", "graphics"]
+keywords = ["2d", "vector-graphics"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true }
+quote = { workspace = true }
+proc-macro2 = { workspace = true }
+vello_api = { workspace = true }
+vello_common = { workspace = true }
+
+[lints]
+workspace = true

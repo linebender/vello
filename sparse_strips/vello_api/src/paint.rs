@@ -3,9 +3,12 @@
 
 //! Types for paints.
 
-use crate::kurbo::Affine;
-use peniko::color::{AlphaColor, PremulRgba8, Srgb};
-use peniko::{ColorStops, GradientKind};
+use crate::pixmap::Pixmap;
+use alloc::sync::Arc;
+use peniko::{
+    Gradient, ImageQuality,
+    color::{AlphaColor, PremulRgba8, Srgb},
+};
 
 /// A paint that needs to be resolved via its index.
 // In the future, we might add additional flags, that's why we have
@@ -34,10 +37,10 @@ impl IndexedPaint {
 /// 2) Indexed paints, which can represent any arbitrary, more complex paint that is
 ///    determined by the frontend. The intended way of using this is to store a vector
 ///    of paints and store its index inside `IndexedPaint`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Paint {
     /// A premultiplied RGBA8 color.
-    Solid(PremulRgba8),
+    Solid(PremulColor),
     /// A paint that needs to be resolved via an index.
     Indexed(IndexedPaint),
 }
@@ -48,37 +51,54 @@ impl From<AlphaColor<Srgb>> for Paint {
         // Since we only do that conversion once per path it might not be critical, but should
         // still be measured. This also applies to all other usages of `to_rgba8` in the current
         // code.
-        Self::Solid(value.premultiply().to_rgba8())
+        Self::Solid(PremulColor::new(value))
     }
 }
 
-// TODO: Replace this with the peniko type, once it supports transforms.
-/// A gradient.
+/// An image.
 #[derive(Debug, Clone)]
-pub struct Gradient {
-    /// The underlying kind of gradient.
-    pub kind: GradientKind,
-    /// The stops that makes up the gradient.
-    ///
-    /// Note that the first stop must have an offset of 0.0 and the last stop
-    /// must have an offset of 1.0. In addition to that, the stops must be sorted
-    /// with offsets in ascending order.
-    pub stops: ColorStops,
-    /// A transformation to apply to the gradient.
-    pub transform: Affine,
-    /// The extend of the gradient.
-    pub extend: peniko::Extend,
+pub struct Image {
+    /// The underlying pixmap of the image.
+    pub pixmap: Arc<Pixmap>,
+    /// Extend mode in the horizontal direction.
+    pub x_extend: peniko::Extend,
+    /// Extend mode in the vertical direction.
+    pub y_extend: peniko::Extend,
+    /// Hint for desired rendering quality.
+    pub quality: ImageQuality,
 }
 
-impl Gradient {
-    /// Returns the gradient with the alpha component for all color stops
-    /// multiplied by `alpha`.
-    #[must_use]
-    pub fn multiply_alpha(mut self, alpha: f32) -> Self {
-        self.stops
-            .iter_mut()
-            .for_each(|stop| *stop = stop.multiply_alpha(alpha));
-        self
+/// A premultiplied color.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct PremulColor {
+    premul_u8: PremulRgba8,
+    premul_f32: peniko::color::PremulColor<Srgb>,
+}
+
+impl PremulColor {
+    /// Create a new premultiplied color.
+    pub fn new(color: AlphaColor<Srgb>) -> Self {
+        let premul = color.premultiply();
+
+        Self {
+            premul_u8: premul.to_rgba8(),
+            premul_f32: premul,
+        }
+    }
+
+    /// Return the color as a premultiplied RGBA8 color.
+    pub fn as_premul_rgba8(&self) -> PremulRgba8 {
+        self.premul_u8
+    }
+
+    /// Return the color as a premultiplied RGBAF32 color.
+    pub fn as_premul_f32(&self) -> peniko::color::PremulColor<Srgb> {
+        self.premul_f32
+    }
+
+    /// Return whether the color is opaque (i.e. doesn't have transparency).
+    pub fn is_opaque(&self) -> bool {
+        self.premul_f32.components[3] == 1.0
     }
 }
 
@@ -89,6 +109,8 @@ pub enum PaintType {
     Solid(AlphaColor<Srgb>),
     /// A gradient.
     Gradient(Gradient),
+    /// An image.
+    Image(Image),
 }
 
 impl From<AlphaColor<Srgb>> for PaintType {
@@ -100,5 +122,11 @@ impl From<AlphaColor<Srgb>> for PaintType {
 impl From<Gradient> for PaintType {
     fn from(value: Gradient) -> Self {
         Self::Gradient(value)
+    }
+}
+
+impl From<Image> for PaintType {
+    fn from(value: Image) -> Self {
+        Self::Image(value)
     }
 }

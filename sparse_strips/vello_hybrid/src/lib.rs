@@ -29,15 +29,39 @@
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
+#![no_std]
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "We temporarily ignore those because the casts\
+only break in edge cases, and some of them are also only related to conversions from f64 to f32."
+)]
+
+extern crate alloc;
+
 mod render;
 mod scene;
 mod schedule;
 pub mod util;
 
-pub use render::{Config, GpuStrip, RenderData, RenderSize, RenderTargetConfig, Renderer};
+pub use render::{Config, GpuStrip, RenderSize, RenderTargetConfig, Renderer};
 pub use scene::Scene;
 pub use util::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;
+
+use thiserror::Error;
+
+/// Errors that can occur during rendering.
+#[derive(Error, Debug)]
+pub enum RenderError {
+    /// No slots available for rendering.
+    ///
+    /// This error is likely to occur if a scene has an extreme number of nested layers
+    /// (clipping, blending, masks, or opacity layers).
+    ///
+    /// TODO: Consider supporting more than a single column of slots in slot textures.
+    #[error("No slots available for rendering")]
+    SlotsExhausted,
+}
 
 #[cfg(test)]
 const _: () = if vello_common::tile::Tile::HEIGHT != 4 {

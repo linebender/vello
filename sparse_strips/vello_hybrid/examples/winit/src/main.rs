@@ -286,16 +286,18 @@ impl ApplicationHandler for App<'_> {
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                             label: Some("Vello Render to Surface pass"),
                         });
-                {
-                    self.renderers[surface.dev_id].as_mut().unwrap().render2(
+                self.renderers[surface.dev_id]
+                    .as_mut()
+                    .unwrap()
+                    .render(
                         &self.scene,
                         &device_handle.device,
                         &device_handle.queue,
                         &mut encoder,
                         &render_size,
                         &texture_view,
-                    );
-                }
+                    )
+                    .unwrap();
 
                 device_handle.queue.submit([encoder.finish()]);
                 surface_texture.present();

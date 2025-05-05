@@ -4,11 +4,15 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
-use vello_common::coarse::{SceneState, Wide};
+use alloc::vec;
+use alloc::vec::Vec;
+use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
+use vello_common::coarse::Wide;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
+use vello_common::mask::Mask;
 use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
@@ -30,10 +34,10 @@ pub struct RenderContext {
     pub(crate) tiles: Tiles,
     pub(crate) strip_buf: Vec<Strip>,
     pub(crate) paint: PaintType,
+    pub(crate) paint_transform: Affine,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
-    pub(crate) blend_mode: BlendMode,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
 }
 
@@ -50,6 +54,7 @@ impl RenderContext {
         let transform = Affine::IDENTITY;
         let fill_rule = Fill::NonZero;
         let paint = BLACK.into();
+        let paint_transform = Affine::IDENTITY;
         let stroke = Stroke {
             width: 1.0,
             join: Join::Bevel,
@@ -57,7 +62,6 @@ impl RenderContext {
             end_cap: Cap::Butt,
             ..Default::default()
         };
-        let blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
         let encoded_paints = vec![];
 
         Self {
@@ -70,9 +74,9 @@ impl RenderContext {
             strip_buf,
             transform,
             paint,
+            paint_transform,
             fill_rule,
             stroke,
-            blend_mode,
             encoded_paints,
         }
     }
@@ -80,24 +84,18 @@ impl RenderContext {
     fn encode_current_paint(&mut self) -> Paint {
         match self.paint.clone() {
             PaintType::Solid(s) => s.into(),
-            PaintType::Gradient(mut g) => {
+            PaintType::Gradient(g) => {
                 // TODO: Add caching?
-                g.transform = self.transform * g.transform;
-
-                g.encode_into(&mut self.encoded_paints)
+                g.encode_into(
+                    &mut self.encoded_paints,
+                    self.transform * self.paint_transform,
+                )
             }
+            PaintType::Image(i) => i.encode_into(
+                &mut self.encoded_paints,
+                self.transform * self.paint_transform,
+            ),
         }
-    }
-
-    /// Save the current scene state.
-    pub fn save(&mut self) {
-        self.wide.state_stack.push(SceneState { n_clip: 0 });
-    }
-
-    /// Restore the previous scene state.
-    pub fn restore(&mut self) {
-        self.wide.pop_clips();
-        self.wide.state_stack.pop();
     }
 
     /// Fill a path.
@@ -119,6 +117,37 @@ impl RenderContext {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
+    /// Fill a blurred rectangle with the given radius and standard deviation.
+    ///
+    /// Note that this only works properly if the current paint is set to a solid color.
+    /// If not, it will fall back to using black as the fill color.
+    pub fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        let color = match self.paint {
+            PaintType::Solid(s) => s,
+            // Fallback to black when attempting to blur a rectangle with an image/gradient paint
+            _ => BLACK,
+        };
+
+        let blurred_rect = BlurredRoundedRectangle {
+            rect: *rect,
+            color,
+            radius,
+            std_dev,
+        };
+
+        // The actual rectangle we paint needs to be larger so that the blurring effect
+        // is not cut off.
+        // The impulse response of a gaussian filter is infinite.
+        // For performance reason we cut off the filter at some extent where the response is close to zero.
+        let kernel_size = 2.5 * std_dev;
+        let inflated_rect = rect.inflate(kernel_size as f64, kernel_size as f64);
+        let transform = self.transform * self.paint_transform;
+
+        let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform);
+        flatten::fill(&inflated_rect.to_path(0.1), transform, &mut self.line_buf);
+        self.render_path(Fill::NonZero, paint);
+    }
+
     /// Stroke a rectangle.
     pub fn stroke_rect(&mut self, rect: &Rect) {
         self.stroke_path(&rect.to_path(DEFAULT_TOLERANCE));
@@ -129,17 +158,69 @@ impl RenderContext {
         GlyphRunBuilder::new(font.clone(), self.transform, self)
     }
 
-    /// Clip a path.
-    pub fn clip(&mut self, path: &BezPath) {
-        flatten::fill(path, self.transform, &mut self.line_buf);
-        self.make_strips(self.fill_rule);
-        let strips = core::mem::take(&mut self.strip_buf);
-        self.wide.push_clip(strips, self.fill_rule);
+    /// Push a new layer with the given properties.
+    ///
+    /// Note that the mask, if provided, needs to have the same size as the render context. Otherwise,
+    /// it will be ignored. In addition to that, the mask will not be affected by the current
+    /// transformation matrix in place.
+    pub fn push_layer(
+        &mut self,
+        clip_path: Option<&BezPath>,
+        blend_mode: Option<BlendMode>,
+        opacity: Option<u8>,
+        mask: Option<Mask>,
+    ) {
+        let clip = if let Some(c) = clip_path {
+            flatten::fill(c, self.transform, &mut self.line_buf);
+            self.make_strips(self.fill_rule);
+            Some((self.strip_buf.as_slice(), self.fill_rule))
+        } else {
+            None
+        };
+
+        let mask = mask.and_then(|m| {
+            if m.width() != self.width || m.height() != self.height {
+                None
+            } else {
+                Some(m)
+            }
+        });
+
+        self.wide.push_layer(
+            clip,
+            blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
+            mask,
+            opacity.unwrap_or(255),
+        );
     }
 
-    /// Set the current blend mode.
-    pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        self.blend_mode = blend_mode;
+    /// Push a new clip layer.
+    pub fn push_clip_layer(&mut self, path: &BezPath) {
+        self.push_layer(Some(path), None, None, None);
+    }
+
+    /// Push a new blend layer.
+    pub fn push_blend_layer(&mut self, blend_mode: BlendMode) {
+        self.push_layer(None, Some(blend_mode), None, None);
+    }
+
+    /// Push a new opacity layer.
+    pub fn push_opacity_layer(&mut self, opacity: u8) {
+        self.push_layer(None, None, Some(opacity), None);
+    }
+
+    /// Push a new mask layer.
+    ///
+    /// Note that the mask, if provided, needs to have the same size as the render context. Otherwise,
+    /// it will be ignored. In addition to that, the mask will not be affected by the current
+    /// transformation matrix in place.
+    pub fn push_mask_layer(&mut self, mask: Mask) {
+        self.push_layer(None, None, None, Some(mask));
+    }
+
+    /// Pop the last-pushed layer.
+    pub fn pop_layer(&mut self) {
+        self.wide.pop_layer();
     }
 
     /// Set the current stroke.
@@ -150,6 +231,20 @@ impl RenderContext {
     /// Set the current paint.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.paint = paint.into();
+    }
+
+    /// Set the current paint transform.
+    ///
+    /// The paint transform is applied to the paint after the transform of the geometry the paint
+    /// is drawn in, i.e., the paint transform is applied after the global transform. This allows
+    /// transforming the paint independently from the drawn geometry.
+    pub fn set_paint_transform(&mut self, paint_transform: Affine) {
+        self.paint_transform = paint_transform;
+    }
+
+    /// Reset the current paint transform.
+    pub fn reset_paint_transform(&mut self) {
+        self.paint_transform = Affine::IDENTITY;
     }
 
     /// Set the current fill rule.
@@ -176,14 +271,23 @@ impl RenderContext {
         self.wide.reset();
     }
 
-    /// Render the current context into a pixmap.
-    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        if let Some(state) = self.wide.state_stack.last() {
-            if state.n_clip > 0 {
-                panic!("All clips must be popped before rendering");
-            }
-        }
-        let mut fine = Fine::new(pixmap.width, pixmap.height);
+    /// Render the current context into a buffer.
+    /// The buffer is expected to be in premultiplied RGBA8 format with length `width * height * 4`
+    pub fn render_to_buffer(&self, buffer: &mut [u8], width: u16, height: u16) {
+        assert!(
+            !self.wide.has_layers(),
+            "some layers haven't been popped yet"
+        );
+        assert_eq!(
+            buffer.len(),
+            (width as usize) * (height as usize) * 4,
+            "provided width ({}) and height ({}) do not match buffer size ({})",
+            width,
+            height,
+            buffer.len(),
+        );
+
+        let mut fine = Fine::new(width, height);
 
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();
@@ -192,21 +296,18 @@ impl RenderContext {
                 let wtile = self.wide.get(x, y);
                 fine.set_coords(x, y);
 
-                fine.clear(wtile.bg.to_u8_array());
+                fine.clear(wtile.bg.as_premul_rgba8().to_u8_array());
                 for cmd in &wtile.cmds {
                     fine.run_cmd(cmd, &self.alphas, &self.encoded_paints);
                 }
-                fine.pack(&mut pixmap.buf);
+                fine.pack(buffer);
             }
         }
     }
 
-    /// Finish the coarse rasterization prior to fine rendering.
-    ///
-    /// This method is called when the render context is finished with rendering.
-    /// It pops all the clips from the wide tiles.
-    pub fn finish(&mut self) {
-        self.wide.pop_clips();
+    /// Render the current context into a pixmap.
+    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+        self.render_to_buffer(&mut pixmap.buf, pixmap.width, pixmap.height);
     }
 
     /// Return the width of the pixmap.
@@ -270,7 +371,7 @@ impl GlyphRenderer for RenderContext {
 #[cfg(test)]
 mod tests {
     use crate::RenderContext;
-    use vello_common::kurbo::Rect;
+    use vello_common::kurbo::{Rect, Shape};
 
     #[test]
     fn reset_render_context() {
@@ -288,5 +389,16 @@ mod tests {
         assert!(ctx.line_buf.is_empty());
         assert!(ctx.strip_buf.is_empty());
         assert!(ctx.alphas.is_empty());
+    }
+
+    #[test]
+    fn clip_overflow() {
+        let mut ctx = RenderContext::new(100, 100);
+
+        ctx.alphas
+            .extend(core::iter::repeat_n(255, u16::MAX as usize + 1));
+
+        ctx.push_clip_layer(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
+        ctx.pop_layer();
     }
 }

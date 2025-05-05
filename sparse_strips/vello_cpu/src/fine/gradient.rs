@@ -3,13 +3,13 @@
 
 //! Rendering linear gradients.
 
-use crate::fine::{COLOR_COMPONENTS, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{COLOR_COMPONENTS, Painter, TILE_HEIGHT_COMPONENTS};
 use vello_common::encode::{EncodedGradient, GradientLike, GradientRange};
 use vello_common::kurbo::Point;
 
 #[derive(Debug)]
 pub(crate) struct GradientFiller<'a, T: GradientLike> {
-    /// The position of the next x that should be processed.
+    /// The current position that should be processed.
     cur_pos: Point,
     /// The index of the current range.
     range_idx: usize,
@@ -111,6 +111,12 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
 
                 self.cur_pos += self.gradient.x_advance;
             });
+    }
+}
+
+impl<T: GradientLike> Painter for GradientFiller<'_, T> {
+    fn paint(self, target: &mut [u8]) {
+        self.run(target);
     }
 }
 

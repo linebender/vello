@@ -10,21 +10,13 @@ license.workspace = true
 repository.workspace = true
 # Prevent accidental publishing until the initial release
 publish = false
-autotests = false
-
-[[test]]
-name = "tests"
-path = "tests/mod.rs"
 
 [dependencies]
 vello_common = { workspace = true }
 
-[dev-dependencies]
-automod = "1.0"
-oxipng = { workspace = true, features = ["freestanding", "parallel"] }
-image = { workspace = true, features = ["png"] }
-skrifa = { workspace = true }
-smallvec = { workspace = true }
+[features]
+default = ["png"]
+png = ["vello_common/png"]
 
 [lints]
 workspace = true

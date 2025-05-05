@@ -4,6 +4,8 @@
 //! Primitives for creating tiles.
 
 use crate::flatten::Line;
+use alloc::vec;
+use alloc::vec::Vec;
 
 /// The max number of lines per path.
 ///
@@ -121,28 +123,28 @@ impl Tile {
     }
 }
 
-impl std::cmp::PartialEq for Tile {
+impl core::cmp::PartialEq for Tile {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.to_bits() == other.to_bits()
     }
 }
 
-impl std::cmp::Ord for Tile {
+impl core::cmp::Ord for Tile {
     #[inline(always)]
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.to_bits().cmp(&other.to_bits())
     }
 }
 
-impl std::cmp::PartialOrd for Tile {
+impl core::cmp::PartialOrd for Tile {
     #[inline(always)]
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl std::cmp::Eq for Tile {}
+impl core::cmp::Eq for Tile {}
 
 /// Handles the tiling of paths.
 #[derive(Clone, Debug)]
@@ -279,8 +281,6 @@ impl Tiles {
                 for y_idx in y_top_tiles..y_bottom_tiles {
                     let y = y_idx as f32;
 
-                    // The line's y-coordinates at the line's top-and bottom-most points within the
-                    // tile row.
                     // The line's y-coordinates at the line's top- and bottom-most points within
                     // the tile row.
                     let line_row_top_y = line_top_y.max(y).min(y + 1.);

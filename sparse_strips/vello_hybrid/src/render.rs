@@ -12,17 +12,19 @@
 //! The hybrid approach combines CPU-side path processing with efficient GPU rendering
 //! to balance flexibility and performance.
 
-use std::fmt::Debug;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::{fmt::Debug, mem, num::NonZeroU64};
 
 use bytemuck::{Pod, Zeroable};
-use vello_common::tile::Tile;
+use vello_common::{coarse::WideTile, tile::Tile};
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
-    Device, PipelineCompilationOptions, Queue, RenderPass, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, Texture, TextureView, util::DeviceExt,
+    Device, PipelineCompilationOptions, Queue, RenderPassColorAttachment, RenderPassDescriptor,
+    RenderPipeline, Texture, TextureView, util::DeviceExt,
 };
 
-use crate::{scene::Scene, schedule::Schedule};
+use crate::{RenderError, scene::Scene, schedule::Scheduler};
 
 /// Dimensions of the rendering target
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -44,58 +46,95 @@ pub struct RenderTargetConfig {
     pub height: u32,
 }
 
-/// Contains all GPU resources needed for rendering
-///
-/// This struct contains the GPU resources that may be reallocated depending
-/// on the scene. Resources that are created once at startup are simply in
-/// `Renderer`.
-#[derive(Debug)]
-struct GpuResources {
-    /// Buffer for strip data
-    pub strips_buffer: Buffer,
-    /// Texture for alpha values
-    pub alphas_texture: Texture,
-    /// Bind group for rendering
-    pub render_bind_group: BindGroup,
-    /// Buffer for config data
-    pub config_buffer: Buffer,
-    // Bind groups for rendering with clip buffers
-    //pub clip_bind_groups: [BindGroup; 3],
-}
-
-/// GPU renderer for the hybrid rendering system
-///
-/// This struct contains GPU resources that are created once at startup and
-/// are never reallocated or rebuilt.
+/// Vello Hybrid's Renderer.
 #[derive(Debug)]
 pub struct Renderer {
-    /// Bind group layout for rendering
-    pub render_bind_group_layout: BindGroupLayout,
-    /// Pipeline for rendering
-    pub render_pipeline: RenderPipeline,
-    /// Bind group layout for clip draws
-    pub clip_bind_group_layout: BindGroupLayout,
-    /// Pipeline for rendering clip draws
-    pub clip_pipeline: RenderPipeline,
-    /// Clip temporary textures
-    pub clip_textures: [Texture; 2],
-    /// GPU resources for rendering (created during prepare)
-    resources: Option<GpuResources>,
-
-    /// Scratch buffer for staging alpha texture data.
-    alpha_data: Vec<u8>,
-
-    /// Dimensions of the rendering target
-    render_size: RenderSize,
+    programs: Programs,
+    scheduler: Scheduler,
 }
 
-/// Contains the data needed for rendering
-#[derive(Debug, Default)]
-pub struct RenderData {
-    /// GPU strips to be rendered
-    pub strips: Vec<GpuStrip>,
-    /// Alpha values used in rendering
-    pub alphas: Vec<u8>,
+impl Renderer {
+    /// Creates a new renderer.
+    pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
+        let slot_count = (device.limits().max_texture_dimension_2d / Tile::HEIGHT as u32) as usize;
+
+        Self {
+            programs: Programs::new(device, render_target_config, slot_count),
+            scheduler: Scheduler::new(slot_count),
+        }
+    }
+
+    /// Render `scene` into the provided command encoder.
+    ///
+    /// This method creates GPU resources as needed and schedules potentially multiple
+    /// render passes.
+    pub fn render(
+        &mut self,
+        scene: &Scene,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        render_size: &RenderSize,
+        view: &TextureView,
+    ) -> Result<(), RenderError> {
+        // For the time being, we upload the entire alpha buffer as one big chunk. As a future
+        // refinement, we could have a bounded alpha buffer, and break draws when the alpha
+        // buffer fills.
+        self.programs
+            .prepare(device, queue, &scene.alphas, render_size);
+        let mut junk = RendererJunk {
+            programs: &mut self.programs,
+            device,
+            queue,
+            encoder,
+            view,
+        };
+
+        self.scheduler.do_scene(&mut junk, scene)
+    }
+}
+
+/// Defines the GPU resources and pipelines for rendering.
+#[derive(Debug)]
+struct Programs {
+    /// Pipeline for rendering wide tile commands.
+    strip_pipeline: RenderPipeline,
+    /// Bind group layout for strip draws
+    strip_bind_group_layout: BindGroupLayout,
+
+    /// Pipeline for clearing slots in slot textures.
+    clear_pipeline: RenderPipeline,
+
+    /// GPU resources for rendering (created during prepare)
+    resources: GpuResources,
+    /// Dimensions of the rendering target
+    render_size: RenderSize,
+    /// Scratch buffer for staging alpha texture data.
+    alpha_data: Vec<u8>,
+}
+
+/// Contains all GPU resources needed for rendering
+#[derive(Debug)]
+struct GpuResources {
+    /// Buffer for [`GpuStrip`] data
+    strips_buffer: Buffer,
+    /// Texture for alpha values (used by both view and slot rendering)
+    alphas_texture: Texture,
+
+    /// Config buffer for rendering wide tile commands into the view texture.
+    view_config_buffer: Buffer,
+    /// Config buffer for rendering wide tile commands into a slot texture.
+    slot_config_buffer: Buffer,
+
+    /// Buffer for slot indices used in `clear_slots`
+    clear_slot_indices_buffer: Buffer,
+    // Bind groups for rendering with clip buffers
+    slot_bind_groups: [BindGroup; 3],
+    /// Slot texture views
+    slot_texture_views: [TextureView; 2],
+
+    /// Bind group for clear slots operation
+    clear_bind_group: BindGroup,
 }
 
 /// Configuration for the GPU renderer
@@ -112,6 +151,8 @@ pub struct Config {
     /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
     pub alphas_tex_width_bits: u32,
 }
+
+const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
 
 /// Represents a GPU strip for rendering
 #[repr(C)]
@@ -133,14 +174,18 @@ pub struct GpuStrip {
     pub rgba: u32,
 }
 
-/// A struct containing references to the many objects needed to get work
-/// scheduled onto the GPU.
-pub(crate) struct RendererJunk<'a> {
-    renderer: &'a mut Renderer,
-    device: &'a Device,
-    queue: &'a Queue,
-    encoder: &'a mut CommandEncoder,
-    view: &'a TextureView,
+/// Config for the clear slots pipeline
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+struct ClearSlotsConfig {
+    /// Width of a slot
+    pub slot_width: u32,
+    /// Height of a slot
+    pub slot_height: u32,
+    /// Total height of the texture
+    pub texture_height: u32,
+    /// Padding for 16-byte alignment
+    pub _padding: u32,
 }
 
 impl GpuStrip {
@@ -155,46 +200,11 @@ impl GpuStrip {
     }
 }
 
-impl Renderer {
-    /// Creates a new renderer
-    ///
-    /// The target parameter determines if we render to a window or headless
-    pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
-        let render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("../shaders/sparse_strip_renderer.wgsl").into(),
-            ),
-        });
-        let render_bind_group_layout =
+impl Programs {
+    fn new(device: &Device, render_target_config: &RenderTargetConfig, slot_count: usize) -> Self {
+        let strip_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Uint,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-            });
-        let clip_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
+                label: Some("Strip Bind Group Layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -228,120 +238,221 @@ impl Renderer {
                     },
                 ],
             });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&render_bind_group_layout],
-            push_constant_ranges: &[],
-        });
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &render_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: size_of::<GpuStrip>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &GpuStrip::vertex_attributes(),
+
+        // Create bind group layout for clearing slots
+        let clear_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Clear Slots Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 }],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &render_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: render_target_config.format,
-                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-        let clip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("../shaders/sparse_strip_clip.wgsl").into(),
-            ),
-        });
-        let clip_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&clip_bind_group_layout],
-            push_constant_ranges: &[],
-        });
-        let clip_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&clip_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &clip_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: size_of::<GpuStrip>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &GpuStrip::vertex_attributes(),
-                }],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &clip_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: render_target_config.format,
-                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-        let clip_textures = std::array::from_fn(|_| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("clip temp texture"),
-                size: wgpu::Extent3d {
-                    width: 256, // TODO: make configurable
-                    height: 1024,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            })
+            });
+
+        let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Strip Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/render_strips.wgsl").into()),
         });
 
+        let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Clear Slots Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/clear_slots.wgsl").into()),
+        });
+
+        let strip_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Strip Pipeline Layout"),
+                bind_group_layouts: &[&strip_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let clear_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Clear Slots Pipeline Layout"),
+                bind_group_layouts: &[&clear_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let strip_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Strip Pipeline"),
+            layout: Some(&strip_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &strip_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: size_of::<GpuStrip>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &GpuStrip::vertex_attributes(),
+                }],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &strip_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: render_target_config.format,
+                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Clear Slots Pipeline"),
+            layout: Some(&clear_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &clear_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: size_of::<u32>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &[wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Uint32,
+                        offset: 0,
+                        shader_location: 0,
+                    }],
+                }],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &clear_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: render_target_config.format,
+                    // No blending needed for clearing
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let slot_texture_views: [TextureView; 2] = core::array::from_fn(|_| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("slot temp texture"),
+                    size: wgpu::Extent3d {
+                        width: WideTile::WIDTH as u32,
+                        height: Tile::HEIGHT as u32 * slot_count as u32,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    // TODO: Is this correct or need it be RGBA8Unorm?
+                    format: render_target_config.format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        });
+
+        let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Clear Slots Config Buffer"),
+            contents: bytemuck::bytes_of(&ClearSlotsConfig {
+                slot_width: WideTile::WIDTH as u32,
+                slot_height: Tile::HEIGHT as u32,
+                texture_height: Tile::HEIGHT as u32 * slot_count as u32,
+                _padding: 0,
+            }),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let clear_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Clear Slots Bind Group"),
+            layout: &clear_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: clear_config_buffer.as_entire_binding(),
+            }],
+        });
+        let clear_slot_indices_buffer = Self::make_clear_slot_indices_buffer(
+            device,
+            slot_count as u64 * size_of::<u32>() as u64,
+        );
+
+        let slot_config_buffer = Self::make_config_buffer(
+            device,
+            &RenderSize {
+                width: WideTile::WIDTH as u32,
+                height: Tile::HEIGHT as u32 * slot_count as u32,
+            },
+            device.limits().max_texture_dimension_2d,
+        );
+
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+        let alpha_texture_height = 2;
+        let alphas_texture =
+            Self::make_alphas_texture(device, max_texture_dimension_2d, alpha_texture_height);
+        let alpha_data = vec![0; (max_texture_dimension_2d * alpha_texture_height * 16) as usize];
+        let view_config_buffer = Self::make_config_buffer(
+            device,
+            &RenderSize {
+                width: render_target_config.width,
+                height: render_target_config.height,
+            },
+            max_texture_dimension_2d,
+        );
+
+        let slot_bind_groups = Self::make_strip_bind_groups(
+            device,
+            &strip_bind_group_layout,
+            &alphas_texture,
+            &slot_config_buffer,
+            &view_config_buffer,
+            &slot_texture_views,
+        );
+
+        let resources = GpuResources {
+            strips_buffer: Self::make_strips_buffer(device, 0),
+            clear_slot_indices_buffer,
+            slot_texture_views,
+            slot_config_buffer,
+            slot_bind_groups,
+            clear_bind_group,
+            alphas_texture,
+            view_config_buffer,
+        };
+
         Self {
-            render_bind_group_layout,
-            render_pipeline,
-            clip_bind_group_layout,
-            clip_pipeline,
-            resources: None,
-            alpha_data: Vec::new(),
+            strip_pipeline,
+            strip_bind_group_layout,
+            resources,
+            alpha_data,
             render_size: RenderSize {
                 width: render_target_config.width,
                 height: render_target_config.height,
             },
-            clip_textures,
+
+            clear_pipeline,
         }
     }
 
-    fn make_strips_buffer(&self, device: &Device, required_strips_size: u64) -> Buffer {
+    fn make_strips_buffer(device: &Device, required_strips_size: u64) -> Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Strips Buffer"),
             size: required_strips_size,
@@ -350,8 +461,16 @@ impl Renderer {
         })
     }
 
+    fn make_clear_slot_indices_buffer(device: &Device, required_size: u64) -> Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Slot Indices Buffer"),
+            size: required_size,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    }
+
     fn make_config_buffer(
-        &self,
         device: &Device,
         render_size: &RenderSize,
         max_texture_dimension_2d: u32,
@@ -369,7 +488,6 @@ impl Renderer {
     }
 
     fn make_alphas_texture(
-        &self,
         device: &Device,
         max_texture_dimension_2d: u32,
         alpha_texture_height: u32,
@@ -390,17 +508,51 @@ impl Renderer {
         })
     }
 
-    fn make_render_bind_group(
-        &self,
+    fn make_strip_bind_groups(
         device: &Device,
+        strip_bind_group_layout: &BindGroupLayout,
+        alphas_texture: &Texture,
+        strip_config_buffer: &Buffer,
+        config_buffer: &Buffer,
+        strip_texture_views: &[TextureView],
+    ) -> [BindGroup; 3] {
+        [
+            Self::make_strip_bind_group(
+                device,
+                strip_bind_group_layout,
+                alphas_texture,
+                strip_config_buffer,
+                &strip_texture_views[1],
+            ),
+            Self::make_strip_bind_group(
+                device,
+                strip_bind_group_layout,
+                alphas_texture,
+                strip_config_buffer,
+                &strip_texture_views[0],
+            ),
+            Self::make_strip_bind_group(
+                device,
+                strip_bind_group_layout,
+                alphas_texture,
+                config_buffer,
+                &strip_texture_views[1],
+            ),
+        ]
+    }
+
+    fn make_strip_bind_group(
+        device: &Device,
+        strip_bind_group_layout: &BindGroupLayout,
         alphas_texture: &Texture,
         config_buffer: &Buffer,
+        strip_texture_view: &TextureView,
     ) -> BindGroup {
         let alphas_texture_view =
             alphas_texture.create_view(&wgpu::TextureViewDescriptor::default());
         device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Render Bind Group"),
-            layout: &self.render_bind_group_layout,
+            label: Some("Strip Bind Group"),
+            layout: strip_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -410,122 +562,93 @@ impl Renderer {
                     binding: 1,
                     resource: config_buffer.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(strip_texture_view),
+                },
             ],
         })
     }
 
-    /// Prepare the GPU buffers for rendering, given alphas
+    /// Prepare GPU buffers for rendering, given alphas.
     ///
-    /// Does not guarantee that the strip buffer is big enough
-    fn prepare_alphas(
+    /// Specifically, updates the alpha texture with `alphas` and the config buffer when
+    /// the rendering size changes.
+    fn prepare(
         &mut self,
         device: &Device,
         queue: &Queue,
         alphas: &[u8],
         new_render_size: &RenderSize,
-        est_strip_count: usize,
     ) {
-        let required_strips_size = size_of::<GpuStrip>() as u64 * est_strip_count as u64;
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        if self.resources.is_none() {
-            let strips_buffer = self.make_strips_buffer(device, required_strips_size);
-            let alpha_len = alphas.len();
-            // There are 16 1-byte alpha values per texel.
-            let alpha_texture_height =
-                (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 16);
-
-            assert!(
-                alpha_texture_height <= max_texture_dimension_2d,
-                "Alpha texture height exceeds max texture dimensions"
-            );
-
-            // Resize the alpha texture staging buffer.
-            self.alpha_data.resize(
-                (max_texture_dimension_2d * alpha_texture_height * 16) as usize,
-                0,
-            );
-            // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
-            let alphas_texture =
-                self.make_alphas_texture(device, max_texture_dimension_2d, alpha_texture_height);
-            let config_buffer =
-                self.make_config_buffer(device, new_render_size, max_texture_dimension_2d);
-
-            let render_bind_group =
-                self.make_render_bind_group(device, &alphas_texture, &config_buffer);
-            self.resources = Some(GpuResources {
-                strips_buffer,
-                alphas_texture,
-                render_bind_group,
-                config_buffer,
-            });
-        } else {
-            // Update existing resources as needed
-            let alpha_len = alphas.len();
-            // There are 16 1-byte alpha values per texel.
-            let required_alpha_height =
-                (u32::try_from(alpha_len).unwrap()).div_ceil(max_texture_dimension_2d * 16);
-            let required_alpha_size = max_texture_dimension_2d * required_alpha_height * 16;
-
+        let alpha_width = device.limits().max_texture_dimension_2d;
+        // Update the alpha texture size if needed
+        {
+            let required_alpha_height = u32::try_from(alphas.len())
+                .unwrap()
+                // There are 16 1-byte alpha values per texel.
+                .div_ceil(alpha_width * 16);
+            let required_alpha_size = alpha_width * required_alpha_height * 16;
             let current_alpha_size = {
-                let alphas_texture = &self.resources.as_ref().unwrap().alphas_texture;
+                let alphas_texture = &self.resources.alphas_texture;
                 alphas_texture.width() * alphas_texture.height() * 16
             };
             if required_alpha_size > current_alpha_size {
+                // We need to resize the alpha texture to fit the new alpha data.
                 assert!(
-                    required_alpha_height <= max_texture_dimension_2d,
+                    required_alpha_height <= alpha_width,
                     "Alpha texture height exceeds max texture dimensions"
                 );
 
                 // Resize the alpha texture staging buffer.
-                self.alpha_data.resize(
-                    (max_texture_dimension_2d * required_alpha_height * 16) as usize,
-                    0,
-                );
+                self.alpha_data.resize(required_alpha_size as usize, 0);
                 // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
-                let alphas_texture = self.make_alphas_texture(
+                let alphas_texture =
+                    Self::make_alphas_texture(device, alpha_width, required_alpha_height);
+                self.resources.alphas_texture = alphas_texture;
+
+                // Since the alpha texture has changed, we need to update the clip bind groups.
+                self.resources.slot_bind_groups = Self::make_strip_bind_groups(
                     device,
-                    max_texture_dimension_2d,
-                    required_alpha_height,
+                    &self.strip_bind_group_layout,
+                    &self.resources.alphas_texture,
+                    &self.resources.slot_config_buffer,
+                    &self.resources.view_config_buffer,
+                    &self.resources.slot_texture_views,
                 );
-                let config_buffer = &self.resources.as_ref().unwrap().config_buffer;
-                let render_bind_group =
-                    self.make_render_bind_group(device, &alphas_texture, config_buffer);
-                let resources = self.resources.as_mut().unwrap();
-                resources.alphas_texture = alphas_texture;
-                resources.render_bind_group = render_bind_group;
             }
         }
 
-        // Resources have been created by now.
-        let resources = self.resources.as_ref().unwrap();
-
         // Update config buffer if dimensions changed.
-        // We don't need to initialize a new config buffer because it's fixed size (uniform buffer).
         if self.render_size != *new_render_size {
             let config = Config {
                 width: new_render_size.width,
                 height: new_render_size.height,
                 strip_height: Tile::HEIGHT.into(),
-                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                alphas_tex_width_bits: alpha_width.trailing_zeros(),
             };
-            queue.write_buffer(&resources.config_buffer, 0, bytemuck::bytes_of(&config));
+            let mut buffer = queue
+                .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
+                .expect("Buffer only ever holds `Config`");
+            buffer.copy_from_slice(bytemuck::bytes_of(&config));
+
             self.render_size = new_render_size.clone();
         }
 
         // Prepare alpha data for the texture with 16 1-byte alpha values per texel (4 per channel)
-        let texture_width = resources.alphas_texture.width();
-        let texture_height = resources.alphas_texture.height();
-        assert!(
+        let texture_width = self.resources.alphas_texture.width();
+        let texture_height = self.resources.alphas_texture.height();
+        debug_assert!(
             alphas.len() <= (texture_width * texture_height * 16) as usize,
             "Alpha texture dimensions are too small to fit the alpha data"
         );
+
         // After this copy to `self.alpha_data`, there may be stale trailing alpha values. These
         // are not sampled, so can be left as-is.
         self.alpha_data[0..alphas.len()].copy_from_slice(alphas);
-
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &resources.alphas_texture,
+                texture: &self.resources.alphas_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -545,111 +668,56 @@ impl Renderer {
         );
     }
 
-    /// Upload the strip data
+    /// Upload the strip data by appending to `self.resources.strips_buffer`.
     fn upload_strips(&mut self, device: &Device, queue: &Queue, strips: &[GpuStrip]) {
-        let required_strips_size = size_of_val(strips) as u64;
-
-        if required_strips_size > self.resources.as_ref().unwrap().strips_buffer.size() {
-            self.resources.as_mut().unwrap().strips_buffer =
-                self.make_strips_buffer(device, required_strips_size);
+        if strips.is_empty() {
+            return;
         }
 
-        // TODO: Explore using `write_buffer_with` to avoid copying the data twice
-        queue.write_buffer(
-            &self.resources.as_ref().unwrap().strips_buffer,
-            0,
-            bytemuck::cast_slice(strips),
-        );
-    }
-
-    /// Prepare the GPU buffers for rendering
-    pub fn prepare(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-        render_data: &RenderData,
-        new_render_size: &RenderSize,
-    ) {
-        self.prepare_alphas(
-            device,
-            queue,
-            &render_data.alphas,
-            new_render_size,
-            render_data.strips.len(),
-        );
-        self.upload_strips(device, queue, &render_data.strips);
-    }
-
-    /// Render `scene` into the provided render pass.
-    ///
-    /// You must call [`prepare`](Self::prepare) with this scene before
-    /// calling `render`.
-    /// The provided pass can be rendering to a surface, or to a "off-screen" buffer.
-    pub fn render(&mut self, render_data: &RenderData, render_pass: &mut RenderPass<'_>) {
-        // TODO: Consider API that forces the user to call `prepare` before `render`.
-        // For example, `prepare` could return some struct that is consumed by `render`.
-        let resources = self
-            .resources
-            .as_ref()
-            .expect("`prepare` should be called before `render`");
-        render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, &resources.render_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, resources.strips_buffer.slice(..));
-        let strips_to_draw = render_data.strips.len();
-        render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());
-    }
-
-    /// Render `scene` into the provided command encoder.
-    ///
-    /// This method creates GPU resources as needed, and schedules potentially multiple
-    /// render passes.
-    pub fn render2(
-        &mut self,
-        scene: &Scene,
-        device: &Device,
-        queue: &Queue,
-        encoder: &mut CommandEncoder,
-        render_size: &RenderSize,
-        view: &TextureView,
-    ) {
-        let render_data = scene.prepare_render_data();
-        // For the time being, we upload the entire alpha buffer as one big chunk. As a future
-        // refinement, we could have a bounded alpha buffer, and break draws when the alpha
-        // buffer fills.
-        self.prepare_alphas(
-            device,
-            queue,
-            &scene.alphas,
-            render_size,
-            render_data.strips.len(),
-        );
-        let mut junk = RendererJunk {
-            renderer: self,
-            device,
-            queue,
-            encoder,
-            view,
-        };
-        // TODO: make this configurable, and make it match the allocation
-        let n_slots = 1024;
-        let mut schedule = Schedule::new(n_slots);
-        schedule.do_scene(&mut junk, scene);
+        let required_strips_size = size_of_val(strips) as u64;
+        self.resources.strips_buffer = Self::make_strips_buffer(device, required_strips_size);
+        // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
+        let mut buffer = queue
+            .write_buffer_with(
+                &self.resources.strips_buffer,
+                0,
+                required_strips_size.try_into().unwrap(),
+            )
+            .expect("Capacity handled in creation");
+        buffer.copy_from_slice(bytemuck::cast_slice(strips));
     }
 }
 
+/// A struct containing references to the many objects needed to get work
+/// scheduled onto the GPU.
+pub(crate) struct RendererJunk<'a> {
+    programs: &'a mut Programs,
+    device: &'a Device,
+    queue: &'a Queue,
+    encoder: &'a mut CommandEncoder,
+    view: &'a TextureView,
+}
+
 impl RendererJunk<'_> {
-    pub(crate) fn do_render_pass(&mut self, strips: &[GpuStrip], round: usize, _ix: usize) {
-        self.renderer.upload_strips(self.device, self.queue, strips);
-        let load = if round == 0 {
-            wgpu::LoadOp::Clear(wgpu::Color::BLACK)
-        } else {
-            wgpu::LoadOp::Load
-        };
+    /// Render the strips to either the view or a slot texture (depending on `ix`).
+    pub(crate) fn do_strip_render_pass(
+        &mut self,
+        strips: &[GpuStrip],
+        ix: usize,
+        load: wgpu::LoadOp<wgpu::Color>,
+    ) {
+        // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
+        // approach would be to re-use buffers or slices of a larger buffer.
+        self.programs.upload_strips(self.device, self.queue, strips);
+
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("render to texture pass"),
+            label: Some("Render to Texture Pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
-                // TODO: view is clip buffer[ix] for ix != 2
-                view: self.view,
+                view: if ix == 2 {
+                    self.view
+                } else {
+                    &self.programs.resources.slot_texture_views[ix]
+                },
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load,
@@ -660,15 +728,58 @@ impl RendererJunk<'_> {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        let resources = self
-            .renderer
-            .resources
-            .as_ref()
-            .expect("`prepare` should be called before `render`");
-        render_pass.set_pipeline(&self.renderer.render_pipeline);
-        render_pass.set_bind_group(0, &resources.render_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, resources.strips_buffer.slice(..));
+        render_pass.set_pipeline(&self.programs.strip_pipeline);
+        render_pass.set_bind_group(0, &self.programs.resources.slot_bind_groups[ix], &[]);
+        render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
+
         let strips_to_draw = strips.len();
         render_pass.draw(0..4, 0..u32::try_from(strips_to_draw).unwrap());
+    }
+
+    /// Clear specific slots from a slot texture.
+    pub(crate) fn do_clear_slots_render_pass(&mut self, ix: usize, slot_indices: &[u32]) {
+        if slot_indices.is_empty() {
+            return;
+        }
+
+        let resources = &mut self.programs.resources;
+        let size = mem::size_of_val(slot_indices) as u64;
+        // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
+        // approach would be to re-use buffers or slices of a larger buffer.
+        resources.clear_slot_indices_buffer =
+            Programs::make_clear_slot_indices_buffer(self.device, size);
+        // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
+        let mut buffer = self
+            .queue
+            .write_buffer_with(
+                &resources.clear_slot_indices_buffer,
+                0,
+                size.try_into().unwrap(),
+            )
+            .expect("Capacity handled in creation");
+        buffer.copy_from_slice(bytemuck::cast_slice(slot_indices));
+
+        {
+            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Clear Slots Render Pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &resources.slot_texture_views[ix],
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        // Don't clear the entire texture, just specific slots
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.programs.clear_pipeline);
+            render_pass.set_bind_group(0, &resources.clear_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, resources.clear_slot_indices_buffer.slice(..));
+            render_pass.draw(0..4, 0..slot_indices.len() as u32);
+        }
     }
 }

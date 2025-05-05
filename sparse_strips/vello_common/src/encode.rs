@@ -3,15 +3,21 @@
 
 //! Paints for drawing shapes.
 
-use crate::color::Srgb;
+use crate::blurred_rounded_rect::BlurredRoundedRectangle;
 use crate::color::palette::css::BLACK;
+use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
+use crate::encode::private::Sealed;
 use crate::kurbo::{Affine, Point, Vec2};
-use crate::peniko::{ColorStop, Extend, GradientKind};
+use crate::math::compute_erf7;
+use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
+use crate::pixmap::Pixmap;
+use alloc::borrow::Cow;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::f32::consts::PI;
+use core::iter;
 use smallvec::SmallVec;
-use std::borrow::Cow;
-use std::f32::consts::PI;
-use std::iter;
-use vello_api::paint::{Gradient, IndexedPaint, Paint};
+use vello_api::paint::{Image, IndexedPaint, Paint, PremulColor};
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
@@ -20,12 +26,12 @@ const NUDGE_VAL: f32 = 1.0e-7;
 pub trait EncodeExt: private::Sealed {
     /// Encode the gradient and push it into a vector of encoded paints, returning
     /// the corresponding paint in the process. This will also validate the gradient.
-    fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint;
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint;
 }
 
 impl EncodeExt for Gradient {
     /// Encode the gradient into a paint.
-    fn encode_into(&self, paints: &mut Vec<EncodedPaint>) -> Paint {
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
         // First make sure that the gradient is valid and not degenerate.
         if let Err(paint) = validate(self) {
             return paint;
@@ -53,7 +59,7 @@ impl EncodeExt for Gradient {
 
                 // For simplicity, ensure that the gradient line always goes from left to right.
                 if p0.x >= p1.x {
-                    std::mem::swap(&mut p0, &mut p1);
+                    core::mem::swap(&mut p0, &mut p1);
 
                     stops = Cow::Owned(
                         stops
@@ -185,7 +191,14 @@ impl EncodeExt for Gradient {
             }
         };
 
-        let ranges = encode_stops(&stops, clamp_range.0, clamp_range.1, pad);
+        let ranges = encode_stops(
+            &stops,
+            clamp_range.0,
+            clamp_range.1,
+            pad,
+            self.interpolation_cs,
+            self.hue_direction,
+        );
 
         // This represents the transform that needs to be applied to the starting point of a
         // command before starting with the rendering.
@@ -194,8 +207,8 @@ impl EncodeExt for Gradient {
         // adding 0.5.
         // Finally, we need to apply the _inverse_ transform to the point so that we can account
         // for the transform on the gradient.
-        let transform = Affine::translate((x_offset as f64 + 0.5, y_offset as f64 + 0.5))
-            * self.transform.inverse();
+        let transform =
+            Affine::translate((x_offset as f64 + 0.5, y_offset as f64 + 0.5)) * transform.inverse();
 
         // One possible approach of calculating the positions would be to apply the above
         // transform to _each_ pixel that we render in the wide tile. However, a much better
@@ -209,20 +222,7 @@ impl EncodeExt for Gradient {
         // the above approach of incrementally updating the position, we need to calculate
         // how the x/y unit vectors are affected by the transform, and then use this as the
         // step delta for a step in the x/y direction.
-        let (x_advance, y_advance) = {
-            let scale_skew_transform = {
-                let c = transform.as_coeffs();
-                Affine::new([c[0], c[1], c[2], c[3], 0.0, 0.0])
-            };
-
-            let x_advance = scale_skew_transform * Point::new(1.0, 0.0);
-            let y_advance = scale_skew_transform * Point::new(0.0, 1.0);
-
-            (
-                Vec2::new(x_advance.x, x_advance.y),
-                Vec2::new(y_advance.x, y_advance.y),
-            )
-        };
+        let (x_advance, y_advance) = x_y_advances(&transform);
 
         let encoded = EncodedGradient {
             kind,
@@ -352,22 +352,42 @@ fn apply_reflect(stops: &[ColorStop]) -> SmallVec<[ColorStop; 4]> {
 }
 
 /// Encode all stops into a sequence of ranges.
-fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<GradientRange> {
-    let create_range = |left_stop: &ColorStop, right_stop: &ColorStop| {
+fn encode_stops(
+    stops: &[ColorStop],
+    start: f32,
+    end: f32,
+    pad: bool,
+    cs: ColorSpaceTag,
+    hue_dir: HueDirection,
+) -> Vec<GradientRange> {
+    struct EncodedColorStop {
+        offset: f32,
+        color: vello_api::color::PremulColor<Srgb>,
+    }
+
+    // Create additional (SRGB-encoded) stops in-between to approximate the color space we want to
+    // interpolate in.
+    let interpolated_stops = stops
+        .windows(2)
+        .flat_map(|s| {
+            let left_stop = &s[0];
+            let right_stop = &s[1];
+
+            let interpolated =
+                gradient::<Srgb>(left_stop.color, right_stop.color, cs, hue_dir, 0.01);
+
+            interpolated.map(|st| EncodedColorStop {
+                offset: left_stop.offset + (right_stop.offset - left_stop.offset) * st.0,
+                color: st.1,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let create_range = |left_stop: &EncodedColorStop, right_stop: &EncodedColorStop| {
         let x0 = start + (end - start) * left_stop.offset;
         let x1 = start + (end - start) * right_stop.offset;
-        let c0 = left_stop
-            .color
-            .to_alpha_color::<Srgb>()
-            .premultiply()
-            .to_rgba8()
-            .to_u8_array();
-        let c1 = right_stop
-            .color
-            .to_alpha_color::<Srgb>()
-            .premultiply()
-            .to_rgba8()
-            .to_u8_array();
+        let c0 = left_stop.color.to_rgba8().to_u8_array();
+        let c1 = right_stop.color.to_rgba8().to_u8_array();
 
         // Given two positions x0 and x1 as well as two corresponding colors c0 and c1,
         // the delta that needs to be applied to c0 to calculate the color of x between x0 and x1
@@ -392,7 +412,9 @@ fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<Gra
         }
     };
 
-    let stop_ranges = stops.windows(2).map(|s| {
+    // Note: this could use `Iterator::map_windows` once stabilized, meaning `interpolated_stops`
+    // no longer needs to be collected.
+    let stop_ranges = interpolated_stops.windows(2).map(|s| {
         let left_stop = &s[0];
         let right_stop = &s[1];
 
@@ -403,19 +425,16 @@ fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<Gra
         // We handle padding by inserting dummy stops in the beginning and end with a very big
         // range.
         let left_range = iter::once({
-            let first_stop = stops.first().unwrap();
+            let first_stop = interpolated_stops.first().unwrap();
             let mut encoded_range = create_range(first_stop, first_stop);
             encoded_range.x0 = f32::MIN;
-
             encoded_range
         });
 
         let right_range = iter::once({
-            let last_stop = stops.last().unwrap();
-
+            let last_stop = interpolated_stops.last().unwrap();
             let mut encoded_range = create_range(last_stop, last_stop);
             encoded_range.x1 = f32::MAX;
-
             encoded_range
         });
 
@@ -425,17 +444,90 @@ fn encode_stops(stops: &[ColorStop], start: f32, end: f32, pad: bool) -> Vec<Gra
     }
 }
 
+fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
+    let scale_skew_transform = {
+        let c = transform.as_coeffs();
+        Affine::new([c[0], c[1], c[2], c[3], 0.0, 0.0])
+    };
+
+    let x_advance = scale_skew_transform * Point::new(1.0, 0.0);
+    let y_advance = scale_skew_transform * Point::new(0.0, 1.0);
+
+    (
+        Vec2::new(x_advance.x, x_advance.y),
+        Vec2::new(y_advance.x, y_advance.y),
+    )
+}
+
+impl Sealed for Image {}
+
+impl EncodeExt for Image {
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
+        let idx = paints.len();
+
+        let transform = transform.inverse();
+        // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
+        // non-opaque images in the first place..
+        let has_opacities = self.pixmap.data().chunks(4).any(|c| c[3] != 255);
+
+        let (x_advance, y_advance) = x_y_advances(&transform);
+
+        let encoded = EncodedImage {
+            pixmap: self.pixmap.clone(),
+            extends: (self.x_extend, self.y_extend),
+            quality: self.quality,
+            has_opacities,
+            transform,
+            x_advance,
+            y_advance,
+        };
+
+        paints.push(EncodedPaint::Image(encoded));
+
+        Paint::Indexed(IndexedPaint::new(idx))
+    }
+}
+
 /// An encoded paint.
 #[derive(Debug)]
 pub enum EncodedPaint {
     /// An encoded gradient.
     Gradient(EncodedGradient),
+    /// An encoded image.
+    Image(EncodedImage),
+    /// A blurred, rounded rectangle.
+    BlurredRoundedRect(EncodedBlurredRoundedRectangle),
 }
 
 impl From<EncodedGradient> for EncodedPaint {
     fn from(value: EncodedGradient) -> Self {
         Self::Gradient(value)
     }
+}
+
+impl From<EncodedBlurredRoundedRectangle> for EncodedPaint {
+    fn from(value: EncodedBlurredRoundedRectangle) -> Self {
+        Self::BlurredRoundedRect(value)
+    }
+}
+
+/// An encoded image.
+#[derive(Debug)]
+pub struct EncodedImage {
+    /// The underlying pixmap of the image.
+    pub pixmap: Arc<Pixmap>,
+    /// The extends in the horizontal and vertical direction.
+    pub extends: (Extend, Extend),
+    /// The rendering quality of the image.
+    pub quality: ImageQuality,
+    /// Whether the image has opacities.
+    pub has_opacities: bool,
+    /// A transform to apply to the image.
+    pub transform: Affine,
+    /// The advance in image coordinates for one step in the x direction.
+    pub x_advance: Vec2,
+    /// The advance in image coordinates for one step in the y direction.
+    pub y_advance: Vec2,
 }
 
 /// Computed properties of a linear gradient.
@@ -619,13 +711,118 @@ impl GradientLike for RadialKind {
     }
 }
 
-mod private {
-    use vello_api::paint::Gradient;
+/// An encoded blurred, rounded rectangle.
+#[derive(Debug)]
+pub struct EncodedBlurredRoundedRectangle {
+    /// An component for computing the blur effect.
+    pub exponent: f32,
+    /// An component for computing the blur effect.
+    pub recip_exponent: f32,
+    /// An component for computing the blur effect.
+    pub scale: f32,
+    /// An component for computing the blur effect.
+    pub std_dev_inv: f32,
+    /// An component for computing the blur effect.
+    pub min_edge: f32,
+    /// An component for computing the blur effect.
+    pub w: f32,
+    /// An component for computing the blur effect.
+    pub h: f32,
+    /// An component for computing the blur effect.
+    pub width: f32,
+    /// An component for computing the blur effect.
+    pub height: f32,
+    /// An component for computing the blur effect.
+    pub r1: f32,
+    /// The base color for the blurred rectangle.
+    pub color: PremulColor,
+    /// A transform that needs to be applied to the position of the first processed pixel.
+    pub transform: Affine,
+    /// How much to advance into the x/y direction for one step in the x direction.
+    pub x_advance: Vec2,
+    /// How much to advance into the x/y direction for one step in the y direction.
+    pub y_advance: Vec2,
+}
 
+impl Sealed for BlurredRoundedRectangle {}
+
+impl EncodeExt for BlurredRoundedRectangle {
+    fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
+        let rect = {
+            // Ensure rectangle has positive width/height.
+            let mut rect = self.rect;
+
+            if self.rect.x0 > self.rect.x1 {
+                core::mem::swap(&mut rect.x0, &mut rect.x1);
+            }
+
+            if self.rect.y0 > self.rect.y1 {
+                core::mem::swap(&mut rect.x0, &mut rect.x1);
+            }
+
+            rect
+        };
+
+        let transform = Affine::translate((-rect.x0, -rect.y0)) * transform.inverse();
+
+        let (x_advance, y_advance) = x_y_advances(&transform);
+
+        let width = rect.width() as f32;
+        let height = rect.height() as f32;
+        let radius = self.radius.min(0.5 * width.min(height));
+
+        // To avoid divide by 0; potentially should be a bigger number for antialiasing.
+        let std_dev = self.std_dev.max(1e-6);
+
+        let min_edge = width.min(height);
+        let rmax = 0.5 * min_edge;
+        let r0 = radius.hypot(std_dev * 1.15).min(rmax);
+        let r1 = radius.hypot(std_dev * 2.0).min(rmax);
+
+        let exponent = 2.0 * r1 / r0;
+
+        let std_dev_inv = std_dev.recip();
+
+        // Pull in long end (make less eccentric).
+        let delta = 1.25
+            * std_dev
+            * ((-(0.5 * std_dev_inv * width).powi(2)).exp()
+                - (-(0.5 * std_dev_inv * height).powi(2)).exp());
+        let w = width + delta.min(0.0);
+        let h = height - delta.max(0.0);
+
+        let recip_exponent = exponent.recip();
+        let scale = 0.5 * compute_erf7(std_dev_inv * 0.5 * (w.max(h) - 0.5 * radius));
+
+        let encoded = EncodedBlurredRoundedRectangle {
+            exponent,
+            recip_exponent,
+            width,
+            height,
+            scale,
+            r1,
+            std_dev_inv,
+            min_edge,
+            color: PremulColor::new(self.color),
+            w,
+            h,
+            transform,
+            x_advance,
+            y_advance,
+        };
+
+        let idx = paints.len();
+        paints.push(encoded.into());
+
+        Paint::Indexed(IndexedPaint::new(idx))
+    }
+}
+
+mod private {
     #[allow(unnameable_types, reason = "We make it unnameable on purpose")]
     pub trait Sealed {}
 
-    impl Sealed for Gradient {}
+    impl Sealed for super::Gradient {}
 }
 
 #[cfg(test)]
@@ -633,10 +830,11 @@ mod tests {
     use super::{EncodeExt, Gradient};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
-    use crate::kurbo::{Affine, Point};
-    use crate::peniko::{ColorStop, GradientKind};
-    use crate::peniko::{ColorStops, Extend};
+    use crate::kurbo::Point;
+    use crate::peniko::{ColorStop, ColorStops, GradientKind};
+    use alloc::vec;
     use smallvec::smallvec;
+    use vello_api::kurbo::Affine;
 
     #[test]
     fn gradient_missing_stops() {
@@ -647,12 +845,13 @@ mod tests {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
             },
-            stops: ColorStops(smallvec![]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), BLACK.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            BLACK.into()
+        );
     }
 
     #[test]
@@ -668,12 +867,14 @@ mod tests {
                 offset: 0.0,
                 color: DynamicColor::from_alpha_color(GREEN),
             }]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
         // Should return the color of the first stop.
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            GREEN.into()
+        );
     }
 
     #[test]
@@ -695,11 +896,13 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            GREEN.into()
+        );
     }
 
     #[test]
@@ -721,11 +924,13 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            GREEN.into()
+        );
     }
 
     #[test]
@@ -747,11 +952,13 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            GREEN.into()
+        );
     }
 
     #[test]
@@ -774,11 +981,13 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            GREEN.into()
+        );
     }
 
     #[test]
@@ -802,10 +1011,12 @@ mod tests {
                     color: DynamicColor::from_alpha_color(BLUE),
                 },
             ]),
-            transform: Affine::IDENTITY,
-            extend: Extend::Pad,
+            ..Default::default()
         };
 
-        assert_eq!(gradient.encode_into(&mut buf), GREEN.into());
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY),
+            GREEN.into()
+        );
     }
 }

@@ -7,10 +7,13 @@
 
 #![forbid(unsafe_code)]
 #![no_std]
+extern crate alloc;
 
 pub use peniko;
 pub use peniko::color;
 pub use peniko::kurbo;
 pub mod execute;
 pub mod glyph;
+pub mod mask;
 pub mod paint;
+pub mod pixmap;
