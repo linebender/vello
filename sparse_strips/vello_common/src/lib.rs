@@ -26,3 +26,10 @@ pub mod strip;
 pub mod tile;
 
 pub use vello_api::*;
+
+#[derive(Copy, Clone, Debug, Default)]
+pub enum RenderMode {
+    #[default]
+    OptimizeSpeed,
+    OptimizeQuality,
+}

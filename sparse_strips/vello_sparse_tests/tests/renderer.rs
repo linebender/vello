@@ -6,6 +6,7 @@ use vello_api::mask::Mask;
 use vello_api::paint::PaintType;
 use vello_api::peniko::{BlendMode, Fill, Font};
 use vello_api::pixmap::Pixmap;
+use vello_common::RenderMode;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_cpu::RenderContext;
 use vello_hybrid::Scene;
@@ -36,7 +37,7 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn set_paint_transform(&mut self, affine: Affine);
     fn set_fill_rule(&mut self, fill_rule: Fill);
     fn set_transform(&mut self, transform: Affine);
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap);
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, render_mode: RenderMode);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
 }
@@ -120,8 +121,8 @@ impl Renderer for RenderContext {
         Self::set_transform(self, transform);
     }
 
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        Self::render_to_pixmap(self, pixmap);
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, render_mode: RenderMode) {
+        Self::render_to_pixmap(self, pixmap, render_mode);
     }
 
     fn width(&self) -> u16 {
@@ -217,7 +218,7 @@ impl Renderer for Scene {
         Self::set_transform(self, transform);
     }
 
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
         let width = self.width();
         let height = self.height();
 

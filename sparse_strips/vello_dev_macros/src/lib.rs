@@ -12,6 +12,7 @@
 // than 1. For example, if the target pixel is (233, 43, 64, 100), then permissible
 // values are (232, 43, 65, 101) or (233, 42, 64, 100), but not (231, 43, 64, 100).
 const DEFAULT_CPU_U8_TOLERANCE: u8 = 0;
+const DEFAULT_CPU_F32_TOLERANCE: u8 = 2;
 const DEFAULT_HYBRID_TOLERANCE: u8 = 1;
 
 use proc_macro::TokenStream;
@@ -19,6 +20,7 @@ use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Expr, Ident, ItemFn, Token, parse_macro_input};
+use vello_common::RenderMode;
 
 #[derive(Debug)]
 enum Attribute {
@@ -126,6 +128,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let input_fn_name = input_fn.sig.ident.clone();
     let u8_fn_name = Ident::new(&format!("{}_cpu_u8", input_fn_name), input_fn_name.span());
+    let f32_fn_name = Ident::new(&format!("{}_cpu_f32", input_fn_name), input_fn_name.span());
     let hybrid_fn_name = Ident::new(&format!("{}_hybrid", input_fn_name), input_fn_name.span());
 
     // TODO: Tests with the same names in different modules can clash, see
@@ -134,12 +137,13 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let input_fn_name_str = input_fn_name.to_string();
     let u8_fn_name_str = u8_fn_name.to_string();
+    let f32_fn_name_str = f32_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
 
     let Arguments {
         width,
         height,
-        mut cpu_tolerance,
+        cpu_tolerance,
         mut hybrid_tolerance,
         transparent,
         mut skip_cpu,
@@ -147,6 +151,10 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         ignore_reason,
         no_ref,
     } = parse_args(&attrs);
+
+    let cpu_u8_tolerance = cpu_tolerance + DEFAULT_CPU_U8_TOLERANCE;
+    let cpu_f32_tolerance = cpu_tolerance + DEFAULT_CPU_F32_TOLERANCE;
+    hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
 
     // These tests currently don't work with `vello_hybrid`.
     skip_hybrid |= {
@@ -191,11 +199,24 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         empty_snippet.clone()
     };
 
-    cpu_tolerance += DEFAULT_CPU_U8_TOLERANCE;
-    hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
-
     let expanded = quote! {
         #input_fn
+
+        #ignore_cpu
+        #[test]
+        fn #f32_fn_name() {
+            use crate::util::{
+                check_ref, get_ctx
+            };
+            use vello_cpu::RenderContext;
+            use vello_common::RenderMode;
+
+            let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
+            #input_fn_name(&mut ctx);
+            if !#no_ref {
+                check_ref(&ctx, #input_fn_name_str, #f32_fn_name_str, #cpu_f32_tolerance, false, RenderMode::OptimizeQuality);
+            }
+        }
 
         #ignore_cpu
         #[test]
@@ -204,11 +225,12 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
                 check_ref, get_ctx
             };
             use vello_cpu::RenderContext;
+            use vello_common::RenderMode;
 
             let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #u8_fn_name_str, #cpu_tolerance, true);
+                check_ref(&ctx, #input_fn_name_str, #u8_fn_name_str, #cpu_u8_tolerance, true, RenderMode::OptimizeSpeed);
             }
         }
 
@@ -219,11 +241,12 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
                 check_ref, get_ctx
             };
             use vello_hybrid::Scene;
+            use vello_common::RenderMode;
 
             let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false);
+                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed);
             }
         }
     };

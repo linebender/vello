@@ -4,6 +4,7 @@
 use crate::renderer::Renderer;
 use smallvec::smallvec;
 use vello_api::peniko::Gradient;
+use vello_common::RenderMode;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
 use vello_common::kurbo::{Point, Rect};
@@ -40,7 +41,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
 
     mask_ctx.set_paint(grad);
     mask_ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
-    mask_ctx.render_to_pixmap(&mut mask_pix);
+    mask_ctx.render_to_pixmap(&mut mask_pix, RenderMode::OptimizeSpeed);
 
     if alpha_mask {
         Mask::new_alpha(&mask_pix)

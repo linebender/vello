@@ -13,6 +13,7 @@ use std::cmp::max;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
+use vello_common::RenderMode;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::glyph::Glyph;
@@ -39,9 +40,9 @@ pub(crate) fn get_ctx<T: Renderer>(width: u16, height: u16, transparent: bool) -
     ctx
 }
 
-pub(crate) fn render_pixmap(ctx: &impl Renderer) -> Pixmap {
+pub(crate) fn render_pixmap(ctx: &impl Renderer, render_mode: RenderMode) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.render_to_pixmap(&mut pixmap);
+    ctx.render_to_pixmap(&mut pixmap, render_mode);
     pixmap
 }
 
@@ -203,8 +204,9 @@ pub(crate) fn check_ref(
     // Whether the test instance is the "gold standard" and should be used
     // for creating reference images.
     is_reference: bool,
+    render_mode: RenderMode,
 ) {
-    let pixmap = render_pixmap(ctx);
+    let pixmap = render_pixmap(ctx, render_mode);
 
     let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
     let ref_path = REFS_PATH.join(format!("{}.png", test_name));
