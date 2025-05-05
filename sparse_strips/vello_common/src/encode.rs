@@ -375,18 +375,30 @@ fn encode_stops(
             let interpolated =
                 gradient::<Srgb>(left_stop.color, right_stop.color, cs, hue_dir, 0.01);
 
-            interpolated.map(|st| EncodedColorStop {
-                offset: left_stop.offset + (right_stop.offset - left_stop.offset) * st.0,
-                color: st.1,
+            interpolated.map(|st| {
+                EncodedColorStop {
+                    offset: left_stop.offset + (right_stop.offset - left_stop.offset) * st.0,
+                    color: st.1,
+                }
             })
         })
         .collect::<Vec<_>>();
 
     let create_range = |left_stop: &EncodedColorStop, right_stop: &EncodedColorStop| {
+        let clamp = |mut color: [f32; 4]| {
+            // The linear approximation of the gradient can produce values slightly outside of
+            // [0.0, 1.0], so clamp them.
+            for c in &mut color {
+                *c = c.clamp(0.0, 1.0);
+            }
+            
+            color
+        };
+        
         let x0 = start + (end - start) * left_stop.offset;
         let x1 = start + (end - start) * right_stop.offset;
-        let c0 = left_stop.color.to_rgba8().to_u8_array();
-        let c1 = right_stop.color.to_rgba8().to_u8_array();
+        let c0 = clamp(left_stop.color.components);
+        let c1 = clamp(right_stop.color.components);
 
         // Given two positions x0 and x1 as well as two corresponding colors c0 and c1,
         // the delta that needs to be applied to c0 to calculate the color of x between x0 and x1
@@ -396,18 +408,21 @@ fn encode_stops(
         // We call this method with two same stops for `left_range` and `right_range`, so make
         // sure we don't actually end up with a 0 here.
         let x1_minus_x0 = (x1 - x0).max(NUDGE_VAL);
-        let mut factors = [0.0; 4];
+        let mut factors_f32 = [0.0; 4];
+        let mut factors_u8 = [0.0; 4];
 
         for i in 0..4 {
-            let c1_minus_c0 = c1[i] as f32 - c0[i] as f32;
-            factors[i] = c1_minus_c0 / x1_minus_x0;
+            let mut c1_minus_c0 = c1[i] - c0[i];
+            factors_f32[i] = c1_minus_c0 / x1_minus_x0;
+            factors_u8[i] = 255.0 * c1_minus_c0 / x1_minus_x0;
         }
 
         GradientRange {
             x0,
             x1,
             c0: PremulColor::from_premul(left_stop.color),
-            factors,
+            factors_f32,
+            factors_u8,
         }
     };
 
@@ -645,7 +660,8 @@ pub struct GradientRange {
     /// The start color of the range.
     pub c0: PremulColor,
     /// The interpolation factors of the range.
-    pub factors: [f32; 4],
+    pub factors_f32: [f32; 4],
+    pub factors_u8: [f32; 4],
 }
 
 /// Sampling positions in a gradient.
