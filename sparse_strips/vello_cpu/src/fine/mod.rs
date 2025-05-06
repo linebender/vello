@@ -619,7 +619,10 @@ impl Widened<u8> for u16 {
     }
 
     fn narrow(self) -> u8 {
-        debug_assert!(self <= u8::MAX as Self);
+        debug_assert!(
+            self <= u8::MAX as Self,
+            "cannot narrow integers larger than u8::MAX"
+        );
 
         self as u8
     }
