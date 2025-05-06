@@ -497,6 +497,18 @@ impl Renderer {
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
+        // N.B. This is horrible; this integration of wgpu-profiler really needs some work...
+        #[cfg(feature = "wgpu-profiler")]
+        {
+            self.profiler.end_frame().unwrap();
+            if let Some(result) = self
+                .profiler
+                .process_finished_frame(queue.get_timestamp_period())
+            {
+                self.profile_result = Some(result);
+            }
+        }
+
         Ok(())
     }
 
