@@ -181,8 +181,10 @@ impl<'a> ImageFiller<'a> {
                                 let color_sample = sample(extend_point(pos + Vec2::new(x, y)));
                                 let w = cx[x_idx] * cy[y_idx];
 
-                                for i in 0..COLOR_COMPONENTS {
-                                    f32_color[i] += w * color_sample.to_u8_array()[i] as f32;
+                                for (component, component_sample) in
+                                    f32_color.iter_mut().zip(color_sample.to_u8_array())
+                                {
+                                    *component += w * component_sample as f32;
                                 }
                             }
                         }
@@ -200,8 +202,10 @@ impl<'a> ImageFiller<'a> {
                                 let color_sample = sample(extend_point(pos + Vec2::new(x, y)));
                                 let c = cx[x_idx] * cy[y_idx];
 
-                                for i in 0..COLOR_COMPONENTS {
-                                    f32_color[i] += c * color_sample.to_u8_array()[i] as f32;
+                                for (component, component_sample) in
+                                    f32_color.iter_mut().zip(color_sample.to_u8_array())
+                                {
+                                    *component += c * component_sample as f32;
                                 }
                             }
                         }
