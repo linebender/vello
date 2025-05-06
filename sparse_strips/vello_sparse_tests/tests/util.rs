@@ -315,7 +315,12 @@ fn is_pix_diff(pixel1: &Rgba<u8>, pixel2: &Rgba<u8>, threshold: u8) -> bool {
     let mut different = false;
 
     for i in 0..3 {
-        different |= pixel1.0[i].abs_diff(pixel2.0[i]) > threshold;
+        let difference = pixel1.0[i].abs_diff(pixel2.0[i]);
+        different |= difference > threshold;
+
+        if difference > threshold {
+            eprintln!("{:?}, {:?}", pixel1.0, pixel2.0);
+        }
     }
 
     different

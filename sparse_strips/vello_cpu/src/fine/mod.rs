@@ -15,6 +15,7 @@ use crate::fine::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::util::scalar::div_255;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::fmt::Debug;
 use core::iter;
 use vello_common::encode::{EncodedKind, EncodedPaint, GradientRange};
 use vello_common::paint::{Paint, PremulColor};
@@ -535,7 +536,7 @@ trait Painter {
     fn paint<F: FineType>(self, target: &mut [F]);
 }
 
-pub trait FineType: Sized + Copy + PartialEq<Self> + PartialOrd<Self> {
+pub trait FineType: Sized + Copy + PartialEq<Self> + PartialOrd<Self> + Debug {
     const ZERO: Self;
     const ONE: Self;
 
@@ -555,6 +556,7 @@ pub trait FineType: Sized + Copy + PartialEq<Self> + PartialOrd<Self> {
     fn from_u8(num: u8) -> Self;
     fn to_f32(&self) -> f32;
     fn from_f32(num: f32) -> Self;
+    fn from_f32_floored(num: f32) -> Self;
     fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS];
     fn from_rgba8(_in: &[u8]) -> [Self; COLOR_COMPONENTS];
     fn from_rgbf32(_in: &[f32; 4]) -> [Self; COLOR_COMPONENTS];
@@ -597,7 +599,7 @@ impl FineType for u8 {
     }
 
     fn mul_div(&self, num2: Self, num3: Self) -> Self {
-        ((*self as u16 * num2 as u16) / num3 as u16) as u8
+        ((*self as u16 * num2 as u16) / num3 as u16).min(255) as u8
     }
 
     #[inline(always)]
@@ -634,6 +636,10 @@ impl FineType for u8 {
 
     fn from_f32(num: f32) -> Self {
         (num * 255.0 + 0.5) as u8
+    }
+
+    fn from_f32_floored(num: f32) -> Self {
+        (num * 255.0) as u8
     }
 
     #[inline(always)]
@@ -699,7 +705,7 @@ impl FineType for f32 {
     }
 
     fn mul_div(&self, num2: Self, num3: Self) -> Self {
-        (*self * num2) / num3
+        ((*self * num2) / num3).min(1.0)
     }
 
     #[inline(always)]
@@ -735,6 +741,10 @@ impl FineType for f32 {
     }
 
     fn from_f32(num: f32) -> Self {
+        num
+    }
+
+    fn from_f32_floored(num: f32) -> Self {
         num
     }
 

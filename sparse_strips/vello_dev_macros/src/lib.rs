@@ -69,7 +69,7 @@ struct Arguments {
     /// (see the constants at the top of the file), this value will simply be added
     /// to the currently existing threshold. See the top of the file for an explanation of
     /// how exactly the tolerance is interpreted.
-    cpu_tolerance: u8,
+    cpu_u8_tolerance: u8,
     /// Same as above, but for the hybrid renderer.
     hybrid_tolerance: u8,
     /// Whether the background should be transparent (the default is white).
@@ -90,7 +90,7 @@ impl Default for Arguments {
         Self {
             width: 100,
             height: 100,
-            cpu_tolerance: 0,
+            cpu_u8_tolerance: 0,
             hybrid_tolerance: 0,
             transparent: false,
             skip_cpu: false,
@@ -142,7 +142,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let Arguments {
         width,
         height,
-        cpu_tolerance,
+        cpu_u8_tolerance,
         mut hybrid_tolerance,
         transparent,
         mut skip_cpu,
@@ -151,7 +151,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         no_ref,
     } = parse_args(&attrs);
 
-    let cpu_u8_tolerance = cpu_tolerance + DEFAULT_CPU_U8_TOLERANCE;
+    let cpu_u8_tolerance = cpu_u8_tolerance + DEFAULT_CPU_U8_TOLERANCE;
     // Since f32 is our gold standard, we always require exact matches for this one.
     let cpu_f32_tolerance = DEFAULT_CPU_F32_TOLERANCE;
     hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
@@ -169,7 +169,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             || input_fn_name_str.contains("blurred_rounded_rect")
     };
 
-    skip_cpu |= input_fn_name_str.contains("layer") || input_fn_name_str.contains("mix") ;
+    skip_cpu |= input_fn_name_str.contains("layer");
 
     let empty_snippet = quote! {};
     let ignore_snippet = if let Some(reason) = ignore_reason {
@@ -271,8 +271,8 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     }
                     "width" => args.width = parse_int_lit(expr, "width"),
                     "height" => args.height = parse_int_lit(expr, "height"),
-                    "cpu_tolerance" => {
-                        args.cpu_tolerance = parse_int_lit(expr, "cpu_tolerance")
+                    "cpu_u8_tolerance" => {
+                        args.cpu_u8_tolerance = parse_int_lit(expr, "cpu_u8_tolerance")
                             .try_into()
                             .expect("value to fit for cpu_tolerance.");
                     }

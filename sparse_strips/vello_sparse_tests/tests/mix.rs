@@ -69,77 +69,77 @@ fn mix_normal(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Normal, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_multiply(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Multiply, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_screen(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Screen, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_darken(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Darken, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_lighten(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Lighten, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_color_dodge(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorDodge, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_color_burn(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorBurn, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_hard_light(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::HardLight, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_soft_light(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::SoftLight, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_difference(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Difference, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_exclusion(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Exclusion, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_overlay(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Overlay, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_hue(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Hue, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_saturation(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Saturation, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_color(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Color, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_luminosity(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Luminosity, Compose::SrcOver));
 }

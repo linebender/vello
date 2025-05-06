@@ -9,7 +9,6 @@
     clippy::cast_possible_truncation,
     reason = "We cast u16s to u8 in various places where we know for sure that it's < 256"
 )]
-#![no_std]
 
 extern crate alloc;
 

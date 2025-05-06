@@ -21,7 +21,7 @@ pub(crate) mod fill {
             for bg_c in strip.chunks_exact_mut(COLOR_COMPONENTS) {
                 let mixed_src_color = mix(color_iter.next().unwrap(), bg_c, blend_mode);
 
-                blend_mode.compose(&mixed_src_color, bg_c, F::from_u8(255));
+                blend_mode.compose(&mixed_src_color, bg_c, F::from_u8_normalized(255));
             }
         }
     }
@@ -49,7 +49,7 @@ pub(crate) mod strip {
             for (bg_pix, mask) in bg_col.chunks_exact_mut(Tile::HEIGHT as usize).zip(masks) {
                 let mixed_src_color = mix(color_iter.next().unwrap(), bg_pix, blend_mode);
 
-                blend_mode.compose(&mixed_src_color, bg_pix, F::from_u8(mask));
+                blend_mode.compose(&mixed_src_color, bg_pix, F::from_u8_normalized(mask));
             }
         }
     }
@@ -168,7 +168,7 @@ impl Multiply {
 
 impl Screen {
     fn single<F: FineType>(src: F, bg: F) -> F {
-        bg.add(src).add(src.norm_mul(bg))
+        bg.add_minus(src, src.norm_mul(bg))
     }
 }
 
@@ -176,10 +176,10 @@ impl HardLight {
     fn single<F: FineType>(src: F, bg: F) -> F {
         let two = F::from_u8(2);
 
-        if src <= F::from_f32(0.5) {
+        if src <= F::from_f32_floored(0.5) {
             Multiply::single(bg, src.mul(two))
         } else {
-            Screen::single(bg, two.norm_mul(src).minus(F::ONE))
+            Screen::single(bg, two.mul_minus(src, F::ONE))
         }
     }
 }
@@ -204,7 +204,7 @@ separable_mix!(ColorBurn, |cs: F, cb: F| {
     } else if cs == F::ZERO {
         F::ZERO
     } else {
-        F::ONE.minus(F::ONE.min(cb.inv().mul_div(F::ONE, cs)))
+        cb.inv().mul_div(F::ONE, cs).inv()
     }
 });
 separable_mix!(HardLight, |cs: F, cb: F| {
