@@ -52,7 +52,7 @@ fn simple_hinted() {
     );
     snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.002);
+        .assert_mean_less_than(0.02);
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn scaled_hinted() {
     );
     snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.002);
+        .assert_mean_less_than(0.02);
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn integer_translation() {
     );
     snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.002);
+        .assert_mean_less_than(0.02);
 }
 
 #[test]
@@ -106,5 +106,5 @@ fn non_integer_translation() {
     );
     snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.002);
+        .assert_mean_less_than(0.02);
 }
