@@ -1,6 +1,10 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! A minimal text infrastructure, which SHOULD not be used for production use cases.
+//!
+//! Most users should prefer to use [Parley](https://github.com/linebender/parley), which is a full text layout library.
+
 use std::sync::Arc;
 
 use skrifa::{
@@ -70,6 +74,7 @@ impl SimpleText {
             glyph_transform,
             style,
             text,
+            false,
         );
     }
 
@@ -101,6 +106,7 @@ impl SimpleText {
             glyph_transform,
             style,
             text,
+            false,
         );
     }
 
@@ -125,9 +131,14 @@ impl SimpleText {
             glyph_transform,
             style,
             text,
+            false,
         );
     }
 
+    /// Add a glyph run with the specified parameters.
+    ///
+    /// We know that there are too many parameters here.
+    /// Migrating to Parley for this code is probably the right solution here.
     pub fn add_var_run<'a>(
         &mut self,
         scene: &mut Scene,
@@ -139,6 +150,7 @@ impl SimpleText {
         glyph_transform: Option<Affine>,
         style: impl Into<StyleRef<'a>>,
         text: &str,
+        hint: bool,
     ) {
         let default_font = if variations.is_empty() {
             &self.roboto
@@ -165,7 +177,7 @@ impl SimpleText {
             .glyph_transform(glyph_transform)
             .normalized_coords(bytemuck::cast_slice(var_loc.coords()))
             .brush(brush)
-            .hint(false)
+            .hint(hint)
             .draw(
                 style,
                 text.chars().filter_map(|ch| {
