@@ -422,6 +422,8 @@ impl Resolver {
                             scale = transform.matrix[0];
                             font_size *= scale;
                             transform.matrix = [1.0, 0.0, 0.0, 1.0];
+                            // Hinting assumes that the baseline is rounded; otherwise, we are missing the point of hinting.
+                            transform.translation[1] = transform.translation[1].round();
                         } else {
                             hint = false;
                         }
