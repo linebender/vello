@@ -27,9 +27,15 @@ pub mod tile;
 
 pub use vello_api::*;
 
+/// The selected rendering mode.
+/// 
+/// Note that this does not have any effect on GPU rendering and is solely for the CPU-based
+/// renderer.
 #[derive(Copy, Clone, Debug, Default)]
 pub enum RenderMode {
+    /// Optimize speed (by performing calculations with u8/16).
     #[default]
     OptimizeSpeed,
+    /// Optimize quality (by performing calculations with f32).
     OptimizeQuality,
 }

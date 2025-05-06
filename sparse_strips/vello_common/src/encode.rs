@@ -416,7 +416,7 @@ fn encode_stops(
         GradientRange {
             x0,
             x1,
-            c0: PremulColor::from_premul(left_stop.color),
+            c0: PremulColor::from_premul_color(left_stop.color),
             factors_f32,
         }
     };

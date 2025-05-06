@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
 use std::ops::{Add, Div, Mul, Sub};
-use vello_common::encode::{EncodedKind, EncodedPaint, GradientRange};
+use vello_common::encode::{EncodedKind, EncodedPaint};
 use vello_common::paint::{Paint, PremulColor};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
