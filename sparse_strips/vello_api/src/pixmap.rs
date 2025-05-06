@@ -6,6 +6,9 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+#[cfg(feature = "png")]
+extern crate std;
+
 /// A pixmap backed by u8.
 #[derive(Debug, Clone)]
 pub struct Pixmap {
@@ -47,7 +50,7 @@ impl Pixmap {
 
     /// Create a pixmap from a PNG file.
     #[cfg(feature = "png")]
-    pub fn from_png(data: &[u8]) -> Result<Self, png::DecodingError> {
+    pub fn from_png(data: impl std::io::Read) -> Result<Self, png::DecodingError> {
         let mut decoder = png::Decoder::new(data);
         decoder.set_transformations(
             png::Transformations::normalize_to_color8() | png::Transformations::ALPHA,
