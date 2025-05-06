@@ -29,6 +29,22 @@ impl Pixmap {
         Self { width, height, buf }
     }
 
+    /// Create a new pixmap with the given underlying data interpreted as premultiplied RGBA8.
+    ///
+    /// If `data` is not of the right length (`width * height * 4`). If `data` has to grow, the new
+    /// color components are filled with `0`.
+    ///
+    /// The pixels are in row-major order. Each pixel consists of four bytes in the order
+    /// `[r, g, b, a]`.
+    pub fn from_parts(mut data: Vec<u8>, width: u16, height: u16) -> Self {
+        data.resize(usize::from(width) * usize::from(height) * 4, 0);
+        Self {
+            width,
+            height,
+            buf: data,
+        }
+    }
+
     /// Return the width of the pixmap.
     pub fn width(&self) -> u16 {
         self.width
