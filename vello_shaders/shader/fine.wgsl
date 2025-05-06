@@ -831,7 +831,7 @@ fn read_end_clip(cmd_ix: u32) -> CmdEndClip {
 const EXTEND_PAD: u32 = 0u;
 const EXTEND_REPEAT: u32 = 1u;
 const EXTEND_REFLECT: u32 = 2u;
-fn extend_mode(t: f32, mode: u32) -> f32 {
+fn extend_mode_normalized(t: f32, mode: u32) -> f32 {
     switch mode {
         case EXTEND_PAD: {
             return clamp(t, 0.0, 1.0);
@@ -841,6 +841,20 @@ fn extend_mode(t: f32, mode: u32) -> f32 {
         }
         case EXTEND_REFLECT, default: {
             return abs(t - 2.0 * round(0.5 * t));
+        }
+    }
+}
+
+fn extend_mode(t: f32, mode: u32, max: f32) -> f32 {
+    switch mode {
+        case EXTEND_PAD: {
+            return clamp(t, 0.0, max);
+        }
+        case EXTEND_REPEAT: {
+            return extend_mode_normalized(t / max, mode) * max;
+        }
+        case EXTEND_REFLECT, default: {
+            return extend_mode_normalized(t / max, mode) * max;
         }
     }
 }
@@ -1067,7 +1081,7 @@ fn main(
                 let d = lin.line_x * xy.x + lin.line_y * xy.y + lin.line_c;
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                     let my_d = d + lin.line_x * f32(i);
-                    let x = i32(round(extend_mode(my_d, lin.extend_mode) * f32(GRADIENT_WIDTH - 1)));
+                    let x = i32(round(extend_mode_normalized(my_d, lin.extend_mode) * f32(GRADIENT_WIDTH - 1)));
                     let fg_rgba = textureLoad(gradients, vec2(x, i32(lin.index)), 0);
                     let fg_i = fg_rgba * area[i];
                     rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
@@ -1109,7 +1123,7 @@ fn main(
                         is_valid = a >= 0.0 && t >= 0.0;
                     }
                     if is_valid {
-                        t = extend_mode(focal_x + t_sign * t, rad.extend_mode);
+                        t = extend_mode_normalized(focal_x + t_sign * t, rad.extend_mode);
                         t = select(t, 1.0 - t, is_swapped);
                         let x = i32(round(t * f32(GRADIENT_WIDTH - 1)));
                         let fg_rgba = textureLoad(gradients, vec2(x, i32(rad.index)), 0);
@@ -1144,7 +1158,7 @@ fn main(
                     phi = select(phi, 1.0 - phi, y < 0.0);
                     phi = select(phi, 0.0, phi != phi); // check for NaN
                     phi = (phi - sweep.t0) * scale;
-                    let t = extend_mode(phi, sweep.extend_mode);
+                    let t = extend_mode_normalized(phi, sweep.extend_mode);
                     let ramp_x = i32(round(t * f32(GRADIENT_WIDTH - 1)));
                     let fg_rgba = textureLoad(gradients, vec2(ramp_x, i32(sweep.index)), 0);
                     let fg_i = fg_rgba * area[i];
@@ -1155,7 +1169,6 @@ fn main(
             case CMD_IMAGE: {
                 let image = read_image(cmd_ix);
                 let atlas_max = image.atlas_offset + image.extents - vec2(1.0);
-                let extents_inv = vec2(1.0) / image.extents;
                 switch image.quality {
                     case IMAGE_QUALITY_LOW: {
                         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
@@ -1163,8 +1176,8 @@ fn main(
                             if area[i] != 0.0 {
                                 let my_xy = vec2(xy.x + f32(i), xy.y);
                                 var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
-                                atlas_uv.x = extend_mode(atlas_uv.x * extents_inv.x, image.x_extend_mode) * image.extents.x;
-                                atlas_uv.y = extend_mode(atlas_uv.y * extents_inv.y, image.y_extend_mode) * image.extents.y;
+                                atlas_uv.x = extend_mode(atlas_uv.x, image.x_extend_mode, image.extents.x);
+                                atlas_uv.y = extend_mode(atlas_uv.y, image.y_extend_mode, image.extents.y);
                                 atlas_uv = atlas_uv + image.atlas_offset;
                                 // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
                                 let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
@@ -1182,8 +1195,8 @@ fn main(
                             if area[i] != 0.0 {
                                 let my_xy = vec2(xy.x + f32(i), xy.y);
                                 var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
-                                atlas_uv.x = extend_mode(atlas_uv.x * extents_inv.x, image.x_extend_mode) * image.extents.x;
-                                atlas_uv.y = extend_mode(atlas_uv.y * extents_inv.y, image.y_extend_mode) * image.extents.y;
+                                atlas_uv.x = extend_mode(atlas_uv.x, image.x_extend_mode, image.extents.x);
+                                atlas_uv.y = extend_mode(atlas_uv.y, image.y_extend_mode, image.extents.y);
                                 atlas_uv = atlas_uv + image.atlas_offset - vec2(0.5);
                                 // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
                                 let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
