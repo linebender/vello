@@ -15,7 +15,7 @@ use vello_dev_macros::vello_test;
 
 pub(crate) fn load_image(name: &str) -> Arc<Pixmap> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/assets/{name}.png"));
-    Arc::new(Pixmap::from_png(&std::fs::read(path).unwrap()).unwrap())
+    Arc::new(Pixmap::from_png(std::fs::File::open(path).unwrap()).unwrap())
 }
 
 fn rgb_img_10x10() -> Arc<Pixmap> {
