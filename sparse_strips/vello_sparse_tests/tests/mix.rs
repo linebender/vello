@@ -94,7 +94,16 @@ fn mix_color_dodge(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorDodge, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+// Unfortunately this one just needs such a high tolerance, but it was manually verified
+// that it's due to impreciseness and not a bug.
+// At some point, we have the following constellation:
+//  f32: source: [1.0, 0.125, 0.0, 0.86], background: [0.99215686, 0.8784314, 0.1882353, 1.0]
+//  u8: source: [255, 31, 0, 219], background: [253, 224, 48, 255]
+// After plugging into the formula, we get:
+//  f32:  1.0 - ((1.0 - 0.8784314) / 0.125) = 0.027451038 (RGB value of around 7)
+//  u8/u16:  255 - (((255 - 224) * 255) / 31) = 0
+// And therefore a very large difference for that one component.
+#[vello_test(cpu_u8_tolerance = 5)]
 fn mix_color_burn(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorBurn, Compose::SrcOver));
 }
