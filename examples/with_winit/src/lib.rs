@@ -101,8 +101,6 @@ fn default_threads() -> usize {
 }
 
 struct RenderState<'s> {
-    // SAFETY: We MUST drop the surface before the `window`, so the fields
-    // must be in this order
     surface: RenderSurface<'s>,
     window: Arc<Window>,
 }
@@ -121,7 +119,6 @@ struct VelloApp<'s> {
     renderers: Vec<Option<Renderer>>,
     state: Option<RenderState<'s>>,
     // Whilst suspended, we drop `render_state`, but need to keep the same window.
-    // If render_state exists, we must store the window in it, to maintain drop order
     #[cfg(not(target_arch = "wasm32"))]
     cached_window: Option<Arc<Window>>,
 
