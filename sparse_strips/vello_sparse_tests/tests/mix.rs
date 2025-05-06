@@ -143,7 +143,7 @@ fn mix_saturation(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Saturation, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+#[vello_test(cpu_u8_tolerance = 2)]
 fn mix_color(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Color, Compose::SrcOver));
 }

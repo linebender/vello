@@ -9,7 +9,7 @@ use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_dev_macros::vello_test;
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn layer_multiple_properties_1(ctx: &mut impl Renderer) {
     let mask = example_mask(true);
     let star = crossed_line_star();

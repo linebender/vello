@@ -145,7 +145,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         cpu_u8_tolerance,
         mut hybrid_tolerance,
         transparent,
-        mut skip_cpu,
+        skip_cpu,
         mut skip_hybrid,
         ignore_reason,
         no_ref,
@@ -168,8 +168,6 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
             || input_fn_name_str.contains("opacity")
             || input_fn_name_str.contains("blurred_rounded_rect")
     };
-
-    skip_cpu |= input_fn_name_str.contains("layer");
 
     let empty_snippet = quote! {};
     let ignore_snippet = if let Some(reason) = ignore_reason {
