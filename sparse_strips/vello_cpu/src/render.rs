@@ -313,7 +313,7 @@ impl RenderContext {
                 let wtile = self.wide.get(x, y);
                 fine.set_coords(x, y);
 
-                fine.clear(F::extract_solid(&wtile.bg));
+                fine.clear(F::extract_color(&wtile.bg));
                 for cmd in &wtile.cmds {
                     fine.run_cmd(cmd, &self.alphas, &self.encoded_paints);
                 }

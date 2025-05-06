@@ -21,7 +21,7 @@ pub(crate) mod fill {
             for bg_c in strip.chunks_exact_mut(COLOR_COMPONENTS) {
                 let mixed_src_color = mix(color_iter.next().unwrap(), bg_c, blend_mode);
 
-                blend_mode.compose(&mixed_src_color, bg_c, F::from_u8_normalized(255));
+                blend_mode.compose(&mixed_src_color, bg_c, F::from_normalized_u8(255));
             }
         }
     }
@@ -49,7 +49,7 @@ pub(crate) mod strip {
             for (bg_pix, mask) in bg_col.chunks_exact_mut(Tile::HEIGHT as usize).zip(masks) {
                 let mixed_src_color = mix(color_iter.next().unwrap(), bg_pix, blend_mode);
 
-                blend_mode.compose(&mixed_src_color, bg_pix, F::from_u8_normalized(mask));
+                blend_mode.compose(&mixed_src_color, bg_pix, F::from_normalized_u8(mask));
             }
         }
     }
@@ -164,7 +164,7 @@ macro_rules! non_separable_mix {
 
 impl Multiply {
     fn single<F: FineType>(src: F, bg: F) -> F {
-        src.normalize_mul(bg)
+        src.normalized_mul(bg)
     }
 }
 
@@ -197,7 +197,10 @@ separable_mix!(ColorDodge, |cs: F, cb: F| {
     } else if cs == F::ONE {
         F::ONE
     } else {
-        F::ONE.widen().min(cb.mul_div(F::ONE, cs.inv())).narrow()
+        F::ONE
+            .widen()
+            .min(cb.widened_mul_div(F::ONE, cs.inv()))
+            .narrow()
     }
 });
 separable_mix!(ColorBurn, |cs: F, cb: F| {
@@ -207,7 +210,7 @@ separable_mix!(ColorBurn, |cs: F, cb: F| {
         F::ZERO
     } else {
         cb.inv()
-            .mul_div(F::ONE, cs)
+            .widened_mul_div(F::ONE, cs)
             .min(F::ONE.widen())
             .narrow()
             .inv()
@@ -215,8 +218,8 @@ separable_mix!(ColorBurn, |cs: F, cb: F| {
 });
 separable_mix!(HardLight, |cs: F, cb: F| HardLight::single(cs, cb));
 separable_mix!(SoftLight, |cs: F, cb: F| {
-    let new_src = cs.to_f32();
-    let cb = cb.to_f32();
+    let new_src = cs.to_f32_normalized();
+    let cb = cb.to_f32_normalized();
 
     let d = if cb <= 0.25 {
         ((16.0 * cb - 12.0) * cb + 4.0) * cb
@@ -230,16 +233,16 @@ separable_mix!(SoftLight, |cs: F, cb: F| {
         cb + (2.0 * new_src - 1.0) * (d - cb)
     };
 
-    F::from_f32(res)
+    F::from_normalized_f32(res)
 });
 separable_mix!(Difference, |cs: F, cb: F| {
     if cs <= cb { cb - cs } else { cs - cb }
 });
 separable_mix!(Exclusion, |cs: F, cb: F| {
-    let new_src = cs.to_f32();
-    let cb = cb.to_f32();
+    let new_src = cs.to_f32_normalized();
+    let cb = cb.to_f32_normalized();
 
-    F::from_f32((new_src + cb) - 2.0 * (new_src * cb))
+    F::from_normalized_f32((new_src + cb) - 2.0 * (new_src * cb))
 });
 
 non_separable_mix!(Hue, |cs, cb| set_lum(&set_sat(&cs, sat(&cb)), lum(&cb)));
@@ -254,7 +257,7 @@ fn to_f32<F: FineType>(c: &[F]) -> [f32; 3] {
     let mut nums = [0.0; 3];
 
     for i in 0..3 {
-        nums[i] = c[i].to_f32();
+        nums[i] = c[i].to_f32_normalized();
     }
 
     nums
@@ -264,7 +267,7 @@ fn from_f32<F: FineType>(c: &[f32; 3]) -> [F; 3] {
     let mut nums = [F::ZERO; 3];
 
     for i in 0..3 {
-        nums[i] = F::from_f32(c[i]);
+        nums[i] = F::from_normalized_f32(c[i]);
     }
 
     nums
@@ -348,7 +351,7 @@ fn unpremultiply<F: FineType>(color: &mut [F; 4]) {
 
     if alpha != F::ZERO {
         for c in &mut color[0..3] {
-            *c = c.mul_div(F::ONE, alpha).narrow();
+            *c = c.widened_mul_div(F::ONE, alpha).narrow();
         }
     }
 }
@@ -357,7 +360,7 @@ fn premultiply<F: FineType>(color: &mut [F; 4]) {
     let alpha = color[3];
 
     for c in &mut color[0..3] {
-        *c = c.normalize_mul(alpha);
+        *c = c.normalized_mul(alpha);
     }
 }
 
@@ -368,21 +371,21 @@ macro_rules! compose {
         impl $name {
             fn compose<F: FineType>(src_c: &[F; 4], bg_c: &mut [F], mask: F) {
                 let al_b = bg_c[3];
-                let al_s = src_c[3].normalize_mul(mask);
+                let al_s = src_c[3].normalized_mul(mask);
 
                 for i in 0..4 {
                     let fa = $fa(al_s, al_b);
                     let fb = $fb(al_s, al_b);
 
-                    let src_c = src_c[i].normalize_mul(mask);
+                    let src_c = src_c[i].normalized_mul(mask);
 
                     if $sat {
-                        bg_c[i] = (src_c.normalize_mul(fa).widen()
-                            + fb.normalize_mul(bg_c[i]).widen())
+                        bg_c[i] = (src_c.normalized_mul(fa).widen()
+                            + fb.normalized_mul(bg_c[i]).widen())
                         .clamp()
                         .narrow();
                     } else {
-                        bg_c[i] = src_c.normalize_mul(fa).add(fb.normalize_mul(bg_c[i]));
+                        bg_c[i] = src_c.normalized_mul(fa).add(fb.normalized_mul(bg_c[i]));
                     }
                 }
             }

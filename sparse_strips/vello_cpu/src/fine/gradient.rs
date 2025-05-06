@@ -87,7 +87,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
             for (comp_idx, comp) in pixel.iter_mut().enumerate() {
                 let factor = range.factors_f32[comp_idx] * (dist - range.x0);
 
-                *comp = F::from_f32(c0[comp_idx] + factor);
+                *comp = F::from_normalized_f32(c0[comp_idx] + factor);
             }
 
             pos += self.gradient.y_advance;

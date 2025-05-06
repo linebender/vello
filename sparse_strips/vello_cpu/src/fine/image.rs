@@ -215,7 +215,7 @@ impl<'a> ImageFiller<'a> {
                         }
                     }
 
-                    pixel.copy_from_slice(&F::from_rgbf32(&interpolated_color));
+                    pixel.copy_from_slice(&F::from_rgbaf32(&interpolated_color));
                 }
             };
 

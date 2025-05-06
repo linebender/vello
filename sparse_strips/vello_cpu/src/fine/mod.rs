@@ -146,7 +146,7 @@ impl<F: FineType> Fine<F> {
                         .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
                         .for_each(|s| {
                             for c in s {
-                                *c = F::from_f32(*o).normalize_mul(*c);
+                                *c = F::from_normalized_f32(*o).normalized_mul(*c);
                             }
                         });
                 }
@@ -167,10 +167,10 @@ impl<F: FineType> Fine<F> {
                         let y = start_y + y as u16;
 
                         if x < m.width() && y < m.height() {
-                            let val = F::from_u8_normalized(m.sample(x, y));
+                            let val = F::from_normalized_u8(m.sample(x, y));
 
                             for comp in pix.iter_mut() {
-                                *comp = comp.normalize_mul(val);
+                                *comp = comp.normalized_mul(val);
                             }
                         }
                     }
@@ -221,7 +221,7 @@ impl<F: FineType> Fine<F> {
 
         match fill {
             Paint::Solid(color) => {
-                let color = F::extract_solid(color);
+                let color = F::extract_color(color);
 
                 // If color is completely opaque we can just memcopy the colors.
                 if color[3] == F::ONE && default_blend {
@@ -332,7 +332,7 @@ impl<F: FineType> Fine<F> {
             Paint::Solid(color) => {
                 strip::blend(
                     blend_buf,
-                    iter::repeat(F::extract_solid(color)),
+                    iter::repeat(F::extract_color(color)),
                     blend_mode,
                     alphas.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
                 );
@@ -476,7 +476,7 @@ pub(crate) mod fill {
             for bg_c in strip.chunks_exact_mut(COLOR_COMPONENTS) {
                 let src_c = source.next().unwrap();
                 for i in 0..COLOR_COMPONENTS {
-                    bg_c[i] = src_c[i].add(bg_c[i].normalize_mul(src_c[3].inv()));
+                    bg_c[i] = src_c[i].add(bg_c[i].normalized_mul(src_c[3].inv()));
                 }
             }
         }
@@ -518,8 +518,8 @@ pub(crate) mod strip {
 
             for j in 0..usize::from(Tile::HEIGHT) {
                 let src_c = source.next().unwrap();
-                let mask_a = F::from_u8_normalized(masks[j]);
-                let inv_src_a_mask_a = mask_a.normalize_mul(src_c[3]).inv();
+                let mask_a = F::from_normalized_u8(masks[j]);
+                let inv_src_a_mask_a = mask_a.normalized_mul(src_c[3]).inv();
 
                 for i in 0..COLOR_COMPONENTS {
                     let p1 = bg_c[j * COLOR_COMPONENTS + i].widen() * inv_src_a_mask_a.widen();
@@ -536,6 +536,9 @@ trait Painter {
     fn paint<F: FineType>(self, target: &mut [F]);
 }
 
+/// A numeric type that can act as a substitute for another underlying type in case
+/// the results are too big. Currently, this is only used for u8, where certain operations
+/// are first cast to u16 and then cast back to u8.
 pub trait Widened<T: FineType>:
     Sized
     + Copy
@@ -547,11 +550,17 @@ pub trait Widened<T: FineType>:
     + Div<Self, Output = Self>
     + Debug
 {
+    /// Clamp the current value to the boundaries **of the underlying narrowed type**.
     fn clamp(self) -> Self;
+    /// Normalize the current value to the range of the underlying narrowed type.
     fn normalize(self) -> Self;
-    fn min(self, num2: Self) -> Self;
-    fn max(self, num2: Self) -> Self;
-    fn normalized_mul(self, num2: Self) -> Self;
+    /// Get the minimum between this number and another number.
+    fn min(self, other: Self) -> Self;
+    /// Get the maximum between this number and another number.
+    fn max(self, other: Self) -> Self;
+    /// Perform a normalizing multiplication between this number and another number.
+    fn normalized_mul(self, other: Self) -> Self;
+    /// Cast the current type to its narrowed representation.
     fn narrow(self) -> T;
 }
 
@@ -563,22 +572,23 @@ impl Widened<f32> for f32 {
 
     #[inline(always)]
     fn normalize(self) -> Self {
+        // f32 values are always normalized between 0.0 and 1.0.
         self
     }
 
     #[inline(always)]
-    fn min(self, num2: Self) -> Self {
-        f32::min(self, num2)
+    fn min(self, other: Self) -> Self {
+        f32::min(self, other)
     }
 
     #[inline(always)]
-    fn max(self, num2: Self) -> Self {
-        f32::max(self, num2)
+    fn max(self, other: Self) -> Self {
+        f32::max(self, other)
     }
 
     #[inline(always)]
-    fn normalized_mul(self, num2: Self) -> Self {
-        self * num2
+    fn normalized_mul(self, other: Self) -> Self {
+        self * other
     }
 
     #[inline(always)]
@@ -596,28 +606,26 @@ impl Widened<u8> for u16 {
         div_255(self)
     }
 
-    fn min(self, num2: Self) -> Self {
-        Ord::min(self, num2)
+    fn min(self, other: Self) -> Self {
+        Ord::min(self, other)
     }
 
-    fn max(self, num2: Self) -> Self {
-        Ord::max(self, num2)
+    fn max(self, other: Self) -> Self {
+        Ord::max(self, other)
     }
 
-    fn normalized_mul(self, num2: Self) -> Self {
-        (self * num2).normalize()
+    fn normalized_mul(self, other: Self) -> Self {
+        (self * other).normalize()
     }
 
     fn narrow(self) -> u8 {
-        if !(self <= u8::MAX as u16) {
-            panic!("whoops");
-        }
         debug_assert!(self <= u8::MAX as u16);
 
         self as u8
     }
 }
 
+/// A type that can be used as the underlying storage for fine rasterization.
 pub trait FineType:
     Sized
     + Copy
@@ -630,23 +638,42 @@ pub trait FineType:
 {
     type Widened: Widened<Self>;
 
+    /// The number that is considered to be the minimum of the normalized range of this type.
     const ZERO: Self;
+    /// The number that is considered to be in the "center" of the normalized range of this type.
     const MID: Self;
+    /// The number considered to be the maximum of the normalized range of the type.
     const ONE: Self;
 
-    fn min(self, num2: Self) -> Self;
-    fn max(self, num2: Self) -> Self;
-    fn mul_div(self, num2: Self, num3: Self) -> Self::Widened;
-    fn normalize_mul(self, num2: Self) -> Self;
-    fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS];
-    fn from_u8_normalized(num: u8) -> Self;
+    /// Return the minimum number.
+    fn min(self, other: Self) -> Self;
+    /// Return the maximum number.
+    fn max(self, other: Self) -> Self;
+    /// Perform a widening multiplication and then divide by a third number.
+    fn widened_mul_div(self, other: Self, other2: Self) -> Self::Widened;
+    /// Perform a normalized multiplication between this number and another
+    fn normalized_mul(self, other: Self) -> Self;
+    /// Extract the underlying color from a premultiplied color.
+    fn extract_color(color: &PremulColor) -> [Self; COLOR_COMPONENTS];
+    /// Convert a normalized u8 integer to this type.
+    fn from_normalized_u8(num: u8) -> Self;
+    /// Convert a plain u8 integer to this type.
     fn from_u8(num: u8) -> Self;
-    fn to_f32(self) -> f32;
-    fn from_f32(num: f32) -> Self;
+    /// Convert this number to a normalized f32.
+    fn to_f32_normalized(self) -> f32;
+    /// Convert to this number from a normalized f32.
+    fn from_normalized_f32(num: f32) -> Self;
+    // TODO: These should be sized to COLOR_COMPONENTS, but will leave that for
+    // the future.
+    /// Convert a slice to a RGBA8 slice.
     fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS];
+    /// Convert a RGBA8 slice to a slice of this type.
     fn from_rgba8(_in: &[u8]) -> [Self; COLOR_COMPONENTS];
-    fn from_rgbf32(_in: &[f32; 4]) -> [Self; COLOR_COMPONENTS];
+    /// Convert a RGBAF32 slice to a slice of this type.
+    fn from_rgbaf32(_in: &[f32]) -> [Self; COLOR_COMPONENTS];
+    /// Get the inverse of the number.
     fn inv(self) -> Self;
+    /// Get the widened representation of the current number.
     fn widen(self) -> Self::Widened;
 }
 
@@ -657,31 +684,31 @@ impl FineType for u8 {
     const ONE: Self = 255;
 
     #[inline(always)]
-    fn min(self, num2: Self) -> Self {
-        Ord::min(self, num2)
+    fn min(self, other: Self) -> Self {
+        Ord::min(self, other)
     }
 
     #[inline(always)]
-    fn max(self, num2: Self) -> Self {
-        Ord::max(self, num2)
+    fn max(self, other: Self) -> Self {
+        Ord::max(self, other)
     }
 
-    fn mul_div(self, num2: Self, num3: Self) -> Self::Widened {
-        (self.widen() * num2.widen()) / num3.widen()
-    }
-
-    #[inline(always)]
-    fn normalize_mul(self, num2: Self) -> Self {
-        (self.widen() * num2.widen()).normalize().narrow()
+    fn widened_mul_div(self, other: Self, other2: Self) -> Self::Widened {
+        (self.widen() * other.widen()) / other2.widen()
     }
 
     #[inline(always)]
-    fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
+    fn normalized_mul(self, other: Self) -> Self {
+        (self.widen() * other.widen()).normalize().narrow()
+    }
+
+    #[inline(always)]
+    fn extract_color(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
         color.as_premul_rgba8().to_u8_array()
     }
 
     #[inline(always)]
-    fn from_u8_normalized(num: u8) -> Self {
+    fn from_normalized_u8(num: u8) -> Self {
         num
     }
 
@@ -691,12 +718,12 @@ impl FineType for u8 {
     }
 
     #[inline(always)]
-    fn to_f32(self) -> f32 {
+    fn to_f32_normalized(self) -> f32 {
         self as f32 / 255.0
     }
 
     #[inline(always)]
-    fn from_f32(num: f32) -> Self {
+    fn from_normalized_f32(num: f32) -> Self {
         (num * 255.0 + 0.5) as u8
     }
 
@@ -711,7 +738,7 @@ impl FineType for u8 {
     }
 
     #[inline(always)]
-    fn from_rgbf32(_in: &[f32; 4]) -> [Self; COLOR_COMPONENTS] {
+    fn from_rgbaf32(_in: &[f32]) -> [Self; COLOR_COMPONENTS] {
         let r = |val: f32| (val * 255.0 + 0.5) as u8;
         [r(_in[0]), r(_in[1]), r(_in[2]), r(_in[3])]
     }
@@ -734,31 +761,31 @@ impl FineType for f32 {
     const ONE: Self = 1.0;
 
     #[inline(always)]
-    fn min(self, num2: Self) -> Self {
-        f32::min(self, num2)
+    fn min(self, other: Self) -> Self {
+        f32::min(self, other)
     }
 
     #[inline(always)]
-    fn max(self, num2: Self) -> Self {
-        f32::max(self, num2)
+    fn max(self, other: Self) -> Self {
+        f32::max(self, other)
     }
 
-    fn mul_div(self, num2: Self, num3: Self) -> Self {
-        (self * num2) / num3
-    }
-
-    #[inline(always)]
-    fn normalize_mul(self, num2: Self) -> Self {
-        self * num2
+    fn widened_mul_div(self, other: Self, other2: Self) -> Self {
+        (self * other) / other2
     }
 
     #[inline(always)]
-    fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
+    fn normalized_mul(self, other: Self) -> Self {
+        self * other
+    }
+
+    #[inline(always)]
+    fn extract_color(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
         color.as_premul_f32().components
     }
 
     #[inline(always)]
-    fn from_u8_normalized(num: u8) -> Self {
+    fn from_normalized_u8(num: u8) -> Self {
         num as f32 / 255.0
     }
 
@@ -768,12 +795,12 @@ impl FineType for f32 {
     }
 
     #[inline(always)]
-    fn to_f32(self) -> f32 {
+    fn to_f32_normalized(self) -> f32 {
         self
     }
 
     #[inline(always)]
-    fn from_f32(num: f32) -> Self {
+    fn from_normalized_f32(num: f32) -> Self {
         num
     }
 
@@ -795,8 +822,8 @@ impl FineType for f32 {
     }
 
     #[inline(always)]
-    fn from_rgbf32(_in: &[f32; 4]) -> [Self; COLOR_COMPONENTS] {
-        *_in
+    fn from_rgbaf32(_in: &[f32]) -> [Self; COLOR_COMPONENTS] {
+        [_in[0], _in[1], _in[2], _in[3]]
     }
 
     #[inline(always)]

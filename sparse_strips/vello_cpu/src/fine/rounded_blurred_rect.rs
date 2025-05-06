@@ -44,7 +44,7 @@ impl<'a> BlurredRoundedRectFiller<'a> {
         let min_edge = self.rect.min_edge;
         let std_dev_inv = self.rect.std_dev_inv;
 
-        let col = F::extract_solid(&self.rect.color);
+        let col = F::extract_color(&self.rect.color);
 
         for column in target.chunks_exact_mut(TILE_HEIGHT_COMPONENTS) {
             let mut col_pos = self.cur_pos;
@@ -70,11 +70,11 @@ impl<'a> BlurredRoundedRectFiller<'a> {
                         * (compute_erf7(std_dev_inv * (min_edge + d))
                             - compute_erf7(std_dev_inv * d));
 
-                    F::from_f32(z)
+                    F::from_normalized_f32(z)
                 };
 
                 for component in &mut pixel_color {
-                    *component = component.normalize_mul(alpha_val);
+                    *component = component.normalized_mul(alpha_val);
                 }
 
                 pixel.copy_from_slice(&pixel_color);
