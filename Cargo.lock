@@ -478,6 +478,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "010263546cea9f9f8385a5b7aad534b9e6448e62a0d3bf9da29d583308dd11bb"
 dependencies = [
+ "bytemuck",
  "libm",
 ]
 
@@ -2100,6 +2101,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f9529efd019889b2a205193c14ffb6e2839b54ed9d2720674f10f4b04d87ac9"
 dependencies = [
+ "bytemuck",
  "color 0.3.0",
  "kurbo",
  "smallvec",

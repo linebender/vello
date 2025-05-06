@@ -16,7 +16,10 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 
 use bytemuck::{Pod, Zeroable};
-use vello_common::tile::Tile;
+use vello_common::{
+    color::{PremulColor, Srgb},
+    tile::Tile,
+};
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, Device,
     PipelineCompilationOptions, Queue, RenderPass, RenderPipeline, Texture, util::DeviceExt,
@@ -114,8 +117,8 @@ pub struct GpuStrip {
     ///
     /// There are [`Config::strip_height`] alpha values per column.
     pub col: u32,
-    /// RGBA color value
-    pub rgba: u32,
+    /// RGBA color value.
+    pub rgba: PremulColor<Srgb>,
 }
 
 impl GpuStrip {
@@ -125,7 +128,7 @@ impl GpuStrip {
             0 => Uint32,
             1 => Uint32,
             2 => Uint32,
-            3 => Uint32,
+            3 => Float32x4,
         ]
     }
 }

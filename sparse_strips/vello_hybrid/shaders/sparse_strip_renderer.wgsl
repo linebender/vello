@@ -30,7 +30,7 @@ struct StripInstance {
     // Alpha texture column index where this strip's alpha values begin
     @location(2) col: u32,
     // [r, g, b, a] packed as u8's
-    @location(3) rgba: u32,
+    @location(3) rgba: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -39,7 +39,7 @@ struct VertexOutput {
     // Ending x-position of the dense (alpha) region
     @location(1) @interpolate(flat) dense_end: u32,
     // RGBA color value
-    @location(2) @interpolate(flat) color: u32,
+    @location(2) @interpolate(flat) color: vec4<f32>,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position) position: vec4<f32>,
 };
@@ -119,7 +119,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
     // Apply the alpha value to the unpacked RGBA color
-    return alpha * unpack4x8unorm(in.color);
+    return alpha * in.color;
 }
 
 fn unpack_alphas_from_channel(rgba: vec4<u32>, channel_index: u32) -> u32 {
@@ -131,17 +131,4 @@ fn unpack_alphas_from_channel(rgba: vec4<u32>, channel_index: u32) -> u32 {
         // Fallback, should never happen
         default: { return rgba.x; }
     }
-}
-
-// Polyfills `unpack4x8unorm`.
-//
-// Downlevel targets do not support native WGSL `unpack4x8unorm`.
-fn unpack4x8unorm(rgba_packed: u32) -> vec4<f32> {
-    // Extract each byte and convert to float in range [0,1]
-    return vec4<f32>(
-        f32((rgba_packed >> 0u) & 0xFFu) / 255.0,  // r
-        f32((rgba_packed >> 8u) & 0xFFu) / 255.0,  // g
-        f32((rgba_packed >> 16u) & 0xFFu) / 255.0, // b
-        f32((rgba_packed >> 24u) & 0xFFu) / 255.0  // a
-    );
 }
