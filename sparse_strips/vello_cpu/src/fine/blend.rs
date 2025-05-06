@@ -170,9 +170,7 @@ impl Multiply {
 
 impl Screen {
     fn single<F: FineType>(src: F, bg: F) -> F {
-        (bg.widen() + src.widen())
-            .min(src.normalize_mul(bg).widen())
-            .narrow()
+        (bg.widen() + src.widen() - src.widen().normalized_mul(bg.widen())).narrow()
     }
 }
 
@@ -188,10 +186,8 @@ impl HardLight {
     }
 }
 
-separable_mix!(Multiply, |cs: F, cb| cs.normalize_mul(cb));
-separable_mix!(Screen, |cs: F, cb: F| (cb.widen() + cs.widen()
-    - cs.widen().normalized_mul(cb.widen()))
-.narrow());
+separable_mix!(Multiply, |cs: F, cb| Multiply::single(cs, cb));
+separable_mix!(Screen, |cs: F, cb: F| Screen::single(cs, cb));
 separable_mix!(Overlay, |cs: F, cb: F| HardLight::single(cb, cs));
 separable_mix!(Darken, |cs: F, cb: F| cs.min(cb));
 separable_mix!(Lighten, |cs: F, cb: F| cs.max(cb));
@@ -201,7 +197,7 @@ separable_mix!(ColorDodge, |cs: F, cb: F| {
     } else if cs == F::ONE {
         F::ONE
     } else {
-        F::ONE.min(cb.mul_div(F::ONE, cs.inv()))
+        F::ONE.widen().min(cb.mul_div(F::ONE, cs.inv())).narrow()
     }
 });
 separable_mix!(ColorBurn, |cs: F, cb: F| {
@@ -210,19 +206,14 @@ separable_mix!(ColorBurn, |cs: F, cb: F| {
     } else if cs == F::ZERO {
         F::ZERO
     } else {
-        cb.inv().mul_div(F::ONE, cs).inv()
+        cb.inv()
+            .mul_div(F::ONE, cs)
+            .min(F::ONE.widen())
+            .narrow()
+            .inv()
     }
 });
-separable_mix!(HardLight, |cs: F, cb: F| {
-    if cs <= F::from_f32(0.5) {
-        Multiply::single(cb, cs.mul(F::from_u8(2)))
-    } else {
-        Screen::single(
-            cb,
-            (cs.widen() * F::from_u8(2).widen() - F::ONE.widen()).narrow(),
-        )
-    }
-});
+separable_mix!(HardLight, |cs: F, cb: F| HardLight::single(cs, cb));
 separable_mix!(SoftLight, |cs: F, cb: F| {
     let new_src = cs.to_f32();
     let cb = cb.to_f32();
@@ -357,7 +348,7 @@ fn unpremultiply<F: FineType>(color: &mut [F; 4]) {
 
     if alpha != F::ZERO {
         for c in &mut color[0..3] {
-            *c = c.mul_div(F::ONE, alpha);
+            *c = c.mul_div(F::ONE, alpha).narrow();
         }
     }
 }

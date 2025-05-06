@@ -24,9 +24,6 @@ pub(crate) mod scalar {
     /// - This holds for values of `val` up to and including `65279`. You should not call this function with higher values.
     #[inline(always)]
     pub(crate) const fn div_255(val: u16) -> u16 {
-        if val >= 65280 {
-            panic!("whoops...");
-        }
         debug_assert!(
             val < 65280,
             "the properties of `div_255` do not hold for values of `65280` or greater"

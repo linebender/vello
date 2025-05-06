@@ -609,6 +609,9 @@ impl Widened<u8> for u16 {
     }
 
     fn narrow(self) -> u8 {
+        if !(self <= u8::MAX as u16) {
+            panic!("whoops");
+        }
         debug_assert!(self <= u8::MAX as u16);
 
         self as u8
@@ -632,7 +635,7 @@ pub trait FineType:
 
     fn min(self, num2: Self) -> Self;
     fn max(self, num2: Self) -> Self;
-    fn mul_div(self, num2: Self, num3: Self) -> Self;
+    fn mul_div(self, num2: Self, num3: Self) -> Self::Widened;
     fn normalize_mul(self, num2: Self) -> Self;
     fn extract_solid(color: &PremulColor) -> [Self; COLOR_COMPONENTS];
     fn from_u8_normalized(num: u8) -> Self;
@@ -662,8 +665,8 @@ impl FineType for u8 {
         Ord::max(self, num2)
     }
 
-    fn mul_div(self, num2: Self, num3: Self) -> Self {
-        (self.widen() * num2.widen() / num3.widen()).narrow()
+    fn mul_div(self, num2: Self, num3: Self) -> Self::Widened {
+        (self.widen() * num2.widen()) / num3.widen()
     }
 
     #[inline(always)]
