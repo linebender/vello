@@ -637,7 +637,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
 
                 {
                     let _poll_span = tracing::trace_span!("Polling wgpu device").entered();
-                    device_handle.device.poll(wgpu::Maintain::Poll);
+                    device_handle.device.poll(wgpu::PollType::Poll).unwrap();
                 }
                 let new_time = Instant::now();
                 self.stats.add_sample(stats::Sample {
