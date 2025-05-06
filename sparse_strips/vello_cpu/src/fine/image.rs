@@ -90,7 +90,7 @@ impl<'a> ImageFiller<'a> {
         {
             let sample = match self.image.quality {
                 ImageQuality::Low => {
-                    F::from_rgba8(&self.image.pixmap.sample(x_pos as u16, *y_pos as u16))
+                    F::from_rgba8(self.image.pixmap.sample(x_pos as u16, *y_pos as u16))
                 }
                 ImageQuality::Medium | ImageQuality::High => unimplemented!(),
             };
@@ -125,7 +125,7 @@ impl<'a> ImageFiller<'a> {
                 ImageQuality::Low => {
                     let point = extend_point(pos);
                     let sample =
-                        F::from_rgba8(&self.image.pixmap.sample(point.x as u16, point.y as u16));
+                        F::from_rgba8(self.image.pixmap.sample(point.x as u16, point.y as u16));
                     pixel.copy_from_slice(&sample);
                 }
                 ImageQuality::Medium | ImageQuality::High => {

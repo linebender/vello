@@ -564,10 +564,10 @@ pub trait Widened<T: FineType>:
     fn narrow(self) -> T;
 }
 
-impl Widened<f32> for f32 {
+impl Widened<Self> for f32 {
     #[inline(always)]
     fn clamp(self) -> Self {
-        f32::clamp(self, f32::ZERO, f32::ONE)
+        Self::clamp(self, Self::ZERO, Self::ONE)
     }
 
     #[inline(always)]
@@ -578,12 +578,12 @@ impl Widened<f32> for f32 {
 
     #[inline(always)]
     fn min(self, other: Self) -> Self {
-        f32::min(self, other)
+        Self::min(self, other)
     }
 
     #[inline(always)]
     fn max(self, other: Self) -> Self {
-        f32::max(self, other)
+        Self::max(self, other)
     }
 
     #[inline(always)]
@@ -592,14 +592,14 @@ impl Widened<f32> for f32 {
     }
 
     #[inline(always)]
-    fn narrow(self) -> f32 {
+    fn narrow(self) -> Self {
         self
     }
 }
 
 impl Widened<u8> for u16 {
     fn clamp(self) -> Self {
-        Ord::clamp(self, u8::ZERO as u16, u8::ONE as u16)
+        Ord::clamp(self, u8::ZERO as Self, u8::ONE as Self)
     }
 
     fn normalize(self) -> Self {
@@ -619,7 +619,7 @@ impl Widened<u8> for u16 {
     }
 
     fn narrow(self) -> u8 {
-        debug_assert!(self <= u8::MAX as u16);
+        debug_assert!(self <= u8::MAX as Self);
 
         self as u8
     }
@@ -724,7 +724,7 @@ impl FineType for u8 {
 
     #[inline(always)]
     fn from_normalized_f32(num: f32) -> Self {
-        (num * 255.0 + 0.5) as u8
+        (num * 255.0 + 0.5) as Self
     }
 
     #[inline(always)]
@@ -739,7 +739,7 @@ impl FineType for u8 {
 
     #[inline(always)]
     fn from_rgbaf32(_in: &[f32]) -> [Self; COLOR_COMPONENTS] {
-        let r = |val: f32| (val * 255.0 + 0.5) as u8;
+        let r = |val: f32| (val * 255.0 + 0.5) as Self;
         [r(_in[0]), r(_in[1]), r(_in[2]), r(_in[3])]
     }
 
@@ -755,19 +755,19 @@ impl FineType for u8 {
 }
 
 impl FineType for f32 {
-    type Widened = f32;
+    type Widened = Self;
     const ZERO: Self = 0.0;
     const MID: Self = 0.5;
     const ONE: Self = 1.0;
 
     #[inline(always)]
     fn min(self, other: Self) -> Self {
-        f32::min(self, other)
+        Self::min(self, other)
     }
 
     #[inline(always)]
     fn max(self, other: Self) -> Self {
-        f32::max(self, other)
+        Self::max(self, other)
     }
 
     fn widened_mul_div(self, other: Self, other2: Self) -> Self {
@@ -786,12 +786,12 @@ impl FineType for f32 {
 
     #[inline(always)]
     fn from_normalized_u8(num: u8) -> Self {
-        num as f32 / 255.0
+        num as Self / 255.0
     }
 
     #[inline(always)]
     fn from_u8(num: u8) -> Self {
-        num as f32
+        num as Self
     }
 
     #[inline(always)]
@@ -817,7 +817,7 @@ impl FineType for f32 {
 
     #[inline(always)]
     fn from_rgba8(_in: &[u8]) -> [Self; COLOR_COMPONENTS] {
-        let c = |val: u8| val as f32 / 255.0;
+        let c = |val: u8| val as Self / 255.0;
         [c(_in[0]), c(_in[1]), c(_in[2]), c(_in[3])]
     }
 
