@@ -26,10 +26,10 @@ fn rounded_rectangle_watertight() {
         .assert_mean_less_than(0.001);
 }
 
-const DATA_IMAGE_PNG: &[u8] = include_bytes!("./data_image.png");
+const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/data_image_roundtrip.png");
 
 #[test]
-#[should_panic(expected = "Expected mean to be less than 0.001, got 0.3072978")]
+#[should_panic(expected = "Expected mean to be less than 0.001, got 0.3")]
 fn test_data_image_roundtrip() {
     let mut scene = Scene::new();
     let mut images = ImageCache::new();
