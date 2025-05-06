@@ -631,6 +631,7 @@ pub trait FineType:
     type Widened: Widened<Self>;
 
     const ZERO: Self;
+    const MID: Self;
     const ONE: Self;
 
     fn min(self, num2: Self) -> Self;
@@ -642,7 +643,6 @@ pub trait FineType:
     fn from_u8(num: u8) -> Self;
     fn to_f32(self) -> f32;
     fn from_f32(num: f32) -> Self;
-    fn from_f32_floored(num: f32) -> Self;
     fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS];
     fn from_rgba8(_in: &[u8]) -> [Self; COLOR_COMPONENTS];
     fn from_rgbf32(_in: &[f32; 4]) -> [Self; COLOR_COMPONENTS];
@@ -653,6 +653,7 @@ pub trait FineType:
 impl FineType for u8 {
     type Widened = u16;
     const ZERO: Self = 0;
+    const MID: Self = 127;
     const ONE: Self = 255;
 
     #[inline(always)]
@@ -700,11 +701,6 @@ impl FineType for u8 {
     }
 
     #[inline(always)]
-    fn from_f32_floored(num: f32) -> Self {
-        (num * 255.0) as u8
-    }
-
-    #[inline(always)]
     fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS] {
         [_in[0], _in[1], _in[2], _in[3]]
     }
@@ -734,6 +730,7 @@ impl FineType for u8 {
 impl FineType for f32 {
     type Widened = f32;
     const ZERO: Self = 0.0;
+    const MID: Self = 0.5;
     const ONE: Self = 1.0;
 
     #[inline(always)]
@@ -777,11 +774,6 @@ impl FineType for f32 {
 
     #[inline(always)]
     fn from_f32(num: f32) -> Self {
-        num
-    }
-
-    #[inline(always)]
-    fn from_f32_floored(num: f32) -> Self {
         num
     }
 

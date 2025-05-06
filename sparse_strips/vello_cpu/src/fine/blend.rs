@@ -178,7 +178,7 @@ impl HardLight {
     fn single<F: FineType>(src: F, bg: F) -> F {
         let two = F::from_u8(2);
 
-        if src <= F::from_f32_floored(0.5) {
+        if src <= F::MID {
             Multiply::single(bg, src * two)
         } else {
             Screen::single(bg, (two.widen() * src.widen() - F::ONE.widen()).narrow())
