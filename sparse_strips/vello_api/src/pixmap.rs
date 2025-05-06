@@ -6,18 +6,20 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::peniko::color::PremulRgba8;
+
 #[cfg(feature = "png")]
 extern crate std;
 
-/// A pixmap backed by u8.
+/// A pixmap of premultiplied RGBA8 values backed by [`u8`][core::u8].
 #[derive(Debug, Clone)]
 pub struct Pixmap {
     /// Width of the pixmap in pixels.  
-    pub width: u16,
+    width: u16,
     /// Height of the pixmap in pixels.
-    pub height: u16,
+    height: u16,
     /// Buffer of the pixmap in RGBA format.
-    pub buf: Vec<u8>,
+    buf: Vec<u8>,
 }
 
 impl Pixmap {
@@ -37,12 +39,12 @@ impl Pixmap {
         self.height
     }
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "cannot overflow in this case"
-    )]
     /// Apply an alpha value to the whole pixmap.
     pub fn multiply_alpha(&mut self, alpha: u8) {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "cannot overflow in this case"
+        )]
         for comp in self.data_mut() {
             *comp = ((alpha as u16 * *comp as u16) / 255) as u8;
         }
@@ -125,30 +127,49 @@ impl Pixmap {
     }
 
     /// Returns a reference to the underlying data as premultiplied RGBA8.
+    ///
+    /// The pixels are in row-major order. Each pixel consists of four bytes in the order
+    /// `[r, g, b, a]`.
     pub fn data(&self) -> &[u8] {
         &self.buf
     }
 
     /// Returns a mutable reference to the underlying data as premultiplied RGBA8.
+    ///
+    /// The pixels are in row-major order. Each pixel consists of four bytes in the order
+    /// `[r, g, b, a]`.
     pub fn data_mut(&mut self) -> &mut [u8] {
         &mut self.buf
     }
 
     /// Sample a pixel from the pixmap.
+    ///
+    /// The pixel data is [premultiplied RGBA8][PremulRgba8].
     #[inline(always)]
-    pub fn sample(&self, x: u16, y: u16) -> &[u8] {
+    pub fn sample(&self, x: u16, y: u16) -> PremulRgba8 {
         let idx = 4 * (self.width as usize * y as usize + x as usize);
-        &self.buf[idx..][..4]
+
+        // The conversion here is a no-op, as `PremulRgba8`'s fields are in the same memory order
+        // as the pixel data.
+        PremulRgba8::from_u8_array(self.buf[idx..][..4].try_into().unwrap())
     }
 
-    /// Convert from premultiplied to separate alpha.
+    /// Consume the pixmap, returning the data as the underlying [`Vec`] of premultiplied RGBA8
+    /// bytes.
+    ///
+    /// The pixels are in row-major order. Each pixel consists of four bytes in the order
+    /// `[r, g, b, a]`.
+    pub fn take(self) -> Vec<u8> {
+        self.buf
+    }
+
+    /// Consume the pixmap, returning the data as (unpremultiplied) RGBA8 bytes.
     ///
     /// Not fast, but useful for saving to PNG etc.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "cannot overflow in this case"
-    )]
-    pub fn unpremultiply(&mut self) {
+    ///
+    /// The pixels are in row-major order. Each pixel consists of four bytes in the order
+    /// `[r, g, b, a]`.
+    pub fn take_unpremultiplied(mut self) -> Vec<u8> {
         for rgba in self.buf.chunks_exact_mut(4) {
             let alpha = 255.0 / rgba[3] as f32;
 
@@ -158,5 +179,7 @@ impl Pixmap {
                 rgba[2] = (rgba[2] as f32 * alpha + 0.5) as u8;
             }
         }
+
+        self.buf
     }
 }

@@ -157,20 +157,16 @@ async fn run() {
     device.poll(wgpu::Maintain::Wait);
 
     // Read back the pixel data
-    let mut img_data = Vec::with_capacity(usize::from(width) * usize::from(height) * 4);
-    for row in texture_copy_buffer
+    let mut pixmap = Pixmap::new(width, height);
+    for (row, buf) in texture_copy_buffer
         .slice(..)
         .get_mapped_range()
         .chunks_exact(bytes_per_row as usize)
+        .zip(pixmap.data_mut().chunks_exact_mut(usize::from(width) * 4))
     {
-        img_data.extend_from_slice(&row[0..width as usize * 4]);
+        buf.copy_from_slice(&row[0..usize::from(width) * 4]);
     }
     texture_copy_buffer.unmap();
-
-    // Create a pixmap and set the buffer
-    let mut pixmap = Pixmap::new(width, height);
-    pixmap.buf = img_data;
-    pixmap.unpremultiply();
 
     // Write the pixmap to a file
     let file = std::fs::File::create(output_filename).unwrap();
@@ -178,7 +174,9 @@ async fn run() {
     let mut png_encoder = png::Encoder::new(w, width.into(), height.into());
     png_encoder.set_color(png::ColorType::Rgba);
     let mut writer = png_encoder.write_header().unwrap();
-    writer.write_image_data(&pixmap.buf).unwrap();
+    writer
+        .write_image_data(&pixmap.take_unpremultiplied())
+        .unwrap();
 }
 
 fn render_svg(ctx: &mut Scene, items: &[Item], transform: Affine) {

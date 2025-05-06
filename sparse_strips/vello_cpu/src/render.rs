@@ -307,7 +307,9 @@ impl RenderContext {
 
     /// Render the current context into a pixmap.
     pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        self.render_to_buffer(&mut pixmap.buf, pixmap.width, pixmap.height);
+        let width = pixmap.width();
+        let height = pixmap.height();
+        self.render_to_buffer(pixmap.data_mut(), width, height);
     }
 
     /// Return the width of the pixmap.
