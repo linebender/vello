@@ -4,7 +4,7 @@
 //! Support for blending. See <https://www.w3.org/TR/compositing-1/#introduction> for
 //! an introduction as well as the corresponding formulas.
 
-use crate::fine::{COLOR_COMPONENTS, FineType};
+use crate::fine::{COLOR_COMPONENTS, FineType, Widened};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 
 pub(crate) mod fill {
@@ -73,7 +73,9 @@ fn mix<F: FineType>(mut src_c: [F; 4], bg_c: &[F], blend_mode: BlendMode) -> [F;
 
     // Account for alpha.
     for i in 0..3 {
-        src_c[i] = bg_alpha.inv().norm_mul_add(src_c[i], bg_alpha, mixed[i]);
+        let p1 = bg_alpha.inv().widen() * src_c[i].widen();
+        let p2 = bg_alpha.widen() * mixed[i].widen();
+        src_c[i] = (p1 + p2).normalize().narrow();
     }
 
     // Premultiply again.
@@ -162,13 +164,15 @@ macro_rules! non_separable_mix {
 
 impl Multiply {
     fn single<F: FineType>(src: F, bg: F) -> F {
-        src.norm_mul(bg)
+        src.normalize_mul(bg)
     }
 }
 
 impl Screen {
     fn single<F: FineType>(src: F, bg: F) -> F {
-        bg.add_minus(src, src.norm_mul(bg))
+        (bg.widen() + src.widen())
+            .min(src.normalize_mul(bg).widen())
+            .narrow()
     }
 }
 
@@ -177,15 +181,17 @@ impl HardLight {
         let two = F::from_u8(2);
 
         if src <= F::from_f32_floored(0.5) {
-            Multiply::single(bg, src.mul(two))
+            Multiply::single(bg, src * two)
         } else {
-            Screen::single(bg, two.mul_minus(src, F::ONE))
+            Screen::single(bg, (two.widen() * src.widen() - F::ONE.widen()).narrow())
         }
     }
 }
 
-separable_mix!(Multiply, |cs: F, cb| cs.norm_mul(cb));
-separable_mix!(Screen, |cs: F, cb: F| cb.add_minus(cs, cs.norm_mul(cb)));
+separable_mix!(Multiply, |cs: F, cb| cs.normalize_mul(cb));
+separable_mix!(Screen, |cs: F, cb: F| (cb.widen() + cs.widen()
+    - cs.widen().normalized_mul(cb.widen()))
+.narrow());
 separable_mix!(Overlay, |cs: F, cb: F| HardLight::single(cb, cs));
 separable_mix!(Darken, |cs: F, cb: F| cs.min(cb));
 separable_mix!(Lighten, |cs: F, cb: F| cs.max(cb));
@@ -211,7 +217,10 @@ separable_mix!(HardLight, |cs: F, cb: F| {
     if cs <= F::from_f32(0.5) {
         Multiply::single(cb, cs.mul(F::from_u8(2)))
     } else {
-        Screen::single(cb, cs.mul_minus(F::from_u8(2), F::ONE))
+        Screen::single(
+            cb,
+            (cs.widen() * F::from_u8(2).widen() - F::ONE.widen()).narrow(),
+        )
     }
 });
 separable_mix!(SoftLight, |cs: F, cb: F| {
@@ -233,7 +242,7 @@ separable_mix!(SoftLight, |cs: F, cb: F| {
     F::from_f32(res)
 });
 separable_mix!(Difference, |cs: F, cb: F| {
-    if cs <= cb { cb.minus(cs) } else { cs.minus(cb) }
+    if cs <= cb { cb - cs } else { cs - cb }
 });
 separable_mix!(Exclusion, |cs: F, cb: F| {
     let new_src = cs.to_f32();
@@ -357,7 +366,7 @@ fn premultiply<F: FineType>(color: &mut [F; 4]) {
     let alpha = color[3];
 
     for c in &mut color[0..3] {
-        *c = c.norm_mul(alpha);
+        *c = c.normalize_mul(alpha);
     }
 }
 
@@ -368,18 +377,21 @@ macro_rules! compose {
         impl $name {
             fn compose<F: FineType>(src_c: &[F; 4], bg_c: &mut [F], mask: F) {
                 let al_b = bg_c[3];
-                let al_s = src_c[3].norm_mul(mask);
+                let al_s = src_c[3].normalize_mul(mask);
 
                 for i in 0..4 {
                     let fa = $fa(al_s, al_b);
                     let fb = $fb(al_s, al_b);
 
-                    let src_c = src_c[i].norm_mul(mask);
+                    let src_c = src_c[i].normalize_mul(mask);
 
                     if $sat {
-                        bg_c[i] = src_c.norm_mul(fa).saturating_add(fb.norm_mul(bg_c[i]));
+                        bg_c[i] = (src_c.normalize_mul(fa).widen()
+                            + fb.normalize_mul(bg_c[i]).widen())
+                        .clamp()
+                        .narrow();
                     } else {
-                        bg_c[i] = src_c.norm_mul(fa).add(fb.norm_mul(bg_c[i]));
+                        bg_c[i] = src_c.normalize_mul(fa).add(fb.normalize_mul(bg_c[i]));
                     }
                 }
             }

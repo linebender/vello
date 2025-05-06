@@ -409,7 +409,7 @@ fn encode_stops(
         let mut factors_f32 = [0.0; 4];
 
         for i in 0..4 {
-            let mut c1_minus_c0 = c1[i] - c0[i];
+            let c1_minus_c0 = c1[i] - c0[i];
             factors_f32[i] = c1_minus_c0 / x1_minus_x0;
         }
 

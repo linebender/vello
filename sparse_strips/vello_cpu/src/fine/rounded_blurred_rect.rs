@@ -74,7 +74,7 @@ impl<'a> BlurredRoundedRectFiller<'a> {
                 };
 
                 for component in &mut pixel_color {
-                    *component = component.norm_mul(alpha_val);
+                    *component = component.normalize_mul(alpha_val);
                 }
 
                 pixel.copy_from_slice(&pixel_color);
