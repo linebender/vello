@@ -28,6 +28,7 @@ fn rounded_rectangle_watertight() {
 
 const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/data_image_roundtrip.png");
 
+/// Test for <https://github.com/linebender/vello/issues/972>
 #[test]
 #[should_panic(expected = "Expected mean to be less than 0.001, got 0.3")]
 fn test_data_image_roundtrip() {
