@@ -249,7 +249,6 @@ impl Scheduler {
         debug_assert!(self.clear[1].is_empty(), "clear has not reset");
         #[cfg(debug_assertions)]
         {
-
             for i in 0..self.total_slots {
                 debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {}", i);
                 debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {}", i);
