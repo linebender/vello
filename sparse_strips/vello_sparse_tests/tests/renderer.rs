@@ -9,7 +9,6 @@ use vello_api::pixmap::Pixmap;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_cpu::RenderContext;
 use vello_hybrid::Scene;
-use wgpu::RenderPassDescriptor;
 
 pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn new(width: u16, height: u16) -> Self;
@@ -164,16 +163,16 @@ impl Renderer for Scene {
 
     fn push_layer(
         &mut self,
-        _: Option<&BezPath>,
-        _: Option<BlendMode>,
-        _: Option<u8>,
-        _: Option<Mask>,
+        clip: Option<&BezPath>,
+        blend_mode: Option<BlendMode>,
+        opacity: Option<u8>,
+        mask: Option<Mask>,
     ) {
-        unimplemented!()
+        Self::push_layer(self, clip, blend_mode, opacity, mask);
     }
 
-    fn push_clip_layer(&mut self, _: &BezPath) {
-        unimplemented!()
+    fn push_clip_layer(&mut self, path: &BezPath) {
+        Self::push_clip_layer(self, path);
     }
 
     fn push_blend_layer(&mut self, _: BlendMode) {
@@ -189,7 +188,7 @@ impl Renderer for Scene {
     }
 
     fn pop_layer(&mut self) {
-        unimplemented!()
+        Self::pop_layer(self);
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
@@ -272,28 +271,20 @@ impl Renderer for Scene {
             width: width.into(),
             height: height.into(),
         };
-        renderer.prepare(&device, &queue, self, &render_size);
         // Copy texture to buffer
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Vello Render To Buffer"),
         });
-        {
-            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-            renderer.render(self, &mut pass);
-        }
+        renderer
+            .render(
+                self,
+                &device,
+                &queue,
+                &mut encoder,
+                &render_size,
+                &texture_view,
+            )
+            .unwrap();
 
         // Create a buffer to copy the texture data
         let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);

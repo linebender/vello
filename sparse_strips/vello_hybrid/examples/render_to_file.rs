@@ -11,7 +11,6 @@ use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::Pixmap;
 use vello_hybrid::{DimensionConstraints, Scene};
-use wgpu::RenderPassDescriptor;
 
 /// Main entry point for the headless rendering example.
 /// Takes two command line arguments:
@@ -91,28 +90,20 @@ async fn run() {
         width: width.into(),
         height: height.into(),
     };
-    renderer.prepare(&device, &queue, &scene, &render_size);
     // Copy texture to buffer
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),
     });
-    {
-        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &texture_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
-        renderer.render(&scene, &mut pass);
-    }
+    renderer
+        .render(
+            &scene,
+            &device,
+            &queue,
+            &mut encoder,
+            &render_size,
+            &texture_view,
+        )
+        .unwrap();
 
     // Create a buffer to copy the texture data
     let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);

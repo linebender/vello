@@ -3,19 +3,19 @@
 
 //! Basic render operations.
 
-use crate::render::{GpuStrip, RenderData};
 use alloc::vec;
 use alloc::vec::Vec;
-use vello_common::coarse::{Wide, WideTile};
+use vello_common::coarse::Wide;
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
+use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::strip::Strip;
-use vello_common::tile::{Tile, Tiles};
+use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
 
 /// Default tolerance for curve flattening
@@ -121,6 +121,53 @@ impl Scene {
         GlyphRunBuilder::new(font.clone(), self.transform, self)
     }
 
+    /// Push a new layer with the given properties.
+    ///
+    /// Only `clip_path` is supported for now.
+    pub fn push_layer(
+        &mut self,
+        clip_path: Option<&BezPath>,
+        blend_mode: Option<BlendMode>,
+        opacity: Option<u8>,
+        mask: Option<Mask>,
+    ) {
+        let clip = if let Some(c) = clip_path {
+            flatten::fill(c, self.transform, &mut self.line_buf);
+            self.make_strips(self.fill_rule);
+            Some((self.strip_buf.as_slice(), self.fill_rule))
+        } else {
+            None
+        };
+
+        // Blend mode, opacity, and mask are not supported yet.
+        if blend_mode.is_some() {
+            unimplemented!()
+        }
+        if opacity.is_some() {
+            unimplemented!()
+        }
+        if mask.is_some() {
+            unimplemented!()
+        }
+
+        self.wide.push_layer(
+            clip,
+            BlendMode::new(Mix::Normal, Compose::SrcOver),
+            None,
+            255,
+        );
+    }
+
+    /// Push a new clip layer.
+    pub fn push_clip_layer(&mut self, path: &BezPath) {
+        self.push_layer(Some(path), None, None, None);
+    }
+
+    /// Pop the last pushed layer.
+    pub fn pop_layer(&mut self) {
+        self.wide.pop_layer();
+    }
+
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
         self.blend_mode = blend_mode;
@@ -179,6 +226,11 @@ impl Scene {
 
     // Assumes that `line_buf` contains the flattened path.
     fn render_path(&mut self, fill_rule: Fill, paint: Paint) {
+        self.make_strips(fill_rule);
+        self.wide.generate(&self.strip_buf, fill_rule, paint);
+    }
+
+    fn make_strips(&mut self, fill_rule: Fill) {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
@@ -190,84 +242,6 @@ impl Scene {
             fill_rule,
             &self.line_buf,
         );
-
-        self.wide.generate(&self.strip_buf, fill_rule, paint);
-    }
-}
-
-impl Scene {
-    /// Prepares render data from the current context for GPU rendering
-    ///
-    /// This method converts the rendering context's state into a format
-    /// suitable for GPU rendering, including strips and alpha values.
-    pub fn prepare_render_data(&self) -> RenderData {
-        let mut strips: Vec<GpuStrip> = Vec::new();
-        let wide_tiles_per_row = (self.width).div_ceil(WideTile::WIDTH);
-        let wide_tiles_per_col = (self.height).div_ceil(Tile::HEIGHT);
-        for wide_tile_row in 0..wide_tiles_per_col {
-            for wide_tile_col in 0..wide_tiles_per_row {
-                let wide_tile_idx = usize::from(wide_tile_row) * usize::from(wide_tiles_per_row)
-                    + usize::from(wide_tile_col);
-                let wide_tile = &self.wide.tiles[wide_tile_idx];
-                let wide_tile_x = wide_tile_col * WideTile::WIDTH;
-                let wide_tile_y = wide_tile_row * Tile::HEIGHT;
-                let bg = wide_tile.bg.as_premul_rgba8().to_u32();
-                if bg != 0 {
-                    strips.push(GpuStrip {
-                        x: wide_tile_x,
-                        y: wide_tile_y,
-                        width: WideTile::WIDTH,
-                        dense_width: 0,
-                        col: 0,
-                        rgba: bg,
-                    });
-                }
-                for cmd in &wide_tile.cmds {
-                    match cmd {
-                        vello_common::coarse::Cmd::Fill(fill) => {
-                            let rgba = match &fill.paint {
-                                Paint::Solid(color) => color.as_premul_rgba8().to_u32(),
-                                Paint::Indexed(_) => unimplemented!(),
-                            };
-                            strips.push(GpuStrip {
-                                x: wide_tile_x + fill.x,
-                                y: wide_tile_y,
-                                width: fill.width,
-                                dense_width: 0,
-                                col: 0,
-                                rgba,
-                            });
-                        }
-                        vello_common::coarse::Cmd::AlphaFill(cmd_strip) => {
-                            let rgba = match &cmd_strip.paint {
-                                Paint::Solid(color) => color.as_premul_rgba8().to_u32(),
-                                Paint::Indexed(_) => unimplemented!(),
-                            };
-
-                            // msg is a variable here to work around rustfmt failure
-                            let msg = "GpuStrip fields use u16 and values are expected to fit within that range";
-                            strips.push(GpuStrip {
-                                x: wide_tile_x + cmd_strip.x,
-                                y: wide_tile_y,
-                                width: cmd_strip.width,
-                                dense_width: cmd_strip.width,
-                                col: (cmd_strip.alpha_idx / usize::from(Tile::HEIGHT))
-                                    .try_into()
-                                    .expect(msg),
-                                rgba,
-                            });
-                        }
-                        _ => {
-                            unimplemented!("unsupported command: {:?}", cmd);
-                        }
-                    }
-                }
-            }
-        }
-        RenderData {
-            strips,
-            alphas: self.alphas.clone(),
-        }
     }
 }
 

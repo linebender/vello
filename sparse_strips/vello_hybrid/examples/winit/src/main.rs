@@ -13,7 +13,6 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Vec2};
 use vello_hybrid::{RenderSize, Renderer, Scene};
 use vello_hybrid_scenes::{AnyScene, get_example_scenes};
-use wgpu::RenderPassDescriptor;
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
@@ -271,12 +270,6 @@ impl ApplicationHandler for App<'_> {
                     width: surface.config.width,
                     height: surface.config.height,
                 };
-                self.renderers[surface.dev_id].as_mut().unwrap().prepare(
-                    &device_handle.device,
-                    &device_handle.queue,
-                    &self.scene,
-                    &render_size,
-                );
 
                 let surface_texture = surface
                     .surface
@@ -293,26 +286,18 @@ impl ApplicationHandler for App<'_> {
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                             label: Some("Vello Render to Surface pass"),
                         });
-                {
-                    let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                        label: Some("Render to Texture Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &texture_view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        occlusion_query_set: None,
-                        timestamp_writes: None,
-                    });
-                    self.renderers[surface.dev_id]
-                        .as_mut()
-                        .unwrap()
-                        .render(&self.scene, &mut pass);
-                }
+                self.renderers[surface.dev_id]
+                    .as_mut()
+                    .unwrap()
+                    .render(
+                        &self.scene,
+                        &device_handle.device,
+                        &device_handle.queue,
+                        &mut encoder,
+                        &render_size,
+                        &texture_view,
+                    )
+                    .unwrap();
 
                 device_handle.queue.submit([encoder.finish()]);
                 surface_texture.present();
