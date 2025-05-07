@@ -411,7 +411,7 @@ impl Programs {
             INITIAL_ALPHA_TEXTURE_HEIGHT,
         );
         let alpha_data =
-            vec![0; (max_texture_dimension_2d * INITIAL_ALPHA_TEXTURE_HEIGHT << 4) as usize];
+            vec![0; ((max_texture_dimension_2d * INITIAL_ALPHA_TEXTURE_HEIGHT) << 4) as usize];
         let view_config_buffer = Self::make_config_buffer(
             device,
             &RenderSize {
@@ -553,7 +553,7 @@ impl Programs {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&alphas_texture_view),
+                    resource: wgpu::BindingResource::TextureView(alphas_texture_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -598,7 +598,7 @@ impl Programs {
                 );
 
                 // Resize the alpha texture staging buffer.
-                let required_alpha_size = max_texture_dimension_2d * required_alpha_height << 4;
+                let required_alpha_size = (max_texture_dimension_2d * required_alpha_height) << 4;
                 self.alpha_data.resize(required_alpha_size as usize, 0);
                 // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
                 let alphas_texture = Self::make_alphas_texture(
