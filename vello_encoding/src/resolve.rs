@@ -318,6 +318,7 @@ impl Resolver {
                     glyphs: _,
                     transform,
                     scale,
+                    hint,
                 } = patch
                 {
                     let run = &resources.glyph_runs[*index];
@@ -328,21 +329,27 @@ impl Resolver {
                     }
                     if let Some(glyph_transform) = run.glyph_transform {
                         for glyph in &resources.glyphs[run.glyphs.clone()] {
-                            let xform = *transform
+                            let mut xform = *transform
                                 * Transform {
                                     matrix: [1.0, 0.0, 0.0, -1.0],
                                     translation: [glyph.x * scale, glyph.y * scale],
                                 }
                                 * glyph_transform;
+                            if *hint {
+                                xform.translation[1] = xform.translation[1].round();
+                            }
                             data.extend_from_slice(bytemuck::bytes_of(&xform));
                         }
                     } else {
                         for glyph in &resources.glyphs[run.glyphs.clone()] {
-                            let xform = *transform
+                            let mut xform = *transform
                                 * Transform {
                                     matrix: [1.0, 0.0, 0.0, -1.0],
                                     translation: [glyph.x * scale, glyph.y * scale],
                                 };
+                            if *hint {
+                                xform.translation[1] = xform.translation[1].round();
+                            }
                             data.extend_from_slice(bytemuck::bytes_of(&xform));
                         }
                     }
@@ -457,6 +464,7 @@ impl Resolver {
                         glyphs: glyph_start..glyph_end,
                         transform,
                         scale,
+                        hint,
                     });
                 }
                 Patch::Image {
@@ -557,6 +565,11 @@ enum ResolvedPatch {
         transform: Transform,
         /// Additional scale factor to apply to translation.
         scale: f32,
+        /// Whether the glyph was hinted.
+        ///
+        /// This determines whether the y-coordinate of the final position
+        /// needs to be rounded.
+        hint: bool,
     },
     Image {
         /// Index of pending image element.

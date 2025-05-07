@@ -156,6 +156,8 @@ impl Wide {
             tile.bg = PremulColor::new(TRANSPARENT);
             tile.cmds.clear();
         }
+        self.layer_stack.clear();
+        self.clip_stack.clear();
     }
 
     /// Return the number of horizontal tiles.
@@ -650,7 +652,11 @@ impl Wide {
                 // Apply the clip strip command and update state
                 self.get_mut(wtile_x, cur_wtile_y).clip_strip(cmd);
                 cur_wtile_x = wtile_x;
-                pop_pending = true;
+
+                // Only request a pop if the x coordinate is actually inside the bounds.
+                if cur_wtile_x < clip_bbox.x1() {
+                    pop_pending = true;
+                }
             }
 
             // Handle fill regions between strips based on fill rule
@@ -659,6 +665,10 @@ impl Wide {
                 Fill::EvenOdd => next_strip.winding % 2 != 0,
             };
             if is_inside && strip_y == next_strip.strip_y() {
+                if cur_wtile_x >= clip_bbox.x1() {
+                    continue;
+                }
+
                 let x2 = next_strip.x;
                 let clipped_x2 = x2.min((cur_wtile_x + 1) * WideTile::WIDTH);
                 let width = clipped_x2.saturating_sub(x1);
@@ -680,9 +690,26 @@ impl Wide {
                 // If fill extends to next tile, pop current and handle next
                 if x2 > (cur_wtile_x + 1) * WideTile::WIDTH {
                     self.get_mut(cur_wtile_x, cur_wtile_y).pop_clip();
+                    pop_pending = false;
+
                     let width2 = x2 % WideTile::WIDTH;
                     cur_wtile_x = x2 / WideTile::WIDTH;
+
+                    // If the strip is outside the clipping box, we don't need to do any
+                    // filling, so we continue (also to prevent out-of-bounds access).
+                    if cur_wtile_x >= clip_bbox.x1() {
+                        continue;
+                    }
+
                     if width2 > 0 {
+                        // An important thing to note: Note that we are only applying
+                        // `clip_fill` to the wide tile that is actually covered by the next
+                        // strip, and not the ones in-between! For example, if the first strip
+                        // is in wide tile 1 and the second in wide tile 4, we will do a clip
+                        // fill in wide tile 1 and 4, but not in 2 and 3. The reason for this is
+                        // that any tile in-between is fully covered and thus no clipping is
+                        // necessary at all. See also the `push_clip` function, where we don't
+                        // push a new buffer for such tiles.
                         self.get_mut(cur_wtile_x, cur_wtile_y)
                             .clip_fill(0, width2 as u32);
                     }
@@ -1016,7 +1043,9 @@ mod tests {
     use crate::coarse::{Cmd, CmdFill, Wide, WideTile};
     use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
-    use crate::peniko::{BlendMode, Compose, Mix};
+    use crate::peniko::{BlendMode, Compose, Fill, Mix};
+    use crate::strip::Strip;
+    use alloc::{boxed::Box, vec};
     use vello_api::paint::{Paint, PremulColor};
 
     #[test]
@@ -1102,5 +1131,34 @@ mod tests {
         let tile_2 = wide.get(2, 15);
         assert_eq!(tile_2.x, 512);
         assert_eq!(tile_2.y, 60);
+    }
+
+    #[test]
+    fn reset_clears_layer_and_clip_stacks() {
+        type ClipPath = Option<(Box<[Strip]>, Fill)>;
+
+        let mut wide = Wide::new(1000, 258);
+        let no_clip_path: ClipPath = None;
+        wide.push_layer(no_clip_path, BlendMode::default(), None, 128);
+
+        assert_eq!(wide.layer_stack.len(), 1);
+        assert_eq!(wide.clip_stack.len(), 0);
+
+        let strip = Strip {
+            x: 2,
+            y: 2,
+            alpha_idx: 0,
+            winding: 1,
+        };
+        let clip_path = Some((vec![strip].into_boxed_slice(), Fill::NonZero));
+        wide.push_layer(clip_path, BlendMode::default(), None, 24);
+
+        assert_eq!(wide.layer_stack.len(), 2);
+        assert_eq!(wide.clip_stack.len(), 1);
+
+        wide.reset();
+
+        assert_eq!(wide.layer_stack.len(), 0);
+        assert_eq!(wide.clip_stack.len(), 0);
     }
 }

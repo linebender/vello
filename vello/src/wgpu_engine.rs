@@ -393,7 +393,7 @@ impl WgpuEngine {
         let mut encoder =
             device.create_command_encoder(&CommandEncoderDescriptor { label: Some(label) });
         #[cfg(feature = "wgpu-profiler")]
-        let query = profiler.begin_query(label, &mut encoder, device);
+        let query = profiler.begin_query(label, &mut encoder);
         for command in &recording.commands {
             match command {
                 Command::Upload(buf_proxy, bytes) => {
@@ -561,7 +561,7 @@ impl WgpuEngine {
                                 encoder.begin_compute_pass(&ComputePassDescriptor::default());
                             #[cfg(feature = "wgpu-profiler")]
                             let query = profiler
-                                .begin_query(shader.label, &mut cpass, device)
+                                .begin_query(shader.label, &mut cpass)
                                 .with_parent(Some(&query));
                             #[cfg_attr(
                                 not(feature = "debug_layers"),
@@ -619,7 +619,7 @@ impl WgpuEngine {
                                 encoder.begin_compute_pass(&ComputePassDescriptor::default());
                             #[cfg(feature = "wgpu-profiler")]
                             let query = profiler
-                                .begin_query(shader.label, &mut cpass, device)
+                                .begin_query(shader.label, &mut cpass)
                                 .with_parent(Some(&query));
                             #[cfg_attr(
                                 not(feature = "debug_layers"),
@@ -685,7 +685,7 @@ impl WgpuEngine {
                     });
                     #[cfg(feature = "wgpu-profiler")]
                     let query = profiler
-                        .begin_query(label, &mut rpass, device)
+                        .begin_query(label, &mut rpass)
                         .with_parent(Some(&query));
                     let PipelineState::Render(pipeline) = &shader.pipeline else {
                         panic!("cannot issue a draw with a compute pipeline");

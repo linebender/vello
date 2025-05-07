@@ -16,6 +16,7 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
     fn fill_rect(&mut self, rect: &Rect);
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
     fn stroke_rect(&mut self, rect: &Rect);
     fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self>;
     fn push_layer(
@@ -55,6 +56,10 @@ impl Renderer for RenderContext {
 
     fn fill_rect(&mut self, rect: &Rect) {
         Self::fill_rect(self, rect);
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        Self::fill_blurred_rounded_rect(self, rect, radius, std_dev);
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
@@ -143,6 +148,10 @@ impl Renderer for Scene {
 
     fn fill_rect(&mut self, rect: &Rect) {
         Self::fill_rect(self, rect);
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, _: &Rect, _: f32, _: f32) {
+        unimplemented!()
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {

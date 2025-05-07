@@ -58,7 +58,7 @@ notify-debouncer-full = "0.5.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { workspace = true, features = ["android-native-activity"] }
-android_logger = "0.14.1"
+android_logger = "0.15.0"
 
 tracing_android_trace = "0.1.1"
 tracing-subscriber = { version = "0.3.19", default-features = false, features = [
@@ -73,7 +73,7 @@ jni = "0.21.1"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
-wasm-bindgen-futures = "0.4.45"
+wasm-bindgen-futures = "0.4.50"
 web-sys = { version = "0.3.77", features = ["HtmlCollection", "Text"] }
 web-time = { workspace = true }
 # If updating, also update in .github/workflows/web-demo.yml
@@ -82,4 +82,4 @@ wasm-bindgen = "=0.2.100"
 [target.wasm32-unknown-unknown.dependencies]
 # We have a transitive dependency on getrandom and it does not automatically
 # support wasm32-unknown-unknown. We need to enable the js feature.
-getrandom = { version = "0.3.1", features = ["wasm_js"] }
+getrandom = { version = "0.3.2", features = ["wasm_js"] }

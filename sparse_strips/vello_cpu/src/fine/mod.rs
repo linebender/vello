@@ -7,9 +7,11 @@
 mod blend;
 mod gradient;
 mod image;
+mod rounded_blurred_rect;
 
 use crate::fine::gradient::GradientFiller;
 use crate::fine::image::ImageFiller;
+use crate::fine::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::util::scalar::div_255;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -273,6 +275,10 @@ impl Fine {
                             filler,
                         );
                     }
+                    EncodedPaint::BlurredRoundedRect(b) => {
+                        let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
+                        fill_complex_paint(color_buf, blend_buf, true, blend_mode, filler);
+                    }
                 }
             }
         }
@@ -346,6 +352,10 @@ impl Fine {
                     },
                     EncodedPaint::Image(i) => {
                         let filler = ImageFiller::new(i, start_x, start_y);
+                        strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
+                    }
+                    EncodedPaint::BlurredRoundedRect(b) => {
+                        let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
                         strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
                     }
                 }

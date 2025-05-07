@@ -95,6 +95,7 @@ pub trait GlyphRenderer {
 
 /// A builder for configuring and drawing glyphs.
 #[derive(Debug)]
+#[must_use = "Methods on the builder don't do anything until `render` is called."]
 pub struct GlyphRunBuilder<'a, T: GlyphRenderer + 'a> {
     run: GlyphRun<'a>,
     renderer: &'a mut T,

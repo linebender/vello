@@ -718,6 +718,7 @@ mod impls {
             None,
             Fill::NonZero,
             "And some Vello\ntext with a newline",
+            false, /* hint */
         );
         let th = params.time;
         let center = Point::new(500.0, 500.0);
