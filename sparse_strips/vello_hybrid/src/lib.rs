@@ -61,6 +61,8 @@ pub enum RenderError {
     /// TODO: Consider supporting more than a single column of slots in slot textures.
     #[error("No slots available for rendering")]
     SlotsExhausted,
+
+    // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
 
 #[cfg(test)]

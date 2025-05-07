@@ -133,7 +133,7 @@
 //! ### Draw to render target
 //!
 //! At this point, we can sample the pixels from slot N - 1 of texture 1 to draw the final
-//! rendition.
+//! result.
 //!
 //! ## Nuances
 //!

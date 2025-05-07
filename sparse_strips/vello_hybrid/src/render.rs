@@ -56,11 +56,11 @@ pub struct Renderer {
 impl Renderer {
     /// Creates a new renderer.
     pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
-        let slot_count = (device.limits().max_texture_dimension_2d / Tile::HEIGHT as u32) as usize;
+        let total_slots = (device.limits().max_texture_dimension_2d / Tile::HEIGHT as u32) as usize;
 
         Self {
-            programs: Programs::new(device, render_target_config, slot_count),
-            scheduler: Scheduler::new(slot_count),
+            programs: Programs::new(device, render_target_config, total_slots),
+            scheduler: Scheduler::new(total_slots),
         }
     }
 
@@ -77,7 +77,7 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
-        // For the time being, we upload the entire alpha buffer as one big chunk. As a future
+        // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
         self.programs
@@ -353,7 +353,7 @@ impl Programs {
         let slot_texture_views: [TextureView; 2] = core::array::from_fn(|_| {
             device
                 .create_texture(&wgpu::TextureDescriptor {
-                    label: Some("slot temp texture"),
+                    label: Some("Slot Texture"),
                     size: wgpu::Extent3d {
                         width: WideTile::WIDTH as u32,
                         height: Tile::HEIGHT as u32 * slot_count as u32,
@@ -362,7 +362,6 @@ impl Programs {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    // TODO: Is this correct or need it be RGBA8Unorm?
                     format: render_target_config.format,
                     usage: wgpu::TextureUsages::TEXTURE_BINDING
                         | wgpu::TextureUsages::RENDER_ATTACHMENT
@@ -373,7 +372,7 @@ impl Programs {
         });
 
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Clear Slots Config Buffer"),
+            label: Some("Clear Slots Config"),
             contents: bytemuck::bytes_of(&ClearSlotsConfig {
                 slot_width: WideTile::WIDTH as u32,
                 slot_height: Tile::HEIGHT as u32,
@@ -425,7 +424,7 @@ impl Programs {
         let slot_bind_groups = Self::make_strip_bind_groups(
             device,
             &strip_bind_group_layout,
-            &alphas_texture,
+            &alphas_texture.create_view(&Default::default()),
             &slot_config_buffer,
             &view_config_buffer,
             &slot_texture_views,
@@ -477,7 +476,7 @@ impl Programs {
     fn make_config_buffer(
         device: &Device,
         render_size: &RenderSize,
-        max_texture_dimension_2d: u32,
+        alpha_texture_width: u32,
     ) -> Buffer {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Config Buffer"),
@@ -485,7 +484,7 @@ impl Programs {
                 width: render_size.width,
                 height: render_size.height,
                 strip_height: Tile::HEIGHT.into(),
-                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                alphas_tex_width_bits: alpha_texture_width.trailing_zeros(),
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         })
@@ -493,14 +492,14 @@ impl Programs {
 
     fn make_alphas_texture(
         device: &Device,
-        max_texture_dimension_2d: u32,
-        alpha_texture_height: u32,
+        width: u32,
+        height: u32,
     ) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Alpha Texture"),
             size: wgpu::Extent3d {
-                width: max_texture_dimension_2d,
-                height: alpha_texture_height,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -515,7 +514,7 @@ impl Programs {
     fn make_strip_bind_groups(
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
-        alphas_texture: &Texture,
+        alphas_texture_view: &TextureView,
         strip_config_buffer: &Buffer,
         config_buffer: &Buffer,
         strip_texture_views: &[TextureView],
@@ -524,21 +523,21 @@ impl Programs {
             Self::make_strip_bind_group(
                 device,
                 strip_bind_group_layout,
-                alphas_texture,
+                alphas_texture_view,
                 strip_config_buffer,
                 &strip_texture_views[1],
             ),
             Self::make_strip_bind_group(
                 device,
                 strip_bind_group_layout,
-                alphas_texture,
+                alphas_texture_view,
                 strip_config_buffer,
                 &strip_texture_views[0],
             ),
             Self::make_strip_bind_group(
                 device,
                 strip_bind_group_layout,
-                alphas_texture,
+                alphas_texture_view,
                 config_buffer,
                 &strip_texture_views[1],
             ),
@@ -548,12 +547,10 @@ impl Programs {
     fn make_strip_bind_group(
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
-        alphas_texture: &Texture,
+        alphas_texture_view: &TextureView,
         config_buffer: &Buffer,
         strip_texture_view: &TextureView,
     ) -> BindGroup {
-        let alphas_texture_view =
-            alphas_texture.create_view(&wgpu::TextureViewDescriptor::default());
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Strip Bind Group"),
             layout: strip_bind_group_layout,
@@ -585,14 +582,14 @@ impl Programs {
         alphas: &[u8],
         new_render_size: &RenderSize,
     ) {
-        let alpha_width = device.limits().max_texture_dimension_2d;
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         // Update the alpha texture size if needed
         {
             let required_alpha_height = u32::try_from(alphas.len())
                 .unwrap()
                 // There are 16 1-byte alpha values per texel.
-                .div_ceil(alpha_width * 16);
-            let required_alpha_size = alpha_width * required_alpha_height * 16;
+                .div_ceil(max_texture_dimension_2d * 16);
+            let required_alpha_size = max_texture_dimension_2d * required_alpha_height * 16;
             let current_alpha_size = {
                 let alphas_texture = &self.resources.alphas_texture;
                 alphas_texture.width() * alphas_texture.height() * 16
@@ -600,7 +597,7 @@ impl Programs {
             if required_alpha_size > current_alpha_size {
                 // We need to resize the alpha texture to fit the new alpha data.
                 assert!(
-                    required_alpha_height <= alpha_width,
+                    required_alpha_height <= max_texture_dimension_2d,
                     "Alpha texture height exceeds max texture dimensions"
                 );
 
@@ -608,14 +605,14 @@ impl Programs {
                 self.alpha_data.resize(required_alpha_size as usize, 0);
                 // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
                 let alphas_texture =
-                    Self::make_alphas_texture(device, alpha_width, required_alpha_height);
+                    Self::make_alphas_texture(device, max_texture_dimension_2d, required_alpha_height);
                 self.resources.alphas_texture = alphas_texture;
 
                 // Since the alpha texture has changed, we need to update the clip bind groups.
                 self.resources.slot_bind_groups = Self::make_strip_bind_groups(
                     device,
                     &self.strip_bind_group_layout,
-                    &self.resources.alphas_texture,
+                    &self.resources.alphas_texture.create_view(&Default::default()),
                     &self.resources.slot_config_buffer,
                     &self.resources.view_config_buffer,
                     &self.resources.slot_texture_views,
@@ -629,7 +626,7 @@ impl Programs {
                 width: new_render_size.width,
                 height: new_render_size.height,
                 strip_height: Tile::HEIGHT.into(),
-                alphas_tex_width_bits: alpha_width.trailing_zeros(),
+                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
             };
             let mut buffer = queue
                 .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
@@ -672,12 +669,8 @@ impl Programs {
         );
     }
 
-    /// Upload the strip data by appending to `self.resources.strips_buffer`.
+    /// Upload the strip data by creating and assigning a new `self.resources.strips_buffer`.
     fn upload_strips(&mut self, device: &Device, queue: &Queue, strips: &[GpuStrip]) {
-        if strips.is_empty() {
-            return;
-        }
-
         let required_strips_size = size_of_val(strips) as u64;
         self.resources.strips_buffer = Self::make_strips_buffer(device, required_strips_size);
         // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.

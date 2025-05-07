@@ -1,4 +1,4 @@
-// Copyright 2024 the Vello Authors
+// Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 // This shader clears specific slots in slot textures to transparent pixels.
@@ -7,9 +7,9 @@
 // numbering from 0 to `texture_height / slot_height - 1` from top to bottom.
 
 struct Config {
-    // Width of a slot (typically matching `WideTile::WIDTH`)
+    // Width of a slot (matching `WideTile::WIDTH` and the width of a slot texture).
     slot_width: u32,
-    // Height of a slot (typically matching `Tile::HEIGHT`)
+    // Height of a slot (matching `Tile::HEIGHT`)
     slot_height: u32,
     // Total height of the texture (slot_height * number_of_slots)
     texture_height: u32,
