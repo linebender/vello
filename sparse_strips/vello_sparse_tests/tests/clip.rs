@@ -251,3 +251,10 @@ fn clip_exceeding_viewport(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
     ctx.pop_layer();
 }
+
+// See <https://github.com/linebender/vello/pull/975#issuecomment-2858372366>
+#[vello_test(no_ref)]
+fn clip_completely_in_out_of_bounds_wide_tile(ctx: &mut impl Renderer) {
+    ctx.push_clip_layer(&Rect::new(300.0, 8.0, 350.0, 48.0).to_path(0.1));
+    ctx.pop_layer();
+}

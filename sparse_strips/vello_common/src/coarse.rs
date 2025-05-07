@@ -652,7 +652,11 @@ impl Wide {
                 // Apply the clip strip command and update state
                 self.get_mut(wtile_x, cur_wtile_y).clip_strip(cmd);
                 cur_wtile_x = wtile_x;
-                pop_pending = true;
+
+                // Only request a pop if the x coordinate is actually inside the bounds.
+                if cur_wtile_x < clip_bbox.x1() {
+                    pop_pending = true;
+                }
             }
 
             // Handle fill regions between strips based on fill rule
@@ -661,6 +665,10 @@ impl Wide {
                 Fill::EvenOdd => next_strip.winding % 2 != 0,
             };
             if is_inside && strip_y == next_strip.strip_y() {
+                if cur_wtile_x >= clip_bbox.x1() {
+                    continue;
+                }
+
                 let x2 = next_strip.x;
                 let clipped_x2 = x2.min((cur_wtile_x + 1) * WideTile::WIDTH);
                 let width = clipped_x2.saturating_sub(x1);
