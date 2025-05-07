@@ -12,12 +12,13 @@
     clippy::allow_attributes_without_reason
 )]
 
+use scenes::ImageCache;
 use vello::{
-    Scene,
+    AaConfig, Scene,
     kurbo::{Affine, Rect},
-    peniko::{ImageFormat, color::palette},
+    peniko::{ImageFormat, ImageQuality, color::palette},
 };
-use vello_tests::TestParams;
+use vello_tests::{TestParams, smoke_snapshot_test_sync};
 
 /// A reproduction of <https://github.com/linebender/vello/issues/680>
 fn many_bins(use_cpu: bool) {
@@ -75,4 +76,25 @@ fn many_bins_gpu() {
 #[should_panic]
 fn many_bins_cpu() {
     many_bins(true);
+}
+
+const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/smoke/data_image_roundtrip.png");
+
+/// Test for <https://github.com/linebender/vello/issues/972>
+#[test]
+// Note that this isn't exactly 0.3, it's a number starting with "0.3"
+#[should_panic(expected = "Expected mean to be less than 0.001, got 0.3")]
+fn test_data_image_roundtrip() {
+    let mut scene = Scene::new();
+    let mut images = ImageCache::new();
+    let image = images
+        .from_bytes(0, DATA_IMAGE_PNG)
+        .unwrap()
+        .with_quality(ImageQuality::Low);
+    scene.draw_image(&image, Affine::IDENTITY);
+    let mut params = TestParams::new("data_image_roundtrip", image.width, image.height);
+    params.anti_aliasing = AaConfig::Area;
+    smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
 }
