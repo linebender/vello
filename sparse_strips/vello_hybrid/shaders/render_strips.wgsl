@@ -20,6 +20,8 @@ struct Config {
     // Height of the rendering target
     height: u32,
     // Height of a strip in the rendering
+    // CAUTION: When changing this value, you must also update the fragment shader's
+    // logic to handle the new strip height.
     strip_height: u32,
     // Number of trailing zeros in alphas_tex_width (log2 of width).
     // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.

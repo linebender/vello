@@ -187,7 +187,7 @@ struct Round {
     free: [Vec<usize>; 2],
 }
 
-// State for a single wide tile.
+/// State for a single wide tile.
 #[derive(Debug, Default)]
 struct TileState {
     stack: Vec<TileEl>,
@@ -208,14 +208,12 @@ impl Scheduler {
         let free1 = free0.clone();
         let free = [free0, free1];
         let clear = [Vec::new(), Vec::new()];
-        let mut rounds_queue = VecDeque::new();
-        rounds_queue.push_back(Round::default());
         Self {
             round: 0,
             total_slots,
             free,
             clear,
-            rounds_queue,
+            rounds_queue: Default::default(),
             tile_state: Default::default(),
         }
     }
@@ -249,7 +247,9 @@ impl Scheduler {
         self.tile_state.stack.clear();
         debug_assert!(self.clear[0].is_empty(), "clear has not reset");
         debug_assert!(self.clear[1].is_empty(), "clear has not reset");
-        if cfg!(debug_assertions) {
+        #[cfg(debug_assertions)]
+        {
+
             for i in 0..self.total_slots {
                 debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {}", i);
                 debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {}", i);
@@ -322,7 +322,7 @@ impl Scheduler {
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
         // commands to the final target.
         state.stack.push(TileEl {
-            slot_ix: !0,
+            slot_ix: usize::MAX,
             round: self.round,
         });
         {
