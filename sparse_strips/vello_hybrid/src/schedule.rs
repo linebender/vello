@@ -145,6 +145,27 @@
 //!   we can use a `LoadOp::Clear` operation. Otherwise, we need to clear the dirty slots using
 //!   a fine grained render pass.
 //!
+//! ## Clip Depths, Textures, and Rendering
+//!
+//! The relationship between clip depths, textures, and rendering is as follows:
+//!
+//! 1. For `clip_depth` 1 (conceptually no clipping):
+//!    - Direct rendering to the final target (ix=2)
+//!
+//! 2. For `clip_depth` 2 (conceptually first level of clipping):
+//!    - Draw to the odd texture (ix=1)
+//!    - Final drawing samples from odd texture to the final target
+//!
+//! 3. For `clip_depth` 3+ (conceptually second level of clipping and beyond):
+//!    - For odd clip depths:
+//!      - Draw initially to the odd texture (ix=1)
+//!    - For even clip depths:
+//!      - Draw initially to the even texture (ix=0)
+//!    - Sampling occurs similarly to the above example.
+//!
+//! Note: The code implementation uses a 1-indexed system where `clip_depth` starts at 1
+//! even when there is conceptually no clipping.
+//!
 //! For more information about this algorithm, see this [Zulip thread].
 //!
 //! [Zulip thread]: https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/Spatiotemporal.20allocation.20.28hybrid.29/near/513442829
