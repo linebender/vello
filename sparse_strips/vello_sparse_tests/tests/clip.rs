@@ -243,3 +243,11 @@ fn draw_clipping_outline(ctx: &mut impl Renderer, path: &BezPath) {
     ctx.set_stroke(stroke);
     ctx.stroke_path(path);
 }
+
+// See <https://github.com/linebender/vello/issues/917>
+#[vello_test(no_ref)]
+fn clip_exceeding_viewport(ctx: &mut impl Renderer) {
+    ctx.push_clip_layer(&Rect::new(0.0, 0.0, 500.0, 10.0).to_path(0.1));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_layer();
+}
