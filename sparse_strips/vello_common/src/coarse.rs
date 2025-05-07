@@ -698,7 +698,7 @@ impl Wide {
                         // `clip_fill` to the wide tile that is actually covered by the next
                         // strip, and not the ones in-between! For example, if the first strip
                         // is in wide tile 1 and the second in wide tile 4, we will do a clip
-                        // fill in wide tile 1 and 4, but not in 2 and 3. The reason for thi is
+                        // fill in wide tile 1 and 4, but not in 2 and 3. The reason for this is
                         // that any tile in-between is fully covered and thus no clipping is
                         // necessary at all. See also the `push_clip` function, where we don't
                         // push a new buffer for such tiles.
