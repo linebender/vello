@@ -164,11 +164,11 @@ impl Renderer for Scene {
     fn push_layer(
         &mut self,
         clip: Option<&BezPath>,
-        _: Option<BlendMode>,
-        _: Option<u8>,
-        _: Option<Mask>,
+        blend_mode: Option<BlendMode>,
+        opacity: Option<u8>,
+        mask: Option<Mask>,
     ) {
-        Self::push_layer(self, clip, None, None, None);
+        Self::push_layer(self, clip, blend_mode, opacity, mask);
     }
 
     fn push_clip_layer(&mut self, path: &BezPath) {
