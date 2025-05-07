@@ -707,6 +707,7 @@ impl RendererJunk<'_> {
         ix: usize,
         load: wgpu::LoadOp<wgpu::Color>,
     ) {
+        debug_assert!(ix < 3, "Invalid texture index");
         // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
         // approach would be to re-use buffers or slices of a larger buffer.
         self.programs.upload_strips(self.device, self.queue, strips);
@@ -780,7 +781,7 @@ impl RendererJunk<'_> {
             render_pass.set_pipeline(&self.programs.clear_pipeline);
             render_pass.set_bind_group(0, &resources.clear_bind_group, &[]);
             render_pass.set_vertex_buffer(0, resources.clear_slot_indices_buffer.slice(..));
-            render_pass.draw(0..4, 0..slot_indices.len() as u32);
+            render_pass.draw(0..4, 0..u32::try_from(slot_indices.len()).unwrap());
         }
     }
 }
