@@ -52,6 +52,34 @@ impl Pixmap {
         }
     }
 
+    /// Resizes the pixmap container to the given width and height; this does not resize the
+    /// contained image.
+    ///
+    /// If the pixmap buffer has to grow to fit the new size, those pixels are set to transparent
+    /// black. If the pixmap buffer is larger than required, the buffer is truncated and its
+    /// reserved capacity is unchanged.
+    pub fn resize(&mut self, width: u16, height: u16) {
+        self.width = width;
+        self.height = height;
+        self.buf.resize(
+            usize::from(width) * usize::from(height),
+            PremulRgba8::from_u32(0),
+        );
+    }
+
+    /// Shrink the capacity of the pixmap buffer to fit the pixmap's current size.
+    pub fn shrink_to_fit(&mut self) {
+        self.buf.shrink_to_fit();
+    }
+
+    /// The reserved capacity (in pixels) of this pixmap.
+    ///
+    /// When calling [`Pixmap::resize`] with a `width * height` smaller than this value, the pixmap
+    /// does not need to reallocate.
+    pub fn capacity(&self) -> usize {
+        self.buf.capacity()
+    }
+
     /// Return the width of the pixmap.
     pub fn width(&self) -> u16 {
         self.width
