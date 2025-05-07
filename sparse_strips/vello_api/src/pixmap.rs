@@ -31,13 +31,20 @@ impl Pixmap {
 
     /// Create a new pixmap with the given underlying data interpreted as premultiplied RGBA8.
     ///
-    /// If `data` is not of the right length (`width * height * 4`). If `data` has to grow, the new
-    /// color components are filled with `0`.
+    /// The `data` vector must be of length `width * height * 4` exactly.
     ///
     /// The pixels are in row-major order. Each pixel consists of four bytes in the order
     /// `[r, g, b, a]`.
-    pub fn from_parts(mut data: Vec<u8>, width: u16, height: u16) -> Self {
-        data.resize(usize::from(width) * usize::from(height) * 4, 0);
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `data` vector is not of length `width * height * 4`.
+    pub fn from_parts(data: Vec<u8>, width: u16, height: u16) -> Self {
+        assert_eq!(
+            data.len(),
+            usize::from(width) * usize::from(height) * 4,
+            "Expected `data` to have length of exactly `width * height * 4`"
+        );
         Self {
             width,
             height,
