@@ -7,7 +7,7 @@ use super::CpuBinding;
 
 const WG_SIZE: usize = 256;
 
-fn path_count_setup_main(bump: &BumpAllocators, indirect: &mut IndirectCount) {
+pub fn path_count_setup_main(bump: &BumpAllocators, indirect: &mut IndirectCount) {
     let lines = bump.lines;
     indirect.count_x = lines.div_ceil(WG_SIZE as u32);
     indirect.count_y = 1;

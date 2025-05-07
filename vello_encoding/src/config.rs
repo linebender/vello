@@ -274,10 +274,17 @@ impl WorkgroupCounts {
 }
 
 /// Typed buffer size primitive.
-#[derive(Copy, Clone, Eq, Default, Debug)]
+#[derive(Eq, Default, Debug)]
 pub struct BufferSize<T: Sized> {
     len: u32,
     _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T> Copy for BufferSize<T> {}
+impl<T> Clone for BufferSize<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
 impl<T: Sized> BufferSize<T> {

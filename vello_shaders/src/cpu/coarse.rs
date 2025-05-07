@@ -180,7 +180,7 @@ impl TileState {
     }
 }
 
-fn coarse_main(
+pub fn coarse_main(
     config: &ConfigUniform,
     scene: &[u32],
     draw_monoids: &[DrawMonoid],
