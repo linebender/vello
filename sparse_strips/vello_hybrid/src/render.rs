@@ -411,7 +411,7 @@ impl Programs {
             INITIAL_ALPHA_TEXTURE_HEIGHT,
         );
         let alpha_data =
-            vec![0; (max_texture_dimension_2d * INITIAL_ALPHA_TEXTURE_HEIGHT * 16) as usize];
+            vec![0; (max_texture_dimension_2d * INITIAL_ALPHA_TEXTURE_HEIGHT << 4) as usize];
         let view_config_buffer = Self::make_config_buffer(
             device,
             &RenderSize {
@@ -490,11 +490,7 @@ impl Programs {
         })
     }
 
-    fn make_alphas_texture(
-        device: &Device,
-        width: u32,
-        height: u32,
-    ) -> Texture {
+    fn make_alphas_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Alpha Texture"),
             size: wgpu::Extent3d {
@@ -588,13 +584,13 @@ impl Programs {
             let required_alpha_height = u32::try_from(alphas.len())
                 .unwrap()
                 // There are 16 1-byte alpha values per texel.
-                .div_ceil(max_texture_dimension_2d * 16);
-            let required_alpha_size = max_texture_dimension_2d * required_alpha_height * 16;
-            let current_alpha_size = {
-                let alphas_texture = &self.resources.alphas_texture;
-                alphas_texture.width() * alphas_texture.height() * 16
-            };
-            if required_alpha_size > current_alpha_size {
+                .div_ceil(max_texture_dimension_2d << 4);
+            debug_assert!(
+                self.resources.alphas_texture.width() == max_texture_dimension_2d,
+                "Alpha texture width must match max texture dimensions"
+            );
+            let current_alpha_height = self.resources.alphas_texture.height();
+            if required_alpha_height > current_alpha_height {
                 // We need to resize the alpha texture to fit the new alpha data.
                 assert!(
                     required_alpha_height <= max_texture_dimension_2d,
@@ -602,17 +598,24 @@ impl Programs {
                 );
 
                 // Resize the alpha texture staging buffer.
+                let required_alpha_size = max_texture_dimension_2d * required_alpha_height << 4;
                 self.alpha_data.resize(required_alpha_size as usize, 0);
                 // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
-                let alphas_texture =
-                    Self::make_alphas_texture(device, max_texture_dimension_2d, required_alpha_height);
+                let alphas_texture = Self::make_alphas_texture(
+                    device,
+                    max_texture_dimension_2d,
+                    required_alpha_height,
+                );
                 self.resources.alphas_texture = alphas_texture;
 
                 // Since the alpha texture has changed, we need to update the clip bind groups.
                 self.resources.slot_bind_groups = Self::make_strip_bind_groups(
                     device,
                     &self.strip_bind_group_layout,
-                    &self.resources.alphas_texture.create_view(&Default::default()),
+                    &self
+                        .resources
+                        .alphas_texture
+                        .create_view(&Default::default()),
                     &self.resources.slot_config_buffer,
                     &self.resources.view_config_buffer,
                     &self.resources.slot_texture_views,
@@ -657,8 +660,9 @@ impl Programs {
             &self.alpha_data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each)
-                bytes_per_row: Some(texture_width * 16),
+                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), which is equivalent to
+                // a bit shift of 4.
+                bytes_per_row: Some(texture_width << 4),
                 rows_per_image: Some(texture_height),
             },
             wgpu::Extent3d {
