@@ -30,7 +30,7 @@ impl Pixmap {
         Self { width, height, buf }
     }
 
-    /// Create a new pixmap with the given underlying data premultiplied RGBA8 data.
+    /// Create a new pixmap with the given premultiplied RGBA8 data.
     ///
     /// The `data` vector must be of length `width * height` exactly.
     ///
