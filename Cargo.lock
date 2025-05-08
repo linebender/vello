@@ -3195,7 +3195,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vello"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -3213,7 +3213,7 @@ dependencies = [
 
 [[package]]
 name = "vello_api"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
  "peniko 0.4.0",
@@ -3234,7 +3234,7 @@ dependencies = [
 
 [[package]]
 name = "vello_common"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
  "roxmltree",
@@ -3245,7 +3245,7 @@ dependencies = [
 
 [[package]]
 name = "vello_cpu"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "vello_common",
 ]
@@ -3261,7 +3261,7 @@ dependencies = [
 
 [[package]]
 name = "vello_encoding"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
  "guillotiere",
@@ -3272,11 +3272,11 @@ dependencies = [
 
 [[package]]
 name = "vello_filters_cpu"
-version = "0.4.0"
+version = "0.5.0"
 
 [[package]]
 name = "vello_hybrid"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
  "png",
@@ -3311,7 +3311,7 @@ dependencies = [
 
 [[package]]
 name = "vello_shaders"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
  "naga",
@@ -3749,7 +3749,7 @@ dependencies = [
 
 [[package]]
 name = "webgl"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "console_error_panic_hook",
  "console_log",
