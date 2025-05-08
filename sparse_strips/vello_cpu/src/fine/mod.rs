@@ -658,10 +658,6 @@ pub trait FineType:
     fn min(self, other: Self) -> Self;
     /// Return the maximum number.
     fn max(self, other: Self) -> Self;
-    /// Perform a widening multiplication and then divide by a third number.
-    fn widened_mul_div(self, other: Self, other2: Self) -> Self::Widened;
-    /// Perform a normalized multiplication between this number and another
-    fn normalized_mul(self, other: Self) -> Self;
     /// Extract the underlying color from a premultiplied color.
     fn extract_color(color: &PremulColor) -> [Self; COLOR_COMPONENTS];
     /// Convert a normalized u8 integer to this type.
@@ -670,20 +666,59 @@ pub trait FineType:
     fn from_u8(num: u8) -> Self;
     /// Convert this number to a normalized f32.
     fn to_f32_normalized(self) -> f32;
+    /// Convert this number to a normalized u8.
+    fn to_normalized_u8(self) -> u8;
     /// Convert to this number from a normalized f32.
     fn from_normalized_f32(num: f32) -> Self;
-    // TODO: These should be sized to COLOR_COMPONENTS, but will leave that for
-    // the future.
-    /// Convert a slice to a RGBA8 slice.
-    fn to_rgba8(src: &[Self]) -> [u8; COLOR_COMPONENTS];
-    /// Convert a RGBA8 slice to a slice of this type.
-    fn from_rgba8(src: &[u8]) -> [Self; COLOR_COMPONENTS];
-    /// Convert a RGBAF32 slice to a slice of this type.
-    fn from_rgbaf32(src: &[f32]) -> [Self; COLOR_COMPONENTS];
-    /// Calculate "one minus" this number, i.e., `Self::ONE - self`.
-    fn one_minus(self) -> Self;
     /// Get the widened representation of the current number.
     fn widen(self) -> Self::Widened;
+    /// Perform a normalized multiplication between this number and another
+    #[inline(always)]
+    fn normalized_mul(self, other: Self) -> Self {
+        (self.widen() * other.widen()).normalize().narrow()
+    }
+    /// Perform a widening multiplication and then divide by a third number.
+    #[inline(always)]
+    fn widened_mul_div(self, other: Self, other2: Self) -> Self::Widened {
+        (self.widen() * other.widen()) / other2.widen()
+    }
+    // TODO: These RGBA conversions should be sized to COLOR_COMPONENTS, but will leave that for
+    // the future.
+    /// Convert a slice to a RGBA8 slice.
+    #[inline(always)]
+    fn to_rgba8(src: &[Self]) -> [u8; COLOR_COMPONENTS] {
+        [
+            src[0].to_normalized_u8(),
+            src[1].to_normalized_u8(),
+            src[2].to_normalized_u8(),
+            src[3].to_normalized_u8(),
+        ]
+    }
+    /// Convert a RGBA8 slice to a slice of this type.
+    #[inline(always)]
+    fn from_rgba8(src: &[u8]) -> [Self; COLOR_COMPONENTS] {
+        [
+            Self::from_normalized_u8(src[0]),
+            Self::from_normalized_u8(src[1]),
+            Self::from_normalized_u8(src[2]),
+            Self::from_normalized_u8(src[3]),
+        ]
+    }
+    /// Convert a RGBAF32 slice to a slice of this type.
+    #[inline(always)]
+    fn from_rgbaf32(src: &[f32]) -> [Self; COLOR_COMPONENTS] {
+        [
+            Self::from_normalized_f32(src[0]),
+            Self::from_normalized_f32(src[1]),
+            Self::from_normalized_f32(src[2]),
+            Self::from_normalized_f32(src[3]),
+        ]
+    }
+    /// Calculate "one minus" this number, i.e., `Self::ONE - self`.
+    #[inline(always)]
+    fn one_minus(self) -> Self {
+        Self::ONE - self
+    }
 }
 
 impl FineType for u8 {
@@ -700,15 +735,6 @@ impl FineType for u8 {
     #[inline(always)]
     fn max(self, other: Self) -> Self {
         Ord::max(self, other)
-    }
-
-    fn widened_mul_div(self, other: Self, other2: Self) -> Self::Widened {
-        (self.widen() * other.widen()) / other2.widen()
-    }
-
-    #[inline(always)]
-    fn normalized_mul(self, other: Self) -> Self {
-        (self.widen() * other.widen()).normalize().narrow()
     }
 
     #[inline(always)]
@@ -731,30 +757,13 @@ impl FineType for u8 {
         self as f32 / 255.0
     }
 
+    fn to_normalized_u8(self) -> u8 {
+        self
+    }
+
     #[inline(always)]
     fn from_normalized_f32(num: f32) -> Self {
         (num * 255.0 + 0.5) as Self
-    }
-
-    #[inline(always)]
-    fn to_rgba8(src: &[Self]) -> [u8; COLOR_COMPONENTS] {
-        [src[0], src[1], src[2], src[3]]
-    }
-
-    #[inline(always)]
-    fn from_rgba8(src: &[u8]) -> [Self; COLOR_COMPONENTS] {
-        [src[0], src[1], src[2], src[3]]
-    }
-
-    #[inline(always)]
-    fn from_rgbaf32(src: &[f32]) -> [Self; COLOR_COMPONENTS] {
-        let r = |val: f32| (val * 255.0 + 0.5) as Self;
-        [r(src[0]), r(src[1]), r(src[2]), r(src[3])]
-    }
-
-    #[inline(always)]
-    fn one_minus(self) -> Self {
-        Self::ONE - self
     }
 
     #[inline(always)]
@@ -779,15 +788,6 @@ impl FineType for f32 {
         Self::max(self, other)
     }
 
-    fn widened_mul_div(self, other: Self, other2: Self) -> Self {
-        (self * other) / other2
-    }
-
-    #[inline(always)]
-    fn normalized_mul(self, other: Self) -> Self {
-        self * other
-    }
-
     #[inline(always)]
     fn extract_color(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
         color.as_premul_f32().components
@@ -808,36 +808,13 @@ impl FineType for f32 {
         self
     }
 
+    fn to_normalized_u8(self) -> u8 {
+        (self * 255.0 + 0.5) as u8
+    }
+
     #[inline(always)]
     fn from_normalized_f32(num: f32) -> Self {
         num
-    }
-
-    #[inline(always)]
-    fn to_rgba8(src: &[Self]) -> [u8; COLOR_COMPONENTS] {
-        let mut out = [0; COLOR_COMPONENTS];
-
-        for i in 0..COLOR_COMPONENTS {
-            out[i] = (src[i] * 255.0 + 0.5) as u8;
-        }
-
-        out
-    }
-
-    #[inline(always)]
-    fn from_rgba8(src: &[u8]) -> [Self; COLOR_COMPONENTS] {
-        let c = |val: u8| val as Self / 255.0;
-        [c(src[0]), c(src[1]), c(src[2]), c(src[3])]
-    }
-
-    #[inline(always)]
-    fn from_rgbaf32(src: &[f32]) -> [Self; COLOR_COMPONENTS] {
-        [src[0], src[1], src[2], src[3]]
-    }
-
-    #[inline(always)]
-    fn one_minus(self) -> Self {
-        1.0 - self
     }
 
     #[inline(always)]
