@@ -476,7 +476,7 @@ pub(crate) mod fill {
             for bg_c in strip.chunks_exact_mut(COLOR_COMPONENTS) {
                 let src_c = source.next().unwrap();
                 for i in 0..COLOR_COMPONENTS {
-                    bg_c[i] = src_c[i].add(bg_c[i].normalized_mul(src_c[3].inv()));
+                    bg_c[i] = src_c[i].add(bg_c[i].normalized_mul(src_c[3].one_minus()));
                 }
             }
         }
@@ -519,7 +519,7 @@ pub(crate) mod strip {
             for j in 0..usize::from(Tile::HEIGHT) {
                 let src_c = source.next().unwrap();
                 let mask_a = F::from_normalized_u8(masks[j]);
-                let inv_src_a_mask_a = mask_a.normalized_mul(src_c[3]).inv();
+                let inv_src_a_mask_a = mask_a.normalized_mul(src_c[3]).one_minus();
 
                 for i in 0..COLOR_COMPONENTS {
                     let p1 = bg_c[j * COLOR_COMPONENTS + i].widen() * inv_src_a_mask_a.widen();
@@ -680,8 +680,8 @@ pub trait FineType:
     fn from_rgba8(src: &[u8]) -> [Self; COLOR_COMPONENTS];
     /// Convert a RGBAF32 slice to a slice of this type.
     fn from_rgbaf32(src: &[f32]) -> [Self; COLOR_COMPONENTS];
-    /// Get the inverse of the number.
-    fn inv(self) -> Self;
+    /// Calculate "one minus" this number, i.e., `Self::ONE - self`.
+    fn one_minus(self) -> Self;
     /// Get the widened representation of the current number.
     fn widen(self) -> Self::Widened;
 }
@@ -753,7 +753,7 @@ impl FineType for u8 {
     }
 
     #[inline(always)]
-    fn inv(self) -> Self {
+    fn one_minus(self) -> Self {
         Self::ONE - self
     }
 
@@ -836,7 +836,7 @@ impl FineType for f32 {
     }
 
     #[inline(always)]
-    fn inv(self) -> Self {
+    fn one_minus(self) -> Self {
         1.0 - self
     }
 

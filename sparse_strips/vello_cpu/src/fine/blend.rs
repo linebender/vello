@@ -73,7 +73,7 @@ fn mix<F: FineType>(mut src_c: [F; 4], bg_c: &[F], blend_mode: BlendMode) -> [F;
 
     // Account for alpha.
     for i in 0..3 {
-        let p1 = bg_alpha.inv().widen() * src_c[i].widen();
+        let p1 = bg_alpha.one_minus().widen() * src_c[i].widen();
         let p2 = bg_alpha.widen() * mixed[i].widen();
         src_c[i] = (p1 + p2).normalize().narrow();
     }
@@ -199,7 +199,7 @@ separable_mix!(ColorDodge, |cs: F, cb: F| {
     } else {
         F::ONE
             .widen()
-            .min(cb.widened_mul_div(F::ONE, cs.inv()))
+            .min(cb.widened_mul_div(F::ONE, cs.one_minus()))
             .narrow()
     }
 });
@@ -209,11 +209,11 @@ separable_mix!(ColorBurn, |cs: F, cb: F| {
     } else if cs == F::ZERO {
         F::ZERO
     } else {
-        cb.inv()
+        cb.one_minus()
             .widened_mul_div(F::ONE, cs)
             .min(F::ONE.widen())
             .narrow()
-            .inv()
+            .one_minus()
     }
 });
 separable_mix!(HardLight, |cs: F, cb: F| HardLight::single(cs, cb));
@@ -395,14 +395,14 @@ macro_rules! compose {
 
 compose!(Clear, |_, _| F::ZERO, |_, _| F::ZERO, false);
 compose!(Copy, |_, _| F::ONE, |_, _| F::ZERO, false);
-compose!(SrcOver, |_, _| F::ONE, |al_s: F, _| al_s.inv(), false);
-compose!(DestOver, |_, al_b: F| al_b.inv(), |_, _| F::ONE, false);
+compose!(SrcOver, |_, _| F::ONE, |al_s: F, _| al_s.one_minus(), false);
+compose!(DestOver, |_, al_b: F| al_b.one_minus(), |_, _| F::ONE, false);
 compose!(Dest, |_, _| F::ZERO, |_, _| F::ONE, false);
-compose!(Xor, |_, al_b: F| al_b.inv(), |al_s: F, _| al_s.inv(), false);
+compose!(Xor, |_, al_b: F| al_b.one_minus(), |al_s: F, _| al_s.one_minus(), false);
 compose!(SrcIn, |_, al_b: F| al_b, |_, _| F::ZERO, false);
 compose!(DestIn, |_, _| F::ZERO, |al_s: F, _| al_s, false);
-compose!(SrcOut, |_, al_b: F| al_b.inv(), |_, _| F::ZERO, false);
-compose!(DestOut, |_, _| F::ZERO, |al_s: F, _| al_s.inv(), false);
-compose!(SrcAtop, |_, al_b: F| al_b, |al_s: F, _| al_s.inv(), false);
-compose!(DestAtop, |_, al_b: F| al_b.inv(), |al_s: F, _| al_s, false);
+compose!(SrcOut, |_, al_b: F| al_b.one_minus(), |_, _| F::ZERO, false);
+compose!(DestOut, |_, _| F::ZERO, |al_s: F, _| al_s.one_minus(), false);
+compose!(SrcAtop, |_, al_b: F| al_b, |al_s: F, _| al_s.one_minus(), false);
+compose!(DestAtop, |_, al_b: F| al_b.one_minus(), |al_s: F, _| al_s, false);
 compose!(Plus, |_, _| F::ONE, |_, _| F::ONE, true);
