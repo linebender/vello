@@ -218,8 +218,8 @@ separable_mix!(ColorBurn, |cs: F, cb: F| {
 });
 separable_mix!(HardLight, |cs: F, cb: F| HardLight::single(cs, cb));
 separable_mix!(SoftLight, |cs: F, cb: F| {
-    let new_src = cs.to_f32_normalized();
-    let cb = cb.to_f32_normalized();
+    let new_src = cs.to_normalized_f32();
+    let cb = cb.to_normalized_f32();
 
     let d = if cb <= 0.25 {
         ((16.0 * cb - 12.0) * cb + 4.0) * cb
@@ -239,8 +239,8 @@ separable_mix!(Difference, |cs: F, cb: F| {
     if cs <= cb { cb - cs } else { cs - cb }
 });
 separable_mix!(Exclusion, |cs: F, cb: F| {
-    let new_src = cs.to_f32_normalized();
-    let cb = cb.to_f32_normalized();
+    let new_src = cs.to_normalized_f32();
+    let cb = cb.to_normalized_f32();
 
     F::from_normalized_f32((new_src + cb) - 2.0 * (new_src * cb))
 });
@@ -257,7 +257,7 @@ fn to_f32<F: FineType>(c: &[F]) -> [f32; 3] {
     let mut nums = [0.0; 3];
 
     for i in 0..3 {
-        nums[i] = c[i].to_f32_normalized();
+        nums[i] = c[i].to_normalized_f32();
     }
 
     nums

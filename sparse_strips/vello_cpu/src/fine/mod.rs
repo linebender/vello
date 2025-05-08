@@ -665,7 +665,7 @@ pub trait FineType:
     /// Convert a plain u8 integer to this type.
     fn from_u8(num: u8) -> Self;
     /// Convert this number to a normalized f32.
-    fn to_f32_normalized(self) -> f32;
+    fn to_normalized_f32(self) -> f32;
     /// Convert this number to a normalized u8.
     fn to_normalized_u8(self) -> u8;
     /// Convert to this number from a normalized f32.
@@ -753,7 +753,7 @@ impl FineType for u8 {
     }
 
     #[inline(always)]
-    fn to_f32_normalized(self) -> f32 {
+    fn to_normalized_f32(self) -> f32 {
         self as f32 / 255.0
     }
 
@@ -804,7 +804,7 @@ impl FineType for f32 {
     }
 
     #[inline(always)]
-    fn to_f32_normalized(self) -> f32 {
+    fn to_normalized_f32(self) -> f32 {
         self
     }
 
