@@ -89,13 +89,17 @@ impl<'a> ImageFiller<'a> {
             .zip(y_positions.iter())
         {
             let sample = match self.image.quality {
-                ImageQuality::Low => {
-                    F::from_rgba8(self.image.pixmap.sample(x_pos as u16, *y_pos as u16))
-                }
+                ImageQuality::Low => F::from_rgba8(
+                    &self
+                        .image
+                        .pixmap
+                        .sample(x_pos as u16, *y_pos as u16)
+                        .to_u8_array()[..],
+                ),
                 ImageQuality::Medium | ImageQuality::High => unimplemented!(),
             };
 
-            pixel.copy_from_slice(&sample.to_u8_array());
+            pixel.copy_from_slice(&sample);
         }
     }
 
@@ -124,8 +128,13 @@ impl<'a> ImageFiller<'a> {
                 // Simply takes the nearest pixel to our current position.
                 ImageQuality::Low => {
                     let point = extend_point(pos);
-                    let sample =
-                        F::from_rgba8(self.image.pixmap.sample(point.x as u16, point.y as u16).to_u8_array());
+                    let sample = F::from_rgba8(
+                        &self
+                            .image
+                            .pixmap
+                            .sample(point.x as u16, point.y as u16)
+                            .to_u8_array()[..],
+                    );
                     pixel.copy_from_slice(&sample);
                 }
                 ImageQuality::Medium | ImageQuality::High => {
@@ -172,7 +181,7 @@ impl<'a> ImageFiller<'a> {
                         let c = |val: u8| val as f32 / 255.0;
                         let s = self.image.pixmap.sample(p.x as u16, p.y as u16);
 
-                        [c(s[0]), c(s[1]), c(s[2]), c(s[3])]
+                        [c(s.r), c(s.g), c(s.b), c(s.a)]
                     };
 
                     if self.image.quality == ImageQuality::Medium {
@@ -190,9 +199,9 @@ impl<'a> ImageFiller<'a> {
                                 let w = cx[x_idx] * cy[y_idx];
 
                                 for (component, component_sample) in
-                                    interpolated_color.iter_mut().zip(color_sample.to_u8_array())
+                                    interpolated_color.iter_mut().zip(color_sample)
                                 {
-                                    *component += w * component_sample as f32;
+                                    *component += w * component_sample;
                                 }
                             }
                         }
@@ -211,15 +220,13 @@ impl<'a> ImageFiller<'a> {
                                 let c = cx[x_idx] * cy[y_idx];
 
                                 for (component, component_sample) in
-                                    interpolated_color.iter_mut().zip(color_sample.to_u8_array())
+                                    interpolated_color.iter_mut().zip(color_sample)
                                 {
-                                    *component += c * component_sample as f32;
+                                    *component += c * component_sample;
                                 }
                             }
                         }
                     }
-
-                    let mut u8_color = [0; 4];
 
                     for i in 0..COLOR_COMPONENTS {
                         // Due to the nature of the cubic filter, it can happen in certain situations
@@ -229,10 +236,10 @@ impl<'a> ImageFiller<'a> {
                         // compositing with u8-based values. Because of this, we need to clamp
                         // to the alpha value.
                         let f32_val = interpolated_color[i].min(interpolated_color[3]);
-                        u8_color[i] = (f32_val + 0.5) as u8;
+                        interpolated_color[i] = f32_val;
                     }
 
-                    pixel.copy_from_slice(&u8_color);
+                    pixel.copy_from_slice(&F::from_rgbaf32(&interpolated_color[..]));
                 }
             };
 

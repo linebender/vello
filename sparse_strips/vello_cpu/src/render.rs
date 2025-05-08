@@ -4,7 +4,7 @@
 //! Basic render operations.
 
 use crate::RenderMode;
-use crate::fine::Fine;
+use crate::fine::{Fine, FineType};
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -25,7 +25,6 @@ use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, peniko, strip};
-use crate::RenderMode;
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -310,7 +309,7 @@ impl RenderContext {
         }
     }
 
-    fn do_fine<F: FineType + PartialEq>(&self, buffer: &mut [u8], fine: &mut Fine<F>) {
+    fn do_fine<F: FineType>(&self, buffer: &mut [u8], fine: &mut Fine<F>) {
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();
         for y in 0..height_tiles {
@@ -422,7 +421,7 @@ impl GlyphRenderer for RenderContext {
                     let mut colr_painter = ColrPainter::new(glyph, context_color, &mut ctx);
                     colr_painter.paint();
 
-                    ctx.render_to_pixmap(&mut pix);
+                    ctx.render_to_pixmap(&mut pix, RenderMode::OptimizeQuality);
 
                     pix
                 };

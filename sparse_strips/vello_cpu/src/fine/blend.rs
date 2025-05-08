@@ -396,13 +396,38 @@ macro_rules! compose {
 compose!(Clear, |_, _| F::ZERO, |_, _| F::ZERO, false);
 compose!(Copy, |_, _| F::ONE, |_, _| F::ZERO, false);
 compose!(SrcOver, |_, _| F::ONE, |al_s: F, _| al_s.one_minus(), false);
-compose!(DestOver, |_, al_b: F| al_b.one_minus(), |_, _| F::ONE, false);
+compose!(
+    DestOver,
+    |_, al_b: F| al_b.one_minus(),
+    |_, _| F::ONE,
+    false
+);
 compose!(Dest, |_, _| F::ZERO, |_, _| F::ONE, false);
-compose!(Xor, |_, al_b: F| al_b.one_minus(), |al_s: F, _| al_s.one_minus(), false);
+compose!(
+    Xor,
+    |_, al_b: F| al_b.one_minus(),
+    |al_s: F, _| al_s.one_minus(),
+    false
+);
 compose!(SrcIn, |_, al_b: F| al_b, |_, _| F::ZERO, false);
 compose!(DestIn, |_, _| F::ZERO, |al_s: F, _| al_s, false);
 compose!(SrcOut, |_, al_b: F| al_b.one_minus(), |_, _| F::ZERO, false);
-compose!(DestOut, |_, _| F::ZERO, |al_s: F, _| al_s.one_minus(), false);
-compose!(SrcAtop, |_, al_b: F| al_b, |al_s: F, _| al_s.one_minus(), false);
-compose!(DestAtop, |_, al_b: F| al_b.one_minus(), |al_s: F, _| al_s, false);
+compose!(
+    DestOut,
+    |_, _| F::ZERO,
+    |al_s: F, _| al_s.one_minus(),
+    false
+);
+compose!(
+    SrcAtop,
+    |_, al_b: F| al_b,
+    |al_s: F, _| al_s.one_minus(),
+    false
+);
+compose!(
+    DestAtop,
+    |_, al_b: F| al_b.one_minus(),
+    |al_s: F, _| al_s,
+    false
+);
 compose!(Plus, |_, _| F::ONE, |_, _| F::ONE, true);
