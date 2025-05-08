@@ -314,7 +314,7 @@ fn prepare_bitmap_glyph<'a>(
     // the font.
     let bearing_y = if bitmap_glyph.bearing_y == 0.0 && bitmaps.format() == Some(BitmapFormat::Sbix)
     {
-        0.0
+        100.0
     } else {
         bitmap_glyph.bearing_y
     };
