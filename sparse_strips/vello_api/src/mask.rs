@@ -38,7 +38,7 @@ impl Mask {
                 let b = f32::from(pixel.b) / 255.;
 
                 // See CSS Masking Module Level 1 § 7.10.1
-                // <https://www.w3.org/TR/css-masking-1/#MaskValues> 
+                // <https://www.w3.org/TR/css-masking-1/#MaskValues>
                 // and Filter Effects Module Level 1 § 9.6
                 // <https://www.w3.org/TR/filter-effects-1/#elementdef-fecolormatrix>.
                 // Note r, g and b are premultiplied by alpha.
