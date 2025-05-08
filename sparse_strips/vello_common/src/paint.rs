@@ -64,6 +64,58 @@ pub struct Image {
     pub quality: ImageQuality,
 }
 
+impl Image {
+    /// Convert a [`peniko::Image`] to an [`Image`].
+    ///
+    /// This is a somewhat lossy conversion, as the image data data is transformed to
+    /// [premultiplied RGBA8](`PremulRgba8`).
+    ///
+    /// # Panics
+    ///
+    /// This panics if `image` has a `width` or `height` greater than `u16::MAX`.
+    pub fn from_peniko_image(image: &peniko::Image) -> Self {
+        if image.format != peniko::ImageFormat::Rgba8 {
+            unimplemented!("Unsupported image format: {:?}", image.format);
+        }
+
+        assert!(
+            image.width <= u16::MAX as u32 && image.height <= u16::MAX as u32,
+            "The image is too big. Its width and height can be no larger than {} pixels.",
+            u16::MAX,
+        );
+        let width = image.width.try_into().unwrap();
+        let height = image.height.try_into().unwrap();
+
+        #[expect(clippy::cast_possible_truncation, reason = "deliberate quantization")]
+        let global_alpha = u16::from((image.alpha * 255. + 0.5) as u8);
+
+        #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow.")]
+        let pixels = image
+            .data
+            .data()
+            .chunks_exact(4)
+            .map(|rgba| {
+                let alpha = ((u16::from(rgba[3]) * global_alpha) / 255) as u8;
+                let multiply = |component| ((u16::from(alpha) * u16::from(component)) / 255) as u8;
+                PremulRgba8 {
+                    r: multiply(rgba[0]),
+                    g: multiply(rgba[1]),
+                    b: multiply(rgba[2]),
+                    a: alpha,
+                }
+            })
+            .collect();
+        let pixmap = Pixmap::from_parts(pixels, width, height);
+
+        Self {
+            pixmap: Arc::new(pixmap),
+            x_extend: image.x_extend,
+            y_extend: image.y_extend,
+            quality: image.quality,
+        }
+    }
+}
+
 /// A premultiplied color.
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct PremulColor {
