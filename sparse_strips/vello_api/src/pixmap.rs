@@ -238,12 +238,11 @@ impl Pixmap {
         self.buf
     }
 
-    /// Consume the pixmap, returning the data as (unpremultiplied) RGBA8 bytes.
+    /// Consume the pixmap, returning the data as (unpremultiplied) RGBA8.
     ///
     /// Not fast, but useful for saving to PNG etc.
     ///
-    /// The pixels are in row-major order. Each pixel consists of four bytes in the order
-    /// `[r, g, b, a]`.
+    /// The pixels are in row-major order.
     pub fn take_unpremultiplied(self) -> Vec<Rgba8> {
         self.buf
             .into_iter()
