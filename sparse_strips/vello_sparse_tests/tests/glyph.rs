@@ -4,10 +4,9 @@
 //! Tests for glyph rendering.
 
 use crate::renderer::Renderer;
-use crate::util::{
-    layout_glyphs_apple_color_emoji, layout_glyphs_noto_cbtf, layout_glyphs_noto_colr,
-    layout_glyphs_roboto,
-};
+#[cfg(target_os = "macos")]
+use crate::util::layout_glyphs_apple_color_emoji;
+use crate::util::{layout_glyphs_noto_cbtf, layout_glyphs_noto_colr, layout_glyphs_roboto};
 use std::iter;
 use std::sync::Arc;
 use vello_api::color::palette::css::{BLACK, BLUE, GREEN};
