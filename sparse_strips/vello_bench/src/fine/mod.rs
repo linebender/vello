@@ -1,5 +1,6 @@
 pub(crate) mod fill;
 mod gradient;
+mod rounded_blurred_rect;
 mod strip;
 
 use criterion::Bencher;
