@@ -3257,8 +3257,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
- "vello_api",
- "vello_common",
 ]
 
 [[package]]
