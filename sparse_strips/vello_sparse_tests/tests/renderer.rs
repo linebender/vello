@@ -329,17 +329,15 @@ impl Renderer for Scene {
         device.poll(wgpu::Maintain::Wait);
 
         // Read back the pixel data
-        let mut img_data = Vec::with_capacity(usize::from(width) * usize::from(height) * 4);
-        for row in texture_copy_buffer
+        for (row, buf) in texture_copy_buffer
             .slice(..)
             .get_mapped_range()
             .chunks_exact(bytes_per_row as usize)
+            .zip(pixmap.data_mut().chunks_exact_mut(width as usize * 4))
         {
-            img_data.extend_from_slice(&row[0..width as usize * 4]);
+            buf.copy_from_slice(&row[0..width as usize * 4]);
         }
         texture_copy_buffer.unmap();
-
-        pixmap.buf = img_data;
     }
 
     fn width(&self) -> u16 {

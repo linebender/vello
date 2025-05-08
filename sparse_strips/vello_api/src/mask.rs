@@ -53,8 +53,8 @@ impl Mask {
 
         Self {
             data: Arc::new(data),
-            width: pixmap.width,
-            height: pixmap.height,
+            width: pixmap.width(),
+            height: pixmap.height(),
         }
     }
 
