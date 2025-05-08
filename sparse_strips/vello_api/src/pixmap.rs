@@ -98,7 +98,7 @@ impl Pixmap {
                 .height
                 .try_into()
                 .map_err(|_| png::DecodingError::LimitsExceeded)?;
-            Pixmap::new(width, height)
+            Self::new(width, height)
         };
 
         // Note `reader.info()` returns the pre-transformation color type output, whereas
@@ -118,11 +118,19 @@ impl Pixmap {
                 unreachable!("Transformation should have expanded indexed images")
             }
             png::ColorType::Rgba => {
-                debug_assert_eq!(pixmap.data_as_u8_slice().len(), reader.output_buffer_size());
+                debug_assert_eq!(
+                    pixmap.data_as_u8_slice().len(),
+                    reader.output_buffer_size(),
+                    "The pixmap buffer should have the same number of bytes as the image."
+                );
                 reader.next_frame(pixmap.data_as_u8_slice_mut())?;
             }
             png::ColorType::GrayscaleAlpha => {
-                debug_assert_eq!(pixmap.data().len() * 2, reader.output_buffer_size());
+                debug_assert_eq!(
+                    pixmap.data().len() * 2,
+                    reader.output_buffer_size(),
+                    "The pixmap buffer should have twice the number of bytes of the grayscale image."
+                );
                 let mut grayscale_data = vec![0; reader.output_buffer_size()];
                 reader.next_frame(&mut grayscale_data)?;
 
