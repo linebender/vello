@@ -23,4 +23,5 @@ wgpu = { workspace = true }
 [dev-dependencies]
 png = { workspace = true }
 pollster = { workspace = true }
+vello_common = { workspace = true, features = ["pico_svg"] }
 roxmltree = "0.20.0"
