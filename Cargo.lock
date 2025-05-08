@@ -857,6 +857,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "font-types"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02a596f5713680923a2080d86de50fe472fb290693cf0f701187a1c8b36996b7"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
 name = "fontconfig-cache-parser"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2349,17 +2358,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6f9e8a4f503e5c8750e4cd3b32a4e090035c46374b305a15c70bad833dca05f"
 dependencies = [
  "bytemuck",
- "font-types",
+ "font-types 0.8.4",
 ]
 
 [[package]]
 name = "read-fonts"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "600e807b48ac55bad68a8cb75cc3c7739f139b9248f7e003e01e080f589b5288"
+checksum = "5ce8e2ca6b24313587a03ca61bb74c384e2a815bd90cf2866cfc9f5fb7a11fa0"
 dependencies = [
  "bytemuck",
- "font-types",
+ "font-types 0.9.0",
 ]
 
 [[package]]
@@ -2531,7 +2540,7 @@ dependencies = [
  "image",
  "rand",
  "roxmltree",
- "skrifa 0.30.0",
+ "skrifa 0.31.0",
  "vello",
  "web-time",
 ]
@@ -2693,12 +2702,12 @@ dependencies = [
 
 [[package]]
 name = "skrifa"
-version = "0.30.0"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fa1e5622e4f7b98877e8a19890efddcac1230cec6198bd9de91ec0e00010dc8"
+checksum = "bbe6666ab11018ab91ff7b03f1a3b9fdbecfb610848436fefa5ce50343d3d913"
 dependencies = [
  "bytemuck",
- "read-fonts 0.28.0",
+ "read-fonts 0.29.0",
 ]
 
 [[package]]
@@ -3191,7 +3200,7 @@ dependencies = [
  "log",
  "peniko 0.4.0",
  "png",
- "skrifa 0.30.0",
+ "skrifa 0.31.0",
  "static_assertions",
  "thiserror 2.0.12",
  "vello_encoding",
@@ -3226,7 +3235,7 @@ version = "0.4.0"
 dependencies = [
  "bytemuck",
  "roxmltree",
- "skrifa 0.30.0",
+ "skrifa 0.31.0",
  "smallvec",
  "vello_api",
 ]
@@ -3256,7 +3265,7 @@ dependencies = [
  "bytemuck",
  "guillotiere",
  "peniko 0.4.0",
- "skrifa 0.30.0",
+ "skrifa 0.31.0",
  "smallvec",
 ]
 
@@ -3316,7 +3325,7 @@ dependencies = [
  "image",
  "oxipng",
  "pollster",
- "skrifa 0.30.0",
+ "skrifa 0.31.0",
  "smallvec",
  "vello_api",
  "vello_common",
