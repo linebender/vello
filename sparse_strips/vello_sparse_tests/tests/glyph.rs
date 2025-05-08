@@ -4,7 +4,10 @@
 //! Tests for glyph rendering.
 
 use crate::renderer::Renderer;
-use crate::util::{layout_glyphs_noto_cbtf, layout_glyphs_noto_colr, layout_glyphs_roboto};
+use crate::util::{
+    layout_glyphs_apple_color_emoji, layout_glyphs_noto_cbtf, layout_glyphs_noto_colr,
+    layout_glyphs_roboto,
+};
 use std::iter;
 use std::sync::Arc;
 use vello_api::color::palette::css::{BLACK, BLUE, GREEN};
@@ -257,6 +260,18 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
 fn glyphs_colr_noto(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .fill_glyphs(glyphs.into_iter());
+}
+
+#[cfg(target_os = "macos")]
+#[vello_test(width = 200, height = 70, skip_hybrid)]
+fn glyphs_bitmap_apple(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs_apple_color_emoji("✅👀🎉🤠", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
     ctx.glyph_run(&font)

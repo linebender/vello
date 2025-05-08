@@ -101,6 +101,14 @@ pub(crate) fn layout_glyphs_noto_colr(text: &str, font_size: f32) -> (Font, Vec<
     layout_glyphs(text, font_size, font)
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn layout_glyphs_apple_color_emoji(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
+    let apple_font: Vec<u8> = std::fs::read("/System/Library/Fonts/Apple Color Emoji.ttc").unwrap();
+    let font = Font::new(Blob::new(Arc::new(apple_font)), 0);
+
+    layout_glyphs(text, font_size, font)
+}
+
 /// ***DO NOT USE THIS OUTSIDE OF THESE TESTS***
 ///
 /// This function is used for _TESTING PURPOSES ONLY_. If you need to layout and shape
