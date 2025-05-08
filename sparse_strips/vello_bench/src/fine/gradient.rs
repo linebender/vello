@@ -105,7 +105,7 @@ mod linear {
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
-    pub fn opaque<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
+    pub(super) fn opaque<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
         let kind = GradientKind::Linear {
             start: Point::new(128.0, 128.0),
             end: Point::new(134.0, 134.0),
@@ -135,7 +135,7 @@ mod radial {
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
-    pub fn opaque<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
+    pub(super) fn opaque<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
         let kind = GradientKind::Radial {
             start_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
             start_radius: 25.0,
@@ -167,7 +167,7 @@ mod sweep {
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
-    pub fn opaque<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
+    pub(super) fn opaque<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
         let kind = GradientKind::Sweep {
             center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
             start_angle: 70.0,
