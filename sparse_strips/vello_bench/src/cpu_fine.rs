@@ -47,19 +47,19 @@ pub fn fill(c: &mut Criterion) {
 
     fill_single!(
         solid_opaque,
-        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE)),
         &[],
         WideTile::WIDTH as usize
     );
     fill_single!(
         solid_opaque_short,
-        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE)),
         &[],
         16
     );
     fill_single!(
         solid_transparent,
-        &Paint::Solid(PremulColor::new(ROYAL_BLUE.with_alpha(0.2))),
+        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE.with_alpha(0.2))),
         &[],
         WideTile::WIDTH as usize
     );
@@ -227,14 +227,14 @@ pub fn strip(c: &mut Criterion) {
 
     strip_single!(
         basic,
-        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE)),
         &[],
         WideTile::WIDTH as usize
     );
 
     strip_single!(
         basic_short,
-        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE)),
         &[],
         8
     );

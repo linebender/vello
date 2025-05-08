@@ -153,7 +153,7 @@ impl Wide {
     /// Reset all tiles in the container.
     pub fn reset(&mut self) {
         for tile in &mut self.tiles {
-            tile.bg = PremulColor::new(TRANSPARENT);
+            tile.bg = PremulColor::from_alpha_color(TRANSPARENT);
             tile.cmds.clear();
         }
         self.layer_stack.clear();
@@ -737,7 +737,7 @@ impl WideTile {
         Self {
             x,
             y,
-            bg: PremulColor::new(TRANSPARENT),
+            bg: PremulColor::from_alpha_color(TRANSPARENT),
             cmds: vec![],
             n_zero_clip: 0,
             n_clip: 0,
@@ -1036,8 +1036,8 @@ mod tests {
     fn basic_layer() {
         let mut wide = WideTile::new(0, 0);
         wide.push_buf();
-        wide.fill(0, 10, Paint::Solid(PremulColor::new(TRANSPARENT)));
-        wide.fill(10, 10, Paint::Solid(PremulColor::new(TRANSPARENT)));
+        wide.fill(0, 10, Paint::Solid(PremulColor::from_alpha_color(TRANSPARENT)));
+        wide.fill(10, 10, Paint::Solid(PremulColor::from_alpha_color(TRANSPARENT)));
         wide.pop_buf();
 
         assert_eq!(wide.cmds.len(), 4);
@@ -1045,7 +1045,7 @@ mod tests {
 
     #[test]
     fn inline_blend_with_one_fill() {
-        let paint = Paint::Solid(PremulColor::new(AlphaColor::from_rgba8(30, 30, 30, 255)));
+        let paint = Paint::Solid(PremulColor::from_alpha_color(AlphaColor::from_rgba8(30, 30, 30, 255)));
         let blend_mode = BlendMode::new(Mix::Lighten, Compose::SrcOver);
 
         let mut wide = WideTile::new(0, 0);
@@ -1068,7 +1068,7 @@ mod tests {
 
     #[test]
     fn dont_inline_blend_with_two_fills() {
-        let paint = Paint::Solid(PremulColor::new(AlphaColor::from_rgba8(30, 30, 30, 255)));
+        let paint = Paint::Solid(PremulColor::from_alpha_color(AlphaColor::from_rgba8(30, 30, 30, 255)));
         let blend_mode = BlendMode::new(Mix::Lighten, Compose::SrcOver);
 
         let mut wide = WideTile::new(0, 0);
@@ -1083,7 +1083,7 @@ mod tests {
 
     #[test]
     fn dont_inline_destructive_blend() {
-        let paint = Paint::Solid(PremulColor::new(AlphaColor::from_rgba8(30, 30, 30, 255)));
+        let paint = Paint::Solid(PremulColor::from_alpha_color(AlphaColor::from_rgba8(30, 30, 30, 255)));
         let blend_mode = BlendMode::new(Mix::Lighten, Compose::Clear);
 
         let mut wide = WideTile::new(0, 0);

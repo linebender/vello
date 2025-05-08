@@ -812,7 +812,7 @@ impl EncodeExt for BlurredRoundedRectangle {
             r1,
             std_dev_inv,
             min_edge,
-            color: PremulColor::new(self.color),
+            color: PremulColor::from_alpha_color(self.color),
             w,
             h,
             transform,
