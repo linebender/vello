@@ -1,5 +1,5 @@
 use crate::SEED;
-use crate::fine::fill_single;
+use crate::fine::{default_blend, fill_single};
 use criterion::{Bencher, Criterion};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
@@ -66,7 +66,7 @@ mod extend {
     use vello_cpu::fine::{Fine, FineType};
     use vello_dev_macros::vello_bench;
 
-    pub fn extend<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>, extend: peniko::Extend) {
+    fn extend<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>, extend: peniko::Extend) {
         let kind = GradientKind::Linear {
             start: Point::new(128.0, 128.0),
             end: Point::new(134.0, 134.0),
@@ -76,17 +76,17 @@ mod extend {
     }
 
     #[vello_bench]
-    pub fn pad<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
+    pub(super) fn pad<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
         extend(b, fine, peniko::Extend::Pad)
     }
 
     #[vello_bench]
-    pub fn reflect<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
+    pub(super) fn reflect<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
         extend(b, fine, peniko::Extend::Reflect)
     }
 
     #[vello_bench]
-    pub fn repeat<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
+    pub(super) fn repeat<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
         extend(b, fine, peniko::Extend::Repeat)
     }
 }
@@ -201,7 +201,14 @@ fn gradient_base<F: FineType>(
     };
 
     let paint = grad.encode_into(&mut paints, Affine::IDENTITY);
-    fill_single(&paint, &paints, WideTile::WIDTH as usize, b, fine);
+    fill_single(
+        &paint,
+        &paints,
+        WideTile::WIDTH as usize,
+        b,
+        default_blend(),
+        fine,
+    );
 }
 
 fn stops_blue_green_red_yellow_opaque() -> ColorStops {
