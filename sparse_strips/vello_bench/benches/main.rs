@@ -10,6 +10,13 @@ criterion_group!(fine_solid, fine::fill);
 criterion_group!(fine_strip, fine::strip);
 criterion_group!(fine_pack, fine::pack);
 criterion_group!(fine_gradient, fine::gradient);
+criterion_group!(fine_rounded_blurred_rect, fine::rounded_blurred_rect);
 // criterion_group!(tt, tile::tile);
 // criterion_group!(srs, strip::render_strips);
-criterion_main!(fine_solid, fine_strip, fine_pack, fine_gradient);
+criterion_main!(
+    fine_solid,
+    fine_strip,
+    fine_pack,
+    fine_gradient,
+    fine_rounded_blurred_rect
+);
