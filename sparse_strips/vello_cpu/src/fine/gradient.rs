@@ -3,7 +3,7 @@
 
 //! Rendering linear gradients.
 
-use crate::fine::{COLOR_COMPONENTS, Painter, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{COLOR_COMPONENTS, FineType, Painter, TILE_HEIGHT_COMPONENTS};
 use vello_common::encode::{EncodedGradient, GradientLike, GradientRange};
 use vello_common::kurbo::Point;
 
@@ -49,7 +49,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
         }
     }
 
-    pub(super) fn run(mut self, target: &mut [u8]) {
+    pub(super) fn run<F: FineType>(mut self, target: &mut [F]) {
         let original_pos = self.cur_pos;
 
         target
@@ -73,7 +73,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
         }
     }
 
-    fn run_column(&mut self, col: &mut [u8]) {
+    fn run_column<F: FineType>(&mut self, col: &mut [F]) {
         let pad = self.gradient.pad;
         let extend = |val| extend(val, pad, self.gradient.clamp_range);
         let mut pos = self.cur_pos;
@@ -82,18 +82,19 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
             let dist = extend(self.kind.cur_pos(&pos));
             self.advance(dist);
             let range = self.cur_range;
+            let c0 = range.c0.as_premul_f32().components;
 
             for (comp_idx, comp) in pixel.iter_mut().enumerate() {
-                let factor = (range.factors[comp_idx] * (dist - range.x0) + 0.5) as i16;
+                let factor = range.factors_f32[comp_idx] * (dist - range.x0);
 
-                *comp = (range.c0[comp_idx] as i16 + factor) as u8;
+                *comp = F::from_normalized_f32(c0[comp_idx] + factor);
             }
 
             pos += self.gradient.y_advance;
         }
     }
 
-    fn run_undefined(mut self, target: &mut [u8]) {
+    fn run_undefined<F: FineType>(mut self, target: &mut [F]) {
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
             .for_each(|column| {
@@ -103,7 +104,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
                     let actual_pos = pos;
 
                     if !self.kind.is_defined(&actual_pos) {
-                        pixel.copy_from_slice(&[0, 0, 0, 0]);
+                        pixel.copy_from_slice(&[F::ZERO, F::ZERO, F::ZERO, F::ZERO]);
                     }
 
                     pos += self.gradient.y_advance;
@@ -115,7 +116,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
 }
 
 impl<T: GradientLike> Painter for GradientFiller<'_, T> {
-    fn paint(self, target: &mut [u8]) {
+    fn paint<F: FineType>(self, target: &mut [F]) {
         self.run(target);
     }
 }

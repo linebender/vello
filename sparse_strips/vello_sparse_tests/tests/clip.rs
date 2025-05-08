@@ -91,7 +91,7 @@ fn clip_rectangle_with_star_evenodd(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(hybrid_tolerance = 1)]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn clip_deeply_nested_circles(ctx: &mut impl Renderer) {
     const INITIAL_RADIUS: f64 = 48.0;
     const RADIUS_DECREMENT: f64 = 2.5;
@@ -135,7 +135,7 @@ fn clip_deeply_nested_circles(ctx: &mut impl Renderer) {
     }
 }
 
-#[vello_test(hybrid_tolerance = 1)]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn clip_rectangle_and_circle(ctx: &mut impl Renderer) {
     // Create first clipping region - a rectangle on the left side
     let clip_rect = Rect::new(10.0, 30.0, 50.0, 70.0);
@@ -296,7 +296,7 @@ fn clip_with_save_restore(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn clip_with_opacity(ctx: &mut impl Renderer) {
-    // Main body of the shape should be RGB 127, 127, 127. Anti-aliased part should be
+    // Main body of the shape should be RGB 128, 128, 128. Anti-aliased part should be
     // 191, 191, 191.
     let clip_rect = Rect::new(10.5, 10.5, 89.5, 89.5);
     ctx.push_clip_layer(&clip_rect.to_path(0.1));

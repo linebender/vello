@@ -9,7 +9,6 @@
     clippy::cast_possible_truncation,
     reason = "We cast u16s to u8 in various places where we know for sure that it's < 256"
 )]
-#![no_std]
 
 extern crate alloc;
 
@@ -22,3 +21,13 @@ mod util;
 
 pub use render::RenderContext;
 pub use vello_common::pixmap::Pixmap;
+
+/// The selected rendering mode.
+#[derive(Copy, Clone, Debug, Default)]
+pub enum RenderMode {
+    /// Optimize speed (by performing calculations with u8/16).
+    #[default]
+    OptimizeSpeed,
+    /// Optimize quality (by performing calculations with f32).
+    OptimizeQuality,
+}

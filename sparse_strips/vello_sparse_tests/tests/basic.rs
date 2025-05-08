@@ -83,7 +83,7 @@ fn filled_circle_with_opacity(ctx: &mut impl Renderer) {
     ctx.fill_path(&circle.to_path(0.1));
 }
 
-#[vello_test(hybrid_tolerance = 1)]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn filled_overlapping_circles(ctx: &mut impl Renderer) {
     for e in [(35.0, 35.0, RED), (65.0, 35.0, GREEN), (50.0, 65.0, BLUE)] {
         let circle = Circle::new((e.0, e.1), 30.0);

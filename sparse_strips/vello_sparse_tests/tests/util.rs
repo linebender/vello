@@ -19,6 +19,7 @@ use vello_common::glyph::Glyph;
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, Font};
 use vello_common::pixmap::Pixmap;
+use vello_cpu::RenderMode;
 
 static REFS_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/snapshots")
@@ -39,9 +40,9 @@ pub(crate) fn get_ctx<T: Renderer>(width: u16, height: u16, transparent: bool) -
     ctx
 }
 
-pub(crate) fn render_pixmap(ctx: &impl Renderer) -> Pixmap {
+pub(crate) fn render_pixmap(ctx: &impl Renderer, render_mode: RenderMode) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.render_to_pixmap(&mut pixmap);
+    ctx.render_to_pixmap(&mut pixmap, render_mode);
     pixmap
 }
 
@@ -236,8 +237,9 @@ pub(crate) fn check_ref(
     // Whether the test instance is the "gold standard" and should be used
     // for creating reference images.
     is_reference: bool,
+    render_mode: RenderMode,
 ) {
-    let pixmap = render_pixmap(ctx);
+    let pixmap = render_pixmap(ctx, render_mode);
 
     let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
     let ref_path = REFS_PATH.join(format!("{}.png", test_name));
@@ -346,7 +348,8 @@ fn is_pix_diff(pixel1: &Rgba<u8>, pixel2: &Rgba<u8>, threshold: u8) -> bool {
     let mut different = false;
 
     for i in 0..3 {
-        different |= pixel1.0[i].abs_diff(pixel2.0[i]) > threshold;
+        let difference = pixel1.0[i].abs_diff(pixel2.0[i]);
+        different |= difference > threshold;
     }
 
     different

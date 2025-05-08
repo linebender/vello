@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::fine::{COLOR_COMPONENTS, Painter, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{COLOR_COMPONENTS, FineType, Painter, TILE_HEIGHT_COMPONENTS};
 use vello_common::encode::EncodedImage;
 use vello_common::kurbo::{Point, Vec2};
 use vello_common::peniko::{Extend, ImageQuality};
@@ -24,7 +24,7 @@ impl<'a> ImageFiller<'a> {
         }
     }
 
-    pub(super) fn run(mut self, target: &mut [u8]) {
+    pub(super) fn run<F: FineType>(mut self, target: &mut [F]) {
         // We currently have two branches for filling images: The first case is used for
         // nearest neighbor filtering and for images with no skewing-transform (this is checked
         // by the first two conditions), which allows us to take a faster path.
@@ -78,9 +78,9 @@ impl<'a> ImageFiller<'a> {
         }
     }
 
-    fn run_simple_column(
+    fn run_simple_column<F: FineType>(
         &mut self,
-        col: &mut [u8],
+        col: &mut [F],
         x_pos: f32,
         y_positions: &[f32; Tile::HEIGHT as usize],
     ) {
@@ -89,15 +89,21 @@ impl<'a> ImageFiller<'a> {
             .zip(y_positions.iter())
         {
             let sample = match self.image.quality {
-                ImageQuality::Low => self.image.pixmap.sample(x_pos as u16, *y_pos as u16),
+                ImageQuality::Low => F::from_rgba8(
+                    &self
+                        .image
+                        .pixmap
+                        .sample(x_pos as u16, *y_pos as u16)
+                        .to_u8_array()[..],
+                ),
                 ImageQuality::Medium | ImageQuality::High => unimplemented!(),
             };
 
-            pixel.copy_from_slice(&sample.to_u8_array());
+            pixel.copy_from_slice(&sample);
         }
     }
 
-    fn run_complex_column(&mut self, col: &mut [u8]) {
+    fn run_complex_column<F: FineType>(&mut self, col: &mut [F]) {
         let extend_point = |mut point: Point| {
             // For the same reason as mentioned above, we always floor.
             point.x = extend(
@@ -122,8 +128,14 @@ impl<'a> ImageFiller<'a> {
                 // Simply takes the nearest pixel to our current position.
                 ImageQuality::Low => {
                     let point = extend_point(pos);
-                    let sample = self.image.pixmap.sample(point.x as u16, point.y as u16);
-                    pixel.copy_from_slice(&sample.to_u8_array());
+                    let sample = F::from_rgba8(
+                        &self
+                            .image
+                            .pixmap
+                            .sample(point.x as u16, point.y as u16)
+                            .to_u8_array()[..],
+                    );
+                    pixel.copy_from_slice(&sample);
                 }
                 ImageQuality::Medium | ImageQuality::High => {
                     // We have two versions of filtering: `Medium` (bilinear filtering) and
@@ -163,9 +175,14 @@ impl<'a> ImageFiller<'a> {
                     let x_fract = fract(pos.x);
                     let y_fract = fract(pos.y);
 
-                    let mut f32_color = [0.0_f32; 4];
+                    let mut interpolated_color = [0.0_f32; 4];
 
-                    let sample = |p: Point| self.image.pixmap.sample(p.x as u16, p.y as u16);
+                    let sample = |p: Point| {
+                        let c = |val: u8| val as f32 / 255.0;
+                        let s = self.image.pixmap.sample(p.x as u16, p.y as u16);
+
+                        [c(s.r), c(s.g), c(s.b), c(s.a)]
+                    };
 
                     if self.image.quality == ImageQuality::Medium {
                         let cx = [1.0 - x_fract, x_fract];
@@ -182,9 +199,9 @@ impl<'a> ImageFiller<'a> {
                                 let w = cx[x_idx] * cy[y_idx];
 
                                 for (component, component_sample) in
-                                    f32_color.iter_mut().zip(color_sample.to_u8_array())
+                                    interpolated_color.iter_mut().zip(color_sample)
                                 {
-                                    *component += w * component_sample as f32;
+                                    *component += w * component_sample;
                                 }
                             }
                         }
@@ -203,15 +220,13 @@ impl<'a> ImageFiller<'a> {
                                 let c = cx[x_idx] * cy[y_idx];
 
                                 for (component, component_sample) in
-                                    f32_color.iter_mut().zip(color_sample.to_u8_array())
+                                    interpolated_color.iter_mut().zip(color_sample)
                                 {
-                                    *component += c * component_sample as f32;
+                                    *component += c * component_sample;
                                 }
                             }
                         }
                     }
-
-                    let mut u8_color = [0; 4];
 
                     for i in 0..COLOR_COMPONENTS {
                         // Due to the nature of the cubic filter, it can happen in certain situations
@@ -220,11 +235,13 @@ impl<'a> ImageFiller<'a> {
                         // premultiplied and would lead to overflows when doing source over
                         // compositing with u8-based values. Because of this, we need to clamp
                         // to the alpha value.
-                        let f32_val = f32_color[i].min(f32_color[3]);
-                        u8_color[i] = (f32_val + 0.5) as u8;
+                        let f32_val = interpolated_color[i]
+                            .clamp(0.0, 1.0)
+                            .min(interpolated_color[3]);
+                        interpolated_color[i] = f32_val;
                     }
 
-                    pixel.copy_from_slice(&u8_color);
+                    pixel.copy_from_slice(&F::from_rgbaf32(&interpolated_color[..]));
                 }
             };
 
@@ -253,7 +270,7 @@ fn extend(val: f32, extend: Extend, max: f32) -> f32 {
 }
 
 impl Painter for ImageFiller<'_> {
-    fn paint(self, target: &mut [u8]) {
+    fn paint<F: FineType>(self, target: &mut [F]) {
         self.run(target);
     }
 }

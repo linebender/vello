@@ -128,7 +128,7 @@ impl Scene {
         &mut self,
         clip_path: Option<&BezPath>,
         blend_mode: Option<BlendMode>,
-        opacity: Option<u8>,
+        opacity: Option<f32>,
         mask: Option<Mask>,
     ) {
         let clip = if let Some(c) = clip_path {
@@ -154,7 +154,7 @@ impl Scene {
             clip,
             BlendMode::new(Mix::Normal, Compose::SrcOver),
             None,
-            255,
+            1.0,
         );
     }
 

@@ -9,6 +9,7 @@ use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
 use vello_common::kurbo::{Point, Rect};
 use vello_common::mask::Mask;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
+use vello_cpu::RenderMode;
 use vello_cpu::{Pixmap, RenderContext};
 use vello_dev_macros::vello_test;
 
@@ -40,7 +41,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
 
     mask_ctx.set_paint(grad);
     mask_ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
-    mask_ctx.render_to_pixmap(&mut mask_pix);
+    mask_ctx.render_to_pixmap(&mut mask_pix, RenderMode::OptimizeSpeed);
 
     if alpha_mask {
         Mask::new_alpha(&mask_pix)

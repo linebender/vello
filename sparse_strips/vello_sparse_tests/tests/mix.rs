@@ -69,77 +69,86 @@ fn mix_normal(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Normal, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_multiply(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Multiply, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_screen(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Screen, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_darken(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Darken, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_lighten(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Lighten, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_color_dodge(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorDodge, Compose::SrcOver));
 }
 
-#[vello_test]
+// Unfortunately this one just needs such a high tolerance, but it was manually verified
+// that it's due to impreciseness and not a bug.
+// At some point, we have the following constellation:
+//  f32: source: [1.0, 0.125, 0.0, 0.86], background: [0.99215686, 0.8784314, 0.1882353, 1.0]
+//  u8: source: [255, 31, 0, 219], background: [253, 224, 48, 255]
+// After plugging into the formula, we get:
+//  f32:  1.0 - ((1.0 - 0.8784314) / 0.125) = 0.027451038 (RGB value of around 7)
+//  u8/u16:  255 - (((255 - 224) * 255) / 31) = 0
+// And therefore a very large difference for that one component.
+#[vello_test(cpu_u8_tolerance = 5)]
 fn mix_color_burn(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorBurn, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_hard_light(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::HardLight, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_soft_light(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::SoftLight, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_difference(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Difference, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_exclusion(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Exclusion, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_overlay(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Overlay, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_hue(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Hue, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_saturation(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Saturation, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 2)]
 fn mix_color(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Color, Compose::SrcOver));
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_luminosity(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Luminosity, Compose::SrcOver));
 }

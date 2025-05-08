@@ -11,7 +11,8 @@
 // means that the absolute difference of each component of a pixel must not be higher
 // than 1. For example, if the target pixel is (233, 43, 64, 100), then permissible
 // values are (232, 43, 65, 101) or (233, 42, 64, 100), but not (231, 43, 64, 100).
-const DEFAULT_CPU_U8_TOLERANCE: u8 = 0;
+const DEFAULT_CPU_U8_TOLERANCE: u8 = 1;
+const DEFAULT_CPU_F32_TOLERANCE: u8 = 0;
 const DEFAULT_HYBRID_TOLERANCE: u8 = 1;
 
 use proc_macro::TokenStream;
@@ -68,7 +69,7 @@ struct Arguments {
     /// (see the constants at the top of the file), this value will simply be added
     /// to the currently existing threshold. See the top of the file for an explanation of
     /// how exactly the tolerance is interpreted.
-    cpu_tolerance: u8,
+    cpu_u8_tolerance: u8,
     /// Same as above, but for the hybrid renderer.
     hybrid_tolerance: u8,
     /// Whether the background should be transparent (the default is white).
@@ -89,7 +90,7 @@ impl Default for Arguments {
         Self {
             width: 100,
             height: 100,
-            cpu_tolerance: 0,
+            cpu_u8_tolerance: 0,
             hybrid_tolerance: 0,
             transparent: false,
             skip_cpu: false,
@@ -126,6 +127,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let input_fn_name = input_fn.sig.ident.clone();
     let u8_fn_name = Ident::new(&format!("{}_cpu_u8", input_fn_name), input_fn_name.span());
+    let f32_fn_name = Ident::new(&format!("{}_cpu_f32", input_fn_name), input_fn_name.span());
     let hybrid_fn_name = Ident::new(&format!("{}_hybrid", input_fn_name), input_fn_name.span());
 
     // TODO: Tests with the same names in different modules can clash, see
@@ -134,12 +136,13 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let input_fn_name_str = input_fn_name.to_string();
     let u8_fn_name_str = u8_fn_name.to_string();
+    let f32_fn_name_str = f32_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
 
     let Arguments {
         width,
         height,
-        mut cpu_tolerance,
+        cpu_u8_tolerance,
         mut hybrid_tolerance,
         transparent,
         skip_cpu,
@@ -147,6 +150,11 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         ignore_reason,
         no_ref,
     } = parse_args(&attrs);
+
+    let cpu_u8_tolerance = cpu_u8_tolerance + DEFAULT_CPU_U8_TOLERANCE;
+    // Since f32 is our gold standard, we always require exact matches for this one.
+    let cpu_f32_tolerance = DEFAULT_CPU_F32_TOLERANCE;
+    hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
 
     // These tests currently don't work with `vello_hybrid`.
     skip_hybrid |= {
@@ -179,26 +187,50 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         empty_snippet.clone()
     };
 
-    cpu_tolerance += DEFAULT_CPU_U8_TOLERANCE;
-    hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
+    let cpu_snippet = |fn_name: Ident,
+                       fn_name_str: String,
+                       tolerance: u8,
+                       is_reference: bool,
+                       render_mode: proc_macro2::TokenStream| {
+        quote! {
+            #ignore_cpu
+            #[test]
+            fn #fn_name() {
+                use crate::util::{
+                    check_ref, get_ctx
+                };
+                use vello_cpu::{RenderContext, RenderMode};
+
+                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
+                #input_fn_name(&mut ctx);
+                if !#no_ref {
+                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #is_reference, #render_mode);
+                }
+            }
+        }
+    };
+
+    let u8_snippet = cpu_snippet(
+        u8_fn_name,
+        u8_fn_name_str,
+        cpu_u8_tolerance,
+        false,
+        quote! { RenderMode::OptimizeSpeed },
+    );
+    let f32_snippet = cpu_snippet(
+        f32_fn_name,
+        f32_fn_name_str,
+        cpu_f32_tolerance,
+        true,
+        quote! { RenderMode::OptimizeQuality },
+    );
 
     let expanded = quote! {
         #input_fn
 
-        #ignore_cpu
-        #[test]
-        fn #u8_fn_name() {
-            use crate::util::{
-                check_ref, get_ctx
-            };
-            use vello_cpu::RenderContext;
+        #u8_snippet
 
-            let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
-            #input_fn_name(&mut ctx);
-            if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #u8_fn_name_str, #cpu_tolerance, true);
-            }
-        }
+        #f32_snippet
 
         #ignore_hybrid
         #[test]
@@ -207,11 +239,12 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
                 check_ref, get_ctx
             };
             use vello_hybrid::Scene;
+            use vello_cpu::RenderMode;
 
             let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false);
+                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed);
             }
         }
     };
@@ -234,8 +267,8 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     }
                     "width" => args.width = parse_int_lit(expr, "width"),
                     "height" => args.height = parse_int_lit(expr, "height"),
-                    "cpu_tolerance" => {
-                        args.cpu_tolerance = parse_int_lit(expr, "cpu_tolerance")
+                    "cpu_u8_tolerance" => {
+                        args.cpu_u8_tolerance = parse_int_lit(expr, "cpu_u8_tolerance")
                             .try_into()
                             .expect("value to fit for cpu_tolerance.");
                     }

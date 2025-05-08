@@ -51,7 +51,7 @@ impl From<AlphaColor<Srgb>> for Paint {
         // Since we only do that conversion once per path it might not be critical, but should
         // still be measured. This also applies to all other usages of `to_rgba8` in the current
         // code.
-        Self::Solid(PremulColor::new(value))
+        Self::Solid(PremulColor::from_alpha_color(value))
     }
 }
 
@@ -77,12 +77,15 @@ pub struct PremulColor {
 
 impl PremulColor {
     /// Create a new premultiplied color.
-    pub fn new(color: AlphaColor<Srgb>) -> Self {
-        let premul = color.premultiply();
+    pub fn from_alpha_color(color: AlphaColor<Srgb>) -> Self {
+        Self::from_premul_color(color.premultiply())
+    }
 
+    /// Create a new premultiplied color from `peniko::PremulColor`.
+    pub fn from_premul_color(color: peniko::color::PremulColor<Srgb>) -> Self {
         Self {
-            premul_u8: premul.to_rgba8(),
-            premul_f32: premul,
+            premul_u8: color.to_rgba8(),
+            premul_f32: color,
         }
     }
 

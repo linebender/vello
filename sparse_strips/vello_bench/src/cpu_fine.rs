@@ -25,7 +25,7 @@ pub fn fill(c: &mut Criterion) {
     macro_rules! fill_single {
         ($name:ident, $paint:expr, $paints:expr, $width:expr) => {
             g.bench_function(stringify!($name), |b| {
-                let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
+                let mut fine = Fine::<u8>::new(WideTile::WIDTH, Tile::HEIGHT);
 
                 let paint = $paint;
                 let paints: &[EncodedPaint] = $paints;
@@ -47,19 +47,19 @@ pub fn fill(c: &mut Criterion) {
 
     fill_single!(
         solid_opaque,
-        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE)),
         &[],
         WideTile::WIDTH as usize
     );
     fill_single!(
         solid_opaque_short,
-        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE)),
         &[],
         16
     );
     fill_single!(
         solid_transparent,
-        &Paint::Solid(PremulColor::new(ROYAL_BLUE.with_alpha(0.2))),
+        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE.with_alpha(0.2))),
         &[],
         WideTile::WIDTH as usize
     );
@@ -204,7 +204,7 @@ pub fn strip(c: &mut Criterion) {
     macro_rules! strip_single {
         ($name:ident, $paint:expr, $paints:expr, $width:expr) => {
             g.bench_function(stringify!($name), |b| {
-                let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
+                let mut fine = Fine::<u8>::new(WideTile::WIDTH, Tile::HEIGHT);
 
                 let paint = $paint;
                 let paints: &[EncodedPaint] = $paints;
@@ -227,14 +227,14 @@ pub fn strip(c: &mut Criterion) {
 
     strip_single!(
         basic,
-        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE)),
         &[],
         WideTile::WIDTH as usize
     );
 
     strip_single!(
         basic_short,
-        &Paint::Solid(PremulColor::new(ROYAL_BLUE)),
+        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE)),
         &[],
         8
     );
@@ -295,7 +295,7 @@ pub fn pack(c: &mut Criterion) {
             *e = u8::try_from(n % 256).unwrap();
         }
 
-        let mut fine = Fine::new(WideTile::WIDTH, Tile::HEIGHT);
+        let mut fine = Fine::<u8>::new(WideTile::WIDTH, Tile::HEIGHT);
 
         b.iter(|| {
             fine.pack(&mut buf);

@@ -3,7 +3,8 @@
 
 //! Basic render operations.
 
-use crate::fine::Fine;
+use crate::RenderMode;
+use crate::fine::{Fine, FineType};
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -170,7 +171,7 @@ impl RenderContext {
         &mut self,
         clip_path: Option<&BezPath>,
         blend_mode: Option<BlendMode>,
-        opacity: Option<u8>,
+        opacity: Option<f32>,
         mask: Option<Mask>,
     ) {
         let clip = if let Some(c) = clip_path {
@@ -193,7 +194,7 @@ impl RenderContext {
             clip,
             blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
             mask,
-            opacity.unwrap_or(255),
+            opacity.unwrap_or(1.0),
         );
     }
 
@@ -208,7 +209,7 @@ impl RenderContext {
     }
 
     /// Push a new opacity layer.
-    pub fn push_opacity_layer(&mut self, opacity: u8) {
+    pub fn push_opacity_layer(&mut self, opacity: f32) {
         self.push_layer(None, None, Some(opacity), None);
     }
 
@@ -276,7 +277,13 @@ impl RenderContext {
 
     /// Render the current context into a buffer.
     /// The buffer is expected to be in premultiplied RGBA8 format with length `width * height * 4`
-    pub fn render_to_buffer(&self, buffer: &mut [u8], width: u16, height: u16) {
+    pub fn render_to_buffer(
+        &self,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        render_mode: RenderMode,
+    ) {
         assert!(
             !self.wide.has_layers(),
             "some layers haven't been popped yet"
@@ -290,8 +297,19 @@ impl RenderContext {
             buffer.len(),
         );
 
-        let mut fine = Fine::new(width, height);
+        match render_mode {
+            RenderMode::OptimizeSpeed => {
+                let mut fine = Fine::<u8>::new(width, height);
+                self.do_fine(buffer, &mut fine);
+            }
+            RenderMode::OptimizeQuality => {
+                let mut fine = Fine::<f32>::new(width, height);
+                self.do_fine(buffer, &mut fine);
+            }
+        }
+    }
 
+    fn do_fine<F: FineType>(&self, buffer: &mut [u8], fine: &mut Fine<F>) {
         let width_tiles = self.wide.width_tiles();
         let height_tiles = self.wide.height_tiles();
         for y in 0..height_tiles {
@@ -299,7 +317,7 @@ impl RenderContext {
                 let wtile = self.wide.get(x, y);
                 fine.set_coords(x, y);
 
-                fine.clear(wtile.bg.as_premul_rgba8().to_u8_array());
+                fine.clear(F::extract_color(&wtile.bg));
                 for cmd in &wtile.cmds {
                     fine.run_cmd(cmd, &self.alphas, &self.encoded_paints);
                 }
@@ -309,10 +327,10 @@ impl RenderContext {
     }
 
     /// Render the current context into a pixmap.
-    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap, render_mode: RenderMode) {
         let width = pixmap.width();
         let height = pixmap.height();
-        self.render_to_buffer(pixmap.data_as_u8_slice_mut(), width, height);
+        self.render_to_buffer(pixmap.data_as_u8_slice_mut(), width, height, render_mode);
     }
 
     /// Return the width of the pixmap.
@@ -403,7 +421,7 @@ impl GlyphRenderer for RenderContext {
                     let mut colr_painter = ColrPainter::new(glyph, context_color, &mut ctx);
                     colr_painter.paint();
 
-                    ctx.render_to_pixmap(&mut pix);
+                    ctx.render_to_pixmap(&mut pix, RenderMode::OptimizeQuality);
 
                     pix
                 };

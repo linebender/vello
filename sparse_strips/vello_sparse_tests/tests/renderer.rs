@@ -7,7 +7,7 @@ use vello_api::paint::PaintType;
 use vello_api::peniko::{BlendMode, Fill, Font};
 use vello_api::pixmap::Pixmap;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
-use vello_cpu::RenderContext;
+use vello_cpu::{RenderContext, RenderMode};
 use vello_hybrid::Scene;
 
 pub(crate) trait Renderer: Sized + GlyphRenderer {
@@ -22,12 +22,12 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
         &mut self,
         clip_path: Option<&BezPath>,
         blend_mode: Option<BlendMode>,
-        opacity: Option<u8>,
+        opacity: Option<f32>,
         mask: Option<Mask>,
     );
     fn push_clip_layer(&mut self, path: &BezPath);
     fn push_blend_layer(&mut self, blend_mode: BlendMode);
-    fn push_opacity_layer(&mut self, opacity: u8);
+    fn push_opacity_layer(&mut self, opacity: f32);
     fn push_mask_layer(&mut self, mask: Mask);
     fn pop_layer(&mut self);
     fn set_stroke(&mut self, stroke: Stroke);
@@ -35,7 +35,7 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn set_paint_transform(&mut self, affine: Affine);
     fn set_fill_rule(&mut self, fill_rule: Fill);
     fn set_transform(&mut self, transform: Affine);
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap);
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, render_mode: RenderMode);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
 }
@@ -73,7 +73,7 @@ impl Renderer for RenderContext {
         &mut self,
         clip_path: Option<&BezPath>,
         blend_mode: Option<BlendMode>,
-        opacity: Option<u8>,
+        opacity: Option<f32>,
         mask: Option<Mask>,
     ) {
         Self::push_layer(self, clip_path, blend_mode, opacity, mask);
@@ -87,7 +87,7 @@ impl Renderer for RenderContext {
         Self::push_blend_layer(self, blend_mode);
     }
 
-    fn push_opacity_layer(&mut self, opacity: u8) {
+    fn push_opacity_layer(&mut self, opacity: f32) {
         Self::push_opacity_layer(self, opacity);
     }
 
@@ -119,8 +119,8 @@ impl Renderer for RenderContext {
         Self::set_transform(self, transform);
     }
 
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        Self::render_to_pixmap(self, pixmap);
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, render_mode: RenderMode) {
+        Self::render_to_pixmap(self, pixmap, render_mode);
     }
 
     fn width(&self) -> u16 {
@@ -165,7 +165,7 @@ impl Renderer for Scene {
         &mut self,
         clip: Option<&BezPath>,
         blend_mode: Option<BlendMode>,
-        opacity: Option<u8>,
+        opacity: Option<f32>,
         mask: Option<Mask>,
     ) {
         Self::push_layer(self, clip, blend_mode, opacity, mask);
@@ -179,7 +179,7 @@ impl Renderer for Scene {
         unimplemented!()
     }
 
-    fn push_opacity_layer(&mut self, _: u8) {
+    fn push_opacity_layer(&mut self, _: f32) {
         unimplemented!()
     }
 
@@ -216,7 +216,7 @@ impl Renderer for Scene {
         Self::set_transform(self, transform);
     }
 
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
         let width = self.width();
         let height = self.height();
 
