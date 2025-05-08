@@ -14,7 +14,9 @@
 use scenes::SimpleText;
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
+#[cfg(target_os = "macos")]
 use vello::peniko::color::palette;
+#[cfg(target_os = "macos")]
 use vello::peniko::{Blob, Brush, Font};
 use vello::{Scene, kurbo::Affine, peniko::Fill};
 use vello_tests::{TestParams, snapshot_test_sync};
