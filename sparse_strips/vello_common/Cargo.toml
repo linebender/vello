@@ -1,6 +1,6 @@
 [package]
 name = "vello_common"
-version.workspace = true
+version = "0.0.1"
 description = "Core data structures and utilities shared across the Vello rendering, including geometry processing and tiling logic."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]

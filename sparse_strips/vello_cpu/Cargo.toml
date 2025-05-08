@@ -1,7 +1,7 @@
 [package]
 name = "vello_cpu"
 # When moving past 0.0.x, also update caveats in the README
-version.workspace = true
+version = "0.0.1"
 description = "A CPU-based renderer for Vello, optimized for SIMD and multithreaded execution."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
@@ -19,7 +19,7 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = []
 
 [dependencies]
-vello_common = { workspace = true }
+vello_common = { version = "0.0.1", workspace = true }
 libm = { version = "0.2.15", optional = true }
 
 [features]

@@ -3179,7 +3179,7 @@ dependencies = [
 
 [[package]]
 name = "vello_common"
-version = "0.5.0"
+version = "0.0.1"
 dependencies = [
  "bytemuck",
  "libm",
@@ -3192,7 +3192,7 @@ dependencies = [
 
 [[package]]
 name = "vello_cpu"
-version = "0.5.0"
+version = "0.0.1"
 dependencies = [
  "libm",
  "vello_common",
