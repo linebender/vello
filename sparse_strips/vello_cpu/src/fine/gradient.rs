@@ -29,7 +29,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
         start_y: u16,
     ) -> Self {
         Self {
-            cur_pos: gradient.transform * Point::new(start_x as f64, start_y as f64),
+            cur_pos: gradient.transform * Point::new(f64::from(start_x), f64::from(start_y)),
             range_idx: 0,
             cur_range: &gradient.ranges[0],
             gradient,

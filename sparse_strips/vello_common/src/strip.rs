@@ -71,8 +71,8 @@ pub fn render(
 
     for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
         let line = lines[tile.line_idx() as usize];
-        let tile_left_x = tile.x as f32 * Tile::WIDTH as f32;
-        let tile_top_y = tile.y as f32 * Tile::HEIGHT as f32;
+        let tile_left_x = f32::from(tile.x) * f32::from(Tile::WIDTH);
+        let tile_top_y = f32::from(tile.y) * f32::from(Tile::HEIGHT);
         let p0_x = line.p0.x - tile_left_x;
         let p0_y = line.p0.y - tile_top_y;
         let p1_x = line.p1.x - tile_left_x;
@@ -212,7 +212,7 @@ pub fn render(
         let y_slope = (line_bottom_y - line_top_y) / (line_bottom_x - line_top_x);
         let x_slope = 1. / y_slope;
 
-        winding_delta += sign as i32 * tile.winding() as i32;
+        winding_delta += sign as i32 * i32::from(tile.winding());
 
         // TODO: this should be removed when out-of-viewport tiles are culled at the
         // tile-generation stage. That requires calculating and forwarding winding to strip
@@ -232,8 +232,8 @@ pub fn render(
             };
 
             for y_idx in 0..Tile::HEIGHT {
-                let px_top_y = y_idx as f32;
-                let px_bottom_y = 1. + y_idx as f32;
+                let px_top_y = f32::from(y_idx);
+                let px_bottom_y = 1. + f32::from(y_idx);
 
                 let ymin = f32::max(ymin, px_top_y);
                 let ymax = f32::min(ymax, px_bottom_y);
@@ -253,16 +253,16 @@ pub fn render(
         }
 
         for y_idx in 0..Tile::HEIGHT {
-            let px_top_y = y_idx as f32;
-            let px_bottom_y = 1. + y_idx as f32;
+            let px_top_y = f32::from(y_idx);
+            let px_bottom_y = 1. + f32::from(y_idx);
 
             let ymin = f32::max(line_top_y, px_top_y);
             let ymax = f32::min(line_bottom_y, px_bottom_y);
 
             let mut acc = 0.;
             for x_idx in 0..Tile::WIDTH {
-                let px_left_x = x_idx as f32;
-                let px_right_x = 1. + x_idx as f32;
+                let px_left_x = f32::from(x_idx);
+                let px_right_x = 1. + f32::from(x_idx);
 
                 // The y-coordinate of the intersections between the line and the pixel's left and
                 // right edges respectively.

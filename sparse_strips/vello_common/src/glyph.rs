@@ -271,8 +271,8 @@ fn prepare_outline_glyph<'a>(
     // glyph.
     let [a, b, c, d, _, _] = run_transform.as_coeffs();
     let translation = Vec2::new(
-        a * glyph.x as f64 + c * glyph.y as f64,
-        b * glyph.x as f64 + d * glyph.y as f64,
+        a * f64::from(glyph.x) + c * f64::from(glyph.y),
+        b * f64::from(glyph.x) + d * f64::from(glyph.y),
     );
 
     // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
@@ -335,7 +335,7 @@ fn prepare_bitmap_glyph<'a>(
             y: (bearing_y * font_units_to_size).into(),
         })
         // Scale to pixel-space.
-        .pre_scale_non_uniform(x_scale_factor as f64, y_scale_factor as f64)
+        .pre_scale_non_uniform(f64::from(x_scale_factor), f64::from(y_scale_factor))
         // Apply inner bearings.
         .pre_translate(Vec2 {
             x: (-bitmap_glyph.inner_bearing_x).into(),
@@ -345,7 +345,12 @@ fn prepare_bitmap_glyph<'a>(
 
     // Scale factor already accounts for ppem, so we can just draw in the size of the
     // actual image
-    let area = Rect::new(0.0, 0.0, pixmap.width() as f64, pixmap.height() as f64);
+    let area = Rect::new(
+        0.0,
+        0.0,
+        f64::from(pixmap.width()),
+        f64::from(pixmap.height()),
+    );
 
     (GlyphType::Bitmap(BitmapGlyph { pixmap, area }), transform)
 }
@@ -387,14 +392,14 @@ fn prepare_colr_glyph<'a>(
     // we simply use the scaling/skewing factor to calculate how much to scale by, and use the
     // maximum of both dimensions.
     let scale_factor = {
-        let (x_vec, y_vec) = x_y_advances(&transform.pre_scale(scale as f64));
+        let (x_vec, y_vec) = x_y_advances(&transform.pre_scale(f64::from(scale)));
         x_vec.length().max(y_vec.length())
     };
 
     let bbox = color_glyph
         .bounding_box(LocationRef::default(), Size::unscaled())
         .map(convert_bounding_box)
-        .unwrap_or(Rect::new(0.0, 0.0, upem as f64, upem as f64));
+        .unwrap_or(Rect::new(0.0, 0.0, f64::from(upem), f64::from(upem)));
 
     // Calculate the position of the rectangle that will contain the rendered pixmap in device
     // coordinates.
