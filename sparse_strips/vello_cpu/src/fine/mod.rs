@@ -672,6 +672,7 @@ pub trait FineType:
     fn from_normalized_f32(num: f32) -> Self;
     /// Get the widened representation of the current number.
     fn widen(self) -> Self::Widened;
+
     /// Perform a normalized multiplication between this number and another
     #[inline(always)]
     fn normalized_mul(self, other: Self) -> Self {
@@ -757,6 +758,7 @@ impl FineType for u8 {
         self as f32 / 255.0
     }
 
+    #[inline(always)]
     fn to_normalized_u8(self) -> u8 {
         self
     }
@@ -808,6 +810,7 @@ impl FineType for f32 {
         self
     }
 
+    #[inline(always)]
     fn to_normalized_u8(self) -> u8 {
         (self * 255.0 + 0.5) as u8
     }
