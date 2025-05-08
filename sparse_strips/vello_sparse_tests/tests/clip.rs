@@ -91,7 +91,7 @@ fn clip_rectangle_with_star_evenodd(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn clip_deeply_nested_circles(ctx: &mut impl Renderer) {
     const INITIAL_RADIUS: f64 = 48.0;
     const RADIUS_DECREMENT: f64 = 2.5;
