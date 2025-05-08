@@ -1,3 +1,4 @@
+mod blend;
 pub(crate) mod fill;
 mod gradient;
 mod rounded_blurred_rect;
@@ -7,6 +8,7 @@ use criterion::Bencher;
 use vello_cpu::fine::{Fine, FineType, SCRATCH_BUF_SIZE};
 use vello_dev_macros::vello_bench;
 
+pub use blend::*;
 pub use fill::*;
 pub use gradient::*;
 pub use rounded_blurred_rect::*;
