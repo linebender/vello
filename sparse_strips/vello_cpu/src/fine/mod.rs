@@ -675,11 +675,11 @@ pub trait FineType:
     // TODO: These should be sized to COLOR_COMPONENTS, but will leave that for
     // the future.
     /// Convert a slice to a RGBA8 slice.
-    fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS];
+    fn to_rgba8(src: &[Self]) -> [u8; COLOR_COMPONENTS];
     /// Convert a RGBA8 slice to a slice of this type.
-    fn from_rgba8(_in: &[u8]) -> [Self; COLOR_COMPONENTS];
+    fn from_rgba8(src: &[u8]) -> [Self; COLOR_COMPONENTS];
     /// Convert a RGBAF32 slice to a slice of this type.
-    fn from_rgbaf32(_in: &[f32]) -> [Self; COLOR_COMPONENTS];
+    fn from_rgbaf32(src: &[f32]) -> [Self; COLOR_COMPONENTS];
     /// Get the inverse of the number.
     fn inv(self) -> Self;
     /// Get the widened representation of the current number.
@@ -737,19 +737,19 @@ impl FineType for u8 {
     }
 
     #[inline(always)]
-    fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS] {
-        [_in[0], _in[1], _in[2], _in[3]]
+    fn to_rgba8(src: &[Self]) -> [u8; COLOR_COMPONENTS] {
+        [src[0], src[1], src[2], src[3]]
     }
 
     #[inline(always)]
-    fn from_rgba8(_in: &[u8]) -> [Self; COLOR_COMPONENTS] {
-        [_in[0], _in[1], _in[2], _in[3]]
+    fn from_rgba8(src: &[u8]) -> [Self; COLOR_COMPONENTS] {
+        [src[0], src[1], src[2], src[3]]
     }
 
     #[inline(always)]
-    fn from_rgbaf32(_in: &[f32]) -> [Self; COLOR_COMPONENTS] {
+    fn from_rgbaf32(src: &[f32]) -> [Self; COLOR_COMPONENTS] {
         let r = |val: f32| (val * 255.0 + 0.5) as Self;
-        [r(_in[0]), r(_in[1]), r(_in[2]), r(_in[3])]
+        [r(src[0]), r(src[1]), r(src[2]), r(src[3])]
     }
 
     #[inline(always)]
@@ -814,25 +814,25 @@ impl FineType for f32 {
     }
 
     #[inline(always)]
-    fn to_rgba8(_in: &[Self]) -> [u8; COLOR_COMPONENTS] {
+    fn to_rgba8(src: &[Self]) -> [u8; COLOR_COMPONENTS] {
         let mut out = [0; COLOR_COMPONENTS];
 
         for i in 0..COLOR_COMPONENTS {
-            out[i] = (_in[i] * 255.0 + 0.5) as u8;
+            out[i] = (src[i] * 255.0 + 0.5) as u8;
         }
 
         out
     }
 
     #[inline(always)]
-    fn from_rgba8(_in: &[u8]) -> [Self; COLOR_COMPONENTS] {
+    fn from_rgba8(src: &[u8]) -> [Self; COLOR_COMPONENTS] {
         let c = |val: u8| val as Self / 255.0;
-        [c(_in[0]), c(_in[1]), c(_in[2]), c(_in[3])]
+        [c(src[0]), c(src[1]), c(src[2]), c(src[3])]
     }
 
     #[inline(always)]
-    fn from_rgbaf32(_in: &[f32]) -> [Self; COLOR_COMPONENTS] {
-        [_in[0], _in[1], _in[2], _in[3]]
+    fn from_rgbaf32(src: &[f32]) -> [Self; COLOR_COMPONENTS] {
+        [src[0], src[1], src[2], src[3]]
     }
 
     #[inline(always)]
