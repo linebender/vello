@@ -6,9 +6,8 @@ use vello_api::mask::Mask;
 use vello_api::paint::PaintType;
 use vello_api::peniko::{BlendMode, Fill, Font};
 use vello_api::pixmap::Pixmap;
-use vello_common::RenderMode;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
-use vello_cpu::RenderContext;
+use vello_cpu::{RenderContext, RenderMode};
 use vello_hybrid::Scene;
 use wgpu::RenderPassDescriptor;
 

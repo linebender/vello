@@ -3,6 +3,7 @@
 
 //! Basic render operations.
 
+use crate::RenderMode;
 use crate::fine::{Fine, FineType};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -20,7 +21,7 @@ use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
-use vello_common::{RenderMode, flatten, strip};
+use vello_common::{flatten, strip};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.

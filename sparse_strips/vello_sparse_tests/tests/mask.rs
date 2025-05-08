@@ -4,12 +4,12 @@
 use crate::renderer::Renderer;
 use smallvec::smallvec;
 use vello_api::peniko::Gradient;
-use vello_common::RenderMode;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
 use vello_common::kurbo::{Point, Rect};
 use vello_common::mask::Mask;
 use vello_common::peniko::{ColorStop, ColorStops, GradientKind};
+use vello_cpu::RenderMode;
 use vello_cpu::{Pixmap, RenderContext};
 use vello_dev_macros::vello_test;
 
