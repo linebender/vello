@@ -33,21 +33,15 @@ impl Mask {
             if alpha_mask {
                 data.push(pixel.a);
             } else {
-                let mut r = pixel.r as f32 / 255.0;
-                let mut g = pixel.g as f32 / 255.0;
-                let mut b = pixel.b as f32 / 255.0;
-                let a = pixel.a as f32 / 255.0;
+                let r = f32::from(pixel.r) / 255.;
+                let g = f32::from(pixel.g) / 255.;
+                let b = f32::from(pixel.b) / 255.;
 
-                if pixel.a != 0 {
-                    r /= a;
-                    g /= a;
-                    b /= a;
-                }
-
-                // See https://www.w3.org/TR/filter-effects-1/#elementdef-fecolormatrix
+                // See https://www.w4.org/TR/filter-effects-1/#elementdef-fecolormatrix.
+                // Note r, g and b are premultiplied by alpha.
                 let luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
                 #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow")]
-                data.push(((luma * a) * 255.0 + 0.5) as u8);
+                data.push((luma * 255.0 + 0.5) as u8);
             }
         }
 
