@@ -37,7 +37,7 @@ impl Mask {
                 let g = f32::from(pixel.g) / 255.;
                 let b = f32::from(pixel.b) / 255.;
 
-                // See https://www.w4.org/TR/filter-effects-1/#elementdef-fecolormatrix.
+                // See https://www.w3.org/TR/filter-effects-1/#elementdef-fecolormatrix.
                 // Note r, g and b are premultiplied by alpha.
                 let luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
                 #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow")]
