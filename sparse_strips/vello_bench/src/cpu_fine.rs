@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::SEED;
-use criterion::Criterion;
+use criterion::{Bencher, Criterion};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use smallvec::smallvec;
@@ -17,7 +17,8 @@ use vello_common::peniko::{
     BlendMode, ColorStop, ColorStops, Compose, Gradient, GradientKind, Mix,
 };
 use vello_common::tile::Tile;
-use vello_cpu::fine::{Fine, SCRATCH_BUF_SIZE};
+use vello_cpu::fine::{Fine, FineType, SCRATCH_BUF_SIZE};
+use vello_dev_macros::vello_bench;
 
 pub fn fill(c: &mut Criterion) {
     let mut g = c.benchmark_group("fine/fill");
@@ -191,59 +192,6 @@ pub fn fill(c: &mut Criterion) {
     );
 }
 
-pub fn strip(c: &mut Criterion) {
-    let mut g = c.benchmark_group("fine/strip");
-    let mut rng = StdRng::from_seed(SEED);
-
-    let mut alphas = vec![];
-
-    for _ in 0..WideTile::WIDTH * Tile::HEIGHT {
-        alphas.push(rng.random());
-    }
-
-    macro_rules! strip_single {
-        ($name:ident, $paint:expr, $paints:expr, $width:expr) => {
-            g.bench_function(stringify!($name), |b| {
-                let mut fine = Fine::<u8>::new(WideTile::WIDTH, Tile::HEIGHT);
-
-                let paint = $paint;
-                let paints: &[EncodedPaint] = $paints;
-
-                b.iter(|| {
-                    fine.strip(
-                        0,
-                        $width,
-                        &alphas,
-                        paint,
-                        BlendMode::new(Mix::Normal, Compose::SrcOver),
-                        paints,
-                    );
-
-                    std::hint::black_box(&fine);
-                })
-            });
-        };
-    }
-
-    strip_single!(
-        basic,
-        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE)),
-        &[],
-        WideTile::WIDTH as usize
-    );
-
-    strip_single!(
-        basic_short,
-        &Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE)),
-        &[],
-        8
-    );
-
-    // There is not really a need to measure performance of complex paint types
-    // for stripping because the code path for generating the gradient data is exactly the same
-    // as for filling.
-}
-
 fn stops_blue_green_red_yellow_opaque() -> ColorStops {
     ColorStops(smallvec![
         ColorStop {
@@ -284,22 +232,4 @@ fn stops_blue_green_red_yellow() -> ColorStops {
             color: DynamicColor::from_alpha_color(YELLOW.with_alpha(0.7)),
         },
     ])
-}
-
-pub fn pack(c: &mut Criterion) {
-    c.bench_function("fine/pack", |b| {
-        let mut buf = vec![0_u8; SCRATCH_BUF_SIZE];
-        let mut scratch = [0_u8; SCRATCH_BUF_SIZE];
-
-        for (n, e) in scratch.iter_mut().enumerate() {
-            *e = u8::try_from(n % 256).unwrap();
-        }
-
-        let mut fine = Fine::<u8>::new(WideTile::WIDTH, Tile::HEIGHT);
-
-        b.iter(|| {
-            fine.pack(&mut buf);
-            std::hint::black_box(&buf);
-        });
-    });
 }
