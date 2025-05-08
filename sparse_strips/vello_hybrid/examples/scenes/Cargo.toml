@@ -12,7 +12,7 @@ workspace = true
 [dependencies]
 bytemuck = { workspace = true, features = [] }
 vello_hybrid = { workspace = true }
-vello_common = { workspace = true }
+vello_common = { workspace = true, features = ["pico_svg"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 parley = { version = "0.3.0", default-features = false, features = ["std"] }

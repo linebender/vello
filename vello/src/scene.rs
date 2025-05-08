@@ -10,6 +10,7 @@ use peniko::{
     kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
 };
 use png::{BitDepth, ColorType, Transformations};
+use skrifa::bitmap::BitmapFormat;
 use skrifa::{
     GlyphId, MetadataProvider, OutlineGlyphCollection, bitmap,
     color::{ColorGlyph, ColorPainter},
@@ -643,10 +644,24 @@ impl<'a> DrawGlyphs<'a> {
 
                     let image_scale_factor = self.run.font_size / bitmap.ppem_y;
                     let font_units_to_size = self.run.font_size / upem;
+
+                    // CoreText appears to special case Apple Color Emoji, adding
+                    // a 100 font unit vertical offset. We do the same but only
+                    // when both vertical offsets are 0 to avoid incorrect
+                    // rendering if Apple ever does encode the offset directly in
+                    // the font.
+                    let bearing_y = if bitmap.bearing_y == 0.0
+                        && bitmaps.format() == Some(BitmapFormat::Sbix)
+                    {
+                        100.0
+                    } else {
+                        bitmap.bearing_y
+                    };
+
                     let transform = transform
                         .pre_translate(Vec2 {
                             x: (-bitmap.bearing_x * font_units_to_size).into(),
-                            y: (bitmap.bearing_y * font_units_to_size).into(),
+                            y: (bearing_y * font_units_to_size).into(),
                         })
                         // Unclear why this isn't non-uniform
                         .pre_scale(image_scale_factor.into())

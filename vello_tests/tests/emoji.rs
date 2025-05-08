@@ -12,6 +12,12 @@
 )]
 
 use scenes::SimpleText;
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
+#[cfg(target_os = "macos")]
+use vello::peniko::color::palette;
+#[cfg(target_os = "macos")]
+use vello::peniko::{Blob, Brush, Font};
 use vello::{Scene, kurbo::Affine, peniko::Fill};
 use vello_tests::{TestParams, snapshot_test_sync};
 
@@ -39,6 +45,32 @@ fn encode_noto_bitmap(text: &str, font_size: f32) -> Scene {
         None,
         Fill::EvenOdd,
         text,
+    );
+    scene
+}
+
+#[cfg(target_os = "macos")]
+fn encode_apple_bitmap(text: &str, font_size: f32) -> Scene {
+    let font = Font::new(
+        Blob::new(Arc::new(
+            std::fs::read("/System/Library/Fonts/Apple Color Emoji.ttc").unwrap(),
+        )),
+        0,
+    );
+    let mut scene = Scene::new();
+    let mut simple_text = SimpleText::new();
+    simple_text.add_var_run(
+        &mut scene,
+        Some(&font),
+        font_size,
+        &[],
+        // This should be unused
+        &Brush::Solid(palette::css::WHITE),
+        Affine::translate((0., f64::from(font_size))),
+        None,
+        Fill::EvenOdd,
+        text,
+        false,
     );
     scene
 }
@@ -101,6 +133,22 @@ fn big_bitmap() {
     let scene = encode_noto_bitmap(TEXT, font_size);
     let params = TestParams::new(
         "big_bitmap",
+        (font_size * 10.) as _,
+        (font_size * 1.25).ceil() as _,
+    );
+    snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn big_bitmap_apple() {
+    let font_size = 48.;
+    let scene = encode_apple_bitmap(TEXT, font_size);
+    let params = TestParams::new(
+        "big_bitmap_apple",
         (font_size * 10.) as _,
         (font_size * 1.25).ceil() as _,
     );
