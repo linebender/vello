@@ -4,11 +4,13 @@ mod rounded_blurred_rect;
 mod strip;
 
 use criterion::Bencher;
-pub use fill::*;
-pub use gradient::*;
-pub use strip::*;
 use vello_cpu::fine::{Fine, FineType, SCRATCH_BUF_SIZE};
 use vello_dev_macros::vello_bench;
+
+pub use fill::*;
+pub use gradient::*;
+pub use rounded_blurred_rect::*;
+pub use strip::*;
 
 #[vello_bench]
 pub fn pack<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
