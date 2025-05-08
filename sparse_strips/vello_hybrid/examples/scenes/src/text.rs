@@ -63,11 +63,13 @@ impl TextScene {
         #[cfg(target_arch = "wasm32")]
         let mut font_cx = {
             let mut font_cx = FontContext::new();
-            font_cx.collection.register_fonts(ROBOTO_FONT.to_vec());
+            font_cx
+                .collection
+                .register_fonts(ROBOTO_FONT.to_vec().into(), None);
             font_cx
         };
 
-        let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0);
+        let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, true);
         builder.push_default(FontFamily::parse("Roboto").unwrap());
         builder.push_default(StyleProperty::LineHeight(1.3));
         builder.push_default(StyleProperty::FontSize(32.0));
