@@ -1,8 +1,6 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-mod bitmap;
-
 use std::sync::Arc;
 
 use peniko::{
@@ -13,7 +11,7 @@ use peniko::{
 };
 use png::{BitDepth, ColorType, Transformations};
 use skrifa::{
-    GlyphId, MetadataProvider, OutlineGlyphCollection,
+    GlyphId, MetadataProvider, OutlineGlyphCollection, bitmap,
     color::{ColorGlyph, ColorPainter},
     instance::LocationRef,
     outline::{DrawSettings, OutlinePen},
@@ -458,7 +456,7 @@ impl<'a> DrawGlyphs<'a> {
     pub fn draw(mut self, style: impl Into<StyleRef<'a>>, glyphs: impl Iterator<Item = Glyph>) {
         let font_index = self.run.font.index;
         let font = skrifa::FontRef::from_index(self.run.font.data.as_ref(), font_index).unwrap();
-        let bitmaps = bitmap::BitmapStrikes::new(&font);
+        let bitmaps = font.bitmap_strikes();
         if font.colr().is_ok() && font.cpal().is_ok() || !bitmaps.is_empty() {
             self.try_draw_colr(style.into(), glyphs);
         } else {
@@ -511,7 +509,7 @@ impl<'a> DrawGlyphs<'a> {
         );
 
         let color_collection = font.color_glyphs();
-        let bitmaps = bitmap::BitmapStrikes::new(&font);
+        let bitmaps = font.bitmap_strikes();
         let mut final_glyph = None;
         let mut outline_count = 0;
         // We copy out of the variable font coords here because we need to call an exclusive self method
