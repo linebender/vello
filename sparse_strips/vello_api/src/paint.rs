@@ -47,10 +47,6 @@ pub enum Paint {
 
 impl From<AlphaColor<Srgb>> for Paint {
     fn from(value: AlphaColor<Srgb>) -> Self {
-        // TODO: This might be slow on x86, see https://github.com/linebender/color/issues/142.
-        // Since we only do that conversion once per path it might not be critical, but should
-        // still be measured. This also applies to all other usages of `to_rgba8` in the current
-        // code.
         Self::Solid(PremulColor::from_alpha_color(value))
     }
 }
