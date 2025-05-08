@@ -12,7 +12,6 @@
 )]
 
 use scenes::SimpleText;
-use std::sync::Arc;
 use vello::peniko::color::palette;
 use vello::peniko::{Blob, Brush, Font};
 use vello::{Scene, kurbo::Affine, peniko::Fill};

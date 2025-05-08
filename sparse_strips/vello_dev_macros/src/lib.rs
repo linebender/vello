@@ -253,12 +253,6 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "transparent" => args.transparent = true,
                     "skip_cpu" => args.skip_cpu = true,
                     "skip_hybrid" => args.skip_hybrid = true,
-                    "macos_only" => {
-                        if !cfg!(target_os = "macos") {
-                            args.skip_cpu = true;
-                            args.skip_hybrid = true;
-                        }
-                    }
                     "no_ref" => args.no_ref = true,
                     "ignore" => {
                         args.skip_cpu = true;
