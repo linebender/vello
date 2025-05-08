@@ -598,26 +598,32 @@ impl Widened<Self> for f32 {
 }
 
 impl Widened<u8> for u16 {
+    #[inline(always)]
     fn clamp(self) -> Self {
         Ord::clamp(self, u8::ZERO as Self, u8::ONE as Self)
     }
 
+    #[inline(always)]
     fn normalize(self) -> Self {
         div_255(self)
     }
 
+    #[inline(always)]
     fn min(self, other: Self) -> Self {
         Ord::min(self, other)
     }
 
+    #[inline(always)]
     fn max(self, other: Self) -> Self {
         Ord::max(self, other)
     }
 
+    #[inline(always)]
     fn normalized_mul(self, other: Self) -> Self {
         (self * other).normalize()
     }
 
+    #[inline(always)]
     fn narrow(self) -> u8 {
         debug_assert!(
             self <= u8::MAX as Self,
