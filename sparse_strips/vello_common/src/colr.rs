@@ -144,12 +144,12 @@ impl<'a> ColrPainter<'a> {
 impl ColorPainter for ColrPainter<'_> {
     fn push_transform(&mut self, t: Transform) {
         let affine = Affine::new([
-            t.xx as f64,
-            t.yx as f64,
-            t.xy as f64,
-            t.yy as f64,
-            t.dx as f64,
-            t.dy as f64,
+            f64::from(t.xx),
+            f64::from(t.yx),
+            f64::from(t.xy),
+            f64::from(t.yy),
+            f64::from(t.dx),
+            f64::from(t.dy),
         ]);
         self.transforms.push(self.cur_transform() * affine);
     }
@@ -183,10 +183,10 @@ impl ColorPainter for ColrPainter<'_> {
 
     fn push_clip_box(&mut self, clip_box: BoundingBox<f32>) {
         let rect = Rect::new(
-            clip_box.x_min as f64,
-            clip_box.y_min as f64,
-            clip_box.x_max as f64,
-            clip_box.y_max as f64,
+            f64::from(clip_box.x_min),
+            f64::from(clip_box.y_min),
+            f64::from(clip_box.x_max),
+            f64::from(clip_box.y_max),
         );
         let transformed = self.cur_transform() * rect.to_path(0.1);
 
@@ -373,14 +373,14 @@ fn convert_extend(extend: skrifa::color::Extend) -> Extend {
 }
 
 fn convert_point(point: skrifa::raw::types::Point<f32>) -> Point {
-    Point::new(point.x as f64, point.y as f64)
+    Point::new(f64::from(point.x), f64::from(point.y))
 }
 
 pub(crate) fn convert_bounding_box(rect: BoundingBox<f32>) -> Rect {
     Rect::new(
-        rect.x_min as f64,
-        rect.y_min as f64,
-        rect.x_max as f64,
-        rect.y_max as f64,
+        f64::from(rect.x_min),
+        f64::from(rect.y_min),
+        f64::from(rect.x_max),
+        f64::from(rect.y_max),
     )
 }

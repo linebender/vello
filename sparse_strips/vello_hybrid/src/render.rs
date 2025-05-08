@@ -56,7 +56,8 @@ pub struct Renderer {
 impl Renderer {
     /// Creates a new renderer.
     pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
-        let total_slots = (device.limits().max_texture_dimension_2d / Tile::HEIGHT as u32) as usize;
+        let total_slots =
+            (device.limits().max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
 
         Self {
             programs: Programs::new(device, render_target_config, total_slots),
@@ -355,8 +356,8 @@ impl Programs {
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some("Slot Texture"),
                     size: wgpu::Extent3d {
-                        width: WideTile::WIDTH as u32,
-                        height: Tile::HEIGHT as u32 * slot_count as u32,
+                        width: u32::from(WideTile::WIDTH),
+                        height: u32::from(Tile::HEIGHT) * slot_count as u32,
                         depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
@@ -374,9 +375,9 @@ impl Programs {
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Clear Slots Config"),
             contents: bytemuck::bytes_of(&ClearSlotsConfig {
-                slot_width: WideTile::WIDTH as u32,
-                slot_height: Tile::HEIGHT as u32,
-                texture_height: Tile::HEIGHT as u32 * slot_count as u32,
+                slot_width: u32::from(WideTile::WIDTH),
+                slot_height: u32::from(Tile::HEIGHT),
+                texture_height: u32::from(Tile::HEIGHT) * slot_count as u32,
                 _padding: 0,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -397,8 +398,8 @@ impl Programs {
         let slot_config_buffer = Self::make_config_buffer(
             device,
             &RenderSize {
-                width: WideTile::WIDTH as u32,
-                height: Tile::HEIGHT as u32 * slot_count as u32,
+                width: u32::from(WideTile::WIDTH),
+                height: u32::from(Tile::HEIGHT) * slot_count as u32,
             },
             device.limits().max_texture_dimension_2d,
         );

@@ -437,7 +437,7 @@ impl Scheduler {
                     let tos = state.stack.pop().unwrap();
                     let nos = state.stack.last_mut().unwrap();
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + next_round as usize);
+                    let round = nos.round.max(tos.round + usize::from(next_round));
                     nos.round = round;
                     // free slot after draw
                     debug_assert!(round >= self.round, "round must be after current round");
@@ -452,7 +452,7 @@ impl Scheduler {
                     let tos = &state.stack[clip_depth - 1];
                     let nos = &state.stack[clip_depth - 2];
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + next_round as usize);
+                    let round = nos.round.max(tos.round + usize::from(next_round));
                     let draw = self.draw_mut(round, clip_depth - 1);
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_fill.x as u16, wide_tile_y)
@@ -472,7 +472,7 @@ impl Scheduler {
                     let tos = &state.stack[clip_depth - 1];
                     let nos = &state.stack[clip_depth - 2];
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + next_round as usize);
+                    let round = nos.round.max(tos.round + usize::from(next_round));
                     let draw = self.draw_mut(round, clip_depth - 1);
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_alpha_fill.x as u16, wide_tile_y)

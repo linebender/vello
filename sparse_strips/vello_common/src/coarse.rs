@@ -264,7 +264,7 @@ impl Wide {
             let mut x = x0;
             let clip_x = bbox.x0() * WideTile::WIDTH;
             if clip_x > x {
-                col += (clip_x - x) as u32;
+                col += u32::from(clip_x - x);
                 x = clip_x;
             }
 
@@ -625,7 +625,7 @@ impl Wide {
             let mut col = strip.alpha_idx / u32::from(Tile::HEIGHT);
             let clip_x = clip_bbox.x0() * WideTile::WIDTH;
             if clip_x > x {
-                col += (clip_x - x) as u32;
+                col += u32::from(clip_x - x);
                 x = clip_x;
             }
 
@@ -637,17 +637,17 @@ impl Wide {
                 }
 
                 // Calculate the portion of the strip that affects this tile
-                let x_rel = (x % WideTile::WIDTH) as u32;
+                let x_rel = u32::from(x % WideTile::WIDTH);
                 let width = x1.min((wtile_x + 1) * WideTile::WIDTH) - x;
 
                 // Create clip strip command for rendering the partial coverage
                 let cmd = CmdClipAlphaFill {
                     x: x_rel,
-                    width: width as u32,
+                    width: u32::from(width),
                     alpha_idx: col as usize * Tile::HEIGHT as usize,
                 };
                 x += width;
-                col += width as u32;
+                col += u32::from(width);
 
                 // Apply the clip strip command and update state
                 self.get_mut(wtile_x, cur_wtile_y).clip_strip(cmd);
@@ -675,9 +675,9 @@ impl Wide {
 
                 // If there's a gap, fill it
                 if width > 0 {
-                    let x_rel = (x1 % WideTile::WIDTH) as u32;
+                    let x_rel = u32::from(x1 % WideTile::WIDTH);
                     self.get_mut(cur_wtile_x, cur_wtile_y)
-                        .clip_fill(x_rel, width as u32);
+                        .clip_fill(x_rel, u32::from(width));
                 }
 
                 // If the next strip is a sentinel, skip the fill
@@ -711,7 +711,7 @@ impl Wide {
                         // necessary at all. See also the `push_clip` function, where we don't
                         // push a new buffer for such tiles.
                         self.get_mut(cur_wtile_x, cur_wtile_y)
-                            .clip_fill(0, width2 as u32);
+                            .clip_fill(0, u32::from(width2));
                     }
                 }
             }

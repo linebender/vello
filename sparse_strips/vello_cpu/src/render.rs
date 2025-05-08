@@ -144,7 +144,7 @@ impl RenderContext {
         // The impulse response of a gaussian filter is infinite.
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 2.5 * std_dev;
-        let inflated_rect = rect.inflate(kernel_size as f64, kernel_size as f64);
+        let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
         let transform = self.transform * self.paint_transform;
 
         let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform);
@@ -479,12 +479,22 @@ impl ColrRenderer for RenderContext {
 
     fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
         self.set_paint(color);
-        self.fill_rect(&Rect::new(0.0, 0.0, self.width as f64, self.height as f64));
+        self.fill_rect(&Rect::new(
+            0.0,
+            0.0,
+            f64::from(self.width),
+            f64::from(self.height),
+        ));
     }
 
     fn fill_gradient(&mut self, gradient: Gradient) {
         self.set_paint(gradient);
-        self.fill_rect(&Rect::new(0.0, 0.0, self.width as f64, self.height as f64));
+        self.fill_rect(&Rect::new(
+            0.0,
+            0.0,
+            f64::from(self.width),
+            f64::from(self.height),
+        ));
     }
 
     fn set_paint_transform(&mut self, affine: Affine) {

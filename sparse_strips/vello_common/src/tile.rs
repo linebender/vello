@@ -244,10 +244,10 @@ impl Tiles {
         for (line_idx, line) in lines.iter().take(MAX_LINES_PER_PATH as usize).enumerate() {
             let line_idx = line_idx as u32;
 
-            let p0_x = line.p0.x / Tile::WIDTH as f32;
-            let p0_y = line.p0.y / Tile::HEIGHT as f32;
-            let p1_x = line.p1.x / Tile::WIDTH as f32;
-            let p1_y = line.p1.y / Tile::HEIGHT as f32;
+            let p0_x = line.p0.x / f32::from(Tile::WIDTH);
+            let p0_y = line.p0.y / f32::from(Tile::HEIGHT);
+            let p1_x = line.p1.x / f32::from(Tile::WIDTH);
+            let p1_y = line.p1.y / f32::from(Tile::HEIGHT);
 
             let (line_left_x, line_right_x) = if p0_x < p1_x {
                 (p0_x, p1_x)
@@ -267,7 +267,7 @@ impl Tiles {
 
                 let x = line_left_x as u16;
                 for y_idx in y_top_tiles..y_bottom_tiles {
-                    let y = y_idx as f32;
+                    let y = f32::from(y_idx);
 
                     let tile = Tile::new(x, y_idx, line_idx, y >= line_top_y);
                     self.tile_buf.push(tile);
@@ -279,7 +279,7 @@ impl Tiles {
                 let y_bottom_tiles = (line_bottom_y.ceil() as u16).min(tile_rows);
 
                 for y_idx in y_top_tiles..y_bottom_tiles {
-                    let y = y_idx as f32;
+                    let y = f32::from(y_idx);
 
                     // The line's y-coordinates at the line's top- and bottom-most points within
                     // the tile row.

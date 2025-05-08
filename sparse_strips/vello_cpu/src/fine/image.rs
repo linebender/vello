@@ -19,7 +19,8 @@ impl<'a> ImageFiller<'a> {
     pub(crate) fn new(image: &'a EncodedImage, start_x: u16, start_y: u16) -> Self {
         Self {
             // We want to sample values of the pixels at the center, so add an offset of 0.5.
-            cur_pos: image.transform * Point::new(start_x as f64 + 0.5, start_y as f64 + 0.5),
+            cur_pos: image.transform
+                * Point::new(f64::from(start_x) + 0.5, f64::from(start_y) + 0.5),
             image,
         }
     }
@@ -59,7 +60,7 @@ impl<'a> ImageFiller<'a> {
                     // we always floor to get the target pixel.
                     (self.cur_pos.y + y_advance * idx as f64).floor() as f32,
                     self.image.extends.1,
-                    self.image.pixmap.height() as f32,
+                    f32::from(self.image.pixmap.height()),
                 );
             }
 
@@ -70,7 +71,7 @@ impl<'a> ImageFiller<'a> {
                         // As above, always floor.
                         x_pos.floor() as f32,
                         self.image.extends.0,
-                        self.image.pixmap.width() as f32,
+                        f32::from(self.image.pixmap.width()),
                     );
                     self.run_simple_column(column, extended_x_pos, &y_positions);
                     x_pos += x_advance;
@@ -106,16 +107,16 @@ impl<'a> ImageFiller<'a> {
     fn run_complex_column<F: FineType>(&mut self, col: &mut [F]) {
         let extend_point = |mut point: Point| {
             // For the same reason as mentioned above, we always floor.
-            point.x = extend(
+            point.x = f64::from(extend(
                 point.x.floor() as f32,
                 self.image.extends.0,
-                self.image.pixmap.width() as f32,
-            ) as f64;
-            point.y = extend(
+                f32::from(self.image.pixmap.width()),
+            ));
+            point.y = f64::from(extend(
                 point.y.floor() as f32,
                 self.image.extends.1,
-                self.image.pixmap.height() as f32,
-            ) as f64;
+                f32::from(self.image.pixmap.height()),
+            ));
 
             point
         };
@@ -178,7 +179,7 @@ impl<'a> ImageFiller<'a> {
                     let mut interpolated_color = [0.0_f32; 4];
 
                     let sample = |p: Point| {
-                        let c = |val: u8| val as f32 / 255.0;
+                        let c = |val: u8| f32::from(val) / 255.0;
                         let s = self.image.pixmap.sample(p.x as u16, p.y as u16);
 
                         [c(s.r), c(s.g), c(s.b), c(s.a)]

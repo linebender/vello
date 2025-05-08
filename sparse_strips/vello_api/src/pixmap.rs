@@ -96,7 +96,7 @@ impl Pixmap {
             clippy::cast_possible_truncation,
             reason = "cannot overflow in this case"
         )]
-        let multiply = |component| ((alpha as u16 * component as u16) / 255) as u8;
+        let multiply = |component| ((u16::from(alpha) * u16::from(component)) / 255) as u8;
 
         for pixel in self.data_mut() {
             *pixel = PremulRgba8 {
@@ -178,12 +178,12 @@ impl Pixmap {
         };
 
         for pixel in pixmap.data_mut() {
-            let alpha = pixel.a as u16;
+            let alpha = u16::from(pixel.a);
             #[expect(
                 clippy::cast_possible_truncation,
                 reason = "Overflow should be impossible."
             )]
-            let premultiply = |e: u8| ((e as u16 * alpha) / 255) as u8;
+            let premultiply = |e: u8| ((u16::from(e) * alpha) / 255) as u8;
             pixel.r = premultiply(pixel.r);
             pixel.g = premultiply(pixel.g);
             pixel.b = premultiply(pixel.b);
@@ -248,10 +248,10 @@ impl Pixmap {
         self.buf
             .into_iter()
             .map(|PremulRgba8 { r, g, b, a }| {
-                let alpha = 255.0 / a as f32;
+                let alpha = 255.0 / f32::from(a);
                 if a != 0 {
                     #[expect(clippy::cast_possible_truncation, reason = "deliberate quantization")]
-                    let unpremultiply = |component| (component as f32 * alpha + 0.5) as u8;
+                    let unpremultiply = |component| (f32::from(component) * alpha + 0.5) as u8;
                     Rgba8 {
                         r: unpremultiply(r),
                         g: unpremultiply(g),

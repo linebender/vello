@@ -25,7 +25,7 @@ impl<'a> BlurredRoundedRectFiller<'a> {
         start_y: u16,
     ) -> Self {
         Self {
-            cur_pos: rect.transform * Point::new(start_x as f64, start_y as f64),
+            cur_pos: rect.transform * Point::new(f64::from(start_x), f64::from(start_y)),
             rect,
         }
     }

@@ -102,8 +102,8 @@ impl<F: FineType> Fine<F> {
         match cmd {
             Cmd::Fill(f) => {
                 self.fill(
-                    f.x as usize,
-                    f.width as usize,
+                    usize::from(f.x),
+                    usize::from(f.width),
                     &f.paint,
                     f.blend_mode
                         .unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
@@ -113,8 +113,8 @@ impl<F: FineType> Fine<F> {
             Cmd::AlphaFill(s) => {
                 let a_slice = &alphas[s.alpha_idx..];
                 self.strip(
-                    s.x as usize,
-                    s.width as usize,
+                    usize::from(s.x),
+                    usize::from(s.width),
                     a_slice,
                     &s.paint,
                     s.blend_mode
@@ -600,7 +600,7 @@ impl Widened<Self> for f32 {
 impl Widened<u8> for u16 {
     #[inline(always)]
     fn clamp(self) -> Self {
-        Ord::clamp(self, u8::ZERO as Self, u8::ONE as Self)
+        Ord::clamp(self, Self::from(u8::ZERO), Self::from(u8::ONE))
     }
 
     #[inline(always)]
@@ -626,7 +626,7 @@ impl Widened<u8> for u16 {
     #[inline(always)]
     fn narrow(self) -> u8 {
         debug_assert!(
-            self <= u8::MAX as Self,
+            self <= Self::from(u8::MAX),
             "cannot narrow integers larger than u8::MAX"
         );
 
@@ -755,7 +755,7 @@ impl FineType for u8 {
 
     #[inline(always)]
     fn to_normalized_f32(self) -> f32 {
-        self as f32 / 255.0
+        f32::from(self) / 255.0
     }
 
     #[inline(always)]
@@ -770,7 +770,7 @@ impl FineType for u8 {
 
     #[inline(always)]
     fn widen(self) -> Self::Widened {
-        self as u16
+        u16::from(self)
     }
 }
 
@@ -797,12 +797,12 @@ impl FineType for f32 {
 
     #[inline(always)]
     fn from_normalized_u8(num: u8) -> Self {
-        num as Self / 255.0
+        Self::from(num) / 255.0
     }
 
     #[inline(always)]
     fn from_u8(num: u8) -> Self {
-        num as Self
+        Self::from(num)
     }
 
     #[inline(always)]

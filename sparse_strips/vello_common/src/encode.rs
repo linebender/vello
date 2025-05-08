@@ -206,8 +206,8 @@ impl EncodeExt for Gradient {
         // adding 0.5.
         // Finally, we need to apply the _inverse_ transform to the point so that we can account
         // for the transform on the gradient.
-        let transform =
-            Affine::translate((x_offset as f64 + 0.5, y_offset as f64 + 0.5)) * transform.inverse();
+        let transform = Affine::translate((f64::from(x_offset) + 0.5, f64::from(y_offset) + 0.5))
+            * transform.inverse();
 
         // One possible approach of calculating the positions would be to apply the above
         // transform to _each_ pixel that we render in the wide tile. However, a much better
