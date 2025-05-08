@@ -214,7 +214,14 @@ impl<'a> ImageFiller<'a> {
                     let mut u8_color = [0; 4];
 
                     for i in 0..COLOR_COMPONENTS {
-                        u8_color[i] = (f32_color[i] + 0.5) as u8;
+                        // Due to the nature of the cubic filter, it can happen in certain situations
+                        // that one of the color components ends up with a higher value than the
+                        // alpha component, which isn't permissible because the color is
+                        // premultiplied and would lead to overflows when doing source over
+                        // compositing with u8-based values. Because of this, we need to clamp
+                        // to the alpha value.
+                        let f32_val = f32_color[i].min(f32_color[3]);
+                        u8_color[i] = (f32_val + 0.5) as u8;
                     }
 
                     pixel.copy_from_slice(&u8_color);

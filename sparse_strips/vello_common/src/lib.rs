@@ -17,6 +17,7 @@ extern crate alloc;
 
 pub mod blurred_rounded_rect;
 pub mod coarse;
+pub mod colr;
 pub mod encode;
 pub mod flatten;
 pub mod glyph;

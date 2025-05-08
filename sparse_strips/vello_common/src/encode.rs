@@ -273,7 +273,7 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
         }
 
         // Stops must be sorted by ascending offset.
-        if f.offset >= n.offset {
+        if f.offset > n.offset {
             return first;
         }
     }
@@ -315,12 +315,6 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
             end_angle,
             ..
         } => {
-            // Angles must be between 0 and 360.
-            if *start_angle < 0.0 || *start_angle > 360.0 || *end_angle < 0.0 || *end_angle > 360.0
-            {
-                return first;
-            }
-
             // The end angle must be larger than the start angle.
             if degenerate_val(*start_angle, *end_angle) {
                 return first;
@@ -443,7 +437,7 @@ fn encode_stops(
     }
 }
 
-fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
+pub(crate) fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
     let scale_skew_transform = {
         let c = transform.as_coeffs();
         Affine::new([c[0], c[1], c[2], c[3], 0.0, 0.0])
@@ -940,35 +934,6 @@ mod tests {
             kind: GradientKind::Linear {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(0.0, 0.0),
-            },
-            stops: ColorStops(smallvec![
-                ColorStop {
-                    offset: 0.0,
-                    color: DynamicColor::from_alpha_color(GREEN),
-                },
-                ColorStop {
-                    offset: 1.0,
-                    color: DynamicColor::from_alpha_color(BLUE),
-                },
-            ]),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY),
-            GREEN.into()
-        );
-    }
-
-    #[test]
-    fn gradient_sweep_degenerate() {
-        let mut buf = vec![];
-
-        let gradient = Gradient {
-            kind: GradientKind::Sweep {
-                center: Point::new(0.0, 0.0),
-                start_angle: 0.0,
-                end_angle: 380.0,
             },
             stops: ColorStops(smallvec![
                 ColorStop {

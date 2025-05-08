@@ -4,23 +4,26 @@
 //! Basic render operations.
 
 use crate::fine::Fine;
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::coarse::Wide;
+use vello_common::color::{AlphaColor, Srgb};
+use vello_common::colr::{ColrPainter, ColrRenderer};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::flatten::Line;
-use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
+use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{Paint, PaintType};
-use vello_common::peniko::Font;
+use vello_common::paint::{Image, Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
+use vello_common::peniko::{BlendMode, Compose, Fill, Gradient, Mix};
+use vello_common::peniko::{Font, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
-use vello_common::{flatten, strip};
+use vello_common::{flatten, peniko, strip};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -344,29 +347,134 @@ impl RenderContext {
 }
 
 impl GlyphRenderer for RenderContext {
-    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
-        match glyph {
-            PreparedGlyph::Outline(glyph) => {
-                flatten::fill(glyph.path, glyph.transform, &mut self.line_buf);
+    fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
+        match prepared_glyph.glyph_type {
+            GlyphType::Outline(glyph) => {
+                flatten::fill(glyph.path, prepared_glyph.transform, &mut self.line_buf);
                 let paint = self.encode_current_paint();
                 self.render_path(Fill::NonZero, paint);
+            }
+            GlyphType::Bitmap(glyph) => {
+                // We need to change the state of the render context
+                // to render the bitmap, but don't want to pollute the context,
+                // so simulate a `save` and `restore` operation.
+                let old_transform = self.transform;
+                let old_paint = self.paint.clone();
+
+                // If we scale down by a large factor, fall back to cubic scaling.
+                let quality = if prepared_glyph.transform.as_coeffs()[0] < 0.5
+                    || prepared_glyph.transform.as_coeffs()[3] < 0.5
+                {
+                    ImageQuality::High
+                } else {
+                    ImageQuality::Medium
+                };
+
+                let image = Image {
+                    pixmap: Arc::new(glyph.pixmap),
+                    x_extend: peniko::Extend::Pad,
+                    y_extend: peniko::Extend::Pad,
+                    quality,
+                };
+
+                self.set_paint(image);
+                self.set_transform(prepared_glyph.transform);
+                self.fill_rect(&glyph.area);
+
+                // Restore the state.
+                self.set_paint(old_paint);
+                self.transform = old_transform;
+            }
+            GlyphType::Colr(glyph) => {
+                // Same as for bitmap glyphs, save the state and restore it later on.
+                let old_transform = self.transform;
+                let old_paint = self.paint.clone();
+                let context_color = match old_paint {
+                    PaintType::Solid(s) => s,
+                    _ => BLACK,
+                };
+
+                let area = glyph.area;
+
+                let glyph_pixmap = {
+                    let mut ctx = Self::new(glyph.pix_width, glyph.pix_height);
+                    let mut pix = Pixmap::new(glyph.pix_width, glyph.pix_height);
+
+                    let mut colr_painter = ColrPainter::new(glyph, context_color, &mut ctx);
+                    colr_painter.paint();
+
+                    ctx.render_to_pixmap(&mut pix);
+
+                    pix
+                };
+
+                let image = Image {
+                    pixmap: Arc::new(glyph_pixmap),
+                    x_extend: peniko::Extend::Pad,
+                    y_extend: peniko::Extend::Pad,
+                    // Since the pixmap will already have the correct size, no need to
+                    // use a different image quality here.
+                    quality: ImageQuality::Low,
+                };
+
+                self.set_paint(image);
+                self.set_transform(prepared_glyph.transform);
+                self.fill_rect(&area);
+
+                // Restore the state.
+                self.set_paint(old_paint);
+                self.transform = old_transform;
             }
         }
     }
 
-    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
-        match glyph {
-            PreparedGlyph::Outline(glyph) => {
+    fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
+        match prepared_glyph.glyph_type {
+            GlyphType::Outline(glyph) => {
                 flatten::stroke(
                     glyph.path,
                     &self.stroke,
-                    glyph.transform,
+                    prepared_glyph.transform,
                     &mut self.line_buf,
                 );
                 let paint = self.encode_current_paint();
                 self.render_path(Fill::NonZero, paint);
             }
+            GlyphType::Bitmap(_) => {
+                self.fill_glyph(prepared_glyph);
+            }
+            GlyphType::Colr(_) => {
+                self.fill_glyph(prepared_glyph);
+            }
         }
+    }
+}
+
+impl ColrRenderer for RenderContext {
+    fn push_clip_layer(&mut self, clip: &BezPath) {
+        Self::push_clip_layer(self, clip);
+    }
+
+    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
+        Self::push_blend_layer(self, blend_mode);
+    }
+
+    fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
+        self.set_paint(color);
+        self.fill_rect(&Rect::new(0.0, 0.0, self.width as f64, self.height as f64));
+    }
+
+    fn fill_gradient(&mut self, gradient: Gradient) {
+        self.set_paint(gradient);
+        self.fill_rect(&Rect::new(0.0, 0.0, self.width as f64, self.height as f64));
+    }
+
+    fn set_paint_transform(&mut self, affine: Affine) {
+        Self::set_paint_transform(self, affine);
+    }
+
+    fn pop_layer(&mut self) {
+        Self::pop_layer(self);
     }
 }
 

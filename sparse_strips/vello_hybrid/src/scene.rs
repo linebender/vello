@@ -7,7 +7,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::coarse::Wide;
 use vello_common::flatten::Line;
-use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
+use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
@@ -246,26 +246,30 @@ impl Scene {
 }
 
 impl GlyphRenderer for Scene {
-    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
-        match glyph {
-            PreparedGlyph::Outline(glyph) => {
-                flatten::fill(glyph.path, glyph.transform, &mut self.line_buf);
+    fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
+        match prepared_glyph.glyph_type {
+            GlyphType::Outline(glyph) => {
+                flatten::fill(glyph.path, prepared_glyph.transform, &mut self.line_buf);
                 self.render_path(Fill::NonZero, self.paint.clone());
             }
+            GlyphType::Bitmap(_) => {}
+            GlyphType::Colr(_) => {}
         }
     }
 
-    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
-        match glyph {
-            PreparedGlyph::Outline(glyph) => {
+    fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
+        match prepared_glyph.glyph_type {
+            GlyphType::Outline(glyph) => {
                 flatten::stroke(
                     glyph.path,
                     &self.stroke,
-                    glyph.transform,
+                    prepared_glyph.transform,
                     &mut self.line_buf,
                 );
                 self.render_path(Fill::NonZero, self.paint.clone());
             }
+            GlyphType::Bitmap(_) => {}
+            GlyphType::Colr(_) => {}
         }
     }
 }
