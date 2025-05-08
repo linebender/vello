@@ -199,14 +199,14 @@ pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
     ])
 }
 
-pub(crate) fn pixmap_to_png(mut pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> {
-    pixmap.unpremultiply();
+pub(crate) fn pixmap_to_png(pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> {
+    let img_buf = pixmap.take_unpremultiplied();
 
     let mut png_data = Vec::new();
     let cursor = Cursor::new(&mut png_data);
     let encoder = PngEncoder::new(cursor);
     encoder
-        .write_image(pixmap.data(), width, height, ExtendedColorType::Rgba8)
+        .write_image(&img_buf, width, height, ExtendedColorType::Rgba8)
         .expect("Failed to encode image");
     png_data
 }

@@ -15,8 +15,9 @@ publish = false
 workspace = true
 
 [dependencies]
-vello_common = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+vello_common = { workspace = true }
 wgpu = { workspace = true }
 
 [dev-dependencies]

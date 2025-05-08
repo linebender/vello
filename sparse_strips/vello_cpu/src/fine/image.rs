@@ -93,7 +93,7 @@ impl<'a> ImageFiller<'a> {
                 ImageQuality::Medium | ImageQuality::High => unimplemented!(),
             };
 
-            pixel.copy_from_slice(sample);
+            pixel.copy_from_slice(&sample.to_u8_array());
         }
     }
 
@@ -123,7 +123,7 @@ impl<'a> ImageFiller<'a> {
                 ImageQuality::Low => {
                     let point = extend_point(pos);
                     let sample = self.image.pixmap.sample(point.x as u16, point.y as u16);
-                    pixel.copy_from_slice(sample);
+                    pixel.copy_from_slice(&sample.to_u8_array());
                 }
                 ImageQuality::Medium | ImageQuality::High => {
                     // We have two versions of filtering: `Medium` (bilinear filtering) and
@@ -181,8 +181,10 @@ impl<'a> ImageFiller<'a> {
                                 let color_sample = sample(extend_point(pos + Vec2::new(x, y)));
                                 let w = cx[x_idx] * cy[y_idx];
 
-                                for i in 0..COLOR_COMPONENTS {
-                                    f32_color[i] += w * color_sample[i] as f32;
+                                for (component, component_sample) in
+                                    f32_color.iter_mut().zip(color_sample.to_u8_array())
+                                {
+                                    *component += w * component_sample as f32;
                                 }
                             }
                         }
@@ -200,8 +202,10 @@ impl<'a> ImageFiller<'a> {
                                 let color_sample = sample(extend_point(pos + Vec2::new(x, y)));
                                 let c = cx[x_idx] * cy[y_idx];
 
-                                for i in 0..COLOR_COMPONENTS {
-                                    f32_color[i] += c * color_sample[i] as f32;
+                                for (component, component_sample) in
+                                    f32_color.iter_mut().zip(color_sample.to_u8_array())
+                                {
+                                    *component += c * component_sample as f32;
                                 }
                             }
                         }
