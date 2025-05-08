@@ -29,12 +29,28 @@ This release has an [MSRV][] of 1.85.
 
 ### Removed
 
-- Breaking: `Renderer::render_to_surface` has been removed. ([#803][] by [@DJMcNab][])
+- Breaking: `Renderer::render_to_surface` has been removed. ([#803][] by [@DJMcNab][])  
   This API was not fit for purpose, as it assumed that you would only ever use a single window.
   The new recommended way to use Vello to render to a surface is to use `Renderer::render_to_texture` to render to an
   intermediate texture, then blit from that to the surface yourself.
   We suggest using the [`TextureBlitter`](https://docs.rs/wgpu/latest/wgpu/util/struct.TextureBlitter.html) utility from `wgpu`.
   For users of the `util` module, it has been updated to create a suitable blit pipeline and intermediate texture for each surface.
+
+```diff
++let target_view = /* cached: device.create_texture(/* size of surface*/).create_view(...) */;
+- device.render_to_surface(..., &surface_texture, ...);
++ device.render_to_texture(..., &target_view, ...);
++let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
++    label: Some("Surface Blit"),
++});
++blitter.copy(
++    &device,
++    &mut encoder,
++    &target_view,
++    &surface_texture.create_view(&wgpu::TextureViewDescriptor::default()),
++);
++queue.submit([encoder.finish()]);
+```
 
 ### Changed
 
