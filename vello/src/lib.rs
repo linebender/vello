@@ -95,7 +95,6 @@
 #![allow(missing_docs, reason = "We have many as-yet undocumented items.")]
 #![expect(
     missing_debug_implementations,
-    unreachable_pub,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
     clippy::shadow_unrelated,
@@ -104,6 +103,7 @@
 )]
 #![allow(
     clippy::todo,
+    unreachable_pub,
     unnameable_types,
     reason = "Deferred, only apply in some feature sets so not expect"
 )]
@@ -497,6 +497,18 @@ impl Renderer {
             #[cfg(feature = "wgpu-profiler")]
             &mut self.profiler,
         )?;
+        // N.B. This is horrible; this integration of wgpu-profiler really needs some work...
+        #[cfg(feature = "wgpu-profiler")]
+        {
+            self.profiler.end_frame().unwrap();
+            if let Some(result) = self
+                .profiler
+                .process_finished_frame(queue.get_timestamp_period())
+            {
+                self.profile_result = Some(result);
+            }
+        }
+
         Ok(())
     }
 

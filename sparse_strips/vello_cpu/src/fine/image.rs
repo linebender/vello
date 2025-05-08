@@ -95,7 +95,7 @@ impl<'a> ImageFiller<'a> {
                 ImageQuality::Medium | ImageQuality::High => unimplemented!(),
             };
 
-            pixel.copy_from_slice(&sample);
+            pixel.copy_from_slice(&sample.to_u8_array());
         }
     }
 
@@ -125,7 +125,7 @@ impl<'a> ImageFiller<'a> {
                 ImageQuality::Low => {
                     let point = extend_point(pos);
                     let sample =
-                        F::from_rgba8(self.image.pixmap.sample(point.x as u16, point.y as u16));
+                        F::from_rgba8(self.image.pixmap.sample(point.x as u16, point.y as u16).to_u8_array());
                     pixel.copy_from_slice(&sample);
                 }
                 ImageQuality::Medium | ImageQuality::High => {
@@ -189,8 +189,10 @@ impl<'a> ImageFiller<'a> {
                                 let color_sample = sample(extend_point(pos + Vec2::new(x, y)));
                                 let w = cx[x_idx] * cy[y_idx];
 
-                                for i in 0..COLOR_COMPONENTS {
-                                    interpolated_color[i] += w * color_sample[i];
+                                for (component, component_sample) in
+                                    interpolated_color.iter_mut().zip(color_sample.to_u8_array())
+                                {
+                                    *component += w * component_sample as f32;
                                 }
                             }
                         }
@@ -208,14 +210,29 @@ impl<'a> ImageFiller<'a> {
                                 let color_sample = sample(extend_point(pos + Vec2::new(x, y)));
                                 let c = cx[x_idx] * cy[y_idx];
 
-                                for i in 0..COLOR_COMPONENTS {
-                                    interpolated_color[i] += c * color_sample[i];
+                                for (component, component_sample) in
+                                    interpolated_color.iter_mut().zip(color_sample.to_u8_array())
+                                {
+                                    *component += c * component_sample as f32;
                                 }
                             }
                         }
                     }
 
-                    pixel.copy_from_slice(&F::from_rgbaf32(&interpolated_color));
+                    let mut u8_color = [0; 4];
+
+                    for i in 0..COLOR_COMPONENTS {
+                        // Due to the nature of the cubic filter, it can happen in certain situations
+                        // that one of the color components ends up with a higher value than the
+                        // alpha component, which isn't permissible because the color is
+                        // premultiplied and would lead to overflows when doing source over
+                        // compositing with u8-based values. Because of this, we need to clamp
+                        // to the alpha value.
+                        let f32_val = interpolated_color[i].min(interpolated_color[3]);
+                        u8_color[i] = (f32_val + 0.5) as u8;
+                    }
+
+                    pixel.copy_from_slice(&u8_color);
                 }
             };
 

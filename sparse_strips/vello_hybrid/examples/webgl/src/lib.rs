@@ -170,13 +170,6 @@ impl AppState {
             height: self.height,
         };
 
-        self.renderer_wrapper.renderer.prepare(
-            &self.renderer_wrapper.device,
-            &self.renderer_wrapper.queue,
-            &self.scene,
-            &render_size,
-        );
-
         let surface_texture = self.renderer_wrapper.surface.get_current_texture().unwrap();
         let surface_texture_view = surface_texture
             .texture
@@ -186,26 +179,18 @@ impl AppState {
             .renderer_wrapper
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &surface_texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
 
-            self.renderer_wrapper
-                .renderer
-                .render(&self.scene, &mut pass);
-        }
+        self.renderer_wrapper
+            .renderer
+            .render(
+                &self.scene,
+                &self.renderer_wrapper.device,
+                &self.renderer_wrapper.queue,
+                &mut encoder,
+                &render_size,
+                &surface_texture_view,
+            )
+            .unwrap();
 
         self.renderer_wrapper.queue.submit([encoder.finish()]);
         surface_texture.present();
@@ -504,8 +489,6 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
         width: width as u32,
         height: height as u32,
     };
-    renderer.prepare(&device, &queue, &scene, &render_size);
-
     let surface_texture = surface.get_current_texture().unwrap();
     let surface_texture_view = surface_texture
         .texture
@@ -513,23 +496,17 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
 
     let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &surface_texture_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
-        renderer.render(&scene, &mut pass);
-    }
+
+    renderer
+        .render(
+            &scene,
+            &device,
+            &queue,
+            &mut encoder,
+            &render_size,
+            &surface_texture_view,
+        )
+        .unwrap();
 
     queue.submit([encoder.finish()]);
     surface_texture.present();

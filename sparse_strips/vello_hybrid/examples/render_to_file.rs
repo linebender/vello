@@ -11,7 +11,6 @@ use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::Pixmap;
 use vello_hybrid::{DimensionConstraints, Scene};
-use wgpu::RenderPassDescriptor;
 
 /// Main entry point for the headless rendering example.
 /// Takes two command line arguments:
@@ -91,28 +90,20 @@ async fn run() {
         width: width.into(),
         height: height.into(),
     };
-    renderer.prepare(&device, &queue, &scene, &render_size);
     // Copy texture to buffer
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),
     });
-    {
-        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &texture_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
-        renderer.render(&scene, &mut pass);
-    }
+    renderer
+        .render(
+            &scene,
+            &device,
+            &queue,
+            &mut encoder,
+            &render_size,
+            &texture_view,
+        )
+        .unwrap();
 
     // Create a buffer to copy the texture data
     let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
@@ -157,20 +148,18 @@ async fn run() {
     device.poll(wgpu::Maintain::Wait);
 
     // Read back the pixel data
-    let mut img_data = Vec::with_capacity(usize::from(width) * usize::from(height) * 4);
+    let mut img_data = Vec::with_capacity(usize::from(width) * usize::from(height));
     for row in texture_copy_buffer
         .slice(..)
         .get_mapped_range()
         .chunks_exact(bytes_per_row as usize)
     {
-        img_data.extend_from_slice(&row[0..width as usize * 4]);
+        img_data.extend_from_slice(bytemuck::cast_slice(&row[0..usize::from(width) * 4]));
     }
     texture_copy_buffer.unmap();
 
-    // Create a pixmap and set the buffer
-    let mut pixmap = Pixmap::new(width, height);
-    pixmap.buf = img_data;
-    pixmap.unpremultiply();
+    // Create the pixmap from the image data
+    let pixmap = Pixmap::from_parts(img_data, width, height);
 
     // Write the pixmap to a file
     let file = std::fs::File::create(output_filename).unwrap();
@@ -178,7 +167,9 @@ async fn run() {
     let mut png_encoder = png::Encoder::new(w, width.into(), height.into());
     png_encoder.set_color(png::ColorType::Rgba);
     let mut writer = png_encoder.write_header().unwrap();
-    writer.write_image_data(&pixmap.buf).unwrap();
+    writer
+        .write_image_data(bytemuck::cast_slice(&pixmap.take_unpremultiplied()))
+        .unwrap();
 }
 
 fn render_svg(ctx: &mut Scene, items: &[Item], transform: Affine) {

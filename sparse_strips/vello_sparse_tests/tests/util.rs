@@ -79,6 +79,29 @@ pub(crate) fn circular_star(center: Point, n: usize, inner: f64, outer: f64) -> 
     path
 }
 
+pub(crate) fn layout_glyphs_roboto(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
+    const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+    let font = Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+
+    layout_glyphs(text, font_size, font)
+}
+
+pub(crate) fn layout_glyphs_noto_cbtf(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
+    const NOTO_FONT: &[u8] =
+        include_bytes!("../../../examples/assets/noto_color_emoji/NotoColorEmoji-CBTF-Subset.ttf");
+    let font = Font::new(Blob::new(Arc::new(NOTO_FONT)), 0);
+
+    layout_glyphs(text, font_size, font)
+}
+
+pub(crate) fn layout_glyphs_noto_colr(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
+    const NOTO_FONT: &[u8] =
+        include_bytes!("../../../examples/assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
+    let font = Font::new(Blob::new(Arc::new(NOTO_FONT)), 0);
+
+    layout_glyphs(text, font_size, font)
+}
+
 /// ***DO NOT USE THIS OUTSIDE OF THESE TESTS***
 ///
 /// This function is used for _TESTING PURPOSES ONLY_. If you need to layout and shape
@@ -87,10 +110,7 @@ pub(crate) fn circular_star(center: Point, n: usize, inner: f64, outer: f64) -> 
 /// We use this function as a convenience for testing; to get some glyphs shaped and laid
 /// out in a small amount of code without having to go through the trouble of setting up a
 /// full text layout pipeline, which you absolutely should do in application code.
-pub(crate) fn layout_glyphs(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
-    const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
-    let font = Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
-
+fn layout_glyphs(text: &str, font_size: f32, font: Font) -> (Font, Vec<Glyph>) {
     let font_ref = {
         let file_ref = FileRef::new(font.data.as_ref()).unwrap();
         match file_ref {
@@ -180,14 +200,19 @@ pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
     ])
 }
 
-pub(crate) fn pixmap_to_png(mut pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> {
-    pixmap.unpremultiply();
+pub(crate) fn pixmap_to_png(pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> {
+    let img_buf = pixmap.take_unpremultiplied();
 
     let mut png_data = Vec::new();
     let cursor = Cursor::new(&mut png_data);
     let encoder = PngEncoder::new(cursor);
     encoder
-        .write_image(pixmap.data(), width, height, ExtendedColorType::Rgba8)
+        .write_image(
+            bytemuck::cast_slice(&img_buf),
+            width,
+            height,
+            ExtendedColorType::Rgba8,
+        )
         .expect("Failed to encode image");
     png_data
 }

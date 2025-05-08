@@ -12,7 +12,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-peniko = { workspace = true }
+bytemuck = { workspace = true, features = [] }
+peniko = { workspace = true, features = ["bytemuck"] }
 png = { workspace = true, optional = true }
 
 [features]

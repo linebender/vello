@@ -95,7 +95,7 @@ vello = { version = "0.4.0", path = "vello" }
 vello_encoding = { version = "0.4.0", path = "vello_encoding" }
 vello_shaders = { version = "0.4.0", path = "vello_shaders" }
 bytemuck = { version = "1.23.0", features = ["derive"] }
-skrifa = "0.30.0"
+skrifa = "0.31.0"
 # The version of kurbo used below should be kept in sync
 # with the version of kurbo used by peniko.
 peniko = { version = "0.4.0", default-features = false }
@@ -117,7 +117,7 @@ vello_hybrid_scenes = { path = "sparse_strips/vello_hybrid/examples/scenes" }
 vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
-wgpu = { version = "24.0.1" }
+wgpu = { version = "24.0.3" }
 log = "0.4.27"
 image = { version = "0.25.6", default-features = false }
 
@@ -138,4 +138,4 @@ once_cell = "1.21.3"
 # Used for testing
 proc-macro2 = "1.0.95"
 syn = { version = "2.0.101", features = ["full", "extra-traits"] }
-quote = "1.0.38"
+quote = "1.0.40"

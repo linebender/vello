@@ -29,16 +29,16 @@ impl Mask {
     fn new_with(pixmap: &Pixmap, alpha_mask: bool) -> Self {
         let mut data = Vec::with_capacity(pixmap.width() as usize * pixmap.height() as usize);
 
-        for pixel in pixmap.data().chunks_exact(4) {
+        for pixel in pixmap.data() {
             if alpha_mask {
-                data.push(pixel[3]);
+                data.push(pixel.a);
             } else {
-                let mut r = pixel[0] as f32 / 255.0;
-                let mut g = pixel[1] as f32 / 255.0;
-                let mut b = pixel[2] as f32 / 255.0;
-                let a = pixel[3] as f32 / 255.0;
+                let mut r = pixel.r as f32 / 255.0;
+                let mut g = pixel.g as f32 / 255.0;
+                let mut b = pixel.b as f32 / 255.0;
+                let a = pixel.a as f32 / 255.0;
 
-                if pixel[3] != 0 {
+                if pixel.a != 0 {
                     r /= a;
                     g /= a;
                     b /= a;
@@ -53,8 +53,8 @@ impl Mask {
 
         Self {
             data: Arc::new(data),
-            width: pixmap.width,
-            height: pixmap.height,
+            width: pixmap.width(),
+            height: pixmap.height(),
         }
     }
 

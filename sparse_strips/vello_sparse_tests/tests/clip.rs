@@ -6,13 +6,37 @@
 use crate::renderer::Renderer;
 use crate::util::{circular_star, crossed_line_star};
 use std::f64::consts::PI;
-use vello_api::color::palette::css::BLACK;
-use vello_common::color::palette::css::{DARK_BLUE, DARK_GREEN, REBECCA_PURPLE};
+use vello_api::color::palette::css::{
+    BLACK, BLUE, DARK_BLUE, DARK_GREEN, GREEN, REBECCA_PURPLE, RED,
+};
+use vello_api::peniko::Color;
+use vello_common::coarse::WideTile;
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
+use vello_common::tile::Tile;
 use vello_dev_macros::vello_test;
 
-#[vello_test]
+#[vello_test(height = 8)]
+fn clip_single_wide_tile(ctx: &mut impl Renderer) {
+    const WIDTH: f64 = 100.0;
+    assert!(WIDTH <= WideTile::WIDTH as f64, "Width larger than a tile");
+    const HEIGHT: f64 = Tile::HEIGHT as f64;
+    const OFFSET: f64 = WIDTH / 3.0;
+
+    let colors = [RED, GREEN, BLUE];
+
+    for (i, color) in colors.iter().enumerate() {
+        let clip_rect = Rect::new((i as f64) * OFFSET, 0.0, WIDTH, HEIGHT);
+        ctx.push_clip_layer(&clip_rect.to_path(0.1));
+        ctx.set_paint(*color);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, WIDTH, HEIGHT));
+    }
+    for _ in colors.iter() {
+        ctx.pop_layer();
+    }
+}
+
+#[vello_test(hybrid_tolerance = 1)]
 fn clip_triangle_with_star(ctx: &mut impl Renderer) {
     let mut triangle_path = BezPath::new();
     triangle_path.move_to((10.0, 10.0));
@@ -65,6 +89,50 @@ fn clip_rectangle_with_star_evenodd(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
     ctx.pop_layer();
+}
+
+#[vello_test]
+fn clip_deeply_nested_circles(ctx: &mut impl Renderer) {
+    const INITIAL_RADIUS: f64 = 48.0;
+    const RADIUS_DECREMENT: f64 = 2.5;
+    const INNER_COUNT: usize = 10;
+    // `.ceil()` is not constant-evaluatable, so we have to do this at runtime.
+    let outer_count: usize =
+        (INITIAL_RADIUS / RADIUS_DECREMENT / INNER_COUNT as f64).ceil() as usize;
+    const COLORS: [Color; INNER_COUNT] = [
+        RED,
+        DARK_BLUE,
+        DARK_GREEN,
+        REBECCA_PURPLE,
+        BLACK,
+        BLUE,
+        GREEN,
+        RED,
+        DARK_BLUE,
+        DARK_GREEN,
+    ];
+
+    const COVER_RECT: Rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+    const CENTER: Point = Point::new(50.0, 50.0);
+    let mut radius = INITIAL_RADIUS;
+
+    for _ in 0..outer_count {
+        for color in COLORS.iter() {
+            let clip_circle = Circle::new(CENTER, radius).to_path(0.1);
+            draw_clipping_outline(ctx, &clip_circle);
+            ctx.push_clip_layer(&clip_circle);
+
+            ctx.set_paint(*color);
+            ctx.fill_rect(&COVER_RECT);
+
+            radius -= RADIUS_DECREMENT;
+        }
+    }
+    for _ in 0..outer_count {
+        for _ in COLORS.iter() {
+            ctx.pop_layer();
+        }
+    }
 }
 
 #[vello_test(cpu_u8_tolerance = 1)]
@@ -197,7 +265,7 @@ fn clip_with_multiple_transforms(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test]
+#[vello_test(hybrid_tolerance = 1)]
 fn clip_with_save_restore(ctx: &mut impl Renderer) {
     // Create first clipping region - a rectangle on the left side
     let clip_rect1 = Rect::new(10.0, 30.0, 50.0, 70.0);
@@ -242,4 +310,19 @@ fn draw_clipping_outline(ctx: &mut impl Renderer, path: &BezPath) {
     ctx.set_paint(DARK_BLUE);
     ctx.set_stroke(stroke);
     ctx.stroke_path(path);
+}
+
+// See <https://github.com/linebender/vello/issues/917>
+#[vello_test(no_ref)]
+fn clip_exceeding_viewport(ctx: &mut impl Renderer) {
+    ctx.push_clip_layer(&Rect::new(0.0, 0.0, 500.0, 10.0).to_path(0.1));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_layer();
+}
+
+// See <https://github.com/linebender/vello/pull/975#issuecomment-2858372366>
+#[vello_test(no_ref)]
+fn clip_completely_in_out_of_bounds_wide_tile(ctx: &mut impl Renderer) {
+    ctx.push_clip_layer(&Rect::new(300.0, 8.0, 350.0, 48.0).to_path(0.1));
+    ctx.pop_layer();
 }

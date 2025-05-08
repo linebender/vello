@@ -9,13 +9,19 @@
 //
 // The alpha values are stored in a texture and sampled during fragment shading.
 // This approach optimizes memory usage by only storing alpha data where needed.
+//
+// The `StripInstance`'s `rgba_or_slot` field can either encode a color or a slot index.
+// If the alpha value is non-zero, the fragment shader samples the alpha texture.
+// Otherwise, the fragment shader samples the source clip texture using the given slot index.
 
 struct Config {
-    // Width of the rendering target    
+    // Width of the rendering target
     width: u32,
     // Height of the rendering target
     height: u32,
     // Height of a strip in the rendering
+    // CAUTION: When changing this value, you must also update the fragment shader's
+    // logic to handle the new strip height.
     strip_height: u32,
     // Number of trailing zeros in alphas_tex_width (log2 of width).
     // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
@@ -29,17 +35,17 @@ struct StripInstance {
     @location(1) widths: u32,
     // Alpha texture column index where this strip's alpha values begin
     @location(2) col: u32,
-    // [r, g, b, a] packed as u8's
-    @location(3) rgba: u32,
+    // [r, g, b, a] packed as u8's or a slot index when alpha is 0
+    @location(3) rgba_or_slot: u32,
 }
 
 struct VertexOutput {
-    // Texture coordinates for the current fragment 
+    // Texture coordinates for the current fragment
     @location(0) tex_coord: vec2<f32>,
     // Ending x-position of the dense (alpha) region
     @location(1) @interpolate(flat) dense_end: u32,
-    // RGBA color value
-    @location(2) @interpolate(flat) color: u32,
+    // Color value or slot index when alpha is 0
+    @location(2) @interpolate(flat) rgba_or_slot: u32,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position) position: vec4<f32>,
 };
@@ -77,12 +83,15 @@ fn vs_main(
 
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.tex_coord = vec2<f32>(f32(instance.col) + x * f32(width), y * f32(config.strip_height));
-    out.color = instance.rgba;
+    out.rgba_or_slot = instance.rgba_or_slot;
     return out;
 }
 
 @group(0) @binding(0)
 var alphas_texture: texture_2d<u32>;
+
+@group(0) @binding(2)
+var clip_input_texture: texture_2d<f32>;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -90,8 +99,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var alpha = 1.0;
     // Determine if the current fragment is within the dense (alpha) region
     // If so, sample the alpha value from the texture; otherwise, alpha remains fully opaque (1.0)
-    // TODO: This is a branch, but we can make it branchless by using a select
-    // would it be faster to do a texture lookup for every pixel?
     if x < in.dense_end {
         let y = u32(floor(in.tex_coord.y));
         // Retrieve alpha value from the texture. We store 16 1-byte alpha
@@ -108,18 +115,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let channel_index = alphas_index % 4u;
         // Calculate texel coordinates
         let tex_x = texel_index & (alphas_tex_width - 1u);
-        let tex_y = texel_index >> config.alphas_tex_width_bits;                  
-        
+        let tex_y = texel_index >> config.alphas_tex_width_bits;
+
         // Load all 4 channels from the texture
         let rgba_values = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0);
-        
+
         // Get the column's alphas from the appropriate RGBA channel based on the index
         let alphas_u32 = unpack_alphas_from_channel(rgba_values, channel_index);
         // Extract the alpha value for the current y-position from the packed u32 data
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
-    // Apply the alpha value to the unpacked RGBA color
-    return alpha * unpack4x8unorm(in.color);
+    // Apply the alpha value to the unpacked RGBA color or slot index
+    let alpha_byte = in.rgba_or_slot >> 24u;
+    if alpha_byte != 0 {
+        // in.rgba_or_slot encodes a color
+        return alpha * unpack4x8unorm(in.rgba_or_slot);
+    } else {
+        // in.rgba_or_slot encodes a slot in the source clip texture
+        let clip_x = u32(in.position.x) & 0xFFu;
+        let clip_y = (u32(in.position.y) & 3) + in.rgba_or_slot * config.strip_height;
+        let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
+        return alpha * clip_in_color;
+    }
 }
 
 fn unpack_alphas_from_channel(rgba: vec4<u32>, channel_index: u32) -> u32 {
@@ -136,6 +153,7 @@ fn unpack_alphas_from_channel(rgba: vec4<u32>, channel_index: u32) -> u32 {
 // Polyfills `unpack4x8unorm`.
 //
 // Downlevel targets do not support native WGSL `unpack4x8unorm`.
+// TODO: Remove once we upgrade to WGPU 25.
 fn unpack4x8unorm(rgba_packed: u32) -> vec4<f32> {
     // Extract each byte and convert to float in range [0,1]
     return vec4<f32>(
