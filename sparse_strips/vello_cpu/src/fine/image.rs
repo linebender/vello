@@ -235,7 +235,9 @@ impl<'a> ImageFiller<'a> {
                         // premultiplied and would lead to overflows when doing source over
                         // compositing with u8-based values. Because of this, we need to clamp
                         // to the alpha value.
-                        let f32_val = interpolated_color[i].min(interpolated_color[3]);
+                        let f32_val = interpolated_color[i]
+                            .clamp(0.0, 1.0)
+                            .min(interpolated_color[3]);
                         interpolated_color[i] = f32_val;
                     }
 
