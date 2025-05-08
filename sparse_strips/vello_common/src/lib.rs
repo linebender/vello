@@ -22,6 +22,7 @@ pub mod encode;
 pub mod flatten;
 pub mod glyph;
 pub mod math;
+#[cfg(feature = "pico_svg")]
 pub mod pico_svg;
 pub mod strip;
 pub mod tile;
