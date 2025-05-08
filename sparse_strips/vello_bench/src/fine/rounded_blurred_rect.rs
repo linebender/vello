@@ -1,4 +1,6 @@
-use crate::fine::{fill_single, opaque_long, opaque_short, transparent_long, transparent_short};
+use crate::fine::{
+    default_blend, fill_single, opaque_long, opaque_short, transparent_long, transparent_short,
+};
 use criterion::{Bencher, Criterion};
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::coarse::WideTile;
@@ -38,5 +40,12 @@ fn base<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>, transform: Affine)
     };
 
     let paint = rect.encode_into(&mut paints, transform);
-    fill_single(&paint, &paints, WideTile::WIDTH as usize, b, fine);
+    fill_single(
+        &paint,
+        &paints,
+        WideTile::WIDTH as usize,
+        b,
+        default_blend(),
+        fine,
+    );
 }

@@ -1,4 +1,5 @@
 use crate::SEED;
+use crate::fine::default_blend;
 use criterion::{Bencher, Criterion};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
@@ -47,14 +48,7 @@ fn strip_single<F: FineType>(
     }
 
     b.iter(|| {
-        fine.strip(
-            0,
-            width,
-            &alphas,
-            paint,
-            BlendMode::new(Mix::Normal, Compose::SrcOver),
-            encoded_paints,
-        );
+        fine.strip(0, width, &alphas, paint, default_blend(), encoded_paints);
 
         std::hint::black_box(&fine);
     })

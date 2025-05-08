@@ -11,6 +11,7 @@ pub use fill::*;
 pub use gradient::*;
 pub use rounded_blurred_rect::*;
 pub use strip::*;
+use vello_common::peniko::{BlendMode, Compose, Mix};
 
 #[vello_bench]
 pub fn pack<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
@@ -20,4 +21,8 @@ pub fn pack<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
         fine.pack(&mut buf);
         std::hint::black_box(&buf);
     });
+}
+
+pub(crate) fn default_blend() -> BlendMode {
+    BlendMode::new(Mix::Normal, Compose::SrcOver)
 }
