@@ -148,13 +148,13 @@ async fn run() {
     device.poll(wgpu::Maintain::Wait);
 
     // Read back the pixel data
-    let mut img_data = Vec::with_capacity(usize::from(width) * usize::from(height) * 4);
+    let mut img_data = Vec::with_capacity(usize::from(width) * usize::from(height));
     for row in texture_copy_buffer
         .slice(..)
         .get_mapped_range()
         .chunks_exact(bytes_per_row as usize)
     {
-        img_data.extend_from_slice(&row[0..usize::from(width) * 4]);
+        img_data.extend_from_slice(bytemuck::cast_slice(&row[0..usize::from(width) * 4]));
     }
     texture_copy_buffer.unmap();
 
