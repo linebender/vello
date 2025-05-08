@@ -20,6 +20,9 @@ pub mod fine;
 mod util;
 
 pub use render::RenderContext;
+pub use vello_common::glyph::Glyph;
+pub use vello_common::mask::Mask;
+pub use vello_common::paint::{Image, Paint, PaintType};
 pub use vello_common::pixmap::Pixmap;
 
 /// The selected rendering mode.
