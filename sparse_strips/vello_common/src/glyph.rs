@@ -323,7 +323,7 @@ fn prepare_bitmap_glyph<'a>(
         Origin::TopLeft => Vec2::default(),
         Origin::BottomLeft => Vec2 {
             x: 0.,
-            y: -f64::from(pixmap.height),
+            y: -f64::from(pixmap.height()),
         },
     };
 
@@ -345,7 +345,7 @@ fn prepare_bitmap_glyph<'a>(
 
     // Scale factor already accounts for ppem, so we can just draw in the size of the
     // actual image
-    let area = Rect::new(0.0, 0.0, pixmap.width as f64, pixmap.height as f64);
+    let area = Rect::new(0.0, 0.0, pixmap.width() as f64, pixmap.height() as f64);
 
     (GlyphType::Bitmap(BitmapGlyph { pixmap, area }), transform)
 }
