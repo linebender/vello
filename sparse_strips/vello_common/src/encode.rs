@@ -461,7 +461,7 @@ impl EncodeExt for Image {
         let transform = transform.inverse();
         // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
         // non-opaque images in the first place..
-        let has_opacities = self.pixmap.data().chunks(4).any(|c| c[3] != 255);
+        let has_opacities = self.pixmap.data().iter().any(|pixel| pixel.a != 255);
 
         let (x_advance, y_advance) = x_y_advances(&transform);
 

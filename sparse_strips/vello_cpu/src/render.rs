@@ -312,7 +312,7 @@ impl RenderContext {
     pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         let width = pixmap.width();
         let height = pixmap.height();
-        self.render_to_buffer(pixmap.data_mut(), width, height);
+        self.render_to_buffer(pixmap.data_as_u8_slice_mut(), width, height);
     }
 
     /// Return the width of the pixmap.

@@ -206,7 +206,12 @@ pub(crate) fn pixmap_to_png(pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> 
     let cursor = Cursor::new(&mut png_data);
     let encoder = PngEncoder::new(cursor);
     encoder
-        .write_image(&img_buf, width, height, ExtendedColorType::Rgba8)
+        .write_image(
+            bytemuck::cast_slice(&img_buf),
+            width,
+            height,
+            ExtendedColorType::Rgba8,
+        )
         .expect("Failed to encode image");
     png_data
 }

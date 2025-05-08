@@ -333,7 +333,11 @@ impl Renderer for Scene {
             .slice(..)
             .get_mapped_range()
             .chunks_exact(bytes_per_row as usize)
-            .zip(pixmap.data_mut().chunks_exact_mut(width as usize * 4))
+            .zip(
+                pixmap
+                    .data_as_u8_slice_mut()
+                    .chunks_exact_mut(width as usize * 4),
+            )
         {
             buf.copy_from_slice(&row[0..width as usize * 4]);
         }
