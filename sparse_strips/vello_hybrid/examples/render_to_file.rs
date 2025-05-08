@@ -168,7 +168,7 @@ async fn run() {
     png_encoder.set_color(png::ColorType::Rgba);
     let mut writer = png_encoder.write_header().unwrap();
     writer
-        .write_image_data(&pixmap.take_unpremultiplied())
+        .write_image_data(bytemuck::cast_slice(&pixmap.take_unpremultiplied()))
         .unwrap();
 }
 

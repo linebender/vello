@@ -5,6 +5,7 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
+use peniko::color::Rgba8;
 
 use crate::peniko::color::PremulRgba8;
 
@@ -215,17 +216,22 @@ impl Pixmap {
     ///
     /// The pixels are in row-major order. Each pixel consists of four bytes in the order
     /// `[r, g, b, a]`.
-    pub fn take_unpremultiplied(self) -> Vec<u8> {
+    pub fn take_unpremultiplied(self) -> Vec<Rgba8> {
         self.buf
             .into_iter()
-            .flat_map(|PremulRgba8 { r, g, b, a }| {
+            .map(|PremulRgba8 { r, g, b, a }| {
                 let alpha = 255.0 / a as f32;
                 if a != 0 {
                     #[expect(clippy::cast_possible_truncation, reason = "deliberate quantization")]
                     let unpremultiply = |component| (component as f32 * alpha + 0.5) as u8;
-                    [unpremultiply(r), unpremultiply(g), unpremultiply(b), a]
+                    Rgba8 {
+                        r: unpremultiply(r),
+                        g: unpremultiply(g),
+                        b: unpremultiply(b),
+                        a,
+                    }
                 } else {
-                    [r, g, b, a]
+                    Rgba8 { r, g, b, a }
                 }
             })
             .collect()
