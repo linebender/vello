@@ -458,10 +458,9 @@ impl GlyphRenderer for RenderContext {
                 let paint = self.encode_current_paint();
                 self.render_path(Fill::NonZero, paint);
             }
-            GlyphType::Bitmap(_) => {
-                self.fill_glyph(prepared_glyph);
-            }
-            GlyphType::Colr(_) => {
+            GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
+                // The definitions of COLR and bitmap glyphs can't meaningfully support being stroked.
+                // (COLR's imaging model only has fills)
                 self.fill_glyph(prepared_glyph);
             }
         }

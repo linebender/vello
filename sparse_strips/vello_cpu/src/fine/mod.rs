@@ -551,14 +551,19 @@ pub trait Widened<T: FineType>:
     + Debug
 {
     /// Clamp the current value to the boundaries **of the underlying narrowed type**.
+    #[must_use = "method returns a new number and does not mutate the original value"]
     fn clamp(self) -> Self;
     /// Normalize the current value to the range of the underlying narrowed type.
+    #[must_use = "method returns a new number and does not mutate the original value"]
     fn normalize(self) -> Self;
     /// Get the minimum between this number and another number.
+    #[must_use = "this returns the result of the comparison, without modifying either input"]
     fn min(self, other: Self) -> Self;
     /// Get the maximum between this number and another number.
+    #[must_use = "this returns the result of the comparison, without modifying either input"]
     fn max(self, other: Self) -> Self;
     /// Perform a normalizing multiplication between this number and another number.
+    #[must_use = "this returns the result of the multiplication, without modifying either input"]
     fn normalized_mul(self, other: Self) -> Self;
     /// Cast the current type to its narrowed representation.
     fn narrow(self) -> T;
@@ -655,8 +660,10 @@ pub trait FineType:
     const ONE: Self;
 
     /// Return the minimum number.
+    #[must_use = "this returns the result of the comparison, without modifying either input"]
     fn min(self, other: Self) -> Self;
     /// Return the maximum number.
+    #[must_use = "this returns the result of the comparison, without modifying either input"]
     fn max(self, other: Self) -> Self;
     /// Extract the underlying color from a premultiplied color.
     fn extract_color(color: &PremulColor) -> [Self; COLOR_COMPONENTS];
@@ -675,6 +682,7 @@ pub trait FineType:
 
     /// Perform a normalized multiplication between this number and another
     #[inline(always)]
+    #[must_use = "this returns the result of the multiplication, without modifying either input"]
     fn normalized_mul(self, other: Self) -> Self {
         (self.widen() * other.widen()).normalize().narrow()
     }
@@ -717,6 +725,7 @@ pub trait FineType:
     }
     /// Calculate "one minus" this number, i.e., `Self::ONE - self`.
     #[inline(always)]
+    #[must_use = "method returns a new number and does not mutate the original value"]
     fn one_minus(self) -> Self {
         Self::ONE - self
     }
