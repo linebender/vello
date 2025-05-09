@@ -1,6 +1,7 @@
 # Vello Sparse Strips
 
 We are developing a new implementation for Vello that aims to:
+
 - Be compatible with a wider range of devices (should be able to run on GPUs without compute shader support, using only fragment and vertex shaders).
 - Mitigate some performance cliffs.
 - Handle a wider range of memory conditions (e.g., when less memory is available).
@@ -16,6 +17,7 @@ It leverages **efficient tiling, sorting, and sparse strip allocation** to optim
 This directory contains the core crates for the Vello rendering. Each crate serves a distinct role in the architecture, allowing modular development and easier maintenance.
 
 ### Crates
+
 - **`vello_api`** – Defines the public API types shared across implementations.
 - **`vello_common`** – Provides shared data structures and utilities for rendering.
 - **`vello_cpu`** – Implements a CPU-based renderer optimized for multithreading and SIMD.
@@ -43,5 +45,3 @@ Licensed under either of
 at your option.
 
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[Vello]: https://github.com/linebender/vello
-[the changelog]: https://github.com/linebender/vello/tree/main/CHANGELOG.md
