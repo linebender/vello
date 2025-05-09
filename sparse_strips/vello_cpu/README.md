@@ -4,10 +4,13 @@
 
 **CPU-based renderer**
 
+[![Latest published version.](https://img.shields.io/crates/v/vello_cpu.svg)](https://crates.io/crates/vello_cpu)
+[![Documentation build status.](https://img.shields.io/docsrs/vello_cpu.svg)](https://docs.rs/vello_cpu)
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
 \
 [![Linebender Zulip chat.](https://img.shields.io/badge/Linebender-%23vello-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/channel/197075-vello)
 [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/linebender/vello/ci.yml?logo=github&label=CI)](https://github.com/linebender/vello/actions)
+[![Dependency staleness status.](https://deps.rs/crate/vello_cpu/latest/status.svg)](https://deps.rs/crate/vello_cpu)
 
 </div>
 
@@ -78,5 +81,3 @@ Licensed under either of
 at your option.
 
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[Vello]: https://github.com/linebender/vello
-[the changelog]: https://github.com/linebender/vello/tree/main/CHANGELOG.md
