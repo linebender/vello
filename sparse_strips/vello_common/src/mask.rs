@@ -5,12 +5,11 @@
 
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 
 /// A mask.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mask {
-    data: Arc<Vec<u8>>,
+    data: Arc<[u8]>,
     width: u16,
     height: u16,
 }
@@ -27,11 +26,9 @@ impl Mask {
     }
 
     fn new_with(pixmap: &Pixmap, alpha_mask: bool) -> Self {
-        let mut data = Vec::with_capacity(pixmap.width() as usize * pixmap.height() as usize);
-
-        for pixel in pixmap.data() {
+        let data = Arc::from_iter(pixmap.data().iter().map(|pixel| {
             if alpha_mask {
-                data.push(pixel.a);
+                pixel.a
             } else {
                 let r = f32::from(pixel.r) / 255.;
                 let g = f32::from(pixel.g) / 255.;
@@ -44,12 +41,14 @@ impl Mask {
                 // Note r, g and b are premultiplied by alpha.
                 let luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
                 #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow")]
-                data.push((luma * 255.0 + 0.5) as u8);
+                {
+                    (luma * 255.0 + 0.5) as u8
+                }
             }
-        }
+        }));
 
         Self {
-            data: Arc::new(data),
+            data,
             width: pixmap.width(),
             height: pixmap.height(),
         }
