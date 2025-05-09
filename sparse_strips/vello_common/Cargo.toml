@@ -12,16 +12,26 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-vello_api = { workspace = true, default-features = true }
 bytemuck = { workspace = true, features = [] }
+peniko = { workspace = true, features = ["bytemuck"] }
+png = { workspace = true, optional = true }
+roxmltree = { version = "0.20.0", optional = true }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
-roxmltree = { version = "0.20.0", optional = true }
+
 
 [features]
-simd = ["vello_api/simd"]
-png = ["vello_api/png"]
+default = ["std", "png"]
+# Enable using SIMD instructions for rendering
+simd = []
+# Enable a simple version of SVG drawing. This is likely to be removed.
 pico_svg = ["dep:roxmltree"]
+# Get floating point functions from the standard library (likely using your target’s libc).
+std = ["peniko/std"]
+# Use floating point implementations from libm.v
+libm = ["peniko/libm"]
+# Allow loading and saving Pixmap to PNG. 
+png = ["std", "dep:png"]
 
 [lints]
 workspace = true

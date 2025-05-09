@@ -3,11 +3,10 @@
 
 //! Rendering strips.
 
-use alloc::vec::Vec;
-use vello_api::peniko::Fill;
-
 use crate::flatten::Line;
+use crate::peniko::Fill;
 use crate::tile::{Tile, Tiles};
+use alloc::vec::Vec;
 
 /// A strip.
 #[derive(Debug, Clone, Copy)]

@@ -11,15 +11,14 @@
 
 extern crate std;
 
+use crate::color::{AlphaColor, DynamicColor, Srgb, palette};
+use crate::kurbo::{Affine, BezPath, Point, Size, Vec2};
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::str::FromStr;
-use std::eprintln;
-
 use roxmltree::{Document, Node};
-use vello_api::kurbo::{Affine, BezPath, Point, Size, Vec2};
-use vello_api::peniko::color::{AlphaColor, DynamicColor, Srgb, palette};
+use std::eprintln;
 
 /// A simplified representation of an SVG document
 #[derive(Debug)]
@@ -293,7 +292,7 @@ fn parse_transform(transform: &str) -> Affine {
 
 fn parse_color(color: &str) -> AlphaColor<Srgb> {
     let color = color.trim();
-    vello_api::peniko::color::parse_color(color.trim())
+    crate::color::parse_color(color.trim())
         .map(DynamicColor::to_alpha_color)
         .unwrap_or(palette::css::FUCHSIA.with_alpha(0.5))
 }
@@ -319,7 +318,7 @@ fn modify_opacity(
 #[cfg(test)]
 mod tests {
     use super::parse_color;
-    use vello_api::peniko::color::{AlphaColor, Srgb, palette};
+    use crate::color::{AlphaColor, Srgb, palette};
 
     fn assert_close_color(c1: AlphaColor<Srgb>, c2: AlphaColor<Srgb>) {
         const EPSILON: f32 = 1e-4;

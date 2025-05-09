@@ -9,11 +9,10 @@ use crate::util::layout_glyphs_apple_color_emoji;
 use crate::util::{layout_glyphs_noto_cbtf, layout_glyphs_noto_colr, layout_glyphs_roboto};
 use std::iter;
 use std::sync::Arc;
-use vello_api::color::palette::css::{BLACK, BLUE, GREEN};
-use vello_api::glyph::Glyph;
-use vello_api::peniko::{Blob, Font};
-use vello_common::color::palette::css::REBECCA_PURPLE;
+use vello_common::color::palette::css::{BLACK, BLUE, GREEN, REBECCA_PURPLE};
+use vello_common::glyph::Glyph;
 use vello_common::kurbo::Affine;
+use vello_common::peniko::{Blob, Font};
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 300, height = 70)]

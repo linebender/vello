@@ -3180,10 +3180,11 @@ name = "vello_common"
 version = "0.5.0"
 dependencies = [
  "bytemuck",
+ "peniko",
+ "png",
  "roxmltree",
  "skrifa",
  "smallvec",
- "vello_api",
 ]
 
 [[package]]
