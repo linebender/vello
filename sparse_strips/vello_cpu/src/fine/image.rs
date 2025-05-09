@@ -7,6 +7,28 @@ use vello_common::kurbo::{Point, Vec2};
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::tile::Tile;
 
+#[cfg(not(feature = "std"))]
+use vello_common::kurbo::common::FloatFuncs as _;
+
+#[cfg(feature = "std")]
+fn fract(val: f64) -> f64 {
+    val.fract()
+}
+
+#[cfg(not(feature = "std"))]
+fn fract(val: f64) -> f64 {
+    #[cfg(feature = "libm")]
+    return val - libm::trunc(val);
+    #[cfg(not(feature = "libm"))]
+    compile_error!("vello_common requires either the `std` or `libm` feature");
+}
+
+// Inlined version of f32::rem_euclid, to allow using abs.
+fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
+    let r = lhs % rhs;
+    if r < 0.0 { r + rhs.abs() } else { r }
+}
+
 #[derive(Debug)]
 pub(crate) struct ImageFiller<'a> {
     /// The current position that should be processed.
@@ -168,7 +190,7 @@ impl<'a> ImageFiller<'a> {
                         // contribution). Thus, we need to subtract 0.5 from the position to get
                         // the correct fractional contribution.
                         let start = orig_val - 0.5;
-                        let mut res = start.fract() as f32;
+                        let mut res = fract(start) as f32;
 
                         // In case we are in the negative we need to mirror the result.
                         if res.is_sign_negative() {
@@ -260,11 +282,11 @@ fn extend(val: f32, extend: Extend, max: f32) -> f32 {
     match extend {
         Extend::Pad => val.clamp(0.0, max - 1.0),
         // TODO: We need to make repeat and reflect more efficient and branch-less.
-        Extend::Repeat => val.rem_euclid(max),
+        Extend::Repeat => rem_euclid(val, max),
         Extend::Reflect => {
             let period = 2.0 * max;
 
-            let val_mod = val.rem_euclid(period);
+            let val_mod = rem_euclid(val, period);
 
             if val_mod < max {
                 val_mod

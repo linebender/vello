@@ -95,7 +95,7 @@ vello = { version = "0.5.0", path = "vello" }
 vello_encoding = { version = "0.5.0", path = "vello_encoding" }
 vello_shaders = { version = "0.5.0", path = "vello_shaders" }
 bytemuck = { version = "1.23.0", features = ["derive"] }
-skrifa = "0.31.0"
+skrifa = { version = "0.31.0", default-features = false, features = ["autohint_shaping"] }
 # The version of kurbo used below should be kept in sync
 # with the version of kurbo used by peniko.
 peniko = { version = "0.4.0", default-features = false }
@@ -110,7 +110,7 @@ png = "0.17.16"
 
 # The below crates are experimental!
 vello_api = { path = "sparse_strips/vello_api", default-features = false }
-vello_common = { path = "sparse_strips/vello_common" }
+vello_common = { path = "sparse_strips/vello_common", default-features = false }
 vello_cpu = { path = "sparse_strips/vello_cpu" }
 vello_hybrid = { path = "sparse_strips/vello_hybrid" }
 vello_hybrid_scenes = { path = "sparse_strips/vello_hybrid/examples/scenes" }

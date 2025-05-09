@@ -10,6 +10,9 @@ use vello_common::encode::EncodedBlurredRoundedRectangle;
 use vello_common::kurbo::Point;
 use vello_common::math::compute_erf7;
 
+#[cfg(not(feature = "std"))]
+use vello_common::kurbo::common::FloatFuncs as _;
+
 #[derive(Debug)]
 pub(crate) struct BlurredRoundedRectFiller<'a> {
     /// The current position that should be processed.

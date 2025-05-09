@@ -2323,6 +2323,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ce8e2ca6b24313587a03ca61bb74c384e2a815bd90cf2866cfc9f5fb7a11fa0"
 dependencies = [
  "bytemuck",
+ "core_maths",
  "font-types",
 ]
 
@@ -2652,6 +2653,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbe6666ab11018ab91ff7b03f1a3b9fdbecfb610848436fefa5ce50343d3d913"
 dependencies = [
  "bytemuck",
+ "core_maths",
  "read-fonts",
 ]
 
@@ -3180,6 +3182,7 @@ name = "vello_common"
 version = "0.5.0"
 dependencies = [
  "bytemuck",
+ "libm",
  "peniko",
  "png",
  "roxmltree",
@@ -3191,6 +3194,7 @@ dependencies = [
 name = "vello_cpu"
 version = "0.5.0"
 dependencies = [
+ "libm",
  "vello_common",
 ]
 

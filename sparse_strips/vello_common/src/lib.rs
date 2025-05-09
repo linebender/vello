@@ -34,8 +34,6 @@
 //! This crate acts as a foundation for `vello_cpu` and `vello_hybrid`, providing essential components to minimize duplication.
 //!
 //! [vello_cpu]: https://crates.io/crates/vello_cpu
-// If we ever use libm ourselves, it would be better to intra-doc-link to it here instead.
-//! [libm]: https://crates.io/crates/libm
 
 // LINEBENDER LINT SET - lib.rs - v3
 // See https://linebender.org/wiki/canonical-lints/
@@ -54,6 +52,10 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 #![no_std]
+
+// Suppress the unused_crate_dependencies lint when both std and libm are specified.
+#[cfg(all(feature = "std", feature = "libm"))]
+use libm as _;
 
 extern crate alloc;
 

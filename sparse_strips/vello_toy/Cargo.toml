@@ -12,7 +12,8 @@ publish = false
 [dependencies]
 svg = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-vello_common = { workspace = true }
+# TODO: Should vello_toy be `no_std`?
+vello_common = { workspace = true, features = ["std"] }
 
 [[bin]]
 name = "debug"

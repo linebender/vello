@@ -55,8 +55,13 @@
 //!
 //! ## Features
 //!
+//! - `std` (enabled by default): Get floating point functions from the standard library
+//!   (likely using your target's libc).
+//! - `libm`: Use floating point implementations from [libm].
 //! - `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images.
 //!   Also required for rendering glyphs with an embedded PNG.
+//!
+//! At least one of `std` and `libm` is required; `std` overrides `libm`.
 //!
 //! ## Caveats
 //!
@@ -95,8 +100,13 @@
     clippy::cast_possible_truncation,
     reason = "We cast u16s to u8 in various places where we know for sure that it's < 256"
 )]
+#![no_std]
 
 extern crate alloc;
+
+// Suppress the unused_crate_dependencies lint when both std and libm are specified.
+#[cfg(all(feature = "std", feature = "libm"))]
+use libm as _;
 
 mod render;
 
