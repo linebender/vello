@@ -14,6 +14,19 @@
 //!
 //! ## Features
 //!
+//! - `std` (enabled by default): Get floating point functions from the standard library
+//!   (likely using your target's libc).
+//! - `libm`: Use floating point implementations from [libm].
+//! - `png` (enabled by default): Allow loading [`Pixmap`][crate::pixmap::Pixmap]s from PNG images.
+//!   Also required for rendering glyphs with an embedded PNG.
+//!   Implies `std`.
+//! - `simd`: Allows requesting SIMD execution modes.
+//!   Note that SIMD is not yet implemented.
+//!
+//! At least one of `std` and `libm` is required; `std` overrides `libm`.
+//!
+//! ## Contents
+//!
 //! - Shared data structures for paths, tiles, and strips
 //! - Geometry processing utilities
 //! - Common logic for rendering stages
@@ -21,6 +34,8 @@
 //! This crate acts as a foundation for `vello_cpu` and `vello_hybrid`, providing essential components to minimize duplication.
 //!
 //! [vello_cpu]: https://crates.io/crates/vello_cpu
+// If we ever use libm ourselves, it would be better to intra-doc-link to it here instead.
+//! [libm]: https://crates.io/crates/libm
 
 // LINEBENDER LINT SET - lib.rs - v3
 // See https://linebender.org/wiki/canonical-lints/

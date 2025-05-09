@@ -28,6 +28,7 @@ See https://linebender.org/blog/doc-include/ for related discussion. -->
 [RenderContext::stroke_path]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.stroke_path
 [RenderContext::glyph_run]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.glyph_run
 [`RenderContext::render_to_pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.render_to_pixmap
+[`Pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.Pixmap.html
 
 <!-- cargo-rdme start -->
 
@@ -82,6 +83,11 @@ for pixel in target.data() {
 }
 assert_eq!(&result, expected_render);
 ```
+
+## Features
+
+- `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images.
+  Also required for rendering glyphs with an embedded PNG.
 
 ## Caveats
 
