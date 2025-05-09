@@ -100,6 +100,20 @@ jobs:
 
       - name: check copyright headers
         run: bash .github/copyright.sh
+      
+      - name: Install cargo-rdme
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-rdme
+
+      - name: Run cargo rdme (vello_cpu)
+        run: cargo rdme --check --heading-base-level=0 --workspace-project=vello_cpu
+
+      - name: Run cargo rdme (vello_common)
+        run: cargo rdme --check --heading-base-level=0 --workspace-project=vello_common
+    
+      - name: Run cargo rdme (vello_api)
+        run: cargo rdme --check --heading-base-level=0 --workspace-project=vello_api
 
   clippy-stable:
     name: cargo clippy
