@@ -46,6 +46,7 @@ pub struct Scene {
     pub(crate) tiles: Tiles,
     pub(crate) strip_buf: Vec<Strip>,
     pub(crate) paint: Paint,
+    paint_visible: bool,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
@@ -65,6 +66,7 @@ impl Scene {
             tiles: Tiles::new(),
             strip_buf: vec![],
             paint: render_state.paint,
+            paint_visible: true,
             stroke: render_state.stroke,
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
@@ -96,12 +98,18 @@ impl Scene {
 
     /// Fill a path with the current paint and fill rule.
     pub fn fill_path(&mut self, path: &BezPath) {
+        if !self.paint_visible {
+            return;
+        }
         flatten::fill(path, self.transform, &mut self.line_buf);
         self.render_path(self.fill_rule, self.paint.clone());
     }
 
     /// Stroke a path with the current paint and stroke settings.
     pub fn stroke_path(&mut self, path: &BezPath) {
+        if !self.paint_visible {
+            return;
+        }
         flatten::stroke(path, &self.stroke, self.transform, &mut self.line_buf);
         self.render_path(Fill::NonZero, self.paint.clone());
     }
@@ -180,6 +188,10 @@ impl Scene {
 
     /// Set the paint for subsequent rendering operations.
     pub fn set_paint(&mut self, paint: Paint) {
+        self.paint_visible = match &paint {
+            Paint::Solid(color) => !color.is_transparent(),
+            Paint::Indexed(_) => true,
+        };
         self.paint = paint;
     }
 
