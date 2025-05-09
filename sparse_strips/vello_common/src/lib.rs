@@ -52,6 +52,7 @@ pub mod glyph;
 pub mod mask;
 pub mod math;
 pub mod paint;
+#[doc(hidden)]
 #[cfg(feature = "pico_svg")]
 pub mod pico_svg;
 pub mod pixmap;
