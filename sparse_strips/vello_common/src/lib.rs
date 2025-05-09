@@ -36,12 +36,18 @@ pub mod blurred_rounded_rect;
 pub mod coarse;
 pub mod colr;
 pub mod encode;
+pub mod execute;
 pub mod flatten;
 pub mod glyph;
+pub mod mask;
 pub mod math;
+pub mod paint;
 #[cfg(feature = "pico_svg")]
 pub mod pico_svg;
+pub mod pixmap;
 pub mod strip;
 pub mod tile;
 
-pub use vello_api::*;
+pub use peniko;
+pub use peniko::color;
+pub use peniko::kurbo;

@@ -12,16 +12,21 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-vello_api = { workspace = true, default-features = true }
 bytemuck = { workspace = true, features = [] }
+peniko = { workspace = true, features = ["bytemuck"] }
+png = { workspace = true, optional = true }
+roxmltree = { version = "0.20.0", optional = true }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
-roxmltree = { version = "0.20.0", optional = true }
+
 
 [features]
+default = ["std", "png"]
 simd = ["vello_api/simd"]
-png = ["vello_api/png"]
 pico_svg = ["dep:roxmltree"]
+std = ["peniko/std"]
+libm = ["peniko/libm"]
+png = ["std", "dep:png"]
 
 [lints]
 workspace = true
