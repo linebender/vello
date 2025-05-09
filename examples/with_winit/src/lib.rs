@@ -35,7 +35,7 @@ use web_time::Duration;
 
 use clap::Parser;
 use scenes::{ExampleScene, ImageCache, SceneParams, SceneSet, SimpleText};
-use vello::kurbo::{Affine, Vec2};
+use vello::kurbo::{Affine, Point, Vec2};
 use vello::peniko::{Color, color::palette};
 use vello::util::{RenderContext, RenderSurface};
 use vello::{AaConfig, Renderer, RendererOptions, Scene, low_level::BumpAllocators};
@@ -162,7 +162,7 @@ struct VelloApp<'s> {
     navigation_fingers: HashSet<u64>,
     transform: Affine,
     mouse_down: bool,
-    prior_position: Option<Vec2>,
+    prior_position: Option<Point>,
     // We allow looping left and right through the scenes, so use a signed index
     scene_ix: i32,
     complexity: usize,
@@ -303,10 +303,8 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                                     if let Some(prior_position) = self.prior_position {
                                         let is_clockwise = char == "e";
                                         let angle = if is_clockwise { -0.05 } else { 0.05 };
-                                        self.transform = Affine::translate(prior_position)
-                                            * Affine::rotate(angle)
-                                            * Affine::translate(-prior_position)
-                                            * self.transform;
+                                        self.transform =
+                                            self.transform.then_rotate_about(angle, prior_position);
                                     }
                                 }
                                 "s" => {
@@ -450,10 +448,9 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                     } else {
                         0.0
                     };
-                    self.transform = Affine::translate(prior_position)
-                        * Affine::scale(BASE.powf(exponent))
-                        * Affine::translate(-prior_position)
-                        * self.transform;
+                    self.transform = self
+                        .transform
+                        .then_scale_about(BASE.powf(exponent), prior_position);
                 } else {
                     log::warn!("Scrolling without mouse in window; this shouldn't be possible");
                 }
@@ -462,10 +459,13 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 self.prior_position = None;
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let position = Vec2::new(position.x, position.y);
+                let position = Point {
+                    x: position.x,
+                    y: position.y,
+                };
                 if self.mouse_down {
                     if let Some(prior) = self.prior_position {
-                        self.transform = Affine::translate(position - prior) * self.transform;
+                        self.transform = self.transform.then_translate(position - prior);
                     }
                 }
                 self.prior_position = Some(position);
@@ -526,8 +526,8 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 if let Some(resolution) = scene_params.resolution {
                     // Automatically scale the rendering to fill as much of the window as possible
                     // TODO: Apply svg view_box, somehow
-                    let factor = Vec2::new(width as f64, height as f64);
-                    let scale_factor = (factor.x / resolution.x).min(factor.y / resolution.y);
+                    let scale_factor =
+                        (width as f64 / resolution.x).min(height as f64 / resolution.y);
                     transform *= Affine::scale(scale_factor);
                 }
                 self.scene.append(&self.fragment, Some(transform));
