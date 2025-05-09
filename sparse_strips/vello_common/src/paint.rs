@@ -74,6 +74,8 @@ impl Image {
     ///
     /// This panics if `image` has a `width` or `height` greater than `u16::MAX`.
     pub fn from_peniko_image(image: &peniko::Image) -> Self {
+        // TODO: how do we deal with `peniko::ImageFormat` growing? See also
+        // <https://github.com/linebender/vello/pull/996#discussion_r2080510863>.
         if image.format != peniko::ImageFormat::Rgba8 {
             unimplemented!("Unsupported image format: {:?}", image.format);
         }
