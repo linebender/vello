@@ -83,7 +83,7 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// pub fn transparent_short<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
 ///     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE.with_alpha(0.3)));
 ///     let width = 32;
-/// 
+///
 ///     fill_single(&paint, &[], width, b, default_blend(), fine);
 /// }
 /// ```

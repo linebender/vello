@@ -1,6 +1,4 @@
-use crate::fine::{
-    default_blend, fill_single,
-};
+use crate::fine::{default_blend, fill_single};
 use criterion::{Bencher, Criterion};
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::coarse::WideTile;
