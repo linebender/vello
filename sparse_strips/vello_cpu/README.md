@@ -11,15 +11,34 @@
 
 </div>
 
-This crate implements the CPU-based renderer for Vello. It is optimized for running on lower-end GPUs or CPU-only environments, leveraging parallelism and SIMD acceleration where possible.
+<!-- We use cargo-rdme to update the README with the contents of lib.rs.
+To edit the following section, update it in lib.rs, then run:
+cargo rdme --workspace-project=vello_cpu --heading-base-level=0
+Full documentation at https://github.com/orium/cargo-rdme -->
+
+<!-- Intra-doc links used in lib.rs should be evaluated here.
+See https://linebender.org/blog/doc-include/ for related discussion. -->
+
+<!-- cargo-rdme start -->
+
+This crate implements the CPU-based renderer for Vello.
+It is optimized for running on lower-end GPUs or CPU-only environments, leveraging parallelism and SIMD acceleration where possible.
+
+This crate implements a CPU-based renderer, optimized for SIMD and multithreaded execution.
+It is optimized for CPU-bound workloads and serves as a standalone renderer for systems
+without GPU acceleration.
 
 ## Features
+
 - Fully CPU-based path rendering pipeline
 - SIMD and multithreading optimizations
 - Fine rasterization and antialiasing techniques
 
 ## Usage
+
 This crate serves as a standalone renderer or as a fallback when GPU resources are constrained.
+
+<!-- cargo-rdme end -->
 
 ## Minimum supported Rust Version (MSRV)
 
