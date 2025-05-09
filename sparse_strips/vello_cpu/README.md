@@ -36,14 +36,14 @@ Vello CPU is a 2D graphics rendering engine written in Rust, for devices with no
 It is currently available as an alpha.
 See the [Caveats](#caveats) section for things you need to be aware of.
 
-We also develop [Vello](crates.io/crates/vello), which makes use of the GPU for 2d rendering and has higher performance than Vello CPU..
+We also develop [Vello](https://crates.io/crates/vello), which makes use of the GPU for 2D rendering and has higher performance than Vello CPU.
 Vello CPU is being developed as part of work to address shortcomings in Vello.
 
 ## Usage
 
 To use Vello CPU, you need to:
 
-- Create a [`RenderContext`][], a 2d drawing context for a fixed-size target area.
+- Create a [`RenderContext`][], a 2D drawing context for a fixed-size target area.
 - For each object in your scene:
   - Set how the object will be painted, using [`set_paint`][RenderContext::set_paint].
   - Set the shape to be drawn for that object, using methods like [`fill_path`][RenderContext::fill_path],
@@ -97,10 +97,10 @@ We have known plans to change the API around how image resources are used.
 
 We have not yet put any work into documentation.
 
-### Optimisation
+### Performance
 
-We have several important optimisation planned, including use of multithreading and SIMD.
-These are not yet implemented, so performance is not representative of the potential performance.
+We do not perform several important optimisations, such as the use of multithreading and SIMD.
+Additionally, some algorithms we use aren't final, and will be replaced with higher-performance variants.
 
 ## Implementation
 

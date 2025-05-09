@@ -24,14 +24,14 @@ See https://linebender.org/blog/doc-include/ for related discussion. -->
 
 <!-- cargo-rdme start -->
 
-This crate defines the public API types used by both Vello CPU and Vello Hybrid
+This crate defines the public API types used by both Vello CPU and Vello Hybrid.
 
 ## Usage
 
 This crate should not be used on its own, and you should instead use one of the renderers which use it.
 At the moment, only [Vello CPU](crates.io/crates/vello_cpu) is published, and you probably want to use that.
 
-We also develop [Vello](crates.io/crates/vello), which makes use of the GPU for 2d rendering and has higher performance than Vello CPU.
+We also develop [Vello](crates.io/crates/vello), which makes use of the GPU for 2D rendering and has higher performance than Vello CPU.
 Vello CPU is being developed as part of work to address shortcomings in Vello.
 Vello does not use this crate.
 
@@ -41,7 +41,7 @@ Vello does not use this crate.
 
 ## Usage
 
-This crate is intended to be used by other Vello components
+This crate is intended to be used by other Vello components.
 
 <!-- cargo-rdme end -->
 

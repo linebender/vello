@@ -24,14 +24,14 @@ See https://linebender.org/blog/doc-include/ for related discussion. -->
 
 <!-- cargo-rdme start -->
 
-This crate includes common geometry representations, tiling logic, and other fundamental components used by both Vello CPU and Vello Hybrid.
+This crate includes common geometry representations, tiling logic, and other fundamental components used by both [Vello CPU][vello_cpu] and Vello Hybrid.
 
 ## Usage
 
 This crate should not be used on its own, and you should instead use one of the renderers which use it.
-At the moment, only [Vello CPU](crates.io/crates/vello_cpu) is published, and you probably want to use that.
+At the moment, only [Vello CPU][vello_cpu] is published, and you probably want to use that.
 
-We also develop [Vello](crates.io/crates/vello), which makes use of the GPU for 2d rendering and has higher performance than Vello CPU.
+We also develop [Vello](https://crates.io/crates/vello), which makes use of the GPU for 2D rendering and has higher performance than Vello CPU.
 Vello CPU is being developed as part of work to address shortcomings in Vello.
 Vello does not use this crate.
 
@@ -42,6 +42,8 @@ Vello does not use this crate.
 - Common logic for rendering stages
 
 This crate acts as a foundation for `vello_cpu` and `vello_hybrid`, providing essential components to minimize duplication.
+
+[vello_cpu]: https://crates.io/crates/vello_cpu
 
 <!-- cargo-rdme end -->
 
