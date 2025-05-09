@@ -12,6 +12,12 @@ repository.workspace = true
 # Prevent accidental publishing until the initial release
 publish = false
 
+[package.metadata.docs.rs]
+all-features = true
+# There are no platform specific docs.
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
+
 [dependencies]
 vello_common = { workspace = true }
 

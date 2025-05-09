@@ -11,6 +11,12 @@ repository.workspace = true
 # Prevent accidental publishing until the initial release
 publish = false
 
+[package.metadata.docs.rs]
+all-features = true
+# There are no platform specific docs.
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
+
 [dependencies]
 bytemuck = { workspace = true, features = [] }
 peniko = { workspace = true, features = ["bytemuck"] }
@@ -24,14 +30,19 @@ smallvec = { workspace = true }
 default = ["std", "png"]
 # Enable using SIMD instructions for rendering
 simd = []
-# Enable a simple version of SVG drawing. This is likely to be removed.
-pico_svg = ["dep:roxmltree"]
 # Get floating point functions from the standard library (likely using your target’s libc).
 std = ["peniko/std"]
 # Use floating point implementations from libm.v
 libm = ["peniko/libm"]
 # Allow loading and saving Pixmap to PNG. 
 png = ["std", "dep:png"]
+
+# Development only features
+
+# Enable a simple version of SVG drawing.
+# This is only intended for development of Vello CPU itself,
+# and is likely to be removed/moved.
+pico_svg = ["dep:roxmltree"]
 
 [lints]
 workspace = true

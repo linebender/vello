@@ -9,6 +9,11 @@
 //! for demonstration purposes. It supports basic SVG features like paths,
 //! fill, stroke, and grouping.
 
+#![expect(
+    clippy::print_stderr,
+    reason = "We don't have a better way to handle these errors, plus this code is not public API"
+)]
+
 extern crate std;
 
 use crate::color::{AlphaColor, DynamicColor, Srgb, palette};

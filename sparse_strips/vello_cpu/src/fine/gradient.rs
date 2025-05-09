@@ -79,7 +79,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
         let mut pos = self.cur_pos;
 
         for pixel in col.chunks_exact_mut(COLOR_COMPONENTS) {
-            let dist = extend(self.kind.cur_pos(&pos));
+            let dist = extend(self.kind.cur_pos(pos));
             self.advance(dist);
             let range = self.cur_range;
             let c0 = range.c0.as_premul_f32().components;
@@ -103,7 +103,7 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
                 for pixel in column.chunks_exact_mut(COLOR_COMPONENTS) {
                     let actual_pos = pos;
 
-                    if !self.kind.is_defined(&actual_pos) {
+                    if !self.kind.is_defined(actual_pos) {
                         pixel.copy_from_slice(&[F::ZERO, F::ZERO, F::ZERO, F::ZERO]);
                     }
 

@@ -211,7 +211,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 if let Some(color_glyph) = color_glyphs.get(GlyphId::new(glyph.id)) {
                     prepare_colr_glyph(
                         &font_ref,
-                        &glyph,
+                        glyph,
                         self.run.font_size,
                         upem,
                         initial_transform,
@@ -221,7 +221,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 } else if let Some((bitmap_glyph, pixmap)) = bitmap_data {
                     prepare_bitmap_glyph(
                         &bitmaps,
-                        &glyph,
+                        glyph,
                         pixmap,
                         self.run.font_size,
                         upem,
@@ -234,7 +234,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                     };
 
                     prepare_outline_glyph(
-                        &glyph,
+                        glyph,
                         size,
                         initial_transform,
                         self.run.transform,
@@ -256,7 +256,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 }
 
 fn prepare_outline_glyph<'a>(
-    glyph: &Glyph,
+    glyph: Glyph,
     size: Size,
     // The transform of the run + the per-glyph transform.
     initial_transform: Affine,
@@ -309,7 +309,7 @@ fn prepare_outline_glyph<'a>(
 
 fn prepare_bitmap_glyph<'a>(
     bitmaps: &BitmapStrikes<'_>,
-    glyph: &Glyph,
+    glyph: Glyph,
     pixmap: Pixmap,
     font_size: f32,
     upem: f32,
@@ -370,7 +370,7 @@ fn prepare_bitmap_glyph<'a>(
 
 fn prepare_colr_glyph<'a>(
     font_ref: &'a FontRef<'a>,
-    glyph: &Glyph,
+    glyph: Glyph,
     font_size: f32,
     upem: f32,
     run_transform: Affine,
