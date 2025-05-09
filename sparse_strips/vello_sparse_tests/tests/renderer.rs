@@ -216,6 +216,9 @@ impl Renderer for Scene {
         Self::set_transform(self, transform);
     }
 
+    // This method creates device resources every time it is called. This is fine for testing, but
+    // should not be used as a basis for implementing something real. This would be a very bad
+    // example for that.
     fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
