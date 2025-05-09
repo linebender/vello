@@ -17,8 +17,8 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = []
 
 [dependencies]
-vello_common = { version = "0.0.1", workspace = true }
 libm = { version = "0.2.15", optional = true }
+vello_common = { workspace = true }
 
 [features]
 default = ["std", "png"]
