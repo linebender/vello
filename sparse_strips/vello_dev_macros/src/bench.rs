@@ -24,8 +24,8 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
                 let module_path = module_path!();
 
                 let module = module_path
-                    .split("::") // Split into parts
-                    .skip(1) // Skip the first part
+                    .split("::")
+                    .skip(1)
                     .collect::<Vec<_>>()
                     .join("/");
 
