@@ -1,5 +1,6 @@
 [package]
 name = "vello_cpu"
+# When moving past 0.0.x, also update caveats in the README
 version.workspace = true
 description = "A CPU-based renderer for Vello, optimized for SIMD and multithreaded execution."
 categories = ["rendering", "graphics"]
