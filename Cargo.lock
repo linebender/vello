@@ -3194,6 +3194,7 @@ dependencies = [
 name = "vello_cpu"
 version = "0.5.0"
 dependencies = [
+ "libm",
  "vello_common",
 ]
 

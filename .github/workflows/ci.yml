@@ -14,7 +14,7 @@ env:
   RUST_MIN_VER_PKGS: "-p vello -p vello_encoding -p vello_shaders -p vello_api -p vello_common -p vello_cpu -p vello_hybrid"
   # List of packages that will be checked for `no_std` builds.
   # This should be limited to packages that are intended for publishing.
-  RUST_NO_STD_PKGS: "-p vello_api -p vello_common"
+  RUST_NO_STD_PKGS: "-p vello_api -p vello_common -p vello_cpu"
   # List of features that depend on the standard library and will be excluded from no_std checks.
   FEATURES_DEPENDING_ON_STD: "std,default,png,pico_svg"
   # List of packages that can not target Wasm.

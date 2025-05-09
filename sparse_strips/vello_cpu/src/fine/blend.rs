@@ -7,6 +7,9 @@
 use crate::fine::{COLOR_COMPONENTS, FineType, Widened};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 
+#[cfg(not(feature = "std"))]
+use vello_common::kurbo::common::FloatFuncs as _;
+
 pub(crate) mod fill {
     use crate::fine::blend::{BlendModeExt, mix};
     use crate::fine::{COLOR_COMPONENTS, FineType, TILE_HEIGHT_COMPONENTS};
