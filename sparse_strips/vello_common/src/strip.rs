@@ -8,6 +8,9 @@ use crate::peniko::Fill;
 use crate::tile::{Tile, Tiles};
 use alloc::vec::Vec;
 
+#[cfg(not(feature = "std"))]
+use peniko::kurbo::common::FloatFuncs as _;
+
 /// A strip.
 #[derive(Debug, Clone, Copy)]
 pub struct Strip {

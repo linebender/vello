@@ -18,8 +18,20 @@ use core::f32::consts::PI;
 use core::iter;
 use smallvec::SmallVec;
 
+#[cfg(not(feature = "std"))]
+use peniko::kurbo::common::FloatFuncs as _;
+
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
+
+fn exp(val: f32) -> f32 {
+    #[cfg(feature = "std")]
+    return val.exp();
+    #[cfg(feature = "libm")]
+    return libm::expf(val);
+    #[cfg(not(any(feature = "libm", feature = "std")))]
+    compile_error!("vello_common requires either the `std` or `libm` feature");
+}
 
 /// A trait for encoding gradients.
 pub trait EncodeExt: private::Sealed {
@@ -789,8 +801,8 @@ impl EncodeExt for BlurredRoundedRectangle {
         // Pull in long end (make less eccentric).
         let delta = 1.25
             * std_dev
-            * ((-(0.5 * std_dev_inv * width).powi(2)).exp()
-                - (-(0.5 * std_dev_inv * height).powi(2)).exp());
+            * (exp(-(0.5 * std_dev_inv * width).powi(2))
+                - exp(-(0.5 * std_dev_inv * height).powi(2)));
         let w = width + delta.min(0.0);
         let h = height - delta.max(0.0);
 

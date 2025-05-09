@@ -3182,6 +3182,7 @@ name = "vello_common"
 version = "0.5.0"
 dependencies = [
  "bytemuck",
+ "libm",
  "peniko",
  "png",
  "roxmltree",
