@@ -23,7 +23,7 @@ use crate::test::vello_test_inner;
 use proc_macro::TokenStream;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{Expr, Ident, ItemFn, Token, parse_macro_input};
+use syn::{Expr, Ident, Token};
 
 #[derive(Debug)]
 enum Attribute {

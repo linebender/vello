@@ -3,7 +3,7 @@ use criterion::{Bencher, Criterion};
 use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::encode::EncodedPaint;
 use vello_common::paint::{Paint, PremulColor};
-use vello_common::peniko::{BlendMode, Compose, Mix};
+use vello_common::peniko::BlendMode;
 use vello_cpu::fine::{Fine, FineType};
 use vello_dev_macros::vello_bench;
 

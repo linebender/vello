@@ -6,7 +6,7 @@ use vello_common::encode::EncodeExt;
 use vello_common::kurbo::Affine;
 use vello_common::paint::Image;
 use vello_common::peniko;
-use vello_common::peniko::{ColorStops, GradientKind, ImageQuality};
+use vello_common::peniko::ImageQuality;
 use vello_common::pixmap::Pixmap;
 use vello_cpu::fine::{Fine, FineType};
 
@@ -25,7 +25,7 @@ pub fn image(c: &mut Criterion) {
 }
 
 mod extend {
-    use crate::fine::image::{get_colr_image, get_small_image, image_base};
+    use crate::fine::image::{get_small_image, image_base};
     use criterion::Bencher;
     use vello_common::coarse::WideTile;
     use vello_common::kurbo::Affine;
