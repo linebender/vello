@@ -10,7 +10,7 @@ use std::env;
 use std::sync::Arc;
 use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
-use vello_common::kurbo::{Affine, Vec2};
+use vello_common::kurbo::{Affine, Point};
 use vello_hybrid::{RenderSize, Renderer, Scene};
 use vello_hybrid_scenes::{AnyScene, get_example_scenes};
 use winit::{
@@ -43,7 +43,7 @@ struct App<'s> {
     scene: Scene,
     transform: Affine,
     mouse_down: bool,
-    last_cursor_position: Option<Vec2>,
+    last_cursor_position: Option<Point>,
 }
 
 fn main() {
@@ -211,13 +211,15 @@ impl ApplicationHandler for App<'_> {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let current_pos = Vec2::new(position.x, position.y);
+                let current_pos = Point {
+                    x: position.x,
+                    y: position.y,
+                };
 
                 if self.mouse_down {
                     // Pan the scene if mouse is down
                     if let Some(last_pos) = self.last_cursor_position {
-                        let delta = current_pos - last_pos;
-                        self.transform = Affine::translate(delta) * self.transform;
+                        self.transform = self.transform.then_translate(current_pos - last_pos);
                         window.request_redraw();
                     }
                 }
@@ -235,27 +237,23 @@ impl ApplicationHandler for App<'_> {
                     let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
 
                     // Zoom centered at cursor position
-                    self.transform = Affine::translate(cursor_pos)
-                        * Affine::scale(zoom_factor)
-                        * Affine::translate(-cursor_pos)
-                        * self.transform;
+                    self.transform = self.transform.then_scale_about(zoom_factor, cursor_pos);
 
                     window.request_redraw();
                 }
             }
             WindowEvent::PinchGesture { delta, .. } => {
-                // Handle pinch-to-zoom on touchpad
-                let center = Vec2::new(
-                    f64::from(surface.config.width) / 2.0,
-                    f64::from(surface.config.height) / 2.0,
-                );
-
+                // Handle pinch-to-zoom on touchpad.
                 let zoom_factor = 1.0 + delta * ZOOM_STEP * 5.0;
 
-                self.transform = Affine::translate(center)
-                    * Affine::scale(zoom_factor)
-                    * Affine::translate(-center)
-                    * self.transform;
+                // Zoom centered at cursor position, or the center if no position is set.
+                self.transform = self.transform.then_scale_about(
+                    zoom_factor,
+                    self.last_cursor_position.unwrap_or(Point {
+                        x: 0.5 * surface.config.width as f64,
+                        y: 0.5 * surface.config.height as f64,
+                    }),
+                );
 
                 window.request_redraw();
             }

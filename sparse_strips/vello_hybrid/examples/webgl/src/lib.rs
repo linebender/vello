@@ -13,7 +13,7 @@ use std::cell::RefCell;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 #[cfg(target_arch = "wasm32")]
-use vello_common::kurbo::{Affine, Vec2};
+use vello_common::kurbo::{Affine, Point};
 #[cfg(target_arch = "wasm32")]
 use vello_hybrid_scenes::AnyScene;
 #[cfg(target_arch = "wasm32")]
@@ -124,7 +124,7 @@ struct AppState {
     scene: vello_hybrid::Scene,
     transform: Affine,
     mouse_down: bool,
-    last_cursor_position: Option<Vec2>,
+    last_cursor_position: Option<Point>,
     width: u32,
     height: u32,
     renderer_wrapper: RendererWrapper,
@@ -233,7 +233,7 @@ impl AppState {
 
     fn handle_mouse_down(&mut self, x: f64, y: f64) {
         self.mouse_down = true;
-        self.last_cursor_position = Some(Vec2::new(x, y));
+        self.last_cursor_position = Some(Point { x, y });
     }
 
     fn handle_mouse_up(&mut self) {
@@ -242,12 +242,11 @@ impl AppState {
     }
 
     fn handle_mouse_move(&mut self, x: f64, y: f64) {
-        let current_pos = Vec2::new(x, y);
+        let current_pos = Point { x, y };
 
         if self.mouse_down {
             if let Some(last_pos) = self.last_cursor_position {
-                let delta = current_pos - last_pos;
-                self.transform = Affine::translate(delta) * self.transform;
+                self.transform = self.transform.then_translate(current_pos - last_pos);
                 self.need_render = true;
             }
         }
@@ -257,30 +256,18 @@ impl AppState {
 
     fn handle_wheel(&mut self, delta_y: f64) {
         const ZOOM_STEP: f64 = 0.1;
+        let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
 
-        if let Some(cursor_pos) = self.last_cursor_position {
-            let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
+        // Zoom centered at cursor position, or the center if no position is set.
+        self.transform = self.transform.then_scale_about(
+            zoom_factor,
+            self.last_cursor_position.unwrap_or(Point {
+                x: 0.5 * self.width as f64,
+                y: 0.5 * self.height as f64,
+            }),
+        );
 
-            // Zoom centered at cursor position
-            self.transform = Affine::translate(cursor_pos)
-                * Affine::scale(zoom_factor)
-                * Affine::translate(-cursor_pos)
-                * self.transform;
-
-            self.need_render = true;
-        } else {
-            // If no cursor position is known, zoom centered on screen
-            let center = Vec2::new(self.width as f64 / 2.0, self.height as f64 / 2.0);
-
-            let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
-
-            self.transform = Affine::translate(center)
-                * Affine::scale(zoom_factor)
-                * Affine::translate(-center)
-                * self.transform;
-
-            self.need_render = true;
-        }
+        self.need_render = true;
     }
 }
 
