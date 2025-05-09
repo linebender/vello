@@ -29,6 +29,7 @@ See https://linebender.org/blog/doc-include/ for related discussion. -->
 [RenderContext::glyph_run]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.glyph_run
 [`RenderContext::render_to_pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.render_to_pixmap
 [`Pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.Pixmap.html
+[libm]: https://crates.io/crates/libm
 
 <!-- cargo-rdme start -->
 
@@ -86,8 +87,13 @@ assert_eq!(&result, expected_render);
 
 ## Features
 
+- `std` (enabled by default): Get floating point functions from the standard library
+  (likely using your target's libc).
+- `libm`: Use floating point implementations from [libm].
 - `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images.
   Also required for rendering glyphs with an embedded PNG.
+
+At least one of `std` and `libm` is required; `std` overrides `libm`.
 
 ## Caveats
 

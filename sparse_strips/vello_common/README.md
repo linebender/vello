@@ -22,6 +22,7 @@ Full documentation at https://github.com/orium/cargo-rdme -->
 <!-- Intra-doc links used in lib.rs should be evaluated here.
 See https://linebender.org/blog/doc-include/ for related discussion. -->
 
+[libm]: https://crates.io/crates/libm
 [crate::pixmap::Pixmap]: https://docs.rs/vello_common/latest/vello_common/pixmap/struct.Pixmap.html
 
 <!-- cargo-rdme start -->
@@ -59,7 +60,6 @@ At least one of `std` and `libm` is required; `std` overrides `libm`.
 This crate acts as a foundation for `vello_cpu` and `vello_hybrid`, providing essential components to minimize duplication.
 
 [vello_cpu]: https://crates.io/crates/vello_cpu
-[libm]: https://crates.io/crates/libm
 
 <!-- cargo-rdme end -->
 
