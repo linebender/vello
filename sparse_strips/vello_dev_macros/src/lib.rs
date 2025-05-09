@@ -73,6 +73,20 @@ pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     vello_test_inner(attr, item)
 }
 
+/// Create a new Vello benchmark for fine rasterization.
+/// This macro expects a function hat takes a `Bencher` and `Fine` as input, and will generate one benchmark
+/// for each possible instantiation of `Fine`.
+///
+/// ## Example
+/// ```ignore
+/// #[vello_bench]
+/// pub fn transparent_short<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
+///     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE.with_alpha(0.3)));
+///     let width = 32;
+/// 
+///     fill_single(&paint, &[], width, b, default_blend(), fine);
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn vello_bench(attr: TokenStream, item: TokenStream) -> TokenStream {
     vello_bench_inner(attr, item)
