@@ -223,9 +223,9 @@ impl Renderer for Scene {
         // ensuring only one set of device resources is alive at the same time. This slows down
         // testing when `cargo test` is used.
         //
-        // Testing with `cargo nextest` is not meaningfully slown down. `nextest` runs each test in
-        // its own process (<https://nexte.st/docs/design/why-process-per-test/>), meaning there is
-        // no contention on this mutex.
+        // Testing with `cargo nextest` (as on CI) is not meaningfully slowed down. `nextest` runs
+        // each test in its own process (<https://nexte.st/docs/design/why-process-per-test/>),
+        // meaning there is no contention on this mutex.
         let _guard = {
             use std::sync::Mutex;
             static M: Mutex<()> = Mutex::new(());
