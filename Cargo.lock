@@ -3175,6 +3175,7 @@ dependencies = [
  "usvg",
  "vello_common",
  "vello_cpu",
+ "vello_dev_macros",
 ]
 
 [[package]]
