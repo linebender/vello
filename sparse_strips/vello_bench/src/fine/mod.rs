@@ -1,6 +1,7 @@
 mod blend;
 pub(crate) mod fill;
 mod gradient;
+mod image;
 mod rounded_blurred_rect;
 mod strip;
 
@@ -11,6 +12,7 @@ use vello_dev_macros::vello_bench;
 pub use blend::*;
 pub use fill::*;
 pub use gradient::*;
+pub use image::*;
 pub use rounded_blurred_rect::*;
 pub use strip::*;
 use vello_common::peniko::{BlendMode, Compose, Mix};
