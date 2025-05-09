@@ -11,15 +11,34 @@
 
 </div>
 
-This crate contains core data structures and utilities shared across the Vello rendering. It includes common geometry representations, tiling logic, and other fundamental components used by both `vello_cpu` and `vello_hybrid`.
+<!-- We use cargo-rdme to update the README with the contents of lib.rs.
+To edit the following section, update it in lib.rs, then run:
+cargo rdme --workspace-project=vello_common --heading-base-level=0
+Full documentation at https://github.com/orium/cargo-rdme -->
+
+<!-- Intra-doc links used in lib.rs should be evaluated here.
+See https://linebender.org/blog/doc-include/ for related discussion. -->
+
+<!-- cargo-rdme start -->
+
+This crate contains core data structures and utilities shared across crates. It includes
+foundational types for path geometry, tiling, and other common operations used in both CPU and
+hybrid CPU/GPU rendering.
+
+This crate contains core data structures and utilities shared across the Vello rendering.
+It includes common geometry representations, tiling logic, and other fundamental components used by both `vello_cpu` and `vello_hybrid`.
 
 ## Features
+
 - Shared data structures for paths, tiles, and strips
 - Geometry processing utilities
 - Common logic for rendering stages
 
 ## Usage
+
 This crate acts as a foundation for `vello_cpu` and `vello_hybrid`, providing essential components to minimize duplication.
+
+<!-- cargo-rdme end -->
 
 ## Minimum supported Rust Version (MSRV)
 

@@ -4,6 +4,19 @@
 //! This crate contains core data structures and utilities shared across crates. It includes
 //! foundational types for path geometry, tiling, and other common operations used in both CPU and
 //! hybrid CPU/GPU rendering.
+//!
+//! This crate contains core data structures and utilities shared across the Vello rendering.
+//! It includes common geometry representations, tiling logic, and other fundamental components used by both `vello_cpu` and `vello_hybrid`.
+//!
+//! ## Features
+//!
+//! - Shared data structures for paths, tiles, and strips
+//! - Geometry processing utilities
+//! - Common logic for rendering stages
+//!
+//! ## Usage
+//!
+//! This crate acts as a foundation for `vello_cpu` and `vello_hybrid`, providing essential components to minimize duplication.
 
 #![cfg_attr(not(feature = "simd"), forbid(unsafe_code))]
 #![expect(
