@@ -24,12 +24,16 @@ use peniko::kurbo::common::FloatFuncs as _;
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
 
+#[cfg(feature = "std")]
 fn exp(val: f32) -> f32 {
-    #[cfg(feature = "std")]
-    return val.exp();
+    val.exp()
+}
+
+#[cfg(not(feature = "std"))]
+fn exp(val: f32) -> f32 {
     #[cfg(feature = "libm")]
     return libm::expf(val);
-    #[cfg(not(any(feature = "libm", feature = "std")))]
+    #[cfg(not(feature = "libm"))]
     compile_error!("vello_common requires either the `std` or `libm` feature");
 }
 
