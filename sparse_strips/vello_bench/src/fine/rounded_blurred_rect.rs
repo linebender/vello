@@ -1,5 +1,5 @@
 use crate::fine::{
-    default_blend, fill_single, opaque_long, opaque_short, transparent_long, transparent_short,
+    default_blend, fill_single,
 };
 use criterion::{Bencher, Criterion};
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
@@ -7,7 +7,6 @@ use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::GREEN;
 use vello_common::encode::EncodeExt;
 use vello_common::kurbo::{Affine, Point, Rect};
-use vello_common::peniko::Gradient;
 use vello_common::tile::Tile;
 use vello_cpu::fine::{Fine, FineType};
 use vello_dev_macros::vello_bench;

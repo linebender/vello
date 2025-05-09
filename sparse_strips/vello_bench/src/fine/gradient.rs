@@ -11,7 +11,6 @@ use vello_common::encode::EncodeExt;
 use vello_common::kurbo::{Affine, Point};
 use vello_common::peniko;
 use vello_common::peniko::{ColorStop, ColorStops, Gradient, GradientKind};
-use vello_common::tile::Tile;
 use vello_cpu::fine::{Fine, FineType};
 use vello_dev_macros::vello_bench;
 
@@ -55,14 +54,14 @@ fn transparent<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
 }
 
 mod extend {
-    use crate::fine::fill_single;
+    
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
     use criterion::Bencher;
-    use vello_common::coarse::WideTile;
-    use vello_common::encode::EncodeExt;
-    use vello_common::kurbo::{Affine, Point};
+    
+    
+    use vello_common::kurbo::Point;
     use vello_common::peniko;
-    use vello_common::peniko::{Gradient, GradientKind};
+    use vello_common::peniko::GradientKind;
     use vello_cpu::fine::{Fine, FineType};
     use vello_dev_macros::vello_bench;
 
@@ -92,15 +91,15 @@ mod extend {
 }
 
 mod linear {
-    use crate::fine::fill::fill_single;
+    
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
     use criterion::Bencher;
-    use vello_common::coarse::WideTile;
-    use vello_common::encode::EncodeExt;
-    use vello_common::kurbo::{Affine, Point};
+    
+    
+    use vello_common::kurbo::Point;
     use vello_common::peniko;
-    use vello_common::peniko::{Gradient, GradientKind};
-    use vello_common::tile::Tile;
+    use vello_common::peniko::GradientKind;
+    
     use vello_cpu::fine::{Fine, FineType};
     use vello_dev_macros::vello_bench;
 
@@ -122,14 +121,14 @@ mod linear {
 }
 
 mod radial {
-    use crate::fine::fill::fill_single;
+    
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
     use criterion::Bencher;
     use vello_common::coarse::WideTile;
-    use vello_common::encode::EncodeExt;
-    use vello_common::kurbo::{Affine, Point};
+    
+    use vello_common::kurbo::Point;
     use vello_common::peniko;
-    use vello_common::peniko::{Gradient, GradientKind};
+    use vello_common::peniko::GradientKind;
     use vello_common::tile::Tile;
     use vello_cpu::fine::{Fine, FineType};
     use vello_dev_macros::vello_bench;
@@ -154,14 +153,14 @@ mod radial {
 }
 
 mod sweep {
-    use crate::fine::fill::fill_single;
+    
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
     use criterion::Bencher;
     use vello_common::coarse::WideTile;
-    use vello_common::encode::EncodeExt;
-    use vello_common::kurbo::{Affine, Point};
+    
+    use vello_common::kurbo::Point;
     use vello_common::peniko;
-    use vello_common::peniko::{Gradient, GradientKind};
+    use vello_common::peniko::GradientKind;
     use vello_common::tile::Tile;
     use vello_cpu::fine::{Fine, FineType};
     use vello_dev_macros::vello_bench;
