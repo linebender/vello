@@ -55,6 +55,10 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 #![no_std]
 
+// Suppress the unused_crate_dependencies lint when both std and libm are specified.
+#[cfg(all(feature = "std", feature = "libm"))]
+use libm as _;
+
 extern crate alloc;
 
 pub mod blurred_rounded_rect;
