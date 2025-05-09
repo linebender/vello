@@ -53,6 +53,11 @@
 //! assert_eq!(&result, expected_render);
 //! ```
 //!
+//! ## Features
+//!
+//! - `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images.
+//!   Also required for rendering glyphs with an embedded PNG.
+//!
 //! ## Caveats
 //!
 //! Vello CPU is an alpha for several reasons, including the following.

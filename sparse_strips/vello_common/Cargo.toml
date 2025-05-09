@@ -32,7 +32,7 @@ default = ["std", "png"]
 simd = []
 # Get floating point functions from the standard library (likely using your target’s libc).
 std = ["peniko/std"]
-# Use floating point implementations from libm.v
+# Use floating point implementations from libm.
 libm = ["peniko/libm"]
 # Allow loading and saving Pixmap to PNG. 
 png = ["std", "dep:png"]
