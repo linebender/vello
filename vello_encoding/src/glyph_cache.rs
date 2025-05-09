@@ -4,6 +4,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::path::EmboldenStyle;
+
 use super::{Encoding, StreamOffsets};
 
 use peniko::{Font, Style};
@@ -30,6 +32,7 @@ impl GlyphCache {
         size: f32,
         hint: bool,
         style: &'a Style,
+        embolden_fill: EmboldenStyle,
     ) -> Option<GlyphCacheSession<'a>> {
         let font_id = font.data.id();
         let font_index = font.index;
@@ -64,10 +67,12 @@ impl GlyphCache {
         };
         // TODO: we're ignoring dashing for now
         let style_bits = match style {
-            Style::Fill(fill) => super::path::Style::from_fill(*fill),
-            Style::Stroke(stroke) => super::path::Style::from_stroke(stroke),
+            Style::Fill(fill) => super::path::Style::from_embolden_fill(*fill, embolden_fill),
+            Style::Stroke(stroke) => {
+                super::path::Style::from_stroke(stroke).with_embolden(embolden_fill.embolden)
+            }
         };
-        let style_bits: [u32; 2] = bytemuck::cast(style_bits);
+        let style_bits: [u32; 3] = bytemuck::cast(style_bits);
         Some(GlyphCacheSession {
             free_list: &mut self.free_list,
             map,
@@ -82,6 +87,7 @@ impl GlyphCache {
             hinter,
             serial: self.serial,
             cached_count: &mut self.cached_count,
+            embolden_fill_style: embolden_fill,
         })
     }
 
@@ -141,11 +147,12 @@ pub(crate) struct GlyphCacheSession<'a> {
     size: Size,
     size_bits: u32,
     style: &'a Style,
-    style_bits: [u32; 2],
+    style_bits: [u32; 3],
     outlines: OutlineGlyphCollection<'a>,
     hinter: Option<&'a HintingInstance>,
     serial: u64,
     cached_count: &'a mut usize,
+    embolden_fill_style: EmboldenStyle,
 }
 
 impl GlyphCacheSession<'_> {
@@ -171,30 +178,53 @@ impl GlyphCacheSession<'_> {
         encoding_ptr.reset();
         let is_fill = match &self.style {
             Style::Fill(fill) => {
-                encoding_ptr.encode_fill_style(*fill);
+                encoding_ptr.encode_fill_style_embolden(*fill, self.embolden_fill_style);
                 true
             }
             Style::Stroke(stroke) => {
-                encoding_ptr.encode_stroke_style(stroke);
+                encoding_ptr
+                    .encode_stroke_style_embolden(stroke, self.embolden_fill_style.embolden);
                 false
             }
         };
         use skrifa::outline::DrawSettings;
-        let mut path = encoding_ptr.encode_path(is_fill);
-        let draw_settings = if key.hint {
-            if let Some(hinter) = self.hinter {
-                DrawSettings::hinted(hinter, false)
+        let fill_style = self.embolden_fill_style;
+        if fill_style.embolden != 0. {
+            let mut path = encoding_ptr.encode_winding_path(is_fill);
+            let draw_settings = if key.hint {
+                if let Some(hinter) = self.hinter {
+                    DrawSettings::hinted(hinter, false)
+                } else {
+                    DrawSettings::unhinted(self.size, self.coords)
+                }
             } else {
                 DrawSettings::unhinted(self.size, self.coords)
+            };
+
+            outline.draw(draw_settings, &mut path).ok()?;
+            if path.finish(false) == 0 {
+                encoding_ptr.reset();
             }
         } else {
-            DrawSettings::unhinted(self.size, self.coords)
-        };
-        outline.draw(draw_settings, &mut path).ok()?;
-        if path.finish(false) == 0 {
-            encoding_ptr.reset();
+            let mut path = encoding_ptr.encode_path(is_fill);
+            let draw_settings = if key.hint {
+                if let Some(hinter) = self.hinter {
+                    DrawSettings::hinted(hinter, false)
+                } else {
+                    DrawSettings::unhinted(self.size, self.coords)
+                }
+            } else {
+                DrawSettings::unhinted(self.size, self.coords)
+            };
+
+            outline.draw(draw_settings, &mut path).ok()?;
+            if path.finish(false) == 0 {
+                encoding_ptr.reset();
+            }
         }
+
         let stream_sizes = encoding_ptr.stream_offsets();
+
         self.map.insert(
             key,
             GlyphEntry {
@@ -214,7 +244,7 @@ struct GlyphKey {
     font_index: u32,
     glyph_id: u32,
     font_size_bits: u32,
-    style_bits: [u32; 2],
+    style_bits: [u32; 3],
     hint: bool,
 }
 
