@@ -67,10 +67,10 @@
 //!
 //! We have not yet put any work into documentation.
 //!
-//! ### Optimisation
+//! ### Performance
 //!
-//! We have several important optimisation planned, including use of multithreading and SIMD.
-//! These are not yet implemented, so performance is not representative of the potential performance.
+//! We do not perform several important optimisations, such as the use of multithreading and SIMD.
+//! Additionally, some algorithms we use aren't final, and will be replaced with higher-performance variants.
 //!
 //! ## Implementation
 //!
