@@ -36,19 +36,21 @@ pub(crate) mod scalar {
         use crate::util::scalar::div_255;
 
         #[test]
-        fn division() {
-            for i in 0_u16..=(255 * 255) {
+        fn div_255_properties() {
+            for i in 0_u16..256 * 255 {
                 let expected = i / 255;
                 let actual = div_255(i);
 
-                let diff = expected.abs_diff(actual);
+                assert!(
+                    expected <= actual,
+                    "In case of a discrepancy, the division should yield a value higher than the original."
+                );
 
-                // Rounding error shouldn't be higher than 1.
-                assert!(diff <= 1);
+                let diff = expected.abs_diff(actual);
+                assert!(diff <= 1, "Rounding error shouldn't be higher than 1.");
 
                 if i % 255 == 0 {
-                    // Division should be accurate for multiples of 255.
-                    assert_eq!(diff, 0);
+                    assert_eq!(diff, 0, "Division should be accurate for multiples of 255.");
                 }
             }
         }
