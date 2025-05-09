@@ -36,6 +36,9 @@ Vello CPU is a 2D graphics rendering engine written in Rust, for devices with no
 It is currently available as an alpha.
 See the [Caveats](#caveats) section for things you need to be aware of.
 
+We also develop [Vello](crates.io/crates/vello), which makes use of the GPU for 2d rendering and has higher performance than Vello CPU..
+Vello CPU is being developed as part of work to address shortcomings in Vello.
+
 ## Usage
 
 To use Vello CPU, you need to:
