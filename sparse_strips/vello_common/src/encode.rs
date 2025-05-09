@@ -551,7 +551,7 @@ pub struct RadialKind {
 }
 
 impl RadialKind {
-    fn pos_inner(&self, pos: &Point) -> Option<f32> {
+    fn pos_inner(&self, pos: Point) -> Option<f32> {
         // The values for a radial gradient can be calculated for any t as follow:
         // Let x(t) = (x_1 - x_0)*t + x_0 (since x_0 is always 0, this shortens to x_1 * t)
         // Let y(t) = (y_1 - y_0)*t + y_0 (since y_0 is always 0, this shortens to y_1 * t)
@@ -655,16 +655,16 @@ pub struct GradientRange {
 /// Sampling positions in a gradient.
 pub trait GradientLike {
     /// Given a position, return the position on the gradient range.
-    fn cur_pos(&self, pos: &Point) -> f32;
+    fn cur_pos(&self, pos: Point) -> f32;
     /// Whether the gradient is possibly not defined over the whole domain of points.
     fn has_undefined(&self) -> bool;
     /// Whether the current position is defined in the gradient. If `has_undefined` returns `false`,
     /// this will return false for all possible points.
-    fn is_defined(&self, pos: &Point) -> bool;
+    fn is_defined(&self, pos: Point) -> bool;
 }
 
 impl GradientLike for SweepKind {
-    fn cur_pos(&self, pos: &Point) -> f32 {
+    fn cur_pos(&self, pos: Point) -> f32 {
         // The position in a sweep gradient is simply determined by its angle from the origin.
         let angle = (-pos.y as f32).atan2(pos.x as f32);
 
@@ -679,13 +679,13 @@ impl GradientLike for SweepKind {
         false
     }
 
-    fn is_defined(&self, _: &Point) -> bool {
+    fn is_defined(&self, _: Point) -> bool {
         true
     }
 }
 
 impl GradientLike for LinearKind {
-    fn cur_pos(&self, pos: &Point) -> f32 {
+    fn cur_pos(&self, pos: Point) -> f32 {
         // The position of a point relative to a linear gradient is determined by its distance
         // to the normal vector. See `encode_into` for more information.
         (pos.x as f32 * self.y2_minus_y1 - pos.y as f32 * self.x2_minus_x1) / self.distance
@@ -695,13 +695,13 @@ impl GradientLike for LinearKind {
         false
     }
 
-    fn is_defined(&self, _: &Point) -> bool {
+    fn is_defined(&self, _: Point) -> bool {
         true
     }
 }
 
 impl GradientLike for RadialKind {
-    fn cur_pos(&self, pos: &Point) -> f32 {
+    fn cur_pos(&self, pos: Point) -> f32 {
         self.pos_inner(pos).unwrap_or(0.0)
     }
 
@@ -709,7 +709,7 @@ impl GradientLike for RadialKind {
         self.cone_like
     }
 
-    fn is_defined(&self, pos: &Point) -> bool {
+    fn is_defined(&self, pos: Point) -> bool {
         self.pos_inner(pos).is_some()
     }
 }

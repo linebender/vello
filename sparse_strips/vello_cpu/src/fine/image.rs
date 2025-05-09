@@ -79,6 +79,11 @@ impl<'a> ImageFiller<'a> {
         }
     }
 
+    // Ideally, we'd add this only on the specific arm, but clippy doesn't support that
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "Tile Height expected to change increase later."
+    )]
     fn run_simple_column<F: FineType>(
         &mut self,
         col: &mut [F],

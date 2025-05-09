@@ -75,7 +75,17 @@
 //! ## Implementation
 //!
 //! TODO: Point to documentation of sparse strips pattern.
-
+// LINEBENDER LINT SET - lib.rs - v3
+// See https://linebender.org/wiki/canonical-lints/
+// These lints shouldn't apply to examples or tests.
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+// These lints shouldn't apply to examples.
+#![warn(clippy::print_stdout, clippy::print_stderr)]
+// Targeting e.g. 32-bit means structs containing usize can give false positives for 64-bit.
+#![cfg_attr(target_pointer_width = "64", warn(clippy::trivially_copy_pass_by_ref))]
+// END LINEBENDER LINT SET
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![forbid(unsafe_code)]
 #![expect(
     clippy::cast_possible_truncation,
     reason = "We cast u16s to u8 in various places where we know for sure that it's < 256"

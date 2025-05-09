@@ -156,7 +156,7 @@ macro_rules! non_separable_mix {
                 let cb = to_f32(background);
 
                 let res = $calc(cs, cb);
-                source[..3].copy_from_slice(&from_f32(&res));
+                source[..3].copy_from_slice(&from_f32(res));
             }
         }
     };
@@ -245,13 +245,10 @@ separable_mix!(Exclusion, |cs: F, cb: F| {
     F::from_normalized_f32((new_src + cb) - 2.0 * (new_src * cb))
 });
 
-non_separable_mix!(Hue, |cs, cb| set_lum(&set_sat(&cs, sat(&cb)), lum(&cb)));
-non_separable_mix!(Saturation, |cs, cb| set_lum(
-    &set_sat(&cb, sat(&cs)),
-    lum(&cb)
-));
-non_separable_mix!(Color, |cs, cb| set_lum(&cs, lum(&cb)));
-non_separable_mix!(Luminosity, |cs, cb| set_lum(&cb, lum(&cs)));
+non_separable_mix!(Hue, |cs, cb| set_lum(set_sat(cs, sat(cb)), lum(cb)));
+non_separable_mix!(Saturation, |cs, cb| set_lum(set_sat(cb, sat(cs)), lum(cb)));
+non_separable_mix!(Color, |cs, cb| set_lum(cs, lum(cb)));
+non_separable_mix!(Luminosity, |cs, cb| set_lum(cb, lum(cs)));
 
 fn to_f32<F: FineType>(c: &[F]) -> [f32; 3] {
     let mut nums = [0.0; 3];
@@ -263,7 +260,7 @@ fn to_f32<F: FineType>(c: &[F]) -> [f32; 3] {
     nums
 }
 
-fn from_f32<F: FineType>(c: &[f32; 3]) -> [F; 3] {
+fn from_f32<F: FineType>(c: [f32; 3]) -> [F; 3] {
     let mut nums = [F::ZERO; 3];
 
     for i in 0..3 {
@@ -273,18 +270,18 @@ fn from_f32<F: FineType>(c: &[f32; 3]) -> [F; 3] {
     nums
 }
 
-fn lum(c: &[f32; 3]) -> f32 {
+fn lum(c: [f32; 3]) -> f32 {
     0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
 }
 
-fn sat(c: &[f32; 3]) -> f32 {
+fn sat(c: [f32; 3]) -> f32 {
     c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2])
 }
 
-fn clip_color(color: &[f32; 3]) -> [f32; 3] {
-    let mut c_new = *color;
+fn clip_color(color: [f32; 3]) -> [f32; 3] {
+    let mut c_new = color;
 
-    let l = lum(&c_new);
+    let l = lum(c_new);
     let n = c_new[0].min(c_new[1].min(c_new[2]));
     let x = c_new[0].max(c_new[1].max(c_new[2]));
 
@@ -301,19 +298,16 @@ fn clip_color(color: &[f32; 3]) -> [f32; 3] {
     c_new
 }
 
-fn set_lum(c: &[f32; 3], l: f32) -> [f32; 3] {
-    let mut c = *c;
-
-    let d = l - lum(&c);
+fn set_lum(mut c: [f32; 3], l: f32) -> [f32; 3] {
+    let d = l - lum(c);
     c[0] += d;
     c[1] += d;
     c[2] += d;
 
-    clip_color(&c)
+    clip_color(c)
 }
 
-fn set_sat(c: &[f32; 3], s: f32) -> [f32; 3] {
-    let mut c = *c;
+fn set_sat(mut c: [f32; 3], s: f32) -> [f32; 3] {
     let (min, tail) = c.split_at_mut(1);
     let (mid, max) = tail.split_at_mut(1);
 
