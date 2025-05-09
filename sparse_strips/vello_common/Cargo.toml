@@ -31,9 +31,9 @@ default = ["std", "png"]
 # Enable using SIMD instructions for rendering
 simd = []
 # Get floating point functions from the standard library (likely using your target’s libc).
-std = ["peniko/std"]
+std = ["peniko/std", "skrifa/std"]
 # Use floating point implementations from libm.
-libm = ["peniko/libm"]
+libm = ["peniko/libm", "skrifa/libm"]
 # Allow loading and saving Pixmap to PNG. 
 png = ["std", "dep:png"]
 
