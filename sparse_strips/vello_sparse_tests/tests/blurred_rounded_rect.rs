@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::renderer::Renderer;
-use vello_api::color::palette::css::REBECCA_PURPLE;
-use vello_api::kurbo::{Affine, Point, Rect};
+use vello_common::color::palette::css::REBECCA_PURPLE;
+use vello_common::kurbo::{Affine, Point, Rect};
 use vello_dev_macros::vello_test;
 
 fn rect_with(ctx: &mut impl Renderer, radius: f32, std_dev: f32, affine: Affine) {

@@ -1,12 +1,12 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_api::kurbo::{Affine, BezPath, Rect, Stroke};
-use vello_api::mask::Mask;
-use vello_api::paint::PaintType;
-use vello_api::peniko::{BlendMode, Fill, Font};
-use vello_api::pixmap::Pixmap;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
+use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
+use vello_common::mask::Mask;
+use vello_common::paint::PaintType;
+use vello_common::peniko::{BlendMode, Fill, Font};
+use vello_common::pixmap::Pixmap;
 use vello_cpu::{RenderContext, RenderMode};
 use vello_hybrid::Scene;
 

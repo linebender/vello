@@ -4,10 +4,10 @@
 //! Drawing COLR glyphs.
 
 use crate::color::Srgb;
+use crate::color::{AlphaColor, DynamicColor};
 use crate::glyph::{ColorGlyph, OutlinePath};
 use crate::kurbo::{Affine, BezPath, Point, Rect, Shape};
-use crate::peniko;
-use crate::peniko::{BlendMode, ColorStops, Compose, Extend, Gradient, Mix};
+use crate::peniko::{self, BlendMode, ColorStops, Compose, Extend, Gradient, GradientKind, Mix};
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -18,8 +18,6 @@ use skrifa::raw::TableProvider;
 use skrifa::raw::types::BoundingBox;
 use skrifa::{GlyphId, MetadataProvider};
 use smallvec::SmallVec;
-use vello_api::color::{AlphaColor, DynamicColor};
-use vello_api::peniko::GradientKind;
 
 /// A trait for clients capable of rendering COLR glyphs.
 pub trait ColrRenderer {

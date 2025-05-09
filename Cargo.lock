@@ -3185,7 +3185,6 @@ dependencies = [
  "roxmltree",
  "skrifa",
  "smallvec",
- "vello_api",
 ]
 
 [[package]]

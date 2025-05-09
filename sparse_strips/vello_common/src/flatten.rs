@@ -3,9 +3,8 @@
 
 //! Flattening filled and stroked paths.
 
+use crate::kurbo::{self, Affine, BezPath, Stroke, StrokeOpts};
 use alloc::vec::Vec;
-use vello_api::kurbo;
-use vello_api::kurbo::{Affine, BezPath, Stroke, StrokeOpts};
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;

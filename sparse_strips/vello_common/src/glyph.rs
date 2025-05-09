@@ -3,6 +3,7 @@
 
 //! Processing and drawing glyphs.
 
+use crate::kurbo::{Affine, BezPath, Vec2};
 use crate::peniko::Font;
 use alloc::boxed::Box;
 use core::fmt::{Debug, Formatter};
@@ -14,14 +15,12 @@ use skrifa::{
     GlyphId, MetadataProvider,
     outline::{HintingInstance, HintingOptions, OutlinePen},
 };
-use vello_api::kurbo::{Affine, BezPath, Vec2};
 
 use crate::colr::convert_bounding_box;
 use crate::encode::x_y_advances;
 use crate::kurbo::Rect;
+use crate::pixmap::Pixmap;
 use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};
-pub use vello_api::glyph::*;
-use vello_api::pixmap::Pixmap;
 
 /// Positioned glyph.
 #[derive(Copy, Clone, Default, Debug)]

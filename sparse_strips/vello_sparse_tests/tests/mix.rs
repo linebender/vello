@@ -4,13 +4,13 @@
 use crate::image::load_image;
 use crate::renderer::Renderer;
 use smallvec::smallvec;
-use vello_api::peniko::Gradient;
 use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::Image;
-use vello_common::peniko::{BlendMode, Compose, Extend, Mix};
-use vello_common::peniko::{ColorStop, ColorStops, GradientKind, ImageQuality};
+use vello_common::peniko::{
+    BlendMode, ColorStop, ColorStops, Compose, Extend, Gradient, GradientKind, ImageQuality, Mix,
+};
 use vello_dev_macros::vello_test;
 
 // The outputs have been compared visually with tiny-skia, and except for two cases (where tiny-skia

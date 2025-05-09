@@ -4,13 +4,12 @@
 //! Generating and processing wide tiles.
 
 use crate::color::palette::css::TRANSPARENT;
-use crate::peniko::{BlendMode, Compose, Mix};
+use crate::mask::Mask;
+use crate::paint::{Paint, PremulColor};
+use crate::peniko::{BlendMode, Compose, Fill, Mix};
 use crate::{strip::Strip, tile::Tile};
 use alloc::vec;
 use alloc::{boxed::Box, vec::Vec};
-use vello_api::mask::Mask;
-use vello_api::paint::PremulColor;
-use vello_api::{paint::Paint, peniko::Fill};
 
 #[derive(Debug)]
 struct Layer {
@@ -1043,10 +1042,10 @@ mod tests {
     use crate::coarse::{Cmd, CmdFill, Wide, WideTile};
     use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
+    use crate::paint::{Paint, PremulColor};
     use crate::peniko::{BlendMode, Compose, Fill, Mix};
     use crate::strip::Strip;
     use alloc::{boxed::Box, vec};
-    use vello_api::paint::{Paint, PremulColor};
 
     #[test]
     fn optimize_empty_layers() {
