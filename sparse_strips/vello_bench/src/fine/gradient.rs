@@ -54,11 +54,10 @@ fn transparent<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
 }
 
 mod extend {
-    
+
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
     use criterion::Bencher;
-    
-    
+
     use vello_common::kurbo::Point;
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
@@ -91,15 +90,14 @@ mod extend {
 }
 
 mod linear {
-    
+
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
     use criterion::Bencher;
-    
-    
+
     use vello_common::kurbo::Point;
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
-    
+
     use vello_cpu::fine::{Fine, FineType};
     use vello_dev_macros::vello_bench;
 
@@ -121,11 +119,11 @@ mod linear {
 }
 
 mod radial {
-    
+
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
     use criterion::Bencher;
     use vello_common::coarse::WideTile;
-    
+
     use vello_common::kurbo::Point;
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
@@ -153,11 +151,11 @@ mod radial {
 }
 
 mod sweep {
-    
+
     use crate::fine::gradient::{gradient_base, stops_blue_green_red_yellow_opaque};
     use criterion::Bencher;
     use vello_common::coarse::WideTile;
-    
+
     use vello_common::kurbo::Point;
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
