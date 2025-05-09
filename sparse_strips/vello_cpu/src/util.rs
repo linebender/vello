@@ -36,14 +36,16 @@ pub(crate) mod scalar {
         use crate::util::scalar::div_255;
 
         #[test]
-        fn division() {
-            for i in 0_u16..=(255 * 255) {
+        fn div_255_properties() {
+            for i in 0_u16..=65279 {
                 let expected = i / 255;
                 let actual = div_255(i);
 
-                let diff = expected.abs_diff(actual);
+                // In case of a discrepancy, the division always yields a value higher than the original.
+                assert!(expected <= actual);
 
                 // Rounding error shouldn't be higher than 1.
+                let diff = expected.abs_diff(actual);
                 assert!(diff <= 1);
 
                 if i % 255 == 0 {
