@@ -42,7 +42,7 @@ Vello does not use this crate.
 - `std` (enabled by default): Get floating point functions from the standard library
   (likely using your target's libc).
 - `libm`: Use floating point implementations from [libm].
-- `png`(enabled by default): Allow loading [`Pixmap`][crate::pixmap::Pixmap]s from PNG images.
+- `png` (enabled by default): Allow loading [`Pixmap`][crate::pixmap::Pixmap]s from PNG images.
   Also required for rendering glyphs with an embedded PNG.
   Implies `std`.
 - `simd`: Allows requesting SIMD execution modes.
