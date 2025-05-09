@@ -37,7 +37,7 @@ pub(crate) mod scalar {
 
         #[test]
         fn div_255_properties() {
-            for i in 0_u16..=65279 {
+            for i in 0_u16..256 * 255 {
                 let expected = i / 255;
                 let actual = div_255(i);
 
