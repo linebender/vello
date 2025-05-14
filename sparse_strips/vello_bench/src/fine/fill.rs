@@ -58,5 +58,5 @@ pub(crate) fn fill_single<F: FineType>(
         fine.fill(0, width, paint, blend_mode, encoded_paints);
 
         std::hint::black_box(&fine);
-    })
+    });
 }

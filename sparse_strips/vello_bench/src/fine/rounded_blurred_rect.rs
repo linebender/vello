@@ -23,7 +23,7 @@ fn with_transform<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
 
 #[vello_bench]
 fn no_transform<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
-    base(b, fine, Affine::IDENTITY)
+    base(b, fine, Affine::IDENTITY);
 }
 
 fn base<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>, transform: Affine) {

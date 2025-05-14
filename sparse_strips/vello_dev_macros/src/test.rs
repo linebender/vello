@@ -129,8 +129,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 use crate::util::{
                     check_ref, get_ctx
                 };
-                use vello_cpu::RenderContext;
-                use vello_common::RenderMode;
+                use vello_cpu::{RenderContext, RenderMode};
 
                 let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
                 #input_fn_name(&mut ctx);
@@ -170,7 +169,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 check_ref, get_ctx
             };
             use vello_hybrid::Scene;
-            use vello_common::RenderMode;
+            use vello_cpu::RenderMode;
 
             let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);

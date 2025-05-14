@@ -50,5 +50,5 @@ fn strip_single<F: FineType>(
         fine.strip(0, width, &alphas, paint, default_blend(), encoded_paints);
 
         std::hint::black_box(&fine);
-    })
+    });
 }

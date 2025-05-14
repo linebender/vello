@@ -75,17 +75,17 @@ mod extend {
 
     #[vello_bench]
     pub(super) fn pad<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
-        extend(b, fine, peniko::Extend::Pad)
+        extend(b, fine, peniko::Extend::Pad);
     }
 
     #[vello_bench]
     pub(super) fn reflect<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
-        extend(b, fine, peniko::Extend::Reflect)
+        extend(b, fine, peniko::Extend::Reflect);
     }
 
     #[vello_bench]
     pub(super) fn repeat<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
-        extend(b, fine, peniko::Extend::Repeat)
+        extend(b, fine, peniko::Extend::Repeat);
     }
 }
 

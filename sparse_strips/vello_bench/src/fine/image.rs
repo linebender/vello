@@ -71,7 +71,7 @@ mod quality {
 
     fn quality_base<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>, quality: ImageQuality) {
         let im = get_colr_image(peniko::Extend::Pad, quality);
-        image_base(b, fine, im, Affine::scale(3.0))
+        image_base(b, fine, im, Affine::scale(3.0));
     }
 
     #[vello_bench]
@@ -104,13 +104,13 @@ mod transform {
     #[vello_bench]
     fn none<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
         let im = get_colr_image(peniko::Extend::Pad, ImageQuality::Low);
-        image_base(b, fine, im, Affine::IDENTITY)
+        image_base(b, fine, im, Affine::IDENTITY);
     }
 
     #[vello_bench]
     fn scale<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
         let im = get_colr_image(peniko::Extend::Pad, ImageQuality::Low);
-        image_base(b, fine, im, Affine::scale(3.0))
+        image_base(b, fine, im, Affine::scale(3.0));
     }
 
     #[vello_bench]
