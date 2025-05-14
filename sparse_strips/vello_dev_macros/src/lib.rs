@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 #![allow(rustdoc::private_intra_doc_links, reason = "not a public-facing crate")]
+#![allow(rustdoc::broken_intra_doc_links, reason = "not a public-facing crate")]
 
 //! Proc-macros for testing `vello_cpu` and `vello_hybrid`.
 
@@ -51,7 +52,7 @@ impl Parse for Attribute {
 }
 
 /// Create a new Vello snapshot test.
-/// See [`crate::test::Arguments`] for documentation of the arguments, which are comma-separated.
+/// See [`test::Arguments`] for documentation of the arguments, which are comma-separated.
 /// Boolean flags are set on their own, and others are in the form of key-value pairs.
 ///
 /// ## Example
