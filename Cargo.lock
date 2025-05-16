@@ -1596,6 +1596,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "native_webgl"
+version = "0.5.0"
+dependencies = [
+ "console_error_panic_hook",
+ "console_log",
+ "js-sys",
+ "log",
+ "vello_common",
+ "vello_hybrid",
+ "vello_hybrid_scenes",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "ndk"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

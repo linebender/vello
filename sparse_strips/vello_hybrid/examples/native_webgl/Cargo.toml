@@ -1,0 +1,40 @@
+[package]
+name = "native_webgl"
+version.workspace = true
+description = "An example showing Vello Hybrid using the WebGL2 renderer backend."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+console_error_panic_hook = "0.1.7"
+console_log = "1.0"
+js-sys = "0.3.77"
+log = { workspace = true }
+vello_common = { workspace = true }
+vello_hybrid = { workspace = true, features = ["webgl"] }
+vello_hybrid_scenes = { workspace = true }
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4.50"
+web-sys = { version = "0.3.77", features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlCanvasElement",
+    "CssStyleDeclaration",
+    "WebGl2RenderingContext",
+    "MouseEvent",
+    "WheelEvent",
+    "KeyboardEvent",
+] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.50"
