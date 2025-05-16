@@ -3246,6 +3246,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vello_hybrid_shaders"
+version = "0.0.1"
+dependencies = [
+ "naga",
+]
+
+[[package]]
 name = "vello_hybrid_winit"
 version = "0.0.0"
 dependencies = [
