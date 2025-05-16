@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 /// [`naga::back::glsl::ReflectionInfo`], mapping the wgsl variable names to the generated glsl
 /// names.
 #[derive(Debug)]
-pub struct ReflectionMap<S: AsRef<str> = String> {
+pub(crate) struct ReflectionMap<S: AsRef<str> = String> {
     /// Mapping of wgsl texture identifier to the generated glsl identifier.
     // TODO: It may make sense to pass through the sampler type. E.g. `sampler2D` or `usampler2D`.
     pub texture_mapping: BTreeMap<S, S>,
@@ -56,31 +56,24 @@ impl ReflectionMap {
     /// Output the code to construct this instance of a `ReflectionMap`.
     pub(crate) fn to_generated_code(&self, name: &str) -> String {
         let mut generated_code = String::new();
-        generated_code.push_str(&format!(
-            "fn {}() -> ReflectionMap<&'static str> {{\n",
-            name
-        ));
-        generated_code
-            .push_str("  let mut uniforms = alloc::collections::btree_map::BTreeMap::new();\n");
+        generated_code.push_str(
+            format!("pub struct {} {{\n}}\n", name).as_str(),
+        );
+        generated_code.push_str(
+            format!("impl {} {{\n", name).as_str(),
+        );
         for (wgsl_name, glsl_name) in &self.uniforms {
             generated_code.push_str(&format!(
-                "  uniforms.insert(\"{}\", \"{}\");\n",
-                wgsl_name, glsl_name
+                "\t pub const {}_UNIFORM: &'static str = \"{}\";\n",
+                wgsl_name.to_uppercase(), glsl_name
             ));
         }
-        generated_code.push_str(
-            "  let mut texture_mapping = alloc::collections::btree_map::BTreeMap::new();\n",
-        );
         for (wgsl_name, glsl_name) in &self.texture_mapping {
             generated_code.push_str(&format!(
-                "  texture_mapping.insert(\"{}\", \"{}\");\n",
-                wgsl_name, glsl_name
+                "\t pub const {}_TEXTURE: &'static str = \"{}\";\n",
+                wgsl_name.to_uppercase(), glsl_name
             ));
         }
-        generated_code.push_str("  ReflectionMap {\n");
-        generated_code.push_str("    uniforms,\n");
-        generated_code.push_str("    texture_mapping,\n");
-        generated_code.push_str("  }\n");
         generated_code.push_str("}\n");
 
         generated_code
@@ -110,10 +103,8 @@ impl CompiledGlsl {
     /// Output the code to construct this instance.
     pub(crate) fn to_generated_code(&self, name: &str) -> String {
         let mut generated_code = String::new();
-        generated_code.push_str(&format!("fn {}() -> CompiledGlsl<&'static str> {{\n", name));
-
         // Generate vertex reflection map function.
-        let vertex_reflection_name = format!("{}_vertex_reflection", name);
+        let vertex_reflection_name = "Vertex";
         generated_code.push_str(
             &self
                 .vertex
@@ -123,7 +114,7 @@ impl CompiledGlsl {
         generated_code.push('\n');
 
         // Generate fragment reflection map function.
-        let fragment_reflection_name = format!("{}_fragment_reflection", name);
+        let fragment_reflection_name = "Fragment";
         generated_code.push_str(
             &self
                 .fragment
@@ -132,33 +123,13 @@ impl CompiledGlsl {
         );
         generated_code.push('\n');
 
-        // Generate the main function to construct CompiledGlsl.
-        generated_code.push_str("    let vertex = Stage {\n");
-        generated_code.push_str("      source: r###\"");
+        generated_code.push_str("      pub const VERTEX_SOURCE: &'static str = r###\"");
         generated_code.push_str(&self.vertex.source);
-        generated_code.push_str("\n\"###,\n");
-        generated_code.push_str(&format!(
-            "    reflection_map: {}(),\n",
-            vertex_reflection_name
-        ));
-        generated_code.push_str("  };\n\n");
+        generated_code.push_str("\n\"###;\n");
 
-        generated_code.push_str("    let fragment = Stage {\n");
-        generated_code.push_str("      source: r###\"");
+        generated_code.push_str("      pub const FRAGMENT_SOURCE: &'static str = r###\"");
         generated_code.push_str(&self.fragment.source);
-        generated_code.push_str("\n\"###,\n");
-        generated_code.push_str(&format!(
-            "      reflection_map: {}(),\n",
-            fragment_reflection_name
-        ));
-        generated_code.push_str("    };\n\n");
-
-        // Return the CompiledGlsl instance.
-        generated_code.push_str("    CompiledGlsl {\n");
-        generated_code.push_str("      vertex,\n");
-        generated_code.push_str("      fragment,\n");
-        generated_code.push_str("    }\n");
-        generated_code.push_str("}\n");
+        generated_code.push_str("\n\"###;\n");
 
         generated_code
     }
@@ -350,4 +321,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Assert the generated code matches the expected output
         assert_eq!(generated_code, expected_code);
     }
+}
+
+pub(crate) fn snake_to_pascal(input: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize_next = true;
+    
+    for c in input.chars() {
+        if c == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(c.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            result.push(c);
+        }
+    }
+    
+    result
 }
