@@ -3227,11 +3227,14 @@ name = "vello_hybrid"
 version = "0.5.0"
 dependencies = [
  "bytemuck",
+ "js-sys",
  "png",
  "pollster",
  "roxmltree",
  "thiserror 2.0.12",
  "vello_common",
+ "vello_hybrid_shaders",
+ "web-sys",
  "wgpu",
 ]
 
