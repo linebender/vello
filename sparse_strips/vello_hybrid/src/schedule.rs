@@ -170,7 +170,13 @@
 //!
 //! [Zulip thread]: https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/Spatiotemporal.20allocation.20.28hybrid.29/near/513442829
 
-use crate::{GpuStrip, RenderError, Scene, render::RendererJunk};
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "We temporarily ignore those because the casts\
+only break in edge cases, and some of them are also only related to conversions from f64 to f32."
+)]
+
+use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::mem;
@@ -179,6 +185,24 @@ use vello_common::{
     paint::Paint,
     tile::Tile,
 };
+
+/// Trait for abstracting the renderer backend from the scheduler.
+pub(crate) trait RendererBackend {
+    /// Clear specific slots in a texture.
+    fn clear_slots(&mut self, texture_index: usize, slots: &[u32]);
+
+    /// Execute a render pass for strips.
+    fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp);
+}
+
+/// Backend agnostic enum that specifies the operation to perform to the output attachment at the
+/// start of a render pass:
+///  - `LoadOp::Load` is equivalent to `wgpu::LoadOp::Load`
+///  - `LoadOp::Clear` is equivalent `wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)`
+pub(crate) enum LoadOp {
+    Load,
+    Clear,
+}
 
 #[derive(Debug)]
 pub(crate) struct Scheduler {
@@ -239,9 +263,9 @@ impl Scheduler {
         }
     }
 
-    pub(crate) fn do_scene(
+    pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
-        junk: &mut RendererJunk<'_>,
+        renderer: &mut R,
         scene: &Scene,
     ) -> Result<(), RenderError> {
         let mut tile_state = mem::take(&mut self.tile_state);
@@ -255,11 +279,17 @@ impl Scheduler {
                 let wide_tile = &scene.wide.tiles[wide_tile_idx];
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
-                self.do_tile(junk, wide_tile_x, wide_tile_y, wide_tile, &mut tile_state)?;
+                self.do_tile(
+                    renderer,
+                    wide_tile_x,
+                    wide_tile_y,
+                    wide_tile,
+                    &mut tile_state,
+                )?;
             }
         }
         while !self.rounds_queue.is_empty() {
-            self.flush(junk);
+            self.flush(renderer);
         }
 
         // Restore state to reuse allocations.
@@ -283,7 +313,7 @@ impl Scheduler {
     /// Flush one round.
     ///
     /// The rounds queue must not be empty.
-    fn flush(&mut self, junk: &mut RendererJunk<'_>) {
+    fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
         let round = self.rounds_queue.pop_front().unwrap();
         for (i, draw) in round.draws.iter().enumerate() {
             if draw.0.is_empty() {
@@ -293,20 +323,20 @@ impl Scheduler {
             let load = {
                 if i == 2 {
                     // We're rendering to the view, don't clear.
-                    wgpu::LoadOp::Load
+                    LoadOp::Load
                 } else if self.clear[i].len() + self.free[i].len() == self.total_slots {
                     // All slots are either unoccupied or need to be cleared.
                     // Simply clear the slots via a load operation.
                     self.clear[i].clear();
-                    wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                    LoadOp::Clear
                 } else {
                     // Some slots need to be preserved, so only clear the dirty slots.
-                    junk.do_clear_slots_render_pass(i, self.clear[i].as_slice());
+                    renderer.clear_slots(i, self.clear[i].as_slice());
                     self.clear[i].clear();
-                    wgpu::LoadOp::Load
+                    LoadOp::Load
                 }
             };
-            junk.do_strip_render_pass(&draw.0, i, load);
+            renderer.render_strips(&draw.0, i, load);
         }
         for i in 0..2 {
             self.free[i].extend(&round.free[i]);
@@ -330,9 +360,9 @@ impl Scheduler {
     }
 
     /// Iterates over wide tile commands and schedules them for rendering.
-    fn do_tile(
+    fn do_tile<R: RendererBackend>(
         &mut self,
-        junk: &mut RendererJunk<'_>,
+        renderer: &mut R,
         wide_tile_x: u16,
         wide_tile_y: u16,
         tile: &WideTile,
@@ -424,7 +454,7 @@ impl Scheduler {
                         if self.rounds_queue.is_empty() {
                             return Err(RenderError::SlotsExhausted);
                         }
-                        self.flush(junk);
+                        self.flush(renderer);
                     }
                     let slot_ix = self.free[ix].pop().unwrap();
                     self.clear[ix].push(slot_ix as u32);
