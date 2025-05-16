@@ -18,10 +18,35 @@ workspace = true
 bytemuck = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 vello_common = { workspace = true, features = ["std"] }
-wgpu = { workspace = true }
+wgpu = { workspace = true, optional = true }
+vello_hybrid_shaders = { workspace = true, optional = true }
+
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "0.3.77", optional = true }
+web-sys = { version = "0.3.77", features = [
+    "HtmlCanvasElement",
+    "WebGl2RenderingContext",
+    "WebGlProgram",
+    "WebGlUniformLocation",
+    "WebGlBuffer",
+    "WebGlShader",
+    "WebGlTexture",
+    "WebGlFramebuffer",
+    "WebGlVertexArrayObject",
+], optional = true }
+
+[[example]]
+name = "render_to_file"
+required-features = ["wgpu"]
 
 [dev-dependencies]
 png = { workspace = true }
 pollster = { workspace = true }
 vello_common = { workspace = true, features = ["pico_svg"] }
 roxmltree = "0.20.0"
+
+[features]
+default = ["wgpu"]
+wgpu = ["dep:wgpu"]
+webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_hybrid_shaders"]

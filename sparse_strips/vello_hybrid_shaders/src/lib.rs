@@ -1,0 +1,11 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! This is a utility library to help integrate `vello_hybrid` WebGPU wgsl shaders into glsl.
+
+mod compile;
+pub mod types;
+
+extern crate alloc;
+
+include!(concat!(env!("OUT_DIR"), "/compiled_shaders.rs"));
