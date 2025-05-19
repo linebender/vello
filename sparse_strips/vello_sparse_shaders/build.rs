@@ -17,6 +17,7 @@ mod types;
 
 use compile::compile_wgsl_shader;
 
+// TODO: Format the generated code via `rustfmt`.
 // TODO: Use `quote` instead of string concatenation to generate code.
 fn main() {
     // Rerun build if the shaders directory changes
