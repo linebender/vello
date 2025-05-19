@@ -1,9 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Backend agnostic render module.
-//!
-//! For backend specific render code see `render_wgpu` or `render_webgl`.
+//! Backend agnostic renderer module.
 
 use bytemuck::{Pod, Zeroable};
 

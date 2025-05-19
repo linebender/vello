@@ -1,5 +1,5 @@
 [package]
-name = "vello_hybrid_shaders"
+name = "vello_sparse_shaders"
 # When updating, also update the version in the workspace dependency in the root Cargo.toml
 version = "0.0.1"
 description = "Provide compilation of wgsl to glsl to support the WebGL `vello_hybrid` backend."

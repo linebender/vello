@@ -7,7 +7,7 @@
 mod wasm {
     use vello_common::peniko::{color::palette, kurbo::BezPath};
     use wasm_bindgen_test::*;
-    use webgl::render_scene;
+    use wgpu_webgl::render_scene;
 
     wasm_bindgen_test_configure!(run_in_browser);
 

@@ -4,7 +4,7 @@ Uses Vello Hybrid with a native WebGL2 backend in the browser. This example does
 
 ## Development
 
-Run with `cargo run_wasm -p native_webgl`.
+Run with `cargo run_wasm -p native_webgl --release`.
 
 ## Testing
 

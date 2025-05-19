@@ -1,6 +1,6 @@
 <div align="center">
 
-# Vello Hybrid Shaders
+# Vello Sparse Shaders
 
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
 \
@@ -15,6 +15,7 @@ Vello Hybrid renderer.
 ## Features
 - Single source of truth authored WGSL programs.
 - Automated build step for compiling GLSL shaders using [naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga).
+
 ## Usage
 This crate provides the WGSL programs and build step for GLSL programs that are used by the
 optimized hybrid rendering engine.

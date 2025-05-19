@@ -31,8 +31,8 @@ use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::{fmt::Debug, mem};
 use vello_common::{coarse::WideTile, tile::Tile};
-use vello_hybrid_shaders::shaders::{clear_slots, render_strips};
-use vello_hybrid_shaders::types::ReflectionMap;
+use vello_sparse_shaders::shaders::{clear_slots, render_strips};
+use vello_sparse_shaders::types::ReflectionMap;
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
@@ -68,8 +68,7 @@ impl WebGlRenderer {
         //      blit onto the  default framebuffer reflected to fix the flipped Y axis.
         // Anti-aliasing causes the blit operation to fail.
         let context_options = js_sys::Object::new();
-        js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE)
-            .expect("Cannot create context options");
+        js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
 
         let gl = canvas
             .get_context_with_context_options("webgl2", &context_options)
@@ -105,6 +104,7 @@ impl WebGlRenderer {
             WebGl2RenderingContext::READ_FRAMEBUFFER,
             Some(&self.programs.resources.view_framebuffer),
         );
+        #[cfg(debug_assertions)]
         {
             let status = self
                 .gl
@@ -115,8 +115,11 @@ impl WebGlRenderer {
                 "read framebuffer not complete"
             );
         }
+
         self.gl
             .bind_framebuffer(WebGl2RenderingContext::DRAW_FRAMEBUFFER, None);
+
+        #[cfg(debug_assertions)]
         {
             let status = self
                 .gl
@@ -167,7 +170,7 @@ struct WebGlPrograms {
     clear_program: WebGlProgram,
     /// Uniform locations for the `clear_program`.
     clear_uniforms: ClearUniforms,
-    /// WebGL resources for rendering (created during prepare).
+    /// WebGL resources for rendering.
     resources: WebGlResources,
     /// Dimensions of the rendering target.
     render_size: RenderSize,
@@ -204,8 +207,6 @@ struct WebGlResources {
     strips_buffer: WebGlBuffer,
     /// Texture for alpha values (used by both view and slot rendering).
     alphas_texture: WebGlTexture,
-    /// Width of alpha texture.
-    alpha_texture_width: u32,
     /// Height of alpha texture.
     alpha_texture_height: u32,
 
@@ -230,6 +231,10 @@ struct WebGlResources {
     slot_textures: [WebGlTexture; 2],
     /// Framebuffers for slot textures.
     slot_framebuffers: [WebGlFramebuffer; 2],
+
+    /// Cached result from querying `WebGl2RenderingContext::MAX_TEXTURE_SIZE` which is a blocking
+    /// WebGL call.
+    max_texture_dimension_2d: u32,
 }
 
 /// Config for the clear slots pipeline.
@@ -271,8 +276,7 @@ impl WebGlPrograms {
         initialize_strip_vao(&gl, &resources);
         initialize_clear_vao(&gl, &resources);
 
-        let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
-        let alpha_data = vec![0; (max_texture_dimension_2d << 4) as usize];
+        let alpha_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
 
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(
@@ -296,7 +300,8 @@ impl WebGlPrograms {
 
     /// Prepare resources for rendering.
     fn prepare(&mut self, gl: &WebGl2RenderingContext, alphas: &[u8], render_size: &RenderSize) {
-        let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
+        let max_texture_dimension_2d = self.resources.max_texture_dimension_2d;
+        let alpha_texture_width = max_texture_dimension_2d;
 
         // Update the alpha texture size if needed.
         {
@@ -313,8 +318,7 @@ impl WebGlPrograms {
                 );
 
                 // Resize the alpha texture staging buffer.
-                let required_alpha_size =
-                    (self.resources.alpha_texture_width * required_alpha_height) << 4;
+                let required_alpha_size = (alpha_texture_width * required_alpha_height) << 4;
                 self.alpha_data.resize(required_alpha_size as usize, 0);
 
                 // Track the new height.
@@ -333,16 +337,14 @@ impl WebGlPrograms {
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                 };
 
-                let config_data = bytemuck::bytes_of(&config);
-                let config_array = js_sys::Uint8Array::from(config_data);
-
                 gl.bind_buffer(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     Some(&self.resources.view_config_buffer),
                 );
-                gl.buffer_data_with_array_buffer_view(
+                let config_data = bytemuck::bytes_of(&config);
+                gl.buffer_data_with_u8_array(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
-                    &config_array,
+                    config_data,
                     WebGl2RenderingContext::STATIC_DRAW,
                 );
             }
@@ -357,16 +359,14 @@ impl WebGlPrograms {
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                 };
 
-                let slot_config_data = bytemuck::bytes_of(&slot_config);
-                let slot_config_array = js_sys::Uint8Array::from(slot_config_data);
-
                 gl.bind_buffer(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     Some(&self.resources.slot_config_buffer),
                 );
-                gl.buffer_data_with_array_buffer_view(
+                let slot_config_data = bytemuck::bytes_of(&slot_config);
+                gl.buffer_data_with_u8_array(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
-                    &slot_config_array,
+                    slot_config_data,
                     WebGl2RenderingContext::STATIC_DRAW,
                 );
             }
@@ -382,16 +382,14 @@ impl WebGlPrograms {
                     _padding: 0,
                 };
 
-                let clear_config_data = bytemuck::bytes_of(&clear_config);
-                let clear_config_array = js_sys::Uint8Array::from(clear_config_data);
-
                 gl.bind_buffer(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     Some(&self.resources.clear_config_buffer),
                 );
-                gl.buffer_data_with_array_buffer_view(
+                let clear_config_data = bytemuck::bytes_of(&clear_config);
+                gl.buffer_data_with_u8_array(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
-                    &clear_config_array,
+                    clear_config_data,
                     WebGl2RenderingContext::STATIC_DRAW,
                 );
             }
@@ -412,18 +410,17 @@ impl WebGlPrograms {
                 WebGl2RenderingContext::UNSIGNED_BYTE,
                 None,
             )
-            .expect("Failed to resize view texture");
+            .unwrap();
 
             self.render_size = render_size.clone();
         }
 
         // Process alpha data for texture
         if !alphas.is_empty() {
-            let texture_width = self.resources.alpha_texture_width;
-            let texture_height = self.resources.alpha_texture_height;
+            let alpha_texture_height = self.resources.alpha_texture_height;
 
             debug_assert!(
-                alphas.len() <= (texture_width * texture_height * 16) as usize,
+                alphas.len() <= (alpha_texture_width * alpha_texture_height * 16) as usize,
                 "Alpha texture dimensions are too small to fit the alpha data"
             );
 
@@ -444,14 +441,14 @@ impl WebGlPrograms {
                 WebGl2RenderingContext::TEXTURE_2D,
                 0,
                 WebGl2RenderingContext::RGBA32UI as i32,
-                texture_width as i32,
-                texture_height as i32,
+                alpha_texture_width as i32,
+                alpha_texture_height as i32,
                 0,
                 WebGl2RenderingContext::RGBA_INTEGER,
                 WebGl2RenderingContext::UNSIGNED_INT,
                 Some(&packed_array),
             )
-            .expect("Failed to write alpha texture");
+            .unwrap();
         }
 
         // Clear the view framebuffer.
@@ -475,13 +472,10 @@ impl WebGlPrograms {
             WebGl2RenderingContext::ARRAY_BUFFER,
             Some(&self.resources.strips_buffer),
         );
-
         let strips_data = bytemuck::cast_slice(strips);
-        let strips_array = js_sys::Uint8Array::from(strips_data);
-
-        gl.buffer_data_with_array_buffer_view(
+        gl.buffer_data_with_u8_array(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            &strips_array,
+            strips_data,
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
     }
@@ -496,7 +490,7 @@ fn create_shader_program(
     // Compile vertex shader.
     let vertex_shader = gl
         .create_shader(WebGl2RenderingContext::VERTEX_SHADER)
-        .expect("Failed to create vertex shader");
+        .unwrap();
     gl.shader_source(&vertex_shader, vertex_src);
     gl.compile_shader(&vertex_shader);
 
@@ -514,7 +508,7 @@ fn create_shader_program(
     // Compile fragment shader.
     let fragment_shader = gl
         .create_shader(WebGl2RenderingContext::FRAGMENT_SHADER)
-        .expect("Failed to create fragment shader");
+        .unwrap();
     gl.shader_source(&fragment_shader, fragment_src);
     gl.compile_shader(&fragment_shader);
 
@@ -530,7 +524,7 @@ fn create_shader_program(
     }
 
     // Create and link the program.
-    let program = gl.create_program().expect("Failed to create program");
+    let program = gl.create_program().unwrap();
     gl.attach_shader(&program, &vertex_shader);
     gl.attach_shader(&program, &fragment_shader);
     gl.link_program(&program);
@@ -625,29 +619,17 @@ fn get_clear_uniforms(
 
 /// Create all WebGL resources needed for rendering.
 fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> WebGlResources {
-    let strip_vao = gl
-        .create_vertex_array()
-        .expect("Failed to create strip VAO");
-    let clear_vao = gl
-        .create_vertex_array()
-        .expect("Failed to create clear VAO");
+    let strip_vao = gl.create_vertex_array().unwrap();
+    let clear_vao = gl.create_vertex_array().unwrap();
 
-    let strips_buffer = gl.create_buffer().expect("Failed to create strips buffer");
-    let view_config_buffer = gl
-        .create_buffer()
-        .expect("Failed to create view config buffer");
-    let slot_config_buffer = gl
-        .create_buffer()
-        .expect("Failed to create slot config buffer");
-    let clear_slot_indices_buffer = gl
-        .create_buffer()
-        .expect("Failed to create clear slot indices buffer");
-    let clear_config_buffer = gl
-        .create_buffer()
-        .expect("Failed tocreate clear config buffer");
+    let strips_buffer = gl.create_buffer().unwrap();
+    let view_config_buffer = gl.create_buffer().unwrap();
+    let slot_config_buffer = gl.create_buffer().unwrap();
+    let clear_slot_indices_buffer = gl.create_buffer().unwrap();
+    let clear_config_buffer = gl.create_buffer().unwrap();
 
     // Create and configure alpha texture.
-    let alphas_texture = gl.create_texture().expect("Failed to create alpha texture");
+    let alphas_texture = gl.create_texture().unwrap();
     {
         gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&alphas_texture));
@@ -674,7 +656,7 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> Web
     }
 
     // Create and configure view texture.
-    let view_texture = gl.create_texture().expect("Failed to create view texture");
+    let view_texture = gl.create_texture().unwrap();
     {
         gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&view_texture));
@@ -713,12 +695,13 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> Web
         create_framebuffer_for_texture(gl, &slot_textures[1]),
     ];
 
+    let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
+
     WebGlResources {
         strip_vao,
         strips_buffer,
         alphas_texture,
         alpha_texture_height: 0,
-        alpha_texture_width: get_max_texture_dimension_2d(gl),
         view_config_buffer,
         slot_config_buffer,
         clear_slot_indices_buffer,
@@ -728,12 +711,13 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> Web
         slot_framebuffers,
         view_texture,
         view_framebuffer,
+        max_texture_dimension_2d,
     }
 }
 
 /// Create a texture for slot rendering.
 fn create_slot_texture(gl: &WebGl2RenderingContext, slot_count: usize) -> WebGlTexture {
-    let texture = gl.create_texture().expect("Failed to create slot texture");
+    let texture = gl.create_texture().unwrap();
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
     gl.tex_parameteri(
@@ -773,7 +757,7 @@ fn create_slot_texture(gl: &WebGl2RenderingContext, slot_count: usize) -> WebGlT
         WebGl2RenderingContext::UNSIGNED_BYTE,
         None,
     )
-    .expect("Failed to allocate slot texture");
+    .unwrap();
 
     texture
 }
@@ -783,9 +767,7 @@ fn create_framebuffer_for_texture(
     gl: &WebGl2RenderingContext,
     texture: &WebGlTexture,
 ) -> WebGlFramebuffer {
-    let framebuffer = gl
-        .create_framebuffer()
-        .expect("Failed to create framebuffer");
+    let framebuffer = gl.create_framebuffer().unwrap();
     gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
 
     gl.framebuffer_texture_2d(
@@ -897,8 +879,8 @@ impl WebGlRendererContext<'_> {
             );
             // Set viewport to match slot framebuffer.
             // TODO: Remove the slot height texture calculation.
-            let total_slots: usize =
-                (get_max_texture_dimension_2d(self.gl) / u32::from(Tile::HEIGHT)) as usize;
+            let total_slots: usize = (self.programs.resources.max_texture_dimension_2d
+                / u32::from(Tile::HEIGHT)) as usize;
             // Set viewport to match slot texture.
             let height = u32::from(Tile::HEIGHT) * total_slots as u32;
             self.gl
@@ -974,11 +956,10 @@ impl WebGlRendererContext<'_> {
             WebGl2RenderingContext::ARRAY_BUFFER,
             Some(&self.programs.resources.clear_slot_indices_buffer),
         );
-
-        let slot_indices_array = js_sys::Uint32Array::from(slot_indices);
-        self.gl.buffer_data_with_array_buffer_view(
+        let slot_indices_data = bytemuck::cast_slice(slot_indices);
+        self.gl.buffer_data_with_u8_array(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            &slot_indices_array,
+            slot_indices_data,
             WebGl2RenderingContext::STATIC_DRAW,
         );
 
@@ -989,7 +970,7 @@ impl WebGlRendererContext<'_> {
         );
         // TODO: Remove the slot height texture calculation.
         let total_slots: usize =
-            (get_max_texture_dimension_2d(self.gl) / u32::from(Tile::HEIGHT)) as usize;
+            (self.programs.resources.max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let height = u32::from(Tile::HEIGHT) * total_slots as u32;
         self.gl
             .viewport(0, 0, i32::from(WideTile::WIDTH), height as i32);

@@ -331,7 +331,7 @@ jobs:
 
       - name: check vello_hybrid is webgl compatible
         run: wasm-pack test --headless --chrome
-        working-directory: sparse_strips/vello_hybrid/examples/webgl
+        working-directory: sparse_strips/vello_hybrid/examples/wgpu_webgl
 
 
   check-stable-android:

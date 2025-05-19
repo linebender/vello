@@ -22,7 +22,7 @@ This directory contains the core crates for the Vello rendering. Each crate serv
 - **`vello_common`** – Provides shared data structures and utilities for rendering.
 - **`vello_cpu`** – Implements a CPU-based renderer optimized for multithreading and SIMD.
 - **`vello_hybrid`** – A hybrid CPU/GPU renderer, balancing workload between CPU and GPU.
-- **`vello_hybrid_shaders`** – Provide compilation of wgsl to glsl to support the WebGL `vello_hybrid` backend.
+- **`vello_sparse_shaders`** – Provide compilation of wgsl to glsl to support the WebGL `vello_hybrid` backend.
 
 ## Development Status
 

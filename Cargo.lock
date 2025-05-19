@@ -3250,7 +3250,7 @@ dependencies = [
  "roxmltree",
  "thiserror 2.0.12",
  "vello_common",
- "vello_hybrid_shaders",
+ "vello_sparse_shaders",
  "web-sys",
  "wgpu",
 ]
@@ -3263,13 +3263,6 @@ dependencies = [
  "parley",
  "vello_common",
  "vello_hybrid",
-]
-
-[[package]]
-name = "vello_hybrid_shaders"
-version = "0.0.1"
-dependencies = [
- "naga",
 ]
 
 [[package]]
@@ -3292,6 +3285,13 @@ dependencies = [
  "naga",
  "thiserror 2.0.12",
  "vello_encoding",
+]
+
+[[package]]
+name = "vello_sparse_shaders"
+version = "0.0.1"
+dependencies = [
+ "naga",
 ]
 
 [[package]]
@@ -3723,24 +3723,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "webgl"
-version = "0.5.0"
-dependencies = [
- "console_error_panic_hook",
- "console_log",
- "js-sys",
- "log",
- "vello_common",
- "vello_hybrid",
- "vello_hybrid_scenes",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
- "wgpu",
-]
-
-[[package]]
 name = "wgpu"
 version = "24.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3858,6 +3840,24 @@ dependencies = [
  "js-sys",
  "log",
  "web-sys",
+]
+
+[[package]]
+name = "wgpu_webgl"
+version = "0.5.0"
+dependencies = [
+ "console_error_panic_hook",
+ "console_log",
+ "js-sys",
+ "log",
+ "vello_common",
+ "vello_hybrid",
+ "vello_hybrid_scenes",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+ "wgpu",
 ]
 
 [[package]]

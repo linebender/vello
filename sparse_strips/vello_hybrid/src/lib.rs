@@ -24,14 +24,8 @@
 //! The renderer is split into several key components:
 //!
 //! - `Scene`: Manages the render context and path processing on the CPU
-//! - `Renderer`: Handles GPU resource management and executes draw operations
+//! - `Renderer` or `WebGlRenderer`: Handles GPU resource management and executes draw operations
 //! - `Scheduler`: Manages and schedules draw operations on the renderer.
-//!
-//! ## Renderer Backends
-//!
-//! - `render_wgpu` contains the default renderer backend, leveraging `wgpu`.
-//! - `render_webgl` contains a WebGL2 backend specifically for `wasm32` if the `webgl` feature is
-//!   active.
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
@@ -40,21 +34,16 @@
 extern crate alloc;
 
 mod render;
-#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-mod render_webgl;
-#[cfg(feature = "wgpu")]
-mod render_wgpu;
-
 mod scene;
 #[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
 mod schedule;
 pub mod util;
 
-pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-pub use render_webgl::WebGlRenderer;
+pub use render::WebGlRenderer;
+pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(feature = "wgpu")]
-pub use render_wgpu::{RenderTargetConfig, Renderer};
+pub use render::{RenderTargetConfig, Renderer};
 pub use scene::Scene;
 pub use util::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;

@@ -17,6 +17,8 @@ mod types;
 
 use compile::compile_wgsl_shader;
 
+// TODO: Format the generated code via `rustfmt`.
+// TODO: Use `quote` instead of string concatenation to generate code.
 fn main() {
     // Rerun build if the shaders directory changes
     println!("cargo:rerun-if-changed=shaders");
@@ -58,7 +60,7 @@ fn main() {
 fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, String)]) {
     writeln!(
         buf,
-        "// Generated code by `vello_hybrid_shaders` - DO NOT EDIT"
+        "// Generated code by `vello_sparse_shaders` - DO NOT EDIT"
     )
     .unwrap();
     writeln!(
