@@ -4,8 +4,6 @@
 //! This is a utility library to help integrate `vello_hybrid` WebGPU wgsl shaders into glsl.
 
 mod compile;
-pub mod types;
-
-extern crate alloc;
+mod types;
 
 include!(concat!(env!("OUT_DIR"), "/compiled_shaders.rs"));

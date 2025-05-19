@@ -31,8 +31,7 @@ use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::{fmt::Debug, mem};
 use vello_common::{coarse::WideTile, tile::Tile};
-use vello_sparse_shaders::shaders::{clear_slots, render_strips};
-use vello_sparse_shaders::types::ReflectionMap;
+use vello_sparse_shaders::{clear_slots, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
@@ -254,22 +253,19 @@ struct ClearSlotsConfig {
 impl WebGlPrograms {
     /// Creates programs and initializes resources.
     fn new(gl: WebGl2RenderingContext, slot_count: usize) -> Self {
-        let strip_glsl = render_strips();
-        let clear_glsl = clear_slots();
-
-        let strip_program =
-            create_shader_program(&gl, strip_glsl.vertex.source, strip_glsl.fragment.source);
-        let clear_program =
-            create_shader_program(&gl, clear_glsl.vertex.source, clear_glsl.fragment.source);
-
-        let strip_uniforms = get_strip_uniforms(
+        let strip_program = create_shader_program(
             &gl,
-            &strip_program,
-            &strip_glsl.vertex.reflection_map,
-            &strip_glsl.fragment.reflection_map,
+            render_strips::VERTEX_SOURCE,
+            render_strips::FRAGMENT_SOURCE,
         );
-        let clear_uniforms =
-            get_clear_uniforms(&gl, &clear_program, &clear_glsl.vertex.reflection_map);
+        let clear_program = create_shader_program(
+            &gl,
+            clear_slots::VERTEX_SOURCE,
+            clear_slots::FRAGMENT_SOURCE,
+        );
+
+        let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
+        let clear_uniforms = get_clear_uniforms(&gl, &clear_program);
 
         let resources = create_webgl_resources(&gl, slot_count);
 
@@ -546,17 +542,12 @@ fn create_shader_program(
     program
 }
 
-/// Get the  uniform locations for the strip program
-fn get_strip_uniforms(
-    gl: &WebGl2RenderingContext,
-    program: &WebGlProgram,
-    vertex_reflection: &ReflectionMap<&'static str>,
-    fragment_reflection: &ReflectionMap<&'static str>,
-) -> StripUniforms {
-    let config_vs_name = vertex_reflection.uniforms.get("config").unwrap();
+/// Get the  uniform locations for the `render_strips` program.
+fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> StripUniforms {
+    let config_vs_name = render_strips::vertex::CONFIG;
     let config_vs_block_index = gl.get_uniform_block_index(program, config_vs_name);
 
-    let config_fs_name = fragment_reflection.uniforms.get("config").unwrap();
+    let config_fs_name = render_strips::fragment::CONFIG;
     let config_fs_block_index = gl.get_uniform_block_index(program, config_fs_name);
 
     debug_assert_ne!(
@@ -575,14 +566,8 @@ fn get_strip_uniforms(
     gl.uniform_block_binding(program, config_fs_block_index, 0);
 
     // Get texture uniform locations.
-    let alphas_texture_name = fragment_reflection
-        .texture_mapping
-        .get("alphas_texture")
-        .unwrap();
-    let clip_input_texture_name = fragment_reflection
-        .texture_mapping
-        .get("clip_input_texture")
-        .unwrap();
+    let alphas_texture_name = render_strips::fragment::ALPHAS_TEXTURE;
+    let clip_input_texture_name = render_strips::fragment::CLIP_INPUT_TEXTURE;
 
     StripUniforms {
         config_vs_block_index,
@@ -596,13 +581,9 @@ fn get_strip_uniforms(
     }
 }
 
-/// Get the uniform locations for the clear program.
-fn get_clear_uniforms(
-    gl: &WebGl2RenderingContext,
-    program: &WebGlProgram,
-    vertex_reflection: &ReflectionMap<&'static str>,
-) -> ClearUniforms {
-    let config_name = vertex_reflection.uniforms.get("config").unwrap();
+/// Get the uniform locations for the `clear_slots` program.
+fn get_clear_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> ClearUniforms {
+    let config_name = clear_slots::vertex::CONFIG;
     let config_block_index = gl.get_uniform_block_index(program, config_name);
 
     debug_assert_ne!(

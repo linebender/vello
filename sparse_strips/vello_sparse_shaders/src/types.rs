@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Types that are shared between the main crate, and the compiled shader file.
+//! Types that are used to build the generated code file.
 
 #![allow(
     dead_code,
@@ -11,16 +11,15 @@
 use naga::{Arena, GlobalVariable, back::glsl::ReflectionInfo};
 use std::collections::BTreeMap;
 
-/// `ReflectionMap` is a simplified and easily construtable derivative of
-/// [`naga::back::glsl::ReflectionInfo`], mapping the wgsl variable names to the generated glsl
-/// names.
+/// `ReflectionMap` is a simplified derivative of [`naga::back::glsl::ReflectionInfo`], mapping the
+/// wgsl variable names to the generated glsl names.
 #[derive(Debug)]
-pub struct ReflectionMap<S: AsRef<str> = String> {
+pub(crate) struct ReflectionMap {
     /// Mapping of wgsl texture identifier to the generated glsl identifier.
     // TODO: It may make sense to pass through the sampler type. E.g. `sampler2D` or `usampler2D`.
-    pub texture_mapping: BTreeMap<S, S>,
+    texture_mapping: BTreeMap<String, String>,
     /// Mapping of wgsl uniform identifier to the generated glsl identifier.
-    pub uniforms: BTreeMap<S, S>,
+    uniforms: BTreeMap<String, String>,
 }
 
 impl ReflectionMap {
@@ -52,122 +51,96 @@ impl ReflectionMap {
             uniforms,
         }
     }
-
-    /// Output the code to construct this instance of a `ReflectionMap`.
-    pub(crate) fn to_generated_code(&self, name: &str) -> String {
-        let mut generated_code = String::new();
-        generated_code.push_str(&format!(
-            "fn {}() -> ReflectionMap<&'static str> {{\n",
-            name
-        ));
-        generated_code
-            .push_str("  let mut uniforms = alloc::collections::btree_map::BTreeMap::new();\n");
-        for (wgsl_name, glsl_name) in &self.uniforms {
-            generated_code.push_str(&format!(
-                "  uniforms.insert(\"{}\", \"{}\");\n",
-                wgsl_name, glsl_name
-            ));
-        }
-        generated_code.push_str(
-            "  let mut texture_mapping = alloc::collections::btree_map::BTreeMap::new();\n",
-        );
-        for (wgsl_name, glsl_name) in &self.texture_mapping {
-            generated_code.push_str(&format!(
-                "  texture_mapping.insert(\"{}\", \"{}\");\n",
-                wgsl_name, glsl_name
-            ));
-        }
-        generated_code.push_str("  ReflectionMap {\n");
-        generated_code.push_str("    uniforms,\n");
-        generated_code.push_str("    texture_mapping,\n");
-        generated_code.push_str("  }\n");
-        generated_code.push_str("}\n");
-
-        generated_code
-    }
 }
 
 #[derive(Debug)]
 /// A glsl vertex or fragment shader stage, with reflection info.
-pub struct Stage<S: AsRef<str> = String> {
+pub(crate) struct Stage {
     /// glsl source code.
-    pub source: S,
+    pub(crate) source: String,
     /// Reflection info from wgsl identifiers to the glsl identifiers.
-    pub reflection_map: ReflectionMap<S>,
+    pub(crate) reflection_map: ReflectionMap,
 }
 
 #[derive(Debug)]
 /// Compiled glsl with reflection info for mapping between the wgsl source of truth and generated
 /// glsl.
-pub struct CompiledGlsl<S: AsRef<str> = String> {
+pub(crate) struct CompiledGlsl {
     /// Vertex stage.
-    pub vertex: Stage<S>,
+    pub(crate) vertex: Stage,
     /// Fragment stage.
-    pub fragment: Stage<S>,
+    pub(crate) fragment: Stage,
 }
 
 impl CompiledGlsl {
-    /// Output the code to construct this instance.
-    pub(crate) fn to_generated_code(&self, name: &str) -> String {
-        let mut generated_code = String::new();
-        generated_code.push_str(&format!("fn {}() -> CompiledGlsl<&'static str> {{\n", name));
+    /// Generate Rust modules that contain vertex and fragment source code. Uniforms and texture
+    /// identifier mappings are also generated from the wgsl identifier to the compiled naga
+    /// identifier.
+    pub(crate) fn to_generated_code(&self, shader_name: &str) -> String {
+        let mut code = format!("/// Compiled glsl for `{shader_name}.wgsl`\n");
+        code.push_str(&format!("pub mod {shader_name} {{\n"));
+        code.push_str(r#"    #![allow(missing_docs, reason="No metadata to generate precise documentation forgenerated code.")]"#);
+        code.push_str("\n\n");
 
-        // Generate vertex reflection map function.
-        let vertex_reflection_name = format!("{}_vertex_reflection", name);
-        generated_code.push_str(
-            &self
-                .vertex
-                .reflection_map
-                .to_generated_code(&vertex_reflection_name),
-        );
-        generated_code.push('\n');
+        code.push_str("    pub const VERTEX_SOURCE: &str = r###\"");
+        code.push_str(&self.vertex.source);
+        code.push_str("\"###;\n\n");
 
-        // Generate fragment reflection map function.
-        let fragment_reflection_name = format!("{}_fragment_reflection", name);
-        generated_code.push_str(
-            &self
-                .fragment
-                .reflection_map
-                .to_generated_code(&fragment_reflection_name),
-        );
-        generated_code.push('\n');
+        // Add Vertex stage identifier mapping if there are any.
+        if self.vertex.reflection_map.uniforms.len()
+            + self.vertex.reflection_map.texture_mapping.len()
+            != 0
+        {
+            code.push_str("    pub mod vertex {\n");
+            for (wgsl_name, glsl_name) in &self.vertex.reflection_map.uniforms {
+                let const_name = wgsl_name.to_uppercase();
+                code.push_str(&format!(
+                    "        pub const {const_name}: &str = \"{glsl_name}\";\n"
+                ));
+            }
 
-        // Generate the main function to construct CompiledGlsl.
-        generated_code.push_str("    let vertex = Stage {\n");
-        generated_code.push_str("      source: r###\"");
-        generated_code.push_str(&self.vertex.source);
-        generated_code.push_str("\n\"###,\n");
-        generated_code.push_str(&format!(
-            "    reflection_map: {}(),\n",
-            vertex_reflection_name
-        ));
-        generated_code.push_str("  };\n\n");
+            for (wgsl_name, glsl_name) in &self.vertex.reflection_map.texture_mapping {
+                let const_name = wgsl_name.to_uppercase();
+                code.push_str(&format!(
+                    "        pub const {const_name}: &str = \"{glsl_name}\";\n"
+                ));
+            }
+            code.push_str("    }\n");
+        }
 
-        generated_code.push_str("    let fragment = Stage {\n");
-        generated_code.push_str("      source: r###\"");
-        generated_code.push_str(&self.fragment.source);
-        generated_code.push_str("\n\"###,\n");
-        generated_code.push_str(&format!(
-            "      reflection_map: {}(),\n",
-            fragment_reflection_name
-        ));
-        generated_code.push_str("    };\n\n");
+        code.push_str("    pub const FRAGMENT_SOURCE: &str = r###\"");
+        code.push_str(&self.fragment.source);
+        code.push_str("\"###;\n");
 
-        // Return the CompiledGlsl instance.
-        generated_code.push_str("    CompiledGlsl {\n");
-        generated_code.push_str("      vertex,\n");
-        generated_code.push_str("      fragment,\n");
-        generated_code.push_str("    }\n");
-        generated_code.push_str("}\n");
+        // Add Fragment stage identifier mapping if there are any.
+        if self.fragment.reflection_map.uniforms.len()
+            + self.fragment.reflection_map.texture_mapping.len()
+            != 0
+        {
+            code.push_str("    pub mod fragment {\n");
+            for (wgsl_name, glsl_name) in &self.fragment.reflection_map.uniforms {
+                let const_name = wgsl_name.to_uppercase();
+                code.push_str(&format!(
+                    "        pub const {const_name}: &str = \"{glsl_name}\";\n"
+                ));
+            }
 
-        generated_code
+            for (wgsl_name, glsl_name) in &self.fragment.reflection_map.texture_mapping {
+                let const_name = wgsl_name.to_uppercase();
+                code.push_str(&format!(
+                    "        pub const {const_name}: &str = \"{glsl_name}\";\n"
+                ));
+            }
+            code.push_str("    }\n");
+        }
+        code.push('}');
+
+        code
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use naga::{
         ShaderStage,
         back::glsl::{self, PipelineOptions, Version},
@@ -310,44 +283,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             result.texture_mapping.get("clip_input_texture"),
             Some(&"_group_0_binding_2_fs".into())
         );
-    }
-
-    #[test]
-    fn test_generating_reflection_map() {
-        let mut texture_mapping = BTreeMap::new();
-        texture_mapping.insert(
-            "alphas_texture".to_string(),
-            "_group_0_binding_0_fs".to_string(),
-        );
-        texture_mapping.insert(
-            "clip_input_texture".to_string(),
-            "_group_0_binding_2_fs".to_string(),
-        );
-
-        let mut uniforms = BTreeMap::new();
-        uniforms.insert("config".to_string(), "Config_block_0Fragment".to_string());
-
-        let reflection_map = ReflectionMap {
-            texture_mapping,
-            uniforms,
-        };
-
-        let generated_code = reflection_map.to_generated_code("gen_reflection");
-
-        let expected_code = r#"fn gen_reflection() -> ReflectionMap<&'static str> {
-  let mut uniforms = alloc::collections::btree_map::BTreeMap::new();
-  uniforms.insert("config", "Config_block_0Fragment");
-  let mut texture_mapping = alloc::collections::btree_map::BTreeMap::new();
-  texture_mapping.insert("alphas_texture", "_group_0_binding_0_fs");
-  texture_mapping.insert("clip_input_texture", "_group_0_binding_2_fs");
-  ReflectionMap {
-    uniforms,
-    texture_mapping,
-  }
-}
-"#;
-
-        // Assert the generated code matches the expected output
-        assert_eq!(generated_code, expected_code);
     }
 }

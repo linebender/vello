@@ -17,7 +17,6 @@ mod types;
 
 use compile::compile_wgsl_shader;
 
-// TODO: Format the generated code via `rustfmt`.
 // TODO: Use `quote` instead of string concatenation to generate code.
 fn main() {
     // Rerun build if the shaders directory changes
@@ -65,46 +64,16 @@ fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, S
     .unwrap();
     writeln!(
         buf,
-        "use crate::types::{{CompiledGlsl, ReflectionMap, Stage}};"
-    )
-    .unwrap();
-    writeln!(
-        buf,
         "/// Build time GLSL shaders derived from wgsl shaders."
     )
     .unwrap();
-    writeln!(buf, "pub mod shaders {{").unwrap();
-    writeln!(
-        buf,
-        r#"    #![allow(unused_mut, reason = "Increases code gen complexity")]"#
-    )
-    .unwrap();
-    writeln!(
-        buf,
-        "    use super::{{CompiledGlsl, ReflectionMap, Stage}};"
-    )
-    .unwrap();
-
-    // Public interface for accessing the CompiledGlsl struct per shader.
-    for (shader_name, _) in shader_infos {
-        writeln!(buf, "    /// Compiled glsl for `{shader_name}.wgsl`").unwrap();
-        writeln!(
-            buf,
-            "    pub fn {shader_name}() -> CompiledGlsl<&'static str> {{"
-        )
-        .unwrap();
-        writeln!(buf, "        {shader_name}_impl()").unwrap();
-        writeln!(buf, "    }}").unwrap();
-    }
 
     // Implementation for creating a CompiledGlsl struct per shader assuming the standard entry
     // names of `vs_main` and `fs_main`.
     for (shader_name, shader_source) in shader_infos {
         let compiled = compile_wgsl_shader(shader_source, "vs_main", "fs_main");
 
-        let generated_code = compiled.to_generated_code(&format!("{shader_name}_impl"));
+        let generated_code = compiled.to_generated_code(shader_name);
         writeln!(buf, "{generated_code}").unwrap();
     }
-
-    writeln!(buf, "}}\n").unwrap();
 }
