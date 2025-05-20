@@ -17,7 +17,7 @@ targets = []
 
 [features]
 default = ["wgsl", "cpu"]
-compile = ["dep:naga", "dep:thiserror", "log"]
+compile = ["dep:naga", "dep:thiserror", "dep:log"]
 
 # Target shading language variants of the vello shaders to link into the library.
 wgsl = []
