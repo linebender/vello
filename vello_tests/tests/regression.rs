@@ -7,7 +7,7 @@ use scenes::ImageCache;
 use vello::{
     AaConfig, Scene,
     kurbo::{Affine, RoundedRect, Stroke},
-    peniko::{ImageQuality, color::palette},
+    peniko::{Extend, ImageQuality, color::palette},
 };
 use vello_tests::{TestParams, smoke_snapshot_test_sync, snapshot_test_sync};
 
@@ -30,13 +30,14 @@ const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/smoke/data_image_roun
 
 /// Test for <https://github.com/linebender/vello/issues/972>
 #[test]
-fn test_data_image_roundtrip() {
+fn test_data_image_roundtrip_extend_pad() {
     let mut scene = Scene::new();
     let mut images = ImageCache::new();
     let image = images
         .from_bytes(0, DATA_IMAGE_PNG)
         .unwrap()
-        .with_quality(ImageQuality::Low);
+        .with_quality(ImageQuality::Low)
+        .with_extend(Extend::Pad);
     scene.draw_image(&image, Affine::IDENTITY);
     let mut params = TestParams::new("data_image_roundtrip", image.width, image.height);
     params.anti_aliasing = AaConfig::Area;
