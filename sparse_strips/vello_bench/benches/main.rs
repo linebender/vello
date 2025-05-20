@@ -16,13 +16,13 @@ criterion_group!(fine_image, fine::image);
 criterion_group!(tile, tile::tile);
 criterion_group!(render_strips, strip::render_strips);
 criterion_main!(
-    tile,
-    render_strips,
-    fine_solid,
-    fine_strip,
-    fine_pack,
+    // tile,
+    // render_strips,
+    // fine_solid,
+    // fine_strip,
+    // fine_pack,
     fine_gradient,
-    fine_rounded_blurred_rect,
-    fine_blend,
-    fine_image
+    // fine_rounded_blurred_rect,
+    // fine_blend,
+    // fine_image
 );

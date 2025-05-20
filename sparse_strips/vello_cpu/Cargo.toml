@@ -19,6 +19,7 @@ targets = []
 [dependencies]
 libm = { version = "0.2.15", optional = true }
 vello_common = { workspace = true }
+bytemuck = "1.23.0"
 
 [features]
 default = ["std", "png"]
@@ -28,6 +29,10 @@ std = ["vello_common/std"]
 libm = ["vello_common/libm", "dep:libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
 png = ["vello_common/png"]
+
+[dev-dependencies]
+smallvec = { workspace = true }
+image = { workspace = true, features = ["png"] }
 
 [lints]
 workspace = true
