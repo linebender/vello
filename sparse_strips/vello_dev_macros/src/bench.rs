@@ -35,12 +35,12 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
                 format!("{}/{}_{}", module, suffix1, suffix2)
             }
 
-            c.bench_function(&get_bench_name(&#input_fn_name_str, "u8"), |b| {
+            c.bench_function(&get_bench_name(&#input_fn_name_str, "u8_scalar"), |b| {
                 let mut fine = Fine::<u8>::new(WideTile::WIDTH, Tile::HEIGHT);
                 #inner_fn_name(b, &mut fine);
             });
 
-            c.bench_function(&get_bench_name(&#input_fn_name_str, "f32"), |b| {
+            c.bench_function(&get_bench_name(&#input_fn_name_str, "f32_scalar"), |b| {
                 let mut fine = Fine::<f32>::new(WideTile::WIDTH, Tile::HEIGHT);
                 #inner_fn_name(b, &mut fine);
             });
