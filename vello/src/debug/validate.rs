@@ -58,7 +58,7 @@ pub(crate) fn validate_line_soup(lines: &[LineSoup]) -> Vec<LineEndpoint> {
         }
     }
     if !points.is_empty() {
-        eprintln!("Unpaired points are present: {:#?}", points);
+        log::warn!("Unpaired points are present: {:#?}", points);
     }
     points.into_iter().collect()
 }

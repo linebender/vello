@@ -13,11 +13,14 @@ mod types;
 
 use std::env;
 use std::fmt::Write;
+use std::io::{Write as _, stdout};
 use std::path::Path;
 
 use compile::ShaderInfo;
+use log::Level;
 
 fn main() {
+    log::set_logger(&BUILD_SCRIPT_LOGGER).unwrap();
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("shaders.rs");
 
@@ -135,4 +138,37 @@ fn write_msl(buf: &mut String, info: &ShaderInfo) -> Result<(), std::fmt::Error>
     )?;
     writeln!(buf, "            }},")?;
     Ok(())
+}
+
+struct BuildScriptLog;
+
+static BUILD_SCRIPT_LOGGER: BuildScriptLog = BuildScriptLog;
+
+impl log::Log for BuildScriptLog {
+    fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+        true
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        let mut target = String::new();
+        if record.level() >= Level::Warn {
+            write!(LineAdapter(&mut target), "{}", record.args()).unwrap();
+        }
+        println!("{target}");
+    }
+
+    fn flush(&self) {
+        stdout().flush().unwrap();
+    }
+}
+
+struct LineAdapter<W: Write>(W);
+
+impl<W: Write> Write for LineAdapter<W> {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        for line in s.lines() {
+            writeln!(&mut self.0, "cargo:warning={line}")?;
+        }
+        Ok(())
+    }
 }

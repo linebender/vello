@@ -68,7 +68,7 @@ pub fn preprocess(
                 item @ ("ifdef" | "ifndef" | "else" | "endif" | "enable")
                     if !directive_is_at_start =>
                 {
-                    eprintln!(
+                    log::warn!(
                         "#{item} directives must be the first non_whitespace items on \
                                their line, ignoring (line {line_number})"
                     );
@@ -89,7 +89,7 @@ pub fn preprocess(
                     let item = stack.last_mut();
                     if let Some(item) = item {
                         if item.else_passed {
-                            eprintln!(
+                            log::warn!(
                                 "Second else for same ifdef/ifndef (line {line_number}); \
                                        ignoring second else"
                             );
@@ -100,7 +100,7 @@ pub fn preprocess(
                     }
                     let remainder = directive_start[directive_len..].trim();
                     if !remainder.is_empty() {
-                        eprintln!(
+                        log::warn!(
                             "#else directives don't take an argument. `{remainder}` will not \
                                    be in output (line {line_number})"
                         );
@@ -110,11 +110,11 @@ pub fn preprocess(
                 }
                 "endif" => {
                     if stack.pop().is_none() {
-                        eprintln!("Mismatched endif (line {line_number})");
+                        log::warn!("Mismatched endif (line {line_number})");
                     }
                     let remainder = directive_start[directive_len..].trim();
                     if !remainder.is_empty() && !remainder.starts_with("//") {
-                        eprintln!(
+                        log::warn!(
                             "#endif directives don't take an argument. `{remainder}` will \
                                    not be in output (line {line_number})"
                         );
@@ -130,7 +130,7 @@ pub fn preprocess(
                     {
                         import_name_start
                     } else {
-                        eprintln!("#import needs a non_whitespace argument (line {line_number})");
+                        log::warn!("#import needs a non_whitespace argument (line {line_number})");
                         continue 'all_lines;
                     };
                     let import_name_start = &directive_end[import_name_start..];
@@ -149,7 +149,7 @@ pub fn preprocess(
                             output.push_str(&preprocess(import, defines, imports));
                         }
                     } else {
-                        eprintln!("Unknown import `{import_name}` (line {line_number})");
+                        log::warn!("Unknown import `{import_name}` (line {line_number})");
                     }
                     continue;
                 }
@@ -164,7 +164,7 @@ pub fn preprocess(
                     continue 'all_lines;
                 }
                 val => {
-                    eprintln!("Unknown preprocessor directive `{val}` (line {line_number})");
+                    log::warn!("Unknown preprocessor directive `{val}` (line {line_number})");
                 }
             }
         }

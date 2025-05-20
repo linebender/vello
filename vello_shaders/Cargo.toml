@@ -34,7 +34,9 @@ bytemuck = { workspace = true, optional = true }
 naga = { version = "24.0.0", features = ["wgsl-in"], optional = true }
 thiserror = { workspace = true, optional = true }
 vello_encoding = { workspace = true, optional = true }
+log = { workspace = true }
 
 [build-dependencies]
 naga = { version = "24.0.0", features = ["wgsl-in"] }
 thiserror = { workspace = true }
+log = { workspace = true }

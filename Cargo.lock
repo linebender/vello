@@ -3284,6 +3284,7 @@ name = "vello_shaders"
 version = "0.5.0"
 dependencies = [
  "bytemuck",
+ "log",
  "naga",
  "thiserror 2.0.12",
  "vello_encoding",
