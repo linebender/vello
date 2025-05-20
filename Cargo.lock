@@ -3245,6 +3245,7 @@ version = "0.5.0"
 dependencies = [
  "bytemuck",
  "js-sys",
+ "log",
  "png",
  "pollster",
  "roxmltree",

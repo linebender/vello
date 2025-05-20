@@ -329,9 +329,13 @@ jobs:
         with:
           tool: wasm-pack
 
-      - name: check vello_hybrid is webgl compatible
+      - name: check vello_hybrid is wgpu webgl compatible
         run: wasm-pack test --headless --chrome
         working-directory: sparse_strips/vello_hybrid/examples/wgpu_webgl
+
+      - name: check vello_hybrid is native webgl compatible
+        run: wasm-pack test --headless --chrome
+        working-directory: sparse_strips/vello_hybrid/examples/native_webgl
 
 
   check-stable-android:

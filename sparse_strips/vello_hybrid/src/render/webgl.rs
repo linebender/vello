@@ -57,6 +57,8 @@ pub struct WebGlRenderer {
 impl WebGlRenderer {
     /// Creates a new WebGL2 renderer
     pub fn new(canvas: &web_sys::HtmlCanvasElement) -> Self {
+        super::common::maybe_warn_about_webgl_feature_conflict();
+
         // The WebGL context must be created with anti-aliasing disabled such that we can blit the
         // view framebuffer onto the default framebuffer. This technique is required for the code
         // that converts the WebGPU coordinate system into the WebGL coordinate system, adapted from
@@ -817,6 +819,9 @@ fn initialize_clear_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 }
 
 /// Context for WebGL rendering operations.
+// TODO: Improve buffer management. Currently a single buffer is used per resource, which means that
+// the GPU must finish drawing before the next `upload_strips` can be executed (effectively pausing
+// execution). Investigate a buffer pool or creating a new buffer per pass.
 struct WebGlRendererContext<'a> {
     programs: &'a mut WebGlPrograms,
     gl: &'a WebGl2RenderingContext,

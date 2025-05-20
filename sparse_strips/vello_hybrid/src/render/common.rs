@@ -48,3 +48,24 @@ pub struct GpuStrip {
     /// RGBA color value
     pub rgba: u32,
 }
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))]
+pub(crate) fn maybe_warn_about_webgl_feature_conflict() {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    static HAS_WARNED: AtomicBool = AtomicBool::new(false);
+
+    if !HAS_WARNED.swap(true, Ordering::Release)
+        && wgpu::Backends::all().contains(wgpu::Backends::GL)
+    {
+        log::warn!(
+            r#"Both WebGL and wgpu with the \"webgl\" feature are enabled.
+For optimal performance and binary size on web targets, use only the dedicated WebGL renderer."#
+        );
+    }
+}
+
+#[cfg(all(
+    any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"),
+    not(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))
+))]
+pub(crate) fn maybe_warn_about_webgl_feature_conflict() {}

@@ -58,6 +58,8 @@ pub struct Renderer {
 impl Renderer {
     /// Creates a new renderer.
     pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
+        super::common::maybe_warn_about_webgl_feature_conflict();
+
         let total_slots =
             (device.limits().max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
 
