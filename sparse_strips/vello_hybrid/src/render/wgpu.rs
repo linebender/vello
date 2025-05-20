@@ -227,16 +227,12 @@ impl Programs {
 
         let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Strip Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("../../../vello_sparse_shaders/shaders/render_strips.wgsl").into(),
-            ),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::RENDER_STRIPS.into()),
         });
 
         let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Clear Slots Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("../../../vello_sparse_shaders/shaders/clear_slots.wgsl").into(),
-            ),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::CLEAR_SLOTS.into()),
         });
 
         let strip_pipeline_layout =

@@ -79,7 +79,7 @@ impl CompiledGlsl {
     pub(crate) fn to_generated_code(&self, shader_name: &str) -> String {
         let mut code = format!("/// Compiled glsl for `{shader_name}.wgsl`\n");
         code.push_str(&format!("pub mod {shader_name} {{\n"));
-        code.push_str(r#"    #![allow(missing_docs, reason="No metadata to generate precise documentation forgenerated code.")]"#);
+        code.push_str(r#"    #![allow(missing_docs, reason="No metadata to generate precise documentation for generated code.")]"#);
         code.push_str("\n\n");
 
         code.push_str("    pub const VERTEX_SOURCE: &str = r###\"");
