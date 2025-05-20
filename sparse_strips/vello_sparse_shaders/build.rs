@@ -9,12 +9,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[allow(warnings)]
+#[cfg(feature = "glsl")]
 #[path = "src/compile.rs"]
 mod compile;
 #[allow(warnings)]
+#[cfg(feature = "glsl")]
 #[path = "src/types.rs"]
 mod types;
 
+#[cfg(feature = "glsl")]
 use compile::compile_wgsl_shader;
 
 // TODO: Format the generated code via `rustfmt`.
@@ -22,7 +25,6 @@ use compile::compile_wgsl_shader;
 fn main() {
     // Rerun build if the shaders directory changes
     println!("cargo:rerun-if-changed=shaders");
-
     let out_dir = env::var_os("OUT_DIR").unwrap();
     // Build outputs a `compiled_shaders.rs` module containing the GLSL source and reflection
     // metadata.
@@ -63,18 +65,45 @@ fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, S
         "// Generated code by `vello_sparse_shaders` - DO NOT EDIT"
     )
     .unwrap();
-    writeln!(
-        buf,
-        "/// Build time GLSL shaders derived from wgsl shaders."
-    )
-    .unwrap();
+
+    writeln!(buf, "/// Re-exporting wgsl shader source code.").unwrap();
+
+    writeln!(buf, "pub mod wgsl {{").unwrap();
+    for (shader_name, shader_source) in shader_infos {
+        generate_wgsl_shader_module(buf, shader_name, shader_source).unwrap();
+    }
+    writeln!(buf, "}}").unwrap();
 
     // Implementation for creating a CompiledGlsl struct per shader assuming the standard entry
     // names of `vs_main` and `fs_main`.
-    for (shader_name, shader_source) in shader_infos {
-        let compiled = compile_wgsl_shader(shader_source, "vs_main", "fs_main");
+    #[cfg(feature = "glsl")]
+    {
+        writeln!(
+            buf,
+            "/// Build time GLSL shaders derived from wgsl shaders."
+        )
+        .unwrap();
 
-        let generated_code = compiled.to_generated_code(shader_name);
-        writeln!(buf, "{generated_code}").unwrap();
+        for (shader_name, shader_source) in shader_infos {
+            let compiled = compile_wgsl_shader(shader_source, "vs_main", "fs_main");
+
+            let generated_code = compiled.to_generated_code(shader_name);
+            writeln!(buf, "{generated_code}").unwrap();
+        }
     }
+}
+
+fn generate_wgsl_shader_module<T: Write>(
+    buf: &mut T,
+    shader_name: &str,
+    shader_source: &str,
+) -> std::fmt::Result {
+    let const_name = shader_name.to_uppercase();
+    writeln!(buf, "    /// Source for `{shader_name}.wgsl`")?;
+    writeln!(
+        buf,
+        "    pub const {const_name}: &str = r###\"{shader_source}\"###;"
+    )?;
+
+    Ok(())
 }

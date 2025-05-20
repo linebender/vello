@@ -49,5 +49,5 @@ roxmltree = "0.20.0"
 
 [features]
 default = ["wgpu"]
-wgpu = ["dep:wgpu"]
-webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_sparse_shaders"]
+wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
+webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_sparse_shaders", "vello_sparse_shaders/glsl"]

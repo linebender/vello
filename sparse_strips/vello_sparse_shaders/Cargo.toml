@@ -17,10 +17,13 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = []
 
 [dependencies]
-naga = { version = "24.0.0", features = ["wgsl-in", "glsl-out"] }
+naga = { version = "24.0.0", features = ["wgsl-in", "glsl-out"], optional = true }
 
 [build-dependencies]
-naga = { version = "24.0.0", features = ["wgsl-in", "glsl-out"] }
+naga = { version = "24.0.0", features = ["wgsl-in", "glsl-out"], optional = true }
+
+[features]
+glsl = ["dep:naga"]
 
 [lints]
 workspace = true
