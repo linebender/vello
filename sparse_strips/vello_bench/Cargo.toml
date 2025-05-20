@@ -12,6 +12,7 @@ publish = false
 [dependencies]
 vello_common = { workspace = true }
 vello_cpu = { workspace = true }
+vello_dev_macros = { workspace = true }
 criterion = { workspace = true }
 rand = { workspace = true }
 smallvec = { workspace = true }
