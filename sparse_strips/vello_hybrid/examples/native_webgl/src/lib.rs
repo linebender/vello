@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Demonstrates using Vello Hybrid using a WebGL2 backend in the browser.
+//! Demonstrates using Vello with the WebGL2 renderer in the browser.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -13,7 +13,7 @@ use std::cell::RefCell;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 #[cfg(target_arch = "wasm32")]
-use vello_common::kurbo::{Affine, Point};
+use vello_common::kurbo::{Affine, Vec2};
 #[cfg(target_arch = "wasm32")]
 use vello_hybrid_scenes::AnyScene;
 #[cfg(target_arch = "wasm32")]
@@ -23,96 +23,16 @@ use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
 #[cfg(target_arch = "wasm32")]
 struct RendererWrapper {
-    renderer: vello_hybrid::Renderer,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    surface: wgpu::Surface<'static>,
+    renderer: vello_hybrid::WebGlRenderer,
 }
 
 #[cfg(target_arch = "wasm32")]
 impl RendererWrapper {
     #[cfg(target_arch = "wasm32")]
-    async fn new(canvas: web_sys::HtmlCanvasElement) -> Self {
-        let width = canvas.width();
-        let height = canvas.height();
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::GL,
-            ..Default::default()
-        });
-        let surface = instance
-            .create_surface(wgpu::SurfaceTarget::Canvas(canvas.clone()))
-            .expect("Canvas surface to be valid");
+    fn new(canvas: web_sys::HtmlCanvasElement) -> Self {
+        let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                compatible_surface: Some(&surface),
-                ..Default::default()
-            })
-            .await
-            .expect("Adapter to be valid");
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits {
-                        // WGPU's downlevel defaults use a generous number of color attachments
-                        // (8). Some devices (including CI) support only up to 4.
-                        max_color_attachments: 4,
-                        max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d,
-                        ..wgpu::Limits::downlevel_webgl2_defaults()
-                    },
-                    ..Default::default()
-                },
-                None,
-            )
-            .await
-            .expect("Device to be valid");
-
-        // Configure the surface
-        let surface_format = wgpu::TextureFormat::Rgba8Unorm;
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
-            desired_maximum_frame_latency: 2,
-            view_formats: vec![],
-        };
-        surface.configure(&device, &surface_config);
-
-        let renderer = vello_hybrid::Renderer::new(
-            &device,
-            &vello_hybrid::RenderTargetConfig {
-                format: surface_format,
-                width,
-                height,
-            },
-        );
-
-        Self {
-            renderer,
-            device,
-            queue,
-            surface,
-        }
-    }
-
-    fn resize(&mut self, width: u32, height: u32) {
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
-            desired_maximum_frame_latency: 2,
-            view_formats: vec![],
-        };
-        self.surface.configure(&self.device, &surface_config);
+        Self { renderer }
     }
 }
 
@@ -124,7 +44,7 @@ struct AppState {
     scene: vello_hybrid::Scene,
     transform: Affine,
     mouse_down: bool,
-    last_cursor_position: Option<Point>,
+    last_cursor_position: Option<Vec2>,
     width: u32,
     height: u32,
     renderer_wrapper: RendererWrapper,
@@ -134,11 +54,11 @@ struct AppState {
 
 #[cfg(target_arch = "wasm32")]
 impl AppState {
-    async fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene]>) -> Self {
+    fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene]>) -> Self {
         let width = canvas.width();
         let height = canvas.height();
 
-        let renderer_wrapper = RendererWrapper::new(canvas.clone()).await;
+        let renderer_wrapper = RendererWrapper::new(canvas.clone());
 
         Self {
             scenes,
@@ -170,31 +90,10 @@ impl AppState {
             height: self.height,
         };
 
-        let surface_texture = self.renderer_wrapper.surface.get_current_texture().unwrap();
-        let surface_texture_view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let mut encoder = self
-            .renderer_wrapper
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
         self.renderer_wrapper
             .renderer
-            .render(
-                &self.scene,
-                &self.renderer_wrapper.device,
-                &self.renderer_wrapper.queue,
-                &mut encoder,
-                &render_size,
-                &surface_texture_view,
-            )
+            .render(&self.scene, &render_size)
             .unwrap();
-
-        self.renderer_wrapper.queue.submit([encoder.finish()]);
-        surface_texture.present();
-
         self.need_render = false;
     }
 
@@ -205,7 +104,6 @@ impl AppState {
         self.height = height;
 
         self.scene = vello_hybrid::Scene::new(width as u16, height as u16);
-        self.renderer_wrapper.resize(width, height);
 
         self.need_render = true;
     }
@@ -233,7 +131,7 @@ impl AppState {
 
     fn handle_mouse_down(&mut self, x: f64, y: f64) {
         self.mouse_down = true;
-        self.last_cursor_position = Some(Point { x, y });
+        self.last_cursor_position = Some(Vec2::new(x, y));
     }
 
     fn handle_mouse_up(&mut self) {
@@ -242,11 +140,12 @@ impl AppState {
     }
 
     fn handle_mouse_move(&mut self, x: f64, y: f64) {
-        let current_pos = Point { x, y };
+        let current_pos = Vec2::new(x, y);
 
         if self.mouse_down {
             if let Some(last_pos) = self.last_cursor_position {
-                self.transform = self.transform.then_translate(current_pos - last_pos);
+                let delta = current_pos - last_pos;
+                self.transform = Affine::translate(delta) * self.transform;
                 self.need_render = true;
             }
         }
@@ -256,18 +155,30 @@ impl AppState {
 
     fn handle_wheel(&mut self, delta_y: f64) {
         const ZOOM_STEP: f64 = 0.1;
-        let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
 
-        // Zoom centered at cursor position, or the center if no position is set.
-        self.transform = self.transform.then_scale_about(
-            zoom_factor,
-            self.last_cursor_position.unwrap_or(Point {
-                x: 0.5 * self.width as f64,
-                y: 0.5 * self.height as f64,
-            }),
-        );
+        if let Some(cursor_pos) = self.last_cursor_position {
+            let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
 
-        self.need_render = true;
+            // Zoom centered at cursor position
+            self.transform = Affine::translate(cursor_pos)
+                * Affine::scale(zoom_factor)
+                * Affine::translate(-cursor_pos)
+                * self.transform;
+
+            self.need_render = true;
+        } else {
+            // If no cursor position is known, zoom centered on screen
+            let center = Vec2::new(self.width as f64 / 2.0, self.height as f64 / 2.0);
+
+            let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
+
+            self.transform = Affine::translate(center)
+                * Affine::scale(zoom_factor)
+                * Affine::translate(-center)
+                * self.transform;
+
+            self.need_render = true;
+        }
     }
 }
 
@@ -293,17 +204,21 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     canvas.style().set_property("width", "100%").unwrap();
     canvas.style().set_property("height", "100%").unwrap();
 
-    // Add canvas to body
-    web_sys::Window::document(&web_sys::window().unwrap())
+    let body = web_sys::Window::document(&web_sys::window().unwrap())
         .unwrap()
         .body()
-        .unwrap()
-        .append_child(&canvas)
         .unwrap();
+    // Apply background color so white text can be seen.
+    body.style()
+        .set_property("background-color", "#111")
+        .unwrap();
+
+    // Add canvas to body
+    body.append_child(&canvas).unwrap();
 
     let scenes = vello_hybrid_scenes::get_example_scenes();
 
-    let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes).await));
+    let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes)));
 
     // Set up animation frame loop
     {
@@ -465,36 +380,12 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
         .append_child(&canvas)
         .unwrap();
 
-    let RendererWrapper {
-        mut renderer,
-        device,
-        queue,
-        surface,
-    } = RendererWrapper::new(canvas).await;
+    let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
 
     let render_size = vello_hybrid::RenderSize {
         width: width as u32,
         height: height as u32,
     };
-    let surface_texture = surface.get_current_texture().unwrap();
-    let surface_texture_view = surface_texture
-        .texture
-        .create_view(&wgpu::TextureViewDescriptor::default());
 
-    let mut encoder =
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-    renderer
-        .render(
-            &scene,
-            &device,
-            &queue,
-            &mut encoder,
-            &render_size,
-            &surface_texture_view,
-        )
-        .unwrap();
-
-    queue.submit([encoder.finish()]);
-    surface_texture.present();
+    renderer.render(&scene, &render_size).unwrap();
 }

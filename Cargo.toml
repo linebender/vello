@@ -17,8 +17,10 @@ members = [
     "sparse_strips/vello_common",
     "sparse_strips/vello_cpu",
     "sparse_strips/vello_hybrid",
+    "sparse_strips/vello_sparse_shaders",
+    "sparse_strips/vello_hybrid/examples/native_webgl",
     "sparse_strips/vello_hybrid/examples/scenes",
-    "sparse_strips/vello_hybrid/examples/webgl",
+    "sparse_strips/vello_hybrid/examples/wgpu_webgl",
     "sparse_strips/vello_hybrid/examples/winit",
     "sparse_strips/vello_toy",
     "sparse_strips/vello_dev_macros",
@@ -113,6 +115,7 @@ vello_api = { path = "sparse_strips/vello_api", default-features = false }
 vello_common = { version = "0.0.1", path = "sparse_strips/vello_common", default-features = false }
 vello_cpu = { path = "sparse_strips/vello_cpu" }
 vello_hybrid = { path = "sparse_strips/vello_hybrid" }
+vello_sparse_shaders = { path = "sparse_strips/vello_sparse_shaders" }
 vello_hybrid_scenes = { path = "sparse_strips/vello_hybrid/examples/scenes" }
 vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
 

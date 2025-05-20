@@ -1,10 +1,10 @@
 ## WebGL Demo
 
-Uses Vello Hybrid with a WebGL2 backend in the browser.
+Uses Vello Hybrid with a native WebGL2 backend in the browser. This example does not use wgpu.
 
 ## Development
 
-Run with `cargo run_wasm -p webgl`.
+Run with `cargo run_wasm -p native_webgl --release`.
 
 ## Testing
 

@@ -12,6 +12,12 @@
 //! The hybrid approach combines CPU-side path processing with efficient GPU rendering
 //! to balance flexibility and performance.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "We temporarily ignore those because the casts\
+only break in edge cases, and some of them are also only related to conversions from f64 to f32."
+)]
+
 use alloc::vec;
 use alloc::vec::Vec;
 use core::{fmt::Debug, mem, num::NonZeroU64};
@@ -24,16 +30,12 @@ use wgpu::{
     RenderPipeline, Texture, TextureView, util::DeviceExt,
 };
 
-use crate::{RenderError, scene::Scene, schedule::Scheduler};
-
-/// Dimensions of the rendering target
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct RenderSize {
-    /// Width of the rendering target
-    pub width: u32,
-    /// Height of the rendering target
-    pub height: u32,
-}
+use crate::{
+    GpuStrip, RenderError, RenderSize,
+    render::Config,
+    scene::Scene,
+    schedule::{LoadOp, RendererBackend, Scheduler},
+};
 
 /// Options for the renderer
 #[derive(Debug)]
@@ -56,6 +58,8 @@ pub struct Renderer {
 impl Renderer {
     /// Creates a new renderer.
     pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
+        super::common::maybe_warn_about_webgl_feature_conflict();
+
         let total_slots =
             (device.limits().max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
 
@@ -83,7 +87,7 @@ impl Renderer {
         // buffer fills.
         self.programs
             .prepare(device, queue, &scene.alphas, render_size);
-        let mut junk = RendererJunk {
+        let mut junk = RendererContext {
             programs: &mut self.programs,
             device,
             queue,
@@ -138,42 +142,7 @@ struct GpuResources {
     clear_bind_group: BindGroup,
 }
 
-/// Configuration for the GPU renderer
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
-pub struct Config {
-    /// Width of the rendering target
-    pub width: u32,
-    /// Height of the rendering target
-    pub height: u32,
-    /// Height of a strip in the rendering
-    pub strip_height: u32,
-    /// Number of trailing zeros in `alphas_tex_width` (log2 of width).
-    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
-    pub alphas_tex_width_bits: u32,
-}
-
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
-
-/// Represents a GPU strip for rendering
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
-pub struct GpuStrip {
-    /// X coordinate of the strip
-    pub x: u16,
-    /// Y coordinate of the strip
-    pub y: u16,
-    /// Width of the strip
-    pub width: u16,
-    /// Width of the portion where alpha blending should be applied.
-    pub dense_width: u16,
-    /// Column-index into the alpha texture where this strip's alpha values begin.
-    ///
-    /// There are [`Config::strip_height`] alpha values per column.
-    pub col: u32,
-    /// RGBA color value
-    pub rgba: u32,
-}
 
 /// Config for the clear slots pipeline
 #[repr(C)]
@@ -258,12 +227,16 @@ impl Programs {
 
         let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Strip Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/render_strips.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../../../vello_sparse_shaders/shaders/render_strips.wgsl").into(),
+            ),
         });
 
         let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Clear Slots Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/clear_slots.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../../../vello_sparse_shaders/shaders/clear_slots.wgsl").into(),
+            ),
         });
 
         let strip_pipeline_layout =
@@ -692,7 +665,7 @@ impl Programs {
 
 /// A struct containing references to the many objects needed to get work
 /// scheduled onto the GPU.
-pub(crate) struct RendererJunk<'a> {
+struct RendererContext<'a> {
     programs: &'a mut Programs,
     device: &'a Device,
     queue: &'a Queue,
@@ -700,9 +673,9 @@ pub(crate) struct RendererJunk<'a> {
     view: &'a TextureView,
 }
 
-impl RendererJunk<'_> {
+impl RendererContext<'_> {
     /// Render the strips to either the view or a slot texture (depending on `ix`).
-    pub(crate) fn do_strip_render_pass(
+    fn do_strip_render_pass(
         &mut self,
         strips: &[GpuStrip],
         ix: usize,
@@ -741,7 +714,7 @@ impl RendererJunk<'_> {
     }
 
     /// Clear specific slots from a slot texture.
-    pub(crate) fn do_clear_slots_render_pass(&mut self, ix: usize, slot_indices: &[u32]) {
+    fn do_clear_slots_render_pass(&mut self, ix: usize, slot_indices: &[u32]) {
         if slot_indices.is_empty() {
             return;
         }
@@ -785,5 +758,27 @@ impl RendererJunk<'_> {
             render_pass.set_vertex_buffer(0, resources.clear_slot_indices_buffer.slice(..));
             render_pass.draw(0..4, 0..u32::try_from(slot_indices.len()).unwrap());
         }
+    }
+}
+
+impl RendererBackend for RendererContext<'_> {
+    /// Execute the render pass for clearing slots.
+    fn clear_slots(&mut self, texture_index: usize, slots: &[u32]) {
+        self.do_clear_slots_render_pass(texture_index, slots);
+    }
+
+    /// Execute the render pass for rendering strips.
+    fn render_strips(
+        &mut self,
+        strips: &[GpuStrip],
+        target_index: usize,
+        load_op: crate::schedule::LoadOp,
+    ) {
+        let wgpu_load_op = match load_op {
+            LoadOp::Load => wgpu::LoadOp::Load,
+            LoadOp::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+        };
+
+        self.do_strip_render_pass(strips, target_index, wgpu_load_op);
     }
 }

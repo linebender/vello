@@ -24,26 +24,26 @@
 //! The renderer is split into several key components:
 //!
 //! - `Scene`: Manages the render context and path processing on the CPU
-//! - `Renderer`: Handles GPU resource management and rendering operations
-//! - `RenderData`: Contains the processed geometry ready for GPU consumption
+//! - `Renderer` or `WebGlRenderer`: Handles GPU resource management and executes draw operations
+//! - `Scheduler`: Manages and schedules draw operations on the renderer.
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
 #![no_std]
-#![expect(
-    clippy::cast_possible_truncation,
-    reason = "We temporarily ignore those because the casts\
-only break in edge cases, and some of them are also only related to conversions from f64 to f32."
-)]
 
 extern crate alloc;
 
 mod render;
 mod scene;
+#[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
 mod schedule;
 pub mod util;
 
-pub use render::{Config, GpuStrip, RenderSize, RenderTargetConfig, Renderer};
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+pub use render::WebGlRenderer;
+pub use render::{Config, GpuStrip, RenderSize};
+#[cfg(feature = "wgpu")]
+pub use render::{RenderTargetConfig, Renderer};
 pub use scene::Scene;
 pub use util::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;

@@ -1,5 +1,5 @@
 [package]
-name = "webgl"
+name = "wgpu_webgl"
 version.workspace = true
 description = "An example showing Vello Hybrid using WebGL2."
 edition.workspace = true
