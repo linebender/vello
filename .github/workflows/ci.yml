@@ -297,9 +297,9 @@ jobs:
         with:
           name: vello-snapshot-tests-${{ matrix.os }}
           path: |
-            vello_tests/snapshots
-            vello_tests/smoke_snapshots
             vello_tests/comparisons
+            vello_tests/current
+            sparse_strips/vello_sparse_tests/diffs
 
       - name: cargo test --doc
         run: cargo test --doc --workspace --locked --all-features --no-fail-fast
