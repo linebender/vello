@@ -163,7 +163,7 @@ fn main(
     // we still want to know this workgroup's memory requirement.   
     if local_id.x == 0u {
         var failed = atomicLoad(&bump.failed) & (STAGE_BINNING | STAGE_TILE_ALLOC | STAGE_FLATTEN);
-        if atomicLoad(&bump.seg_counts) > config.seg_counts_size {
+        if atomicLoad(&bump.seg_counts) > config.segments_size {
             failed |= STAGE_PATH_COUNT;
         }
         // Reuse sh_part_count to hold failed flag, shmem is tight
