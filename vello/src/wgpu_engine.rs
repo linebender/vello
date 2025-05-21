@@ -179,7 +179,7 @@ impl WgpuEngine {
                     std::thread::available_parallelism().map_or(2, |it| it.get().max(4) - 2)
                 })
                 .min(new_shaders.len());
-            eprintln!("Initialising in parallel using {num_threads} threads");
+            log::info!("Initialising shader modules in parallel using {num_threads} threads");
             let remainder = new_shaders.split_off(num_threads);
             let (tx, rx) = std::sync::mpsc::channel::<(ShaderId, WgpuShader)>();
 

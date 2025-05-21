@@ -37,7 +37,6 @@
     unnameable_types,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
-    clippy::print_stderr,
     clippy::print_stdout,
     clippy::shadow_unrelated,
     clippy::todo,

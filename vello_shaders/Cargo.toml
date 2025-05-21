@@ -17,7 +17,7 @@ targets = []
 
 [features]
 default = ["wgsl", "cpu"]
-compile = ["dep:naga", "dep:thiserror"]
+compile = ["dep:naga", "dep:thiserror", "dep:log"]
 
 # Target shading language variants of the vello shaders to link into the library.
 wgsl = []
@@ -34,7 +34,9 @@ bytemuck = { workspace = true, optional = true }
 naga = { version = "24.0.0", features = ["wgsl-in"], optional = true }
 thiserror = { workspace = true, optional = true }
 vello_encoding = { workspace = true, optional = true }
+log = { workspace = true, optional = true }
 
 [build-dependencies]
 naga = { version = "24.0.0", features = ["wgsl-in"] }
 thiserror = { workspace = true }
+log = { workspace = true }

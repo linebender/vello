@@ -36,6 +36,7 @@ pub struct StackItem {
 
 pub fn preprocess(
     input: &str,
+    shader_name: &str,
     defines: &HashSet<String>,
     imports: &HashMap<String, String>,
 ) -> String {
@@ -68,9 +69,9 @@ pub fn preprocess(
                 item @ ("ifdef" | "ifndef" | "else" | "endif" | "enable")
                     if !directive_is_at_start =>
                 {
-                    eprintln!(
+                    log::warn!(
                         "#{item} directives must be the first non_whitespace items on \
-                               their line, ignoring (line {line_number})"
+                               their line, ignoring (line {line_number} of {shader_name}.wgsl)"
                     );
                     break;
                 }
@@ -89,8 +90,8 @@ pub fn preprocess(
                     let item = stack.last_mut();
                     if let Some(item) = item {
                         if item.else_passed {
-                            eprintln!(
-                                "Second else for same ifdef/ifndef (line {line_number}); \
+                            log::warn!(
+                                "Second else for same ifdef/ifndef (line {line_number} of {shader_name}.wgsl); \
                                        ignoring second else"
                             );
                         } else {
@@ -100,9 +101,9 @@ pub fn preprocess(
                     }
                     let remainder = directive_start[directive_len..].trim();
                     if !remainder.is_empty() {
-                        eprintln!(
+                        log::warn!(
                             "#else directives don't take an argument. `{remainder}` will not \
-                                   be in output (line {line_number})"
+                                   be in output (line {line_number} of {shader_name}.wgsl)"
                         );
                     }
                     // Don't add this line to the output; it should be empty (see warning above)
@@ -110,13 +111,13 @@ pub fn preprocess(
                 }
                 "endif" => {
                     if stack.pop().is_none() {
-                        eprintln!("Mismatched endif (line {line_number})");
+                        log::warn!("Mismatched endif (line {line_number} of {shader_name}.wgsl)");
                     }
                     let remainder = directive_start[directive_len..].trim();
                     if !remainder.is_empty() && !remainder.starts_with("//") {
-                        eprintln!(
+                        log::warn!(
                             "#endif directives don't take an argument. `{remainder}` will \
-                                   not be in output (line {line_number})"
+                                   not be in output (line {line_number} of {shader_name}.wgsl)"
                         );
                     }
                     // Don't add this line to the output; it should be empty (see warning above)
@@ -130,7 +131,9 @@ pub fn preprocess(
                     {
                         import_name_start
                     } else {
-                        eprintln!("#import needs a non_whitespace argument (line {line_number})");
+                        log::warn!(
+                            "#import needs a non_whitespace argument (line {line_number} of {shader_name}.wgsl)"
+                        );
                         continue 'all_lines;
                     };
                     let import_name_start = &directive_end[import_name_start..];
@@ -146,10 +149,12 @@ pub fn preprocess(
                         // However, in practise there will only ever be at most 2 stack items, so
                         // it's reasonable to just recompute it every time
                         if stack.iter().all(|item| item.active) {
-                            output.push_str(&preprocess(import, defines, imports));
+                            output.push_str(&preprocess(import, shader_name, defines, imports));
                         }
                     } else {
-                        eprintln!("Unknown import `{import_name}` (line {line_number})");
+                        log::warn!(
+                            "Unknown import `{import_name}` (line {line_number} of {shader_name}.wgsl)"
+                        );
                     }
                     continue;
                 }
@@ -164,7 +169,9 @@ pub fn preprocess(
                     continue 'all_lines;
                 }
                 val => {
-                    eprintln!("Unknown preprocessor directive `{val}` (line {line_number})");
+                    log::warn!(
+                        "Unknown preprocessor directive `{val}` (line {line_number} of {shader_name}.wgsl)"
+                    );
                 }
             }
         }
