@@ -213,7 +213,8 @@ impl ShaderInfo {
                         for permutation in permutations {
                             let mut defines = defines.clone();
                             defines.extend(permutation.defines.iter().cloned());
-                            let source = preprocess::preprocess(&contents, &defines, &imports);
+                            let source =
+                                preprocess::preprocess(&contents, shader_name, &defines, &imports);
                             match Self::new(&permutation.name, source, "main") {
                                 Ok(shader_info) => {
                                     info.insert(permutation.name.clone(), shader_info);
@@ -224,7 +225,8 @@ impl ShaderInfo {
                             }
                         }
                     } else {
-                        let source = preprocess::preprocess(&contents, &defines, &imports);
+                        let source =
+                            preprocess::preprocess(&contents, shader_name, &defines, &imports);
                         match Self::new(shader_name, source, "main") {
                             Ok(shader_info) => {
                                 info.insert(shader_name.to_string(), shader_info);
