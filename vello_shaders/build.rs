@@ -19,7 +19,7 @@ use compile::ShaderInfo;
 
 fn main() {
     log::set_logger(&BUILD_SCRIPT_LOGGER).unwrap();
-    log::set_max_level(log::LevelFilter::Debug);
+    log::set_max_level(log::LevelFilter::Info);
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("shaders.rs");
 
