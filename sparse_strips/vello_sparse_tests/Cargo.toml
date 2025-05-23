@@ -28,5 +28,24 @@ image = { workspace = true, features = ["png"] }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-test = "0.3.50"
+web-sys = { version = "0.3.77", features = [
+    "HtmlCanvasElement",
+    "WebGl2RenderingContext",
+    "Document",
+    "Window",
+    "Element",
+    "HtmlElement",
+    "HtmlImageElement",
+    "Blob",
+    "BlobPropertyBag",
+    "Url",
+] }
+wasm-bindgen = "0.2.100"
+
+[features]
+webgl = ["vello_hybrid/webgl"]
+
 [lints]
 workspace = true

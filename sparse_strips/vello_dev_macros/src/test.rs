@@ -61,6 +61,10 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let u8_fn_name = Ident::new(&format!("{}_cpu_u8", input_fn_name), input_fn_name.span());
     let f32_fn_name = Ident::new(&format!("{}_cpu_f32", input_fn_name), input_fn_name.span());
     let hybrid_fn_name = Ident::new(&format!("{}_hybrid", input_fn_name), input_fn_name.span());
+    let webgl_fn_name = Ident::new(
+        &format!("{}_hybrid_webgl", input_fn_name),
+        input_fn_name.span(),
+    );
 
     // TODO: Tests with the same names in different modules can clash, see
     // https://github.com/linebender/vello/pull/925#discussion_r2070710362.
@@ -70,6 +74,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let u8_fn_name_str = u8_fn_name.to_string();
     let f32_fn_name_str = f32_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
+    let webgl_fn_name_str = webgl_fn_name.to_string();
 
     let Arguments {
         width,
@@ -127,6 +132,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                        render_mode: proc_macro2::TokenStream| {
         quote! {
             #ignore_cpu
+            #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
             #[test]
             fn #fn_name() {
                 use crate::util::{
@@ -166,6 +172,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         #f32_snippet
 
         #ignore_hybrid
+        #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
         #[test]
         fn #hybrid_fn_name() {
             use crate::util::{
@@ -178,6 +185,23 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             #input_fn_name(&mut ctx);
             if !#no_ref {
                 check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed);
+            }
+        }
+
+        #ignore_hybrid
+        #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+        #[wasm_bindgen_test::wasm_bindgen_test]
+        async fn #webgl_fn_name() {
+            use crate::util::{
+                check_ref, get_ctx
+            };
+            use vello_hybrid::Scene;
+            use vello_cpu::RenderMode;
+
+            let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
+            #input_fn_name(&mut ctx);
+            if !#no_ref {
+                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed);
             }
         }
     };
