@@ -85,7 +85,7 @@ pub struct ShaderInfo {
 }
 
 impl ShaderInfo {
-    #[allow(clippy::result_large_err, reason = "Large error expected.")]
+    #[expect(clippy::result_large_err, reason = "Deferred: This is a cold code path.")]
     pub fn new(name: &str, source: String, entry_point: &str) -> Result<Self> {
         let module = wgsl::parse_str(&source).map_err(|error| Error::new(&source, name, error))?;
         let module_info = naga::valid::Validator::new(ValidationFlags::all(), Capabilities::all())
