@@ -25,7 +25,9 @@ pub struct Cli {
 /// Top-level xtask command
 pub enum CliCommand {
     /// Commands related to snapshots (current vs. reference)
-    Snapshots(Args),
+    SnapshotsCpu(Args),
+    /// Commands related to snapshots (current vs. reference)
+    SnapshotsGpu(Args),
     /// Commands related to comparisons (cpu vs. gpu)
     Comparisons(ComparisonsArgs),
 }
@@ -40,7 +42,7 @@ pub struct ComparisonsArgs {
 
 #[derive(Parser, Debug)]
 /// Command for comparisons,
-/// because only report command makes, we do not reuse `kompari_tasks::Args`
+/// in comparisons there is no ground truth images, so no other command then "report" makes sense.
 pub enum ComparisonsCommand {
     /// Create report with differences between cpu/gpu versions
     Report(ReportArgs),
@@ -57,14 +59,14 @@ impl Actions for ActionsImpl {
     }
 }
 
-fn snapshots_command(args: Args) -> kompari::Result<()> {
+fn snapshots_command(dir: &str, args: Args) -> kompari::Result<()> {
     let tests_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
         .join("vello_tests");
 
     let snapshots_path = tests_path.join("snapshots");
-    let current_path = tests_path.join("current");
+    let current_path = tests_path.join("current").join(dir);
 
     let mut diff_config = DirDiffConfig::new(snapshots_path, current_path);
     diff_config.set_ignore_right_missing(true);
@@ -82,7 +84,9 @@ fn comparisons_command(args: ComparisonsArgs) -> kompari::Result<()> {
         .join("comparisons");
 
     let cpu_path = tests_path.join("cpu");
+    std::fs::create_dir_all(&cpu_path)?;
     let gpu_path = tests_path.join("gpu");
+    std::fs::create_dir_all(&gpu_path)?;
 
     let diff_config = DirDiffConfig::new(cpu_path, gpu_path);
     let actions = ActionsImpl();
@@ -102,7 +106,8 @@ fn comparisons_command(args: ComparisonsArgs) -> kompari::Result<()> {
 fn main() -> kompari::Result<()> {
     let args = Cli::parse();
     match args.command {
-        CliCommand::Snapshots(args) => snapshots_command(args),
+        CliCommand::SnapshotsCpu(args) => snapshots_command("cpu", args),
+        CliCommand::SnapshotsGpu(args) => snapshots_command("gpu", args),
         CliCommand::Comparisons(args) => comparisons_command(args),
     }
 }
