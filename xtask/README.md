@@ -5,11 +5,18 @@ This package provides the following commands:
 ## Snapshots
 
 ```bash
-cargo xtask snaphosts report  # Creates report for snapshots
-cargo xtask shapshots review  # Interactive test blessing snapshots
-cargo xtask shapshots dead-snaphosts  # Detects dead snapshots
-cargo xtask shapshots size-check  # Size check for snapshots
+cargo xtask snaphosts-cpu report  # Creates report for snapshots
+cargo xtask shapshots-cpu review  # Interactive test blessing snapshots
+cargo xtask shapshots-cpu dead-snaphosts  # Detects dead snapshots
+cargo xtask shapshots-cpu size-check  # Size check for snapshots
 ```
+
+The same works for `snapshots-gpu`
+
+```bash
+cargo xtask snaphosts-gpu ...
+```
+
 
 ## Comparisons
 
