@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Dev tooling for Parley"
+description = "Dev tooling for Vello"
 keywords = ["testing"]
 categories = ["testing", "graphics"]
 
