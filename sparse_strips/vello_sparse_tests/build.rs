@@ -6,9 +6,9 @@
 //! This build step exists primarily for the wasm32 target testing the browser exclusive "webgl"
 //! feature which cannot read snapshot images from the file system. Instead, the reference images
 //! are inlined into the binary.
-#[cfg(not(feature = "webgl"))]
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {}
-#[cfg(feature = "webgl")]
+#[cfg(target_arch = "wasm32")]
 fn main() {
     use std::fs;
     use std::io::Write;
