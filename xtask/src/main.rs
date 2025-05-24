@@ -1,4 +1,4 @@
-// Copyright 2025 the Parley Authors
+// Copyright 2024 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Xtask utilities for Vello, currently only integrates Kompari
