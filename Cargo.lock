@@ -3312,6 +3312,9 @@ dependencies = [
  "vello_cpu",
  "vello_dev_macros",
  "vello_hybrid",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
  "wgpu",
 ]
 
