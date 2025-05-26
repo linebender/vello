@@ -549,7 +549,7 @@ impl FocalData {
 
         let fr1 = r1 / (1.0 - f_focal_x).abs();
 
-        let data = FocalData {
+        let data = Self {
             fr1,
             f_focal_x,
             f_is_swapped: swapped,
@@ -561,7 +561,7 @@ impl FocalData {
             *matrix = matrix.then_scale_non_uniform(
                 (fr1 / (fr1 * fr1 - 1.0)) as f64,
                 1.0 / (fr1 * fr1 - 1.0).abs().sqrt() as f64,
-            )
+            );
         }
 
         *matrix = matrix.then_scale((1.0 - f_focal_x).abs() as f64);
@@ -619,12 +619,12 @@ pub enum RadialKind {
 impl RadialKind {
     fn pos_inner(&self, pos: Point) -> Option<f32> {
         match self {
-            RadialKind::Radial { bias, scale } => {
+            Self::Radial { bias, scale } => {
                 let mut radius = pos.to_vec2().length() as f32;
                 radius = bias + radius * scale;
                 Some(radius)
             }
-            RadialKind::Strip { scaled_r0_squared } => {
+            Self::Strip { scaled_r0_squared } => {
                 let p1 = scaled_r0_squared - pos.y as f32 * pos.y as f32;
 
                 if p1 < 0.0 {
@@ -633,7 +633,7 @@ impl RadialKind {
                     Some(pos.x as f32 + p1.sqrt())
                 }
             }
-            RadialKind::Focal {
+            Self::Focal {
                 focal_data,
                 fp0,
                 fp1,
@@ -671,7 +671,7 @@ impl RadialKind {
 
                 if !focal_data.is_natively_focal() {
                     // alter_2pt_conical_compensate_focal
-                    t = t + fp1;
+                    t += fp1;
                 }
 
                 if focal_data.is_swapped() {
@@ -794,9 +794,9 @@ impl GradientLike for RadialKind {
 
     fn has_undefined(&self) -> bool {
         match self {
-            RadialKind::Radial { .. } => false,
-            RadialKind::Strip { .. } => true,
-            RadialKind::Focal { focal_data, .. } => !focal_data.is_well_behaved(),
+            Self::Radial { .. } => false,
+            Self::Strip { .. } => true,
+            Self::Focal { focal_data, .. } => !focal_data.is_well_behaved(),
         }
     }
 
