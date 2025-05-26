@@ -19,7 +19,6 @@ targets = []
 [dependencies]
 libm = { version = "0.2.15", optional = true }
 vello_common = { workspace = true }
-bytemuck = "1.23.0"
 
 [features]
 default = ["std", "png"]

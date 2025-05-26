@@ -55,7 +55,7 @@ impl EncodeExt for Gradient {
         let mut has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
         let pad = self.extend == Extend::Pad;
 
-        let mut base_transform = Affine::IDENTITY;
+        let mut base_transform;
 
         let mut stops = Cow::Borrowed(&self.stops.0);
 
@@ -63,7 +63,7 @@ impl EncodeExt for Gradient {
             GradientKind::Linear { start, end } => {
                 // For linear gradients, we want to interpolate the color along the line that is
                 // formed by `start` and `end`.
-                let mut p0 = start;
+                let p0 = start;
                 let mut p1 = end;
 
                 // Double the length of the iterator, and append stops in reverse order in case
@@ -517,6 +517,7 @@ pub struct EncodedImage {
 #[derive(Debug)]
 pub struct LinearKind;
 
+/// Focal data for a radial gradient.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct FocalData {
     fr1: f32,
@@ -525,6 +526,7 @@ pub struct FocalData {
 }
 
 impl FocalData {
+    /// Create a new `FocalData` with the given radii and update the matrix.
     pub fn create(mut r0: f32, mut r1: f32, matrix: &mut Affine) -> Self {
         let mut swapped = false;
         let mut f_focal_x = r0 / (r0 - r1);
@@ -567,35 +569,49 @@ impl FocalData {
         data
     }
 
+    /// Whether the focal is on the circle.
     pub fn is_focal_on_circle(&self) -> bool {
         (1.0 - self.fr1).is_nearly_zero()
     }
 
+    /// Whether the focal points have been swapped.
     pub fn is_swapped(&self) -> bool {
         self.f_is_swapped
     }
 
+    /// Whether the gradient is well-behaved.
     pub fn is_well_behaved(&self) -> bool {
         !self.is_focal_on_circle() && self.fr1 > 1.0
     }
 
+    /// Whether the gradient is natively focal.
     pub fn is_natively_focal(&self) -> bool {
         self.f_focal_x.is_nearly_zero()
     }
 }
 
+/// A radial gradient.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum RadialKind {
+    /// A radial gradient, i.e. the start and end center points are the same.
     Radial {
+        /// The `bias` value (from the Skia implementation).
         bias: f32,
+        /// The `scale` value (from the Skia implementation).
         scale: f32,
     },
+    /// A strip gradient, i.e. the start and end radius are the same.
     Strip {
+        /// The squared value of `scaled_r0` (from the Skia implementation).
         scaled_r0_squared: f32,
     },
+    /// A general, two-point conical gradient.
     Focal {
+        /// The focal data  (from the Skia implementation).
         focal_data: FocalData,
+        /// The `fp0` value (from the Skia implementation).
         fp0: f32,
+        /// The `fp1` value (from the Skia implementation).
         fp1: f32,
     },
 }
@@ -622,7 +638,7 @@ impl RadialKind {
                 fp0,
                 fp1,
             } => {
-                let mut x = pos.x as f32;
+                let x = pos.x as f32;
                 let y = pos.y as f32;
 
                 let mut t = if focal_data.is_focal_on_circle() {
