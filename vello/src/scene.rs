@@ -126,8 +126,8 @@ impl Scene {
         self.encoding.encode_end_clip();
     }
 
-    /// Compute a rough bounding box of the scene. This is not axis-aligned, or precise.
-    /// Compute a rough bounding box of the scene.
+    /// Compute a rough bounding box of the control points in the scene.
+    /// This is not axis-aligned or precise.
     pub fn compute_bb(&self) -> Rect {
         if self.encoding.path_data.is_empty() {
             return Rect::ZERO;
@@ -138,9 +138,13 @@ impl Scene {
         let mut max_x = f32::NEG_INFINITY;
         let mut max_y = f32::NEG_INFINITY;
 
-        // Quick scan through path data looking for coordinate values
         // Treat consecutive u32 pairs as potential x,y coordinates
-        for chunk in self.encoding.path_data.chunks_exact(2) {
+        for chunk in self
+            .encoding
+            .path_data
+            .chunks_exact(2)
+            .chain(self.encoding.draw_data.chunks_exact(2))
+        {
             let &[x, y] = chunk else {
                 continue;
             };
@@ -148,22 +152,6 @@ impl Scene {
             let y = f32::from_bits(y);
 
             // Only consider finite values as valid coordinates
-            if x.is_finite() && y.is_finite() {
-                min_x = min_x.min(x);
-                min_y = min_y.min(y);
-                max_x = max_x.max(x);
-                max_y = max_y.max(y);
-            }
-        }
-
-        // Quick check of draw data for additional coordinate info
-        for chunk in self.encoding.draw_data.chunks(2) {
-            let &[x, y] = chunk else {
-                continue;
-            };
-            let x = f32::from_bits(x);
-            let y = f32::from_bits(y);
-
             if x.is_finite() && y.is_finite() {
                 min_x = min_x.min(x);
                 min_y = min_y.min(y);
@@ -182,7 +170,7 @@ impl Scene {
             max_y = max_y.max(y);
         }
 
-        // If we found no valid coordinates, return zero rect
+        // If we found no valid coordinates, return zero.
         if min_x.is_infinite() || min_y.is_infinite() || max_x.is_infinite() || max_y.is_infinite()
         {
             return Rect::ZERO;
