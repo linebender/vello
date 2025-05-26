@@ -313,8 +313,8 @@ pub(crate) fn check_ref(
     let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
-    let ref_data =
-        reference_images_wasm::get_reference_image(test_name).expect("reference to exist");
+    let ref_data = reference_images_wasm::get_reference_image(test_name)
+        .expect("reference image should exist");
     let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
 
     let diff_image = get_diff(&ref_image, &actual, threshold);
