@@ -19,7 +19,7 @@ images:
 
 To run the `vello_sparse_tests` suite on WebGL headless:
 
-```
+```sh
 wasm-pack test --headless --chrome --features webgl
 ```
 

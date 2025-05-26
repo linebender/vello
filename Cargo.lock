@@ -3305,6 +3305,7 @@ dependencies = [
  "image",
  "oxipng",
  "pollster",
+ "quote",
  "skrifa",
  "smallvec",
  "vello_api",

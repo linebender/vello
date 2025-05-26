@@ -24,7 +24,7 @@ use vello_cpu::RenderMode;
 use std::path::PathBuf;
 
 #[cfg(target_arch = "wasm32")]
-include!(concat!(env!("OUT_DIR"), "/reference_images.rs"));
+include!(concat!(env!("OUT_DIR"), "/reference_images_wasm.rs"));
 
 #[cfg(not(target_arch = "wasm32"))]
 static REFS_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
@@ -313,7 +313,8 @@ pub(crate) fn check_ref(
     let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
-    let ref_data = get_reference_image(test_name).expect("reference to exist");
+    let ref_data =
+        reference_images_wasm::get_reference_image(test_name).expect("reference to exist");
     let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
 
     let diff_image = get_diff(&ref_image, &actual, threshold);
