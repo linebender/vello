@@ -651,7 +651,7 @@ impl RadialKind {
 
                 if !focal_data.is_well_behaved() {
                     // mask_2pt_conical_degenerates
-                    let is_degenerate = t <= 0.0 || t != t;
+                    let is_degenerate = t <= 0.0 || t.is_nan();
 
                     if is_degenerate {
                         return None;
@@ -909,10 +909,10 @@ impl EncodeExt for BlurredRoundedRectangle {
 /// Calculates the transform necessary to map the points src1, src2 to dst1, dst2.
 /// Copied from <https://github.com/linebender/tiny-skia/blob/68b198a7210a6bbf752b43d6bc4db62445730313/src/shaders/radial_gradient.rs#L182>
 fn ts_from_poly_to_poly(src1: Point, src2: Point, dst1: Point, dst2: Point) -> Affine {
-    let tmp = from_poly2(src1, src2);
-    let res = tmp.inverse();
-    let tmp = from_poly2(dst1, dst2);
-    tmp * res
+    let tmp1 = from_poly2(src1, src2);
+    let res = tmp1.inverse();
+    let tmp2 = from_poly2(dst1, dst2);
+    tmp2 * res
 }
 
 fn from_poly2(p0: Point, p1: Point) -> Affine {
