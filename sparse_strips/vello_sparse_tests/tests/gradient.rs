@@ -438,7 +438,7 @@ mod radial {
         let gradient = Gradient {
             kind: Radial {
                 start_center: Point::new(50.0, 50.0),
-                start_radius: 0.0,
+                start_radius: 10.0,
                 end_center: Point::new(50.0, 50.0),
                 end_radius: 40.0,
             },
