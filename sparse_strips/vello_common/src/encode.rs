@@ -60,12 +60,10 @@ impl EncodeExt for Gradient {
         let mut stops = Cow::Borrowed(&self.stops.0);
 
         let kind = match self.kind {
-            GradientKind::Linear { start, end } => {
-                // For linear gradients, we want to interpolate the color along the line that is
-                // formed by `start` and `end`.
-                let p0 = start;
-                let mut p1 = end;
-
+            GradientKind::Linear {
+                start: p0,
+                end: mut p1,
+            } => {
                 // Double the length of the iterator, and append stops in reverse order in case
                 // we have the extend `Reflect`.
                 // Then we can treat it the same as a repeated gradient.
@@ -83,20 +81,16 @@ impl EncodeExt for Gradient {
                 EncodedKind::Linear(LinearKind)
             }
             GradientKind::Radial {
-                start_center,
-                start_radius,
-                end_center,
-                end_radius,
+                start_center: c0,
+                start_radius: r0,
+                end_center: mut c1,
+                end_radius: mut r1,
             } => {
                 // The implementation of radial gradients is translated from Skia.
                 // See:
                 // - <https://skia.org/docs/dev/design/conical/>
                 // - <https://github.com/google/skia/blob/main/src/shaders/gradients/SkConicalGradient.h>
                 // - <https://github.com/google/skia/blob/main/src/shaders/gradients/SkConicalGradient.cpp>
-                let c0 = start_center;
-                let mut c1 = end_center;
-                let r0 = start_radius;
-                let mut r1 = end_radius;
 
                 // Same story as for linear gradients, mutate stops so that reflect and repeat
                 // can be treated the same.
