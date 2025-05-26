@@ -22,9 +22,6 @@ use smallvec::SmallVec;
 use peniko::kurbo::common::FloatFuncs as _;
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
-// The default SCALAR_NEARLY_ZERO threshold of .0024 is too big and causes regressions for svg
-// gradients defined in the wild.
-pub const DEGENERATE_THRESHOLD2: f32 = 1.0 / (1 << 15) as f32;
 const NUDGE_VAL: f32 = 1.0e-7;
 
 #[cfg(feature = "std")]
