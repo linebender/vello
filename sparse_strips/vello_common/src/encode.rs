@@ -77,7 +77,7 @@ impl EncodeExt for Gradient {
 
                 // We update the transform currently in-place, such that the gradient line always
                 // starts at the point (0, 0) and ends at the point (1, 0). This simplifies the
-                // calculation for the current position along the gradient line a lot. 
+                // calculation for the current position along the gradient line a lot.
                 base_transform = ts_from_poly_to_poly(p0, p1, Point::ZERO, Point::new(1.0, 0.0));
 
                 EncodedKind::Linear(LinearKind)
@@ -192,7 +192,8 @@ impl EncodeExt for Gradient {
 
                 EncodedKind::Sweep(SweepKind {
                     start_angle,
-                    angle_delta: end_angle - start_angle,
+                    // Save the inverse so that we can use a multiplication in the shader instead.
+                    inv_angle_delta: 1.0 / (end_angle - start_angle),
                 })
             }
         };
@@ -691,7 +692,7 @@ impl RadialKind {
 #[derive(Debug)]
 pub struct SweepKind {
     start_angle: f32,
-    angle_delta: f32,
+    inv_angle_delta: f32,
 }
 
 /// A kind of encoded gradient.
@@ -759,7 +760,7 @@ impl GradientLike for SweepKind {
             angle + 2.0 * PI
         };
 
-        (adjusted_angle - self.start_angle) / self.angle_delta
+        (adjusted_angle - self.start_angle) * self.inv_angle_delta
     }
 
     fn has_undefined(&self) -> bool {
