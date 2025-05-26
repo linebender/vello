@@ -106,68 +106,50 @@ impl EncodeExt for Gradient {
                     stops = Cow::Owned(apply_reflect(&stops));
                 }
 
-                // <https://github.com/google/skia/blob/1e07a4b16973cf716cb40b72dd969e961f4dd950/src/shaders/gradients/SkConicalGradient.cpp#L83-L112>
-                let radial_type = if ((c1 - c0).length() as f32).is_nearly_zero() {
-                    let scale = 1.0 / r0.max(r1);
-                    base_transform = Affine::translate((-c1.x, -c1.y));
-                    base_transform = base_transform.then_scale(scale as f64);
+                let d_radius = r1 - r0;
 
-                    RadialType::Radial
+                // <https://github.com/google/skia/blob/1e07a4b16973cf716cb40b72dd969e961f4dd950/src/shaders/gradients/SkConicalGradient.cpp#L83-L112>
+                let radial_kind = if ((c1 - c0).length() as f32).is_nearly_zero() {
+                    base_transform = Affine::translate((-c1.x, -c1.y));
+                    base_transform = base_transform.then_scale(1.0 / r0.max(r1) as f64);
+
+                    let scale = r1.max(r0) / d_radius;
+                    let bias = -r0 / d_radius;
+
+                    RadialKind::Radial { bias, scale }
                 } else {
                     base_transform =
                         ts_from_poly_to_poly(c0, c1, Point::ZERO, Point::new(1.0, 0.0));
 
                     if (r1 - r0).is_nearly_zero() {
-                        RadialType::Strip
+                        let scaled_r0 = r1 / (c1 - c0).length() as f32;
+                        RadialKind::Strip {
+                            scaled_r0_squared: scaled_r0 * scaled_r0,
+                        }
                     } else {
-                        RadialType::Focal
+                        let d_center = (c0 - c1).length() as f32;
+
+                        let focal_data =
+                            FocalData::create(r0 / d_center, r1 / d_center, &mut base_transform);
+
+                        let fp0 = 1.0 / focal_data.fr1;
+                        let fp1 = focal_data.f_focal_x;
+
+                        RadialKind::Focal {
+                            focal_data,
+                            fp0,
+                            fp1,
+                        }
                     }
-                };
-
-                let focal_data = if radial_type == RadialType::Focal {
-                    let d_center = (c0 - c1).length() as f32;
-
-                    Some(FocalData::create(
-                        r0 / d_center,
-                        r1 / d_center,
-                        &mut base_transform,
-                    ))
-                } else {
-                    None
-                };
-
-                let d_radius = r1 - r0;
-                let scale = r1.max(r0) / d_radius;
-                let bias = -r0 / d_radius;
-                let scaled_r0 = r1 / (c1 - c0).length() as f32;
-
-                let mut fp0 = 0.0;
-                let mut fp1 = 0.0;
-
-                if let Some(focal_data) = focal_data.as_ref() {
-                    fp0 = 1.0 / focal_data.fr1;
-                    fp1 = focal_data.f_focal_x;
-                }
-
-                let kind = RadialKind {
-                    radial_type,
-                    focal_data,
-                    scale,
-                    bias,
-                    r0,
-                    r1,
-                    scaled_r0,
-                    fp0,
-                    fp1,
                 };
 
                 // Even if the gradient has no stops with transparency, we might have to force
                 // alpha-compositing in case the radial gradient is undefined in certain positions,
                 // in which case the resulting color will be transparent and thus the gradient overall
                 // must be treated as non-opaque.
-                has_opacities |= kind.has_undefined();
+                has_opacities |= radial_kind.has_undefined();
 
-                EncodedKind::Radial(kind)
+                EncodedKind::Radial(radial_kind)
             }
             GradientKind::Sweep {
                 center,
@@ -185,7 +167,8 @@ impl EncodeExt for Gradient {
                     stops = Cow::Owned(apply_reflect(&stops));
                 }
 
-                // Make sure the center of the gradient falls on the origin (0, 0).
+                // Make sure the center of the gradient falls on the origin (0, 0), to make
+                // angle calculation easier.
                 let x_offset = -center.x as f32;
                 let y_offset = -center.y as f32;
                 base_transform = Affine::translate((x_offset as f64, y_offset as f64));
@@ -534,7 +517,7 @@ pub struct EncodedImage {
 #[derive(Debug)]
 pub struct LinearKind;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct FocalData {
     fr1: f32,
     f_focal_x: f32,
@@ -601,37 +584,32 @@ impl FocalData {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum RadialType {
-    Radial,
-    Strip,
-    Focal,
-}
-
-/// Computed properties of a radial gradient.
-#[derive(Debug)]
-pub struct RadialKind {
-    radial_type: RadialType,
-    focal_data: Option<FocalData>,
-    scale: f32,
-    bias: f32,
-    r0: f32,
-    scaled_r0: f32,
-    r1: f32,
-    fp0: f32,
-    fp1: f32,
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum RadialKind {
+    Radial {
+        bias: f32,
+        scale: f32,
+    },
+    Strip {
+        scaled_r0_squared: f32,
+    },
+    Focal {
+        focal_data: FocalData,
+        fp0: f32,
+        fp1: f32,
+    },
 }
 
 impl RadialKind {
     fn pos_inner(&self, pos: Point) -> Option<f32> {
-        match self.radial_type {
-            RadialType::Radial => {
+        match self {
+            RadialKind::Radial { bias, scale } => {
                 let mut radius = pos.to_vec2().length() as f32;
-                radius = self.bias + radius * self.scale;
+                radius = bias + radius * scale;
                 Some(radius)
             }
-            RadialType::Strip => {
-                let p1 = self.scaled_r0 * self.scaled_r0 - pos.y as f32 * pos.y as f32;
+            RadialKind::Strip { scaled_r0_squared } => {
+                let p1 = scaled_r0_squared - pos.y as f32 * pos.y as f32;
 
                 if p1 < 0.0 {
                     None
@@ -639,8 +617,11 @@ impl RadialKind {
                     Some(pos.x as f32 + p1.sqrt())
                 }
             }
-            RadialType::Focal => {
-                let focal_data = self.focal_data.as_ref().unwrap();
+            RadialKind::Focal {
+                focal_data,
+                fp0,
+                fp1,
+            } => {
                 let mut x = pos.x as f32;
                 let y = pos.y as f32;
 
@@ -649,13 +630,13 @@ impl RadialKind {
                     x + y * y / x
                 } else if focal_data.is_well_behaved() {
                     // xy_to_2pt_conical_well_behaved
-                    (x * x + y * y).sqrt() - x * self.fp0
+                    (x * x + y * y).sqrt() - x * fp0
                 } else if focal_data.is_swapped() || (1.0 - focal_data.f_focal_x < 0.0) {
                     // xy_to_2pt_conical_smaller
-                    -(x * x - y * y).sqrt() - x * self.fp0
+                    -(x * x - y * y).sqrt() - x * fp0
                 } else {
                     // xy_to_2pt_conical_greater
-                    (x * x - y * y).sqrt() - x * self.fp0
+                    (x * x - y * y).sqrt() - x * fp0
                 };
 
                 if !focal_data.is_well_behaved() {
@@ -674,7 +655,7 @@ impl RadialKind {
 
                 if !focal_data.is_natively_focal() {
                     // alter_2pt_conical_compensate_focal
-                    t = t + self.fp1;
+                    t = t + fp1;
                 }
 
                 if focal_data.is_swapped() {
@@ -796,12 +777,11 @@ impl GradientLike for RadialKind {
     }
 
     fn has_undefined(&self) -> bool {
-        self.radial_type == RadialType::Strip
-            || self
-                .focal_data
-                .as_ref()
-                .map(|f| !f.is_well_behaved())
-                .unwrap_or(false)
+        match self {
+            RadialKind::Radial { .. } => false,
+            RadialKind::Strip { .. } => true,
+            RadialKind::Focal { focal_data, .. } => !focal_data.is_well_behaved(),
+        }
     }
 
     fn is_defined(&self, pos: Point) -> bool {
