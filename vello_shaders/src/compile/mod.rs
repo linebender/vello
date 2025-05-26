@@ -85,9 +85,12 @@ pub struct ShaderInfo {
 }
 
 impl ShaderInfo {
-    #[expect(
-        clippy::result_large_err,
-        reason = "Deferred: This is a cold code path."
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        expect(
+            clippy::result_large_err,
+            reason = "Deferred: This is a cold code path."
+        )
     )]
     pub fn new(name: &str, source: String, entry_point: &str) -> Result<Self> {
         let module = wgsl::parse_str(&source).map_err(|error| Error::new(&source, name, error))?;
