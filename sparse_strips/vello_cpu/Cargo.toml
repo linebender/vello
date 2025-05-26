@@ -29,9 +29,5 @@ libm = ["vello_common/libm", "dep:libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
 png = ["vello_common/png"]
 
-[dev-dependencies]
-smallvec = { workspace = true }
-image = { workspace = true, features = ["png"] }
-
 [lints]
 workspace = true

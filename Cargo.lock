@@ -3212,9 +3212,7 @@ dependencies = [
 name = "vello_cpu"
 version = "0.0.1"
 dependencies = [
- "image",
  "libm",
- "smallvec",
  "vello_common",
 ]
 
