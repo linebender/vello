@@ -86,7 +86,7 @@ pub struct ShaderInfo {
 
 impl ShaderInfo {
     #[cfg_attr(
-        not(target_arch = "wasm32"),
+        target_pointer_width = "64",
         expect(
             clippy::result_large_err,
             reason = "Deferred: This is a cold code path."
