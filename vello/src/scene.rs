@@ -126,6 +126,71 @@ impl Scene {
         self.encoding.encode_end_clip();
     }
 
+    /// Compute a rough bounding box of the scene. This is not axis-aligned, or precise.
+    /// Compute a rough bounding box of the scene.
+    pub fn compute_bb(&self) -> Rect {
+        if self.encoding.path_data.is_empty() {
+            return Rect::ZERO;
+        }
+
+        let mut min_x = f32::INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+
+        // Quick scan through path data looking for coordinate values
+        // Treat consecutive u32 pairs as potential x,y coordinates
+        for chunk in self.encoding.path_data.chunks_exact(2) {
+            let &[x, y] = chunk else {
+                continue;
+            };
+            let x = f32::from_bits(x);
+            let y = f32::from_bits(y);
+
+            // Only consider finite values as valid coordinates
+            if x.is_finite() && y.is_finite() {
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+
+        // Quick check of draw data for additional coordinate info
+        for chunk in self.encoding.draw_data.chunks(2) {
+            let &[x, y] = chunk else {
+                continue;
+            };
+            let x = f32::from_bits(x);
+            let y = f32::from_bits(y);
+
+            if x.is_finite() && y.is_finite() {
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+
+        // Check glyph positions if any
+        for glyph in &self.encoding.resources.glyphs {
+            let x = glyph.x;
+            let y = glyph.y;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+
+        // If we found no valid coordinates, return zero rect
+        if min_x.is_infinite() || min_y.is_infinite() || max_x.is_infinite() || max_y.is_infinite()
+        {
+            return Rect::ZERO;
+        }
+
+        Rect::new(min_x as f64, min_y as f64, max_x as f64, max_y as f64)
+    }
+
     /// Draw a rounded rectangle blurred with a gaussian filter.
     pub fn draw_blurred_rounded_rect(
         &mut self,
