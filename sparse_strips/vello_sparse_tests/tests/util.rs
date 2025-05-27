@@ -296,9 +296,10 @@ pub(crate) fn check_ref(
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn check_ref(
     ctx: &impl Renderer,
-    // The name of the test.
-    test_name: &str,
-    _: &str,
+    _test_name: &str,
+    // The name of the specific instance of the test that is being run
+    // (e.g. test_gpu, test_cpu_u8, etc.)
+    specific_name: &str,
     // Tolerance for pixel differences.
     threshold: u8,
     // Must be `false` on `wasm32` as reference image cannot be written to filesystem.
@@ -316,13 +317,13 @@ pub(crate) fn check_ref(
 
     let diff_image = get_diff(&ref_image, &actual, threshold);
     if let Some(ref img) = diff_image {
-        append_diff_image_to_browser_document(test_name, img);
+        append_diff_image_to_browser_document(specific_name, img);
         panic!("test didn't match reference image. Scroll to bottom of browser to view diff.");
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn append_diff_image_to_browser_document(test_name: &str, diff_image: &RgbaImage) {
+fn append_diff_image_to_browser_document(specific_name: &str, diff_image: &RgbaImage) {
     use wasm_bindgen::JsCast;
     use web_sys::js_sys::{Array, Uint8Array};
     use web_sys::{Blob, BlobPropertyBag, HtmlImageElement, Url, window};
@@ -344,7 +345,7 @@ fn append_diff_image_to_browser_document(test_name: &str, diff_image: &RgbaImage
         .unwrap();
 
     let title = document.create_element("h3").unwrap();
-    title.set_text_content(Some(&format!("Test Failed: {}", test_name)));
+    title.set_text_content(Some(&format!("Test Failed: {}", specific_name)));
     title
         .set_attribute("style", "color: red; margin-top: 0;")
         .unwrap();

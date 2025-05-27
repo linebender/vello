@@ -363,6 +363,7 @@ impl Renderer for Scene {
         texture_copy_buffer.unmap();
     }
 
+    // vello_hybrid WebGL renderer backend.
     #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
     fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
         use wasm_bindgen::JsCast;
