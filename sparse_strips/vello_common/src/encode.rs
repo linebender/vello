@@ -23,6 +23,10 @@ use peniko::kurbo::common::FloatFuncs as _;
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
+// The reason we don't choose exactly 0.5 is that there are a few test cases where the
+// boundary is exactly at the center of the pixel, meaning that some tests in CI fail very 
+// slightly because of floating point inacurracies across different systems.
+const PIXEL_CENTER_OFFSET: f64 = 0.5001;
 
 #[cfg(feature = "std")]
 fn exp(val: f32) -> f32 {
@@ -184,7 +188,9 @@ impl EncodeExt for Gradient {
         // adding 0.5.
         // Finally, we need to apply the _inverse_ paint transform to the point so that we can account
         // for the paint transform of the render context.
-        let transform = base_transform * transform.inverse() * Affine::translate((0.5, 0.5));
+        let transform = base_transform
+            * transform.inverse()
+            * Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
 
         // One possible approach of calculating the positions would be to apply the above
         // transform to _each_ pixel that we render in the wide tile. However, a much better
