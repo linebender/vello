@@ -184,7 +184,7 @@ impl EncodeExt for Gradient {
         // adding 0.5.
         // Finally, we need to apply the _inverse_ paint transform to the point so that we can account
         // for the paint transform of the render context.
-        let transform = base_transform * Affine::translate((0.5, 0.5)) * transform.inverse();
+        let transform = base_transform * transform.inverse() * Affine::translate((0.5, 0.5));
 
         // One possible approach of calculating the positions would be to apply the above
         // transform to _each_ pixel that we render in the wide tile. However, a much better
