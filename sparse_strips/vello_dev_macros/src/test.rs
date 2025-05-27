@@ -88,6 +88,30 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         no_ref,
     } = parse_args(&attrs);
 
+    // Wasm doesn't have access to the filesystem. For wasm, inline the snapshot bytes into the
+    // binary.
+    let reference_image_name = Ident::new(
+        &format!(
+            "{}_REFERENCE_IMAGE",
+            input_fn_name.to_string().to_uppercase()
+        ),
+        input_fn_name.span(),
+    );
+    let reference_image_const = if !no_ref {
+        quote! {
+            #[cfg(target_arch = "wasm32")]
+            const #reference_image_name: &[u8] = include_bytes!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/snapshots/", #input_fn_name_str, ".png")
+            );
+            #[cfg(not(target_arch = "wasm32"))]
+            const #reference_image_name: &[u8] = &[];
+        }
+    } else {
+        quote! {
+            const #reference_image_name: &[u8] = &[];
+        }
+    };
+
     let cpu_u8_tolerance = cpu_u8_tolerance + DEFAULT_CPU_U8_TOLERANCE;
     // Since f32 is our gold standard, we always require exact matches for this one.
     let cpu_f32_tolerance = DEFAULT_CPU_F32_TOLERANCE;
@@ -132,7 +156,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                        render_mode: proc_macro2::TokenStream| {
         quote! {
             #ignore_cpu
-            #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
             #[test]
             fn #fn_name() {
                 use crate::util::{
@@ -143,7 +166,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
                 #input_fn_name(&mut ctx);
                 if !#no_ref {
-                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #is_reference, #render_mode);
+                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #is_reference, #render_mode, #reference_image_name);
                 }
             }
         }
@@ -167,12 +190,13 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let expanded = quote! {
         #input_fn
 
+        #reference_image_const
+
         #u8_snippet
 
         #f32_snippet
 
         #ignore_hybrid
-        #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
         #[test]
         fn #hybrid_fn_name() {
             use crate::util::{
@@ -184,7 +208,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed);
+                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
         }
 
@@ -201,7 +225,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed);
+                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
         }
     };

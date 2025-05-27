@@ -44,9 +44,6 @@ web-sys = { version = "0.3.77", features = [
 ] }
 wasm-bindgen = "0.2.100"
 
-[build-dependencies]
-quote = { workspace = true }
-
 [features]
 webgl = ["vello_hybrid/webgl"]
 
