@@ -29,6 +29,11 @@ struct Arguments {
     skip_cpu: bool,
     /// Whether the test should not be run on the GPU (`vello_hybrid`).
     skip_hybrid: bool,
+    /// The maximum number of pixels that are allowed to completely deviate from the reference
+    /// images. This attribute mainly exists because there are some test cases (like gradients),
+    /// where, due to floating point inaccuracies, some pixels might land on a different color
+    /// stop and thus yield a different value in CI.
+    diff_pixels: u16,
     /// Whether no reference image should actually be created (for tests that only check
     /// for panics, but are not interested in the actual output).
     no_ref: bool,
@@ -47,6 +52,7 @@ impl Default for Arguments {
             skip_cpu: false,
             skip_hybrid: false,
             no_ref: false,
+            diff_pixels: 0,
             ignore_reason: None,
         }
     }
@@ -86,6 +92,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         mut skip_hybrid,
         ignore_reason,
         no_ref,
+        diff_pixels,
     } = parse_args(&attrs);
 
     // Wasm doesn't have access to the filesystem. For wasm, inline the snapshot bytes into the
@@ -166,7 +173,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
                 #input_fn_name(&mut ctx);
                 if !#no_ref {
-                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #is_reference, #render_mode, #reference_image_name);
+                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #render_mode, #reference_image_name);
                 }
             }
         }
@@ -208,7 +215,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed, #reference_image_name);
+                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
         }
 
@@ -225,7 +232,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed, #reference_image_name);
+                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
         }
     };
@@ -247,6 +254,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                         args.ignore_reason = Some(parse_string_lit(expr, "ignore"));
                     }
                     "width" => args.width = parse_int_lit(expr, "width"),
+                    "diff_pixels" => args.diff_pixels = parse_int_lit(expr, "diff_pixels"),
                     "height" => args.height = parse_int_lit(expr, "height"),
                     "cpu_u8_tolerance" => {
                         args.cpu_u8_tolerance = parse_int_lit(expr, "cpu_u8_tolerance")

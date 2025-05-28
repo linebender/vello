@@ -91,7 +91,7 @@ fn gradient_with_color_spaces_1(ctx: &mut impl Renderer) {
     gradient_with_color_spaces(ctx, stops);
 }
 
-#[vello_test(width = 200, height = 130)]
+#[vello_test(width = 200, height = 130, diff_pixels = 15)]
 fn gradient_with_color_spaces_2(ctx: &mut impl Renderer) {
     let stops = ColorStops(smallvec![
         ColorStop {
@@ -963,7 +963,7 @@ mod sweep {
         );
     }
 
-    #[vello_test]
+    #[vello_test(diff_pixels = 15)]
     fn gradient_sweep_with_transform_rotate_1(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -975,7 +975,7 @@ mod sweep {
         );
     }
 
-    #[vello_test]
+    #[vello_test(diff_pixels = 15)]
     fn gradient_sweep_with_transform_rotate_2(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
