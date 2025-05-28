@@ -9,13 +9,40 @@
 
 </div>
 
-This is a development only crate for testing the sparse_strip renderers across a corpus of reference
+This is a development-only crate for testing the sparse_strip renderers across a corpus of reference
 images:
- - cpu
- - wgpu
- - wasm32 WebGL
+- CPU
+- WGPU
+- WASM32 WebGL
+
+The `vello_test` proc macro will create a snapshot test for each supported renderer target. See the
+below example usage.
+
+```rs
+// Draws a filled triangle into a 125x125 scene.
+#[vello_test(width = 125, height = 125)]
+fn filled_triangle(ctx: &mut impl Renderer) {
+    let path = {
+        let mut path = BezPath::new();
+        path.move_to((5.0, 5.0));
+        path.line_to((95.0, 50.0));
+        path.line_to((5.0, 95.0));
+        path.close_path();
+
+        path
+    };
+
+    ctx.set_paint(LIME);
+    ctx.fill_path(&path);
+}
+```
+
+See all the attributes that can be passed to `vello_test` in `vello_dev_macros/test.rs`.
 
 ## Testing WebGL on the Browser
+
+Requirements:
+ - on MacOS, a minimum Clang major version of 20 is required.
 
 To run the `vello_sparse_tests` suite on WebGL headless:
 
