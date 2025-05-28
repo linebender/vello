@@ -219,6 +219,7 @@ impl Renderer for Scene {
     // This method creates device resources every time it is called. This does not matter much for
     // testing, but should not be used as a basis for implementing something real. This would be a
     // very bad example for that.
+    #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
     fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
@@ -360,6 +361,58 @@ impl Renderer for Scene {
             buf.copy_from_slice(&row[0..width as usize * 4]);
         }
         texture_copy_buffer.unmap();
+    }
+
+    // vello_hybrid WebGL renderer backend.
+    #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
+        use wasm_bindgen::JsCast;
+        use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
+
+        let width = self.width();
+        let height = self.height();
+
+        // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
+        // the pixmap for diff checking.
+        let document = web_sys::window().unwrap().document().unwrap();
+
+        let canvas = document
+            .create_element("canvas")
+            .unwrap()
+            .dyn_into::<HtmlCanvasElement>()
+            .unwrap();
+
+        canvas.set_width(width.into());
+        canvas.set_height(height.into());
+
+        let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+        let render_size = vello_hybrid::RenderSize {
+            width: width.into(),
+            height: height.into(),
+        };
+
+        renderer.render(self, &render_size).unwrap();
+
+        let gl = canvas
+            .get_context("webgl2")
+            .unwrap()
+            .unwrap()
+            .dyn_into::<WebGl2RenderingContext>()
+            .unwrap();
+        let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
+        gl.read_pixels_with_opt_u8_array(
+            0,
+            0,
+            width.into(),
+            height.into(),
+            WebGl2RenderingContext::RGBA,
+            WebGl2RenderingContext::UNSIGNED_BYTE,
+            Some(&mut pixels),
+        )
+        .unwrap();
+
+        let pixmap_data = pixmap.data_as_u8_slice_mut();
+        pixmap_data.copy_from_slice(&pixels);
     }
 
     fn width(&self) -> u16 {

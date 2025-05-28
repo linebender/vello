@@ -21,6 +21,9 @@
 #![allow(missing_docs, reason = "we don't need docs for testing")]
 #![allow(clippy::cast_possible_truncation, reason = "not critical for testing")]
 
+#[cfg(target_arch = "wasm32")]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
 mod basic;
 mod blurred_rounded_rect;
 mod clip;

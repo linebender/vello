@@ -61,6 +61,10 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let u8_fn_name = Ident::new(&format!("{}_cpu_u8", input_fn_name), input_fn_name.span());
     let f32_fn_name = Ident::new(&format!("{}_cpu_f32", input_fn_name), input_fn_name.span());
     let hybrid_fn_name = Ident::new(&format!("{}_hybrid", input_fn_name), input_fn_name.span());
+    let webgl_fn_name = Ident::new(
+        &format!("{}_hybrid_webgl", input_fn_name),
+        input_fn_name.span(),
+    );
 
     // TODO: Tests with the same names in different modules can clash, see
     // https://github.com/linebender/vello/pull/925#discussion_r2070710362.
@@ -70,6 +74,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let u8_fn_name_str = u8_fn_name.to_string();
     let f32_fn_name_str = f32_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
+    let webgl_fn_name_str = webgl_fn_name.to_string();
 
     let Arguments {
         width,
@@ -82,6 +87,30 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         ignore_reason,
         no_ref,
     } = parse_args(&attrs);
+
+    // Wasm doesn't have access to the filesystem. For wasm, inline the snapshot bytes into the
+    // binary.
+    let reference_image_name = Ident::new(
+        &format!(
+            "{}_REFERENCE_IMAGE",
+            input_fn_name.to_string().to_uppercase()
+        ),
+        input_fn_name.span(),
+    );
+    let reference_image_const = if !no_ref {
+        quote! {
+            #[cfg(target_arch = "wasm32")]
+            const #reference_image_name: &[u8] = include_bytes!(
+                concat!(env!("CARGO_MANIFEST_DIR"), "/snapshots/", #input_fn_name_str, ".png")
+            );
+            #[cfg(not(target_arch = "wasm32"))]
+            const #reference_image_name: &[u8] = &[];
+        }
+    } else {
+        quote! {
+            const #reference_image_name: &[u8] = &[];
+        }
+    };
 
     let cpu_u8_tolerance = cpu_u8_tolerance + DEFAULT_CPU_U8_TOLERANCE;
     // Since f32 is our gold standard, we always require exact matches for this one.
@@ -137,7 +166,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
                 #input_fn_name(&mut ctx);
                 if !#no_ref {
-                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #is_reference, #render_mode);
+                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #is_reference, #render_mode, #reference_image_name);
                 }
             }
         }
@@ -161,6 +190,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let expanded = quote! {
         #input_fn
 
+        #reference_image_const
+
         #u8_snippet
 
         #f32_snippet
@@ -177,7 +208,24 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed);
+                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed, #reference_image_name);
+            }
+        }
+
+        #ignore_hybrid
+        #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+        #[wasm_bindgen_test::wasm_bindgen_test]
+        async fn #webgl_fn_name() {
+            use crate::util::{
+                check_ref, get_ctx
+            };
+            use vello_hybrid::Scene;
+            use vello_cpu::RenderMode;
+
+            let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
+            #input_fn_name(&mut ctx);
+            if !#no_ref {
+                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
         }
     };

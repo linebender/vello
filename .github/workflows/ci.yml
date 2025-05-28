@@ -306,9 +306,27 @@ jobs:
 
   test-stable-wasm:
     name: cargo test (wasm32)
+    needs: prime-lfs-cache
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        # We intentionally do not use lfs: true here, instead using the caching method to save LFS bandwidth.
+
+      - name: Restore lfs cache
+        id: lfs-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .git/lfs
+          # The files targeted with git lfs
+          key: vello-lfs-${{ needs.prime-lfs-cache.outputs.lfs-hash }}
+          enableCrossOsArchive: true
+  
+      - name: Checkout LFS files
+        # `git lfs checkout` requires that each individual glob is a separate command line argument.
+        # The string `''' '''` is how you write `' '` in GitHub's expression context (i.e. two quotes separated by a space)
+        # The quotes are to avoid the shell from evaluating the globs itself.
+        run: git lfs checkout '${{ join(fromJson(env.LFS_FILES), ''' ''') }}'
+        continue-on-error: true
 
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
@@ -336,6 +354,10 @@ jobs:
       - name: check vello_hybrid is native webgl compatible
         run: wasm-pack test --headless --chrome
         working-directory: sparse_strips/vello_hybrid/examples/native_webgl
+
+      - name: Run vello_sparse_tests on Chrome
+        run: wasm-pack test --headless --chrome --features webgl
+        working-directory: sparse_strips/vello_sparse_tests
 
 
   check-stable-android:

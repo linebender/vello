@@ -11,8 +11,7 @@ use skrifa::raw::FileRef;
 use smallvec::smallvec;
 use std::cmp::max;
 use std::io::Cursor;
-use std::path::PathBuf;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::glyph::Glyph;
@@ -21,11 +20,17 @@ use vello_common::peniko::{Blob, ColorStop, ColorStops, Font};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderMode;
 
-static REFS_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
+
+#[cfg(not(target_arch = "wasm32"))]
+static REFS_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/snapshots")
 });
-static DIFFS_PATH: LazyLock<PathBuf> =
-    LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs"));
+#[cfg(not(target_arch = "wasm32"))]
+static DIFFS_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs")
+});
 
 pub(crate) fn get_ctx<T: Renderer>(width: u16, height: u16, transparent: bool) -> T {
     let mut ctx = T::new(width, height);
@@ -225,6 +230,7 @@ pub(crate) fn pixmap_to_png(pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> 
     png_data
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn check_ref(
     ctx: &impl Renderer,
     // The name of the test.
@@ -238,6 +244,7 @@ pub(crate) fn check_ref(
     // for creating reference images.
     is_reference: bool,
     render_mode: RenderMode,
+    _: &[u8],
 ) {
     let pixmap = render_pixmap(ctx, render_mode);
 
@@ -284,6 +291,103 @@ pub(crate) fn check_ref(
 
         panic!("test didnt match reference image");
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn check_ref(
+    ctx: &impl Renderer,
+    _test_name: &str,
+    // The name of the specific instance of the test that is being run
+    // (e.g. test_gpu, test_cpu_u8, etc.)
+    specific_name: &str,
+    // Tolerance for pixel differences.
+    threshold: u8,
+    // Must be `false` on `wasm32` as reference image cannot be written to filesystem.
+    is_reference: bool,
+    render_mode: RenderMode,
+    ref_data: &[u8],
+) {
+    assert!(!is_reference, "WASM cannot create new reference images");
+
+    let pixmap = render_pixmap(ctx, render_mode);
+    let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
+    let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
+
+    let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
+
+    let diff_image = get_diff(&ref_image, &actual, threshold);
+    if let Some(ref img) = diff_image {
+        append_diff_image_to_browser_document(specific_name, img);
+        panic!("test didn't match reference image. Scroll to bottom of browser to view diff.");
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn append_diff_image_to_browser_document(specific_name: &str, diff_image: &RgbaImage) {
+    use wasm_bindgen::JsCast;
+    use web_sys::js_sys::{Array, Uint8Array};
+    use web_sys::{Blob, BlobPropertyBag, HtmlImageElement, Url, window};
+
+    let window = window().unwrap();
+    let document = window.document().unwrap();
+    let body = document.body().unwrap();
+
+    let container = document.create_element("div").unwrap();
+    container
+        .set_attribute(
+            "style",
+            "border: 2px solid red; \
+         margin: 20px; \
+         padding: 20px; \
+         background: #f0f0f0; \
+         display: inline-block;",
+        )
+        .unwrap();
+
+    let title = document.create_element("h3").unwrap();
+    title.set_text_content(Some(&format!("Test Failed: {}", specific_name)));
+    title
+        .set_attribute("style", "color: red; margin-top: 0;")
+        .unwrap();
+    container.append_child(&title).unwrap();
+
+    let diff_png = {
+        let mut png_data = Vec::new();
+        let cursor = std::io::Cursor::new(&mut png_data);
+        let encoder = image::codecs::png::PngEncoder::new(cursor);
+        encoder
+            .write_image(
+                diff_image.as_raw(),
+                diff_image.width(),
+                diff_image.height(),
+                image::ExtendedColorType::Rgba8,
+            )
+            .unwrap();
+        png_data
+    };
+
+    let uint8_array = Uint8Array::new_with_length(diff_png.len() as u32);
+    uint8_array.copy_from(&diff_png);
+    let array = Array::new();
+    array.push(&uint8_array.buffer());
+    let blob_property_bag = BlobPropertyBag::new();
+    blob_property_bag.set_type("image/png");
+    let blob = Blob::new_with_u8_array_sequence_and_options(&array, &blob_property_bag).unwrap();
+    let url = Url::create_object_url_with_blob(&blob).unwrap();
+
+    let img = document
+        .create_element("img")
+        .unwrap()
+        .dyn_into::<HtmlImageElement>()
+        .unwrap();
+    img.set_src(&url);
+    img.set_attribute("style", "border: 1px solid #ccc; max-width: 100%;")
+        .unwrap();
+    img.set_attribute("title", "Expected | Diff | Actual")
+        .unwrap();
+
+    container.append_child(&img).unwrap();
+    body.append_child(&container).unwrap();
 }
 
 fn get_diff(
