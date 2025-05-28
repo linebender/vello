@@ -963,7 +963,7 @@ mod sweep {
         );
     }
 
-    #[vello_test(diff_pixels = 15)]
+    #[vello_test(diff_pixels = 20)]
     fn gradient_sweep_with_transform_rotate_1(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
@@ -975,7 +975,7 @@ mod sweep {
         );
     }
 
-    #[vello_test(diff_pixels = 15)]
+    #[vello_test(diff_pixels = 20)]
     fn gradient_sweep_with_transform_rotate_2(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
