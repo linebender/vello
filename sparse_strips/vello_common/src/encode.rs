@@ -26,7 +26,7 @@ const NUDGE_VAL: f32 = 1.0e-7;
 // The reason we don't choose exactly 0.5 is that there are a few test cases where the
 // boundary is exactly at the center of the pixel, meaning that some tests in CI fail very
 // slightly because of floating point inaccuracies across different systems.
-const PIXEL_CENTER_OFFSET: f64 = 0.501;
+const PIXEL_CENTER_OFFSET: f64 = 0.5;
 
 #[cfg(feature = "std")]
 fn exp(val: f32) -> f32 {
