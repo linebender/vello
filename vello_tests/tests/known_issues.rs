@@ -16,7 +16,7 @@ use scenes::ImageCache;
 use vello::{
     AaConfig, Scene,
     kurbo::{Affine, Rect},
-    peniko::{ImageFormat, ImageQuality, color::palette},
+    peniko::{Extend, ImageFormat, ImageQuality, color::palette},
 };
 use vello_tests::{TestParams, smoke_snapshot_test_sync};
 
@@ -82,15 +82,36 @@ const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/smoke/data_image_roun
 
 /// Test for <https://github.com/linebender/vello/issues/972>
 #[test]
-// Note that this isn't exactly 0.3, it's a number starting with "0.3"
-#[should_panic(expected = "Expected mean to be less than 0.001, got 0.3")]
-fn test_data_image_roundtrip() {
+#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"]
+#[should_panic]
+fn test_data_image_roundtrip_extend_reflect() {
     let mut scene = Scene::new();
     let mut images = ImageCache::new();
     let image = images
         .from_bytes(0, DATA_IMAGE_PNG)
         .unwrap()
-        .with_quality(ImageQuality::Low);
+        .with_quality(ImageQuality::Low)
+        .with_extend(Extend::Reflect);
+    scene.draw_image(&image, Affine::IDENTITY);
+    let mut params = TestParams::new("data_image_roundtrip", image.width, image.height);
+    params.anti_aliasing = AaConfig::Area;
+    smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
+}
+
+/// Test for <https://github.com/linebender/vello/issues/972>
+#[test]
+#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"]
+#[should_panic]
+fn test_data_image_roundtrip_extend_repeat() {
+    let mut scene = Scene::new();
+    let mut images = ImageCache::new();
+    let image = images
+        .from_bytes(0, DATA_IMAGE_PNG)
+        .unwrap()
+        .with_quality(ImageQuality::Low)
+        .with_extend(Extend::Repeat);
     scene.draw_image(&image, Affine::IDENTITY);
     let mut params = TestParams::new("data_image_roundtrip", image.width, image.height);
     params.anti_aliasing = AaConfig::Area;
