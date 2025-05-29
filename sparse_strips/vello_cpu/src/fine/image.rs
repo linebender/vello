@@ -18,7 +18,7 @@ fn floor(val: f32) -> f32 {
 #[cfg(not(feature = "std"))]
 fn floor(val: f32) -> f32 {
     #[cfg(feature = "libm")]
-    return libm::floor(val);
+    return libm::floorf(val);
     #[cfg(not(feature = "libm"))]
     compile_error!("vello_common requires either the `std` or `libm` feature");
 }
