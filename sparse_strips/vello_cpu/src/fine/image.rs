@@ -7,6 +7,22 @@ use vello_common::kurbo::{Point, Vec2};
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::tile::Tile;
 
+#[cfg(not(feature = "std"))]
+use vello_common::kurbo::common::FloatFuncs as _;
+
+#[cfg(feature = "std")]
+fn floor(val: f32) -> f32 {
+    val.floor()
+}
+
+#[cfg(not(feature = "std"))]
+fn floor(val: f32) -> f32 {
+    #[cfg(feature = "libm")]
+    return libm::floor(val);
+    #[cfg(not(feature = "libm"))]
+    compile_error!("vello_common requires either the `std` or `libm` feature");
+}
+
 #[derive(Debug)]
 pub(crate) struct ImageFiller<'a> {
     /// The current position that should be processed.
@@ -167,7 +183,7 @@ impl<'a> ImageFiller<'a> {
                     // using a cubic filter to weight each location's contribution.
 
                     fn fract(val: f32) -> f32 {
-                        val - val.floor()
+                        val - floor(val)
                     }
 
                     let x_fract = fract(pos.x as f32 + 0.5);
@@ -257,11 +273,11 @@ fn extend(val: f32, extend: Extend, max: f32, inv_max: f32) -> f32 {
         // Note that max should be exclusive, so subtract a small bias to enforce that.
         // Otherwise, we might sample out-of-bounds pixels.
         Extend::Pad => val.clamp(0.0, max - BIAS),
-        Extend::Repeat => val - (val * inv_max).floor() * max,
+        Extend::Repeat => val - floor(val * inv_max) * max,
         // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L3274-L3290>
         Extend::Reflect => {
-            let u = val - (val * inv_max * 0.5).floor() * 2.0 * max;
-            let s = (u * inv_max).floor();
+            let u = val - floor(val * inv_max * 0.5) * 2.0 * max;
+            let s = floor(u * inv_max);
             let m = u - 2.0 * s * (u - max);
 
             let bias_in_ulps = s.trunc();
