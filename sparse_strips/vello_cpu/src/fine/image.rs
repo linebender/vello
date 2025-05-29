@@ -17,23 +17,22 @@ pub(crate) struct ImageFiller<'a> {
     height: f32,
     height_inv: f32,
     width: f32,
-    width_inv: f32
+    width_inv: f32,
 }
 
 impl<'a> ImageFiller<'a> {
     pub(crate) fn new(image: &'a EncodedImage, start_x: u16, start_y: u16) -> Self {
         let width = image.pixmap.width() as f32;
         let height = image.pixmap.height() as f32;
-        
+
         Self {
             // We want to sample values of the pixels at the center, so add an offset of 0.5.
-            cur_pos: image.transform
-                * Point::new(f64::from(start_x), f64::from(start_y)),
+            cur_pos: image.transform * Point::new(f64::from(start_x), f64::from(start_y)),
             image,
             width,
             height,
             width_inv: 1.0 / width,
-            height_inv: 1.0 / height
+            height_inv: 1.0 / height,
         }
     }
 
@@ -71,7 +70,7 @@ impl<'a> ImageFiller<'a> {
                     (self.cur_pos.y + y_advance * idx as f64) as f32,
                     self.image.extends.1,
                     self.height,
-                    self.height_inv
+                    self.height_inv,
                 );
             }
 
@@ -82,7 +81,7 @@ impl<'a> ImageFiller<'a> {
                         x_pos as f32,
                         self.image.extends.0,
                         self.width,
-                        self.width_inv
+                        self.width_inv,
                     );
                     self.run_simple_column(column, extended_x_pos, &y_positions);
                     x_pos += x_advance;
@@ -127,13 +126,13 @@ impl<'a> ImageFiller<'a> {
                 point.x as f32,
                 self.image.extends.0,
                 self.width,
-                self.width_inv
+                self.width_inv,
             ));
             point.y = f64::from(extend(
                 point.y as f32,
                 self.image.extends.1,
                 self.height,
-                self.height_inv
+                self.height_inv,
             ));
 
             point
@@ -170,13 +169,13 @@ impl<'a> ImageFiller<'a> {
                     fn fract(val: f32) -> f32 {
                         val - val.floor()
                     }
-                    
+
                     let x_fract = fract(pos.x as f32 + 0.5);
                     let y_fract = fract(pos.y as f32 + 0.5);
 
                     let mut interpolated_color = [0.0_f32; 4];
 
-                    let sample = |mut p: Point| {
+                    let sample = |p: Point| {
                         let c = |val: u8| f32::from(val) / 255.0;
                         let s = self.image.pixmap.sample(p.x as u16, p.y as u16);
 
@@ -255,12 +254,12 @@ impl<'a> ImageFiller<'a> {
 #[inline(always)]
 fn extend(val: f32, extend: Extend, max: f32, inv_max: f32) -> f32 {
     const BIAS: f32 = 0.01;
-    
+
     match extend {
         // Note that max should be exclusive, so subtract a small bias to enforce that.
         // Otherwise, we might sample out-of-bounds pixels.
         Extend::Pad => val.clamp(0.0, max - BIAS),
-        Extend::Repeat =>  val - (val * inv_max).floor() * max,
+        Extend::Repeat => val - (val * inv_max).floor() * max,
         // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L3274-L3290>
         Extend::Reflect => {
             let u = val - (val * inv_max * 0.5).floor() * 2.0 * max;
@@ -272,7 +271,7 @@ fn extend(val: f32, extend: Extend, max: f32, inv_max: f32) -> f32 {
             let m_bits = m.to_bits();
             let biased_bits = m_bits.wrapping_sub(bias_in_ulps as u32);
             f32::from_bits(biased_bits)
-        },
+        }
     }
 }
 
