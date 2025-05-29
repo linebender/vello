@@ -487,8 +487,8 @@ impl EncodeExt for Image {
         // Similarly to gradients, apply a 0.5 offset so we sample at the center of
         // a pixel.
         let transform = transform.inverse() * Affine::translate((0.5, 0.5));
-        // While some images might not have an opacity, most do, so let's assume opacities
-        // by default.
+        // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
+        // non-opaque images in the first place..
         let has_opacities = self.pixmap.data().iter().any(|pixel| pixel.a != 255);
 
         let (x_advance, y_advance) = x_y_advances(&transform);

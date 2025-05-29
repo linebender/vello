@@ -26,4 +26,3 @@ criterion_main!(
     fine_blend,
     fine_image
 );
-
