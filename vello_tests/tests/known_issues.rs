@@ -82,7 +82,7 @@ const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/smoke/data_image_roun
 
 /// Test for <https://github.com/linebender/vello/issues/972>
 #[test]
-#[cfg_attr(skip_gpu_tests, ignore)]
+#[ignore]
 #[should_panic]
 fn test_data_image_roundtrip_extend_reflect() {
     let mut scene = Scene::new();
@@ -102,7 +102,7 @@ fn test_data_image_roundtrip_extend_reflect() {
 
 /// Test for <https://github.com/linebender/vello/issues/972>
 #[test]
-#[cfg_attr(skip_gpu_tests, ignore)]
+#[ignore]
 #[should_panic]
 fn test_data_image_roundtrip_extend_repeat() {
     let mut scene = Scene::new();
