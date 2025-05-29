@@ -7,28 +7,6 @@ use vello_common::kurbo::{Point, Vec2};
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::tile::Tile;
 
-#[cfg(not(feature = "std"))]
-use vello_common::kurbo::common::FloatFuncs as _;
-
-#[cfg(feature = "std")]
-fn fract(val: f64) -> f64 {
-    val.fract()
-}
-
-#[cfg(not(feature = "std"))]
-fn fract(val: f64) -> f64 {
-    #[cfg(feature = "libm")]
-    return val - libm::trunc(val);
-    #[cfg(not(feature = "libm"))]
-    compile_error!("vello_common requires either the `std` or `libm` feature");
-}
-
-// Inlined version of f32::rem_euclid, to allow using abs.
-fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
-    let r = lhs % rhs;
-    if r < 0.0 { r + rhs.abs() } else { r }
-}
-
 #[derive(Debug)]
 pub(crate) struct ImageFiller<'a> {
     /// The current position that should be processed.
@@ -132,7 +110,7 @@ impl<'a> ImageFiller<'a> {
                     &self
                         .image
                         .pixmap
-                        .sample(x_pos.min(self.width - 0.001) as u16, y_pos.min(self.height - 0.001) as u16)
+                        .sample(x_pos as u16, *y_pos as u16)
                         .to_u8_array()[..],
                 ),
                 ImageQuality::Medium | ImageQuality::High => unimplemented!(),
@@ -168,9 +146,7 @@ impl<'a> ImageFiller<'a> {
                 // Nearest neighbor filtering.
                 // Simply takes the nearest pixel to our current position.
                 ImageQuality::Low => {
-                    let mut p = extend_point(pos);
-                    p.x = p.x.min(self.width as f64 - 0.001);
-                    p.y = p.y.min(self.height as f64 - 0.001);
+                    let p = extend_point(pos);
                     let sample = F::from_rgba8(
                         &self
                             .image
@@ -201,8 +177,6 @@ impl<'a> ImageFiller<'a> {
                     let mut interpolated_color = [0.0_f32; 4];
 
                     let sample = |mut p: Point| {
-                        p.x = p.x.min(self.width as f64 - 0.001);
-                        p.y = p.y.min(self.height as f64 - 0.001);
                         let c = |val: u8| f32::from(val) / 255.0;
                         let s = self.image.pixmap.sample(p.x as u16, p.y as u16);
 
@@ -278,9 +252,14 @@ impl<'a> ImageFiller<'a> {
     }
 }
 
+#[inline(always)]
 fn extend(val: f32, extend: Extend, max: f32, inv_max: f32) -> f32 {
+    const BIAS: f32 = 0.01;
+    
     match extend {
-        Extend::Pad => val.clamp(0.0, max),
+        // Note that max should be exclusive, so subtract a small bias to enforce that.
+        // Otherwise, we might sample out-of-bounds pixels.
+        Extend::Pad => val.clamp(0.0, max - BIAS),
         Extend::Repeat =>  val - (val * inv_max).floor() * max,
         // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L3274-L3290>
         Extend::Reflect => {
