@@ -215,9 +215,7 @@ impl<'a> ImageFiller<'a> {
                         // We sample the 4x4 grid around the position we are currently looking at.
                         for (x_idx, x) in [-1.5, -0.5, 0.5, 1.5].into_iter().enumerate() {
                             for (y_idx, y) in [-1.5, -0.5, 0.5, 1.5].into_iter().enumerate() {
-                                let moved_point = pos + Vec2::new(x, y);
-                                let point = extend_point(moved_point);
-                                let color_sample = sample(point);
+                                let color_sample = sample(extend_point(pos + Vec2::new(x, y)));
                                 let c = cx[x_idx] * cy[y_idx];
 
                                 for (component, component_sample) in
