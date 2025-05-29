@@ -35,15 +35,27 @@ pub(crate) struct ImageFiller<'a> {
     cur_pos: Point,
     /// The underlying image.
     image: &'a EncodedImage,
+    // We precompute these values so we don't need to recalculate them for every pixel.
+    height: f32,
+    height_inv: f32,
+    width: f32,
+    width_inv: f32
 }
 
 impl<'a> ImageFiller<'a> {
     pub(crate) fn new(image: &'a EncodedImage, start_x: u16, start_y: u16) -> Self {
+        let width = image.pixmap.width() as f32;
+        let height = image.pixmap.height() as f32;
+        
         Self {
             // We want to sample values of the pixels at the center, so add an offset of 0.5.
             cur_pos: image.transform
-                * Point::new(f64::from(start_x) + 0.5, f64::from(start_y) + 0.5),
+                * Point::new(f64::from(start_x), f64::from(start_y)),
             image,
+            width,
+            height,
+            width_inv: 1.0 / width,
+            height_inv: 1.0 / height
         }
     }
 
@@ -78,11 +90,10 @@ impl<'a> ImageFiller<'a> {
 
             for (idx, pos) in y_positions.iter_mut().enumerate() {
                 *pos = extend(
-                    // Since we already added a 0.5 offset to sample at the center of the pixel,
-                    // we always floor to get the target pixel.
-                    (self.cur_pos.y + y_advance * idx as f64).floor() as f32,
+                    (self.cur_pos.y + y_advance * idx as f64) as f32,
                     self.image.extends.1,
-                    f32::from(self.image.pixmap.height()),
+                    self.height,
+                    self.height_inv
                 );
             }
 
@@ -90,10 +101,10 @@ impl<'a> ImageFiller<'a> {
                 .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
                 .for_each(|column| {
                     let extended_x_pos = extend(
-                        // As above, always floor.
-                        x_pos.floor() as f32,
+                        x_pos as f32,
                         self.image.extends.0,
-                        f32::from(self.image.pixmap.width()),
+                        self.width,
+                        self.width_inv
                     );
                     self.run_simple_column(column, extended_x_pos, &y_positions);
                     x_pos += x_advance;
@@ -121,7 +132,7 @@ impl<'a> ImageFiller<'a> {
                     &self
                         .image
                         .pixmap
-                        .sample(x_pos as u16, *y_pos as u16)
+                        .sample(x_pos.min(self.width - 0.001) as u16, y_pos.min(self.height - 0.001) as u16)
                         .to_u8_array()[..],
                 ),
                 ImageQuality::Medium | ImageQuality::High => unimplemented!(),
@@ -135,14 +146,16 @@ impl<'a> ImageFiller<'a> {
         let extend_point = |mut point: Point| {
             // For the same reason as mentioned above, we always floor.
             point.x = f64::from(extend(
-                point.x.floor() as f32,
+                point.x as f32,
                 self.image.extends.0,
-                f32::from(self.image.pixmap.width()),
+                self.width,
+                self.width_inv
             ));
             point.y = f64::from(extend(
-                point.y.floor() as f32,
+                point.y as f32,
                 self.image.extends.1,
-                f32::from(self.image.pixmap.height()),
+                self.height,
+                self.height_inv
             ));
 
             point
@@ -155,12 +168,14 @@ impl<'a> ImageFiller<'a> {
                 // Nearest neighbor filtering.
                 // Simply takes the nearest pixel to our current position.
                 ImageQuality::Low => {
-                    let point = extend_point(pos);
+                    let mut p = extend_point(pos);
+                    p.x = p.x.min(self.width as f64 - 0.001);
+                    p.y = p.y.min(self.height as f64 - 0.001);
                     let sample = F::from_rgba8(
                         &self
                             .image
                             .pixmap
-                            .sample(point.x as u16, point.y as u16)
+                            .sample(p.x as u16, p.y as u16)
                             .to_u8_array()[..],
                     );
                     pixel.copy_from_slice(&sample);
@@ -176,36 +191,18 @@ impl<'a> ImageFiller<'a> {
                     // center of the location we are sampling, and sample those points
                     // using a cubic filter to weight each location's contribution.
 
-                    let fract = |orig_val: f64| {
-                        // To give some intuition on why we need that shift, based on bilinear
-                        // filtering: If we sample at the position (0.5, 0.5), we are at the center
-                        // of the pixel and thus only want the color of the current pixel. Thus, we take
-                        // 1.0 * 1.0 from the top left pixel (which still lies on our pixel)
-                        // and 0.0 from all other corners (which lie at the start of other pixels).
-                        //
-                        // If we sample at the position (0.4, 0.4), we want 0.1 * 0.1 = 0.01 from
-                        // the top-left pixel, 0.1 * 0.9 = 0.09 from the bottom-left and top-right,
-                        // and finally 0.9 * 0.9 = 0.81 from the bottom right position (which still
-                        // lies on our pixel, and thus has intuitively should have the highest
-                        // contribution). Thus, we need to subtract 0.5 from the position to get
-                        // the correct fractional contribution.
-                        let start = orig_val - 0.5;
-                        let mut res = fract(start) as f32;
-
-                        // In case we are in the negative we need to mirror the result.
-                        if res.is_sign_negative() {
-                            res += 1.0;
-                        }
-
-                        res
-                    };
-
-                    let x_fract = fract(pos.x);
-                    let y_fract = fract(pos.y);
+                    fn fract(val: f32) -> f32 {
+                        val - val.floor()
+                    }
+                    
+                    let x_fract = fract(pos.x as f32 + 0.5);
+                    let y_fract = fract(pos.y as f32 + 0.5);
 
                     let mut interpolated_color = [0.0_f32; 4];
 
-                    let sample = |p: Point| {
+                    let sample = |mut p: Point| {
+                        p.x = p.x.min(self.width as f64 - 0.001);
+                        p.y = p.y.min(self.height as f64 - 0.001);
                         let c = |val: u8| f32::from(val) / 255.0;
                         let s = self.image.pixmap.sample(p.x as u16, p.y as u16);
 
@@ -213,6 +210,7 @@ impl<'a> ImageFiller<'a> {
                     };
 
                     if self.image.quality == ImageQuality::Medium {
+                        // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L5039-L5078>
                         let cx = [1.0 - x_fract, x_fract];
                         let cy = [1.0 - y_fract, y_fract];
 
@@ -234,7 +232,7 @@ impl<'a> ImageFiller<'a> {
                             }
                         }
                     } else {
-                        // Compare to https://github.com/google/skia/blob/84ff153b0093fc83f6c77cd10b025c06a12c5604/src/opts/SkRasterPipeline_opts.h#L5030-L5075.
+                        // Compare to <https://github.com/google/skia/blob/84ff153b0093fc83f6c77cd10b025c06a12c5604/src/opts/SkRasterPipeline_opts.h#L5030-L5075>.
                         let cx = weights(x_fract);
                         let cy = weights(y_fract);
 
@@ -244,7 +242,9 @@ impl<'a> ImageFiller<'a> {
                         // We sample the 4x4 grid around the position we are currently looking at.
                         for (x_idx, x) in [-1.5, -0.5, 0.5, 1.5].into_iter().enumerate() {
                             for (y_idx, y) in [-1.5, -0.5, 0.5, 1.5].into_iter().enumerate() {
-                                let color_sample = sample(extend_point(pos + Vec2::new(x, y)));
+                                let moved_point = pos + Vec2::new(x, y);
+                                let point = extend_point(moved_point);
+                                let color_sample = sample(point);
                                 let c = cx[x_idx] * cy[y_idx];
 
                                 for (component, component_sample) in
@@ -278,22 +278,22 @@ impl<'a> ImageFiller<'a> {
     }
 }
 
-fn extend(val: f32, extend: Extend, max: f32) -> f32 {
+fn extend(val: f32, extend: Extend, max: f32, inv_max: f32) -> f32 {
     match extend {
-        Extend::Pad => val.clamp(0.0, max - 1.0),
-        // TODO: We need to make repeat and reflect more efficient and branch-less.
-        Extend::Repeat => rem_euclid(val, max),
+        Extend::Pad => val.clamp(0.0, max),
+        Extend::Repeat =>  val - (val * inv_max).floor() * max,
+        // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L3274-L3290>
         Extend::Reflect => {
-            let period = 2.0 * max;
+            let u = val - (val * inv_max * 0.5).floor() * 2.0 * max;
+            let s = (u * inv_max).floor();
+            let m = u - 2.0 * s * (u - max);
 
-            let val_mod = rem_euclid(val, period);
+            let bias_in_ulps = s.trunc();
 
-            if val_mod < max {
-                val_mod
-            } else {
-                (period - 1.0) - val_mod
-            }
-        }
+            let m_bits = m.to_bits();
+            let biased_bits = m_bits.wrapping_sub(bias_in_ulps as u32);
+            f32::from_bits(biased_bits)
+        },
     }
 }
 
