@@ -739,6 +739,63 @@ mod radial {
         let transform = Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45());
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
+
+    #[vello_test]
+    fn gradient_radial_natively_focal(ctx: &mut impl Renderer) {
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+        let gradient = Gradient {
+            kind: Radial {
+                start_center: Point::new(50.0, 50.0),
+                start_radius: 0.0,
+                end_center: Point::new(75.0, 75.0),
+                end_radius: 40.0,
+            },
+            stops: stops_blue_green_red_yellow(),
+            ..Default::default()
+        };
+
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
+    }
+
+    #[vello_test]
+    fn gradient_radial_focal_on_circle(ctx: &mut impl Renderer) {
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+        let gradient = Gradient {
+            kind: Radial {
+                start_center: Point::new(50.0, 50.0),
+                start_radius: 0.0,
+                end_center: Point::new(75.0, 50.0),
+                end_radius: 25.0,
+            },
+            stops: stops_blue_green_red_yellow(),
+            ..Default::default()
+        };
+
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
+    }
+
+    #[vello_test]
+    fn gradient_radial_swapped(ctx: &mut impl Renderer) {
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+        let gradient = Gradient {
+            kind: Radial {
+                start_center: Point::new(30.0, 50.0),
+                start_radius: 40.0,
+                end_center: Point::new(60.0, 50.0),
+                end_radius: 0.0,
+            },
+            stops: stops_blue_green_red_yellow(),
+            ..Default::default()
+        };
+
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
+    }
 }
 
 mod sweep {
@@ -749,7 +806,6 @@ mod sweep {
         stops_green_blue_with_alpha,
     };
     use peniko::Extend;
-    use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::{self, ColorStops, Gradient, GradientKind};
     use vello_dev_macros::vello_test;
@@ -910,7 +966,7 @@ mod sweep {
     fn gradient_sweep_with_transform_rotate_1(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
-            Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
+            Affine::rotate_about(50.0_f64.to_radians(), Point::new(50.0, 50.0)),
             25.0,
             25.0,
             75.0,
@@ -922,7 +978,7 @@ mod sweep {
     fn gradient_sweep_with_transform_rotate_2(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
-            Affine::rotate_about(-PI / 4.0, Point::new(50.0, 50.0)),
+            Affine::rotate_about((-50.0_f64).to_radians(), Point::new(50.0, 50.0)),
             25.0,
             25.0,
             75.0,

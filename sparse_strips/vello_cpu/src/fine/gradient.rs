@@ -11,14 +11,10 @@ use vello_common::kurbo::Point;
 pub(crate) struct GradientFiller<'a, T: GradientLike> {
     /// The current position that should be processed.
     cur_pos: Point,
-    /// The index of the current range.
-    range_idx: usize,
     /// The underlying gradient.
     gradient: &'a EncodedGradient,
     /// The underlying gradient kind.
     kind: &'a T,
-    /// The current gradient range (pointed to by `range_idx`).
-    cur_range: &'a GradientRange,
 }
 
 impl<'a, T: GradientLike> GradientFiller<'a, T> {
@@ -30,23 +26,19 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
     ) -> Self {
         Self {
             cur_pos: gradient.transform * Point::new(f64::from(start_x), f64::from(start_y)),
-            range_idx: 0,
-            cur_range: &gradient.ranges[0],
             gradient,
             kind,
         }
     }
 
-    fn advance(&mut self, target_pos: f32) {
-        while target_pos > self.cur_range.x1 || target_pos < self.cur_range.x0 {
-            if self.range_idx == 0 {
-                self.range_idx = self.gradient.ranges.len() - 1;
-            } else {
-                self.range_idx -= 1;
-            }
+    fn advance(&mut self, target_pos: f32) -> &GradientRange {
+        let mut idx = 0;
 
-            self.cur_range = &self.gradient.ranges[self.range_idx];
+        while target_pos > self.gradient.ranges[idx].x1 {
+            idx += 1;
         }
+
+        &self.gradient.ranges[idx]
     }
 
     pub(super) fn run<F: FineType>(mut self, target: &mut [F]) {
@@ -75,19 +67,16 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
 
     fn run_column<F: FineType>(&mut self, col: &mut [F]) {
         let pad = self.gradient.pad;
-        let extend = |val| extend(val, pad, self.gradient.clamp_range);
+        let extend = |val| extend(val, pad);
         let mut pos = self.cur_pos;
 
         for pixel in col.chunks_exact_mut(COLOR_COMPONENTS) {
-            let dist = extend(self.kind.cur_pos(pos));
-            self.advance(dist);
-            let range = self.cur_range;
-            let c0 = range.c0.as_premul_f32().components;
+            let t = extend(self.kind.cur_pos(pos));
+            let range = self.advance(t);
+            let bias = range.bias;
 
             for (comp_idx, comp) in pixel.iter_mut().enumerate() {
-                let factor = range.factors_f32[comp_idx] * (dist - range.x0);
-
-                *comp = F::from_normalized_f32(c0[comp_idx] + factor);
+                *comp = F::from_normalized_f32(bias[comp_idx] + range.scale[comp_idx] * t);
             }
 
             pos += self.gradient.y_advance;
@@ -121,21 +110,17 @@ impl<T: GradientLike> Painter for GradientFiller<'_, T> {
     }
 }
 
-pub(crate) fn extend(mut val: f32, pad: bool, clamp_range: (f32, f32)) -> f32 {
-    let start = clamp_range.0;
-    let end = clamp_range.1;
-
+pub(crate) fn extend(mut val: f32, pad: bool) -> f32 {
     if pad {
+        // Gradient ranges are constructed such that values outside [0.0, 1.0] are accepted as well.
         val
     } else {
-        // Avoid using modulo here because it's slower.
-
-        while val < start {
-            val += end - start;
+        while val < 0.0 {
+            val += 1.0;
         }
 
-        while val > end {
-            val -= end - start;
+        while val > 1.0 {
+            val -= 1.0;
         }
 
         val

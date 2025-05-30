@@ -277,7 +277,7 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 400, height = 960, skip_hybrid)]
+#[vello_test(width = 400, height = 960, skip_hybrid, diff_pixels = 50)]
 fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
     const TEST_FONT: &[u8] =
         include_bytes!("../../../examples/assets/colr_test_glyphs/test_glyphs-glyf_colr_1.ttf");

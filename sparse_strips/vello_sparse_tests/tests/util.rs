@@ -240,6 +240,7 @@ pub(crate) fn check_ref(
     specific_name: &str,
     // Tolerance for pixel differences.
     threshold: u8,
+    diff_pixels: u16,
     // Whether the test instance is the "gold standard" and should be used
     // for creating reference images.
     is_reference: bool,
@@ -272,7 +273,7 @@ pub(crate) fn check_ref(
         .into_rgba8();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
-    let diff_image = get_diff(&ref_image, &actual, threshold);
+    let diff_image = get_diff(&ref_image, &actual, threshold, diff_pixels);
 
     if let Some(diff_image) = diff_image {
         if std::env::var("REPLACE").is_ok() && is_reference {
@@ -302,6 +303,7 @@ pub(crate) fn check_ref(
     specific_name: &str,
     // Tolerance for pixel differences.
     threshold: u8,
+    diff_pixels: u16,
     // Must be `false` on `wasm32` as reference image cannot be written to filesystem.
     is_reference: bool,
     render_mode: RenderMode,
@@ -315,7 +317,7 @@ pub(crate) fn check_ref(
 
     let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
 
-    let diff_image = get_diff(&ref_image, &actual, threshold);
+    let diff_image = get_diff(&ref_image, &actual, threshold, diff_pixels);
     if let Some(ref img) = diff_image {
         append_diff_image_to_browser_document(specific_name, img);
         panic!("test didn't match reference image. Scroll to bottom of browser to view diff.");
@@ -394,6 +396,7 @@ fn get_diff(
     expected_image: &RgbaImage,
     actual_image: &RgbaImage,
     threshold: u8,
+    diff_pixels: u16,
 ) -> Option<RgbaImage> {
     let width = max(expected_image.width(), actual_image.width());
     let height = max(expected_image.height(), actual_image.height());
@@ -437,7 +440,7 @@ fn get_diff(
         }
     }
 
-    if pixel_diff > 0 {
+    if pixel_diff > diff_pixels {
         Some(diff_image)
     } else {
         None

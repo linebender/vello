@@ -7,7 +7,7 @@ use crate::blurred_rounded_rect::BlurredRoundedRectangle;
 use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::kurbo::{Affine, Point, Vec2};
-use crate::math::compute_erf7;
+use crate::math::{FloatExt, compute_erf7};
 use crate::paint::{Image, IndexedPaint, Paint, PremulColor};
 use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
 use crate::pixmap::Pixmap;
@@ -23,6 +23,7 @@ use peniko::kurbo::common::FloatFuncs as _;
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
+const PIXEL_CENTER_OFFSET: f64 = 0.5;
 
 #[cfg(feature = "std")]
 fn exp(val: f32) -> f32 {
@@ -55,39 +56,15 @@ impl EncodeExt for Gradient {
         let mut has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
         let pad = self.extend == Extend::Pad;
 
+        let mut base_transform;
+
         let mut stops = Cow::Borrowed(&self.stops.0);
-        // For each gradient type, before doing anything we first translate it such that
-        // one of the points of the gradient lands on the origin (0, 0). We do this because
-        // it makes things simpler and allows for some optimizations for certain calculations.
-        let (x_offset, y_offset);
-        // The start/end range of the color line. We use this to resolve the extend of the gradient.
-        // Currently radial gradients uses normalized values between 0.0 and 1.0, for sweep and
-        // linear gradients different values are used (TODO: Would be nice to make this more consistent).
-        let mut clamp_range = (0.0, 1.0);
 
         let kind = match self.kind {
-            GradientKind::Linear { start, end } => {
-                // For linear gradients, we want to interpolate the color along the line that is
-                // formed by `start` and `end`.
-                let mut p0 = start;
-                let mut p1 = end;
-
-                // For simplicity, ensure that the gradient line always goes from left to right.
-                if p0.x >= p1.x {
-                    core::mem::swap(&mut p0, &mut p1);
-
-                    stops = Cow::Owned(
-                        stops
-                            .iter()
-                            .rev()
-                            .map(|s| ColorStop {
-                                offset: 1.0 - s.offset,
-                                color: s.color,
-                            })
-                            .collect::<SmallVec<[ColorStop; 4]>>(),
-                    );
-                }
-
+            GradientKind::Linear {
+                start: p0,
+                end: mut p1,
+            } => {
                 // Double the length of the iterator, and append stops in reverse order in case
                 // we have the extend `Reflect`.
                 // Then we can treat it the same as a repeated gradient.
@@ -97,59 +74,24 @@ impl EncodeExt for Gradient {
                     stops = Cow::Owned(apply_reflect(&stops));
                 }
 
-                // To translate p0 to the origin of the coordinate system, we need to apply
-                // the negative.
-                x_offset = -p0.x as f32;
-                y_offset = -p0.y as f32;
+                // We update the transform currently in-place, such that the gradient line always
+                // starts at the point (0, 0) and ends at the point (1, 0). This simplifies the
+                // calculation for the current position along the gradient line a lot.
+                base_transform = ts_from_line_to_line(p0, p1, Point::ZERO, Point::new(1.0, 0.0));
 
-                let dx = p1.x as f32 + x_offset;
-                let dy = p1.y as f32 + y_offset;
-                // In order to calculate where a pixel lies along the gradient line (the line made up
-                // by the two points of the linear gradient), we need to calculate its position
-                // on the gradient line. Remember that our gradient line always start at the origin
-                // (0, 0). Therefore, we can simply calculate the normal vector of the line,
-                // and then, for each pixel that we render, we calculate the distance to the line.
-                // That distance then corresponds to our position on the gradient line, and allows
-                // us to resolve which color stops we need to load and how to interpolate them.
-                let norm = (-dy, dx);
-
-                // We precalculate some values so that we can more easily calculate the distance
-                // from the position of the pixel to the line of the normal vector. See
-                // here for the formula: https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Line_defined_by_two_points
-
-                // The denominator, i.e. sqrt((y_2 - y_1)^2 + (x_2 - x_1)^2). Since x_1 and y_1
-                // are always 0, this shortens to sqrt(y_2^2 + x_2^2).
-                let distance = (norm.1 * norm.1 + norm.0 * norm.0).sqrt();
-                // This corresponds to (y_2 - y_1) in the formula, but because of the above reasons
-                // shortens to y_2.
-                let y2_minus_y1 = norm.1;
-                // This corresponds to (x_2 - x_1) in the formula, but because of the above reasons
-                // shortens to x_2.
-                let x2_minus_x1 = norm.0;
-                // Note that we can completely disregard the x_2 * y_1 - y_2 * x_1 factor, since
-                // y_1 and x_1 are both 0.
-
-                let end_val = (dx * dx + dy * dy).sqrt();
-                clamp_range = (0.0, end_val);
-
-                EncodedKind::Linear(LinearKind {
-                    distance,
-                    y2_minus_y1,
-                    x2_minus_x1,
-                })
+                EncodedKind::Linear(LinearKind)
             }
             GradientKind::Radial {
-                start_center,
-                start_radius,
-                end_center,
-                end_radius,
+                start_center: c0,
+                start_radius: r0,
+                end_center: mut c1,
+                end_radius: mut r1,
             } => {
-                // For radial gradients, we conceptually interpolate a circle from c0 with radius
-                // r0 to the circle at c1 with radius r1.
-                let c0 = start_center;
-                let mut c1 = end_center;
-                let r0 = start_radius;
-                let mut r1 = end_radius;
+                // The implementation of radial gradients is translated from Skia.
+                // See:
+                // - <https://skia.org/docs/dev/design/conical/>
+                // - <https://github.com/google/skia/blob/main/src/shaders/gradients/SkConicalGradient.h>
+                // - <https://github.com/google/skia/blob/main/src/shaders/gradients/SkConicalGradient.cpp>
 
                 // Same story as for linear gradients, mutate stops so that reflect and repeat
                 // can be treated the same.
@@ -159,27 +101,50 @@ impl EncodeExt for Gradient {
                     stops = Cow::Owned(apply_reflect(&stops));
                 }
 
-                // Similarly to linear gradients, ensure that c0 lands on the origin (0, 0).
-                x_offset = -c0.x as f32;
-                y_offset = -c0.y as f32;
+                let d_radius = r1 - r0;
 
-                let end_point = c1 - c0;
+                // <https://github.com/google/skia/blob/1e07a4b16973cf716cb40b72dd969e961f4dd950/src/shaders/gradients/SkConicalGradient.cpp#L83-L112>
+                let radial_kind = if ((c1 - c0).length() as f32).is_nearly_zero() {
+                    base_transform = Affine::translate((-c1.x, -c1.y));
+                    base_transform = base_transform.then_scale(1.0 / r0.max(r1) as f64);
 
-                let dist = (end_point.x * end_point.x + end_point.y * end_point.y).sqrt() as f32;
-                let c0_in_c1 = r1 >= r0 + dist;
-                let c1_in_c0 = r0 >= r1 + dist;
-                let cone_like = !(c0_in_c1 || c1_in_c0);
-                // If the inner circle is not completely contained within the outer circle, the gradient
-                // can deform into a cone-like structure where some areas of the shape are not defined.
-                // Because of this, we might need opacities and source-over compositing in that case.
-                has_opacities |= cone_like;
+                    let scale = r1.max(r0) / d_radius;
+                    let bias = -r0 / d_radius;
 
-                EncodedKind::Radial(RadialKind {
-                    c1: (end_point.x as f32, end_point.y as f32),
-                    r0,
-                    r1,
-                    cone_like,
-                })
+                    RadialKind::Radial { bias, scale }
+                } else {
+                    base_transform =
+                        ts_from_line_to_line(c0, c1, Point::ZERO, Point::new(1.0, 0.0));
+
+                    if (r1 - r0).is_nearly_zero() {
+                        let scaled_r0 = r1 / (c1 - c0).length() as f32;
+                        RadialKind::Strip {
+                            scaled_r0_squared: scaled_r0 * scaled_r0,
+                        }
+                    } else {
+                        let d_center = (c0 - c1).length() as f32;
+
+                        let focal_data =
+                            FocalData::create(r0 / d_center, r1 / d_center, &mut base_transform);
+
+                        let fp0 = 1.0 / focal_data.fr1;
+                        let fp1 = focal_data.f_focal_x;
+
+                        RadialKind::Focal {
+                            focal_data,
+                            fp0,
+                            fp1,
+                        }
+                    }
+                };
+
+                // Even if the gradient has no stops with transparency, we might have to force
+                // alpha-compositing in case the radial gradient is undefined in certain positions,
+                // in which case the resulting color will be transparent and thus the gradient overall
+                // must be treated as non-opaque.
+                has_opacities |= radial_kind.has_undefined();
+
+                EncodedKind::Radial(radial_kind)
             }
             GradientKind::Sweep {
                 center,
@@ -197,39 +162,38 @@ impl EncodeExt for Gradient {
                     stops = Cow::Owned(apply_reflect(&stops));
                 }
 
-                // Make sure the center of the gradient falls on the origin (0, 0).
-                x_offset = -center.x as f32;
-                y_offset = -center.y as f32;
-                clamp_range = (start_angle, end_angle);
+                // Make sure the center of the gradient falls on the origin (0, 0), to make
+                // angle calculation easier.
+                let x_offset = -center.x as f32;
+                let y_offset = -center.y as f32;
+                base_transform = Affine::translate((x_offset as f64, y_offset as f64));
 
-                EncodedKind::Sweep(SweepKind)
+                EncodedKind::Sweep(SweepKind {
+                    start_angle,
+                    // Save the inverse so that we can use a multiplication in the shader instead.
+                    inv_angle_delta: 1.0 / (end_angle - start_angle),
+                })
             }
         };
 
-        let ranges = encode_stops(
-            &stops,
-            clamp_range.0,
-            clamp_range.1,
-            pad,
-            self.interpolation_cs,
-            self.hue_direction,
-        );
+        let ranges = encode_stops(&stops, pad, self.interpolation_cs, self.hue_direction);
 
         // This represents the transform that needs to be applied to the starting point of a
         // command before starting with the rendering.
-        // First we need to account for a potential offset of the gradient (x_offset/y_offset), then
+        // First we need to account for the base transform of the shader, then
         // we account for the fact that we sample in the center of a pixel and not in the corner by
         // adding 0.5.
-        // Finally, we need to apply the _inverse_ transform to the point so that we can account
-        // for the transform on the gradient.
-        let transform = Affine::translate((f64::from(x_offset) + 0.5, f64::from(y_offset) + 0.5))
-            * transform.inverse();
+        // Finally, we need to apply the _inverse_ paint transform to the point so that we can account
+        // for the paint transform of the render context.
+        let transform = base_transform
+            * transform.inverse()
+            * Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
 
         // One possible approach of calculating the positions would be to apply the above
         // transform to _each_ pixel that we render in the wide tile. However, a much better
-        // approach is to apply the transform once for the first pixel,
+        // approach is to apply the transform once for the first pixel in each wide tile,
         // and from then on only apply incremental updates to the current x/y position
-        // that we calculated in the beginning.
+        // that we calculate based on the transform.
         //
         // Remember that we render wide tiles in column major order (i.e. we first calculate the
         // values for a specific x for all Tile::HEIGHT y by incrementing y by 1, and then finally
@@ -247,7 +211,6 @@ impl EncodeExt for Gradient {
             ranges,
             pad,
             has_opacities,
-            clamp_range,
         };
 
         let idx = paints.len();
@@ -363,8 +326,6 @@ fn apply_reflect(stops: &[ColorStop]) -> SmallVec<[ColorStop; 4]> {
 /// Encode all stops into a sequence of ranges.
 fn encode_stops(
     stops: &[ColorStop],
-    start: f32,
-    end: f32,
     pad: bool,
     cs: ColorSpaceTag,
     hue_dir: HueDirection,
@@ -403,32 +364,26 @@ fn encode_stops(
             color
         };
 
-        let x0 = start + (end - start) * left_stop.offset;
-        let x1 = start + (end - start) * right_stop.offset;
+        let x0 = left_stop.offset;
+        let x1 = right_stop.offset;
         let c0 = clamp(left_stop.color.components);
         let c1 = clamp(right_stop.color.components);
 
-        // Given two positions x0 and x1 as well as two corresponding colors c0 and c1,
-        // the delta that needs to be applied to c0 to calculate the color of x between x0 and x1
-        // is calculated by c0 + ((x - x0) / (x1 - x0)) * (c1 - c0).
-        // We can precompute the (c1 - c0)/(x1 - x0) part for each color component.
-
-        // We call this method with two same stops for `left_range` and `right_range`, so make
-        // sure we don't actually end up with a 0 here.
+        // We calculate a bias and scale factor, such that we can simply calculate
+        // bias + x * scale to get the interpolated color, where x is between x0 and x1,
+        // to calculate the resulting color.
+        // Apply a nudge value because we sometimes call `create_range` with the same offset
+        // to create the padded stops.
         let x1_minus_x0 = (x1 - x0).max(NUDGE_VAL);
-        let mut factors_f32 = [0.0; 4];
+        let mut scale = [0.0; 4];
+        let mut bias = c0;
 
         for i in 0..4 {
-            let c1_minus_c0 = c1[i] - c0[i];
-            factors_f32[i] = c1_minus_c0 / x1_minus_x0;
+            scale[i] = (c1[i] - c0[i]) / x1_minus_x0;
+            bias[i] = c0[i] - x0 * scale[i];
         }
 
-        GradientRange {
-            x0,
-            x1,
-            c0: PremulColor::from_premul_color(left_stop.color),
-            factors_f32,
-        }
+        GradientRange { x1, bias, scale }
     };
 
     // Note: this could use `Iterator::map_windows` once stabilized, meaning `interpolated_stops`
@@ -445,9 +400,8 @@ fn encode_stops(
         // range.
         let left_range = iter::once({
             let first_stop = interpolated_stops.first().unwrap();
-            let mut encoded_range = create_range(first_stop, first_stop);
-            encoded_range.x0 = f32::MIN;
-            encoded_range
+
+            create_range(first_stop, first_stop)
         });
 
         let right_range = iter::once({
@@ -551,77 +505,187 @@ pub struct EncodedImage {
 
 /// Computed properties of a linear gradient.
 #[derive(Debug)]
-pub struct LinearKind {
-    distance: f32,
-    y2_minus_y1: f32,
-    x2_minus_x1: f32,
+pub struct LinearKind;
+
+/// Focal data for a radial gradient.
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct FocalData {
+    fr1: f32,
+    f_focal_x: f32,
+    f_is_swapped: bool,
 }
 
-/// Computed properties of a radial gradient.
-#[derive(Debug)]
-pub struct RadialKind {
-    c1: (f32, f32),
-    r0: f32,
-    r1: f32,
-    cone_like: bool,
+impl FocalData {
+    /// Create a new `FocalData` with the given radii and update the matrix.
+    pub fn create(mut r0: f32, mut r1: f32, matrix: &mut Affine) -> Self {
+        let mut swapped = false;
+        let mut f_focal_x = r0 / (r0 - r1);
+
+        if (f_focal_x - 1.0).is_nearly_zero() {
+            *matrix = matrix.then_translate(Vec2::new(-1.0, 0.0));
+            *matrix = matrix.then_scale_non_uniform(-1.0, 1.0);
+            core::mem::swap(&mut r0, &mut r1);
+            f_focal_x = 0.0;
+            swapped = true;
+        }
+
+        let focal_matrix = ts_from_line_to_line(
+            Point::new(f_focal_x as f64, 0.0),
+            Point::new(1.0, 0.0),
+            Point::new(0.0, 0.0),
+            Point::new(1.0, 0.0),
+        );
+        *matrix = focal_matrix * *matrix;
+
+        let fr1 = r1 / (1.0 - f_focal_x).abs();
+
+        let data = Self {
+            fr1,
+            f_focal_x,
+            f_is_swapped: swapped,
+        };
+
+        if data.is_focal_on_circle() {
+            *matrix = matrix.then_scale(0.5);
+        } else {
+            *matrix = matrix.then_scale_non_uniform(
+                (fr1 / (fr1 * fr1 - 1.0)) as f64,
+                1.0 / (fr1 * fr1 - 1.0).abs().sqrt() as f64,
+            );
+        }
+
+        *matrix = matrix.then_scale((1.0 - f_focal_x).abs() as f64);
+
+        data
+    }
+
+    /// Whether the focal is on the circle.
+    pub fn is_focal_on_circle(&self) -> bool {
+        (1.0 - self.fr1).is_nearly_zero()
+    }
+
+    /// Whether the focal points have been swapped.
+    pub fn is_swapped(&self) -> bool {
+        self.f_is_swapped
+    }
+
+    /// Whether the gradient is well-behaved.
+    pub fn is_well_behaved(&self) -> bool {
+        !self.is_focal_on_circle() && self.fr1 > 1.0
+    }
+
+    /// Whether the gradient is natively focal.
+    pub fn is_natively_focal(&self) -> bool {
+        self.f_focal_x.is_nearly_zero()
+    }
+}
+
+/// A radial gradient.
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum RadialKind {
+    /// A radial gradient, i.e. the start and end center points are the same.
+    Radial {
+        /// The `bias` value (from the Skia implementation).
+        ///
+        /// It is a correction factor that accounts for the fact that the focal center might not
+        /// lie on the inner circle (if r0 > 0).
+        bias: f32,
+        /// The `scale` value (from the Skia implementation).
+        ///
+        /// It is a scaling factor that maps from r0 to r1.
+        scale: f32,
+    },
+    /// A strip gradient, i.e. the start and end radius are the same.
+    Strip {
+        /// The squared value of `scaled_r0` (from the Skia implementation).
+        scaled_r0_squared: f32,
+    },
+    /// A general, two-point conical gradient.
+    Focal {
+        /// The focal data  (from the Skia implementation).
+        focal_data: FocalData,
+        /// The `fp0` value (from the Skia implementation).
+        fp0: f32,
+        /// The `fp1` value (from the Skia implementation).
+        fp1: f32,
+    },
 }
 
 impl RadialKind {
     fn pos_inner(&self, pos: Point) -> Option<f32> {
-        // The values for a radial gradient can be calculated for any t as follow:
-        // Let x(t) = (x_1 - x_0)*t + x_0 (since x_0 is always 0, this shortens to x_1 * t)
-        // Let y(t) = (y_1 - y_0)*t + y_0 (since y_0 is always 0, this shortens to y_1 * t)
-        // Let r(t) = (r_1 - r_0)*t + r_0
-        // Given a pixel at a position (x_2, y_2), we need to find the largest t such that
-        // (x_2 - x(t))^2 + (y - y_(t))^2 = r_t()^2, i.e. the circle with the interpolated
-        // radius and center position needs to intersect the pixel we are processing.
-        //
-        // You can reformulate this problem to a quadratic equation (TODO: add derivation. Since
-        // I'm not sure if that code will stay the same after performance optimizations I haven't
-        // written this down yet), to which we then simply need to find the solutions.
-
-        let r0 = self.r0;
-        let dx = self.c1.0;
-        let dy = self.c1.1;
-        let dr = self.r1 - self.r0;
-
-        let px = pos.x as f32;
-        let py = pos.y as f32;
-
-        let a = dx * dx + dy * dy - dr * dr;
-        let b = -2.0 * (px * dx + py * dy + r0 * dr);
-        let c = px * px + py * py - r0 * r0;
-
-        let discriminant = b * b - 4.0 * a * c;
-
-        // No solution available.
-        if discriminant < 0.0 {
-            return None;
-        }
-
-        let sqrt_d = discriminant.sqrt();
-        let t1 = (-b - sqrt_d) / (2.0 * a);
-        let t2 = (-b + sqrt_d) / (2.0 * a);
-
-        let max = t1.max(t2);
-        let min = t1.min(t2);
-
-        // We only want values for `t` where the interpolated radius is actually positive.
-        if self.r0 + dr * max < 0.0 {
-            if self.r0 + dr * min < 0.0 {
-                None
-            } else {
-                Some(min)
+        match self {
+            Self::Radial { bias, scale } => {
+                let mut radius = pos.to_vec2().length() as f32;
+                radius = bias + radius * scale;
+                Some(radius)
             }
-        } else {
-            Some(max)
+            Self::Strip { scaled_r0_squared } => {
+                let p1 = scaled_r0_squared - pos.y as f32 * pos.y as f32;
+
+                if p1 < 0.0 {
+                    None
+                } else {
+                    Some(pos.x as f32 + p1.sqrt())
+                }
+            }
+            Self::Focal {
+                focal_data,
+                fp0,
+                fp1,
+            } => {
+                let x = pos.x as f32;
+                let y = pos.y as f32;
+
+                let mut t = if focal_data.is_focal_on_circle() {
+                    // xy_to_2pt_conical_focal_on_circle
+                    x + y * y / x
+                } else if focal_data.is_well_behaved() {
+                    // xy_to_2pt_conical_well_behaved
+                    (x * x + y * y).sqrt() - x * fp0
+                } else if focal_data.is_swapped() || (1.0 - focal_data.f_focal_x < 0.0) {
+                    // xy_to_2pt_conical_smaller
+                    -(x * x - y * y).sqrt() - x * fp0
+                } else {
+                    // xy_to_2pt_conical_greater
+                    (x * x - y * y).sqrt() - x * fp0
+                };
+
+                if !focal_data.is_well_behaved() {
+                    // mask_2pt_conical_degenerates
+                    let is_degenerate = t <= 0.0 || t.is_nan();
+
+                    if is_degenerate {
+                        return None;
+                    }
+                }
+
+                if 1.0 - focal_data.f_focal_x < 0.0 {
+                    // negate_x
+                    t = -t;
+                }
+
+                if !focal_data.is_natively_focal() {
+                    // alter_2pt_conical_compensate_focal
+                    t += fp1;
+                }
+
+                if focal_data.is_swapped() {
+                    // alter_2pt_conical_unswap
+                    t = 1.0 - t;
+                }
+
+                Some(t)
+            }
         }
     }
 }
 
 /// Computed properties of a sweep gradient.
 #[derive(Debug)]
-pub struct SweepKind;
+pub struct SweepKind {
+    start_angle: f32,
+    inv_angle_delta: f32,
+}
 
 /// A kind of encoded gradient.
 #[derive(Debug)]
@@ -651,21 +715,19 @@ pub struct EncodedGradient {
     pub pad: bool,
     /// Whether the gradient requires `source_over` compositing.
     pub has_opacities: bool,
-    /// The values that should be used for clamping when applying the extend.
-    pub clamp_range: (f32, f32),
 }
 
 /// An encoded ange between two color stops.
 #[derive(Debug, Clone)]
 pub struct GradientRange {
-    /// The start value of the range.
-    pub x0: f32,
     /// The end value of the range.
     pub x1: f32,
-    /// The start color of the range.
-    pub c0: PremulColor,
-    /// The interpolation factors of the range.
-    pub factors_f32: [f32; 4],
+    /// A bias to apply when interpolating the color (in this case just the values of the start
+    /// color of the gradient).
+    pub bias: [f32; 4],
+    /// The scale factors of the range. By calculating bias + x * factors (where x is
+    /// between 0.0 and 1.0), we can interpolate between start and end color of the gradient range.
+    pub scale: [f32; 4],
 }
 
 /// Sampling positions in a gradient.
@@ -684,11 +746,13 @@ impl GradientLike for SweepKind {
         // The position in a sweep gradient is simply determined by its angle from the origin.
         let angle = (-pos.y as f32).atan2(pos.x as f32);
 
-        if angle >= 0.0 {
+        let adjusted_angle = if angle >= 0.0 {
             angle
         } else {
             angle + 2.0 * PI
-        }
+        };
+
+        (adjusted_angle - self.start_angle) * self.inv_angle_delta
     }
 
     fn has_undefined(&self) -> bool {
@@ -702,9 +766,11 @@ impl GradientLike for SweepKind {
 
 impl GradientLike for LinearKind {
     fn cur_pos(&self, pos: Point) -> f32 {
-        // The position of a point relative to a linear gradient is determined by its distance
-        // to the normal vector. See `encode_into` for more information.
-        (pos.x as f32 * self.y2_minus_y1 - pos.y as f32 * self.x2_minus_x1) / self.distance
+        // The position along a linear gradient is determined by where we are along the
+        // gradient line. Since during encoding, we have applied a transformation such that
+        // the gradient line always goes from (0, 0) to (1, 0), the position along the
+        // gradient line is simply determined by the current x coordinate!
+        pos.x as f32
     }
 
     fn has_undefined(&self) -> bool {
@@ -722,7 +788,11 @@ impl GradientLike for RadialKind {
     }
 
     fn has_undefined(&self) -> bool {
-        self.cone_like
+        match self {
+            Self::Radial { .. } => false,
+            Self::Strip { .. } => true,
+            Self::Focal { focal_data, .. } => !focal_data.is_well_behaved(),
+        }
     }
 
     fn is_defined(&self, pos: Point) -> bool {
@@ -835,6 +905,36 @@ impl EncodeExt for BlurredRoundedRectangle {
 
         Paint::Indexed(IndexedPaint::new(idx))
     }
+}
+
+/// Calculates the transform necessary to map the line spanned by points src1, src2 to
+/// the line spanned by dst1, dst2.
+///
+/// This creates a transformation that maps any line segment to any other line segment.
+/// For gradients, we use this to transform the gradient line to a standard form (0,0) → (1,0).
+///
+/// Copied from <https://github.com/linebender/tiny-skia/blob/68b198a7210a6bbf752b43d6bc4db62445730313/src/shaders/radial_gradient.rs#L182>
+fn ts_from_line_to_line(src1: Point, src2: Point, dst1: Point, dst2: Point) -> Affine {
+    let unit_to_line1 = unit_to_line(src1, src2);
+    // Calculate the transform necessary to map line1 to the unit vector.
+    let line1_to_unit = unit_to_line1.inverse();
+    // Then map the unit vector to line2.
+    let unit_to_line2 = unit_to_line(dst1, dst2);
+
+    unit_to_line2 * line1_to_unit
+}
+
+/// Calculate the transform necessary to map the unit vector to the line spanned by the points
+/// `p1` and `p2`.
+fn unit_to_line(p0: Point, p1: Point) -> Affine {
+    Affine::new([
+        p1.y - p0.y,
+        p0.x - p1.x,
+        p1.x - p0.x,
+        p1.y - p0.y,
+        p0.x,
+        p0.y,
+    ])
 }
 
 mod private {
