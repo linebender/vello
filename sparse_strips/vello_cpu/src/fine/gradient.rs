@@ -112,7 +112,7 @@ impl<T: GradientLike> Painter for GradientFiller<'_, T> {
 
 pub(crate) fn extend(mut val: f32, pad: bool) -> f32 {
     if pad {
-        // Gradient ranges are constructed such that values outside [0.0, 1.0] are accepted as well. 
+        // Gradient ranges are constructed such that values outside [0.0, 1.0] are accepted as well.
         val
     } else {
         while val < 0.0 {
