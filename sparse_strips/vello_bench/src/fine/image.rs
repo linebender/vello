@@ -13,6 +13,7 @@ use vello_common::peniko::ImageQuality;
 use vello_common::pixmap::Pixmap;
 use vello_cpu::fine::{Fine, FineType};
 
+// TODO: Add benchmarks for images with transparency
 pub fn image(c: &mut Criterion) {
     transform::none(c);
     transform::scale(c);
