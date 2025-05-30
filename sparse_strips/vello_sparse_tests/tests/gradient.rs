@@ -806,7 +806,6 @@ mod sweep {
         stops_green_blue_with_alpha,
     };
     use peniko::Extend;
-    use std::f64::consts::PI;
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::{self, ColorStops, Gradient, GradientKind};
     use vello_dev_macros::vello_test;
@@ -967,7 +966,7 @@ mod sweep {
     fn gradient_sweep_with_transform_rotate_1(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
-            Affine::rotate_about(50.0f64.to_radians(), Point::new(50.0, 50.0)),
+            Affine::rotate_about(50.0_f64.to_radians(), Point::new(50.0, 50.0)),
             25.0,
             25.0,
             75.0,
@@ -979,7 +978,7 @@ mod sweep {
     fn gradient_sweep_with_transform_rotate_2(ctx: &mut impl Renderer) {
         gradient_with_transform(
             ctx,
-            Affine::rotate_about((-50.0f64).to_radians(), Point::new(50.0, 50.0)),
+            Affine::rotate_about((-50.0_f64).to_radians(), Point::new(50.0, 50.0)),
             25.0,
             25.0,
             75.0,
