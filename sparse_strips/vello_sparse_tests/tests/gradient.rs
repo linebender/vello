@@ -91,7 +91,7 @@ fn gradient_with_color_spaces_1(ctx: &mut impl Renderer) {
     gradient_with_color_spaces(ctx, stops);
 }
 
-#[vello_test(width = 200, height = 130, diff_pixels = 15)]
+#[vello_test(width = 200, height = 130)]
 fn gradient_with_color_spaces_2(ctx: &mut impl Renderer) {
     let stops = ColorStops(smallvec![
         ColorStop {
