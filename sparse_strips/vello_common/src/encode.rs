@@ -77,7 +77,7 @@ impl EncodeExt for Gradient {
                 // We update the transform currently in-place, such that the gradient line always
                 // starts at the point (0, 0) and ends at the point (1, 0). This simplifies the
                 // calculation for the current position along the gradient line a lot.
-                base_transform = ts_from_poly_to_poly(p0, p1, Point::ZERO, Point::new(1.0, 0.0));
+                base_transform = ts_from_line_to_line(p0, p1, Point::ZERO, Point::new(1.0, 0.0));
 
                 EncodedKind::Linear(LinearKind)
             }
@@ -114,7 +114,7 @@ impl EncodeExt for Gradient {
                     RadialKind::Radial { bias, scale }
                 } else {
                     base_transform =
-                        ts_from_poly_to_poly(c0, c1, Point::ZERO, Point::new(1.0, 0.0));
+                        ts_from_line_to_line(c0, c1, Point::ZERO, Point::new(1.0, 0.0));
 
                     if (r1 - r0).is_nearly_zero() {
                         let scaled_r0 = r1 / (c1 - c0).length() as f32;
@@ -536,7 +536,7 @@ impl FocalData {
             swapped = true;
         }
 
-        let focal_matrix = ts_from_poly_to_poly(
+        let focal_matrix = ts_from_line_to_line(
             Point::new(f_focal_x as f64, 0.0),
             Point::new(1.0, 0.0),
             Point::new(0.0, 0.0),
@@ -909,16 +909,25 @@ impl EncodeExt for BlurredRoundedRectangle {
     }
 }
 
-/// Calculates the transform necessary to map the points src1, src2 to dst1, dst2.
+/// Calculates the transform necessary to map the line spanned by points src1, src2 to
+/// the line spanned by dst1, dst2.
+///
+/// This creates a transformation that maps any line segment to any other line segment.
+/// For gradients, we use this to transform the gradient line to a standard form (0,0) → (1,0).
+///
 /// Copied from <https://github.com/linebender/tiny-skia/blob/68b198a7210a6bbf752b43d6bc4db62445730313/src/shaders/radial_gradient.rs#L182>
-fn ts_from_poly_to_poly(src1: Point, src2: Point, dst1: Point, dst2: Point) -> Affine {
-    let tmp1 = from_poly2(src1, src2);
+fn ts_from_line_to_line(src1: Point, src2: Point, dst1: Point, dst2: Point) -> Affine {
+    let tmp1 = unit_to_line(src1, src2);
+    /// Calculate the transform necessary to map line1 to the unit vector.
     let res = tmp1.inverse();
-    let tmp2 = from_poly2(dst1, dst2);
+    /// Then map the unit vector to line2.
+    let tmp2 = unit_to_line(dst1, dst2);
     tmp2 * res
 }
 
-fn from_poly2(p0: Point, p1: Point) -> Affine {
+/// Calculate the transform necessary to map the unit vector to the line spanned by the points
+/// `p1` and `p2`.
+fn unit_to_line(p0: Point, p1: Point) -> Affine {
     Affine::new([
         p1.y - p0.y,
         p0.x - p1.x,
