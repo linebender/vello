@@ -922,12 +922,13 @@ impl EncodeExt for BlurredRoundedRectangle {
 ///
 /// Copied from <https://github.com/linebender/tiny-skia/blob/68b198a7210a6bbf752b43d6bc4db62445730313/src/shaders/radial_gradient.rs#L182>
 fn ts_from_line_to_line(src1: Point, src2: Point, dst1: Point, dst2: Point) -> Affine {
-    let tmp1 = unit_to_line(src1, src2);
-    /// Calculate the transform necessary to map line1 to the unit vector.
-    let res = tmp1.inverse();
-    /// Then map the unit vector to line2.
-    let tmp2 = unit_to_line(dst1, dst2);
-    tmp2 * res
+    let unit_to_line1 = unit_to_line(src1, src2);
+    // Calculate the transform necessary to map line1 to the unit vector.
+    let line1_to_unit = unit_to_line1.inverse();
+    // Then map the unit vector to line2.
+    let unit_to_line2 = unit_to_line(dst1, dst2);
+    
+    unit_to_line2 * line1_to_unit
 }
 
 /// Calculate the transform necessary to map the unit vector to the line spanned by the points
