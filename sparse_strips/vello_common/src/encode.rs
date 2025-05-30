@@ -400,7 +400,7 @@ fn encode_stops(
         // range.
         let left_range = iter::once({
             let first_stop = interpolated_stops.first().unwrap();
-            
+
             create_range(first_stop, first_stop)
         });
 
