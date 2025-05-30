@@ -187,6 +187,15 @@ pub fn snapshot_test_image(
         .join(&params.name)
         .with_extension("png");
 
+    if env::var("VELLO_TEST_GENERATE_ALL").is_ok() {
+        write_png_to_file(
+            params,
+            &update_path,
+            &raw_rendered,
+            Some(directory.max_size_in_bytes()),
+        )?;
+    }
+
     let expected_data = match image::open(&reference_path) {
         Ok(contents) => {
             let size = std::fs::metadata(&reference_path).map(|it| it.len())?;

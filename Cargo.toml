@@ -5,6 +5,7 @@ members = [
     "vello_encoding",
     "vello_shaders",
     "vello_tests",
+    "xtask",
 
     "examples/headless",
     "examples/run_wasm",
