@@ -369,26 +369,25 @@ fn encode_stops(
         let c0 = clamp(left_stop.color.components);
         let c1 = clamp(right_stop.color.components);
 
-        // Given two positions x0 and x1 as well as two corresponding colors c0 and c1,
-        // the delta that needs to be applied to c0 to calculate the color of x between x0 and x1
-        // is calculated by c0 + ((x - x0) / (x1 - x0)) * (c1 - c0).
-        // We can precompute the (c1 - c0)/(x1 - x0) part for each color component.
-
-        // We call this method with two same stops for `left_range` and `right_range`, so make
-        // sure we don't actually end up with a 0 here.
+        // We calculate a bias and scale factor, such that we can simply calculate
+        // bias + x * scale to get the interpolated color, where x is between x0 and x1,
+        // to calculate the resulting color.
+        // Apply a nudge value because we sometimes call `create_range` with the same offset
+        // to create the padded stops.
         let x1_minus_x0 = (x1 - x0).max(NUDGE_VAL);
-        let mut factors_f32 = [0.0; 4];
+        let mut scale = [0.0; 4];
+        let mut bias = c0;
 
         for i in 0..4 {
-            let c1_minus_c0 = c1[i] - c0[i];
-            factors_f32[i] = c1_minus_c0 / x1_minus_x0;
+            scale[i] = (c1[i] - c0[i]) / x1_minus_x0;
+            bias[i] = c0[i] - x0 * scale[i];
         }
 
         GradientRange {
             x0,
             x1,
-            c0: PremulColor::from_premul_color(peniko::color::PremulColor::<Srgb>::new(c0)),
-            factors_f32,
+            bias,
+            scale,
         }
     };
 
@@ -731,10 +730,12 @@ pub struct GradientRange {
     pub x0: f32,
     /// The end value of the range.
     pub x1: f32,
-    /// The start color of the range.
-    pub c0: PremulColor,
-    /// The interpolation factors of the range.
-    pub factors_f32: [f32; 4],
+    /// A bias to apply when interpolating the color (in this case just the values of the start
+    /// color of the gradient).
+    pub bias: [f32; 4],
+    /// The scale factors of the range. By calculating bias + x * factors (where x is
+    /// between 0.0 and 1.0), we can interpolate between start and end color of the gradient range.
+    pub scale: [f32; 4],
 }
 
 /// Sampling positions in a gradient.

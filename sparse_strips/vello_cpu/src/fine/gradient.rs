@@ -79,15 +79,13 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
         let mut pos = self.cur_pos;
 
         for pixel in col.chunks_exact_mut(COLOR_COMPONENTS) {
-            let dist = extend(self.kind.cur_pos(pos));
-            self.advance(dist);
+            let t = extend(self.kind.cur_pos(pos));
+            self.advance(t);
             let range = self.cur_range;
-            let c0 = range.c0.as_premul_f32().components;
+            let bias = range.bias;
 
             for (comp_idx, comp) in pixel.iter_mut().enumerate() {
-                let factor = range.factors_f32[comp_idx] * (dist - range.x0);
-
-                *comp = F::from_normalized_f32(c0[comp_idx] + factor);
+                *comp = F::from_normalized_f32(bias[comp_idx] + range.scale[comp_idx] * t);
             }
 
             pos += self.gradient.y_advance;
