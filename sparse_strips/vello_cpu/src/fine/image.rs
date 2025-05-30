@@ -42,7 +42,6 @@ impl<'a> ImageFiller<'a> {
         let height = image.pixmap.height() as f32;
 
         Self {
-            // We want to sample values of the pixels at the center, so add an offset of 0.5.
             cur_pos: image.transform * Point::new(f64::from(start_x), f64::from(start_y)),
             image,
             width,
@@ -137,7 +136,6 @@ impl<'a> ImageFiller<'a> {
 
     fn run_complex_column<F: FineType>(&mut self, col: &mut [F]) {
         let extend_point = |mut point: Point| {
-            // For the same reason as mentioned above, we always floor.
             point.x = f64::from(extend(
                 point.x as f32,
                 self.image.extends.0,
@@ -161,12 +159,12 @@ impl<'a> ImageFiller<'a> {
                 // Nearest neighbor filtering.
                 // Simply takes the nearest pixel to our current position.
                 ImageQuality::Low => {
-                    let p = extend_point(pos);
+                    let point = extend_point(pos);
                     let sample = F::from_rgba8(
                         &self
                             .image
                             .pixmap
-                            .sample(p.x as u16, p.y as u16)
+                            .sample(point.x as u16, point.y as u16)
                             .to_u8_array()[..],
                     );
                     pixel.copy_from_slice(&sample);
