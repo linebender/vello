@@ -593,8 +593,13 @@ pub enum RadialKind {
     /// A radial gradient, i.e. the start and end center points are the same.
     Radial {
         /// The `bias` value (from the Skia implementation).
+        /// 
+        /// It is a correction factor that accounts for the fact that the focal center might not
+        /// lie on the inner circle (if r0 > 0).
         bias: f32,
-        /// The `scale` value (from the Skia implementation).
+        /// The `scale` value (from the Skia implementation). 
+        /// 
+        /// It is a scaling factor that maps from r0 to r1.
         scale: f32,
     },
     /// A strip gradient, i.e. the start and end radius are the same.
