@@ -387,7 +387,7 @@ fn encode_stops(
         GradientRange {
             x0,
             x1,
-            c0: PremulColor::from_premul_color(left_stop.color),
+            c0: PremulColor::from_premul_color(peniko::color::PremulColor::<Srgb>::new(c0)),
             factors_f32,
         }
     };
@@ -593,12 +593,12 @@ pub enum RadialKind {
     /// A radial gradient, i.e. the start and end center points are the same.
     Radial {
         /// The `bias` value (from the Skia implementation).
-        /// 
+        ///
         /// It is a correction factor that accounts for the fact that the focal center might not
         /// lie on the inner circle (if r0 > 0).
         bias: f32,
-        /// The `scale` value (from the Skia implementation). 
-        /// 
+        /// The `scale` value (from the Skia implementation).
+        ///
         /// It is a scaling factor that maps from r0 to r1.
         scale: f32,
     },
@@ -927,7 +927,7 @@ fn ts_from_line_to_line(src1: Point, src2: Point, dst1: Point, dst2: Point) -> A
     let line1_to_unit = unit_to_line1.inverse();
     // Then map the unit vector to line2.
     let unit_to_line2 = unit_to_line(dst1, dst2);
-    
+
     unit_to_line2 * line1_to_unit
 }
 
