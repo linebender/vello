@@ -383,12 +383,7 @@ fn encode_stops(
             bias[i] = c0[i] - x0 * scale[i];
         }
 
-        GradientRange {
-            x0,
-            x1,
-            bias,
-            scale,
-        }
+        GradientRange { x1, bias, scale }
     };
 
     // Note: this could use `Iterator::map_windows` once stabilized, meaning `interpolated_stops`
@@ -406,7 +401,6 @@ fn encode_stops(
         let left_range = iter::once({
             let first_stop = interpolated_stops.first().unwrap();
             let mut encoded_range = create_range(first_stop, first_stop);
-            encoded_range.x0 = f32::MIN;
             encoded_range
         });
 
@@ -726,8 +720,6 @@ pub struct EncodedGradient {
 /// An encoded ange between two color stops.
 #[derive(Debug, Clone)]
 pub struct GradientRange {
-    /// The start value of the range.
-    pub x0: f32,
     /// The end value of the range.
     pub x1: f32,
     /// A bias to apply when interpolating the color (in this case just the values of the start
