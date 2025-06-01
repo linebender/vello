@@ -99,7 +99,8 @@ fn render(fragCoord: vec2<f32>, light_color: vec3<f32>) -> vec4<f32> {
     var light = 7.0 + 2.0 * dot(surf_normal, light_position);
     light = light / (0.2 * pow(length(light_position - p), 3.5));
 
-    return vec4<f32>(light * light_color, 1.0) * 2.0;
+    let alpha = select(0.0, 1.0, i < 90);
+    return vec4<f32>(light * light_color, alpha) * 2.0;
 }
 
 @fragment
