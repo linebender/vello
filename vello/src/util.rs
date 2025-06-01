@@ -155,8 +155,11 @@ impl RenderContext {
             wgpu::util::initialize_adapter_from_env_or_default(&self.instance, compatible_surface)
                 .await?;
         let features = adapter.features();
-        let limits = Limits::default();
-        let maybe_features = wgpu::Features::CLEAR_TEXTURE | wgpu::Features::PIPELINE_CACHE;
+        let mut limits = Limits::default();
+        limits.max_push_constant_size = 16;
+        let maybe_features = wgpu::Features::CLEAR_TEXTURE
+            | wgpu::Features::PIPELINE_CACHE
+            | wgpu::Features::PUSH_CONSTANTS;
         #[cfg(feature = "wgpu-profiler")]
         let maybe_features = maybe_features | wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
 
