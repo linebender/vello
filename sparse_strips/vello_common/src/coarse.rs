@@ -615,7 +615,7 @@ impl Wide {
             let next_strip = &strips[i + 1];
             let strip_width =
                 ((next_strip.alpha_idx - strip.alpha_idx) / u32::from(Tile::HEIGHT)) as u16;
-            let x1 = x0 + strip_width;
+            let mut x1 = x0 + strip_width;
             let wtile_x0 = (x0 / WideTile::WIDTH).max(clip_bbox.x0());
             let wtile_x1 = x1.div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
 
@@ -626,6 +626,7 @@ impl Wide {
             if clip_x > x {
                 col += u32::from(clip_x - x);
                 x = clip_x;
+                x1 = clip_x.max(x1);
             }
 
             // Render clip strips for each affected tile and mark for popping
