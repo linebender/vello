@@ -385,7 +385,7 @@ impl Renderer for Scene {
         canvas.set_width(width.into());
         canvas.set_height(height.into());
 
-        let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+        let (mut renderer, _) = vello_hybrid::WebGlRenderer::new(&canvas);
         let render_size = vello_hybrid::RenderSize {
             width: width.into(),
             height: height.into(),
