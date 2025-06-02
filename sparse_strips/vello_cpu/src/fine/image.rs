@@ -265,6 +265,8 @@ impl<'a> ImageFiller<'a> {
 
 #[inline(always)]
 fn extend(val: f32, extend: Extend, max: f32, inv_max: f32) -> f32 {
+    // We cannot chose f32::EPSILON here because for example 30.0 - f32::EPSILON is still 30.0.
+    // This bias should be large enough for all numbers that we support (i.e. <= u16::MAX).
     const BIAS: f32 = 0.01;
 
     match extend {
