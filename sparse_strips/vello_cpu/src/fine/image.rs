@@ -29,7 +29,7 @@ pub(crate) struct ImageFiller<'a> {
     cur_pos: Point,
     /// The underlying image.
     image: &'a EncodedImage,
-    // We precompute these values so we don't need to recalculate them for every pixel.
+    // Precomputed values reused in per-pixel calculations.
     height: f32,
     height_inv: f32,
     width: f32,
