@@ -268,7 +268,7 @@ fn nested_clip_path_panic(ctx: &mut impl Renderer) {
 fn nested_clip_path_panic_2(ctx: &mut impl Renderer) {
     let path1 = Rect::new(256.0, 0.0, 280.0, 2.0).to_path(0.1);
     ctx.push_clip_layer(&path1);
-    let path2 = &Rect::new(0.0, 0.0, 511.0, 4.0).to_path(0.1);
+    let path2 = Rect::new(0.0, 0.0, 511.0, 4.0).to_path(0.1);
     ctx.push_clip_layer(&path2);
     ctx.set_paint(RED);
     ctx.fill_path(&Rect::new(0.0, 0.0, 511.0, 4.0).to_path(0.1));
