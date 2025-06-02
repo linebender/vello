@@ -134,13 +134,13 @@ impl WebGlRenderer {
 
         self.gl.blit_framebuffer(
             0,
-            render_size.height as i32,
-            render_size.width as i32,
+            self.gl.drawing_buffer_height(),
+            self.gl.drawing_buffer_width(),
             0,
             0,
             0,
-            render_size.width as i32,
-            render_size.height as i32,
+            self.gl.drawing_buffer_width(),
+            self.gl.drawing_buffer_height(),
             WebGl2RenderingContext::COLOR_BUFFER_BIT,
             WebGl2RenderingContext::LINEAR,
         );
