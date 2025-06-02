@@ -688,8 +688,9 @@ impl Wide {
 
                 // If fill extends to next tile, pop current and handle next
                 if x2 > (cur_wtile_x + 1) * WideTile::WIDTH {
-                    self.get_mut(cur_wtile_x, cur_wtile_y).pop_clip();
-                    pop_pending = false;
+                    if core::mem::take(&mut pop_pending) {
+                        self.get_mut(cur_wtile_x, cur_wtile_y).pop_clip();
+                    }
 
                     let width2 = x2 % WideTile::WIDTH;
                     cur_wtile_x = x2 / WideTile::WIDTH;
