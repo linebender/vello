@@ -7,6 +7,7 @@ use crate::renderer::Renderer;
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
+use vello_cpu::color::palette::css::RED;
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 8, height = 8)]
@@ -248,5 +249,29 @@ fn out_of_viewport_clip(ctx: &mut impl Renderer) {
     ctx.push_clip_layer(&Rect::new(-100.0, -100.0, 0.0, 0.0).to_path(0.1));
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(no_ref, width = 300, height = 4)]
+// https://github.com/linebender/vello/issues/1032
+fn nested_clip_path_panic(ctx: &mut impl Renderer) {
+    let path1 = Rect::new(256.0, 0.0, 257.0, 2.0).to_path(0.1);
+    ctx.push_clip_layer(&path1);
+    let path2 = Rect::new(181.0, -200.0, 760.0, 618.0).to_path(0.1);
+    ctx.push_clip_layer(&path2);
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(width = 512, height = 4)]
+// https://github.com/linebender/vello/issues/1034
+fn nested_clip_path_panic_2(ctx: &mut impl Renderer) {
+    let path1 = Rect::new(256.0, 0.0, 280.0, 2.0).to_path(0.1);
+    ctx.push_clip_layer(&path1);
+    let path2 = Rect::new(0.0, 0.0, 511.0, 4.0).to_path(0.1);
+    ctx.push_clip_layer(&path2);
+    ctx.set_paint(RED);
+    ctx.fill_path(&Rect::new(0.0, 0.0, 511.0, 4.0).to_path(0.1));
+    ctx.pop_layer();
     ctx.pop_layer();
 }
