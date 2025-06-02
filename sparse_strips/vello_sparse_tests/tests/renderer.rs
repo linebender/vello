@@ -236,8 +236,8 @@ impl Renderer for Scene {
             M.lock().unwrap()
         };
 
-        let width = self.width();
-        let height = self.height();
+        let width = pixmap.width();
+        let height = pixmap.height();
 
         // Copied from vello_hybrid/examples/`render_to_file.rs`.
 
@@ -369,8 +369,8 @@ impl Renderer for Scene {
         use wasm_bindgen::JsCast;
         use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 
-        let width = self.width();
-        let height = self.height();
+        let width = pixmap.width();
+        let height = pixmap.height();
 
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.

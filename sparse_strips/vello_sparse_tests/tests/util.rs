@@ -230,7 +230,6 @@ pub(crate) fn pixmap_to_png(pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> 
     png_data
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn check_ref(
     ctx: &impl Renderer,
     // The name of the test.
@@ -242,83 +241,101 @@ pub(crate) fn check_ref(
     threshold: u8,
     // Whether the test instance is the "gold standard" and should be used
     // for creating reference images.
+    // N.B. Must be `false` on `wasm32` as reference image cannot be written to filesystem.
     is_reference: bool,
     render_mode: RenderMode,
-    _: &[u8],
+    // `ref_data` is the reference image data, passed directly for wasm32.
+    ref_data: &[u8],
 ) {
     let pixmap = render_pixmap(ctx, render_mode);
-
     let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
-    let ref_path = REFS_PATH.join(format!("{}.png", test_name));
 
-    let write_ref_image = || {
-        let optimized =
-            oxipng::optimize_from_memory(&encoded_image, &oxipng::Options::max_compression())
-                .unwrap();
-        std::fs::write(&ref_path, optimized).unwrap();
-    };
-
-    if !ref_path.exists() {
-        if is_reference {
-            write_ref_image();
-            panic!("new reference image was created");
-        } else {
-            panic!("no reference image exists");
-        }
-    }
-
-    let ref_image = load_from_memory(&std::fs::read(&ref_path).unwrap())
-        .unwrap()
-        .into_rgba8();
-    let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
-
-    let diff_image = get_diff(&ref_image, &actual, threshold);
-
-    if let Some(diff_image) = diff_image {
-        if std::env::var("REPLACE").is_ok() && is_reference {
-            write_ref_image();
-            panic!("test was replaced");
-        }
-
-        if !DIFFS_PATH.exists() {
-            let _ = std::fs::create_dir_all(DIFFS_PATH.as_path());
-        }
-
-        let diff_path = DIFFS_PATH.join(format!("{}.png", specific_name));
-        diff_image
-            .save_with_format(&diff_path, image::ImageFormat::Png)
-            .unwrap();
-
-        panic!("test didnt match reference image");
-    }
+    check_ref_encoded(
+        &encoded_image,
+        test_name,
+        specific_name,
+        threshold,
+        is_reference,
+        ref_data,
+    );
 }
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn check_ref(
-    ctx: &impl Renderer,
-    _test_name: &str,
+pub(crate) fn check_ref_encoded(
+    // The encoded image under test.
+    encoded_image: &[u8],
+    // The name of the test.
+    test_name: &str,
     // The name of the specific instance of the test that is being run
     // (e.g. test_gpu, test_cpu_u8, etc.)
     specific_name: &str,
     // Tolerance for pixel differences.
     threshold: u8,
-    // Must be `false` on `wasm32` as reference image cannot be written to filesystem.
+    // Whether the test instance is the "gold standard" and should be used
+    // for creating reference images.
+    // N.B. Must be `false` on `wasm32` as reference image cannot be written to filesystem.
     is_reference: bool,
-    render_mode: RenderMode,
+    // `ref_data` is the reference image data, passed directly for wasm32.
     ref_data: &[u8],
 ) {
-    assert!(!is_reference, "WASM cannot create new reference images");
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        assert_eq!(ref_data.len(), 0, "ref_data is only used for wasm32 tests");
+        let ref_path = REFS_PATH.join(format!("{}.png", test_name));
 
-    let pixmap = render_pixmap(ctx, render_mode);
-    let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
-    let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
+        let write_ref_image = || {
+            let optimized =
+                oxipng::optimize_from_memory(&encoded_image, &oxipng::Options::max_compression())
+                    .unwrap();
+            std::fs::write(&ref_path, optimized).unwrap();
+        };
 
-    let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
+        if !ref_path.exists() {
+            if is_reference {
+                write_ref_image();
+                panic!("new reference image was created");
+            } else {
+                panic!("no reference image exists");
+            }
+        }
 
-    let diff_image = get_diff(&ref_image, &actual, threshold);
-    if let Some(ref img) = diff_image {
-        append_diff_image_to_browser_document(specific_name, img);
-        panic!("test didn't match reference image. Scroll to bottom of browser to view diff.");
+        let ref_image = load_from_memory(&std::fs::read(&ref_path).unwrap())
+            .unwrap()
+            .into_rgba8();
+        let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
+
+        let diff_image = get_diff(&ref_image, &actual, threshold);
+
+        if let Some(diff_image) = diff_image {
+            if std::env::var("REPLACE").is_ok() && is_reference {
+                write_ref_image();
+                panic!("test was replaced");
+            }
+
+            if !DIFFS_PATH.exists() {
+                let _ = std::fs::create_dir_all(DIFFS_PATH.as_path());
+            }
+
+            let diff_path = DIFFS_PATH.join(format!("{}.png", specific_name));
+            diff_image
+                .save_with_format(&diff_path, image::ImageFormat::Png)
+                .unwrap();
+
+            panic!("test didnt match reference image");
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        assert!(!is_reference, "WASM cannot create new reference images");
+        assert_eq!(test_name.len(), 0, "test_name is not used in wasm32 tests");
+        let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
+
+        let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
+
+        let diff_image = get_diff(&ref_image, &actual, threshold);
+        if let Some(ref img) = diff_image {
+            append_diff_image_to_browser_document(specific_name, img);
+            panic!("test didn't match reference image. Scroll to bottom of browser to view diff.");
+        }
     }
 }
 

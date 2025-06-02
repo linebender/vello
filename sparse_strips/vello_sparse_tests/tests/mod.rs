@@ -36,5 +36,6 @@ mod layer;
 mod mask;
 mod mix;
 mod opacity;
+mod render_size;
 mod renderer;
 mod util;
