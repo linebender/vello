@@ -615,9 +615,9 @@ impl Wide {
             let next_strip = &strips[i + 1];
             let strip_width =
                 ((next_strip.alpha_idx - strip.alpha_idx) / u32::from(Tile::HEIGHT)) as u16;
-            let mut x1 = x0 + strip_width;
+            let mut clipped_x1 = x0 + strip_width;
             let wtile_x0 = (x0 / WideTile::WIDTH).max(clip_bbox.x0());
-            let wtile_x1 = x1.div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
+            let wtile_x1 = clipped_x1.div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
 
             // Calculate starting position and column for alpha mask
             let mut x = x0;
@@ -626,7 +626,7 @@ impl Wide {
             if clip_x > x {
                 col += u32::from(clip_x - x);
                 x = clip_x;
-                x1 = clip_x.max(x1);
+                clipped_x1 = clip_x.max(clipped_x1);
             }
 
             // Render clip strips for each affected tile and mark for popping
@@ -638,7 +638,7 @@ impl Wide {
 
                 // Calculate the portion of the strip that affects this tile
                 let x_rel = u32::from(x % WideTile::WIDTH);
-                let width = x1.min((wtile_x + 1) * WideTile::WIDTH) - x;
+                let width = clipped_x1.min((wtile_x + 1) * WideTile::WIDTH) - x;
 
                 // Create clip strip command for rendering the partial coverage
                 let cmd = CmdClipAlphaFill {
@@ -671,11 +671,11 @@ impl Wide {
 
                 let x2 = next_strip.x;
                 let clipped_x2 = x2.min((cur_wtile_x + 1) * WideTile::WIDTH);
-                let width = clipped_x2.saturating_sub(x1);
+                let width = clipped_x2.saturating_sub(clipped_x1);
 
                 // If there's a gap, fill it
                 if width > 0 {
-                    let x_rel = u32::from(x1 % WideTile::WIDTH);
+                    let x_rel = u32::from(clipped_x1 % WideTile::WIDTH);
                     self.get_mut(cur_wtile_x, cur_wtile_y)
                         .clip_fill(x_rel, u32::from(width));
                 }
