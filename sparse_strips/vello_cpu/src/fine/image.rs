@@ -11,22 +11,16 @@ use vello_common::tile::Tile;
 use vello_common::kurbo::common::FloatFuncs as _;
 
 #[cfg(feature = "std")]
-fn fract(val: f64) -> f64 {
-    val.fract()
+fn floor(val: f32) -> f32 {
+    val.floor()
 }
 
 #[cfg(not(feature = "std"))]
-fn fract(val: f64) -> f64 {
+fn floor(val: f32) -> f32 {
     #[cfg(feature = "libm")]
-    return val - libm::trunc(val);
+    return libm::floorf(val);
     #[cfg(not(feature = "libm"))]
     compile_error!("vello_common requires either the `std` or `libm` feature");
-}
-
-// Inlined version of f32::rem_euclid, to allow using abs.
-fn rem_euclid(lhs: f32, rhs: f32) -> f32 {
-    let r = lhs % rhs;
-    if r < 0.0 { r + rhs.abs() } else { r }
 }
 
 #[derive(Debug)]
@@ -35,15 +29,25 @@ pub(crate) struct ImageFiller<'a> {
     cur_pos: Point,
     /// The underlying image.
     image: &'a EncodedImage,
+    // Precomputed values reused in per-pixel calculations.
+    height: f32,
+    height_inv: f32,
+    width: f32,
+    width_inv: f32,
 }
 
 impl<'a> ImageFiller<'a> {
     pub(crate) fn new(image: &'a EncodedImage, start_x: u16, start_y: u16) -> Self {
+        let width = image.pixmap.width() as f32;
+        let height = image.pixmap.height() as f32;
+
         Self {
-            // We want to sample values of the pixels at the center, so add an offset of 0.5.
-            cur_pos: image.transform
-                * Point::new(f64::from(start_x) + 0.5, f64::from(start_y) + 0.5),
+            cur_pos: image.transform * Point::new(f64::from(start_x), f64::from(start_y)),
             image,
+            width,
+            height,
+            width_inv: 1.0 / width,
+            height_inv: 1.0 / height,
         }
     }
 
@@ -78,11 +82,10 @@ impl<'a> ImageFiller<'a> {
 
             for (idx, pos) in y_positions.iter_mut().enumerate() {
                 *pos = extend(
-                    // Since we already added a 0.5 offset to sample at the center of the pixel,
-                    // we always floor to get the target pixel.
-                    (self.cur_pos.y + y_advance * idx as f64).floor() as f32,
+                    (self.cur_pos.y + y_advance * idx as f64) as f32,
                     self.image.extends.1,
-                    f32::from(self.image.pixmap.height()),
+                    self.height,
+                    self.height_inv,
                 );
             }
 
@@ -90,10 +93,10 @@ impl<'a> ImageFiller<'a> {
                 .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
                 .for_each(|column| {
                     let extended_x_pos = extend(
-                        // As above, always floor.
-                        x_pos.floor() as f32,
+                        x_pos as f32,
                         self.image.extends.0,
-                        f32::from(self.image.pixmap.width()),
+                        self.width,
+                        self.width_inv,
                     );
                     self.run_simple_column(column, extended_x_pos, &y_positions);
                     x_pos += x_advance;
@@ -133,16 +136,17 @@ impl<'a> ImageFiller<'a> {
 
     fn run_complex_column<F: FineType>(&mut self, col: &mut [F]) {
         let extend_point = |mut point: Point| {
-            // For the same reason as mentioned above, we always floor.
             point.x = f64::from(extend(
-                point.x.floor() as f32,
+                point.x as f32,
                 self.image.extends.0,
-                f32::from(self.image.pixmap.width()),
+                self.width,
+                self.width_inv,
             ));
             point.y = f64::from(extend(
-                point.y.floor() as f32,
+                point.y as f32,
                 self.image.extends.1,
-                f32::from(self.image.pixmap.height()),
+                self.height,
+                self.height_inv,
             ));
 
             point
@@ -176,32 +180,12 @@ impl<'a> ImageFiller<'a> {
                     // center of the location we are sampling, and sample those points
                     // using a cubic filter to weight each location's contribution.
 
-                    let fract = |orig_val: f64| {
-                        // To give some intuition on why we need that shift, based on bilinear
-                        // filtering: If we sample at the position (0.5, 0.5), we are at the center
-                        // of the pixel and thus only want the color of the current pixel. Thus, we take
-                        // 1.0 * 1.0 from the top left pixel (which still lies on our pixel)
-                        // and 0.0 from all other corners (which lie at the start of other pixels).
-                        //
-                        // If we sample at the position (0.4, 0.4), we want 0.1 * 0.1 = 0.01 from
-                        // the top-left pixel, 0.1 * 0.9 = 0.09 from the bottom-left and top-right,
-                        // and finally 0.9 * 0.9 = 0.81 from the bottom right position (which still
-                        // lies on our pixel, and thus has intuitively should have the highest
-                        // contribution). Thus, we need to subtract 0.5 from the position to get
-                        // the correct fractional contribution.
-                        let start = orig_val - 0.5;
-                        let mut res = fract(start) as f32;
+                    fn fract(val: f32) -> f32 {
+                        val - floor(val)
+                    }
 
-                        // In case we are in the negative we need to mirror the result.
-                        if res.is_sign_negative() {
-                            res += 1.0;
-                        }
-
-                        res
-                    };
-
-                    let x_fract = fract(pos.x);
-                    let y_fract = fract(pos.y);
+                    let x_fract = fract(pos.x as f32 + 0.5);
+                    let y_fract = fract(pos.y as f32 + 0.5);
 
                     let mut interpolated_color = [0.0_f32; 4];
 
@@ -213,6 +197,7 @@ impl<'a> ImageFiller<'a> {
                     };
 
                     if self.image.quality == ImageQuality::Medium {
+                        // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L5039-L5078>
                         let cx = [1.0 - x_fract, x_fract];
                         let cy = [1.0 - y_fract, y_fract];
 
@@ -234,7 +219,7 @@ impl<'a> ImageFiller<'a> {
                             }
                         }
                     } else {
-                        // Compare to https://github.com/google/skia/blob/84ff153b0093fc83f6c77cd10b025c06a12c5604/src/opts/SkRasterPipeline_opts.h#L5030-L5075.
+                        // Compare to <https://github.com/google/skia/blob/84ff153b0093fc83f6c77cd10b025c06a12c5604/src/opts/SkRasterPipeline_opts.h#L5030-L5075>.
                         let cx = weights(x_fract);
                         let cy = weights(y_fract);
 
@@ -278,21 +263,31 @@ impl<'a> ImageFiller<'a> {
     }
 }
 
-fn extend(val: f32, extend: Extend, max: f32) -> f32 {
+#[inline(always)]
+fn extend(val: f32, extend: Extend, max: f32, inv_max: f32) -> f32 {
+    // We cannot chose f32::EPSILON here because for example 30.0 - f32::EPSILON is still 30.0.
+    // This bias should be large enough for all numbers that we support (i.e. <= u16::MAX).
+    const BIAS: f32 = 0.01;
+
     match extend {
-        Extend::Pad => val.clamp(0.0, max - 1.0),
-        // TODO: We need to make repeat and reflect more efficient and branch-less.
-        Extend::Repeat => rem_euclid(val, max),
+        // Note that max should be exclusive, so subtract a small bias to enforce that.
+        // Otherwise, we might sample out-of-bounds pixels.
+        Extend::Pad => val.clamp(0.0, max - BIAS),
+        Extend::Repeat => val - floor(val * inv_max) * max,
+        // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L3274-L3290>
         Extend::Reflect => {
-            let period = 2.0 * max;
+            let u = val - floor(val * inv_max * 0.5) * 2.0 * max;
+            let s = floor(u * inv_max);
+            let m = u - 2.0 * s * (u - max);
 
-            let val_mod = rem_euclid(val, period);
+            let bias_in_ulps = s.trunc();
 
-            if val_mod < max {
-                val_mod
-            } else {
-                (period - 1.0) - val_mod
-            }
+            let m_bits = m.to_bits();
+            // This would yield NaN if `m` is 0 and `bias_in_ulps` > 0, but since
+            // our `max` is always an integer number, u and s must also be an integer number
+            // and thus `m_bits` must be 0.
+            let biased_bits = m_bits.wrapping_sub(bias_in_ulps as u32);
+            f32::from_bits(biased_bits)
         }
     }
 }

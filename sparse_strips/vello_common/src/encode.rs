@@ -438,7 +438,9 @@ impl EncodeExt for Image {
     fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
         let idx = paints.len();
 
-        let transform = transform.inverse();
+        // Similarly to gradients, apply a 0.5 offset so we sample at the center of
+        // a pixel.
+        let transform = transform.inverse() * Affine::translate((0.5, 0.5));
         // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
         // non-opaque images in the first place..
         let has_opacities = self.pixmap.data().iter().any(|pixel| pixel.a != 255);
