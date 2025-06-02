@@ -283,6 +283,9 @@ fn extend(val: f32, extend: Extend, max: f32, inv_max: f32) -> f32 {
             let bias_in_ulps = s.trunc();
 
             let m_bits = m.to_bits();
+            // This would yield NaN if `m` is 0 and `bias_in_ulps` > 0, but since
+            // our `max` is always an integer number, u and s must also be an integer number
+            // and thus `m_bits` must be 0.
             let biased_bits = m_bits.wrapping_sub(bias_in_ulps as u32);
             f32::from_bits(biased_bits)
         }
