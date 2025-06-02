@@ -30,7 +30,7 @@ struct RendererWrapper {
 impl RendererWrapper {
     #[cfg(target_arch = "wasm32")]
     fn new(canvas: web_sys::HtmlCanvasElement) -> Self {
-        let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+        let (renderer, _) = vello_hybrid::WebGlRenderer::new(&canvas);
 
         Self { renderer }
     }
@@ -380,7 +380,7 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
         .append_child(&canvas)
         .unwrap();
 
-    let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+    let (mut renderer, _) = vello_hybrid::WebGlRenderer::new(&canvas);
 
     let render_size = vello_hybrid::RenderSize {
         width: width as u32,

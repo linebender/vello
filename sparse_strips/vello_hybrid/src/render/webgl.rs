@@ -56,7 +56,7 @@ pub struct WebGlRenderer {
 
 impl WebGlRenderer {
     /// Creates a new WebGL2 renderer
-    pub fn new(canvas: &web_sys::HtmlCanvasElement) -> Self {
+    pub fn new(canvas: &web_sys::HtmlCanvasElement) -> (Self, web_sys::WebGl2RenderingContext) {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         // The WebGL context must be created with anti-aliasing disabled such that we can blit the
@@ -81,11 +81,14 @@ impl WebGlRenderer {
         let total_slots: usize =
             (get_max_texture_dimension_2d(&gl) / u32::from(Tile::HEIGHT)) as usize;
 
-        Self {
-            programs: WebGlPrograms::new(gl.clone(), total_slots),
-            scheduler: Scheduler::new(total_slots),
+        (
+            Self {
+                programs: WebGlPrograms::new(gl.clone(), total_slots),
+                scheduler: Scheduler::new(total_slots),
+                gl: gl.clone(),
+            },
             gl,
-        }
+        )
     }
 
     /// Render `scene` using WebGL2
