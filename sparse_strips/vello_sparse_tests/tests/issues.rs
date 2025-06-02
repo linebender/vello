@@ -263,7 +263,7 @@ fn nested_clip_path_panic(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(width = 612, height = 4)]
+#[vello_test(width = 512, height = 4)]
 // https://github.com/linebender/vello/issues/1034
 fn nested_clip_path_panic_2(ctx: &mut impl Renderer) {
     let path1 = Rect::new(256.0, 0.0, 280.0, 2.0).to_path(0.1);
