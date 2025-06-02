@@ -92,6 +92,15 @@ impl WebGlRenderer {
     ///
     /// This method creates GPU resources as needed and schedules potentially multiple draw calls.
     pub fn render(&mut self, scene: &Scene, render_size: &RenderSize) -> Result<(), RenderError> {
+        debug_assert_eq!(
+            RenderSize {
+                width: self.gl.drawing_buffer_width() as u32,
+                height: self.gl.drawing_buffer_height() as u32
+            },
+            *render_size,
+            "Render size must match drawing buffer size"
+        );
+
         self.programs.prepare(&self.gl, &scene.alphas, render_size);
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
