@@ -71,10 +71,23 @@ impl<'a> ImageFiller<'a> {
                     self.cur_pos += self.image.x_advance;
                 });
         } else {
+            let y_advance = self.image.y_advance.y;
+
+            let mut y_positions = [0.0; Tile::HEIGHT as usize];
+
+            for (idx, pos) in y_positions.iter_mut().enumerate() {
+                *pos = extend(
+                    (self.cur_pos.y + y_advance * idx as f64) as f32,
+                    self.image.extends.1,
+                    self.height,
+                    self.height_inv,
+                );
+            }
+            
             match self.image.extends.0 {
-                peniko::Extend::Pad => self.run_simple::<F, Pad>(target),
-                peniko::Extend::Repeat => self.run_simple::<F, Repeat>(target),
-                peniko::Extend::Reflect => self.run_simple::<F, Reflect>(target),
+                peniko::Extend::Pad => self.run_simple::<F, Pad>(target, &y_positions),
+                peniko::Extend::Repeat => self.run_simple::<F, Repeat>(target, &y_positions),
+                peniko::Extend::Reflect => self.run_simple::<F, Reflect>(target, &y_positions),
             }
         }
     }
@@ -88,21 +101,9 @@ impl<'a> ImageFiller<'a> {
         clippy::trivially_copy_pass_by_ref,
         reason = "Tile::HEIGHT is expected to increase later."
     )]
-    fn run_simple<F: FineType, E: Extend>(&mut self, target: &mut [F]) {
+    fn run_simple<F: FineType, E: Extend>(&mut self, target: &mut [F], y_positions: &[f32; 4]) {
         let mut x_pos = self.cur_pos.x;
         let x_advance = self.image.x_advance.x;
-        let y_advance = self.image.y_advance.y;
-
-        let mut y_positions = [0.0; Tile::HEIGHT as usize];
-
-        for (idx, pos) in y_positions.iter_mut().enumerate() {
-            *pos = extend(
-                (self.cur_pos.y + y_advance * idx as f64) as f32,
-                self.image.extends.1,
-                self.height,
-                self.height_inv,
-            );
-        }
 
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
