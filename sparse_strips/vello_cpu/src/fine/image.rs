@@ -272,7 +272,9 @@ fn extend(val: f32, extend: Extend, max: f32, inv_max: f32) -> f32 {
     match extend {
         // Note that max should be exclusive, so subtract a small bias to enforce that.
         // Otherwise, we might sample out-of-bounds pixels.
-        Extend::Pad => val.clamp(0.0, max - BIAS),
+        // Also note that we intentionally don't use `clamp` here, because it's slower than
+        // doing `min` + `max`.
+        Extend::Pad => val.min(max - BIAS).max(0.0),
         Extend::Repeat => val - floor(val * inv_max) * max,
         // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L3274-L3290>
         Extend::Reflect => {
