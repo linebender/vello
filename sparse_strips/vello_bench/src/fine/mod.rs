@@ -18,15 +18,21 @@ pub use gradient::*;
 pub use image::*;
 pub use rounded_blurred_rect::*;
 pub use strip::*;
+use vello_common::coarse::WideTile;
 use vello_common::peniko::{BlendMode, Compose, Mix};
+use vello_common::tile::Tile;
+use vello_cpu::region::Regions;
 
 #[vello_bench]
 pub fn pack<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
     let mut buf = vec![0; SCRATCH_BUF_SIZE];
+    let mut regions = Regions::new(WideTile::WIDTH, Tile::HEIGHT, &mut buf);
 
-    b.iter(|| {
-        fine.pack(&mut buf);
-        std::hint::black_box(&buf);
+    regions.update_regions(|r| {
+        b.iter(|| {
+            fine.pack(r);
+            std::hint::black_box(&r);
+        });
     });
 }
 

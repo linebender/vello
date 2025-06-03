@@ -3213,6 +3213,8 @@ name = "vello_cpu"
 version = "0.0.1"
 dependencies = [
  "libm",
+ "rayon",
+ "thread_local",
  "vello_common",
 ]
 
