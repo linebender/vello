@@ -79,16 +79,16 @@ impl<'a> ImageFiller<'a> {
         }
     }
 
+    /// Fast path. Each step in the x/y direction only updates x/y component of the
+    /// current position, since we have no skewing.
+    /// Most importantly, the y position is the same across each column, allowing us
+    /// to precompute it (as well as its extend).
     // Ideally, we'd add this only on the specific arm, but clippy doesn't support that
     #[expect(
         clippy::trivially_copy_pass_by_ref,
         reason = "Tile::HEIGHT is expected to increase later."
     )]
     fn run_simple<F: FineType, E: Extend>(&mut self, target: &mut [F]) {
-        // Fast path. Each step in the x/y direction only updates x/y component of the
-        // current position, since we have no skewing.
-        // Most importantly, the y position is the same across each column, allowing us
-        // to precompute it (as well as its extend).
         let mut x_pos = self.cur_pos.x;
         let x_advance = self.image.x_advance.x;
         let y_advance = self.image.y_advance.y;
