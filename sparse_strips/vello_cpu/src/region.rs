@@ -63,7 +63,7 @@ impl<'a> Regions<'a> {
         use rayon::iter::ParallelIterator;
         use rayon::prelude::IntoParallelRefMutIterator;
 
-        self.regions.par_iter_mut().for_each(|e| func(e));
+        self.regions.par_iter_mut().for_each(func);
     }
 
     #[cfg(not(feature = "multithreading"))]

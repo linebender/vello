@@ -23,13 +23,14 @@ use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::tile::Tile;
 use vello_cpu::region::Regions;
 
+#[cfg(not(feature = "multithreading"))]
 #[vello_bench]
 pub fn pack<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
     let mut buf = vec![0; SCRATCH_BUF_SIZE];
     let mut regions = Regions::new(WideTile::WIDTH, Tile::HEIGHT, &mut buf);
 
-    regions.update_regions(|r| {
-        b.iter(|| {
+    b.iter(|| {
+        regions.update_regions(|r| {
             fine.pack(r);
             std::hint::black_box(&r);
         });

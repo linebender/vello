@@ -354,9 +354,9 @@ impl RenderContext {
 
         #[cfg(feature = "multithreading")]
         if let Some(pool) = &self.thread_pool {
-            pool.install(|| render())
+            pool.install(|| render());
         } else {
-            render()
+            render();
         }
 
         #[cfg(not(feature = "multithreading"))]
