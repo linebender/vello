@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Splitting a single mutable buffer into regions that can be accessed concurrently.
 
 use crate::fine::COLOR_COMPONENTS;
