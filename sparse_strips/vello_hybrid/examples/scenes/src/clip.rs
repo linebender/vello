@@ -10,11 +10,10 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::ExampleScene;
-use parley::Rect;
 use vello_common::color::palette::css::{
     BLACK, BLUE, DARK_BLUE, DARK_GREEN, GREEN, REBECCA_PURPLE, RED,
 };
-use vello_common::kurbo::{Affine, BezPath, Circle, Point, Shape, Stroke};
+use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Color;
 use vello_hybrid::Scene;
 
