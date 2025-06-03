@@ -4,7 +4,8 @@
 use crate::fine::{COLOR_COMPONENTS, FineType, Painter, TILE_HEIGHT_COMPONENTS};
 use vello_common::encode::EncodedImage;
 use vello_common::kurbo::{Point, Vec2};
-use vello_common::peniko::{Extend, ImageQuality};
+use vello_common::peniko;
+use vello_common::peniko::ImageQuality;
 use vello_common::tile::Tile;
 
 #[cfg(not(feature = "std"))]
@@ -70,12 +71,6 @@ impl<'a> ImageFiller<'a> {
                     self.cur_pos += self.image.x_advance;
                 });
         } else {
-            // Fast path. Each step in the x/y direction only updates x/y component of the
-            // current position, since we have no skewing.
-            // Most importantly, the y position is the same across each column, allowing us
-            // to precompute it (as well as it's extend).
-            let mut x_pos = self.cur_pos.x;
-            let x_advance = self.image.x_advance.x;
             let y_advance = self.image.y_advance.y;
 
             let mut y_positions = [0.0; Tile::HEIGHT as usize];
@@ -89,49 +84,49 @@ impl<'a> ImageFiller<'a> {
                 );
             }
 
-            target
-                .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
-                .for_each(|column| {
-                    let extended_x_pos = extend(
-                        x_pos as f32,
-                        self.image.extends.0,
-                        self.width,
-                        self.width_inv,
-                    );
-                    self.run_simple_column(column, extended_x_pos, &y_positions);
-                    x_pos += x_advance;
-                });
+            match self.image.extends.0 {
+                peniko::Extend::Pad => self.run_simple::<F, Pad>(target, &y_positions),
+                peniko::Extend::Repeat => self.run_simple::<F, Repeat>(target, &y_positions),
+                peniko::Extend::Reflect => self.run_simple::<F, Reflect>(target, &y_positions),
+            }
         }
     }
 
+    /// Fast path. Each step in the x/y direction only updates x/y component of the
+    /// current position, since we have no skewing.
+    /// Most importantly, the y position is the same across each column, allowing us
+    /// to precompute it (as well as its extend).
     // Ideally, we'd add this only on the specific arm, but clippy doesn't support that
     #[expect(
         clippy::trivially_copy_pass_by_ref,
         reason = "Tile::HEIGHT is expected to increase later."
     )]
-    fn run_simple_column<F: FineType>(
-        &mut self,
-        col: &mut [F],
-        x_pos: f32,
-        y_positions: &[f32; Tile::HEIGHT as usize],
-    ) {
-        for (pixel, y_pos) in col
-            .chunks_exact_mut(COLOR_COMPONENTS)
-            .zip(y_positions.iter())
-        {
-            let sample = match self.image.quality {
-                ImageQuality::Low => F::from_rgba8(
-                    &self
-                        .image
-                        .pixmap
-                        .sample(x_pos as u16, *y_pos as u16)
-                        .to_u8_array()[..],
-                ),
-                ImageQuality::Medium | ImageQuality::High => unimplemented!(),
-            };
+    fn run_simple<F: FineType, E: Extend>(&mut self, target: &mut [F], y_positions: &[f32; 4]) {
+        let mut x_pos = self.cur_pos.x;
+        let x_advance = self.image.x_advance.x;
 
-            pixel.copy_from_slice(&sample);
-        }
+        target
+            .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
+            .for_each(|column| {
+                let extended_x_pos = E::extend(x_pos as f32, self.width, self.width_inv);
+
+                for (pixel, y_pos) in column
+                    .chunks_exact_mut(COLOR_COMPONENTS)
+                    .zip(y_positions.iter())
+                {
+                    let sample = F::from_rgba8(
+                        &self
+                            .image
+                            .pixmap
+                            .sample(extended_x_pos as u16, *y_pos as u16)
+                            .to_u8_array()[..],
+                    );
+
+                    pixel.copy_from_slice(&sample);
+                }
+
+                x_pos += x_advance;
+            });
     }
 
     fn run_complex_column<F: FineType>(&mut self, col: &mut [F]) {
@@ -264,33 +259,60 @@ impl<'a> ImageFiller<'a> {
 }
 
 #[inline(always)]
-fn extend(val: f32, extend: Extend, max: f32, inv_max: f32) -> f32 {
-    // We cannot chose f32::EPSILON here because for example 30.0 - f32::EPSILON is still 30.0.
-    // This bias should be large enough for all numbers that we support (i.e. <= u16::MAX).
-    const BIAS: f32 = 0.01;
-
+fn extend(val: f32, extend: peniko::Extend, max: f32, inv_max: f32) -> f32 {
     match extend {
+        peniko::Extend::Pad => Pad::extend(val, max, inv_max),
+        peniko::Extend::Repeat => Repeat::extend(val, max, inv_max),
+        peniko::Extend::Reflect => Reflect::extend(val, max, inv_max),
+    }
+}
+
+trait Extend {
+    fn extend(val: f32, max: f32, inv_max: f32) -> f32;
+}
+
+struct Pad;
+impl Extend for Pad {
+    #[inline(always)]
+    fn extend(val: f32, max: f32, _: f32) -> f32 {
+        // We cannot chose f32::EPSILON here because for example 30.0 - f32::EPSILON is still 30.0.
+        // This bias should be large enough for all numbers that we support (i.e. <= u16::MAX).
+        const BIAS: f32 = 0.01;
+
         // Note that max should be exclusive, so subtract a small bias to enforce that.
         // Otherwise, we might sample out-of-bounds pixels.
         // Also note that we intentionally don't use `clamp` here, because it's slower than
         // doing `min` + `max`.
-        Extend::Pad => val.min(max - BIAS).max(0.0),
-        Extend::Repeat => val - floor(val * inv_max) * max,
+        val.min(max - BIAS).max(0.0)
+    }
+}
+
+struct Repeat;
+impl Extend for Repeat {
+    #[inline(always)]
+    fn extend(val: f32, max: f32, inv_max: f32) -> f32 {
+        val - floor(val * inv_max) * max
+    }
+}
+
+struct Reflect;
+impl Extend for Reflect {
+    #[inline(always)]
+    fn extend(val: f32, max: f32, inv_max: f32) -> f32 {
         // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L3274-L3290>
-        Extend::Reflect => {
-            let u = val - floor(val * inv_max * 0.5) * 2.0 * max;
-            let s = floor(u * inv_max);
-            let m = u - 2.0 * s * (u - max);
 
-            let bias_in_ulps = s.trunc();
+        let u = val - floor(val * inv_max * 0.5) * 2.0 * max;
+        let s = floor(u * inv_max);
+        let m = u - 2.0 * s * (u - max);
 
-            let m_bits = m.to_bits();
-            // This would yield NaN if `m` is 0 and `bias_in_ulps` > 0, but since
-            // our `max` is always an integer number, u and s must also be an integer number
-            // and thus `m_bits` must be 0.
-            let biased_bits = m_bits.wrapping_sub(bias_in_ulps as u32);
-            f32::from_bits(biased_bits)
-        }
+        let bias_in_ulps = s.trunc();
+
+        let m_bits = m.to_bits();
+        // This would yield NaN if `m` is 0 and `bias_in_ulps` > 0, but since
+        // our `max` is always an integer number, u and s must also be an integer number
+        // and thus `m_bits` must be 0.
+        let biased_bits = m_bits.wrapping_sub(bias_in_ulps as u32);
+        f32::from_bits(biased_bits)
     }
 }
 
