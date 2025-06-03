@@ -47,6 +47,12 @@ pub struct Fine<F: FineType> {
     pub(crate) color_buf: ScratchBuf<F>,
 }
 
+impl<F: FineType> Default for Fine<F> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<F: FineType> Fine<F> {
     /// Create a new fine rasterizer.
     pub fn new() -> Self {
