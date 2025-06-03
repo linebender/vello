@@ -83,7 +83,7 @@ impl<'a> ImageFiller<'a> {
                     self.height_inv,
                 );
             }
-            
+
             match self.image.extends.0 {
                 peniko::Extend::Pad => self.run_simple::<F, Pad>(target, &y_positions),
                 peniko::Extend::Repeat => self.run_simple::<F, Repeat>(target, &y_positions),
