@@ -19,6 +19,9 @@ targets = []
 [dependencies]
 libm = { version = "0.2.15", optional = true }
 vello_common = { workspace = true }
+rayon = { workspace = true, optional = true }
+thread_local = { workspace = true, optional = true }
+
 
 [features]
 default = ["std", "png"]
@@ -28,6 +31,7 @@ std = ["vello_common/std"]
 libm = ["vello_common/libm", "dep:libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
 png = ["vello_common/png"]
+multithreading = ["std", "dep:rayon", "dep:thread_local"]
 
 [lints]
 workspace = true

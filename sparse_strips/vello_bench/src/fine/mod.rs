@@ -7,28 +7,20 @@ mod gradient;
 mod image;
 mod rounded_blurred_rect;
 mod strip;
-
-use criterion::Bencher;
-use vello_cpu::fine::{Fine, FineType, SCRATCH_BUF_SIZE};
-use vello_dev_macros::vello_bench;
+// CI will attempt to build this crate with all features enabled, but the problem
+// is that the `update_regions` function has a slightly different signature with multithreading
+// enabled, which makes it incompatible with the `Bencher` closure. Because of this, we add
+// this feature to `vello_bench` as well and disable the benchmark in case it's enabled.
+mod pack;
 
 pub use blend::*;
 pub use fill::*;
 pub use gradient::*;
 pub use image::*;
+pub use pack::*;
 pub use rounded_blurred_rect::*;
 pub use strip::*;
 use vello_common::peniko::{BlendMode, Compose, Mix};
-
-#[vello_bench]
-pub fn pack<F: FineType>(b: &mut Bencher<'_>, fine: &mut Fine<F>) {
-    let mut buf = vec![0; SCRATCH_BUF_SIZE];
-
-    b.iter(|| {
-        fine.pack(&mut buf);
-        std::hint::black_box(&buf);
-    });
-}
 
 pub(crate) fn default_blend() -> BlendMode {
     BlendMode::new(Mix::Normal, Compose::SrcOver)

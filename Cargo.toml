@@ -109,6 +109,8 @@ static_assertions = "1.1.0"
 thiserror = "2.0.12"
 oxipng = { version = "9.1.5", default-features = false }
 png = "0.17.16"
+rayon = { version = "1.10.0" }
+thread_local = "1.1.8"
 
 # The below crates are experimental!
 vello_api = { path = "sparse_strips/vello_api", default-features = false }
