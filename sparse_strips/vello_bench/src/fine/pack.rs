@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use criterion::Bencher;
 use vello_common::coarse::WideTile;
 use vello_common::tile::Tile;
