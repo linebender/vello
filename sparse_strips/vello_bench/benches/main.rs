@@ -8,7 +8,6 @@ use vello_bench::{fine, strip, tile};
 
 criterion_group!(fine_solid, fine::fill);
 criterion_group!(fine_strip, fine::strip);
-#[cfg(not(feature = "multithreading"))]
 criterion_group!(fine_pack, fine::pack);
 criterion_group!(fine_gradient, fine::gradient);
 criterion_group!(fine_rounded_blurred_rect, fine::rounded_blurred_rect);

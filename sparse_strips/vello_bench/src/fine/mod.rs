@@ -11,14 +11,12 @@ mod strip;
 // is that the `update_regions` function has a slightly different signature with multithreading
 // enabled, which makes it incompatible with the `Bencher` closure. Because of this, we add
 // this feature to `vello_bench` as well and disable the benchmark in case it's enabled.
-#[cfg(not(feature = "multithreading"))]
 mod pack;
 
 pub use blend::*;
 pub use fill::*;
 pub use gradient::*;
 pub use image::*;
-#[cfg(not(feature = "multithreading"))]
 pub use pack::*;
 pub use rounded_blurred_rect::*;
 pub use strip::*;
