@@ -30,6 +30,10 @@ pub struct Config {
 }
 
 /// Represents a GPU strip for rendering
+/// If paint_type is 0 or 1:
+/// - paint_data is the packed rgba values
+/// If paint_type is 2:
+/// - paint_data is the packed (extend_x, extend_y)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub struct GpuStrip {
@@ -44,9 +48,23 @@ pub struct GpuStrip {
     /// Column-index into the alpha texture where this strip's alpha values begin.
     ///
     /// There are [`Config::strip_height`] alpha values per column.
-    pub col: u32,
-    /// RGBA color value
-    pub rgba: u32,
+    pub col_idx: u32,
+    /// Paint type: 0 = solid, 1 = alpha, 2 = image
+    pub paint_type: u32,
+    /// Paint data
+    pub paint_data: u32,
+    /// Paint index
+    pub uv: [f32; 2],
+    /// Paint x_advance
+    pub x_advance: [f32; 2],
+    /// Paint y_advance
+    pub y_advance: [f32; 2],
+    /// Image size
+    pub image_size: [u32; 2],
+    /// Image offset
+    pub image_offset: [u32; 2],
+    /// Image quality
+    pub quality: u32,
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))]

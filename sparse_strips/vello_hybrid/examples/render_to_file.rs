@@ -10,7 +10,7 @@ use std::io::BufWriter;
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{DimensionConstraints, Scene};
+use vello_hybrid::{DimensionConstraints, ImageCache, Scene};
 
 /// Main entry point for the headless rendering example.
 /// Takes two command line arguments:
@@ -37,6 +37,7 @@ async fn run() {
 
     let width = DimensionConstraints::convert_dimension(width);
     let height = DimensionConstraints::convert_dimension(height);
+    let image_cache = ImageCache::new();
 
     let mut scene = Scene::new(width, height);
     render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));
@@ -102,6 +103,7 @@ async fn run() {
             &mut encoder,
             &render_size,
             &texture_view,
+            &image_cache,
         )
         .unwrap();
 
@@ -177,13 +179,13 @@ fn render_svg(ctx: &mut Scene, items: &[Item], transform: Affine) {
     for item in items {
         match item {
             Item::Fill(fill_item) => {
-                ctx.set_paint(fill_item.color.into());
+                ctx.set_paint(fill_item.color);
                 ctx.fill_path(&fill_item.path);
             }
             Item::Stroke(stroke_item) => {
                 let style = Stroke::new(stroke_item.width);
                 ctx.set_stroke(style);
-                ctx.set_paint(stroke_item.color.into());
+                ctx.set_paint(stroke_item.color);
                 ctx.stroke_path(&stroke_item.path);
             }
             Item::Group(group_item) => {

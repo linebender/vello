@@ -31,7 +31,7 @@ use wgpu::{
 };
 
 use crate::{
-    GpuStrip, RenderError, RenderSize,
+    GpuStrip, ImageCache, RenderError, RenderSize,
     render::Config,
     scene::Scene,
     schedule::{LoadOp, RendererBackend, Scheduler},
@@ -81,6 +81,7 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
+        image_cache: &ImageCache,
     ) -> Result<(), RenderError> {
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -95,7 +96,20 @@ impl Renderer {
             view,
         };
 
-        self.scheduler.do_scene(&mut junk, scene)
+        self.scheduler.do_scene(&mut junk, scene, image_cache)
+    }
+
+    /// Upload an image to the atlas texture.
+    pub fn copy_texture_to_atlas(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        texture: &Texture,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        self.programs
+            .copy_texture_to_atlas(encoder, texture, offset, width, height);
     }
 }
 
@@ -125,6 +139,10 @@ struct GpuResources {
     strips_buffer: Buffer,
     /// Texture for alpha values (used by both view and slot rendering)
     alphas_texture: Texture,
+    /// Texture for atlas data
+    atlas_texture: Texture,
+    /// Bind group for atlas texture
+    atlas_bind_group: BindGroup,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
@@ -160,12 +178,19 @@ struct ClearSlotsConfig {
 
 impl GpuStrip {
     /// Vertex attributes for the strip
-    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 4] {
+    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 11] {
         wgpu::vertex_attr_array![
             0 => Uint32,
             1 => Uint32,
             2 => Uint32,
             3 => Uint32,
+            4 => Uint32,
+            5 => Float32x2,
+            6 => Float32x2,
+            7 => Float32x2,
+            8 => Uint32x2,
+            9 => Uint32x2,
+            10 => Uint32,
         ]
     }
 }
@@ -209,6 +234,29 @@ impl Programs {
                 ],
             });
 
+        let atlas_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Atlas Texture Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+
         // Create bind group layout for clearing slots
         let clear_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -238,7 +286,7 @@ impl Programs {
         let strip_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Strip Pipeline Layout"),
-                bind_group_layouts: &[&strip_bind_group_layout],
+                bind_group_layouts: &[&strip_bind_group_layout, &atlas_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -390,7 +438,17 @@ impl Programs {
             },
             max_texture_dimension_2d,
         );
-
+        let atlas_texture = Self::make_atlas_texture(
+            device,
+            max_texture_dimension_2d,
+            max_texture_dimension_2d,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let atlas_bind_group = Self::make_atlas_bind_group(
+            device,
+            &atlas_bind_group_layout,
+            &atlas_texture.create_view(&Default::default()),
+        );
         let slot_bind_groups = Self::make_strip_bind_groups(
             device,
             &strip_bind_group_layout,
@@ -408,6 +466,8 @@ impl Programs {
             slot_bind_groups,
             clear_bind_group,
             alphas_texture,
+            atlas_texture,
+            atlas_bind_group,
             view_config_buffer,
         };
 
@@ -474,6 +534,59 @@ impl Programs {
             format: wgpu::TextureFormat::Rgba32Uint,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
+        })
+    }
+
+    fn make_atlas_texture(
+        device: &Device,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Atlas Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        })
+    }
+
+    fn make_atlas_bind_group(
+        device: &Device,
+        atlas_bind_group_layout: &BindGroupLayout,
+        atlas_texture_view: &TextureView,
+    ) -> BindGroup {
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Atlas Bind Group"),
+            layout: &atlas_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(atlas_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
         })
     }
 
@@ -657,6 +770,39 @@ impl Programs {
             .expect("Capacity handled in creation");
         buffer.copy_from_slice(bytemuck::cast_slice(strips));
     }
+
+    fn copy_texture_to_atlas(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        texture: &Texture,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.resources.atlas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: offset[0],
+                    y: offset[1],
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
 }
 
 /// A struct containing references to the many objects needed to get work
@@ -705,6 +851,7 @@ impl RendererContext<'_> {
         });
         render_pass.set_pipeline(&self.programs.strip_pipeline);
         render_pass.set_bind_group(0, &self.programs.resources.slot_bind_groups[ix], &[]);
+        render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
         render_pass.draw(0..4, 0..u32::try_from(strips.len()).unwrap());
     }

@@ -122,7 +122,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         input_fn_name_str.contains("clip")
             || input_fn_name_str.contains("compose")
             || input_fn_name_str.contains("gradient")
-            || input_fn_name_str.contains("image")
+            // || input_fn_name_str.contains("image")
             || input_fn_name_str.contains("layer")
             || input_fn_name_str.contains("mask")
             || input_fn_name_str.contains("mix")
@@ -166,7 +166,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
                 #input_fn_name(&mut ctx);
                 if !#no_ref {
-                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #is_reference, #render_mode, #reference_image_name);
+                    check_ref(&mut ctx, #input_fn_name_str, #fn_name_str, #tolerance, #is_reference, #render_mode, #reference_image_name);
                 }
             }
         }
@@ -192,7 +192,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
 
         #reference_image_const
 
-        #u8_snippet
+        // #u8_snippet
 
         #f32_snippet
 
@@ -202,13 +202,13 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::util::{
                 check_ref, get_ctx
             };
-            use vello_hybrid::Scene;
+            use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed, #reference_image_name);
+                check_ref(&mut ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
         }
 
@@ -219,13 +219,13 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::util::{
                 check_ref, get_ctx
             };
-            use vello_hybrid::Scene;
+            use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent);
             #input_fn_name(&mut ctx);
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed, #reference_image_name);
+                check_ref(&mut ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
         }
     };

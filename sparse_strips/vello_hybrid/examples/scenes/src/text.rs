@@ -13,7 +13,7 @@ use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::Affine;
-use vello_hybrid::Scene;
+use vello_hybrid::{ImageCache, Scene};
 
 use crate::ExampleScene;
 
@@ -120,7 +120,7 @@ fn render_glyph_run(ctx: &mut Scene, glyph_run: &GlyphRun<'_, ColorBrush>, paddi
     let normalized_coords = bytemuck::cast_slice(run.normalized_coords());
 
     let style = glyph_run.style();
-    ctx.set_paint(style.brush.color.into());
+    ctx.set_paint(style.brush.color);
     ctx.glyph_run(font)
         .font_size(font_size)
         .normalized_coords(normalized_coords)

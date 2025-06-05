@@ -29,16 +29,18 @@
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
-#![no_std]
+// #![no_std]
 
 extern crate alloc;
 
+mod image_cache;
 mod render;
 mod scene;
 #[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
 mod schedule;
 pub mod util;
 
+pub use image_cache::{ImageCache, ImageResource};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::WebGlRenderer;
 pub use render::{Config, GpuStrip, RenderSize};

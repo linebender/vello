@@ -4,6 +4,7 @@
 use crate::fine::{COLOR_COMPONENTS, FineType, Painter, TILE_HEIGHT_COMPONENTS};
 use vello_common::encode::EncodedImage;
 use vello_common::kurbo::{Point, Vec2};
+use vello_common::paint::ImageSource;
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::tile::Tile;
 
@@ -39,6 +40,7 @@ pub(crate) struct ImageFiller<'a> {
 
 impl<'a> ImageFiller<'a> {
     pub(crate) fn new(image: &'a EncodedImage, start_x: u16, start_y: u16) -> Self {
+        println!(">>> start_x, start_y -> {:?}, {:?}", start_x, start_y);
         Self {
             // We want to sample values of the pixels at the center, so add an offset of 0.5.
             cur_pos: image.transform
@@ -48,6 +50,16 @@ impl<'a> ImageFiller<'a> {
     }
 
     pub(super) fn run<F: FineType>(mut self, target: &mut [F]) {
+        // Get the pixmap from the image source
+        let pixmap = match &self.image.source {
+            ImageSource::Pixmap(pixmap) => pixmap,
+            ImageSource::OpaqueId(_) => {
+                panic!(
+                    "CPU renderer does not support OpaqueId image sources. Use ImageSource::Pixmap instead."
+                );
+            }
+        };
+
         // We currently have two branches for filling images: The first case is used for
         // nearest neighbor filtering and for images with no skewing-transform (this is checked
         // by the first two conditions), which allows us to take a faster path.
@@ -62,7 +74,7 @@ impl<'a> ImageFiller<'a> {
             target
                 .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
                 .for_each(|column| {
-                    self.run_complex_column(column);
+                    self.run_complex_column(column, pixmap);
                     self.cur_pos += self.image.x_advance;
                 });
         } else {
@@ -82,7 +94,7 @@ impl<'a> ImageFiller<'a> {
                     // we always floor to get the target pixel.
                     (self.cur_pos.y + y_advance * idx as f64).floor() as f32,
                     self.image.extends.1,
-                    f32::from(self.image.pixmap.height()),
+                    f32::from(pixmap.height()),
                 );
             }
 
@@ -93,9 +105,9 @@ impl<'a> ImageFiller<'a> {
                         // As above, always floor.
                         x_pos.floor() as f32,
                         self.image.extends.0,
-                        f32::from(self.image.pixmap.width()),
+                        f32::from(pixmap.width()),
                     );
-                    self.run_simple_column(column, extended_x_pos, &y_positions);
+                    self.run_simple_column(column, extended_x_pos, &y_positions, pixmap);
                     x_pos += x_advance;
                 });
         }
@@ -111,19 +123,16 @@ impl<'a> ImageFiller<'a> {
         col: &mut [F],
         x_pos: f32,
         y_positions: &[f32; Tile::HEIGHT as usize],
+        pixmap: &vello_common::pixmap::Pixmap,
     ) {
         for (pixel, y_pos) in col
             .chunks_exact_mut(COLOR_COMPONENTS)
             .zip(y_positions.iter())
         {
             let sample = match self.image.quality {
-                ImageQuality::Low => F::from_rgba8(
-                    &self
-                        .image
-                        .pixmap
-                        .sample(x_pos as u16, *y_pos as u16)
-                        .to_u8_array()[..],
-                ),
+                ImageQuality::Low => {
+                    F::from_rgba8(&pixmap.sample(x_pos as u16, *y_pos as u16).to_u8_array()[..])
+                }
                 ImageQuality::Medium | ImageQuality::High => unimplemented!(),
             };
 
@@ -131,24 +140,29 @@ impl<'a> ImageFiller<'a> {
         }
     }
 
-    fn run_complex_column<F: FineType>(&mut self, col: &mut [F]) {
+    fn run_complex_column<F: FineType>(
+        &mut self,
+        col: &mut [F],
+        pixmap: &vello_common::pixmap::Pixmap,
+    ) {
         let extend_point = |mut point: Point| {
             // For the same reason as mentioned above, we always floor.
             point.x = f64::from(extend(
                 point.x.floor() as f32,
                 self.image.extends.0,
-                f32::from(self.image.pixmap.width()),
+                f32::from(pixmap.width()),
             ));
             point.y = f64::from(extend(
                 point.y.floor() as f32,
                 self.image.extends.1,
-                f32::from(self.image.pixmap.height()),
+                f32::from(pixmap.height()),
             ));
 
             point
         };
 
         let mut pos = self.cur_pos;
+        // println!(">>> pos -> {:?}", pos);
 
         for pixel in col.chunks_exact_mut(COLOR_COMPONENTS) {
             match self.image.quality {
@@ -157,11 +171,7 @@ impl<'a> ImageFiller<'a> {
                 ImageQuality::Low => {
                     let point = extend_point(pos);
                     let sample = F::from_rgba8(
-                        &self
-                            .image
-                            .pixmap
-                            .sample(point.x as u16, point.y as u16)
-                            .to_u8_array()[..],
+                        &pixmap.sample(point.x as u16, point.y as u16).to_u8_array()[..],
                     );
                     pixel.copy_from_slice(&sample);
                 }
@@ -207,7 +217,7 @@ impl<'a> ImageFiller<'a> {
 
                     let sample = |p: Point| {
                         let c = |val: u8| f32::from(val) / 255.0;
-                        let s = self.image.pixmap.sample(p.x as u16, p.y as u16);
+                        let s = pixmap.sample(p.x as u16, p.y as u16);
 
                         [c(s.r), c(s.g), c(s.b), c(s.a)]
                     };

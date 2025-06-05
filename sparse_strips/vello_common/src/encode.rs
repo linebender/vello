@@ -8,7 +8,7 @@ use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::compute_erf7;
-use crate::paint::{Image, IndexedPaint, Paint, PremulColor};
+use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor};
 use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
 use crate::pixmap::Pixmap;
 use alloc::borrow::Cow;
@@ -487,18 +487,30 @@ impl EncodeExt for Image {
         let transform = transform.inverse();
         // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
         // non-opaque images in the first place..
-        let has_opacities = self.pixmap.data().iter().any(|pixel| pixel.a != 255);
-
         let (x_advance, y_advance) = x_y_advances(&transform);
 
-        let encoded = EncodedImage {
-            pixmap: self.pixmap.clone(),
-            extends: (self.x_extend, self.y_extend),
-            quality: self.quality,
-            has_opacities,
-            transform,
-            x_advance,
-            y_advance,
+        let encoded = match &self.source {
+            ImageSource::Pixmap(pixmap) => {
+                let has_opacities = pixmap.data().iter().any(|pixel| pixel.a != 255);
+                EncodedImage {
+                    source: ImageSource::Pixmap(pixmap.clone()),
+                    extends: (self.x_extend, self.y_extend),
+                    quality: self.quality,
+                    has_opacities,
+                    transform,
+                    x_advance,
+                    y_advance,
+                }
+            }
+            ImageSource::OpaqueId(image) => EncodedImage {
+                source: ImageSource::OpaqueId(*image),
+                extends: (self.x_extend, self.y_extend),
+                quality: self.quality,
+                has_opacities: false,
+                transform,
+                x_advance,
+                y_advance,
+            },
         };
 
         paints.push(EncodedPaint::Image(encoded));
@@ -534,7 +546,7 @@ impl From<EncodedBlurredRoundedRectangle> for EncodedPaint {
 #[derive(Debug)]
 pub struct EncodedImage {
     /// The underlying pixmap of the image.
-    pub pixmap: Arc<Pixmap>,
+    pub source: ImageSource,
     /// The extends in the horizontal and vertical direction.
     pub extends: (Extend, Extend),
     /// The rendering quality of the image.

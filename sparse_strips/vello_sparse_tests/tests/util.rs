@@ -45,7 +45,7 @@ pub(crate) fn get_ctx<T: Renderer>(width: u16, height: u16, transparent: bool) -
     ctx
 }
 
-pub(crate) fn render_pixmap(ctx: &impl Renderer, render_mode: RenderMode) -> Pixmap {
+pub(crate) fn render_pixmap(ctx: &mut impl Renderer, render_mode: RenderMode) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
     ctx.render_to_pixmap(&mut pixmap, render_mode);
     pixmap
@@ -232,7 +232,7 @@ pub(crate) fn pixmap_to_png(pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> 
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn check_ref(
-    ctx: &impl Renderer,
+    ctx: &mut impl Renderer,
     // The name of the test.
     test_name: &str,
     // The name of the specific instance of the test that is being run

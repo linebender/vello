@@ -8,7 +8,7 @@ use std::f64::consts::PI;
 use std::path::Path;
 use std::sync::Arc;
 use vello_common::kurbo::{Affine, Point, Rect};
-use vello_common::paint::Image;
+use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_dev_macros::vello_test;
@@ -18,37 +18,43 @@ pub(crate) fn load_image(name: &str) -> Arc<Pixmap> {
     Arc::new(Pixmap::from_png(std::fs::File::open(path).unwrap()).unwrap())
 }
 
-fn rgb_img_10x10() -> Arc<Pixmap> {
-    load_image("rgb_image_10x10")
+fn rgb_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
+    ctx.get_image_source(load_image("rgb_image_10x10"))
 }
 
-fn rgb_img_2x2() -> Arc<Pixmap> {
-    load_image("rgb_image_2x2")
+fn rgb_img_10x10_alpha_multiplied(ctx: &mut impl Renderer, alpha: u8) -> ImageSource {
+    let mut pix = load_image("rgb_image_10x10");
+    Arc::make_mut(&mut pix).multiply_alpha(alpha);
+    ctx.get_image_source(pix)
 }
 
-fn rgb_img_2x3() -> Arc<Pixmap> {
-    load_image("rgb_image_2x3")
+fn rgb_img_2x2(ctx: &mut impl Renderer) -> ImageSource {
+    ctx.get_image_source(load_image("rgb_image_2x2"))
 }
 
-fn rgba_img_10x10() -> Arc<Pixmap> {
-    load_image("rgba_image_10x10")
+fn rgb_img_2x3(ctx: &mut impl Renderer) -> ImageSource {
+    ctx.get_image_source(load_image("rgb_image_2x3"))
 }
 
-fn luma_img_10x10() -> Arc<Pixmap> {
-    load_image("luma_image_10x10")
+fn rgba_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
+    ctx.get_image_source(load_image("rgba_image_10x10"))
 }
 
-fn lumaa_img_10x10() -> Arc<Pixmap> {
-    load_image("lumaa_image_10x10")
+fn luma_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
+    ctx.get_image_source(load_image("luma_image_10x10"))
+}
+
+fn lumaa_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
+    ctx.get_image_source(load_image("lumaa_image_10x10"))
 }
 
 fn repeat(ctx: &mut impl Renderer, x_extend: Extend, y_extend: Extend) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
-    let im = rgb_img_10x10();
+    let image_source = rgb_img_10x10(ctx);
 
     ctx.set_paint_transform(Affine::translate((45.0, 45.0)));
     ctx.set_paint(Image {
-        pixmap: im,
+        source: image_source,
         x_extend,
         y_extend,
         quality: ImageQuality::Low,
@@ -83,9 +89,10 @@ fn image_pad_x_pad_y(ctx: &mut impl Renderer) {
 
 fn transform(ctx: &mut impl Renderer, transform: Affine, l: f64, t: f64, r: f64, b: f64) {
     let rect = Rect::new(l, t, r, b);
+    let image_source = rgb_img_10x10(ctx);
 
     let image = Image {
-        pixmap: rgb_img_10x10(),
+        source: image_source,
         x_extend: Extend::Repeat,
         y_extend: Extend::Repeat,
         quality: ImageQuality::Low,
@@ -222,9 +229,10 @@ fn image_with_transform_skew_y_2(ctx: &mut impl Renderer) {
 #[vello_test]
 fn image_complex_shape(ctx: &mut impl Renderer) {
     let path = crossed_line_star();
+    let image_source = rgb_img_10x10(ctx);
 
     let image = Image {
-        pixmap: rgb_img_10x10(),
+        source: image_source,
         x_extend: Extend::Repeat,
         y_extend: Extend::Repeat,
         quality: ImageQuality::Low,
@@ -238,11 +246,8 @@ fn image_complex_shape(ctx: &mut impl Renderer) {
 fn image_global_alpha(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
-    let mut pix = rgb_img_10x10();
-    Arc::make_mut(&mut pix).multiply_alpha(75);
-
     let image = Image {
-        pixmap: pix,
+        source: rgb_img_10x10_alpha_multiplied(ctx, 75),
         x_extend: Extend::Repeat,
         y_extend: Extend::Repeat,
         quality: ImageQuality::Low,
@@ -252,11 +257,11 @@ fn image_global_alpha(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-fn image_format(ctx: &mut impl Renderer, image: Arc<Pixmap>) {
+fn image_format(ctx: &mut impl Renderer, image_source: ImageSource) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
     let image = Image {
-        pixmap: image,
+        source: image_source,
         x_extend: Extend::Repeat,
         y_extend: Extend::Repeat,
         quality: ImageQuality::Low,
@@ -268,28 +273,32 @@ fn image_format(ctx: &mut impl Renderer, image: Arc<Pixmap>) {
 
 #[vello_test]
 fn image_rgb_image(ctx: &mut impl Renderer) {
-    image_format(ctx, rgb_img_10x10());
+    let image_source = rgb_img_10x10(ctx);
+    image_format(ctx, image_source);
 }
 
 #[vello_test]
 fn image_rgba_image(ctx: &mut impl Renderer) {
-    image_format(ctx, rgba_img_10x10());
+    let image_source = rgba_img_10x10(ctx);
+    image_format(ctx, image_source);
 }
 
 #[vello_test]
 fn image_luma_image(ctx: &mut impl Renderer) {
-    image_format(ctx, luma_img_10x10());
+    let image_source = luma_img_10x10(ctx);
+    image_format(ctx, image_source);
 }
 
 #[vello_test]
 fn image_lumaa_image(ctx: &mut impl Renderer) {
-    image_format(ctx, lumaa_img_10x10());
+    let image_source = lumaa_img_10x10(ctx);
+    image_format(ctx, image_source);
 }
 
 fn quality(
     ctx: &mut impl Renderer,
     transform: Affine,
-    image: Arc<Pixmap>,
+    image_source: ImageSource,
     quality: ImageQuality,
     extend: Extend,
 ) {
@@ -297,7 +306,7 @@ fn quality(
 
     ctx.set_paint_transform(transform);
     let image = Image {
-        pixmap: image,
+        source: image_source,
         x_extend: extend,
         y_extend: extend,
         quality,
@@ -311,10 +320,11 @@ fn quality(
 
 #[vello_test]
 fn image_bilinear_identity(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::IDENTITY,
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::Medium,
         Extend::Reflect,
     );
@@ -322,10 +332,11 @@ fn image_bilinear_identity(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bilinear_2x_scale(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::scale(2.0),
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::Medium,
         Extend::Reflect,
     );
@@ -333,10 +344,11 @@ fn image_bilinear_2x_scale(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bilinear_5x_scale(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::scale(5.0),
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::Medium,
         Extend::Reflect,
     );
@@ -344,10 +356,11 @@ fn image_bilinear_5x_scale(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bilinear_10x_scale(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::scale(10.0),
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::Medium,
         Extend::Reflect,
     );
@@ -355,10 +368,11 @@ fn image_bilinear_10x_scale(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bilinear_with_rotation(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()),
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::Medium,
         Extend::Reflect,
     );
@@ -366,10 +380,11 @@ fn image_bilinear_with_rotation(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bilinear_with_translation(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::scale(5.0) * Affine::translate((10.0, 10.0)),
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::Medium,
         Extend::Reflect,
     );
@@ -377,10 +392,11 @@ fn image_bilinear_with_translation(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bilinear_10x_scale_2(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x3(ctx);
     quality(
         ctx,
         Affine::scale(10.0),
-        rgb_img_2x3(),
+        image_source,
         ImageQuality::Medium,
         Extend::Reflect,
     );
@@ -396,10 +412,11 @@ fn image_bilinear_10x_scale_2(ctx: &mut impl Renderer) {
 // either an outdated version or a slightly adapted one.
 #[vello_test]
 fn image_bicubic_identity(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::IDENTITY,
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::High,
         Extend::Reflect,
     );
@@ -407,10 +424,11 @@ fn image_bicubic_identity(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bicubic_2x_scale(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::scale(2.0),
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::High,
         Extend::Reflect,
     );
@@ -418,10 +436,11 @@ fn image_bicubic_2x_scale(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bicubic_5x_scale(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::scale(5.0),
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::High,
         Extend::Reflect,
     );
@@ -429,10 +448,11 @@ fn image_bicubic_5x_scale(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bicubic_10x_scale(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::scale(10.0),
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::High,
         Extend::Reflect,
     );
@@ -440,10 +460,11 @@ fn image_bicubic_10x_scale(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bicubic_with_rotation(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::scale(5.0) * Affine::rotate(45.0_f64.to_radians()),
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::High,
         Extend::Reflect,
     );
@@ -451,10 +472,11 @@ fn image_bicubic_with_rotation(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bicubic_with_translation(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
         Affine::scale(5.0) * Affine::translate((10.0, 10.0)),
-        rgb_img_2x2(),
+        image_source,
         ImageQuality::High,
         Extend::Reflect,
     );
@@ -462,10 +484,11 @@ fn image_bicubic_with_translation(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn image_bicubic_10x_scale_2(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x3(ctx);
     quality(
         ctx,
         Affine::scale(10.0),
-        rgb_img_2x3(),
+        image_source,
         ImageQuality::High,
         Extend::Reflect,
     );

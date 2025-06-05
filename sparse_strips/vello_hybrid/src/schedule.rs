@@ -176,13 +176,15 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::{GpuStrip, RenderError, Scene};
+use crate::{GpuStrip, RenderError, Scene, image_cache::ImageCache};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::mem;
 use vello_common::{
     coarse::{Cmd, WideTile},
-    paint::Paint,
+    encode::EncodedPaint,
+    kurbo::Point,
+    paint::{ImageSource, Paint},
     tile::Tile,
 };
 
@@ -267,24 +269,26 @@ impl Scheduler {
         &mut self,
         renderer: &mut R,
         scene: &Scene,
+        image_cache: &ImageCache,
     ) -> Result<(), RenderError> {
         let mut tile_state = mem::take(&mut self.tile_state);
-        let wide_tiles_per_row = (scene.width).div_ceil(WideTile::WIDTH);
-        let wide_tiles_per_col = (scene.height).div_ceil(Tile::HEIGHT);
+        let wide_tiles_per_row = scene.wide.width_tiles();
+        let wide_tiles_per_col = scene.wide.height_tiles();
 
         // Left to right, top to bottom iteration over wide tiles.
         for wide_tile_row in 0..wide_tiles_per_col {
             for wide_tile_col in 0..wide_tiles_per_row {
-                let wide_tile_idx = usize::from(wide_tile_row * wide_tiles_per_row + wide_tile_col);
-                let wide_tile = &scene.wide.tiles[wide_tile_idx];
+                let wide_tile = scene.wide.get(wide_tile_col, wide_tile_row);
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
                 self.do_tile(
                     renderer,
+                    scene,
                     wide_tile_x,
                     wide_tile_y,
                     wide_tile,
                     &mut tile_state,
+                    image_cache,
                 )?;
             }
         }
@@ -363,10 +367,12 @@ impl Scheduler {
     fn do_tile<R: RendererBackend>(
         &mut self,
         renderer: &mut R,
+        scene: &Scene,
         wide_tile_x: u16,
         wide_tile_y: u16,
         tile: &WideTile,
         state: &mut TileState,
+        image_cache: &ImageCache,
     ) -> Result<(), RenderError> {
         state.stack.clear();
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
@@ -385,29 +391,136 @@ impl Scheduler {
                     y: wide_tile_y,
                     width: WideTile::WIDTH,
                     dense_width: 0,
-                    col: 0,
-                    rgba: bg,
+                    col_idx: 0,
+                    paint_type: 0,
+                    paint_data: bg,
+                    uv: [0.0, 0.0],
+                    x_advance: [0.0, 0.0],
+                    y_advance: [0.0, 0.0],
+                    image_size: [0, 0],
+                    image_offset: [0, 0],
+                    quality: 0,
                 });
             }
         }
+        let default_value = (
+            0,
+            0,
+            0,
+            [0.0, 0.0],
+            [0.0, 0.0],
+            [0.0, 0.0],
+            [0, 0],
+            [0, 0],
+            0,
+        );
         for cmd in &tile.cmds {
             // Note: this starts at 1 (for the final target)
             let clip_depth = state.stack.len();
             match cmd {
                 Cmd::Fill(fill) => {
+                    let strip_x = wide_tile_x + fill.x;
+                    let strip_y = wide_tile_y;
+                    let alpha_col = 0;
+
                     let el = state.stack.last().unwrap();
                     let draw = self.draw_mut(el.round, clip_depth);
-                    let color = match fill.paint {
-                        Paint::Solid(color) => color,
-                        Paint::Indexed(_) => unimplemented!(),
+
+                    let (
+                        col_idx,
+                        paint_type,
+                        paint_data,
+                        uv,
+                        x_advance,
+                        y_advance,
+                        image_size,
+                        image_offset,
+                        quality,
+                    ) = match &fill.paint {
+                        Paint::Solid(color) => (
+                            alpha_col,
+                            0,
+                            color.as_premul_rgba8().to_u32(),
+                            [0.0, 0.0],
+                            [0.0, 0.0],
+                            [0.0, 0.0],
+                            [0, 0],
+                            [0, 0],
+                            0,
+                        ),
+                        Paint::Indexed(indexed_paint) => {
+                            let encoded_paint = scene.encoded_paints.get(indexed_paint.index());
+                            match encoded_paint {
+                                Some(EncodedPaint::Image(encoded_image)) => {
+                                    match &encoded_image.source {
+                                        ImageSource::OpaqueId(image_id) => {
+                                            let image_resource = image_cache.get_image(*image_id);
+                                            if let Some(image_resource) = image_resource {
+                                                println!("-------------  FILL -------------------");
+                                                println!(
+                                                    ">>> strip_x, strip_y -> {:?}, {:?}",
+                                                    strip_x, strip_y
+                                                );
+                                                let start_p = encoded_image.transform
+                                                    * Point::new(strip_x as f64, strip_y as f64);
+                                                let u0 = start_p.x;
+                                                let v0 = start_p.y;
+                                                // println!(">>> u0, v0 -> {:?}, {:?}", u0, v0);
+                                                let uv = [u0 as f32, v0 as f32];
+                                                let extend_x = encoded_image.extends.0 as u16;
+                                                let extend_y = encoded_image.extends.1 as u16;
+                                                let extends = pack_u16s_to_u32(extend_x, extend_y);
+                                                let x_advance = encoded_image.x_advance;
+                                                let y_advance = encoded_image.y_advance;
+                                                // println!(
+                                                //     ">>> x_advance, y_advance -> {:?}, {:?}",
+                                                //     x_advance, y_advance
+                                                // );
+                                                let image_size = [
+                                                    image_resource.width(),
+                                                    image_resource.height(),
+                                                ];
+                                                let image_offset = image_resource.offset;
+                                                let offset = 0.0;
+                                                // let offset = 0.033;
+                                                let advance_x = [
+                                                    x_advance.x as f32,
+                                                    x_advance.y as f32 + offset,
+                                                ];
+                                                let advance_y =
+                                                    [y_advance.x as f32, y_advance.y as f32];
+                                                // println!(">>> advance_x -> {:?}", advance_x);
+                                                // println!(">>> advance_y -> {:?}", advance_y);
+                                                let quality = encoded_image.quality as u32;
+                                                (
+                                                    alpha_col,
+                                                    2,
+                                                    extends,
+                                                    uv,
+                                                    advance_x,
+                                                    advance_y,
+                                                    image_size,
+                                                    image_offset,
+                                                    quality,
+                                                )
+                                            } else {
+                                                default_value.clone()
+                                            }
+                                        }
+                                        _ => unimplemented!("unsupported image source"),
+                                    }
+                                }
+                                _ => default_value.clone(),
+                            }
+                        }
                     };
-                    let rgba = color.as_premul_rgba8().to_u32();
-                    debug_assert!(
-                        has_non_zero_alpha(rgba),
-                        "Color fields with 0 alpha are reserved for clipping"
-                    );
+                    // let rgba = color.as_premul_rgba8().to_u32();
+                    // debug_assert!(
+                    //     has_non_zero_alpha(paint_data),
+                    //     "Color fields with 0 alpha are reserved for clipping"
+                    // );
                     let (x, y) = if clip_depth == 1 {
-                        (wide_tile_x + fill.x, wide_tile_y)
+                        (strip_x, strip_y)
                     } else {
                         (fill.x, el.slot_ix as u16 * Tile::HEIGHT)
                     };
@@ -416,24 +529,122 @@ impl Scheduler {
                         y,
                         width: fill.width,
                         dense_width: 0,
-                        col: 0,
-                        rgba,
+                        col_idx,
+                        paint_type,
+                        paint_data,
+                        uv,
+                        x_advance,
+                        y_advance,
+                        image_size,
+                        image_offset,
+                        quality,
                     });
                 }
                 Cmd::AlphaFill(alpha_fill) => {
+                    let strip_x = wide_tile_x + alpha_fill.x;
+                    let strip_y = wide_tile_y;
+
                     let el = state.stack.last().unwrap();
                     let draw = self.draw_mut(el.round, clip_depth);
-                    let color = match alpha_fill.paint {
-                        Paint::Solid(color) => color,
-                        Paint::Indexed(_) => unimplemented!(),
+
+                    let alpha_col = (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
+                        .try_into()
+                        .expect("Sparse strips are bound to u32 range");
+
+                    let (
+                        col_idx,
+                        paint_type,
+                        paint_data,
+                        uv,
+                        x_advance,
+                        y_advance,
+                        image_size,
+                        image_offset,
+                        quality,
+                    ) = match &alpha_fill.paint {
+                        Paint::Solid(color) => (
+                            alpha_col,
+                            1,
+                            color.as_premul_rgba8().to_u32(),
+                            [0.0, 0.0],
+                            [0.0, 0.0],
+                            [0.0, 0.0],
+                            [0, 0],
+                            [0, 0],
+                            0,
+                        ),
+                        Paint::Indexed(indexed_paint) => {
+                            let encoded_paint = scene.encoded_paints.get(indexed_paint.index());
+                            match encoded_paint {
+                                Some(EncodedPaint::Image(encoded_image)) => {
+                                    match &encoded_image.source {
+                                        ImageSource::OpaqueId(image_id) => {
+                                            let image_resource = image_cache.get_image(*image_id);
+                                            if let Some(image_resource) = image_resource {
+                                                println!("------------- ALPHA -------------------");
+                                                println!(
+                                                    ">>> strip_x, strip_y -> {:?}, {:?}",
+                                                    strip_x, strip_y
+                                                );
+                                                let start_p = encoded_image.transform
+                                                    * Point::new(strip_x as f64, strip_y as f64);
+                                                // println!(">>> start_p -> {:?}", start_p);
+                                                let u0 = start_p.x;
+                                                let v0 = start_p.y;
+                                                // println!(">>> u0, v0 -> {:?}, {:?}", u0, v0);
+                                                let uv = [u0 as f32, v0 as f32];
+                                                // println!(">>> uv -> {:?}", uv);
+                                                let extend_x = encoded_image.extends.0 as u16;
+                                                let extend_y = encoded_image.extends.1 as u16;
+                                                let extends = pack_u16s_to_u32(extend_x, extend_y);
+                                                let x_advance = encoded_image.x_advance;
+                                                let y_advance = encoded_image.y_advance;
+                                                let image_size = [
+                                                    image_resource.width(),
+                                                    image_resource.height(),
+                                                ];
+                                                let image_offset = image_resource.offset;
+                                                let offset = 0.0;
+                                                // let offset = 0.033;
+                                                let advance_x = [
+                                                    x_advance.x as f32,
+                                                    x_advance.y as f32 + offset,
+                                                ];
+                                                let advance_y =
+                                                    [y_advance.x as f32, y_advance.y as f32];
+                                                // println!(">>> advance_x -> {:?}", advance_x);
+                                                // println!(">>> advance_y -> {:?}", advance_y);
+                                                let quality = encoded_image.quality as u32;
+                                                (
+                                                    alpha_col,
+                                                    2,
+                                                    extends,
+                                                    uv,
+                                                    advance_x,
+                                                    advance_y,
+                                                    image_size,
+                                                    image_offset,
+                                                    quality,
+                                                )
+                                            } else {
+                                                default_value.clone()
+                                            }
+                                        }
+                                        _ => unimplemented!("unsupported image source"),
+                                    }
+                                }
+                                _ => default_value.clone(),
+                            }
+                        }
                     };
-                    let rgba = color.as_premul_rgba8().to_u32();
-                    debug_assert!(
-                        has_non_zero_alpha(rgba),
-                        "Color fields with 0 alpha are reserved for clipping"
-                    );
+
+                    // let rgba = color.as_premul_rgba8().to_u32();
+                    // debug_assert!(
+                    //     has_non_zero_alpha(rgba),
+                    //     "Color fields with 0 alpha are reserved for clipping"
+                    // );
                     let (x, y) = if clip_depth == 1 {
-                        (wide_tile_x + alpha_fill.x, wide_tile_y)
+                        (strip_x, strip_y)
                     } else {
                         (alpha_fill.x, el.slot_ix as u16 * Tile::HEIGHT)
                     };
@@ -442,10 +653,15 @@ impl Scheduler {
                         y,
                         width: alpha_fill.width,
                         dense_width: alpha_fill.width,
-                        col: (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
-                            .try_into()
-                            .expect("Sparse strips are bound to u32 range"),
-                        rgba,
+                        col_idx,
+                        paint_type,
+                        paint_data,
+                        uv,
+                        x_advance,
+                        y_advance,
+                        image_size,
+                        image_offset,
+                        quality,
                     });
                 }
                 Cmd::PushBuf => {
@@ -494,8 +710,15 @@ impl Scheduler {
                         y,
                         width: clip_fill.width as u16,
                         dense_width: 0,
-                        col: 0,
-                        rgba: tos.slot_ix as u32,
+                        col_idx: 0,
+                        paint_type: 0,
+                        paint_data: tos.slot_ix as u32,
+                        uv: [0.0, 0.0],
+                        x_advance: [0.0, 0.0],
+                        y_advance: [0.0, 0.0],
+                        image_size: [0, 0],
+                        image_offset: [0, 0],
+                        quality: 0,
                     });
                 }
                 Cmd::ClipStrip(clip_alpha_fill) => {
@@ -514,10 +737,17 @@ impl Scheduler {
                         y,
                         width: clip_alpha_fill.width as u16,
                         dense_width: clip_alpha_fill.width as u16,
-                        col: (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
+                        col_idx: (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
                             .try_into()
                             .expect("Sparse strips are bound to u32 range"),
-                        rgba: tos.slot_ix as u32,
+                        paint_type: 0,
+                        paint_data: tos.slot_ix as u32,
+                        uv: [0.0, 0.0],
+                        x_advance: [0.0, 0.0],
+                        y_advance: [0.0, 0.0],
+                        image_size: [0, 0],
+                        image_offset: [0, 0],
+                        quality: 0,
                     });
                 }
                 _ => unimplemented!(),
@@ -531,4 +761,12 @@ impl Scheduler {
 #[inline(always)]
 fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
+}
+
+/// Pack two u16 values into a single u32 using byte representation.
+/// The first value goes into the high 16 bits, the second into the low 16 bits.
+fn pack_u16s_to_u32(a: u16, b: u16) -> u32 {
+    let a_bytes = a.to_ne_bytes();
+    let b_bytes = b.to_ne_bytes();
+    u32::from_ne_bytes([a_bytes[0], a_bytes[1], b_bytes[0], b_bytes[1]])
 }
