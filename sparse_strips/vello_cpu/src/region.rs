@@ -63,14 +63,13 @@ impl<'a> Regions<'a> {
     }
 
     #[cfg(feature = "multithreading")]
-    pub fn update_regions(&mut self, func: impl Fn(&mut Region<'_>) + Send + Sync) {
+    pub fn update_regions_par(&mut self, func: impl Fn(&mut Region<'_>) + Send + Sync) {
         use rayon::iter::ParallelIterator;
         use rayon::prelude::IntoParallelRefMutIterator;
 
         self.regions.par_iter_mut().for_each(func);
     }
 
-    #[cfg(not(feature = "multithreading"))]
     pub fn update_regions(&mut self, func: impl FnMut(&mut Region<'_>)) {
         self.regions.iter_mut().for_each(func);
     }

@@ -17,7 +17,7 @@ path = "tests/mod.rs"
 [dependencies]
 vello_api = { workspace = true }
 vello_common = { workspace = true }
-vello_cpu = { workspace = true }
+vello_cpu = { workspace = true, features = ["multithreading"] }
 vello_hybrid = { workspace = true }
 wgpu = { workspace = true }
 pollster = { workspace = true }

@@ -2009,6 +2009,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordered-channel"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95be4d57809897b5a7539fc15a7dfe0e84141bc3dfaa2e9b1b27caa90acf61ab"
+dependencies = [
+ "crossbeam-channel",
+]
+
+[[package]]
 name = "ordered-float"
 version = "4.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3212,7 +3221,9 @@ dependencies = [
 name = "vello_cpu"
 version = "0.0.1"
 dependencies = [
+ "crossbeam-channel",
  "libm",
+ "ordered-channel",
  "rayon",
  "thread_local",
  "vello_common",

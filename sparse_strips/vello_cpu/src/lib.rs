@@ -101,7 +101,7 @@
     clippy::cast_possible_truncation,
     reason = "We cast u16s to u8 in various places where we know for sure that it's < 256"
 )]
-#![no_std]
+#![cfg_attr(not(feature = "multithreading"), no_std)]
 
 extern crate alloc;
 
@@ -117,6 +117,8 @@ pub mod fine;
 #[doc(hidden)]
 pub mod region;
 mod util;
+mod strip_generator;
+mod dispatch;
 
 pub use render::RenderContext;
 pub use vello_common::glyph::Glyph;

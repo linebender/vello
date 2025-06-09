@@ -276,6 +276,7 @@ impl Wide {
                     x: x_wtile_rel,
                     width,
                     alpha_idx: (col * u32::from(Tile::HEIGHT)) as usize,
+                    thread_idx: strip.thread_idx,
                     paint: paint.clone(),
                     blend_mode: None,
                 };
@@ -644,6 +645,7 @@ impl Wide {
                 let cmd = CmdClipAlphaFill {
                     x: x_rel,
                     width: u32::from(width),
+                    thread_idx: strip.thread_idx,
                     alpha_idx: col as usize * Tile::HEIGHT as usize,
                 };
                 x += width;
@@ -992,6 +994,10 @@ pub struct CmdAlphaFill {
     pub width: u16,
     /// The start index into the alpha buffer of the command.
     pub alpha_idx: usize,
+    /// The index of the thread that contains the alpha values
+    /// pointed to by `alpha_idx`. Can be ignored if multi-threaded rendering
+    /// is not enabled/supported.
+    pub thread_idx: u16,
     /// The paint that should be used to fill the area.
     pub paint: Paint,
     /// A blend mode to apply before drawing the contents.
@@ -1014,6 +1020,10 @@ pub struct CmdClipAlphaFill {
     pub x: u32,
     /// The width of the command in pixels.
     pub width: u32,
+    /// The index of the thread that contains the alpha values
+    /// pointed to by `alpha_idx`. Can be ignored if multi-threaded rendering
+    /// is not enabled/supported.
+    pub thread_idx: u16,
     /// The start index into the alpha buffer of the command.
     pub alpha_idx: usize,
 }
@@ -1163,6 +1173,7 @@ mod tests {
             x: 2,
             y: 2,
             alpha_idx: 0,
+            thread_idx: 0,
             winding: 1,
         };
         let clip_path = Some((vec![strip].into_boxed_slice(), Fill::NonZero));

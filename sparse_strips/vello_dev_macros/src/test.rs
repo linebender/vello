@@ -66,6 +66,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let input_fn_name = input_fn.sig.ident.clone();
     let u8_fn_name = Ident::new(&format!("{}_cpu_u8", input_fn_name), input_fn_name.span());
     let f32_fn_name = Ident::new(&format!("{}_cpu_f32", input_fn_name), input_fn_name.span());
+    let multithreaded_fn_name = Ident::new(&format!("{}_cpu_multithreaded", input_fn_name), input_fn_name.span());
     let hybrid_fn_name = Ident::new(&format!("{}_hybrid", input_fn_name), input_fn_name.span());
     let webgl_fn_name = Ident::new(
         &format!("{}_hybrid_webgl", input_fn_name),
@@ -79,6 +80,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let input_fn_name_str = input_fn_name.to_string();
     let u8_fn_name_str = u8_fn_name.to_string();
     let f32_fn_name_str = f32_fn_name.to_string();
+    let multithreaded_fn_name_str = multithreaded_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
     let webgl_fn_name_str = webgl_fn_name.to_string();
 
@@ -160,6 +162,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                        fn_name_str: String,
                        tolerance: u8,
                        is_reference: bool,
+                       multithreaded: bool,
                        render_mode: proc_macro2::TokenStream| {
         quote! {
             #ignore_cpu
@@ -170,8 +173,9 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 };
                 use vello_cpu::{RenderContext, RenderMode};
 
-                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent);
+                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #multithreaded);
                 #input_fn_name(&mut ctx);
+                ctx.flush();
                 if !#no_ref {
                     check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #render_mode, #reference_image_name);
                 }
@@ -184,12 +188,22 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         u8_fn_name_str,
         cpu_u8_tolerance,
         false,
+        false,
         quote! { RenderMode::OptimizeSpeed },
     );
     let f32_snippet = cpu_snippet(
         f32_fn_name,
         f32_fn_name_str,
         cpu_f32_tolerance,
+        true,
+        false,
+        quote! { RenderMode::OptimizeQuality },
+    );
+    let multi_threaded_snippet = cpu_snippet(
+        multithreaded_fn_name,
+        multithreaded_fn_name_str,
+        cpu_f32_tolerance,
+        false,
         true,
         quote! { RenderMode::OptimizeQuality },
     );
@@ -202,6 +216,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         #u8_snippet
 
         #f32_snippet
+        
+        #multi_threaded_snippet
 
         #ignore_hybrid
         #[test]
@@ -212,8 +228,9 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use vello_hybrid::Scene;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
+            let mut ctx = get_ctx::<Scene>(#width, #height, #transparent, false);
             #input_fn_name(&mut ctx);
+            ctx.flush();
             if !#no_ref {
                 check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
@@ -229,8 +246,9 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use vello_hybrid::Scene;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<Scene>(#width, #height, #transparent);
+            let mut ctx = get_ctx::<Scene>(#width, #height, #transparent, false);
             #input_fn_name(&mut ctx);
+            ctx.flush();
             if !#no_ref {
                 check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }

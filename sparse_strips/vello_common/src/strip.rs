@@ -20,6 +20,10 @@ pub struct Strip {
     pub y: u16,
     /// The index into the alpha buffer.
     pub alpha_idx: u32,
+    /// The index of the thread that contains the alpha values
+    /// pointed to by `alpha_idx`. Can be ignored if multi-threaded rendering
+    /// is not enabled/supported.
+    pub thread_idx: u16,
     /// The winding number at the start of the strip.
     pub winding: i32,
 }
@@ -37,6 +41,7 @@ pub fn render(
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u8>,
+    thread_idx: u16,
     fill_rule: Fill,
     lines: &[Line],
 ) {
@@ -68,6 +73,7 @@ pub fn render(
         x: prev_tile.x * Tile::WIDTH,
         y: prev_tile.y * Tile::HEIGHT,
         alpha_idx: alpha_buf.len() as u32,
+        thread_idx,
         winding: 0,
     };
 
@@ -130,6 +136,7 @@ pub fn render(
                         x: u16::MAX,
                         y: prev_tile.y * Tile::HEIGHT,
                         alpha_idx: alpha_buf.len() as u32,
+                        thread_idx,
                         winding: winding_delta,
                     });
                 }
@@ -151,6 +158,7 @@ pub fn render(
                 x: tile.x * Tile::WIDTH,
                 y: tile.y * Tile::HEIGHT,
                 alpha_idx: alpha_buf.len() as u32,
+                thread_idx,
                 winding: winding_delta,
             };
             // Note: this fill is mathematically not necessary. It provides a way to reduce

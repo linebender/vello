@@ -128,6 +128,7 @@ impl DataItem {
             &tiles,
             &mut strip_buf,
             &mut alpha_buf,
+            0,
             Fill::NonZero,
             &lines,
         );

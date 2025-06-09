@@ -3,18 +3,15 @@
 
 //! Basic render operations.
 
+use alloc::boxed::Box;
 use crate::RenderMode;
-use crate::fine::{Fine, FineType};
-use crate::region::Regions;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
-use vello_common::coarse::Wide;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::colr::{ColrPainter, ColrRenderer};
 use vello_common::encode::{EncodeExt, EncodedPaint};
-use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
@@ -23,9 +20,11 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Gradient, Mix};
 use vello_common::peniko::{Font, ImageQuality};
 use vello_common::pixmap::Pixmap;
-use vello_common::strip::Strip;
-use vello_common::tile::Tiles;
-use vello_common::{flatten, peniko, strip};
+use vello_common::peniko;
+use crate::dispatch::Dispatcher;
+use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
+use crate::dispatch::single_threaded::SingleThreadedDispatcher;
+use crate::kurbo::{PathEl, Point};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -33,30 +32,48 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 pub struct RenderContext {
     pub(crate) width: u16,
     pub(crate) height: u16,
-    pub(crate) wide: Wide,
-    pub(crate) alphas: Vec<u8>,
-    pub(crate) line_buf: Vec<Line>,
-    pub(crate) tiles: Tiles,
-    pub(crate) strip_buf: Vec<Strip>,
     pub(crate) paint: PaintType,
     pub(crate) paint_transform: Affine,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
+    pub(crate) temp_path: BezPath,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
-    #[cfg(feature = "multithreading")]
-    pub(crate) thread_pool: Option<rayon::ThreadPool>,
+    dispatcher: Box<dyn Dispatcher>,
 }
 
 impl RenderContext {
     /// Create a new render context with the given width and height in pixels.
-    pub fn new(width: u16, height: u16) -> Self {
-        let wide = Wide::new(width, height);
-
-        let alphas = vec![];
-        let line_buf = vec![];
-        let tiles = Tiles::new();
-        let strip_buf = vec![];
+    pub fn new(
+        width: u16, 
+        height: u16
+    ) -> Self {
+        Self::new_inner(width, height, u16::MAX)
+    }
+    
+    /// Create a new multi-threaded render context with the given width and height in pixels.
+    #[cfg(feature = "multithreading")]
+    pub fn new_multithreaded(
+        width: u16, 
+        height: u16,
+        num_threads: u16,
+    ) -> Self {
+        Self::new_inner(width, height, num_threads)
+    }
+    
+    fn new_inner(width: u16, height: u16, num_threads: u16) -> Self {
+        #[cfg(feature = "multithreading")]
+        let dispatcher: Box<dyn Dispatcher> = if num_threads == u16::MAX {
+            Box::new(SingleThreadedDispatcher::new(width, height))
+        }   else {
+            Box::new(MultiThreadedDispatcher::new(width, height, num_threads))
+        };
+        
+        #[cfg(not(feature = "multithreading"))]
+        let dispatcher: Box<dyn Dispatcher> = {
+            let _ = num_threads;
+            Box::new(SingleThreadedDispatcher::new(width, height))
+        };
 
         let transform = Affine::IDENTITY;
         let fill_rule = Fill::NonZero;
@@ -70,23 +87,19 @@ impl RenderContext {
             ..Default::default()
         };
         let encoded_paints = vec![];
-
+        let temp_path = BezPath::new();
+        
         Self {
             width,
             height,
-            wide,
-            alphas,
-            line_buf,
-            tiles,
-            strip_buf,
+            dispatcher,
             transform,
             paint,
             paint_transform,
             fill_rule,
             stroke,
+            temp_path,
             encoded_paints,
-            #[cfg(feature = "multithreading")]
-            thread_pool: None,
         }
     }
 
@@ -109,29 +122,29 @@ impl RenderContext {
 
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
-        flatten::fill(path, self.transform, &mut self.line_buf);
         let paint = self.encode_current_paint();
-        self.render_path(self.fill_rule, paint);
-    }
-
-    /// Set the thread pool that should be used for multi-threaded rendering.
-    ///
-    /// If not set, the global rayon thread pool will be used instead.
-    #[cfg(feature = "multithreading")]
-    pub fn set_thread_pool(&mut self, pool: rayon::ThreadPool) {
-        self.thread_pool = Some(pool);
+        self.dispatcher.fill_path(path, self.fill_rule, self.transform, paint);
     }
 
     /// Stroke a path.
     pub fn stroke_path(&mut self, path: &BezPath) {
-        flatten::stroke(path, &self.stroke, self.transform, &mut self.line_buf);
         let paint = self.encode_current_paint();
-        self.render_path(Fill::NonZero, paint);
+        self.dispatcher.stroke_path(path, &self.stroke, self.transform, paint);
     }
 
     /// Fill a rectangle.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        // Don't use `rect.to_path` here, because it will perform a new allocation, which
+        // profiling showed can become a bottleneck for many small rectangles.
+        self.temp_path.truncate(0);
+        self.temp_path.push(PathEl::MoveTo(Point::new(rect.x0, rect.y0)));
+        self.temp_path.push(PathEl::LineTo(Point::new(rect.x1, rect.y0)));
+        self.temp_path.push(PathEl::LineTo(Point::new(rect.x1, rect.y1)));
+        self.temp_path.push(PathEl::LineTo(Point::new(rect.x0, rect.y1)));
+        self.temp_path.push(PathEl::ClosePath);
+
+        let paint = self.encode_current_paint();
+        self.dispatcher.fill_path(&self.temp_path, self.fill_rule, self.transform, paint);
     }
 
     /// Fill a blurred rectangle with the given radius and standard deviation.
@@ -161,8 +174,7 @@ impl RenderContext {
         let transform = self.transform * self.paint_transform;
 
         let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform);
-        flatten::fill(&inflated_rect.to_path(0.1), transform, &mut self.line_buf);
-        self.render_path(Fill::NonZero, paint);
+        self.dispatcher.fill_path(&inflated_rect.to_path(0.1), Fill::NonZero, self.transform, paint);
     }
 
     /// Stroke a rectangle.
@@ -187,14 +199,6 @@ impl RenderContext {
         opacity: Option<f32>,
         mask: Option<Mask>,
     ) {
-        let clip = if let Some(c) = clip_path {
-            flatten::fill(c, self.transform, &mut self.line_buf);
-            self.make_strips(self.fill_rule);
-            Some((self.strip_buf.as_slice(), self.fill_rule))
-        } else {
-            None
-        };
-
         let mask = mask.and_then(|m| {
             if m.width() != self.width || m.height() != self.height {
                 None
@@ -202,13 +206,11 @@ impl RenderContext {
                 Some(m)
             }
         });
+        
+        let blend_mode = blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver));
+        let opacity = opacity.unwrap_or(1.0);
 
-        self.wide.push_layer(
-            clip,
-            blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
-            mask,
-            opacity.unwrap_or(1.0),
-        );
+        self.dispatcher.push_layer(clip_path, self.fill_rule, self.transform, blend_mode, opacity, mask);
     }
 
     /// Push a new clip layer.
@@ -237,7 +239,7 @@ impl RenderContext {
 
     /// Pop the last-pushed layer.
     pub fn pop_layer(&mut self) {
-        self.wide.pop_layer();
+        self.dispatcher.pop_layer();
     }
 
     /// Set the current stroke.
@@ -281,11 +283,15 @@ impl RenderContext {
 
     /// Reset the render context.
     pub fn reset(&mut self) {
-        self.line_buf.clear();
-        self.tiles.reset();
-        self.alphas.clear();
-        self.strip_buf.clear();
-        self.wide.reset();
+        self.dispatcher.reset();
+    }
+    
+    /// Flush any pending operations.
+    /// 
+    /// This is a no-op when using the single-threaded render mode, and can be ignored.
+    /// For multi-threaded rendering, you _have_ to call this before rasterizing.
+    pub fn flush(&mut self) {
+        self.dispatcher.flush();
     }
 
     /// Render the current context into a buffer.
@@ -297,8 +303,9 @@ impl RenderContext {
         height: u16,
         render_mode: RenderMode,
     ) {
+        let wide = self.dispatcher.wide();
         assert!(
-            !self.wide.has_layers(),
+            !wide.has_layers(),
             "some layers haven't been popped yet"
         );
         assert_eq!(
@@ -310,57 +317,7 @@ impl RenderContext {
             buffer.len(),
         );
 
-        match render_mode {
-            RenderMode::OptimizeSpeed => {
-                self.do_fine::<u8>(buffer);
-            }
-            RenderMode::OptimizeQuality => {
-                self.do_fine::<f32>(buffer);
-            }
-        }
-    }
-
-    fn do_fine<F: FineType>(&self, buffer: &mut [u8]) {
-        let width = self.width;
-        let height = self.height;
-        let mut buffer = Regions::new(width, height, buffer);
-
-        #[cfg(feature = "multithreading")]
-        let fines = thread_local::ThreadLocal::new();
-        #[cfg(not(feature = "multithreading"))]
-        let mut fine = Fine::new();
-
-        let mut render = || {
-            buffer.update_regions(|region| {
-                let x = region.x;
-                let y = region.y;
-
-                #[cfg(feature = "multithreading")]
-                let mut fine = fines
-                    .get_or(|| core::cell::RefCell::new(Fine::new()))
-                    .borrow_mut();
-
-                let wtile = self.wide.get(x, y);
-                fine.set_coords(x, y);
-
-                fine.clear(F::extract_color(&wtile.bg));
-                for cmd in &wtile.cmds {
-                    fine.run_cmd(cmd, &self.alphas, &self.encoded_paints);
-                }
-
-                fine.pack(region);
-            });
-        };
-
-        #[cfg(feature = "multithreading")]
-        if let Some(pool) = &self.thread_pool {
-            pool.install(&mut render);
-        } else {
-            render();
-        }
-
-        #[cfg(not(feature = "multithreading"))]
-        render();
+        self.dispatcher.rasterize(buffer, render_mode, width, height, &self.encoded_paints);
     }
 
     /// Render the current context into a pixmap.
@@ -379,35 +336,14 @@ impl RenderContext {
     pub fn height(&self) -> u16 {
         self.height
     }
-
-    // Assumes that `line_buf` contains the flattened path.
-    fn render_path(&mut self, fill_rule: Fill, paint: Paint) {
-        self.make_strips(fill_rule);
-        self.wide.generate(&self.strip_buf, fill_rule, paint);
-    }
-
-    fn make_strips(&mut self, fill_rule: Fill) {
-        self.tiles
-            .make_tiles(&self.line_buf, self.width, self.height);
-        self.tiles.sort_tiles();
-
-        strip::render(
-            &self.tiles,
-            &mut self.strip_buf,
-            &mut self.alphas,
-            fill_rule,
-            &self.line_buf,
-        );
-    }
 }
 
 impl GlyphRenderer for RenderContext {
     fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
-                flatten::fill(glyph.path, prepared_glyph.transform, &mut self.line_buf);
                 let paint = self.encode_current_paint();
-                self.render_path(Fill::NonZero, paint);
+                self.dispatcher.fill_path(&glyph.path, Fill::NonZero, prepared_glyph.transform, paint);
             }
             GlyphType::Bitmap(glyph) => {
                 // We need to change the state of the render context
@@ -486,14 +422,8 @@ impl GlyphRenderer for RenderContext {
     fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
-                flatten::stroke(
-                    glyph.path,
-                    &self.stroke,
-                    prepared_glyph.transform,
-                    &mut self.line_buf,
-                );
                 let paint = self.encode_current_paint();
-                self.render_path(Fill::NonZero, paint);
+                self.dispatcher.stroke_path(&glyph.path, &self.stroke, prepared_glyph.transform, paint);
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
                 // The definitions of COLR and bitmap glyphs can't meaningfully support being stroked.
@@ -539,40 +469,5 @@ impl ColrRenderer for RenderContext {
 
     fn pop_layer(&mut self) {
         Self::pop_layer(self);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::RenderContext;
-    use vello_common::kurbo::{Rect, Shape};
-
-    #[test]
-    fn reset_render_context() {
-        let mut ctx = RenderContext::new(100, 100);
-        let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
-
-        ctx.fill_rect(&rect);
-
-        assert!(!ctx.line_buf.is_empty());
-        assert!(!ctx.strip_buf.is_empty());
-        assert!(!ctx.alphas.is_empty());
-
-        ctx.reset();
-
-        assert!(ctx.line_buf.is_empty());
-        assert!(ctx.strip_buf.is_empty());
-        assert!(ctx.alphas.is_empty());
-    }
-
-    #[test]
-    fn clip_overflow() {
-        let mut ctx = RenderContext::new(100, 100);
-
-        ctx.alphas
-            .extend(core::iter::repeat_n(255, u16::MAX as usize + 1));
-
-        ctx.push_clip_layer(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
-        ctx.pop_layer();
     }
 }
