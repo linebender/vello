@@ -340,8 +340,8 @@ impl RenderContext {
                     .get_or(|| core::cell::RefCell::new(Fine::new()))
                     .borrow_mut();
 
-                let wtile = self.wide.get(x as u16, y as u16);
-                fine.set_coords(x as u16, y as u16);
+                let wtile = self.wide.get(x, y);
+                fine.set_coords(x, y);
 
                 fine.clear(F::extract_color(&wtile.bg));
                 for cmd in &wtile.cmds {

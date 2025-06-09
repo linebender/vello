@@ -51,7 +51,11 @@ impl<'a> Regions<'a> {
                     next_lines[h] = tail;
                 }
 
-                regions.push(Region::new(areas, x, y));
+                regions.push(Region::new(
+                    areas,
+                    u16::try_from(x).unwrap(),
+                    u16::try_from(y).unwrap(),
+                ));
             }
         }
 
@@ -73,25 +77,25 @@ impl<'a> Regions<'a> {
 }
 
 /// A rectangular region containing the pixels from one wide tile.
-/// 
+///
 /// For wide tiles at the right/bottom edge, it might contain less pixels
 /// than the actual wide tile, if the pixmap width/height isn't a multiple of the
 /// tile width/height.
 #[derive(Default, Debug)]
 pub struct Region<'a> {
     /// The x coordinate of the wide tile this region covers.
-    pub(crate) x: usize,
+    pub(crate) x: u16,
     /// The y coordinate of the wide tile this region covers.
-    pub(crate) y: usize,
+    pub(crate) y: u16,
     areas: [&'a mut [u8]; Tile::HEIGHT as usize],
 }
 
 impl<'a> Region<'a> {
-    pub(crate) fn new(areas: [&'a mut [u8]; Tile::HEIGHT as usize], x: usize, y: usize) -> Self {
+    pub(crate) fn new(areas: [&'a mut [u8]; Tile::HEIGHT as usize], x: u16, y: u16) -> Self {
         Self { areas, x, y }
     }
 
-    pub(crate) fn row_mut(&mut self, y: usize) -> &mut [u8] {
-        self.areas[y]
+    pub(crate) fn row_mut(&mut self, y: u16) -> &mut [u8] {
+        self.areas[usize::from(y)]
     }
 }

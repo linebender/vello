@@ -91,13 +91,13 @@ impl<F: FineType> Fine<F> {
     pub fn pack(&mut self, region: &mut Region<'_>) {
         let blend_buf = self.blend_buf.last().unwrap();
 
-        for y in 0..Tile::HEIGHT as usize {
+        for y in 0..Tile::HEIGHT {
             for (x, pixel) in region
                 .row_mut(y)
                 .chunks_exact_mut(COLOR_COMPONENTS)
                 .enumerate()
             {
-                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * x + y);
+                let idx = COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
                 pixel.copy_from_slice(&F::to_rgba8(&blend_buf[idx..][..COLOR_COMPONENTS]));
             }
         }
