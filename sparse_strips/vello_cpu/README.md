@@ -92,6 +92,7 @@ assert_eq!(&result, expected_render);
 - `libm`: Use floating point implementations from [libm].
 - `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images.
   Also required for rendering glyphs with an embedded PNG.
+- `multithreading`: Enable multi-threaded rendering (currently only a part of the pipeline can be parallelized).
 
 At least one of `std` and `libm` is required; `std` overrides `libm`.
 
