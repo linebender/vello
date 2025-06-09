@@ -72,7 +72,11 @@ impl<'a> Regions<'a> {
     }
 }
 
-/// A region that covers the pixel that fall into a specific wide tile.
+/// A rectangular region containing the pixels from one wide tile.
+/// 
+/// For wide tiles at the right/bottom edge, it might contain less pixels
+/// than the actual wide tile, if the pixmap width/height isn't a multiple of the
+/// tile width/height.
 #[derive(Default, Debug)]
 pub struct Region<'a> {
     /// The x coordinate of the wide tile this region covers.
