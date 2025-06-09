@@ -5,6 +5,7 @@
 
 use crate::RenderMode;
 use crate::fine::{Fine, FineType};
+use crate::region::Regions;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -43,6 +44,8 @@ pub struct RenderContext {
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
+    #[cfg(feature = "multithreading")]
+    pub(crate) thread_pool: Option<rayon::ThreadPool>,
 }
 
 impl RenderContext {
@@ -82,6 +85,8 @@ impl RenderContext {
             fill_rule,
             stroke,
             encoded_paints,
+            #[cfg(feature = "multithreading")]
+            thread_pool: None,
         }
     }
 
@@ -107,6 +112,14 @@ impl RenderContext {
         flatten::fill(path, self.transform, &mut self.line_buf);
         let paint = self.encode_current_paint();
         self.render_path(self.fill_rule, paint);
+    }
+
+    /// Set the thread pool that should be used for multi-threaded rendering.
+    ///
+    /// If not set, the global rayon thread pool will be used instead.
+    #[cfg(feature = "multithreading")]
+    pub fn set_thread_pool(&mut self, pool: rayon::ThreadPool) {
+        self.thread_pool = Some(pool);
     }
 
     /// Stroke a path.
@@ -299,21 +312,34 @@ impl RenderContext {
 
         match render_mode {
             RenderMode::OptimizeSpeed => {
-                let mut fine = Fine::<u8>::new(width, height);
-                self.do_fine(buffer, &mut fine);
+                self.do_fine::<u8>(buffer);
             }
             RenderMode::OptimizeQuality => {
-                let mut fine = Fine::<f32>::new(width, height);
-                self.do_fine(buffer, &mut fine);
+                self.do_fine::<f32>(buffer);
             }
         }
     }
 
-    fn do_fine<F: FineType>(&self, buffer: &mut [u8], fine: &mut Fine<F>) {
-        let width_tiles = self.wide.width_tiles();
-        let height_tiles = self.wide.height_tiles();
-        for y in 0..height_tiles {
-            for x in 0..width_tiles {
+    fn do_fine<F: FineType>(&self, buffer: &mut [u8]) {
+        let width = self.width;
+        let height = self.height;
+        let mut buffer = Regions::new(width, height, buffer);
+
+        #[cfg(feature = "multithreading")]
+        let fines = thread_local::ThreadLocal::new();
+        #[cfg(not(feature = "multithreading"))]
+        let mut fine = Fine::new();
+
+        let mut render = || {
+            buffer.update_regions(|region| {
+                let x = region.x;
+                let y = region.y;
+
+                #[cfg(feature = "multithreading")]
+                let mut fine = fines
+                    .get_or(|| core::cell::RefCell::new(Fine::new()))
+                    .borrow_mut();
+
                 let wtile = self.wide.get(x, y);
                 fine.set_coords(x, y);
 
@@ -321,9 +347,20 @@ impl RenderContext {
                 for cmd in &wtile.cmds {
                     fine.run_cmd(cmd, &self.alphas, &self.encoded_paints);
                 }
-                fine.pack(buffer);
-            }
+
+                fine.pack(region);
+            });
+        };
+
+        #[cfg(feature = "multithreading")]
+        if let Some(pool) = &self.thread_pool {
+            pool.install(&mut render);
+        } else {
+            render();
         }
+
+        #[cfg(not(feature = "multithreading"))]
+        render();
     }
 
     /// Render the current context into a pixmap.

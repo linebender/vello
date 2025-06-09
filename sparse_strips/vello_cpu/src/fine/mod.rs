@@ -12,6 +12,7 @@ mod rounded_blurred_rect;
 use crate::fine::gradient::GradientFiller;
 use crate::fine::image::ImageFiller;
 use crate::fine::rounded_blurred_rect::BlurredRoundedRectFiller;
+use crate::region::Region;
 use crate::util::scalar::div_255;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -41,22 +42,24 @@ pub type FineF32 = ScratchBuf<f32>;
 #[doc(hidden)]
 /// This is an internal struct, do not access directly.
 pub struct Fine<F: FineType> {
-    pub(crate) width: u16,
-    pub(crate) height: u16,
     pub(crate) wide_coords: (u16, u16),
     pub(crate) blend_buf: Vec<ScratchBuf<F>>,
     pub(crate) color_buf: ScratchBuf<F>,
 }
 
+impl<F: FineType> Default for Fine<F> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<F: FineType> Fine<F> {
     /// Create a new fine rasterizer.
-    pub fn new(width: u16, height: u16) -> Self {
+    pub fn new() -> Self {
         let blend_buf = [F::ZERO; SCRATCH_BUF_SIZE];
         let color_buf = [F::ZERO; SCRATCH_BUF_SIZE];
 
         Self {
-            width,
-            height,
             wide_coords: (0, 0),
             blend_buf: vec![blend_buf],
             color_buf,
@@ -85,17 +88,19 @@ impl<F: FineType> Fine<F> {
     }
 
     #[doc(hidden)]
-    pub fn pack(&mut self, out_buf: &mut [u8]) {
-        let blend_buf = self.blend_buf.last_mut().unwrap();
+    pub fn pack(&mut self, region: &mut Region<'_>) {
+        let blend_buf = self.blend_buf.last().unwrap();
 
-        pack(
-            out_buf,
-            blend_buf,
-            self.width.into(),
-            self.height.into(),
-            self.wide_coords.0.into(),
-            self.wide_coords.1.into(),
-        );
+        for y in 0..Tile::HEIGHT {
+            for (x, pixel) in region
+                .row_mut(y)
+                .chunks_exact_mut(COLOR_COMPONENTS)
+                .enumerate()
+            {
+                let idx = COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
+                pixel.copy_from_slice(&F::to_rgba8(&blend_buf[idx..][..COLOR_COMPONENTS]));
+            }
+        }
     }
 
     pub(crate) fn run_cmd(&mut self, cmd: &Cmd, alphas: &[u8], paints: &[EncodedPaint]) {
@@ -417,39 +422,6 @@ impl<F: FineType> Fine<F> {
     }
 }
 
-fn pack<F: FineType>(
-    out_buf: &mut [u8],
-    scratch: &ScratchBuf<F>,
-    width: usize,
-    height: usize,
-    x: usize,
-    y: usize,
-) {
-    let base_ix = (y * usize::from(Tile::HEIGHT) * width + x * usize::from(WideTile::WIDTH))
-        * COLOR_COMPONENTS;
-
-    // Make sure we don't process rows outside the range of the pixmap.
-    let max_height = (height - y * usize::from(Tile::HEIGHT)).min(usize::from(Tile::HEIGHT));
-
-    for j in 0..max_height {
-        let line_ix = base_ix + j * width * COLOR_COMPONENTS;
-
-        // Make sure we don't process columns outside the range of the pixmap.
-        let max_width =
-            (width - x * usize::from(WideTile::WIDTH)).min(usize::from(WideTile::WIDTH));
-        let target_len = max_width * COLOR_COMPONENTS;
-        // This helps the compiler to understand that any access to `dest` cannot
-        // be out of bounds, and thus saves corresponding checks in the for loop.
-        let dest = &mut out_buf[line_ix..][..target_len];
-
-        for i in 0..max_width {
-            let src = &scratch[(i * usize::from(Tile::HEIGHT) + j) * COLOR_COMPONENTS..]
-                [..COLOR_COMPONENTS];
-            dest[i * COLOR_COMPONENTS..][..COLOR_COMPONENTS].copy_from_slice(&F::to_rgba8(src));
-        }
-    }
-}
-
 pub(crate) mod fill {
     // See https://www.w3.org/TR/compositing-1/#porterduffcompositingoperators for the
     // formulas.
@@ -649,6 +621,8 @@ pub trait FineType:
     + Mul<Self, Output = Self>
     + Sub<Self, Output = Self>
     + Debug
+    + Send
+    + Sync
 {
     type Widened: Widened<Self>;
 
