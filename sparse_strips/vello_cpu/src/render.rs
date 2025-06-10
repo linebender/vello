@@ -359,7 +359,7 @@ impl GlyphRenderer for RenderContext {
             GlyphType::Outline(glyph) => {
                 let paint = self.encode_current_paint();
                 self.dispatcher.fill_path(
-                    &glyph.path,
+                    glyph.path,
                     Fill::NonZero,
                     prepared_glyph.transform,
                     paint,
@@ -444,7 +444,7 @@ impl GlyphRenderer for RenderContext {
             GlyphType::Outline(glyph) => {
                 let paint = self.encode_current_paint();
                 self.dispatcher.stroke_path(
-                    &glyph.path,
+                    glyph.path,
                     &self.stroke,
                     prepared_glyph.transform,
                     paint,

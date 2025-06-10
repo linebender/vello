@@ -119,7 +119,7 @@ impl MultiThreadedDispatcher {
             // worker thread have dropped `result_sender`, the main thread knows that all alphas
             // have been placed, and it's safe to proceed.
             worker.place_alphas();
-        })
+        });
     }
 
     fn register_task(&mut self, task: RenderTask) {
@@ -254,7 +254,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             paint,
             fill_rule,
             task_idx,
-        })
+        });
     }
 
     fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint) {
@@ -266,7 +266,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             paint,
             stroke: stroke.clone(),
             task_idx,
-        })
+        });
     }
 
     fn push_layer(
@@ -287,13 +287,13 @@ impl Dispatcher for MultiThreadedDispatcher {
             mask,
             fill_rule,
             task_idx,
-        })
+        });
     }
 
     fn pop_layer(&mut self) {
         let task_idx = self.bump_task_idx();
 
-        self.register_task(RenderTask::PopLayer { task_idx })
+        self.register_task(RenderTask::PopLayer { task_idx });
     }
 
     fn reset(&mut self) {
@@ -347,10 +347,10 @@ impl Dispatcher for MultiThreadedDispatcher {
 
         match render_mode {
             RenderMode::OptimizeSpeed => {
-                self.rasterize::<u8>(buffer, width, height, encoded_paints)
+                self.rasterize::<u8>(buffer, width, height, encoded_paints);
             }
             RenderMode::OptimizeQuality => {
-                self.rasterize::<f32>(buffer, width, height, encoded_paints)
+                self.rasterize::<f32>(buffer, width, height, encoded_paints);
             }
         }
     }
@@ -394,26 +394,26 @@ enum RenderTask {
 impl RenderTask {
     fn estimate_render_time(&self) -> f32 {
         match self {
-            RenderTask::FillPath {
+            Self::FillPath {
                 path, transform, ..
             } => {
-                let path_cost_data = PathCostData::new(&path, *transform);
+                let path_cost_data = PathCostData::new(path, *transform);
                 estimate_runtime_in_micros(&path_cost_data, false)
             }
-            RenderTask::StrokePath {
+            Self::StrokePath {
                 path, transform, ..
             } => {
-                let path_cost_data = PathCostData::new(&path, *transform);
+                let path_cost_data = PathCostData::new(path, *transform);
                 estimate_runtime_in_micros(&path_cost_data, true)
             }
-            RenderTask::PushLayer { clip_path, .. } => clip_path
+            Self::PushLayer { clip_path, .. } => clip_path
                 .as_ref()
                 .map(|c| {
                     let path_cost_data = PathCostData::new(&c.0, c.1);
                     estimate_runtime_in_micros(&path_cost_data, false)
                 })
                 .unwrap_or(0.0),
-            RenderTask::PopLayer { .. } => 0.0,
+            Self::PopLayer { .. } => 0.0,
         }
     }
 }
@@ -590,7 +590,7 @@ impl PathCostData {
             }
         }
 
-        PathCostData {
+        Self {
             num_line_segments,
             num_curve_segments,
             path_length,

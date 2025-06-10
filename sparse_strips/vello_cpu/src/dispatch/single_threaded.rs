@@ -121,10 +121,10 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         match render_mode {
             RenderMode::OptimizeSpeed => {
-                Self::rasterize::<u8>(self, buffer, width, height, encoded_paints)
+                Self::rasterize::<u8>(self, buffer, width, height, encoded_paints);
             }
             RenderMode::OptimizeQuality => {
-                Self::rasterize::<f32>(self, buffer, width, height, encoded_paints)
+                Self::rasterize::<f32>(self, buffer, width, height, encoded_paints);
             }
         }
     }
