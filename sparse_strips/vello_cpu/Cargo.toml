@@ -34,7 +34,13 @@ libm = ["vello_common/libm", "dep:libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
 png = ["vello_common/png"]
 # Enable multi-threaded rendering.
-multithreading = ["std", "dep:rayon", "dep:thread_local", "dep:ordered-channel", "dep:crossbeam-channel"]
+multithreading = [
+    "std",
+    "dep:rayon",
+    "dep:thread_local",
+    "dep:ordered-channel",
+    "dep:crossbeam-channel",
+]
 
 [lints]
 workspace = true
