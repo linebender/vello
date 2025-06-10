@@ -22,6 +22,7 @@ use crate::region::Regions;
 use crate::RenderMode;
 use crate::strip_generator::StripGenerator;
 
+// TODO: Fine-tune this parameter.
 const COST_THRESHOLD: f32 = 5.0;
 
 type RenderTasksSender = crossbeam_channel::Sender<Vec<RenderTask>>;
@@ -58,6 +59,7 @@ impl MultiThreadedDispatcher {
             let thread_ids = Arc::new(AtomicU16::new(0));
             let workers = workers.clone();
             
+            // Initialize all workers once in `new`, so that later on we can just call`.get().unwrap()`.
             thread_pool.spawn_broadcast(move |_| {
                 let _ = workers.get_or(|| RefCell::new(Worker::new(width, height, thread_ids.fetch_add(1, Ordering::SeqCst), alpha_storage.clone())));
             });
@@ -121,7 +123,6 @@ impl MultiThreadedDispatcher {
         self.batch_cost += cost;
 
         if self.batch_cost > COST_THRESHOLD {
-            // println!("{:?}", self.task_batch.len());
             self.flush_tasks();
             self.batch_cost = 0.0;
         }
@@ -144,6 +145,18 @@ impl MultiThreadedDispatcher {
         self.run_coarse(true);
     }
 
+    // Currently, we do coarse rasterization in two phases:
+    //
+    // The first phase is when we are still processing new draw commands from the client. After each
+    // command, we check whether there are already any generated strips, and if so we do coarse
+    // rasterization for them on the main thread. In this case, we want to abort in case there are
+    // no more path strips available to process.
+    // 
+    // The second phase is when we are flushing, in which case even if the queue is empty, we only
+    // want to abort once all workers have closed the channel (and thus there won't be any more
+    // new strips that will be generated.
+    //
+    // This is why we have the `abort_empty`flag.
     fn run_coarse(&mut self, abort_empty: bool) {
         let result_receiver = self.result_receiver.as_mut().unwrap();
 
@@ -287,6 +300,8 @@ impl Dispatcher for MultiThreadedDispatcher {
             t.fetch_sub(1, Ordering::SeqCst);
         });
 
+        // TODO: Maybe there is a better way of doing this? Something like a `WaitGroup`, but that
+        // can be used in conjunction with `spawn_broadcast`.
         while thread_counter.load(Ordering::SeqCst) > 0 {
 
         }
@@ -348,7 +363,6 @@ enum RenderTask {
 }
 
 impl RenderTask {
-    #[inline(never)]
     fn estimate_render_time(&self) -> f32 {
         match self {
             RenderTask::FillPath { path, transform, .. } => {
@@ -391,7 +405,7 @@ struct Worker {
 }
 
 impl Worker {
-    pub(crate) fn new(width: u16, height: u16, thread_id: u16,
+    fn new(width: u16, height: u16, thread_id: u16,
                       alpha_storage: Arc<Mutex<HashMap<u16, Arc<Vec<u8>>>>>
     ) -> Self {
         let strip_generator = StripGenerator::new(width, height, thread_id);
@@ -403,11 +417,11 @@ impl Worker {
         }
     }
     
-    pub(crate) fn reset(&mut self) {
+    fn reset(&mut self) {
         self.strip_generator.reset();
     }
     
-    pub(crate) fn run_tasks(&mut self, tasks: Vec<RenderTask>, result_sender: &mut CoarseCommandSender) {
+    fn run_tasks(&mut self, tasks: Vec<RenderTask>, result_sender: &mut CoarseCommandSender) {
         for task in tasks {
             match task {
                 RenderTask::FillPath { path, transform, paint, fill_rule, task_idx } => {
@@ -460,7 +474,7 @@ impl Worker {
         }
     }
 
-    pub(crate) fn place_alphas(
+    fn place_alphas(
         &mut self
     ) {
         self.alpha_storage.lock().unwrap().insert(self.thread_id, Arc::new(self.strip_generator.alpha_buf().to_vec()));
@@ -478,8 +492,7 @@ impl PathCostData {
         let mut num_line_segments = 0;
         let mut num_curve_segments = 0;
         let mut path_length = 0.0;
-
-
+        
         let mut register_path_length = |mut p0: Point, mut p1: Point| {
             p0 = transform * p0;
             p1 = transform * p1;
@@ -517,6 +530,11 @@ impl PathCostData {
     }
 }
 
+// This formula was derived by recording benchmarks of how long paths with a certain set of properties
+// take to render and then use "machine learning" to derive a formula which approximates the runtime.
+// The result will be far from accurate, but all we need is a ballpark range, and it's important
+// that the calculation is relatively fast, since it will be run on the main thread for each path.
+// TODO: We will need to update the formula once SIMD + faster stroke expansion landed.
 fn estimate_runtime_in_micros(path_cost_data: &PathCostData, is_stroke: bool) -> f32 {
     let line_segments = path_cost_data.num_line_segments as f64;
     let curve_segments = path_cost_data.num_curve_segments as f64;

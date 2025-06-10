@@ -48,10 +48,13 @@ impl RenderContext {
         width: u16, 
         height: u16
     ) -> Self {
-        Self::new_inner(width, height, u16::MAX)
+        Self::new_inner(width, height, 0)
     }
     
     /// Create a new multi-threaded render context with the given width and height in pixels.
+    /// 
+    /// Note that `num_threads` refers to the number of threads that will be created _in addition_
+    /// to the main thread.
     #[cfg(feature = "multithreading")]
     pub fn new_multithreaded(
         width: u16, 
@@ -63,7 +66,7 @@ impl RenderContext {
     
     fn new_inner(width: u16, height: u16, num_threads: u16) -> Self {
         #[cfg(feature = "multithreading")]
-        let dispatcher: Box<dyn Dispatcher> = if num_threads == u16::MAX {
+        let dispatcher: Box<dyn Dispatcher> = if num_threads == 0 {
             Box::new(SingleThreadedDispatcher::new(width, height))
         }   else {
             Box::new(MultiThreadedDispatcher::new(width, height, num_threads))
@@ -289,7 +292,8 @@ impl RenderContext {
     /// Flush any pending operations.
     /// 
     /// This is a no-op when using the single-threaded render mode, and can be ignored.
-    /// For multi-threaded rendering, you _have_ to call this before rasterizing.
+    /// For multi-threaded rendering, you _have_ to call this before rasterizing, otherwise
+    /// the program will panic.
     pub fn flush(&mut self) {
         self.dispatcher.flush();
     }
@@ -303,6 +307,7 @@ impl RenderContext {
         height: u16,
         render_mode: RenderMode,
     ) {
+        // TODO: Maybe we should move those checks into the dispatcher.
         let wide = self.dispatcher.wide();
         assert!(
             !wide.has_layers(),

@@ -62,6 +62,8 @@ impl<'a> Regions<'a> {
         Self { regions }
     }
 
+    /// Apply the given function to each region. The functions will be applied
+    /// in parallel in the current threadpool.
     #[cfg(feature = "multithreading")]
     pub fn update_regions_par(&mut self, func: impl Fn(&mut Region<'_>) + Send + Sync) {
         use rayon::iter::ParallelIterator;
@@ -70,6 +72,7 @@ impl<'a> Regions<'a> {
         self.regions.par_iter_mut().for_each(func);
     }
 
+    /// Apply the given function to each region.
     pub fn update_regions(&mut self, func: impl FnMut(&mut Region<'_>)) {
         self.regions.iter_mut().for_each(func);
     }
