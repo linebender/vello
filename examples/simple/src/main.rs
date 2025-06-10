@@ -70,7 +70,7 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
 
         // Create a vello Renderer for the surface (using its device id)
         self.renderers
-            .resize_with(self.context.devices.len(), || None);
+            .resize_with(self.context.device_pool.len(), || None);
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
@@ -105,8 +105,7 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
 
             // Resize the surface when the window is resized
             WindowEvent::Resized(size) => {
-                self.context
-                    .resize_surface(surface, size.width, size.height);
+                surface.resize(size.width, size.height);
             }
 
             // This is where all the rendering happens
@@ -123,7 +122,7 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                 let height = surface.config.height;
 
                 // Get a handle to the device
-                let device_handle = &self.context.devices[surface.dev_id];
+                let device_handle = &self.context.device_pool[surface.dev_id];
 
                 // Render to a texture, which we will later copy into the surface
                 self.renderers[surface.dev_id]
@@ -204,7 +203,7 @@ fn create_winit_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
 /// Helper function that creates a vello `Renderer` for a given `RenderContext` and `RenderSurface`
 fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface<'_>) -> Renderer {
     Renderer::new(
-        &render_cx.devices[surface.dev_id].device,
+        &render_cx.device_pool[surface.dev_id].device,
         RendererOptions::default(),
     )
     .expect("Couldn't create renderer")
