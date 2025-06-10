@@ -31,7 +31,7 @@ std = ["vello_common/std"]
 libm = ["vello_common/libm", "dep:libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
 png = ["vello_common/png"]
-# Enable multi-threaded rendering (currently only a part of the pipeline can be parallelized).
+# Enable multi-threaded rendering.
 multithreading = ["std", "dep:rayon", "dep:thread_local"]
 
 [lints]
