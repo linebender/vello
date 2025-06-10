@@ -1,26 +1,26 @@
+use crate::RenderMode;
+use crate::dispatch::Dispatcher;
+use crate::fine::{Fine, FineType};
+use crate::kurbo::{Affine, BezPath, PathSeg, Point, Stroke};
+use crate::peniko::{BlendMode, Fill};
+use crate::region::Regions;
+use crate::strip_generator::StripGenerator;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
-use std::sync::Mutex;
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
-use crate::dispatch::Dispatcher;
-use crate::fine::{Fine, FineType};
-use crate::kurbo::{Affine, BezPath, PathSeg, Point, Stroke};
-use crate::peniko::{BlendMode, Fill};
-use crate::region::Regions;
-use crate::RenderMode;
-use crate::strip_generator::StripGenerator;
 
 // TODO: Fine-tune this parameter.
 const COST_THRESHOLD: f32 = 5.0;
@@ -58,17 +58,24 @@ impl MultiThreadedDispatcher {
             let alpha_storage = alpha_storage.clone();
             let thread_ids = Arc::new(AtomicU16::new(0));
             let workers = workers.clone();
-            
+
             // Initialize all workers once in `new`, so that later on we can just call`.get().unwrap()`.
             thread_pool.spawn_broadcast(move |_| {
-                let _ = workers.get_or(|| RefCell::new(Worker::new(width, height, thread_ids.fetch_add(1, Ordering::SeqCst), alpha_storage.clone())));
+                let _ = workers.get_or(|| {
+                    RefCell::new(Worker::new(
+                        width,
+                        height,
+                        thread_ids.fetch_add(1, Ordering::SeqCst),
+                        alpha_storage.clone(),
+                    ))
+                });
             });
         }
-        
+
         let cmd_idx = 0;
         let batch_cost = 0.0;
         let flushed = RefCell::new(false);
-        
+
         let mut dispatcher = Self {
             wide,
             thread_pool,
@@ -82,9 +89,9 @@ impl MultiThreadedDispatcher {
             alpha_storage,
             num_threads,
         };
-        
+
         dispatcher.init();
-        
+
         dispatcher
     }
 
@@ -117,7 +124,7 @@ impl MultiThreadedDispatcher {
 
     fn register_task(&mut self, task: RenderTask) {
         *(self.flushed.borrow_mut()) = false;
-        
+
         let cost = task.estimate_render_time();
         self.task_batch.push(task);
         self.batch_cost += cost;
@@ -127,7 +134,7 @@ impl MultiThreadedDispatcher {
             self.batch_cost = 0.0;
         }
     }
-    
+
     fn flush_tasks(&mut self) {
         let tasks = std::mem::replace(&mut self.task_batch, Vec::with_capacity(50));
         self.send_pending_tasks(tasks);
@@ -151,7 +158,7 @@ impl MultiThreadedDispatcher {
     // command, we check whether there are already any generated strips, and if so we do coarse
     // rasterization for them on the main thread. In this case, we want to abort in case there are
     // no more path strips available to process.
-    // 
+    //
     // The second phase is when we are flushing, in which case even if the queue is empty, we only
     // want to abort once all workers have closed the channel (and thus there won't be any more
     // new strips that will be generated.
@@ -162,35 +169,41 @@ impl MultiThreadedDispatcher {
 
         loop {
             match result_receiver.try_recv() {
-                Ok(cmd) => {
-                    match cmd {
-                        CoarseCommand::Render {
-                            strips,
-                            fill_rule,
-                            paint,
-                        } => self.wide.generate(&strips, fill_rule, paint.clone()),
-                        CoarseCommand::PushLayer {
-                            clip_path,
-                            blend_mode,
-                            mask,
-                            opacity,
-                        } => self.wide.push_layer(clip_path.clone(), blend_mode, mask.clone(), opacity),
-                        CoarseCommand::PopLayer => self.wide.pop_layer(),
-                    }
-                }
+                Ok(cmd) => match cmd {
+                    CoarseCommand::Render {
+                        strips,
+                        fill_rule,
+                        paint,
+                    } => self.wide.generate(&strips, fill_rule, paint.clone()),
+                    CoarseCommand::PushLayer {
+                        clip_path,
+                        blend_mode,
+                        mask,
+                        opacity,
+                    } => self
+                        .wide
+                        .push_layer(clip_path.clone(), blend_mode, mask.clone(), opacity),
+                    CoarseCommand::PopLayer => self.wide.pop_layer(),
+                },
                 Err(e) => match e {
-                    TryRecvError::Empty => if abort_empty {
-                        return
+                    TryRecvError::Empty => {
+                        if abort_empty {
+                            return;
+                        }
                     }
-                    TryRecvError::Disconnected => {
-                        return
-                    }
-                }
+                    TryRecvError::Disconnected => return,
+                },
             }
         }
     }
 
-    fn rasterize<F: FineType>(&self, buffer: &mut [u8], width: u16, height: u16, encoded_paints: &[EncodedPaint]) {
+    fn rasterize<F: FineType>(
+        &self,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
         let mut buffer = Regions::new(width, height, buffer);
         let fines = ThreadLocal::new();
         let wide = &self.wide;
@@ -201,9 +214,7 @@ impl MultiThreadedDispatcher {
                 let x = region.x;
                 let y = region.y;
 
-                let mut fine = fines
-                    .get_or(|| RefCell::new(Fine::new()))
-                    .borrow_mut();
+                let mut fine = fines.get_or(|| RefCell::new(Fine::new())).borrow_mut();
 
                 let wtile = wide.get(x, y);
                 fine.set_coords(x, y);
@@ -213,7 +224,7 @@ impl MultiThreadedDispatcher {
                     let thread_idx = match cmd {
                         Cmd::AlphaFill(a) => Some(a.thread_idx),
                         Cmd::ClipStrip(a) => Some(a.thread_idx),
-                        _ => None
+                        _ => None,
                     };
 
                     let alphas = thread_idx
@@ -236,19 +247,19 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn fill_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, paint: Paint) {
         let task_idx = self.bump_task_idx();
-        
+
         self.register_task(RenderTask::FillPath {
             path: path.clone(),
             transform,
             paint,
             fill_rule,
             task_idx,
-        })    
+        })
     }
 
     fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint) {
         let task_idx = self.bump_task_idx();
-        
+
         self.register_task(RenderTask::StrokePath {
             path: path.clone(),
             transform,
@@ -258,9 +269,17 @@ impl Dispatcher for MultiThreadedDispatcher {
         })
     }
 
-    fn push_layer(&mut self, clip_path: Option<&BezPath>, fill_rule: Fill, clip_transform: Affine, blend_mode: BlendMode, opacity: f32, mask: Option<Mask>) {
+    fn push_layer(
+        &mut self,
+        clip_path: Option<&BezPath>,
+        fill_rule: Fill,
+        clip_transform: Affine,
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+    ) {
         let task_idx = self.bump_task_idx();
-        
+
         self.register_task(RenderTask::PushLayer {
             clip_path: clip_path.cloned().map(|c| (c, clip_transform)),
             blend_mode,
@@ -273,10 +292,8 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn pop_layer(&mut self) {
         let task_idx = self.bump_task_idx();
-        
-        self.register_task(RenderTask::PopLayer {
-            task_idx,
-        })   
+
+        self.register_task(RenderTask::PopLayer { task_idx })
     }
 
     fn reset(&mut self) {
@@ -302,10 +319,8 @@ impl Dispatcher for MultiThreadedDispatcher {
 
         // TODO: Maybe there is a better way of doing this? Something like a `WaitGroup`, but that
         // can be used in conjunction with `spawn_broadcast`.
-        while thread_counter.load(Ordering::SeqCst) > 0 {
+        while thread_counter.load(Ordering::SeqCst) > 0 {}
 
-        }
-        
         self.init();
     }
 
@@ -317,12 +332,26 @@ impl Dispatcher for MultiThreadedDispatcher {
         *(self.flushed.borrow_mut()) = true;
     }
 
-    fn rasterize(&self, buffer: &mut [u8], render_mode: RenderMode, width: u16, height: u16, encoded_paints: &[EncodedPaint]) {
-        assert!(*self.flushed.borrow(), "attempted to rasterize before flushing");
-        
+    fn rasterize(
+        &self,
+        buffer: &mut [u8],
+        render_mode: RenderMode,
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
+        assert!(
+            *self.flushed.borrow(),
+            "attempted to rasterize before flushing"
+        );
+
         match render_mode {
-            RenderMode::OptimizeSpeed => self.rasterize::<u8>(buffer, width, height, encoded_paints),
-            RenderMode::OptimizeQuality => self.rasterize::<f32>(buffer, width, height, encoded_paints)
+            RenderMode::OptimizeSpeed => {
+                self.rasterize::<u8>(buffer, width, height, encoded_paints)
+            }
+            RenderMode::OptimizeQuality => {
+                self.rasterize::<f32>(buffer, width, height, encoded_paints)
+            }
         }
     }
 }
@@ -365,19 +394,26 @@ enum RenderTask {
 impl RenderTask {
     fn estimate_render_time(&self) -> f32 {
         match self {
-            RenderTask::FillPath { path, transform, .. } => {
+            RenderTask::FillPath {
+                path, transform, ..
+            } => {
                 let path_cost_data = PathCostData::new(&path, *transform);
                 estimate_runtime_in_micros(&path_cost_data, false)
             }
-            RenderTask::StrokePath { path, transform, .. } => {
+            RenderTask::StrokePath {
+                path, transform, ..
+            } => {
                 let path_cost_data = PathCostData::new(&path, *transform);
                 estimate_runtime_in_micros(&path_cost_data, true)
             }
-            RenderTask::PushLayer { clip_path, .. } => clip_path.as_ref().map(|c| {
-                let path_cost_data = PathCostData::new(&c.0, c.1);
-                estimate_runtime_in_micros(&path_cost_data, false)
-            }).unwrap_or(0.0),
-            RenderTask::PopLayer { .. } => 0.0
+            RenderTask::PushLayer { clip_path, .. } => clip_path
+                .as_ref()
+                .map(|c| {
+                    let path_cost_data = PathCostData::new(&c.0, c.1);
+                    estimate_runtime_in_micros(&path_cost_data, false)
+                })
+                .unwrap_or(0.0),
+            RenderTask::PopLayer { .. } => 0.0,
         }
     }
 }
@@ -405,38 +441,54 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(width: u16, height: u16, thread_id: u16,
-                      alpha_storage: Arc<Mutex<HashMap<u16, Arc<Vec<u8>>>>>
+    fn new(
+        width: u16,
+        height: u16,
+        thread_id: u16,
+        alpha_storage: Arc<Mutex<HashMap<u16, Arc<Vec<u8>>>>>,
     ) -> Self {
         let strip_generator = StripGenerator::new(width, height, thread_id);
-        
+
         Self {
             strip_generator,
             thread_id,
             alpha_storage,
         }
     }
-    
+
     fn reset(&mut self) {
         self.strip_generator.reset();
     }
-    
+
     fn run_tasks(&mut self, tasks: Vec<RenderTask>, result_sender: &mut CoarseCommandSender) {
         for task in tasks {
             match task {
-                RenderTask::FillPath { path, transform, paint, fill_rule, task_idx } => {
+                RenderTask::FillPath {
+                    path,
+                    transform,
+                    paint,
+                    fill_rule,
+                    task_idx,
+                } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseCommand::Render {
                             strips: strips.into(),
                             fill_rule,
                             paint,
                         };
-                        result_sender.send(task_idx, coarse_command).unwrap();    
+                        result_sender.send(task_idx, coarse_command).unwrap();
                     };
-                    
-                    self.strip_generator.generate_filled_path(&path, fill_rule, transform, func);
+
+                    self.strip_generator
+                        .generate_filled_path(&path, fill_rule, transform, func);
                 }
-                RenderTask::StrokePath { path, transform, paint, stroke, task_idx } => {
+                RenderTask::StrokePath {
+                    path,
+                    transform,
+                    paint,
+                    stroke,
+                    task_idx,
+                } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseCommand::Render {
                             strips: strips.into(),
@@ -446,45 +498,61 @@ impl Worker {
                         result_sender.send(task_idx, coarse_command).unwrap();
                     };
 
-                    self.strip_generator.generate_stroked_path(&path, &stroke, transform, func);
+                    self.strip_generator
+                        .generate_stroked_path(&path, &stroke, transform, func);
                 }
-                RenderTask::PushLayer { clip_path, blend_mode, opacity, mask, fill_rule, task_idx } => {
+                RenderTask::PushLayer {
+                    clip_path,
+                    blend_mode,
+                    opacity,
+                    mask,
+                    fill_rule,
+                    task_idx,
+                } => {
                     let clip = if let Some((c, transform)) = clip_path {
                         let mut strip_buf = &[][..];
-                        self.strip_generator.generate_filled_path(&c, fill_rule, transform, |strips| strip_buf = strips);
+                        self.strip_generator.generate_filled_path(
+                            &c,
+                            fill_rule,
+                            transform,
+                            |strips| strip_buf = strips,
+                        );
 
                         Some((strip_buf.into(), fill_rule))
                     } else {
                         None
                     };
-                    
+
                     let coarse_command = CoarseCommand::PushLayer {
                         clip_path: clip,
                         blend_mode,
                         mask,
                         opacity,
                     };
-                    
-                    result_sender.send(task_idx, coarse_command).unwrap();   
+
+                    result_sender.send(task_idx, coarse_command).unwrap();
                 }
                 RenderTask::PopLayer { task_idx } => {
-                    result_sender.send(task_idx, CoarseCommand::PopLayer).unwrap();   
+                    result_sender
+                        .send(task_idx, CoarseCommand::PopLayer)
+                        .unwrap();
                 }
             }
         }
     }
 
-    fn place_alphas(
-        &mut self
-    ) {
-        self.alpha_storage.lock().unwrap().insert(self.thread_id, Arc::new(self.strip_generator.alpha_buf().to_vec()));
+    fn place_alphas(&mut self) {
+        self.alpha_storage.lock().unwrap().insert(
+            self.thread_id,
+            Arc::new(self.strip_generator.alpha_buf().to_vec()),
+        );
     }
 }
 
 struct PathCostData {
     num_line_segments: u64,
     num_curve_segments: u64,
-    path_length: f64
+    path_length: f64,
 }
 
 impl PathCostData {
@@ -492,7 +560,7 @@ impl PathCostData {
         let mut num_line_segments = 0;
         let mut num_curve_segments = 0;
         let mut path_length = 0.0;
-        
+
         let mut register_path_length = |mut p0: Point, mut p1: Point| {
             p0 = transform * p0;
             p1 = transform * p1;
@@ -521,7 +589,7 @@ impl PathCostData {
                 }
             }
         }
-        
+
         PathCostData {
             num_line_segments,
             num_curve_segments,
@@ -544,10 +612,7 @@ fn estimate_runtime_in_micros(path_cost_data: &PathCostData, is_stroke: bool) ->
     let curve_log = (1.0 + curve_segments).ln();
     let path_log = (1.0 + path_length).ln();
 
-    let complexity = 4.6223
-        - 3.5740 * line_log
-        + 12.5549 * curve_log
-        - 1.4774 * path_log
+    let complexity = 4.6223 - 3.5740 * line_log + 12.5549 * curve_log - 1.4774 * path_log
         + 1.1412 * line_log * path_log;
 
     let stroke_multiplier = if is_stroke { 6.8737 } else { 1.0 };

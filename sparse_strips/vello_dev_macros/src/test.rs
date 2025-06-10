@@ -66,7 +66,10 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let input_fn_name = input_fn.sig.ident.clone();
     let u8_fn_name = Ident::new(&format!("{}_cpu_u8", input_fn_name), input_fn_name.span());
     let f32_fn_name = Ident::new(&format!("{}_cpu_f32", input_fn_name), input_fn_name.span());
-    let multithreaded_fn_name = Ident::new(&format!("{}_cpu_multithreaded", input_fn_name), input_fn_name.span());
+    let multithreaded_fn_name = Ident::new(
+        &format!("{}_cpu_multithreaded", input_fn_name),
+        input_fn_name.span(),
+    );
     let hybrid_fn_name = Ident::new(&format!("{}_hybrid", input_fn_name), input_fn_name.span());
     let webgl_fn_name = Ident::new(
         &format!("{}_hybrid_webgl", input_fn_name),
@@ -216,7 +219,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         #u8_snippet
 
         #f32_snippet
-        
+
         #multi_threaded_snippet
 
         #ignore_hybrid

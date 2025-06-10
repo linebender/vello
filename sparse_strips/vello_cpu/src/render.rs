@@ -3,8 +3,12 @@
 
 //! Basic render operations.
 
-use alloc::boxed::Box;
 use crate::RenderMode;
+use crate::dispatch::Dispatcher;
+use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
+use crate::dispatch::single_threaded::SingleThreadedDispatcher;
+use crate::kurbo::{PathEl, Point};
+use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -16,15 +20,11 @@ use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGly
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{Image, Paint, PaintType};
+use vello_common::peniko;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Gradient, Mix};
 use vello_common::peniko::{Font, ImageQuality};
 use vello_common::pixmap::Pixmap;
-use vello_common::peniko;
-use crate::dispatch::Dispatcher;
-use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
-use crate::dispatch::single_threaded::SingleThreadedDispatcher;
-use crate::kurbo::{PathEl, Point};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -44,34 +44,27 @@ pub struct RenderContext {
 
 impl RenderContext {
     /// Create a new render context with the given width and height in pixels.
-    pub fn new(
-        width: u16, 
-        height: u16
-    ) -> Self {
+    pub fn new(width: u16, height: u16) -> Self {
         Self::new_inner(width, height, 0)
     }
-    
+
     /// Create a new multi-threaded render context with the given width and height in pixels.
-    /// 
+    ///
     /// Note that `num_threads` refers to the number of threads that will be created _in addition_
     /// to the main thread.
     #[cfg(feature = "multithreading")]
-    pub fn new_multithreaded(
-        width: u16, 
-        height: u16,
-        num_threads: u16,
-    ) -> Self {
+    pub fn new_multithreaded(width: u16, height: u16, num_threads: u16) -> Self {
         Self::new_inner(width, height, num_threads)
     }
-    
+
     fn new_inner(width: u16, height: u16, num_threads: u16) -> Self {
         #[cfg(feature = "multithreading")]
         let dispatcher: Box<dyn Dispatcher> = if num_threads == 0 {
             Box::new(SingleThreadedDispatcher::new(width, height))
-        }   else {
+        } else {
             Box::new(MultiThreadedDispatcher::new(width, height, num_threads))
         };
-        
+
         #[cfg(not(feature = "multithreading"))]
         let dispatcher: Box<dyn Dispatcher> = {
             let _ = num_threads;
@@ -91,7 +84,7 @@ impl RenderContext {
         };
         let encoded_paints = vec![];
         let temp_path = BezPath::new();
-        
+
         Self {
             width,
             height,
@@ -126,13 +119,15 @@ impl RenderContext {
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
         let paint = self.encode_current_paint();
-        self.dispatcher.fill_path(path, self.fill_rule, self.transform, paint);
+        self.dispatcher
+            .fill_path(path, self.fill_rule, self.transform, paint);
     }
 
     /// Stroke a path.
     pub fn stroke_path(&mut self, path: &BezPath) {
         let paint = self.encode_current_paint();
-        self.dispatcher.stroke_path(path, &self.stroke, self.transform, paint);
+        self.dispatcher
+            .stroke_path(path, &self.stroke, self.transform, paint);
     }
 
     /// Fill a rectangle.
@@ -140,14 +135,19 @@ impl RenderContext {
         // Don't use `rect.to_path` here, because it will perform a new allocation, which
         // profiling showed can become a bottleneck for many small rectangles.
         self.temp_path.truncate(0);
-        self.temp_path.push(PathEl::MoveTo(Point::new(rect.x0, rect.y0)));
-        self.temp_path.push(PathEl::LineTo(Point::new(rect.x1, rect.y0)));
-        self.temp_path.push(PathEl::LineTo(Point::new(rect.x1, rect.y1)));
-        self.temp_path.push(PathEl::LineTo(Point::new(rect.x0, rect.y1)));
+        self.temp_path
+            .push(PathEl::MoveTo(Point::new(rect.x0, rect.y0)));
+        self.temp_path
+            .push(PathEl::LineTo(Point::new(rect.x1, rect.y0)));
+        self.temp_path
+            .push(PathEl::LineTo(Point::new(rect.x1, rect.y1)));
+        self.temp_path
+            .push(PathEl::LineTo(Point::new(rect.x0, rect.y1)));
         self.temp_path.push(PathEl::ClosePath);
 
         let paint = self.encode_current_paint();
-        self.dispatcher.fill_path(&self.temp_path, self.fill_rule, self.transform, paint);
+        self.dispatcher
+            .fill_path(&self.temp_path, self.fill_rule, self.transform, paint);
     }
 
     /// Fill a blurred rectangle with the given radius and standard deviation.
@@ -177,7 +177,12 @@ impl RenderContext {
         let transform = self.transform * self.paint_transform;
 
         let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform);
-        self.dispatcher.fill_path(&inflated_rect.to_path(0.1), Fill::NonZero, self.transform, paint);
+        self.dispatcher.fill_path(
+            &inflated_rect.to_path(0.1),
+            Fill::NonZero,
+            self.transform,
+            paint,
+        );
     }
 
     /// Stroke a rectangle.
@@ -209,11 +214,18 @@ impl RenderContext {
                 Some(m)
             }
         });
-        
+
         let blend_mode = blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver));
         let opacity = opacity.unwrap_or(1.0);
 
-        self.dispatcher.push_layer(clip_path, self.fill_rule, self.transform, blend_mode, opacity, mask);
+        self.dispatcher.push_layer(
+            clip_path,
+            self.fill_rule,
+            self.transform,
+            blend_mode,
+            opacity,
+            mask,
+        );
     }
 
     /// Push a new clip layer.
@@ -288,9 +300,9 @@ impl RenderContext {
     pub fn reset(&mut self) {
         self.dispatcher.reset();
     }
-    
+
     /// Flush any pending operations.
-    /// 
+    ///
     /// This is a no-op when using the single-threaded render mode, and can be ignored.
     /// For multi-threaded rendering, you _have_ to call this before rasterizing, otherwise
     /// the program will panic.
@@ -309,10 +321,7 @@ impl RenderContext {
     ) {
         // TODO: Maybe we should move those checks into the dispatcher.
         let wide = self.dispatcher.wide();
-        assert!(
-            !wide.has_layers(),
-            "some layers haven't been popped yet"
-        );
+        assert!(!wide.has_layers(), "some layers haven't been popped yet");
         assert_eq!(
             buffer.len(),
             (width as usize) * (height as usize) * 4,
@@ -322,7 +331,8 @@ impl RenderContext {
             buffer.len(),
         );
 
-        self.dispatcher.rasterize(buffer, render_mode, width, height, &self.encoded_paints);
+        self.dispatcher
+            .rasterize(buffer, render_mode, width, height, &self.encoded_paints);
     }
 
     /// Render the current context into a pixmap.
@@ -348,7 +358,12 @@ impl GlyphRenderer for RenderContext {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
                 let paint = self.encode_current_paint();
-                self.dispatcher.fill_path(&glyph.path, Fill::NonZero, prepared_glyph.transform, paint);
+                self.dispatcher.fill_path(
+                    &glyph.path,
+                    Fill::NonZero,
+                    prepared_glyph.transform,
+                    paint,
+                );
             }
             GlyphType::Bitmap(glyph) => {
                 // We need to change the state of the render context
@@ -428,7 +443,12 @@ impl GlyphRenderer for RenderContext {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
                 let paint = self.encode_current_paint();
-                self.dispatcher.stroke_path(&glyph.path, &self.stroke, prepared_glyph.transform, paint);
+                self.dispatcher.stroke_path(
+                    &glyph.path,
+                    &self.stroke,
+                    prepared_glyph.transform,
+                    paint,
+                );
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
                 // The definitions of COLR and bitmap glyphs can't meaningfully support being stroked.

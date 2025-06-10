@@ -1,10 +1,10 @@
+use crate::kurbo::{Affine, BezPath, Stroke};
+use crate::peniko::Fill;
 use alloc::vec::Vec;
-use vello_common::{flatten, strip};
 use vello_common::flatten::Line;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
-use crate::kurbo::{Affine, BezPath, Stroke};
-use crate::peniko::Fill;
+use vello_common::{flatten, strip};
 
 #[derive(Debug)]
 pub(crate) struct StripGenerator {
@@ -14,7 +14,7 @@ pub(crate) struct StripGenerator {
     strip_buf: Vec<Strip>,
     width: u16,
     height: u16,
-    thread_idx: u16
+    thread_idx: u16,
 }
 
 impl StripGenerator {
@@ -26,17 +26,29 @@ impl StripGenerator {
             strip_buf: Vec::new(),
             thread_idx,
             width,
-            height
+            height,
         }
     }
 
-    pub(crate) fn generate_filled_path<'a>(&'a mut self, path: &BezPath, fill_rule: Fill, transform: Affine, func: impl FnOnce(&'a [Strip])) {
+    pub(crate) fn generate_filled_path<'a>(
+        &'a mut self,
+        path: &BezPath,
+        fill_rule: Fill,
+        transform: Affine,
+        func: impl FnOnce(&'a [Strip]),
+    ) {
         flatten::fill(path, transform, &mut self.line_buf);
         self.make_strips(fill_rule);
         func(&mut self.strip_buf);
     }
-    
-    pub(crate) fn generate_stroked_path<'a>(&'a mut self, path: &BezPath, stroke: &Stroke, transform: Affine, func: impl FnOnce(&'a [Strip])) {
+
+    pub(crate) fn generate_stroked_path<'a>(
+        &'a mut self,
+        path: &BezPath,
+        stroke: &Stroke,
+        transform: Affine,
+        func: impl FnOnce(&'a [Strip]),
+    ) {
         flatten::stroke(path, stroke, transform, &mut self.line_buf);
         self.make_strips(Fill::NonZero);
         func(&mut self.strip_buf);
@@ -67,6 +79,4 @@ impl StripGenerator {
             &self.line_buf,
         );
     }
-    
-
 }

@@ -1,14 +1,14 @@
-use vello_common::coarse::Wide;
-use vello_common::encode::EncodedPaint;
-use vello_common::mask::Mask;
-use vello_common::paint::Paint;
+use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::fine::{Fine, FineType};
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
-use crate::RenderMode;
 use crate::strip_generator::StripGenerator;
+use vello_common::coarse::Wide;
+use vello_common::encode::EncodedPaint;
+use vello_common::mask::Mask;
+use vello_common::paint::Paint;
 
 #[derive(Debug)]
 pub(crate) struct SingleThreadedDispatcher {
@@ -22,11 +22,18 @@ impl SingleThreadedDispatcher {
         let strip_generator = StripGenerator::new(width, height, 0);
 
         Self {
-            wide, strip_generator
+            wide,
+            strip_generator,
         }
     }
 
-    fn rasterize<F: FineType>(&self, buffer: &mut [u8], width: u16, height: u16, encoded_paints: &[EncodedPaint]) {
+    fn rasterize<F: FineType>(
+        &self,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
         let mut buffer = Regions::new(width, height, buffer);
         let mut fine = Fine::new();
 
@@ -56,35 +63,41 @@ impl Dispatcher for SingleThreadedDispatcher {
         let wide = &mut self.wide;
 
         let func = |strips| wide.generate(strips, fill_rule, paint);
-        self.strip_generator.generate_filled_path(path, fill_rule, transform, func);
+        self.strip_generator
+            .generate_filled_path(path, fill_rule, transform, func);
     }
 
     fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint) {
         let wide = &mut self.wide;
 
         let func = |strips| wide.generate(strips, Fill::NonZero, paint);
-        self.strip_generator.generate_stroked_path(path, stroke, transform, func);
+        self.strip_generator
+            .generate_stroked_path(path, stroke, transform, func);
     }
 
-    fn push_layer(&mut self, clip_path: Option<&BezPath>, fill_rule: Fill, clip_transform: Affine, blend_mode: BlendMode, opacity: f32, mask: Option<Mask>) {
+    fn push_layer(
+        &mut self,
+        clip_path: Option<&BezPath>,
+        fill_rule: Fill,
+        clip_transform: Affine,
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+    ) {
         let clip = if let Some(c) = clip_path {
             // This variable will always be assigned to in the closure, but the compiler can't recognize that.
             // So just assign a dummy value here.
             let mut strip_buf = &[][..];
 
-            self.strip_generator.generate_filled_path(c, fill_rule, clip_transform, |strips| strip_buf = strips);
+            self.strip_generator
+                .generate_filled_path(c, fill_rule, clip_transform, |strips| strip_buf = strips);
 
             Some((strip_buf, fill_rule))
         } else {
             None
         };
 
-        self.wide.push_layer(
-            clip,
-            blend_mode,
-            mask,
-            opacity,
-        );
+        self.wide.push_layer(clip, blend_mode, mask, opacity);
     }
 
     fn pop_layer(&mut self) {
@@ -96,14 +109,23 @@ impl Dispatcher for SingleThreadedDispatcher {
         self.strip_generator.reset();
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self) {}
 
-    }
-
-    fn rasterize(&self, buffer: &mut [u8], render_mode: RenderMode, width: u16, height: u16, encoded_paints: &[EncodedPaint]) {
+    fn rasterize(
+        &self,
+        buffer: &mut [u8],
+        render_mode: RenderMode,
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
         match render_mode {
-            RenderMode::OptimizeSpeed => Self::rasterize::<u8>(self, buffer, width, height, encoded_paints),
-            RenderMode::OptimizeQuality => Self::rasterize::<f32>(self, buffer, width, height, encoded_paints),
+            RenderMode::OptimizeSpeed => {
+                Self::rasterize::<u8>(self, buffer, width, height, encoded_paints)
+            }
+            RenderMode::OptimizeQuality => {
+                Self::rasterize::<f32>(self, buffer, width, height, encoded_paints)
+            }
         }
     }
 }

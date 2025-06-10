@@ -32,10 +32,15 @@ static DIFFS_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs")
 });
 
-pub(crate) fn get_ctx<T: Renderer>(width: u16, height: u16, transparent: bool, multi_threaded: bool) -> T {
+pub(crate) fn get_ctx<T: Renderer>(
+    width: u16,
+    height: u16,
+    transparent: bool,
+    multi_threaded: bool,
+) -> T {
     let mut ctx = if multi_threaded {
         T::new_multithreaded(width, height, 1)
-    }   else {
+    } else {
         T::new(width, height)
     };
 

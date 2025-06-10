@@ -86,7 +86,7 @@ impl Renderer for RenderContext {
     }
 
     fn flush(&mut self) {
-        Self::flush(self);       
+        Self::flush(self);
     }
 
     fn push_clip_layer(&mut self, path: &BezPath) {
@@ -185,9 +185,7 @@ impl Renderer for Scene {
         Self::push_layer(self, clip, blend_mode, opacity, mask);
     }
 
-    fn flush(&mut self) {
-        
-    }
+    fn flush(&mut self) {}
 
     fn push_clip_layer(&mut self, path: &BezPath) {
         Self::push_clip_layer(self, path);

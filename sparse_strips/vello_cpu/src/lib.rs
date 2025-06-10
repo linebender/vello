@@ -111,14 +111,14 @@ use libm as _;
 
 mod render;
 
+mod dispatch;
 #[doc(hidden)]
 /// This is an internal module, do not access directly.
 pub mod fine;
 #[doc(hidden)]
 pub mod region;
-mod util;
 mod strip_generator;
-mod dispatch;
+mod util;
 
 pub use render::RenderContext;
 pub use vello_common::glyph::Glyph;
