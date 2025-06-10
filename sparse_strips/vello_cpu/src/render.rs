@@ -5,6 +5,7 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
+#[cfg(feature = "multithreading")]
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};

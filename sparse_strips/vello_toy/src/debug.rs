@@ -64,6 +64,7 @@ fn main() {
             &tiles,
             &mut strip_buf,
             &mut alpha_buf,
+            0,
             args.fill_rule,
             &line_buf,
         );

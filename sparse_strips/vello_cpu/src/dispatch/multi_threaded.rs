@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::fine::{Fine, FineType};

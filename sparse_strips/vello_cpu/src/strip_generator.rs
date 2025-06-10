@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::Fill;
 use alloc::vec::Vec;

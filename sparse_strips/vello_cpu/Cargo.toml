@@ -19,8 +19,8 @@ targets = []
 [dependencies]
 libm = { version = "0.2.15", optional = true }
 vello_common = { workspace = true }
-crossbeam-channel = {workspace = true, optional = true}
-ordered-channel = { workspace = true, optional = true, features = ["crossbeam-channel"]}
+crossbeam-channel = { workspace = true, optional = true }
+ordered-channel = { workspace = true, optional = true, features = ["crossbeam-channel"] }
 rayon = { workspace = true, optional = true }
 thread_local = { workspace = true, optional = true }
 
