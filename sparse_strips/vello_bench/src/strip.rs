@@ -5,6 +5,7 @@ use crate::data::get_data_items;
 use criterion::Criterion;
 use vello_common::peniko::Fill;
 use vello_common::strip;
+use vello_common::fearless_simd::Level;
 
 pub fn render_strips(c: &mut Criterion) {
     let mut g = c.benchmark_group("render_strips");
@@ -22,8 +23,11 @@ pub fn render_strips(c: &mut Criterion) {
                 b.iter(|| {
                     strip_buf.clear();
                     alpha_buf.clear();
+                    
+                    let level = Level::new();
 
-                    strip::render(
+                    vello_common::strip_simd::render(
+                        level,
                         &tiles,
                         &mut strip_buf,
                         &mut alpha_buf,
