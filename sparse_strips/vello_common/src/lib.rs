@@ -79,3 +79,4 @@ pub mod tile;
 pub use peniko;
 pub use peniko::color;
 pub use peniko::kurbo;
+pub use fearless_simd;

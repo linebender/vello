@@ -4,26 +4,27 @@
 use crate::data::get_data_items;
 use criterion::Criterion;
 use vello_common::peniko::Fill;
-use vello_common::strip;
+use vello_common::fearless_simd::Level;
 
 pub fn render_strips(c: &mut Criterion) {
     let mut g = c.benchmark_group("render_strips");
     g.sample_size(50);
 
     macro_rules! strip_single {
-        ($item:expr) => {
+        ($item:expr, $level:expr, $suffix:expr) => {
             let lines = $item.lines();
             let tiles = $item.sorted_tiles();
 
-            g.bench_function($item.name.clone(), |b| {
+            g.bench_function(format!("{}_{}", $item.name.clone(), $suffix), |b| {
                 let mut strip_buf = vec![];
                 let mut alpha_buf = vec![];
 
                 b.iter(|| {
                     strip_buf.clear();
                     alpha_buf.clear();
-
-                    strip::render(
+                    
+                    vello_common::strip::render(
+                        $level,
                         &tiles,
                         &mut strip_buf,
                         &mut alpha_buf,
@@ -37,6 +38,7 @@ pub fn render_strips(c: &mut Criterion) {
     }
 
     for item in get_data_items() {
-        strip_single!(item);
+        strip_single!(item, Level::fallback(), "fallback");
+        strip_single!(item, Level::new(), "simd");
     }
 }

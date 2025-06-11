@@ -20,6 +20,7 @@ use std::sync::{Barrier, OnceLock};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
+use vello_common::fearless_simd::Level;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
@@ -49,7 +50,7 @@ pub(crate) struct MultiThreadedDispatcher {
 }
 
 impl MultiThreadedDispatcher {
-    pub(crate) fn new(width: u16, height: u16, num_threads: u16) -> Self {
+    pub(crate) fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
         let wide = Wide::new(width, height);
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(num_threads as usize)
@@ -72,6 +73,7 @@ impl MultiThreadedDispatcher {
                         height,
                         thread_ids.fetch_add(1, Ordering::SeqCst),
                         alpha_storage.clone(),
+                        level
                     ))
                 });
             });
@@ -481,8 +483,9 @@ impl Worker {
         height: u16,
         thread_id: u8,
         alpha_storage: Arc<OnceLockAlphaStorage>,
+        level: Level
     ) -> Self {
-        let strip_generator = StripGenerator::new(width, height);
+        let strip_generator = StripGenerator::new(width, height, level);
 
         Self {
             strip_generator,

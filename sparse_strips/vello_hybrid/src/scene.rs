@@ -17,6 +17,7 @@ use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
+use vello_common::fearless_simd::{Fallback, Level};
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -264,6 +265,7 @@ impl Scene {
         self.tiles.sort_tiles();
 
         strip::render(
+            Level::fallback(),
             &self.tiles,
             &mut self.strip_buf,
             &mut self.alphas,

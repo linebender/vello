@@ -11,6 +11,7 @@ use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
+use vello_common::fearless_simd::Level;
 
 static DATA: OnceLock<Vec<DataItem>> = OnceLock::new();
 
@@ -125,6 +126,7 @@ impl DataItem {
         let tiles = self.sorted_tiles();
 
         strip::render(
+            Level::fallback(),
             &tiles,
             &mut strip_buf,
             &mut alpha_buf,

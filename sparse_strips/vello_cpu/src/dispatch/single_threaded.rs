@@ -10,6 +10,7 @@ use crate::region::Regions;
 use crate::strip_generator::StripGenerator;
 use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
+use vello_common::fearless_simd::Level;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 
@@ -20,9 +21,9 @@ pub(crate) struct SingleThreadedDispatcher {
 }
 
 impl SingleThreadedDispatcher {
-    pub(crate) fn new(width: u16, height: u16) -> Self {
+    pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
         let wide = Wide::new(width, height);
-        let strip_generator = StripGenerator::new(width, height);
+        let strip_generator = StripGenerator::new(width, height, level);
 
         Self {
             wide,
