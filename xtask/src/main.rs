@@ -16,7 +16,8 @@ struct ActionsImpl();
 #[command(version, about, long_about = None)]
 /// Top-level command line parser for xtask
 pub struct Cli {
-    /// Command
+    /// The possible commands in this CLI.
+    /// This enables (future) global flags to be added to this struct
     #[clap(subcommand)]
     pub command: CliCommand,
 }
@@ -52,7 +53,8 @@ impl Actions for ActionsImpl {
     fn generate_all_tests(&self) -> kompari::Result<()> {
         let cargo = std::env::var("CARGO").unwrap();
         Command::new(&cargo)
-            .arg("test")
+            .arg("nextest")
+            .arg("run")
             .env("VELLO_TEST_GENERATE_ALL", "1")
             .status()?;
         Ok(())
