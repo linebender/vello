@@ -198,7 +198,7 @@ impl Renderer for Scene {
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
         let paint_type: PaintType = paint.into();
         match paint_type {
-            PaintType::Solid(s) => Self::set_paint(self, s.into()),
+            PaintType::Solid(s) => Self::set_paint(self, s),
             PaintType::Gradient(_) => {}
             PaintType::Image(_) => {}
         }

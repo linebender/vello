@@ -10,7 +10,7 @@ use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::Paint;
+use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
@@ -25,7 +25,7 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// the current transform.
 #[derive(Debug)]
 struct RenderState {
-    pub(crate) paint: Paint,
+    pub(crate) paint: PaintType,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
@@ -45,7 +45,7 @@ pub struct Scene {
     pub(crate) line_buf: Vec<Line>,
     pub(crate) tiles: Tiles,
     pub(crate) strip_buf: Vec<Strip>,
-    pub(crate) paint: Paint,
+    pub(crate) paint: PaintType,
     paint_visible: bool,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
@@ -96,13 +96,26 @@ impl Scene {
         }
     }
 
+    fn encode_current_paint(&mut self) -> Paint {
+        match self.paint.clone() {
+            PaintType::Solid(s) => s.into(),
+            PaintType::Gradient(_) => {
+                unimplemented!("gradient not implemented")
+            }
+            PaintType::Image(_) => {
+                unimplemented!("images not implemented")
+            }
+        }
+    }
+
     /// Fill a path with the current paint and fill rule.
     pub fn fill_path(&mut self, path: &BezPath) {
         if !self.paint_visible {
             return;
         }
         flatten::fill(path, self.transform, &mut self.line_buf);
-        self.render_path(self.fill_rule, self.paint.clone());
+        let paint = self.encode_current_paint();
+        self.render_path(self.fill_rule, paint);
     }
 
     /// Stroke a path with the current paint and stroke settings.
@@ -111,7 +124,8 @@ impl Scene {
             return;
         }
         flatten::stroke(path, &self.stroke, self.transform, &mut self.line_buf);
-        self.render_path(Fill::NonZero, self.paint.clone());
+        let paint = self.encode_current_paint();
+        self.render_path(Fill::NonZero, paint);
     }
 
     /// Fill a rectangle with the current paint and fill rule.
@@ -187,12 +201,13 @@ impl Scene {
     }
 
     /// Set the paint for subsequent rendering operations.
-    pub fn set_paint(&mut self, paint: Paint) {
-        self.paint_visible = match &paint {
-            Paint::Solid(color) => !color.is_transparent(),
-            Paint::Indexed(_) => true,
-        };
-        self.paint = paint;
+    // TODO: This API is not final. Supporting images from a pixmap is explicitly out of scope.
+    //       Instead images should be passed via a backend-agnostic opaque id, and be hydrated at
+    //       render time into a texture usable by the renderer backend.
+    pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
+        self.paint = paint.into();
+        self.paint_visible =
+            matches!(&self.paint, PaintType::Solid(color) if color.components[3] != 0.0);
     }
 
     /// Set the fill rule for subsequent fill operations.
@@ -262,7 +277,8 @@ impl GlyphRenderer for Scene {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
                 flatten::fill(glyph.path, prepared_glyph.transform, &mut self.line_buf);
-                self.render_path(Fill::NonZero, self.paint.clone());
+                let paint = self.encode_current_paint();
+                self.render_path(Fill::NonZero, paint);
             }
             GlyphType::Bitmap(_) => {}
             GlyphType::Colr(_) => {}
@@ -278,7 +294,8 @@ impl GlyphRenderer for Scene {
                     prepared_glyph.transform,
                     &mut self.line_buf,
                 );
-                self.render_path(Fill::NonZero, self.paint.clone());
+                let paint = self.encode_current_paint();
+                self.render_path(Fill::NonZero, paint);
             }
             GlyphType::Bitmap(_) => {}
             GlyphType::Colr(_) => {}
