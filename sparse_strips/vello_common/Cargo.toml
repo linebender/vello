@@ -35,6 +35,8 @@ std = ["peniko/std", "skrifa/std"]
 libm = ["peniko/libm", "skrifa/libm", "dep:libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
 png = ["std", "dep:png"]
+# Enable multi-threaded rendering.
+multithreading = []
 
 # Development only features
 

@@ -276,6 +276,7 @@ impl Wide {
                     x: x_wtile_rel,
                     width,
                     alpha_idx: (col * u32::from(Tile::HEIGHT)) as usize,
+                    #[cfg(feature = "multithreading")]
                     thread_idx: strip.thread_idx,
                     paint: paint.clone(),
                     blend_mode: None,
@@ -645,6 +646,7 @@ impl Wide {
                 let cmd = CmdClipAlphaFill {
                     x: x_rel,
                     width: u32::from(width),
+                    #[cfg(feature = "multithreading")]
                     thread_idx: strip.thread_idx,
                     alpha_idx: col as usize * Tile::HEIGHT as usize,
                 };
@@ -997,6 +999,7 @@ pub struct CmdAlphaFill {
     /// The index of the thread that contains the alpha values
     /// pointed to by `alpha_idx`. Can be ignored if multi-threaded rendering
     /// is not enabled/supported.
+    #[cfg(feature = "multithreading")]
     pub thread_idx: u16,
     /// The paint that should be used to fill the area.
     pub paint: Paint,
@@ -1023,6 +1026,7 @@ pub struct CmdClipAlphaFill {
     /// The index of the thread that contains the alpha values
     /// pointed to by `alpha_idx`. Can be ignored if multi-threaded rendering
     /// is not enabled/supported.
+    #[cfg(feature = "multithreading")]
     pub thread_idx: u16,
     /// The start index into the alpha buffer of the command.
     pub alpha_idx: usize,
@@ -1173,6 +1177,7 @@ mod tests {
             x: 2,
             y: 2,
             alpha_idx: 0,
+            #[cfg(feature = "multithreading")]
             thread_idx: 0,
             winding: 1,
         };
