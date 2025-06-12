@@ -24,7 +24,7 @@ mod wasm {
         path.line_to((50.0, 20.0));
         path.line_to((70.0, 40.0));
         path.close_path();
-        scene.set_paint(palette::css::BLUE.into());
+        scene.set_paint(palette::css::BLUE);
         scene.fill_path(&path);
 
         render_scene(scene, 100, 100).await;
