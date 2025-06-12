@@ -153,11 +153,6 @@ impl PremulColor {
     pub fn is_opaque(&self) -> bool {
         self.premul_f32.components[3] == 1.0
     }
-
-    /// Return whether the color is transparent.
-    pub fn is_transparent(&self) -> bool {
-        self.premul_f32.components[3] == 0.0
-    }
 }
 
 /// A kind of paint that can be used for filling and stroking shapes.

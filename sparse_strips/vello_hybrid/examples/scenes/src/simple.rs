@@ -44,10 +44,10 @@ pub fn render(ctx: &mut Scene, root_transform: Affine) {
     let scene_transform = Affine::scale(5.0);
     ctx.set_transform(root_transform * scene_transform);
 
-    ctx.set_paint(palette::css::REBECCA_PURPLE.into());
+    ctx.set_paint(palette::css::REBECCA_PURPLE);
     ctx.fill_path(&path);
     let stroke = Stroke::new(1.0);
-    ctx.set_paint(palette::css::DARK_BLUE.into());
+    ctx.set_paint(palette::css::DARK_BLUE);
     ctx.set_stroke(stroke);
     ctx.stroke_path(&path);
 }

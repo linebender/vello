@@ -42,7 +42,7 @@ impl Default for ClipScene {
 
 fn draw_clipping_outline(ctx: &mut Scene, path: &BezPath) {
     let stroke = Stroke::new(1.0);
-    ctx.set_paint(DARK_BLUE.into());
+    ctx.set_paint(DARK_BLUE);
     ctx.set_stroke(stroke);
     ctx.stroke_path(path);
 }
@@ -79,7 +79,7 @@ pub fn render(ctx: &mut Scene, root_transform: Affine) {
             draw_clipping_outline(ctx, &clip_circle);
             ctx.push_clip_layer(&clip_circle);
 
-            ctx.set_paint((*color).into());
+            ctx.set_paint(*color);
             ctx.fill_rect(&COVER_RECT);
 
             radius -= RADIUS_DECREMENT;
