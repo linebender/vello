@@ -997,8 +997,7 @@ pub struct CmdAlphaFill {
     /// The start index into the alpha buffer of the command.
     pub alpha_idx: usize,
     /// The index of the thread that contains the alpha values
-    /// pointed to by `alpha_idx`. Can be ignored if multi-threaded rendering
-    /// is not enabled/supported.
+    /// pointed to by `alpha_idx`. 
     #[cfg(feature = "multithreading")]
     pub thread_idx: u8,
     /// The paint that should be used to fill the area.
@@ -1024,8 +1023,7 @@ pub struct CmdClipAlphaFill {
     /// The width of the command in pixels.
     pub width: u32,
     /// The index of the thread that contains the alpha values
-    /// pointed to by `alpha_idx`. Can be ignored if multi-threaded rendering
-    /// is not enabled/supported.
+    /// pointed to by `alpha_idx`. 
     #[cfg(feature = "multithreading")]
     pub thread_idx: u8,
     /// The start index into the alpha buffer of the command.
