@@ -22,12 +22,11 @@ pub(crate) struct StripGenerator {
 }
 
 impl StripGenerator {
-    pub(crate) fn new(width: u16, height: u16, 
-                      thread_idx: u8) -> Self {
+    pub(crate) fn new(width: u16, height: u16, thread_idx: u8) -> Self {
         // Prevent unused warning
         #[cfg(not(feature = "multithreading"))]
         let _ = thread_idx;
-        
+
         Self {
             alphas: Vec::new(),
             line_buf: Vec::new(),

@@ -17,7 +17,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
