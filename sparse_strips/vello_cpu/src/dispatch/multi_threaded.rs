@@ -210,6 +210,8 @@ impl MultiThreadedDispatcher {
         let mut buffer = Regions::new(width, height, buffer);
         let fines = ThreadLocal::new();
         let wide = &self.wide;
+        // The reason we clone the hashmap here is that we need to access it for every wide tile,
+        // but we don't want to go through a mutex for every time.
         let alpha_map = self.alpha_storage.lock().unwrap().clone();
 
         self.thread_pool.install(|| {
