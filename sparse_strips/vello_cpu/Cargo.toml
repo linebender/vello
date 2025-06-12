@@ -40,7 +40,7 @@ multithreading = [
     "dep:thread_local",
     "dep:ordered-channel",
     "dep:crossbeam-channel",
-    "vello_common/multithreading"
+    "vello_common/multithreading",
 ]
 
 [lints]
