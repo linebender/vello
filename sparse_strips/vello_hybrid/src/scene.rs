@@ -201,6 +201,9 @@ impl Scene {
     }
 
     /// Set the paint for subsequent rendering operations.
+    // TODO: This API is not final. Supporting images from a pixmap is explicitly out of scope.
+    //       Instead images should be passed via a backend-agnostic opaque id, and be hydrated at
+    //       render time into a texture usable by the renderer backend.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.paint = paint.into();
         self.paint_visible =
