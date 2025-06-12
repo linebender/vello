@@ -39,7 +39,7 @@ pub(crate) fn get_ctx<T: Renderer>(
     multi_threaded: bool,
 ) -> T {
     let mut ctx = if multi_threaded {
-        T::new_multithreaded(width, height, 1)
+        T::new_multithreaded(width, height, 4)
     } else {
         T::new(width, height)
     };
