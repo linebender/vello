@@ -251,6 +251,8 @@ impl Scene {
             &self.tiles,
             &mut self.strip_buf,
             &mut self.alphas,
+            #[cfg(feature = "multithreading")]
+            0,
             fill_rule,
             &self.line_buf,
         );

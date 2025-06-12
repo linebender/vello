@@ -51,3 +51,5 @@ roxmltree = "0.20.0"
 default = ["wgpu"]
 wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
 webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_sparse_shaders", "vello_sparse_shaders/glsl"]
+# Note that this feature currently doesn't do anything.
+multithreading = ["vello_common/multithreading"]
