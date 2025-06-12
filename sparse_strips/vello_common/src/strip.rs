@@ -23,7 +23,7 @@ pub struct Strip {
     /// The index of the thread that contains the alpha values
     /// pointed to by `alpha_idx`. 
     #[cfg(feature = "multithreading")]
-    pub thread_idx: u16,
+    pub thread_idx: u8,
     /// The winding number at the start of the strip.
     pub winding: i32,
 }
@@ -42,7 +42,7 @@ pub fn render(
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u8>,
     #[cfg(feature = "multithreading")]
-    thread_idx: u16,
+    thread_idx: u8,
     fill_rule: Fill,
     lines: &[Line],
 ) {

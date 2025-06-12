@@ -1000,7 +1000,7 @@ pub struct CmdAlphaFill {
     /// pointed to by `alpha_idx`. Can be ignored if multi-threaded rendering
     /// is not enabled/supported.
     #[cfg(feature = "multithreading")]
-    pub thread_idx: u16,
+    pub thread_idx: u8,
     /// The paint that should be used to fill the area.
     pub paint: Paint,
     /// A blend mode to apply before drawing the contents.
@@ -1027,7 +1027,7 @@ pub struct CmdClipAlphaFill {
     /// pointed to by `alpha_idx`. Can be ignored if multi-threaded rendering
     /// is not enabled/supported.
     #[cfg(feature = "multithreading")]
-    pub thread_idx: u16,
+    pub thread_idx: u8,
     /// The start index into the alpha buffer of the command.
     pub alpha_idx: usize,
 }

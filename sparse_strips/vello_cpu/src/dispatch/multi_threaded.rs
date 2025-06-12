@@ -17,7 +17,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
@@ -40,7 +40,7 @@ pub(crate) struct MultiThreadedDispatcher {
     task_sender: Option<RenderTasksSender>,
     workers: Arc<ThreadLocal<RefCell<Worker>>>,
     result_receiver: Option<CoarseCommandReceiver>,
-    alpha_storage: Arc<Mutex<HashMap<u16, Arc<Vec<u8>>>>>,
+    alpha_storage: Arc<Mutex<HashMap<u8, Arc<Vec<u8>>>>>,
     task_idx: usize,
     num_threads: u16,
     flushed: RefCell<bool>,
@@ -59,7 +59,7 @@ impl MultiThreadedDispatcher {
 
         {
             let alpha_storage = alpha_storage.clone();
-            let thread_ids = Arc::new(AtomicU16::new(0));
+            let thread_ids = Arc::new(AtomicU8::new(0));
             let workers = workers.clone();
 
             // Initialize all workers once in `new`, so that later on we can just call`.get().unwrap()`.
@@ -439,16 +439,16 @@ enum CoarseCommand {
 #[derive(Debug)]
 struct Worker {
     strip_generator: StripGenerator,
-    thread_id: u16,
-    alpha_storage: Arc<Mutex<HashMap<u16, Arc<Vec<u8>>>>>,
+    thread_id: u8,
+    alpha_storage: Arc<Mutex<HashMap<u8, Arc<Vec<u8>>>>>,
 }
 
 impl Worker {
     fn new(
         width: u16,
         height: u16,
-        thread_id: u16,
-        alpha_storage: Arc<Mutex<HashMap<u16, Arc<Vec<u8>>>>>,
+        thread_id: u8,
+        alpha_storage: Arc<Mutex<HashMap<u8, Arc<Vec<u8>>>>>,
     ) -> Self {
         let strip_generator = StripGenerator::new(width, height, thread_id);
 

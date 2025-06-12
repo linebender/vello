@@ -18,12 +18,12 @@ pub(crate) struct StripGenerator {
     width: u16,
     height: u16,
     #[cfg(feature = "multithreading")]
-    thread_idx: u16,
+    thread_idx: u8,
 }
 
 impl StripGenerator {
     pub(crate) fn new(width: u16, height: u16, 
-                      thread_idx: u16) -> Self {
+                      thread_idx: u8) -> Self {
         // Prevent unused warning
         #[cfg(not(feature = "multithreading"))]
         let _ = thread_idx;
