@@ -41,6 +41,40 @@ pub fn render(
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u8>,
+    fill_rule: Fill,
+    lines: &[Line],
+) {
+    render_inner(
+        tiles,
+        strip_buf,
+        alpha_buf,
+        #[cfg(feature = "multithreading")]
+        0,
+        fill_rule,
+        lines,
+    );
+}
+
+/// Render the tiles stored in `tiles` into the strip and alpha buffer.
+/// The strip buffer will be cleared in the beginning.
+#[cfg(feature = "multithreading")]
+pub fn render_with_thread_idx(
+    tiles: &Tiles,
+    strip_buf: &mut Vec<Strip>,
+    alpha_buf: &mut Vec<u8>,
+    thread_idx: u8,
+    fill_rule: Fill,
+    lines: &[Line],
+) {
+    render_inner(tiles, strip_buf, alpha_buf, thread_idx, fill_rule, lines);
+}
+
+/// Render the tiles stored in `tiles` into the strip and alpha buffer.
+/// The strip buffer will be cleared in the beginning.
+pub fn render_inner(
+    tiles: &Tiles,
+    strip_buf: &mut Vec<Strip>,
+    alpha_buf: &mut Vec<u8>,
     #[cfg(feature = "multithreading")] thread_idx: u8,
     fill_rule: Fill,
     lines: &[Line],

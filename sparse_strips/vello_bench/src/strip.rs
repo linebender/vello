@@ -27,7 +27,6 @@ pub fn render_strips(c: &mut Criterion) {
                         &tiles,
                         &mut strip_buf,
                         &mut alpha_buf,
-                        0,
                         Fill::NonZero,
                         &lines,
                     );

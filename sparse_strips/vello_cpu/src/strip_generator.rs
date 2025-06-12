@@ -79,12 +79,21 @@ impl StripGenerator {
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
 
+        #[cfg(feature = "multithreading")]
+        strip::render_with_thread_idx(
+            &self.tiles,
+            &mut self.strip_buf,
+            &mut self.alphas,
+            self.thread_idx,
+            fill_rule,
+            &self.line_buf,
+        );
+
+        #[cfg(not(feature = "multithreading"))]
         strip::render(
             &self.tiles,
             &mut self.strip_buf,
             &mut self.alphas,
-            #[cfg(feature = "multithreading")]
-            self.thread_idx,
             fill_rule,
             &self.line_buf,
         );
