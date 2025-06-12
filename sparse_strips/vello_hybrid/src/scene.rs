@@ -251,7 +251,6 @@ impl Scene {
             &self.tiles,
             &mut self.strip_buf,
             &mut self.alphas,
-            0,
             fill_rule,
             &self.line_buf,
         );
