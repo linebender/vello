@@ -1,0 +1,19 @@
+[package]
+name = "xtask"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Dev tooling for Vello"
+keywords = ["testing"]
+categories = ["testing", "graphics"]
+
+
+[dependencies]
+kompari = { git = "https://github.com/linebender/kompari.git", rev = "4b851413e1b17307064aa48c50e59d7e29656543" }
+kompari-tasks = { git = "https://github.com/linebender/kompari.git", rev = "4b851413e1b17307064aa48c50e59d7e29656543" }
+clap = { workspace = true, features = ["derive"] }
+
+[lints]
+workspace = true
