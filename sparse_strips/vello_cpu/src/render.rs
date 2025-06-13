@@ -25,7 +25,8 @@ use vello_common::peniko::{Font, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
-use vello_common::{flatten, peniko, strip};
+use vello_common::{flatten, peniko, strip, strip_simd};
+use vello_common::fearless_simd::Level;
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -390,8 +391,11 @@ impl RenderContext {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
+        
+        let level = Level::new();
 
-        strip::render(
+        strip_simd::render(
+            level,
             &self.tiles,
             &mut self.strip_buf,
             &mut self.alphas,

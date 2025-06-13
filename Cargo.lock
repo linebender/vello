@@ -800,6 +800,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "fearless_simd"
+version = "0.2.0"
+
+[[package]]
 name = "file-id"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3200,6 +3204,7 @@ name = "vello_common"
 version = "0.0.1"
 dependencies = [
  "bytemuck",
+ "fearless_simd",
  "libm",
  "peniko",
  "png",
