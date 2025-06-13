@@ -174,19 +174,21 @@ impl MultiThreadedDispatcher {
             match result_receiver.try_recv() {
                 Ok(cmd) => match cmd {
                     CoarseCommand::Render {
+                        thread_id,
                         strips,
                         fill_rule,
                         paint,
-                    } => self.wide.generate(&strips, fill_rule, paint.clone()),
+                    } => self.wide.generate(&strips, fill_rule, paint, thread_id),
                     CoarseCommand::PushLayer {
+                        thread_id,
                         clip_path,
                         blend_mode,
                         mask,
                         opacity,
                     } => self
                         .wide
-                        .push_layer(clip_path.clone(), blend_mode, mask.clone(), opacity),
-                    CoarseCommand::PopLayer => self.wide.pop_layer(),
+                        .push_layer(clip_path, blend_mode, mask, opacity, thread_id),
+                    CoarseCommand::PopLayer { thread_id } => self.wide.pop_layer(),
                 },
                 Err(e) => match e {
                     TryRecvError::Empty => {
@@ -425,17 +427,21 @@ impl RenderTask {
 
 enum CoarseCommand {
     Render {
+        thread_id: u8,
         strips: Box<[Strip]>,
         fill_rule: Fill,
         paint: Paint,
     },
     PushLayer {
+        thread_id: u8,
         clip_path: Option<(Box<[Strip]>, Fill)>,
         blend_mode: BlendMode,
         mask: Option<Mask>,
         opacity: f32,
     },
-    PopLayer,
+    PopLayer {
+        thread_id: u8,
+    },
 }
 
 #[derive(Debug)]
@@ -452,7 +458,7 @@ impl Worker {
         thread_id: u8,
         alpha_storage: Arc<Mutex<HashMap<u8, Arc<Vec<u8>>>>>,
     ) -> Self {
-        let strip_generator = StripGenerator::new(width, height, thread_id);
+        let strip_generator = StripGenerator::new(width, height);
 
         Self {
             strip_generator,
@@ -477,6 +483,7 @@ impl Worker {
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseCommand::Render {
+                            thread_id: self.thread_id,
                             strips: strips.into(),
                             fill_rule,
                             paint,
@@ -496,6 +503,7 @@ impl Worker {
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseCommand::Render {
+                            thread_id: self.thread_id,
                             strips: strips.into(),
                             fill_rule: Fill::NonZero,
                             paint,
@@ -529,6 +537,7 @@ impl Worker {
                     };
 
                     let coarse_command = CoarseCommand::PushLayer {
+                        thread_id: self.thread_id,
                         clip_path: clip,
                         blend_mode,
                         mask,
@@ -539,7 +548,12 @@ impl Worker {
                 }
                 RenderTask::PopLayer { task_idx } => {
                     result_sender
-                        .send(task_idx, CoarseCommand::PopLayer)
+                        .send(
+                            task_idx,
+                            CoarseCommand::PopLayer {
+                                thread_id: self.thread_id,
+                            },
+                        )
                         .unwrap();
                 }
             }

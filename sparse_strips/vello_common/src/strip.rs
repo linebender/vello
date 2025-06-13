@@ -20,10 +20,6 @@ pub struct Strip {
     pub y: u16,
     /// The index into the alpha buffer.
     pub alpha_idx: u32,
-    /// The index of the thread that contains the alpha values
-    /// pointed to by `alpha_idx`.
-    #[cfg(feature = "multithreading")]
-    pub thread_idx: u8,
     /// The winding number at the start of the strip.
     pub winding: i32,
 }
@@ -44,29 +40,7 @@ pub fn render(
     fill_rule: Fill,
     lines: &[Line],
 ) {
-    render_inner(
-        tiles,
-        strip_buf,
-        alpha_buf,
-        #[cfg(feature = "multithreading")]
-        0,
-        fill_rule,
-        lines,
-    );
-}
-
-/// Render the tiles stored in `tiles` into the strip and alpha buffer.
-/// The strip buffer will be cleared in the beginning.
-#[cfg(feature = "multithreading")]
-pub fn render_with_thread_idx(
-    tiles: &Tiles,
-    strip_buf: &mut Vec<Strip>,
-    alpha_buf: &mut Vec<u8>,
-    thread_idx: u8,
-    fill_rule: Fill,
-    lines: &[Line],
-) {
-    render_inner(tiles, strip_buf, alpha_buf, thread_idx, fill_rule, lines);
+    render_inner(tiles, strip_buf, alpha_buf, fill_rule, lines);
 }
 
 /// Render the tiles stored in `tiles` into the strip and alpha buffer.
@@ -75,7 +49,6 @@ pub fn render_inner(
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u8>,
-    #[cfg(feature = "multithreading")] thread_idx: u8,
     fill_rule: Fill,
     lines: &[Line],
 ) {
@@ -107,8 +80,6 @@ pub fn render_inner(
         x: prev_tile.x * Tile::WIDTH,
         y: prev_tile.y * Tile::HEIGHT,
         alpha_idx: alpha_buf.len() as u32,
-        #[cfg(feature = "multithreading")]
-        thread_idx,
         winding: 0,
     };
 
@@ -171,8 +142,6 @@ pub fn render_inner(
                         x: u16::MAX,
                         y: prev_tile.y * Tile::HEIGHT,
                         alpha_idx: alpha_buf.len() as u32,
-                        #[cfg(feature = "multithreading")]
-                        thread_idx,
                         winding: winding_delta,
                     });
                 }
@@ -194,8 +163,6 @@ pub fn render_inner(
                 x: tile.x * Tile::WIDTH,
                 y: tile.y * Tile::HEIGHT,
                 alpha_idx: alpha_buf.len() as u32,
-                #[cfg(feature = "multithreading")]
-                thread_idx,
                 winding: winding_delta,
             };
             // Note: this fill is mathematically not necessary. It provides a way to reduce

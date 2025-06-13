@@ -17,23 +17,15 @@ pub(crate) struct StripGenerator {
     strip_buf: Vec<Strip>,
     width: u16,
     height: u16,
-    #[cfg(feature = "multithreading")]
-    thread_idx: u8,
 }
 
 impl StripGenerator {
-    pub(crate) fn new(width: u16, height: u16, thread_idx: u8) -> Self {
-        // Prevent unused warning
-        #[cfg(not(feature = "multithreading"))]
-        let _ = thread_idx;
-
+    pub(crate) fn new(width: u16, height: u16) -> Self {
         Self {
             alphas: Vec::new(),
             line_buf: Vec::new(),
             tiles: Tiles::new(),
             strip_buf: Vec::new(),
-            #[cfg(feature = "multithreading")]
-            thread_idx,
             width,
             height,
         }
@@ -78,18 +70,6 @@ impl StripGenerator {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
-
-        #[cfg(feature = "multithreading")]
-        strip::render_with_thread_idx(
-            &self.tiles,
-            &mut self.strip_buf,
-            &mut self.alphas,
-            self.thread_idx,
-            fill_rule,
-            &self.line_buf,
-        );
-
-        #[cfg(not(feature = "multithreading"))]
         strip::render(
             &self.tiles,
             &mut self.strip_buf,
