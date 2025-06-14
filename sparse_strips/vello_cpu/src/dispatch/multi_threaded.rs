@@ -385,11 +385,6 @@ impl OnceLockAlphaStorage {
         self.slots[thread_id as usize].set(data)
     }
 
-    /// Get alpha data for a specific thread
-    pub(crate) fn get(&self, thread_id: u8) -> Option<&Vec<u8>> {
-        self.slots.get(thread_id as usize)?.get()
-    }
-
     fn slots(&self) -> &[OnceLock<Vec<u8>>] {
         &self.slots
     }
