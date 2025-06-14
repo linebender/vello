@@ -669,7 +669,6 @@ impl Wide {
                 let cmd = CmdClipAlphaFill {
                     x: x_rel,
                     width: u32::from(width),
-                    thread_idx,
                     alpha_idx: col as usize * Tile::HEIGHT as usize,
                 };
                 x += width;

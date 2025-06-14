@@ -497,3 +497,24 @@ impl ColrRenderer for RenderContext {
         Self::pop_layer(self);
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use crate::RenderContext;
+    use vello_common::kurbo::{Rect, Shape};
+    use vello_common::tile::Tile;
+
+    #[test]
+    fn clip_overflow() {
+        let mut ctx = RenderContext::new(100, 100);
+        
+        for _ in 0..(usize::from(u16::MAX) + 1).div_ceil(usize::from(Tile::HEIGHT * Tile::WIDTH)) {
+            ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
+        }
+        
+        
+        ctx.push_clip_layer(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
+        ctx.pop_layer();
+    }
+}

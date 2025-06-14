@@ -79,3 +79,30 @@ impl StripGenerator {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vello_common::peniko::Fill;
+    use crate::dispatch::Dispatcher;
+    use crate::kurbo::{Affine, Rect, Shape};
+    use crate::strip_generator::StripGenerator;
+
+    #[test]
+    fn reset_strip_generator() {
+        let mut generator = StripGenerator::new(100, 100);
+        let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+
+        generator.generate_filled_path(&rect.to_path(0.1), Fill::NonZero, Affine::IDENTITY, |_| {});
+
+
+        assert!(!generator.line_buf.is_empty());
+        assert!(!generator.strip_buf.is_empty());
+        assert!(!generator.alphas.is_empty());
+        
+        generator.reset();
+        
+        assert!(generator.line_buf.is_empty());
+        assert!(generator.strip_buf.is_empty());
+        assert!(generator.alphas.is_empty());
+    }
+}
