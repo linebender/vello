@@ -1191,7 +1191,7 @@ mod tests {
             winding: 1,
         };
         let clip_path = Some((vec![strip].into_boxed_slice(), Fill::NonZero));
-        wide.push_layer(clip_path, BlendMode::default(), None, 0.0, 0);
+        wide.push_layer(clip_path, BlendMode::default(), None, 0.09, 0);
 
         assert_eq!(wide.layer_stack.len(), 2);
         assert_eq!(wide.clip_stack.len(), 1);
