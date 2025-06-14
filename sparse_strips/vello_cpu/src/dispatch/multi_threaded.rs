@@ -16,7 +16,7 @@ use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Barrier, Mutex};
+use std::sync::{Barrier, Mutex, OnceLock};
 use std::sync::atomic::{AtomicU8, Ordering};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
@@ -43,7 +43,7 @@ pub(crate) struct MultiThreadedDispatcher {
     task_sender: Option<RenderTasksSender>,
     workers: Arc<ThreadLocal<RefCell<Worker>>>,
     result_receiver: Option<CoarseCommandReceiver>,
-    alpha_storage: Arc<Mutex<HashMap<u8, Arc<Vec<u8>>>>>,
+    alpha_storage: Arc<OnceLockAlphaStorage>,
     task_idx: usize,
     num_threads: u16,
     flushed: bool,
@@ -56,7 +56,7 @@ impl MultiThreadedDispatcher {
             .num_threads(num_threads as usize)
             .build()
             .unwrap();
-        let alpha_storage = Arc::new(Mutex::new(HashMap::new()));
+        let alpha_storage = Arc::new(OnceLockAlphaStorage::new(num_threads));
         let workers = Arc::new(ThreadLocal::new());
         let task_batch = vec![];
 
@@ -217,9 +217,7 @@ impl MultiThreadedDispatcher {
         let mut buffer = Regions::new(width, height, buffer);
         let fines = ThreadLocal::new();
         let wide = &self.wide;
-        // The reason we clone the hashmap here is that we need to access it for every wide tile,
-        // but we don't want to go through a mutex for every time.
-        let alpha_map = self.alpha_storage.lock().unwrap().clone();
+        let alpha_slots = self.alpha_storage.slots();
 
         self.thread_pool.install(|| {
             buffer.update_regions_par(|region| {
@@ -240,8 +238,8 @@ impl MultiThreadedDispatcher {
                     };
 
                     let alphas = thread_idx
-                        .and_then(|i| alpha_map.get(&i))
-                        .map(|s| s.as_slice())
+                        .and_then(|i| alpha_slots[i as usize].get())
+                        .map(|v| v.as_slice())
                         .unwrap_or(&[]);
                     fine.run_cmd(cmd, alphas, encoded_paints);
                 }
@@ -316,7 +314,8 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.flushed = false;
         self.task_sender = None;
         self.result_receiver = None;
-        self.alpha_storage.lock().unwrap().clear();
+        // TODO: We want to re-use the allocations of the storage somehow.
+        self.alpha_storage = Arc::new(OnceLockAlphaStorage::new(self.num_threads));
 
         let workers = self.workers.clone();
         // + 1 since we also wait on the main thread.
@@ -368,6 +367,35 @@ impl Dispatcher for MultiThreadedDispatcher {
             }
         }
     }
+}
+
+#[derive(Debug)]
+pub struct OnceLockAlphaStorage {
+    slots: Vec<OnceLock<Vec<u8>>>,
+}
+
+impl OnceLockAlphaStorage {
+    pub fn new(num_threads: u16) -> Self {
+        Self {
+            slots: (0..num_threads).map(|_| OnceLock::new()).collect(),
+        }
+    }
+
+    /// Store alpha data for a specific thread (called once per thread)
+    pub fn store(&self, thread_id: u8, data: Vec<u8>) -> Result<(), Vec<u8>> {
+        self.slots[thread_id as usize].set(data)
+    }
+
+    /// Get alpha data for a specific thread
+    pub fn get(&self, thread_id: u8) -> Option<&Vec<u8>> {
+        self.slots.get(thread_id as usize)?.get()
+    }
+
+    fn slots(&self) -> &[OnceLock<Vec<u8>>] {
+        &self.slots
+    }
+
+    // Probably worth adding a take all method and being able to reuse vec allocations somehow
 }
 
 impl Debug for MultiThreadedDispatcher {
@@ -453,7 +481,7 @@ enum CoarseCommand {
 struct Worker {
     strip_generator: StripGenerator,
     thread_id: u8,
-    alpha_storage: Arc<Mutex<HashMap<u8, Arc<Vec<u8>>>>>,
+    alpha_storage: Arc<OnceLockAlphaStorage>,
 }
 
 impl Worker {
@@ -461,7 +489,7 @@ impl Worker {
         width: u16,
         height: u16,
         thread_id: u8,
-        alpha_storage: Arc<Mutex<HashMap<u8, Arc<Vec<u8>>>>>,
+        alpha_storage: Arc<OnceLockAlphaStorage>
     ) -> Self {
         let strip_generator = StripGenerator::new(width, height);
 
@@ -564,10 +592,8 @@ impl Worker {
     }
 
     fn place_alphas(&mut self) {
-        self.alpha_storage.lock().unwrap().insert(
-            self.thread_id,
-            Arc::new(self.strip_generator.alpha_buf().to_vec()),
-        );
+        let alpha_data = self.strip_generator.alpha_buf().to_vec();
+        let _ = self.alpha_storage.store(self.thread_id, alpha_data);
     }
 }
 

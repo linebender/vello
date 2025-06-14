@@ -670,6 +670,8 @@ impl Wide {
                     x: x_rel,
                     width: u32::from(width),
                     alpha_idx: col as usize * Tile::HEIGHT as usize,
+                    #[cfg(feature = "multithreading")]
+                    thread_idx,
                 };
                 x += width;
                 col += u32::from(width);

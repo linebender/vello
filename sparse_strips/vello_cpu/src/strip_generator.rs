@@ -83,7 +83,6 @@ impl StripGenerator {
 #[cfg(test)]
 mod tests {
     use vello_common::peniko::Fill;
-    use crate::dispatch::Dispatcher;
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::strip_generator::StripGenerator;
 
