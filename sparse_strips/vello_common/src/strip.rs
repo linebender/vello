@@ -40,18 +40,6 @@ pub fn render(
     fill_rule: Fill,
     lines: &[Line],
 ) {
-    render_inner(tiles, strip_buf, alpha_buf, fill_rule, lines);
-}
-
-/// Render the tiles stored in `tiles` into the strip and alpha buffer.
-/// The strip buffer will be cleared in the beginning.
-pub fn render_inner(
-    tiles: &Tiles,
-    strip_buf: &mut Vec<Strip>,
-    alpha_buf: &mut Vec<u8>,
-    fill_rule: Fill,
-    lines: &[Line],
-) {
     strip_buf.clear();
 
     if tiles.is_empty() {
@@ -317,3 +305,4 @@ pub fn render_inner(
         }
     }
 }
+
