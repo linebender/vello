@@ -135,6 +135,8 @@ impl RenderContext {
     pub fn fill_rect(&mut self, rect: &Rect) {
         // Don't use `rect.to_path` here, because it will perform a new allocation, which
         // profiling showed can become a bottleneck for many small rectangles.
+        // TODO: Generalize this so that for example `blurred_rectangle` and other places
+        // can also profit from this.
         self.temp_path.truncate(0);
         self.temp_path
             .push(PathEl::MoveTo(Point::new(rect.x0, rect.y0)));
