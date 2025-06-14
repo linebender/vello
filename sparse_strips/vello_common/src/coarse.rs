@@ -1187,10 +1187,14 @@ mod tests {
 
         let mut wide = Wide::new(1000, 258);
         let no_clip_path: ClipPath = None;
-        #[cfg(feature = "multithreading")]
-        wide.push_layer(no_clip_path, BlendMode::default(), None, 0.5, 0);
-        #[cfg(not(feature = "multithreading"))]
-        wide.push_layer(no_clip_path, BlendMode::default(), None, 0.5);
+        wide.push_layer(
+            no_clip_path, 
+            BlendMode::default(), 
+            None, 
+            0.5,
+            #[cfg(feature = "multithreading")]
+            0
+        );
 
         assert_eq!(wide.layer_stack.len(), 1);
         assert_eq!(wide.clip_stack.len(), 0);
@@ -1202,10 +1206,10 @@ mod tests {
             winding: 1,
         };
         let clip_path = Some((vec![strip].into_boxed_slice(), Fill::NonZero));
-        #[cfg(feature = "multithreading")]
-        wide.push_layer(clip_path, BlendMode::default(), None, 0.0, 0);
-        #[cfg(not(feature = "multithreading"))]
-        wide.push_layer(clip_path, BlendMode::default(), None, 0.0);
+        wide.push_layer(clip_path, BlendMode::default(), None, 0.0,
+                        #[cfg(feature = "multithreading")]
+                        0
+        );
 
         assert_eq!(wide.layer_stack.len(), 2);
         assert_eq!(wide.clip_stack.len(), 1);
