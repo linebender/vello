@@ -335,7 +335,10 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn flush(&mut self) {
         self.flush_tasks();
-        core::mem::take(&mut self.task_sender);
+        let sender = core::mem::take(&mut self.task_sender);
+        // Note that dropping the sender will signal to the workers that no more new paths
+        // can arrive.
+        core::mem::drop(sender);
         self.run_coarse(false);
 
         self.flushed = true;
