@@ -60,6 +60,8 @@ struct Clip {
     pub clip_bbox: Bbox,
     /// The rendered path in sparse strip representation
     pub strips: Box<[Strip]>,
+    #[cfg(feature = "multithreading")]
+    pub thread_idx: u8,
     /// The fill rule used for this clip
     pub fill_rule: Fill,
 }
@@ -211,10 +213,13 @@ impl Wide {
     ///    - Generate alpha fill commands for the intersected wide tiles
     /// 2. For active fill regions (determined by fill rule):
     ///    - Generate solid fill commands for the regions between strips
-    pub fn generate(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint) {
+    pub fn generate(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint, thread_idx: u8) {
         if strip_buf.is_empty() {
             return;
         }
+
+        // Prevent unused warning.
+        let _ = thread_idx;
 
         // Get current clip bounding box or full viewport if no clip is active
         let bbox = self.get_bbox();
@@ -276,6 +281,8 @@ impl Wide {
                     x: x_wtile_rel,
                     width,
                     alpha_idx: (col * u32::from(Tile::HEIGHT)) as usize,
+                    #[cfg(feature = "multithreading")]
+                    thread_idx,
                     paint: paint.clone(),
                     blend_mode: None,
                 };
@@ -321,6 +328,7 @@ impl Wide {
         blend_mode: BlendMode,
         mask: Option<Mask>,
         opacity: f32,
+        thread_idx: u8,
     ) {
         // Some explanations about what is going on here: We support the concept of
         // layers, where a user can push a new layer (with certain properties), draw some
@@ -365,7 +373,7 @@ impl Wide {
         // only then for clipping, otherwise we will use the empty clip buffer as the backdrop
         // for blending!
         if let Some((clip, fill)) = clip_path {
-            self.push_clip(clip, fill);
+            self.push_clip(clip, fill, thread_idx);
         }
 
         self.layer_stack.push(layer);
@@ -411,7 +419,7 @@ impl Wide {
     ///    - If covered by zero winding: `push_zero_clip`
     ///    - If fully covered by non-zero winding: do nothing (clip is a no-op)
     ///    - If partially covered: `push_clip`
-    pub fn push_clip(&mut self, strips: impl Into<Box<[Strip]>>, fill_rule: Fill) {
+    pub fn push_clip(&mut self, strips: impl Into<Box<[Strip]>>, fill_rule: Fill, thread_idx: u8) {
         let strips = strips.into();
         let n_strips = strips.len();
 
@@ -512,10 +520,15 @@ impl Wide {
             cur_wtile_y += 1;
         }
 
+        // Prevent unused warning.
+        let _ = thread_idx;
+
         self.clip_stack.push(Clip {
             clip_bbox,
             strips,
             fill_rule,
+            #[cfg(feature = "multithreading")]
+            thread_idx,
         });
     }
 
@@ -547,6 +560,8 @@ impl Wide {
             clip_bbox,
             strips,
             fill_rule,
+            #[cfg(feature = "multithreading")]
+            thread_idx,
         } = self.clip_stack.pop().unwrap();
         let n_strips = strips.len();
 
@@ -645,6 +660,8 @@ impl Wide {
                     x: x_rel,
                     width: u32::from(width),
                     alpha_idx: col as usize * Tile::HEIGHT as usize,
+                    #[cfg(feature = "multithreading")]
+                    thread_idx,
                 };
                 x += width;
                 col += u32::from(width);
@@ -992,6 +1009,10 @@ pub struct CmdAlphaFill {
     pub width: u16,
     /// The start index into the alpha buffer of the command.
     pub alpha_idx: usize,
+    /// The index of the thread that contains the alpha values
+    /// pointed to by `alpha_idx`.
+    #[cfg(feature = "multithreading")]
+    pub thread_idx: u8,
     /// The paint that should be used to fill the area.
     pub paint: Paint,
     /// A blend mode to apply before drawing the contents.
@@ -1014,6 +1035,10 @@ pub struct CmdClipAlphaFill {
     pub x: u32,
     /// The width of the command in pixels.
     pub width: u32,
+    /// The index of the thread that contains the alpha values
+    /// pointed to by `alpha_idx`.
+    #[cfg(feature = "multithreading")]
+    pub thread_idx: u8,
     /// The start index into the alpha buffer of the command.
     pub alpha_idx: usize,
 }
@@ -1154,7 +1179,7 @@ mod tests {
 
         let mut wide = Wide::new(1000, 258);
         let no_clip_path: ClipPath = None;
-        wide.push_layer(no_clip_path, BlendMode::default(), None, 0.5);
+        wide.push_layer(no_clip_path, BlendMode::default(), None, 0.5, 0);
 
         assert_eq!(wide.layer_stack.len(), 1);
         assert_eq!(wide.clip_stack.len(), 0);
@@ -1166,7 +1191,7 @@ mod tests {
             winding: 1,
         };
         let clip_path = Some((vec![strip].into_boxed_slice(), Fill::NonZero));
-        wide.push_layer(clip_path, BlendMode::default(), None, 0.09);
+        wide.push_layer(clip_path, BlendMode::default(), None, 0.09, 0);
 
         assert_eq!(wide.layer_stack.len(), 2);
         assert_eq!(wide.clip_stack.len(), 1);

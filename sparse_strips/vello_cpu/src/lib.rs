@@ -101,7 +101,7 @@
     clippy::cast_possible_truncation,
     reason = "We cast u16s to u8 in various places where we know for sure that it's < 256"
 )]
-#![no_std]
+#![cfg_attr(not(feature = "multithreading"), no_std)]
 
 extern crate alloc;
 
@@ -111,11 +111,13 @@ use libm as _;
 
 mod render;
 
+mod dispatch;
 #[doc(hidden)]
 /// This is an internal module, do not access directly.
 pub mod fine;
 #[doc(hidden)]
 pub mod region;
+mod strip_generator;
 mod util;
 
 pub use render::RenderContext;
