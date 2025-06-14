@@ -300,6 +300,7 @@ impl RenderContext {
     /// Reset the render context.
     pub fn reset(&mut self) {
         self.dispatcher.reset();
+        self.encoded_paints.clear();
     }
 
     /// Flush any pending operations.
