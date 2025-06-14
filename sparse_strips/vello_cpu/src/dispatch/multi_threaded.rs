@@ -121,10 +121,12 @@ impl MultiThreadedDispatcher {
 
             // If we reach this point, it means the task_sender has been dropped by the main thread
             // and no more tasks are available. So we are done, and just need to place the alphas
-            // of the worker thread in the hashmap. Then, we drop the `result_sender`. Once all
-            // worker thread have dropped `result_sender`, the main thread knows that all alphas
+            // of the worker thread in the hashmap. Then, we drop the `coarse_command_sender`. Once all
+            // worker thread have dropped `coarse_command_sender`, the main thread knows that all alphas
             // have been placed, and it's safe to proceed.
             worker.place_alphas();
+            
+            drop(coarse_command_sender);
         });
     }
 
