@@ -16,7 +16,7 @@ use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Barrier, Mutex};
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
@@ -314,19 +314,18 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.alpha_storage.lock().unwrap().clear();
 
         let workers = self.workers.clone();
-        let thread_counter = Arc::new(AtomicU32::new(self.num_threads as u32));
-        let t = thread_counter.clone();
+        // + 1 since we also wait on the main thread.
+        let barrier = Arc::new(Barrier::new(usize::from(self.num_threads) + 1));
+        let t_barrier = barrier.clone();
 
         self.thread_pool.spawn_broadcast(move |_| {
             let worker = workers.get().unwrap();
             let mut borrowed = worker.borrow_mut();
             borrowed.reset();
-            t.fetch_sub(1, Ordering::SeqCst);
+            t_barrier.wait();
         });
 
-        // TODO: Maybe there is a better way of doing this? Something like a `WaitGroup`, but that
-        // can be used in conjunction with `spawn_broadcast`.
-        while thread_counter.load(Ordering::SeqCst) > 0 {}
+        barrier.wait();
 
         self.init();
     }
