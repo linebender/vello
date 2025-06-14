@@ -17,7 +17,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Barrier, Mutex};
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
@@ -188,7 +188,7 @@ impl MultiThreadedDispatcher {
                     } => self
                         .wide
                         .push_layer(clip_path, blend_mode, mask, opacity, thread_id),
-                    CoarseCommand::PopLayer { thread_id } => self.wide.pop_layer(),
+                    CoarseCommand::PopLayer => self.wide.pop_layer(),
                 },
                 Err(e) => match e {
                     TryRecvError::Empty => {
@@ -438,9 +438,7 @@ enum CoarseCommand {
         mask: Option<Mask>,
         opacity: f32,
     },
-    PopLayer {
-        thread_id: u8,
-    },
+    PopLayer,
 }
 
 #[derive(Debug)]
@@ -549,9 +547,7 @@ impl Worker {
                     result_sender
                         .send(
                             task_idx,
-                            CoarseCommand::PopLayer {
-                                thread_id: self.thread_id,
-                            },
+                            CoarseCommand::PopLayer,
                         )
                         .unwrap();
                 }
