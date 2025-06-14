@@ -82,9 +82,9 @@ impl StripGenerator {
 
 #[cfg(test)]
 mod tests {
-    use vello_common::peniko::Fill;
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::strip_generator::StripGenerator;
+    use vello_common::peniko::Fill;
 
     #[test]
     fn reset_strip_generator() {
@@ -93,13 +93,12 @@ mod tests {
 
         generator.generate_filled_path(&rect.to_path(0.1), Fill::NonZero, Affine::IDENTITY, |_| {});
 
-
         assert!(!generator.line_buf.is_empty());
         assert!(!generator.strip_buf.is_empty());
         assert!(!generator.alphas.is_empty());
-        
+
         generator.reset();
-        
+
         assert!(generator.line_buf.is_empty());
         assert!(generator.strip_buf.is_empty());
         assert!(generator.alphas.is_empty());

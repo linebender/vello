@@ -213,13 +213,7 @@ impl Wide {
     ///    - Generate alpha fill commands for the intersected wide tiles
     /// 2. For active fill regions (determined by fill rule):
     ///    - Generate solid fill commands for the regions between strips
-    pub fn generate(
-        &mut self,
-        strip_buf: &[Strip],
-        fill_rule: Fill,
-        paint: Paint,
-        thread_idx: u8,
-    ) {
+    pub fn generate(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint, thread_idx: u8) {
         if strip_buf.is_empty() {
             return;
         }
@@ -379,11 +373,7 @@ impl Wide {
         // only then for clipping, otherwise we will use the empty clip buffer as the backdrop
         // for blending!
         if let Some((clip, fill)) = clip_path {
-            self.push_clip(
-                clip,
-                fill,
-                thread_idx,
-            );
+            self.push_clip(clip, fill, thread_idx);
         }
 
         self.layer_stack.push(layer);
@@ -429,12 +419,7 @@ impl Wide {
     ///    - If covered by zero winding: `push_zero_clip`
     ///    - If fully covered by non-zero winding: do nothing (clip is a no-op)
     ///    - If partially covered: `push_clip`
-    pub fn push_clip(
-        &mut self,
-        strips: impl Into<Box<[Strip]>>,
-        fill_rule: Fill,
-        thread_idx: u8,
-    ) {
+    pub fn push_clip(&mut self, strips: impl Into<Box<[Strip]>>, fill_rule: Fill, thread_idx: u8) {
         let strips = strips.into();
         let n_strips = strips.len();
 
@@ -534,7 +519,7 @@ impl Wide {
             cur_wtile_x = clip_bbox.x0();
             cur_wtile_y += 1;
         }
-        
+
         // Prevent unused warning.
         let _ = thread_idx;
 
@@ -1194,13 +1179,7 @@ mod tests {
 
         let mut wide = Wide::new(1000, 258);
         let no_clip_path: ClipPath = None;
-        wide.push_layer(
-            no_clip_path, 
-            BlendMode::default(), 
-            None, 
-            0.5,
-            0
-        );
+        wide.push_layer(no_clip_path, BlendMode::default(), None, 0.5, 0);
 
         assert_eq!(wide.layer_stack.len(), 1);
         assert_eq!(wide.clip_stack.len(), 0);
@@ -1212,9 +1191,7 @@ mod tests {
             winding: 1,
         };
         let clip_path = Some((vec![strip].into_boxed_slice(), Fill::NonZero));
-        wide.push_layer(clip_path, BlendMode::default(), None, 0.0,
-                        0
-        );
+        wide.push_layer(clip_path, BlendMode::default(), None, 0.0, 0);
 
         assert_eq!(wide.layer_stack.len(), 2);
         assert_eq!(wide.clip_stack.len(), 1);

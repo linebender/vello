@@ -65,12 +65,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     fn fill_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, paint: Paint) {
         let wide = &mut self.wide;
 
-        let func = |strips| wide.generate(
-            strips, 
-            fill_rule, 
-            paint,
-            0
-        );
+        let func = |strips| wide.generate(strips, fill_rule, paint, 0);
         self.strip_generator
             .generate_filled_path(path, fill_rule, transform, func);
     }
@@ -78,9 +73,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint) {
         let wide = &mut self.wide;
 
-        let func = |strips| wide.generate(strips, Fill::NonZero, paint,
-                                          0
-        );
+        let func = |strips| wide.generate(strips, Fill::NonZero, paint, 0);
         self.strip_generator
             .generate_stroked_path(path, stroke, transform, func);
     }
@@ -107,9 +100,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             None
         };
 
-        self.wide.push_layer(clip, blend_mode, mask, opacity,
-                             0
-        );
+        self.wide.push_layer(clip, blend_mode, mask, opacity, 0);
     }
 
     fn pop_layer(&mut self) {
@@ -141,5 +132,3 @@ impl Dispatcher for SingleThreadedDispatcher {
         }
     }
 }
-
-

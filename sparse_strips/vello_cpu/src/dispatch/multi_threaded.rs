@@ -15,8 +15,8 @@ use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
-use std::sync::{Barrier, OnceLock};
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Barrier, OnceLock};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
@@ -124,7 +124,7 @@ impl MultiThreadedDispatcher {
             // worker thread have dropped `coarse_command_sender`, the main thread knows that all alphas
             // have been placed, and it's safe to proceed.
             worker.place_alphas();
-            
+
             drop(coarse_command_sender);
         });
     }
@@ -352,10 +352,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
-        assert!(
-            self.flushed,
-            "attempted to rasterize before flushing"
-        );
+        assert!(self.flushed, "attempted to rasterize before flushing");
 
         match render_mode {
             RenderMode::OptimizeSpeed => {
@@ -483,7 +480,7 @@ impl Worker {
         width: u16,
         height: u16,
         thread_id: u8,
-        alpha_storage: Arc<OnceLockAlphaStorage>
+        alpha_storage: Arc<OnceLockAlphaStorage>,
     ) -> Self {
         let strip_generator = StripGenerator::new(width, height);
 
@@ -575,10 +572,7 @@ impl Worker {
                 }
                 RenderTask::PopLayer { task_idx } => {
                     result_sender
-                        .send(
-                            task_idx,
-                            CoarseCommand::PopLayer,
-                        )
+                        .send(task_idx, CoarseCommand::PopLayer)
                         .unwrap();
                 }
             }
