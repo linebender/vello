@@ -312,6 +312,15 @@ pub enum Error {
 )]
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
+/// An opaque handle to a texture registered with [`Renderer::register_texture`] that
+/// can be passed to [`Scene::draw_texture`] to draw the texture.
+#[derive(Copy, Clone, PartialEq, Hash)]
+pub struct TextureHandle {
+    pub(crate) id: u64,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+}
+
 /// Renders a scene into a texture or surface.
 ///
 /// Currently, each renderer only supports a single surface format, if it
@@ -522,6 +531,7 @@ impl Renderer {
     /// dimensions would be rendered.
     ///
     /// [data]: peniko::Image::data
+    #[deprecated = "Use register_texture and unregister_texture methods instead"]
     pub fn override_image(
         &mut self,
         image: &peniko::Image,
@@ -531,6 +541,40 @@ impl Renderer {
             Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
             None => self.engine.image_overrides.remove(&image.data.id()),
         }
+    }
+
+    /// Register a [`wgpu::Texture`] with Vello. You will receive a [`TextureHandle`] which
+    /// can be used to draw the registered texture using [`Scene::draw_texture`]
+    ///
+    /// If the texture is no longer active then it should be unregistered using [`unregister_texture`](Self::unregister_texture)
+    pub fn register_texture(&mut self, texture: wgpu::Texture) -> TextureHandle {
+        // Generate a unique ID using peniko::Blob to guarantee it won't clash
+        // with a user-generated image Blob
+        let id = peniko::Blob::<()>::new(std::sync::Arc::new(&[])).id();
+
+        let handle = TextureHandle {
+            id,
+            width: texture.width(),
+            height: texture.height(),
+        };
+
+        // Create a texture base for the texture
+        let texture_base = wgpu::TexelCopyTextureInfoBase {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        };
+
+        // Insert it into the overrides map
+        self.engine.image_overrides.insert(id, texture_base);
+
+        handle
+    }
+
+    /// Unregister a [`wgpu::Texture`] that was registered with [`register_texture`](Self::register_texture)
+    pub fn unregister_texture(&mut self, handle: TextureHandle) {
+        self.engine.image_overrides.remove(&handle.id);
     }
 
     /// Reload the shaders. This should only be used during `vello` development
