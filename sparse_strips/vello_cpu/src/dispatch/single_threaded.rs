@@ -68,8 +68,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         let func = |strips| wide.generate(
             strips, 
             fill_rule, 
-            paint, 
-            #[cfg(feature = "multithreading")]
+            paint,
             0
         );
         self.strip_generator
@@ -80,7 +79,6 @@ impl Dispatcher for SingleThreadedDispatcher {
         let wide = &mut self.wide;
 
         let func = |strips| wide.generate(strips, Fill::NonZero, paint,
-                                          #[cfg(feature = "multithreading")]
                                           0
         );
         self.strip_generator
@@ -110,7 +108,6 @@ impl Dispatcher for SingleThreadedDispatcher {
         };
 
         self.wide.push_layer(clip, blend_mode, mask, opacity,
-                             #[cfg(feature = "multithreading")]
                              0
         );
     }

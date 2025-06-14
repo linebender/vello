@@ -218,11 +218,14 @@ impl Wide {
         strip_buf: &[Strip],
         fill_rule: Fill,
         paint: Paint,
-        #[cfg(feature = "multithreading")] thread_idx: u8,
+        thread_idx: u8,
     ) {
         if strip_buf.is_empty() {
             return;
         }
+
+        // Prevent unused warning.
+        let _ = thread_idx;
 
         // Get current clip bounding box or full viewport if no clip is active
         let bbox = self.get_bbox();
@@ -331,7 +334,7 @@ impl Wide {
         blend_mode: BlendMode,
         mask: Option<Mask>,
         opacity: f32,
-        #[cfg(feature = "multithreading")] thread_idx: u8,
+        thread_idx: u8,
     ) {
         // Some explanations about what is going on here: We support the concept of
         // layers, where a user can push a new layer (with certain properties), draw some
@@ -379,7 +382,6 @@ impl Wide {
             self.push_clip(
                 clip,
                 fill,
-                #[cfg(feature = "multithreading")]
                 thread_idx,
             );
         }
@@ -431,7 +433,7 @@ impl Wide {
         &mut self,
         strips: impl Into<Box<[Strip]>>,
         fill_rule: Fill,
-        #[cfg(feature = "multithreading")] thread_idx: u8,
+        thread_idx: u8,
     ) {
         let strips = strips.into();
         let n_strips = strips.len();
@@ -532,6 +534,9 @@ impl Wide {
             cur_wtile_x = clip_bbox.x0();
             cur_wtile_y += 1;
         }
+        
+        // Prevent unused warning.
+        let _ = thread_idx;
 
         self.clip_stack.push(Clip {
             clip_bbox,
@@ -1194,7 +1199,6 @@ mod tests {
             BlendMode::default(), 
             None, 
             0.5,
-            #[cfg(feature = "multithreading")]
             0
         );
 
@@ -1209,7 +1213,6 @@ mod tests {
         };
         let clip_path = Some((vec![strip].into_boxed_slice(), Fill::NonZero));
         wide.push_layer(clip_path, BlendMode::default(), None, 0.0,
-                        #[cfg(feature = "multithreading")]
                         0
         );
 
