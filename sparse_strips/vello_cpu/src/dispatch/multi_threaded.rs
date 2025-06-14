@@ -43,7 +43,7 @@ pub(crate) struct MultiThreadedDispatcher {
     alpha_storage: Arc<Mutex<HashMap<u8, Arc<Vec<u8>>>>>,
     task_idx: usize,
     num_threads: u16,
-    flushed: RefCell<bool>,
+    flushed: bool,
 }
 
 impl MultiThreadedDispatcher {
@@ -77,7 +77,7 @@ impl MultiThreadedDispatcher {
 
         let cmd_idx = 0;
         let batch_cost = 0.0;
-        let flushed = RefCell::new(false);
+        let flushed = false;
 
         let mut dispatcher = Self {
             wide,
@@ -126,7 +126,7 @@ impl MultiThreadedDispatcher {
     }
 
     fn register_task(&mut self, task: RenderTask) {
-        *(self.flushed.borrow_mut()) = false;
+        self.flushed = false;
 
         let cost = task.estimate_render_time();
         self.task_batch.push(task);
@@ -308,7 +308,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.task_batch.clear();
         self.batch_cost = 0.0;
         self.task_idx = 0;
-        (*self.flushed.borrow_mut()) = false;
+        self.flushed = false;
         self.task_sender = None;
         self.result_receiver = None;
         self.alpha_storage.lock().unwrap().clear();
@@ -335,7 +335,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         core::mem::take(&mut self.task_sender);
         self.run_coarse(false);
 
-        *(self.flushed.borrow_mut()) = true;
+        self.flushed = true;
     }
 
     fn rasterize(
@@ -347,7 +347,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
     ) {
         assert!(
-            *self.flushed.borrow(),
+            self.flushed,
             "attempted to rasterize before flushing"
         );
 
