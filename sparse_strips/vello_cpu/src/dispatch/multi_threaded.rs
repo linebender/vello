@@ -32,6 +32,9 @@ type RenderTasksSender = crossbeam_channel::Sender<Vec<RenderTask>>;
 type CoarseCommandSender = ordered_channel::Sender<CoarseCommand>;
 type CoarseCommandReceiver = ordered_channel::Receiver<CoarseCommand>;
 
+// TODO: In many cases, we pass a reference to an owned path in vello_common/vello_cpu, only
+// to later clone it because the multi-threaded dispatcher needs owned access to the structs.
+// Figure out whether there is a good way of solving this problem.
 pub(crate) struct MultiThreadedDispatcher {
     wide: Wide,
     thread_pool: ThreadPool,
