@@ -15,8 +15,7 @@ use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::sync::{Barrier, Mutex, OnceLock};
+use std::sync::{Barrier, OnceLock};
 use std::sync::atomic::{AtomicU8, Ordering};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
@@ -370,24 +369,24 @@ impl Dispatcher for MultiThreadedDispatcher {
 }
 
 #[derive(Debug)]
-pub struct OnceLockAlphaStorage {
+pub(crate) struct OnceLockAlphaStorage {
     slots: Vec<OnceLock<Vec<u8>>>,
 }
 
 impl OnceLockAlphaStorage {
-    pub fn new(num_threads: u16) -> Self {
+    pub(crate) fn new(num_threads: u16) -> Self {
         Self {
             slots: (0..num_threads).map(|_| OnceLock::new()).collect(),
         }
     }
 
     /// Store alpha data for a specific thread (called once per thread)
-    pub fn store(&self, thread_id: u8, data: Vec<u8>) -> Result<(), Vec<u8>> {
+    pub(crate) fn store(&self, thread_id: u8, data: Vec<u8>) -> Result<(), Vec<u8>> {
         self.slots[thread_id as usize].set(data)
     }
 
     /// Get alpha data for a specific thread
-    pub fn get(&self, thread_id: u8) -> Option<&Vec<u8>> {
+    pub(crate) fn get(&self, thread_id: u8) -> Option<&Vec<u8>> {
         self.slots.get(thread_id as usize)?.get()
     }
 
