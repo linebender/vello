@@ -18,8 +18,6 @@ path = "tests/mod.rs"
 vello_api = { workspace = true }
 vello_common = { workspace = true }
 vello_cpu = { workspace = true, features = ["multithreading"] }
-# Note that there is no actual multithreading for vello_hybrid, but we need the feature
-# for tests to compile
 vello_hybrid = { workspace = true }
 wgpu = { workspace = true }
 pollster = { workspace = true }
