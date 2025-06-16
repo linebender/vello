@@ -107,10 +107,12 @@ fn render_impl<S: Simd>(
         if !prev_tile.same_loc(&tile) {
             match fill_rule {
                 Fill::NonZero => {
+                    let p1 = f32x4::splat(s, 0.5);
+                    let p2 = f32x4::splat(s, 255.0);
                     for x in 0..Tile::WIDTH as usize {
                         let area = location_winding[x];
                         let coverage = area.abs();
-                        let mulled = coverage * 255.0 + 0.5;
+                        let mulled = p1.madd(coverage, p2);
                         let slice = mulled.val;
                         // TODO: Improve this
                         alpha_buf.push(slice[0] as u8);
@@ -120,10 +122,14 @@ fn render_impl<S: Simd>(
                     }
                 }
                 Fill::EvenOdd => {
+                    let p1 = f32x4::splat(s, 0.5);
+                    let p2 = f32x4::splat(s, -2.0);
+                    let p3 = f32x4::splat(s, 255.0);
                     for x in 0..Tile::WIDTH as usize {
                         let area = location_winding[x];
-                        let coverage = (area - 2.0 * ((0.5 * area) + 0.5).floor()).abs();
-                        let mulled = coverage * 255.0 + 0.5;
+                        let im1 = p1.madd(area, p1).floor();
+                        let coverage = area.madd(p2, im1).abs();
+                        let mulled = p1.madd(p3, coverage);
                         let slice = mulled.val;
                         // TODO: Improve this
                         alpha_buf.push(slice[0] as u8);
