@@ -84,7 +84,7 @@ pub fn render_impl<S: Simd>(
 
     for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
         let line = lines[tile.line_idx() as usize];
-        let tile_left_x= f32::from(tile.x) * f32::from(Tile::WIDTH);
+        let tile_left_x = f32::from(tile.x) * f32::from(Tile::WIDTH);
         let tile_top_y = f32::from(tile.y) * f32::from(Tile::HEIGHT);
         let p0_x = line.p0.x - tile_left_x;
         let p0_y = line.p0.y - tile_top_y;
@@ -250,10 +250,10 @@ pub fn render_impl<S: Simd>(
                     f32::max(line_left_y, line_viewport_left_y),
                 )
             };
-            
+
             let ymin: f32x4<_> = ymin.simd_into(s);
             let ymax: f32x4<_> = ymax.simd_into(s);
-            
+
             let px_top_y: f32x4<_> = [0.0, 1.0, 2.0, 3.0].simd_into(s);
             let px_bottom_y = 1.0 + px_top_y;
             let ymin = px_top_y.max(ymin);
@@ -304,22 +304,27 @@ pub fn render_impl<S: Simd>(
             // situated. The resulting slope calculation for the edge the line is situated on
             // will be NaN, as `0 * inf` results in NaN. This is true for both the left and
             // right edge. In both cases, the call to `f32::max` will set this to `ymin`.
-            let line_px_left_y = line_top_y.madd(px_left_x - line_top_x, y_slope)
+            let line_px_left_y = line_top_y
+                .madd(px_left_x - line_top_x, y_slope)
                 .max_precise(ymin)
                 .min_precise(ymax);
-            let line_px_right_y = line_top_y.madd(px_right_x - line_top_x, y_slope)
+            let line_px_right_y = line_top_y
+                .madd(px_right_x - line_top_x, y_slope)
                 .max_precise(ymin)
                 .min_precise(ymax);
 
             // `x_slope` is always finite, as horizontal geometry is elided.
-            let line_px_left_yx = f32x4::splat(s, line_top_x).madd(line_px_left_y - line_top_y, x_slope);
-            let line_px_right_yx = f32x4::splat(s, line_top_x).madd(line_px_right_y - line_top_y, x_slope);
+            let line_px_left_yx =
+                f32x4::splat(s, line_top_x).madd(line_px_left_y - line_top_y, x_slope);
+            let line_px_right_yx =
+                f32x4::splat(s, line_top_x).madd(line_px_right_y - line_top_y, x_slope);
             let h = (line_px_right_y - line_px_left_y).abs();
 
             // The trapezoidal area enclosed between the line and the right edge of the pixel
             // square.
             let area = 0.5 * h * (2. * px_right_x - line_px_right_yx - line_px_left_yx);
-            location_winding[x_idx as usize] = location_winding[x_idx as usize] + acc.madd(sign, area);
+            location_winding[x_idx as usize] =
+                location_winding[x_idx as usize] + acc.madd(sign, area);
             acc = acc.madd(sign, h);
         }
 

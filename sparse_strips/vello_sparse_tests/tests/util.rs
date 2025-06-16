@@ -38,14 +38,14 @@ pub(crate) fn get_ctx<T: Renderer>(
     height: u16,
     transparent: bool,
     num_threads: u16,
-    level: &str
+    level: &str,
 ) -> T {
     let level = match level {
         "neon" => Level::Neon(Level::new().as_neon().unwrap()),
         "fallback" => Level::fallback(),
         _ => panic!("unknown level: {}", level),
     };
-    
+
     let mut ctx = T::new(width, height, num_threads, level);
 
     if !transparent {

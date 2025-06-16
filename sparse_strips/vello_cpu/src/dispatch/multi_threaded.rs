@@ -73,7 +73,7 @@ impl MultiThreadedDispatcher {
                         height,
                         thread_ids.fetch_add(1, Ordering::SeqCst),
                         alpha_storage.clone(),
-                        level
+                        level,
                     ))
                 });
             });
@@ -483,7 +483,7 @@ impl Worker {
         height: u16,
         thread_id: u8,
         alpha_storage: Arc<OnceLockAlphaStorage>,
-        level: Level
+        level: Level,
     ) -> Self {
         let strip_generator = StripGenerator::new(width, height, level);
 

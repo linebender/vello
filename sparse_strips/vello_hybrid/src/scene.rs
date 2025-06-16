@@ -6,6 +6,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::coarse::Wide;
+use vello_common::fearless_simd::{Fallback, Level};
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
@@ -17,7 +18,6 @@ use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
-use vello_common::fearless_simd::{Fallback, Level};
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;

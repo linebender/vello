@@ -4,11 +4,11 @@
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::Fill;
 use alloc::vec::Vec;
+use vello_common::fearless_simd::Level;
 use vello_common::flatten::Line;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
-use vello_common::fearless_simd::Level;
 
 #[derive(Debug)]
 pub(crate) struct StripGenerator {
@@ -86,9 +86,9 @@ impl StripGenerator {
 
 #[cfg(test)]
 mod tests {
-    use vello_common::fearless_simd::{Fallback, Level};
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::strip_generator::StripGenerator;
+    use vello_common::fearless_simd::{Fallback, Level};
     use vello_common::peniko::Fill;
 
     #[test]

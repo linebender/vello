@@ -43,10 +43,7 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
 
 impl Renderer for RenderContext {
     fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
-        let settings = RenderSettings {
-            level,
-            num_threads,
-        };
+        let settings = RenderSettings { level, num_threads };
 
         Self::new_with(width, height, &settings)
     }
@@ -147,11 +144,11 @@ impl Renderer for Scene {
         if num_threads != 0 {
             panic!("hybrid renderer doesn't support multi-threading");
         }
-        
+
         if !matches!(level, Level::Fallback(_)) {
             panic!("hybrid renderer doesn't support SIMD");
         }
-        
+
         Self::new(width, height)
     }
 

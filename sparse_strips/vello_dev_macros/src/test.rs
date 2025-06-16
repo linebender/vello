@@ -1,11 +1,14 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::{Attribute, AttributeInput, DEFAULT_CPU_F32_TOLERANCE, DEFAULT_CPU_U8_TOLERANCE, DEFAULT_HYBRID_TOLERANCE, parse_int_lit, parse_string_lit, DEFAULT_SIMD_TOLERANCE};
+use crate::{
+    Attribute, AttributeInput, DEFAULT_CPU_F32_TOLERANCE, DEFAULT_CPU_U8_TOLERANCE,
+    DEFAULT_HYBRID_TOLERANCE, DEFAULT_SIMD_TOLERANCE, parse_int_lit, parse_string_lit,
+};
 use proc_macro::TokenStream;
-use std::arch::is_aarch64_feature_detected;
 use proc_macro2::Ident;
 use quote::quote;
+use std::arch::is_aarch64_feature_detected;
 use syn::{ItemFn, parse_macro_input};
 
 struct Arguments {
@@ -62,10 +65,22 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let input_fn = parse_macro_input!(item as ItemFn);
 
     let input_fn_name = input_fn.sig.ident.clone();
-    let u8_fn_name_scalar = Ident::new(&format!("{}_cpu_u8_scalar", input_fn_name), input_fn_name.span());
-    let f32_fn_name_scalar = Ident::new(&format!("{}_cpu_f32_scalar", input_fn_name), input_fn_name.span());
-    let u8_fn_name_neon = Ident::new(&format!("{}_cpu_u8_neon", input_fn_name), input_fn_name.span());
-    let f32_fn_name_neon = Ident::new(&format!("{}_cpu_f32_neon", input_fn_name), input_fn_name.span());
+    let u8_fn_name_scalar = Ident::new(
+        &format!("{}_cpu_u8_scalar", input_fn_name),
+        input_fn_name.span(),
+    );
+    let f32_fn_name_scalar = Ident::new(
+        &format!("{}_cpu_f32_scalar", input_fn_name),
+        input_fn_name.span(),
+    );
+    let u8_fn_name_neon = Ident::new(
+        &format!("{}_cpu_u8_neon", input_fn_name),
+        input_fn_name.span(),
+    );
+    let f32_fn_name_neon = Ident::new(
+        &format!("{}_cpu_f32_neon", input_fn_name),
+        input_fn_name.span(),
+    );
     let multithreaded_fn_name = Ident::new(
         &format!("{}_cpu_multithreaded", input_fn_name),
         input_fn_name.span(),
@@ -128,7 +143,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
 
     let cpu_u8_tolerance_scalar = cpu_u8_tolerance + DEFAULT_CPU_U8_TOLERANCE;
     let cpu_u8_tolerance_neon = cpu_u8_tolerance + DEFAULT_SIMD_TOLERANCE;
-    
+
     // Since f32 is our gold standard, we always require exact matches for this one.
     let cpu_f32_tolerance_scalar = DEFAULT_CPU_F32_TOLERANCE;
     let cpu_f32_tolerance_neon = DEFAULT_CPU_F32_TOLERANCE + DEFAULT_SIMD_TOLERANCE;
@@ -170,10 +185,10 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                        render_mode: proc_macro2::TokenStream| {
         let ignore_snippet = if ignore {
             ignore_snippet.clone()
-        }   else {
+        } else {
             quote! {}
         };
-        
+
         quote! {
             #ignore_snippet
             #[test]
@@ -192,7 +207,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             }
         }
     };
-    
+
     #[cfg(target_arch = "aarch64")]
     let has_neon = is_aarch64_feature_detected!("neon");
     #[cfg(not(target_arch = "aarch64"))]
@@ -228,7 +243,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         skip_cpu,
         quote! { RenderMode::OptimizeQuality },
     );
-    
+
     let neon_u8_snippet = cpu_snippet(
         u8_fn_name_neon,
         u8_fn_name_str_neon,
@@ -257,11 +272,11 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         #reference_image_const
 
         #u8_snippet
-        
+
         #neon_u8_snippet
 
         #f32_snippet
-        
+
         #neon_f32_snippet
 
         #multi_threaded_snippet

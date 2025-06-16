@@ -60,7 +60,10 @@ impl Default for RenderSettings {
         Self {
             level: Level::new(),
             #[cfg(feature = "multithreading")]
-            num_threads: std::thread::available_parallelism().unwrap().get().saturating_sub(1) as u16,
+            num_threads: std::thread::available_parallelism()
+                .unwrap()
+                .get()
+                .saturating_sub(1) as u16,
             #[cfg(not(feature = "multithreading"))]
             num_threads: 0,
         }
@@ -73,7 +76,7 @@ impl RenderContext {
         let settings = RenderSettings::default();
         Self::new_inner(width, height, settings.num_threads, settings.level)
     }
-    
+
     /// Create a new render context with specific settings.
     pub fn new_with(width: u16, height: u16, settings: &RenderSettings) -> Self {
         Self::new_inner(width, height, settings.num_threads, settings.level)
@@ -84,7 +87,12 @@ impl RenderContext {
         let dispatcher: Box<dyn Dispatcher> = if num_threads == 0 {
             Box::new(SingleThreadedDispatcher::new(width, height, level))
         } else {
-            Box::new(MultiThreadedDispatcher::new(width, height, num_threads, level))
+            Box::new(MultiThreadedDispatcher::new(
+                width,
+                height,
+                num_threads,
+                level,
+            ))
         };
 
         #[cfg(not(feature = "multithreading"))]
@@ -438,7 +446,7 @@ impl GlyphRenderer for RenderContext {
                         level: self.level,
                         num_threads: 0,
                     };
-                    
+
                     let mut ctx = Self::new_with(glyph.pix_width, glyph.pix_height, &settings);
                     let mut pix = Pixmap::new(glyph.pix_width, glyph.pix_height);
 

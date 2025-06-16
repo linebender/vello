@@ -76,7 +76,7 @@ pub mod pixmap;
 pub mod strip;
 pub mod tile;
 
+pub use fearless_simd;
 pub use peniko;
 pub use peniko::color;
 pub use peniko::kurbo;
-pub use fearless_simd;

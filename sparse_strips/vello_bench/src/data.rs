@@ -5,13 +5,13 @@ use std::path::Path;
 use std::sync::OnceLock;
 use usvg::tiny_skia_path::PathSegment;
 use usvg::{Group, Node};
+use vello_common::fearless_simd::Level;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Stroke};
 use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
-use vello_common::fearless_simd::Level;
 
 static DATA: OnceLock<Vec<DataItem>> = OnceLock::new();
 

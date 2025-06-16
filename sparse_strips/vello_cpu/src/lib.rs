@@ -121,12 +121,12 @@ mod strip_generator;
 mod util;
 
 pub use render::{RenderContext, RenderSettings};
+pub use vello_common::fearless_simd::Level;
 pub use vello_common::glyph::Glyph;
 pub use vello_common::mask::Mask;
 pub use vello_common::paint::{Image, Paint, PaintType};
 pub use vello_common::pixmap::Pixmap;
 pub use vello_common::{color, kurbo, peniko};
-pub use vello_common::fearless_simd::Level;
 
 /// The selected rendering mode.
 #[derive(Copy, Clone, Debug, Default)]
