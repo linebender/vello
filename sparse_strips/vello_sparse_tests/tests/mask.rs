@@ -5,7 +5,6 @@ use crate::renderer::Renderer;
 use smallvec::smallvec;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
-use vello_common::fearless_simd::Fallback;
 use vello_common::kurbo::{Point, Rect};
 use vello_common::mask::Mask;
 use vello_common::peniko::{ColorStop, ColorStops, Gradient, GradientKind};

@@ -88,7 +88,7 @@ impl StripGenerator {
 mod tests {
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::strip_generator::StripGenerator;
-    use vello_common::fearless_simd::{Fallback, Level};
+    use vello_common::fearless_simd::Level;
     use vello_common::peniko::Fill;
 
     #[test]

@@ -31,7 +31,20 @@ impl Strip {
     }
 }
 
-simd_dispatch!(pub render(
+/// Render the tiles stored in `tiles` into the strip and alpha buffer.
+/// The strip buffer will be cleared in the beginning.
+pub fn render(
+    level: Level,
+    tiles: &Tiles,
+    strip_buf: &mut Vec<Strip>,
+    alpha_buf: &mut Vec<u8>,
+    fill_rule: Fill,
+    lines: &[Line],
+) {
+    render_dispatch(level, tiles, strip_buf, alpha_buf, fill_rule, lines);
+}
+
+simd_dispatch!(render_dispatch(
     level,
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
@@ -40,10 +53,8 @@ simd_dispatch!(pub render(
     lines: &[Line],
 ) = render_impl);
 
-/// Render the tiles stored in `tiles` into the strip and alpha buffer.
-/// The strip buffer will be cleared in the beginning.
-#[inline(never)]
-pub fn render_impl<S: Simd>(
+
+fn render_impl<S: Simd>(
     s: S,
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,

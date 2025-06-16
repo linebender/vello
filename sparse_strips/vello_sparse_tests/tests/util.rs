@@ -22,7 +22,6 @@ use vello_cpu::{Level, RenderMode};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
-use vello_common::fearless_simd::Fallback;
 
 #[cfg(not(target_arch = "wasm32"))]
 static REFS_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
