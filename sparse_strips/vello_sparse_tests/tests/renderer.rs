@@ -12,6 +12,7 @@ use vello_hybrid::Scene;
 
 pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn new(width: u16, height: u16) -> Self;
+    fn new_multithreaded(width: u16, height: u16, num_threads: u16) -> Self;
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
     fn fill_rect(&mut self, rect: &Rect);
@@ -25,6 +26,7 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
         opacity: Option<f32>,
         mask: Option<Mask>,
     );
+    fn flush(&mut self);
     fn push_clip_layer(&mut self, path: &BezPath);
     fn push_blend_layer(&mut self, blend_mode: BlendMode);
     fn push_opacity_layer(&mut self, opacity: f32);
@@ -43,6 +45,10 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
 impl Renderer for RenderContext {
     fn new(width: u16, height: u16) -> Self {
         Self::new(width, height)
+    }
+
+    fn new_multithreaded(width: u16, height: u16, num_threads: u16) -> Self {
+        Self::new_multithreaded(width, height, num_threads)
     }
 
     fn fill_path(&mut self, path: &BezPath) {
@@ -77,6 +83,10 @@ impl Renderer for RenderContext {
         mask: Option<Mask>,
     ) {
         Self::push_layer(self, clip_path, blend_mode, opacity, mask);
+    }
+
+    fn flush(&mut self) {
+        Self::flush(self);
     }
 
     fn push_clip_layer(&mut self, path: &BezPath) {
@@ -137,6 +147,10 @@ impl Renderer for Scene {
         Self::new(width, height)
     }
 
+    fn new_multithreaded(_: u16, _: u16, _: u16) -> Self {
+        unimplemented!()
+    }
+
     fn fill_path(&mut self, path: &BezPath) {
         Self::fill_path(self, path);
     }
@@ -170,6 +184,8 @@ impl Renderer for Scene {
     ) {
         Self::push_layer(self, clip, blend_mode, opacity, mask);
     }
+
+    fn flush(&mut self) {}
 
     fn push_clip_layer(&mut self, path: &BezPath) {
         Self::push_clip_layer(self, path);

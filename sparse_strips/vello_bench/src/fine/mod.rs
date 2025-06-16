@@ -5,13 +5,9 @@ mod blend;
 pub(crate) mod fill;
 mod gradient;
 mod image;
+mod pack;
 mod rounded_blurred_rect;
 mod strip;
-// CI will attempt to build this crate with all features enabled, but the problem
-// is that the `update_regions` function has a slightly different signature with multithreading
-// enabled, which makes it incompatible with the `Bencher` closure. Because of this, we add
-// this feature to `vello_bench` as well and disable the benchmark in case it's enabled.
-mod pack;
 
 pub use blend::*;
 pub use fill::*;
