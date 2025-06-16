@@ -113,7 +113,7 @@ rayon = { version = "1.10.0" }
 thread_local = "1.1.8"
 crossbeam-channel = "0.5.15"
 ordered-channel = { version = "1.2.0", features = ["crossbeam-channel"] }
-fearless_simd = { path = "../fearless_simd/fearless_simd" }
+fearless_simd = { git = "https://github.com/LaurenzV/fearless_simd", rev = "da8cc09" }
 
 # The below crates are experimental!
 vello_api = { path = "sparse_strips/vello_api", default-features = false }
