@@ -30,6 +30,8 @@
 //! context.fill_rect(&Rect::from_points((3., 1.), (7., 4.)));
 //!
 //! let mut target = Pixmap::new(width, height);
+//! // This is only necessary if you activated the `multithreading` feature.
+//! context.flush();
 //! context.render_to_pixmap(&mut target, RenderMode::default());
 //!
 //! let expected_render = b"\
