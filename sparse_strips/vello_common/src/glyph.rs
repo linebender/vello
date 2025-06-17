@@ -22,9 +22,6 @@ use crate::kurbo::Rect;
 use crate::pixmap::Pixmap;
 use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};
 
-#[cfg(not(feature = "std"))]
-use peniko::kurbo::common::FloatFuncs as _;
-
 /// Positioned glyph.
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Glyph {

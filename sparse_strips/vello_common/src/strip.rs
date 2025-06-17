@@ -8,8 +8,6 @@ use crate::peniko::Fill;
 use crate::tile::{Tile, Tiles};
 use alloc::vec::Vec;
 use fearless_simd::*;
-#[cfg(not(feature = "std"))]
-use peniko::kurbo::common::FloatFuncs as _;
 
 /// A strip.
 #[derive(Debug, Clone, Copy)]
@@ -109,6 +107,8 @@ fn render_impl<S: Simd>(
                 Fill::NonZero => {
                     let p1 = f32x4::splat(s, 0.5);
                     let p2 = f32x4::splat(s, 255.0);
+
+                    #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
                     for x in 0..Tile::WIDTH as usize {
                         let area = location_winding[x];
                         let coverage = area.abs();
@@ -125,6 +125,8 @@ fn render_impl<S: Simd>(
                     let p1 = f32x4::splat(s, 0.5);
                     let p2 = f32x4::splat(s, -2.0);
                     let p3 = f32x4::splat(s, 255.0);
+
+                    #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
                     for x in 0..Tile::WIDTH as usize {
                         let area = location_winding[x];
                         let im1 = p1.madd(area, p1).floor();

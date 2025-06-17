@@ -4,8 +4,6 @@
 //! Mathematical helper functions.
 
 use core::ops::Sub;
-#[cfg(not(feature = "std"))]
-use peniko::kurbo::common::FloatFuncs as _;
 
 // See https://raphlinus.github.io/audio/2018/09/05/sigmoid.html for a little
 // explanation of this approximation to the erf function.
