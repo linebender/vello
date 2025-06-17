@@ -8,7 +8,6 @@ use crate::{
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::quote;
-use std::arch::is_aarch64_feature_detected;
 use syn::{ItemFn, parse_macro_input};
 
 struct Arguments {
@@ -209,7 +208,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     };
 
     #[cfg(target_arch = "aarch64")]
-    let has_neon = is_aarch64_feature_detected!("neon");
+    let has_neon = std::arch::is_aarch64_feature_detected!("neon");
     #[cfg(not(target_arch = "aarch64"))]
     let has_neon = false;
 

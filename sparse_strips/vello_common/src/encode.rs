@@ -18,6 +18,9 @@ use core::f32::consts::PI;
 use core::iter;
 use smallvec::SmallVec;
 
+#[cfg(not(feature = "std"))]
+use peniko::kurbo::common::FloatFuncs as _;
+
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
 const PIXEL_CENTER_OFFSET: f64 = 0.5;
