@@ -51,7 +51,6 @@ simd_dispatch!(render_dispatch(
     lines: &[Line],
 ) = render_impl);
 
-
 fn render_impl<S: Simd>(
     s: S,
     tiles: &Tiles,
