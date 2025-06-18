@@ -802,7 +802,7 @@ dependencies = [
 [[package]]
 name = "fearless_simd"
 version = "0.2.0"
-source = "git+https://github.com/LaurenzV/fearless_simd?rev=d92d7a6d#d92d7a6d542d90749eecaa11102bdd0ef8cd34ee"
+source = "git+https://github.com/raphlinus/fearless_simd?rev=e46bcfd#e46bcfd622dbd7edd8538c836d9b100b6101aa15"
 dependencies = [
  "libm",
 ]
