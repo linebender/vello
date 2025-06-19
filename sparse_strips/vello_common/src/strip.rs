@@ -74,6 +74,8 @@ fn render_impl<S: Simd>(
     let mut prev_tile = *tiles.get(0);
     // The accumulated (fractional) winding of the tile-sized location we're currently at.
     // Note multiple tiles can be at the same location.
+    // Note that we are also implicitly assuming here that the tile height exactly fits into a
+    // SIMD vector (i.e. 128 bits).
     let mut location_winding = [f32x4::splat(s, 0.0); Tile::WIDTH as usize];
     // The accumulated (fractional) windings at this location's right edge. When we move to the
     // next location, this is splatted to that location's starting winding.
