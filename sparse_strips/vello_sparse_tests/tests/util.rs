@@ -41,7 +41,7 @@ pub(crate) fn get_ctx<T: Renderer>(
 ) -> T {
     let level = match level {
         #[cfg(target_arch = "aarch64")]
-        "neon" => Level::Neon(Level::new().as_neon().unwrap()),
+        "neon" => Level::Neon(Level::new().as_neon().expect("neon should be available")),
         "fallback" => Level::fallback(),
         _ => panic!("unknown level: {}", level),
     };
