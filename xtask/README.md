@@ -6,9 +6,9 @@ This package provides the following commands:
 
 ```bash
 cargo xtask snaphosts-cpu report  # Creates report for snapshots
-cargo xtask shapshots-cpu review  # Interactive test blessing snapshots
-cargo xtask shapshots-cpu dead-snaphosts  # Detects dead snapshots
-cargo xtask shapshots-cpu size-check  # Size check for snapshots
+cargo xtask snapshots-cpu review  # Interactive test blessing snapshots
+cargo xtask snapshots-cpu dead-snaphosts  # Detects dead snapshots
+cargo xtask snapshots-cpu size-check  # Size check for snapshots
 ```
 
 The same works for `snapshots-gpu`
