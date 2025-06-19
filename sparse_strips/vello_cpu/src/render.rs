@@ -17,6 +17,7 @@ use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::colr::{ColrPainter, ColrRenderer};
 use vello_common::encode::{EncodeExt, EncodedPaint};
+use vello_common::fearless_simd::Level;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
@@ -40,36 +41,64 @@ pub struct RenderContext {
     pub(crate) fill_rule: Fill,
     pub(crate) temp_path: BezPath,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
+    pub(crate) level: Level,
     dispatcher: Box<dyn Dispatcher>,
+}
+
+/// Settings to apply to the render context.
+#[derive(Copy, Clone, Debug)]
+pub struct RenderSettings {
+    /// The SIMD level that should be used for rendering operations.
+    pub level: Level,
+    /// The number of worker threads that should be used for rendering. Only has an effect
+    /// if the `multithreading` feature is active.
+    pub num_threads: u16,
+}
+
+impl Default for RenderSettings {
+    fn default() -> Self {
+        Self {
+            level: Level::new(),
+            #[cfg(feature = "multithreading")]
+            num_threads: std::thread::available_parallelism()
+                .unwrap()
+                .get()
+                .saturating_sub(1) as u16,
+            #[cfg(not(feature = "multithreading"))]
+            num_threads: 0,
+        }
+    }
 }
 
 impl RenderContext {
     /// Create a new render context with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
-        Self::new_inner(width, height, 0)
+        let settings = RenderSettings::default();
+        Self::new_inner(width, height, settings.num_threads, settings.level)
     }
 
-    /// Create a new multi-threaded render context with the given width and height in pixels.
-    ///
-    /// Note that `num_threads` refers to the number of threads that will be created _in addition_
-    /// to the main thread.
-    #[cfg(feature = "multithreading")]
-    pub fn new_multithreaded(width: u16, height: u16, num_threads: u16) -> Self {
-        Self::new_inner(width, height, num_threads)
+    /// Create a new render context with specific settings.
+    pub fn new_with(width: u16, height: u16, settings: &RenderSettings) -> Self {
+        Self::new_inner(width, height, settings.num_threads, settings.level)
     }
 
-    fn new_inner(width: u16, height: u16, num_threads: u16) -> Self {
+    fn new_inner(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
         #[cfg(feature = "multithreading")]
         let dispatcher: Box<dyn Dispatcher> = if num_threads == 0 {
-            Box::new(SingleThreadedDispatcher::new(width, height))
+            Box::new(SingleThreadedDispatcher::new(width, height, level))
         } else {
-            Box::new(MultiThreadedDispatcher::new(width, height, num_threads))
+            Box::new(MultiThreadedDispatcher::new(
+                width,
+                height,
+                num_threads,
+                level,
+            ))
         };
 
         #[cfg(not(feature = "multithreading"))]
         let dispatcher: Box<dyn Dispatcher> = {
             let _ = num_threads;
-            Box::new(SingleThreadedDispatcher::new(width, height))
+            Box::new(SingleThreadedDispatcher::new(width, height, level))
         };
 
         let transform = Affine::IDENTITY;
@@ -94,6 +123,7 @@ impl RenderContext {
             paint,
             paint_transform,
             fill_rule,
+            level,
             stroke,
             temp_path,
             encoded_paints,
@@ -412,12 +442,20 @@ impl GlyphRenderer for RenderContext {
                 let area = glyph.area;
 
                 let glyph_pixmap = {
-                    let mut ctx = Self::new(glyph.pix_width, glyph.pix_height);
+                    let settings = RenderSettings {
+                        level: self.level,
+                        num_threads: 0,
+                    };
+
+                    let mut ctx = Self::new_with(glyph.pix_width, glyph.pix_height, &settings);
                     let mut pix = Pixmap::new(glyph.pix_width, glyph.pix_height);
 
                     let mut colr_painter = ColrPainter::new(glyph, context_color, &mut ctx);
                     colr_painter.paint();
 
+                    // Technically not necessary since we always render single-threaded, but just
+                    // to be safe.
+                    ctx.flush();
                     ctx.render_to_pixmap(&mut pix, RenderMode::OptimizeQuality);
 
                     pix

@@ -4,6 +4,7 @@
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::Fill;
 use alloc::vec::Vec;
+use vello_common::fearless_simd::Level;
 use vello_common::flatten::Line;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
@@ -11,6 +12,7 @@ use vello_common::{flatten, strip};
 
 #[derive(Debug)]
 pub(crate) struct StripGenerator {
+    level: Level,
     alphas: Vec<u8>,
     line_buf: Vec<Line>,
     tiles: Tiles,
@@ -20,9 +22,10 @@ pub(crate) struct StripGenerator {
 }
 
 impl StripGenerator {
-    pub(crate) fn new(width: u16, height: u16) -> Self {
+    pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
         Self {
             alphas: Vec::new(),
+            level,
             line_buf: Vec::new(),
             tiles: Tiles::new(),
             strip_buf: Vec::new(),
@@ -71,6 +74,7 @@ impl StripGenerator {
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
         strip::render(
+            self.level,
             &self.tiles,
             &mut self.strip_buf,
             &mut self.alphas,
@@ -84,11 +88,12 @@ impl StripGenerator {
 mod tests {
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::strip_generator::StripGenerator;
+    use vello_common::fearless_simd::Level;
     use vello_common::peniko::Fill;
 
     #[test]
     fn reset_strip_generator() {
-        let mut generator = StripGenerator::new(100, 100);
+        let mut generator = StripGenerator::new(100, 100, Level::fallback());
         let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
 
         generator.generate_filled_path(&rect.to_path(0.1), Fill::NonZero, Affine::IDENTITY, |_| {});

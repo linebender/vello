@@ -18,7 +18,7 @@ use vello_common::glyph::Glyph;
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, Font};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::RenderMode;
+use vello_cpu::{Level, RenderMode};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
@@ -36,13 +36,17 @@ pub(crate) fn get_ctx<T: Renderer>(
     width: u16,
     height: u16,
     transparent: bool,
-    multi_threaded: bool,
+    num_threads: u16,
+    level: &str,
 ) -> T {
-    let mut ctx = if multi_threaded {
-        T::new_multithreaded(width, height, 4)
-    } else {
-        T::new(width, height)
+    let level = match level {
+        #[cfg(target_arch = "aarch64")]
+        "neon" => Level::Neon(Level::new().as_neon().expect("neon should be available")),
+        "fallback" => Level::fallback(),
+        _ => panic!("unknown level: {}", level),
     };
+
+    let mut ctx = T::new(width, height, num_threads, level);
 
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);

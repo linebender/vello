@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 use usvg::tiny_skia_path::PathSegment;
 use usvg::{Group, Node};
+use vello_common::fearless_simd::Level;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Stroke};
 use vello_common::peniko::Fill;
@@ -125,6 +126,7 @@ impl DataItem {
         let tiles = self.sorted_tiles();
 
         strip::render(
+            Level::fallback(),
             &tiles,
             &mut strip_buf,
             &mut alpha_buf,

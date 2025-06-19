@@ -6,6 +6,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::coarse::Wide;
+use vello_common::fearless_simd::Level;
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
@@ -264,6 +265,7 @@ impl Scene {
         self.tiles.sort_tiles();
 
         strip::render(
+            Level::fallback(),
             &self.tiles,
             &mut self.strip_buf,
             &mut self.alphas,

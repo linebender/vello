@@ -7,9 +7,7 @@ use crate::flatten::Line;
 use crate::peniko::Fill;
 use crate::tile::{Tile, Tiles};
 use alloc::vec::Vec;
-
-#[cfg(not(feature = "std"))]
-use peniko::kurbo::common::FloatFuncs as _;
+use fearless_simd::*;
 
 /// A strip.
 #[derive(Debug, Clone, Copy)]
@@ -34,6 +32,27 @@ impl Strip {
 /// Render the tiles stored in `tiles` into the strip and alpha buffer.
 /// The strip buffer will be cleared in the beginning.
 pub fn render(
+    level: Level,
+    tiles: &Tiles,
+    strip_buf: &mut Vec<Strip>,
+    alpha_buf: &mut Vec<u8>,
+    fill_rule: Fill,
+    lines: &[Line],
+) {
+    render_dispatch(level, tiles, strip_buf, alpha_buf, fill_rule, lines);
+}
+
+simd_dispatch!(render_dispatch(
+    level,
+    tiles: &Tiles,
+    strip_buf: &mut Vec<Strip>,
+    alpha_buf: &mut Vec<u8>,
+    fill_rule: Fill,
+    lines: &[Line],
+) = render_impl);
+
+fn render_impl<S: Simd>(
+    s: S,
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u8>,
@@ -55,10 +74,12 @@ pub fn render(
     let mut prev_tile = *tiles.get(0);
     // The accumulated (fractional) winding of the tile-sized location we're currently at.
     // Note multiple tiles can be at the same location.
-    let mut location_winding = [[0_f32; Tile::HEIGHT as usize]; Tile::WIDTH as usize];
+    // Note that we are also implicitly assuming here that the tile height exactly fits into a
+    // SIMD vector (i.e. 128 bits).
+    let mut location_winding = [f32x4::splat(s, 0.0); Tile::WIDTH as usize];
     // The accumulated (fractional) windings at this location's right edge. When we move to the
     // next location, this is splatted to that location's starting winding.
-    let mut accumulated_winding = [0_f32; Tile::HEIGHT as usize];
+    let mut accumulated_winding = f32x4::splat(s, 0.0);
 
     /// A special tile to keep the logic below simple.
     const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, false);
@@ -83,25 +104,42 @@ pub fn render(
         // Push out the winding as an alpha mask when we move to the next location (i.e., a tile
         // without the same location).
         if !prev_tile.same_loc(&tile) {
-            macro_rules! fill {
-                ($rule:expr) => {
-                    for x in 0..Tile::WIDTH as usize {
-                        for y in 0..Tile::HEIGHT as usize {
-                            let area = location_winding[x][y];
-                            let coverage = $rule(area);
-                            alpha_buf.push((coverage * 255.0 + 0.5) as u8);
-                        }
-                    }
-                };
-            }
             match fill_rule {
                 Fill::NonZero => {
-                    fill!(|area: f32| area.abs())
+                    let p1 = f32x4::splat(s, 0.5);
+                    let p2 = f32x4::splat(s, 255.0);
+
+                    #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
+                    for x in 0..Tile::WIDTH as usize {
+                        let area = location_winding[x];
+                        let coverage = area.abs();
+                        let mulled = p1.madd(coverage, p2);
+                        let slice = mulled.val;
+                        // TODO: Improve this
+                        alpha_buf.push(slice[0] as u8);
+                        alpha_buf.push(slice[1] as u8);
+                        alpha_buf.push(slice[2] as u8);
+                        alpha_buf.push(slice[3] as u8);
+                    }
                 }
                 Fill::EvenOdd => {
-                    // As in other parts of the code, we avoid using `round` since it's very
-                    // slow on x86.
-                    fill!(|area: f32| (area - 2.0 * ((0.5 * area) + 0.5).floor()).abs())
+                    let p1 = f32x4::splat(s, 0.5);
+                    let p2 = f32x4::splat(s, -2.0);
+                    let p3 = f32x4::splat(s, 255.0);
+
+                    #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
+                    for x in 0..Tile::WIDTH as usize {
+                        let area = location_winding[x];
+                        let im1 = p1.madd(area, p1).floor();
+                        let coverage = area.madd(p2, im1).abs();
+                        let mulled = p1.madd(p3, coverage);
+                        let slice = mulled.val;
+                        // TODO: Improve this
+                        alpha_buf.push(slice[0] as u8);
+                        alpha_buf.push(slice[1] as u8);
+                        alpha_buf.push(slice[2] as u8);
+                        alpha_buf.push(slice[3] as u8);
+                    }
                 }
             };
 
@@ -135,11 +173,11 @@ pub fn render(
                 }
 
                 winding_delta = 0;
-                accumulated_winding.fill(0.);
+                accumulated_winding = f32x4::splat(s, 0.0);
 
                 #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
                 for x in 0..Tile::WIDTH as usize {
-                    location_winding[x].fill(0.);
+                    location_winding[x] = accumulated_winding;
                 }
             }
 
@@ -155,7 +193,7 @@ pub fn render(
             };
             // Note: this fill is mathematically not necessary. It provides a way to reduce
             // accumulation of float rounding errors.
-            accumulated_winding.fill(winding_delta as f32);
+            accumulated_winding = f32x4::splat(s, winding_delta as f32);
         }
         prev_tile = tile;
 
@@ -233,19 +271,17 @@ pub fn render(
                 )
             };
 
-            for y_idx in 0..Tile::HEIGHT {
-                let px_top_y = f32::from(y_idx);
-                let px_bottom_y = 1. + f32::from(y_idx);
+            let ymin: f32x4<_> = ymin.simd_into(s);
+            let ymax: f32x4<_> = ymax.simd_into(s);
 
-                let ymin = f32::max(ymin, px_top_y);
-                let ymax = f32::min(ymax, px_bottom_y);
-
-                let h = (ymax - ymin).max(0.);
-                accumulated_winding[y_idx as usize] += sign * h;
-
-                for x_idx in 0..Tile::WIDTH {
-                    location_winding[x_idx as usize][y_idx as usize] += sign * h;
-                }
+            let px_top_y: f32x4<_> = [0.0, 1.0, 2.0, 3.0].simd_into(s);
+            let px_bottom_y = 1.0 + px_top_y;
+            let ymin = px_top_y.max(ymin);
+            let ymax = px_bottom_y.min(ymax);
+            let h = (ymax - ymin).max(0.0);
+            accumulated_winding = accumulated_winding.madd(sign, h);
+            for x_idx in 0..Tile::WIDTH {
+                location_winding[x_idx as usize] = location_winding[x_idx as usize].madd(sign, h);
             }
 
             if line_right_x < 0. {
@@ -254,54 +290,64 @@ pub fn render(
             }
         }
 
-        for y_idx in 0..Tile::HEIGHT {
-            let px_top_y = f32::from(y_idx);
-            let px_bottom_y = 1. + f32::from(y_idx);
+        let line_top_y = f32x4::splat(s, line_top_y);
+        let line_bottom_y = f32x4::splat(s, line_bottom_y);
 
-            let ymin = f32::max(line_top_y, px_top_y);
-            let ymax = f32::min(line_bottom_y, px_bottom_y);
+        let y_idx = f32x4::from_slice(s, &[0.0, 1.0, 2.0, 3.0]);
+        let px_top_y = y_idx;
+        let px_bottom_y = 1. + y_idx;
 
-            let mut acc = 0.;
-            for x_idx in 0..Tile::WIDTH {
-                let px_left_x = f32::from(x_idx);
-                let px_right_x = 1. + f32::from(x_idx);
+        let ymin = line_top_y.max(px_top_y);
+        let ymax = line_bottom_y.min(px_bottom_y);
 
-                // The y-coordinate of the intersections between the line and the pixel's left and
-                // right edges respectively.
-                //
-                // There is some subtlety going on here: `y_slope` will usually be finite, but will
-                // be `inf` for purely vertical lines (`p0_x == p1_x`).
-                //
-                // In the case of `inf`, the resulting slope calculation will be `-inf` or `inf`
-                // depending on whether the pixel edge is left or right of the line, respectively
-                // (from the viewport's coordinate system perspective). The `min` and `max`
-                // y-clamping logic generalizes nicely, as a pixel edge to the left of the line is
-                // clamped to `ymin`, and a pixel edge to the right is clamped to `ymax`.
-                //
-                // In the special case where a vertical line and pixel edge are at the exact same
-                // x-position (collinear), the line belongs to the pixel on whose _left_ edge it is
-                // situated. The resulting slope calculation for the edge the line is situated on
-                // will be NaN, as `0 * inf` results in NaN. This is true for both the left and
-                // right edge. In both cases, the call to `f32::max` will set this to `ymin`.
-                let line_px_left_y = (line_top_y + (px_left_x - line_top_x) * y_slope)
-                    .max(ymin)
-                    .min(ymax);
-                let line_px_right_y = (line_top_y + (px_right_x - line_top_x) * y_slope)
-                    .max(ymin)
-                    .min(ymax);
+        let mut acc = f32x4::splat(s, 0.0);
 
-                // `x_slope` is always finite, as horizontal geometry is elided.
-                let line_px_left_yx = line_top_x + (line_px_left_y - line_top_y) * x_slope;
-                let line_px_right_yx = line_top_x + (line_px_right_y - line_top_y) * x_slope;
-                let h = (line_px_right_y - line_px_left_y).abs();
+        for x_idx in 0..Tile::WIDTH {
+            let x_idx_s = f32x4::splat(s, x_idx as f32);
+            let px_left_x = x_idx_s;
+            let px_right_x = 1.0 + x_idx_s;
 
-                // The trapezoidal area enclosed between the line and the right edge of the pixel
-                // square.
-                let area = 0.5 * h * (2. * px_right_x - line_px_right_yx - line_px_left_yx);
-                location_winding[x_idx as usize][y_idx as usize] += acc + sign * area;
-                acc += sign * h;
-            }
-            accumulated_winding[y_idx as usize] += acc;
+            // The y-coordinate of the intersections between the line and the pixel's left and
+            // right edges respectively.
+            //
+            // There is some subtlety going on here: `y_slope` will usually be finite, but will
+            // be `inf` for purely vertical lines (`p0_x == p1_x`).
+            //
+            // In the case of `inf`, the resulting slope calculation will be `-inf` or `inf`
+            // depending on whether the pixel edge is left or right of the line, respectively
+            // (from the viewport's coordinate system perspective). The `min` and `max`
+            // y-clamping logic generalizes nicely, as a pixel edge to the left of the line is
+            // clamped to `ymin`, and a pixel edge to the right is clamped to `ymax`.
+            //
+            // In the special case where a vertical line and pixel edge are at the exact same
+            // x-position (collinear), the line belongs to the pixel on whose _left_ edge it is
+            // situated. The resulting slope calculation for the edge the line is situated on
+            // will be NaN, as `0 * inf` results in NaN. This is true for both the left and
+            // right edge. In both cases, the call to `f32::max` will set this to `ymin`.
+            let line_px_left_y = line_top_y
+                .madd(px_left_x - line_top_x, y_slope)
+                .max_precise(ymin)
+                .min_precise(ymax);
+            let line_px_right_y = line_top_y
+                .madd(px_right_x - line_top_x, y_slope)
+                .max_precise(ymin)
+                .min_precise(ymax);
+
+            // `x_slope` is always finite, as horizontal geometry is elided.
+            let line_px_left_yx =
+                f32x4::splat(s, line_top_x).madd(line_px_left_y - line_top_y, x_slope);
+            let line_px_right_yx =
+                f32x4::splat(s, line_top_x).madd(line_px_right_y - line_top_y, x_slope);
+            let h = (line_px_right_y - line_px_left_y).abs();
+
+            // The trapezoidal area enclosed between the line and the right edge of the pixel
+            // square.
+            let area = 0.5 * h * (2. * px_right_x - line_px_right_yx - line_px_left_yx);
+            location_winding[x_idx as usize] =
+                location_winding[x_idx as usize] + acc.madd(sign, area);
+            acc = acc.madd(sign, h);
         }
+
+        accumulated_winding = accumulated_winding + acc;
     }
 }

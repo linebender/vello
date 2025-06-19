@@ -16,6 +16,7 @@ mod test;
 // than 1. For example, if the target pixel is (233, 43, 64, 100), then permissible
 // values are (232, 43, 65, 101) or (233, 42, 64, 100), but not (231, 43, 64, 100).
 const DEFAULT_CPU_U8_TOLERANCE: u8 = 1;
+const DEFAULT_SIMD_TOLERANCE: u8 = 1;
 const DEFAULT_CPU_F32_TOLERANCE: u8 = 0;
 const DEFAULT_HYBRID_TOLERANCE: u8 = 1;
 

@@ -241,7 +241,7 @@ mod linear {
         ctx.fill_rect(&rect);
     }
 
-    #[vello_test]
+    #[vello_test(cpu_u8_tolerance = 1)]
     fn gradient_linear_complex_shape(ctx: &mut impl Renderer) {
         let path = crossed_line_star();
 

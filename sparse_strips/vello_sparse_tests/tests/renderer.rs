@@ -7,12 +7,11 @@ use vello_common::mask::Mask;
 use vello_common::paint::PaintType;
 use vello_common::peniko::{BlendMode, Fill, Font};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{RenderContext, RenderMode};
+use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
 use vello_hybrid::Scene;
 
 pub(crate) trait Renderer: Sized + GlyphRenderer {
-    fn new(width: u16, height: u16) -> Self;
-    fn new_multithreaded(width: u16, height: u16, num_threads: u16) -> Self;
+    fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self;
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
     fn fill_rect(&mut self, rect: &Rect);
@@ -43,12 +42,10 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
 }
 
 impl Renderer for RenderContext {
-    fn new(width: u16, height: u16) -> Self {
-        Self::new(width, height)
-    }
+    fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
+        let settings = RenderSettings { level, num_threads };
 
-    fn new_multithreaded(width: u16, height: u16, num_threads: u16) -> Self {
-        Self::new_multithreaded(width, height, num_threads)
+        Self::new_with(width, height, &settings)
     }
 
     fn fill_path(&mut self, path: &BezPath) {
@@ -143,12 +140,16 @@ impl Renderer for RenderContext {
 }
 
 impl Renderer for Scene {
-    fn new(width: u16, height: u16) -> Self {
-        Self::new(width, height)
-    }
+    fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
+        if num_threads != 0 {
+            panic!("hybrid renderer doesn't support multi-threading");
+        }
 
-    fn new_multithreaded(_: u16, _: u16, _: u16) -> Self {
-        unimplemented!()
+        if !matches!(level, Level::Fallback(_)) {
+            panic!("hybrid renderer doesn't support SIMD");
+        }
+
+        Self::new(width, height)
     }
 
     fn fill_path(&mut self, path: &BezPath) {

@@ -8,13 +8,18 @@ use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
 use vello_common::kurbo::{Point, Rect};
 use vello_common::mask::Mask;
 use vello_common::peniko::{ColorStop, ColorStops, Gradient, GradientKind};
-use vello_cpu::RenderMode;
+use vello_cpu::{Level, RenderMode, RenderSettings};
 use vello_cpu::{Pixmap, RenderContext};
 use vello_dev_macros::vello_test;
 
 pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     let mut mask_pix = Pixmap::new(100, 100);
-    let mut mask_ctx = RenderContext::new(100, 100);
+    // TODO: Would be nice to take the settings from the current test context.
+    let settings = RenderSettings {
+        level: Level::fallback(),
+        num_threads: 0,
+    };
+    let mut mask_ctx = RenderContext::new_with(100, 100, &settings);
 
     let grad = Gradient {
         kind: GradientKind::Linear {

@@ -16,6 +16,7 @@ use svg::node::element::{Line as SvgLine, Path, Rectangle};
 use svg::{Document, Node};
 use vello_common::coarse::{Cmd, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
+use vello_common::fearless_simd::Level;
 use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use vello_common::peniko::Fill;
@@ -61,6 +62,7 @@ fn main() {
 
     if stages.iter().any(|s| s.requires_strips()) {
         strip::render(
+            Level::new(),
             &tiles,
             &mut strip_buf,
             &mut alpha_buf,
