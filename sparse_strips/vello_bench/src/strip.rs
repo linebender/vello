@@ -39,6 +39,9 @@ pub fn render_strips(c: &mut Criterion) {
 
     for item in get_data_items() {
         strip_single!(item, Level::fallback(), "fallback");
-        strip_single!(item, Level::new(), "simd");
+        let simd_level = Level::new();
+        if !matches!(simd_level, Level::Fallback(_)) {
+            strip_single!(item, simd_level, "simd");
+        }
     }
 }
