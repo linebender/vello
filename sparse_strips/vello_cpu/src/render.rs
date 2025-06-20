@@ -333,6 +333,8 @@ impl RenderContext {
     pub fn reset(&mut self) {
         self.dispatcher.reset();
         self.encoded_paints.clear();
+        self.reset_transform();
+        self.reset_paint_transform();
     }
 
     /// Flush any pending operations.
