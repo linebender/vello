@@ -65,6 +65,8 @@ fn render_impl<S: Simd>(
         return;
     }
 
+    const WIDTH: usize = Tile::WIDTH as usize / 2;
+
     // The accumulated tile winding delta. A line that crosses the top edge of a tile
     // increments the delta if the line is directed upwards, and decrements it if goes
     // downwards. Horizontal lines leave it unchanged.
@@ -76,10 +78,10 @@ fn render_impl<S: Simd>(
     // Note multiple tiles can be at the same location.
     // Note that we are also implicitly assuming here that the tile height exactly fits into a
     // SIMD vector (i.e. 128 bits).
-    let mut location_winding = [f32x4::splat(s, 0.0); Tile::WIDTH as usize];
+    let mut location_winding = [f32x8::splat(s, 0.0); WIDTH];
     // The accumulated (fractional) windings at this location's right edge. When we move to the
     // next location, this is splatted to that location's starting winding.
-    let mut accumulated_winding = f32x4::splat(s, 0.0);
+    let mut accumulated_winding = f32x8::splat(s, 0.0);
 
     /// A special tile to keep the logic below simple.
     const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, false);
@@ -106,11 +108,11 @@ fn render_impl<S: Simd>(
         if !prev_tile.same_loc(&tile) {
             match fill_rule {
                 Fill::NonZero => {
-                    let p1 = f32x4::splat(s, 0.5);
-                    let p2 = f32x4::splat(s, 255.0);
+                    let p1 = f32x8::splat(s, 0.5);
+                    let p2 = f32x8::splat(s, 255.0);
 
                     #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
-                    for x in 0..Tile::WIDTH as usize {
+                    for x in 0..WIDTH {
                         let area = location_winding[x];
                         let coverage = area.abs();
                         let mulled = p1.madd(coverage, p2);
@@ -120,15 +122,19 @@ fn render_impl<S: Simd>(
                         alpha_buf.push(slice[1] as u8);
                         alpha_buf.push(slice[2] as u8);
                         alpha_buf.push(slice[3] as u8);
+                        alpha_buf.push(slice[4] as u8);
+                        alpha_buf.push(slice[5] as u8);
+                        alpha_buf.push(slice[6] as u8);
+                        alpha_buf.push(slice[7] as u8);
                     }
                 }
                 Fill::EvenOdd => {
-                    let p1 = f32x4::splat(s, 0.5);
-                    let p2 = f32x4::splat(s, -2.0);
-                    let p3 = f32x4::splat(s, 255.0);
+                    let p1 = f32x8::splat(s, 0.5);
+                    let p2 = f32x8::splat(s, -2.0);
+                    let p3 = f32x8::splat(s, 255.0);
 
                     #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
-                    for x in 0..Tile::WIDTH as usize {
+                    for x in 0..WIDTH {
                         let area = location_winding[x];
                         let im1 = p1.madd(area, p1).floor();
                         let coverage = area.madd(p2, im1).abs();
@@ -139,12 +145,16 @@ fn render_impl<S: Simd>(
                         alpha_buf.push(slice[1] as u8);
                         alpha_buf.push(slice[2] as u8);
                         alpha_buf.push(slice[3] as u8);
+                        alpha_buf.push(slice[4] as u8);
+                        alpha_buf.push(slice[5] as u8);
+                        alpha_buf.push(slice[6] as u8);
+                        alpha_buf.push(slice[7] as u8);
                     }
                 }
             };
 
             #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
-            for x in 0..Tile::WIDTH as usize {
+            for x in 0..WIDTH {
                 location_winding[x] = accumulated_winding;
             }
         }
@@ -173,10 +183,10 @@ fn render_impl<S: Simd>(
                 }
 
                 winding_delta = 0;
-                accumulated_winding = f32x4::splat(s, 0.0);
+                accumulated_winding = f32x8::splat(s, 0.0);
 
                 #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
-                for x in 0..Tile::WIDTH as usize {
+                for x in 0..WIDTH {
                     location_winding[x] = accumulated_winding;
                 }
             }
@@ -193,7 +203,7 @@ fn render_impl<S: Simd>(
             };
             // Note: this fill is mathematically not necessary. It provides a way to reduce
             // accumulation of float rounding errors.
-            accumulated_winding = f32x4::splat(s, winding_delta as f32);
+            accumulated_winding = f32x8::splat(s, winding_delta as f32);
         }
         prev_tile = tile;
 
@@ -271,17 +281,17 @@ fn render_impl<S: Simd>(
                 )
             };
 
-            let ymin: f32x4<_> = ymin.simd_into(s);
-            let ymax: f32x4<_> = ymax.simd_into(s);
+            let ymin: f32x8<_> = ymin.simd_into(s);
+            let ymax: f32x8<_> = ymax.simd_into(s);
 
-            let px_top_y: f32x4<_> = [0.0, 1.0, 2.0, 3.0].simd_into(s);
+            let px_top_y: f32x8<_> = f32x8::block_splat([0.0, 1.0, 2.0, 3.0].simd_into(s));
             let px_bottom_y = 1.0 + px_top_y;
             let ymin = px_top_y.max(ymin);
             let ymax = px_bottom_y.min(ymax);
             let h = (ymax - ymin).max(0.0);
             accumulated_winding = accumulated_winding.madd(sign, h);
-            for x_idx in 0..Tile::WIDTH {
-                location_winding[x_idx as usize] = location_winding[x_idx as usize].madd(sign, h);
+            for x_idx in 0..WIDTH {
+                location_winding[x_idx] = location_winding[x_idx].madd(sign, h);
             }
 
             if line_right_x < 0. {
@@ -290,20 +300,23 @@ fn render_impl<S: Simd>(
             }
         }
 
-        let line_top_y = f32x4::splat(s, line_top_y);
-        let line_bottom_y = f32x4::splat(s, line_bottom_y);
+        let line_top_y = f32x8::splat(s, line_top_y);
+        let line_bottom_y = f32x8::splat(s, line_bottom_y);
 
-        let y_idx = f32x4::from_slice(s, &[0.0, 1.0, 2.0, 3.0]);
+        let y_idx = f32x8::block_splat(f32x4::from_slice(s, &[0.0, 1.0, 2.0, 3.0]));
         let px_top_y = y_idx;
         let px_bottom_y = 1. + y_idx;
 
         let ymin = line_top_y.max(px_top_y);
         let ymax = line_bottom_y.min(px_bottom_y);
 
-        let mut acc = f32x4::splat(s, 0.0);
+        let mut acc = f32x8::splat(s, 0.0);
 
-        for x_idx in 0..Tile::WIDTH {
-            let x_idx_s = f32x4::splat(s, x_idx as f32);
+        for x_idx in 0..WIDTH {
+            let x_idx_s = s.combine_f32x4(
+                f32x4::splat(s, 2.0 * x_idx as f32),
+                f32x4::splat(s, 2.0 * x_idx as f32 + 1.0),
+            );
             let px_left_x = x_idx_s;
             let px_right_x = 1.0 + x_idx_s;
 
@@ -335,17 +348,31 @@ fn render_impl<S: Simd>(
 
             // `x_slope` is always finite, as horizontal geometry is elided.
             let line_px_left_yx =
-                f32x4::splat(s, line_top_x).madd(line_px_left_y - line_top_y, x_slope);
+                f32x8::splat(s, line_top_x).madd(line_px_left_y - line_top_y, x_slope);
             let line_px_right_yx =
-                f32x4::splat(s, line_top_x).madd(line_px_right_y - line_top_y, x_slope);
+                f32x8::splat(s, line_top_x).madd(line_px_right_y - line_top_y, x_slope);
             let h = (line_px_right_y - line_px_left_y).abs();
 
             // The trapezoidal area enclosed between the line and the right edge of the pixel
             // square.
             let area = 0.5 * h * (2. * px_right_x - line_px_right_yx - line_px_left_yx);
-            location_winding[x_idx as usize] =
-                location_winding[x_idx as usize] + acc.madd(sign, area);
+            location_winding[x_idx] = location_winding[x_idx] + acc.madd(sign, area);
             acc = acc.madd(sign, h);
+
+            // We are in the unfortunate situation where the original algorithm was designed with
+            // an accumulator in mind, which accumulates across a single column (which has the height
+            // of a tile). This worked perfectly for f32x4, but for f32x8 it means that we have to
+            // manually update the accumulator of the upper half, so that it takes into account
+            // the accumulator from the lower half.
+            let (lower_h, _) = s.split_f32x8(h);
+            let (_, mut upper_acc) = s.split_f32x8(acc);
+            let (lower_loc, mut upper_loc) = s.split_f32x8(location_winding[x_idx]);
+
+            upper_loc = upper_loc.madd(sign, lower_h);
+            location_winding[x_idx] = s.combine_f32x4(lower_loc, upper_loc);
+
+            upper_acc = upper_acc.madd(sign, lower_h);
+            acc = f32x8::block_splat(upper_acc);
         }
 
         accumulated_winding = accumulated_winding + acc;
