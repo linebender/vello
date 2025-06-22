@@ -10,9 +10,13 @@ use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
 use alloc::boxed::Box;
+#[cfg(feature = "text")]
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
+#[cfg(feature = "text")]
+use vello_common::color::{AlphaColor, Srgb};
 #[cfg(feature = "text")]
 use vello_common::colr::{ColrPainter, ColrRenderer};
 use vello_common::encode::{EncodeExt, EncodedPaint};
