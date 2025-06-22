@@ -39,7 +39,7 @@ png = ["std", "dep:png"]
 # Enable multi-threaded rendering.
 multithreading = []
 # Add support for text rendering
-text = ["skrifa"]
+text = ["dep:skrifa"]
 
 # Development only features
 
