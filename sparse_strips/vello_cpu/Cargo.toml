@@ -26,7 +26,7 @@ thread_local = { workspace = true, optional = true }
 
 
 [features]
-default = ["std", "png"]
+default = ["std", "png", "text"]
 # Get floating point functions from the standard library (likely using your target’s libc).
 std = ["vello_common/std"]
 # Use floating point implementations from libm.
@@ -42,6 +42,8 @@ multithreading = [
     "dep:crossbeam-channel",
     "vello_common/multithreading",
 ]
+# Add support for text rendering
+text = ["vello_common/text"]
 
 [lints]
 workspace = true
