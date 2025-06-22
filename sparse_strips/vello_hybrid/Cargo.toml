@@ -17,7 +17,7 @@ workspace = true
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
-vello_common = { workspace = true, features = ["std"] }
+vello_common = { workspace = true, features = ["std", "text"] }
 wgpu = { workspace = true, optional = true }
 vello_sparse_shaders = { workspace = true, optional = true }
 log = { workspace = true }
