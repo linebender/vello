@@ -44,7 +44,7 @@ pub struct RenderContext {
     pub(crate) fill_rule: Fill,
     pub(crate) temp_path: BezPath,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
-    #[cfg_attr(not(feature = "text"), allow(dead_code))]
+    #[cfg_attr(not(feature = "text"), allow(dead_code, reason = "used when the `text` feature is enabled"))]
     pub(crate) level: Level,
     dispatcher: Box<dyn Dispatcher>,
 }
