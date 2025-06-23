@@ -90,13 +90,6 @@ fn test_layer_size() {
         None,
         &Rect::from_origin_size((0.0, 0.0), (60., 60.)),
     );
-    scene.push_layer(
-        vello::peniko::Compose::Clear,
-        1.0,
-        vello::kurbo::Affine::IDENTITY,
-        &Rect::from_origin_size((20.0, 20.0), (20., 20.)),
-    );
-    scene.pop_layer();
     scene.fill(
         vello::peniko::Fill::NonZero,
         Affine::IDENTITY,
@@ -104,6 +97,13 @@ fn test_layer_size() {
         None,
         &Rect::from_origin_size((20.0, 20.0), (20., 20.)),
     );
+    scene.push_layer(
+        vello::peniko::Compose::Clear,
+        1.0,
+        vello::kurbo::Affine::IDENTITY,
+        &Rect::from_origin_size((20.0, 20.0), (20., 20.)),
+    );
+    scene.pop_layer();
     let params = TestParams::new("layer_size", 60, 60);
     smoke_snapshot_test_sync(scene, &params)
         .unwrap()
