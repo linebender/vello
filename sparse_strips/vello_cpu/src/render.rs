@@ -15,20 +15,21 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
-#[cfg(feature = "text")]
-use vello_common::color::{AlphaColor, Srgb};
-#[cfg(feature = "text")]
-use vello_common::colr::{ColrPainter, ColrRenderer};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
-#[cfg(feature = "text")]
-use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
+
+#[cfg(feature = "text")]
+use vello_common::{
+    color::{AlphaColor, Srgb},
+    colr::{ColrPainter, ColrRenderer},
+    glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph},
+};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -43,7 +44,7 @@ pub struct RenderContext {
     pub(crate) fill_rule: Fill,
     pub(crate) temp_path: BezPath,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
-    #[allow(dead_code, reason = "used when the `text` feature is enabled")]
+    #[cfg_attr(not(feature = "text"), allow(dead_code))]
     pub(crate) level: Level,
     dispatcher: Box<dyn Dispatcher>,
 }
