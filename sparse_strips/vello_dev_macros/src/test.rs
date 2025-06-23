@@ -162,7 +162,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     skip_hybrid |= {
         input_fn_name_str.contains("compose")
             || input_fn_name_str.contains("gradient")
-            || input_fn_name_str.contains("image")
             || input_fn_name_str.contains("layer")
             || input_fn_name_str.contains("mask")
             || input_fn_name_str.contains("mix")
@@ -226,7 +225,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 #input_fn_name(&mut ctx);
                 ctx.flush();
                 if !#no_ref {
-                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #render_mode, #reference_image_name);
+                    check_ref(&mut ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #render_mode, #reference_image_name);
                 }
             }
         }
@@ -335,14 +334,14 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::util::{
                 check_ref, get_ctx
             };
-            use vello_hybrid::Scene;
+            use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<Scene>(#width, #height, #transparent, 0, "fallback");
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback");
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
+                check_ref(&mut ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
         }
 
@@ -353,14 +352,14 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::util::{
                 check_ref, get_ctx
             };
-            use vello_hybrid::Scene;
+            use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<Scene>(#width, #height, #transparent, 0, "fallback");
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback");
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
+                check_ref(&mut ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
         }
     };

@@ -4,6 +4,7 @@
 //! Example scenes for Vello Hybrid.
 
 pub mod clip;
+pub mod image;
 pub mod simple;
 pub mod svg;
 pub mod text;
@@ -66,6 +67,7 @@ pub fn get_example_scenes(svg_paths: Option<Vec<&str>>) -> Box<[AnyScene]> {
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
+    scenes.push(AnyScene::new(image::ImageScene {}));
 
     scenes.into_boxed_slice()
 }

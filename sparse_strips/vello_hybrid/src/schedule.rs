@@ -176,13 +176,15 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::render::common::GpuEncodedImage;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::mem;
 use vello_common::{
     coarse::{Cmd, WideTile},
-    paint::Paint,
+    encode::EncodedPaint,
+    paint::{ImageSource, Paint},
     tile::Tile,
 };
 
@@ -269,18 +271,18 @@ impl Scheduler {
         scene: &Scene,
     ) -> Result<(), RenderError> {
         let mut tile_state = mem::take(&mut self.tile_state);
-        let wide_tiles_per_row = (scene.width).div_ceil(WideTile::WIDTH);
-        let wide_tiles_per_col = (scene.height).div_ceil(Tile::HEIGHT);
+        let wide_tiles_per_row = scene.wide.width_tiles();
+        let wide_tiles_per_col = scene.wide.height_tiles();
 
         // Left to right, top to bottom iteration over wide tiles.
         for wide_tile_row in 0..wide_tiles_per_col {
             for wide_tile_col in 0..wide_tiles_per_row {
-                let wide_tile_idx = usize::from(wide_tile_row * wide_tiles_per_row + wide_tile_col);
-                let wide_tile = &scene.wide.tiles[wide_tile_idx];
+                let wide_tile = scene.wide.get(wide_tile_col, wide_tile_row);
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
                 self.do_tile(
                     renderer,
+                    scene,
                     wide_tile_x,
                     wide_tile_y,
                     wide_tile,
@@ -363,6 +365,7 @@ impl Scheduler {
     fn do_tile<R: RendererBackend>(
         &mut self,
         renderer: &mut R,
+        scene: &Scene,
         wide_tile_x: u16,
         wide_tile_y: u16,
         tile: &WideTile,
@@ -385,8 +388,9 @@ impl Scheduler {
                     y: wide_tile_y,
                     width: WideTile::WIDTH,
                     dense_width: 0,
-                    col: 0,
-                    rgba: bg,
+                    col_idx: 0,
+                    rgba_or_slot: bg,
+                    paint: 0,
                 });
             }
         }
@@ -397,55 +401,50 @@ impl Scheduler {
                 Cmd::Fill(fill) => {
                     let el = state.stack.last().unwrap();
                     let draw = self.draw_mut(el.round, clip_depth);
-                    let color = match fill.paint {
-                        Paint::Solid(color) => color,
-                        Paint::Indexed(_) => unimplemented!(),
-                    };
-                    let rgba = color.as_premul_rgba8().to_u32();
-                    debug_assert!(
-                        has_non_zero_alpha(rgba),
-                        "Color fields with 0 alpha are reserved for clipping"
-                    );
+
+                    let (col_idx, paint, rgba_or_slot) = Self::process_paint(&fill.paint, scene, 0);
+
                     let (x, y) = if clip_depth == 1 {
                         (wide_tile_x + fill.x, wide_tile_y)
                     } else {
                         (fill.x, el.slot_ix as u16 * Tile::HEIGHT)
                     };
+
                     draw.0.push(GpuStrip {
                         x,
                         y,
                         width: fill.width,
                         dense_width: 0,
-                        col: 0,
-                        rgba,
+                        col_idx,
+                        rgba_or_slot,
+                        paint,
                     });
                 }
                 Cmd::AlphaFill(alpha_fill) => {
                     let el = state.stack.last().unwrap();
                     let draw = self.draw_mut(el.round, clip_depth);
-                    let color = match alpha_fill.paint {
-                        Paint::Solid(color) => color,
-                        Paint::Indexed(_) => unimplemented!(),
-                    };
-                    let rgba = color.as_premul_rgba8().to_u32();
-                    debug_assert!(
-                        has_non_zero_alpha(rgba),
-                        "Color fields with 0 alpha are reserved for clipping"
-                    );
+
+                    let alpha_col = (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
+                        .try_into()
+                        .expect("Sparse strips are bound to u32 range");
+
+                    let (col_idx, paint, rgba_or_slot) =
+                        Self::process_paint(&alpha_fill.paint, scene, alpha_col);
+
                     let (x, y) = if clip_depth == 1 {
                         (wide_tile_x + alpha_fill.x, wide_tile_y)
                     } else {
                         (alpha_fill.x, el.slot_ix as u16 * Tile::HEIGHT)
                     };
+
                     draw.0.push(GpuStrip {
                         x,
                         y,
                         width: alpha_fill.width,
                         dense_width: alpha_fill.width,
-                        col: (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
-                            .try_into()
-                            .expect("Sparse strips are bound to u32 range"),
-                        rgba,
+                        col_idx,
+                        rgba_or_slot,
+                        paint,
                     });
                 }
                 Cmd::PushBuf => {
@@ -494,8 +493,9 @@ impl Scheduler {
                         y,
                         width: clip_fill.width as u16,
                         dense_width: 0,
-                        col: 0,
-                        rgba: tos.slot_ix as u32,
+                        col_idx: 0,
+                        rgba_or_slot: tos.slot_ix as u32,
+                        paint: 0,
                     });
                 }
                 Cmd::ClipStrip(clip_alpha_fill) => {
@@ -514,10 +514,11 @@ impl Scheduler {
                         y,
                         width: clip_alpha_fill.width as u16,
                         dense_width: clip_alpha_fill.width as u16,
-                        col: (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
+                        col_idx: (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
                             .try_into()
                             .expect("Sparse strips are bound to u32 range"),
-                        rgba: tos.slot_ix as u32,
+                        rgba_or_slot: tos.slot_ix as u32,
+                        paint: 0,
                     });
                 }
                 _ => unimplemented!(),
@@ -525,6 +526,36 @@ impl Scheduler {
         }
 
         Ok(())
+    }
+
+    /// Process a paint and return (`col_idx`, `paint_type`, `rgba_or_slot`)
+    fn process_paint(paint: &Paint, scene: &Scene, alpha_col: u32) -> (u32, u32, u32) {
+        match paint {
+            Paint::Solid(color) => {
+                let rgba = color.as_premul_rgba8().to_u32();
+                debug_assert!(
+                    has_non_zero_alpha(rgba),
+                    "Color fields with 0 alpha are reserved for clipping"
+                );
+                (alpha_col, 0, rgba)
+            }
+            Paint::Indexed(indexed_paint) => {
+                let paint_id = indexed_paint.index();
+                let paint_tex_id = (paint_id * size_of::<GpuEncodedImage>() / 16) as u32;
+
+                match scene.encoded_paints.get(paint_id) {
+                    Some(EncodedPaint::Image(encoded_image)) => match &encoded_image.source {
+                        ImageSource::OpaqueId(_) => {
+                            let paint_type = 2_u32;
+                            let paint_packed = (paint_type << 30) | (paint_tex_id & 0x3FFFFFFF);
+                            (alpha_col, paint_packed, 0)
+                        }
+                        _ => unimplemented!("unsupported image source"),
+                    },
+                    _ => (0, 0, 0),
+                }
+            }
+        }
     }
 }
 

@@ -3769,6 +3769,7 @@ name = "vello_hybrid"
 version = "0.5.0"
 dependencies = [
  "bytemuck",
+ "guillotiere",
  "js-sys",
  "log",
  "png",
@@ -3786,6 +3787,7 @@ name = "vello_hybrid_scenes"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
+ "image",
  "parley",
  "vello_common",
  "vello_hybrid",

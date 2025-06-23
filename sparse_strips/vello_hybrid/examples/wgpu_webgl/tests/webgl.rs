@@ -6,6 +6,7 @@
 
 mod wasm {
     use vello_common::peniko::{color::palette, kurbo::BezPath};
+    use vello_hybrid::ImageCache;
     use wasm_bindgen_test::*;
     use wgpu_webgl::render_scene;
 
@@ -13,6 +14,7 @@ mod wasm {
 
     #[wasm_bindgen_test]
     async fn test_renders_triangle() {
+        let image_cache = ImageCache::new();
         console_error_panic_hook::set_once();
         console_log::init_with_level(log::Level::Debug).unwrap();
 
@@ -27,6 +29,6 @@ mod wasm {
         scene.set_paint(palette::css::BLUE);
         scene.fill_path(&path);
 
-        render_scene(scene, 100, 100).await;
+        render_scene(scene, 100, 100, image_cache).await;
     }
 }

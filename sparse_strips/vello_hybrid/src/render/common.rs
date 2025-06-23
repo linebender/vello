@@ -44,9 +44,42 @@ pub struct GpuStrip {
     /// Column-index into the alpha texture where this strip's alpha values begin.
     ///
     /// There are [`Config::strip_height`] alpha values per column.
-    pub col: u32,
-    /// RGBA color value
-    pub rgba: u32,
+    pub col_idx: u32,
+    /// Paint data
+    pub rgba_or_slot: u32,
+    /// Paint type: 0 = solid, 1 = alpha, 2 = image
+    pub paint: u32,
+}
+
+/// Represents a GPU encoded image data for rendering
+// Align to 16 bytes for RGBA32Uint alignment
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(
+    dead_code,
+    reason = "Clippy fails when --no-default-features because webgl impl doesn't use this struct"
+)]
+pub(crate) struct GpuEncodedImage {
+    // 1st 16 bytes
+    /// The rendering quality of the image.
+    pub quality: u32,
+    /// The extends in the horizontal and vertical direction.
+    pub extend_modes: [u32; 2],
+    pub _padding0: u32,
+    // 2nd 16 bytes
+    /// The advance in image coordinates for one step in the x direction.
+    pub x_advance: [f32; 2],
+    /// The advance in image coordinates for one step in the y direction.
+    pub y_advance: [f32; 2],
+    // 3rd 16 bytes
+    /// The size of the image in pixels.
+    pub image_size: [u32; 2],
+    /// The offset of the image in pixels.
+    pub image_offset: [u32; 2],
+    // 4th & 5th 16 bytes
+    /// A transform to apply to the image.
+    pub transform: [f32; 6],
+    pub _padding1: [u32; 2],
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))]

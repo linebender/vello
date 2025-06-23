@@ -79,7 +79,7 @@ pub(crate) fn get_ctx<T: Renderer>(
     ctx
 }
 
-pub(crate) fn render_pixmap(ctx: &impl Renderer, render_mode: RenderMode) -> Pixmap {
+pub(crate) fn render_pixmap(ctx: &mut impl Renderer, render_mode: RenderMode) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
     ctx.render_to_pixmap(&mut pixmap, render_mode);
     pixmap
@@ -266,7 +266,7 @@ pub(crate) fn pixmap_to_png(pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> 
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn check_ref(
-    ctx: &impl Renderer,
+    ctx: &mut impl Renderer,
     // The name of the test.
     test_name: &str,
     // The name of the specific instance of the test that is being run
@@ -310,7 +310,7 @@ pub(crate) fn check_ref(
     let diff_image = get_diff(&ref_image, &actual, threshold, diff_pixels);
 
     if let Some(diff_image) = diff_image {
-        if std::env::var("REPLACE").is_ok() && is_reference {
+        if should_replace() && is_reference {
             write_ref_image();
             panic!("test was replaced");
         }
@@ -330,7 +330,7 @@ pub(crate) fn check_ref(
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn check_ref(
-    ctx: &impl Renderer,
+    ctx: &mut impl Renderer,
     _test_name: &str,
     // The name of the specific instance of the test that is being run
     // (e.g. test_gpu, test_cpu_u8, etc.)
@@ -494,4 +494,12 @@ fn is_pix_diff(pixel1: &Rgba<u8>, pixel2: &Rgba<u8>, threshold: u8) -> bool {
     }
 
     different
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn should_replace() -> bool {
+    match std::env::var("REPLACE") {
+        Ok(value) => value == "1",
+        Err(_) => false,
+    }
 }

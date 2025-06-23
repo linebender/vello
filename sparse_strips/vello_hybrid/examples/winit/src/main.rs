@@ -11,7 +11,8 @@ use std::sync::Arc;
 use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Point};
-use vello_hybrid::{RenderSize, Renderer, Scene};
+use vello_hybrid::{ImageCache, Pixmap, RenderSize, Renderer, Scene};
+use vello_hybrid_scenes::image::ImageScene;
 use vello_hybrid_scenes::{AnyScene, get_example_scenes};
 use winit::{
     application::ApplicationHandler,
@@ -44,12 +45,13 @@ struct App<'s> {
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Point>,
+    image_cache: ImageCache<wgpu::Texture>,
 }
 
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     let (scenes, start_scene_index) = {
-        let mut start_scene_index = 0;
+        let mut start_scene_index = 4;
         let args: Vec<String> = env::args().collect();
         let mut svg_paths: Vec<&str> = Vec::new();
 
@@ -82,10 +84,11 @@ fn main() {
         scenes,
         current_scene: start_scene_index,
         render_state: RenderState::Suspended(None),
-        scene: Scene::new(900, 600),
+        scene: Scene::new(1800, 1200),
         transform: Affine::IDENTITY,
         mouse_down: false,
         last_cursor_position: None,
+        image_cache: ImageCache::new(),
     };
 
     let event_loop = EventLoop::new().unwrap();
@@ -137,6 +140,14 @@ impl ApplicationHandler for App<'_> {
             .resize_with(self.context.devices.len(), || None);
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
+        let max_texture_dimension_2d = self.context.devices[surface.dev_id]
+            .device
+            .limits()
+            .max_texture_dimension_2d;
+        self.image_cache
+            .resize(max_texture_dimension_2d, max_texture_dimension_2d);
+
+        self.upload_images_to_atlas(surface.dev_id);
 
         self.render_state = RenderState::Active {
             surface: Box::new(surface),
@@ -294,6 +305,7 @@ impl ApplicationHandler for App<'_> {
                         &mut encoder,
                         &render_size,
                         &texture_view,
+                        &self.image_cache,
                     )
                     .unwrap();
 
@@ -304,5 +316,88 @@ impl ApplicationHandler for App<'_> {
             }
             _ => {}
         }
+    }
+}
+
+impl App<'_> {
+    fn upload_images_to_atlas(&mut self, device_id: usize) {
+        let device_handle = &self.context.devices[device_id];
+        let mut encoder =
+            device_handle
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Upload Image pass"),
+                });
+        let images: Vec<Pixmap> = vec![
+            ImageScene::read_flower_image(),
+            ImageScene::read_cowboy_image(),
+        ];
+        for image in images {
+            let texture =
+                self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &image);
+            let image_id = self.image_cache.insert(texture);
+            let image_resource = self.image_cache.get(image_id).unwrap();
+            self.renderers[device_id]
+                .as_mut()
+                .unwrap()
+                .copy_texture_to_atlas(
+                    &mut encoder,
+                    &image_resource.texture,
+                    image_resource.offset,
+                    image_resource.width(),
+                    image_resource.height(),
+                );
+        }
+        device_handle.queue.submit([encoder.finish()]);
+    }
+
+    fn upload_image_to_texture(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image: &Pixmap,
+    ) -> wgpu::Texture {
+        let image_width = image.width() as u32;
+        let image_height = image.height() as u32;
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Uploaded Image Texture"),
+            size: wgpu::Extent3d {
+                width: image_width,
+                height: image_height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            image.data_as_u8_slice(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                // 4 bytes per RGBA pixel
+                bytes_per_row: Some(4 * image_width),
+                rows_per_image: Some(image_height),
+            },
+            wgpu::Extent3d {
+                width: image_width,
+                height: image_height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        texture
     }
 }

@@ -12,6 +12,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use vello_common::kurbo::{Affine, Point};
+use vello_hybrid::ImageCache;
 use vello_hybrid_scenes::AnyScene;
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
@@ -121,6 +122,7 @@ struct AppState {
     renderer_wrapper: RendererWrapper,
     need_render: bool,
     canvas: HtmlCanvasElement,
+    image_cache: ImageCache<wgpu::Texture>,
 }
 
 impl AppState {
@@ -142,6 +144,7 @@ impl AppState {
             renderer_wrapper,
             need_render: true,
             canvas,
+            image_cache: ImageCache::new(),
         }
     }
 
@@ -179,6 +182,7 @@ impl AppState {
                 &mut encoder,
                 &render_size,
                 &surface_texture_view,
+                &self.image_cache,
             )
             .unwrap();
 
@@ -441,7 +445,12 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
 }
 
 /// Creates a `HTMLCanvasElement` and renders a single scene into it
-pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
+pub async fn render_scene(
+    scene: vello_hybrid::Scene,
+    width: u16,
+    height: u16,
+    image_cache: ImageCache<wgpu::Texture>,
+) {
     let canvas = web_sys::Window::document(&web_sys::window().unwrap())
         .unwrap()
         .create_element("canvas")
@@ -488,6 +497,7 @@ pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
             &mut encoder,
             &render_size,
             &surface_texture_view,
+            &image_cache,
         )
         .unwrap();
 
