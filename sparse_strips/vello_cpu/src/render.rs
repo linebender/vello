@@ -10,23 +10,26 @@ use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
 use alloc::boxed::Box;
+#[cfg(feature = "text")]
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
-use vello_common::color::{AlphaColor, Srgb};
-use vello_common::colr::{ColrPainter, ColrRenderer};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
-use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{Image, Paint, PaintType};
-use vello_common::peniko;
+use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Compose, Fill, Gradient, Mix};
-use vello_common::peniko::{Font, ImageQuality};
+use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
+
+#[cfg(feature = "text")]
+use vello_common::{
+    color::{AlphaColor, Srgb},
+    colr::{ColrPainter, ColrRenderer},
+    glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph},
+};
 
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
@@ -41,6 +44,10 @@ pub struct RenderContext {
     pub(crate) fill_rule: Fill,
     pub(crate) temp_path: BezPath,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
+    #[cfg_attr(
+        not(feature = "text"),
+        allow(dead_code, reason = "used when the `text` feature is enabled")
+    )]
     pub(crate) level: Level,
     dispatcher: Box<dyn Dispatcher>,
 }
@@ -224,7 +231,8 @@ impl RenderContext {
     }
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
-    pub fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
+    #[cfg(feature = "text")]
+    pub fn glyph_run(&mut self, font: &crate::peniko::Font) -> GlyphRunBuilder<'_, Self> {
         GlyphRunBuilder::new(font.clone(), self.transform, self)
     }
 
@@ -389,6 +397,7 @@ impl RenderContext {
     }
 }
 
+#[cfg(feature = "text")]
 impl GlyphRenderer for RenderContext {
     fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
         match prepared_glyph.glyph_type {
@@ -412,15 +421,15 @@ impl GlyphRenderer for RenderContext {
                 let quality = if prepared_glyph.transform.as_coeffs()[0] < 0.5
                     || prepared_glyph.transform.as_coeffs()[3] < 0.5
                 {
-                    ImageQuality::High
+                    crate::peniko::ImageQuality::High
                 } else {
-                    ImageQuality::Medium
+                    crate::peniko::ImageQuality::Medium
                 };
 
-                let image = Image {
+                let image = vello_common::paint::Image {
                     pixmap: Arc::new(glyph.pixmap),
-                    x_extend: peniko::Extend::Pad,
-                    y_extend: peniko::Extend::Pad,
+                    x_extend: crate::peniko::Extend::Pad,
+                    y_extend: crate::peniko::Extend::Pad,
                     quality,
                 };
 
@@ -463,13 +472,13 @@ impl GlyphRenderer for RenderContext {
                     pix
                 };
 
-                let image = Image {
+                let image = vello_common::paint::Image {
                     pixmap: Arc::new(glyph_pixmap),
-                    x_extend: peniko::Extend::Pad,
-                    y_extend: peniko::Extend::Pad,
+                    x_extend: crate::peniko::Extend::Pad,
+                    y_extend: crate::peniko::Extend::Pad,
                     // Since the pixmap will already have the correct size, no need to
                     // use a different image quality here.
-                    quality: ImageQuality::Low,
+                    quality: crate::peniko::ImageQuality::Low,
                 };
 
                 self.set_paint(image);
@@ -503,6 +512,7 @@ impl GlyphRenderer for RenderContext {
     }
 }
 
+#[cfg(feature = "text")]
 impl ColrRenderer for RenderContext {
     fn push_clip_layer(&mut self, clip: &BezPath) {
         Self::push_clip_layer(self, clip);
@@ -522,7 +532,7 @@ impl ColrRenderer for RenderContext {
         ));
     }
 
-    fn fill_gradient(&mut self, gradient: Gradient) {
+    fn fill_gradient(&mut self, gradient: crate::peniko::Gradient) {
         self.set_paint(gradient);
         self.fill_rect(&Rect::new(
             0.0,

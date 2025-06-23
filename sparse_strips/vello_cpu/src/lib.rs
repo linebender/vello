@@ -124,6 +124,7 @@ mod util;
 
 pub use render::{RenderContext, RenderSettings};
 pub use vello_common::fearless_simd::Level;
+#[cfg(feature = "text")]
 pub use vello_common::glyph::Glyph;
 pub use vello_common::mask::Mask;
 pub use vello_common::paint::{Image, Paint, PaintType};

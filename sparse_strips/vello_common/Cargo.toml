@@ -22,22 +22,24 @@ peniko = { workspace = true, features = ["bytemuck"] }
 fearless_simd = { workspace = true }
 png = { workspace = true, optional = true }
 roxmltree = { version = "0.20.0", optional = true }
-skrifa = { workspace = true }
+skrifa = { workspace = true, optional = true }
 smallvec = { workspace = true }
 libm = { version = "0.2.15", optional = true }
 
 [features]
-default = ["std", "png"]
+default = ["std", "png", "text"]
 # Enable using SIMD instructions for rendering
 simd = []
 # Get floating point functions from the standard library (likely using your target’s libc).
-std = ["peniko/std", "skrifa/std", "fearless_simd/std"]
+std = ["peniko/std", "skrifa?/std", "fearless_simd/std"]
 # Use floating point implementations from libm.
-libm = ["peniko/libm", "skrifa/libm", "dep:libm", "fearless_simd/libm"]
+libm = ["peniko/libm", "skrifa?/libm", "dep:libm", "fearless_simd/libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
 png = ["std", "dep:png"]
 # Enable multi-threaded rendering.
 multithreading = []
+# Add support for text rendering
+text = ["dep:skrifa"]
 
 # Development only features
 
