@@ -61,13 +61,10 @@ impl<'a> ImageFiller<'a> {
 
     pub(super) fn run<F: FineType>(mut self, target: &mut [F]) {
         // Get the pixmap from the image source
-        let pixmap = match &self.image.source {
-            ImageSource::Pixmap(pixmap) => pixmap,
-            ImageSource::OpaqueId(_) => {
-                panic!(
-                    "CPU renderer does not support OpaqueId image sources. Use ImageSource::Pixmap instead."
-                );
-            }
+        let ImageSource::Pixmap(pixmap) = &self.image.source else {
+            panic!(
+                "CPU renderer does not support OpaqueId image sources. Use ImageSource::Pixmap instead."
+            );
         };
 
         // We currently have two branches for filling images: The first case is used for
@@ -121,13 +118,10 @@ impl<'a> ImageFiller<'a> {
     fn run_simple<F: FineType, E: Extend>(&mut self, target: &mut [F], y_positions: &[f32; 4]) {
         let mut x_pos = self.cur_pos.x;
         let x_advance = self.image.x_advance.x;
-        let pixmap = match &self.image.source {
-            ImageSource::Pixmap(pixmap) => pixmap,
-            ImageSource::OpaqueId(_) => {
-                panic!(
-                    "CPU renderer does not support OpaqueId image sources. Use ImageSource::Pixmap instead."
-                );
-            }
+        let ImageSource::Pixmap(pixmap) = &self.image.source else {
+            panic!(
+                "CPU renderer does not support OpaqueId image sources. Use ImageSource::Pixmap instead."
+            );
         };
 
         target

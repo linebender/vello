@@ -153,7 +153,7 @@ impl ImageScene {
 
     /// Read the cowboy image
     pub fn read_cowboy_image() -> Pixmap {
-        let data = include_bytes!("../../../../../examples/assets/cowboy.png");
+        let data = include_bytes!("../../../../vello_sparse_tests/tests/assets/cowboy.png");
         Pixmap::from_png(&data[..]).unwrap()
     }
 }

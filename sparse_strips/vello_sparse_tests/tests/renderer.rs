@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
@@ -40,7 +41,7 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn set_paint_transform(&mut self, affine: Affine);
     fn set_fill_rule(&mut self, fill_rule: Fill);
     fn set_transform(&mut self, transform: Affine);
-    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap, render_mode: RenderMode);
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, render_mode: RenderMode);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
@@ -133,7 +134,7 @@ impl Renderer for RenderContext {
         Self::set_transform(self, transform);
     }
 
-    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap, render_mode: RenderMode) {
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, render_mode: RenderMode) {
         Self::render_to_pixmap(self, pixmap, render_mode);
     }
 
@@ -159,7 +160,7 @@ pub(crate) struct HybridRenderer {
     texture: wgpu::Texture,
     #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
     texture_view: wgpu::TextureView,
-    renderer: vello_hybrid::Renderer,
+    renderer: RefCell<vello_hybrid::Renderer>,
 }
 
 impl Renderer for HybridRenderer {
@@ -234,7 +235,7 @@ impl Renderer for HybridRenderer {
             texture,
             #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
             texture_view,
-            renderer,
+            renderer: RefCell::new(renderer),
         }
     }
 
@@ -323,7 +324,7 @@ impl Renderer for HybridRenderer {
     // testing, but should not be used as a basis for implementing something real. This would be a
     // very bad example for that.
     #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap, _: RenderMode) {
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
         // requested simultaneously). This is "fixed" by putting a mutex around this method,
@@ -355,6 +356,7 @@ impl Renderer for HybridRenderer {
                 label: Some("Vello Render To Buffer"),
             });
         self.renderer
+            .borrow_mut()
             .render(
                 &self.scene,
                 &self.device,
@@ -426,7 +428,7 @@ impl Renderer for HybridRenderer {
 
     // vello_hybrid WebGL renderer backend.
     #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap, _: RenderMode) {
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
         use wasm_bindgen::JsCast;
         use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 
@@ -493,7 +495,7 @@ impl Renderer for HybridRenderer {
         let texture = self.upload_image_to_texture(&self.device, &self.queue, &pixmap);
         let image_id = self.image_cache.insert(texture);
         let image_resource = self.image_cache.get(image_id).unwrap();
-        self.renderer.copy_texture_to_atlas(
+        self.renderer.borrow_mut().copy_texture_to_atlas(
             &mut encoder,
             &image_resource.texture,
             image_resource.offset,

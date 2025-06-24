@@ -225,7 +225,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 #input_fn_name(&mut ctx);
                 ctx.flush();
                 if !#no_ref {
-                    check_ref(&mut ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #render_mode, #reference_image_name);
+                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #render_mode, #reference_image_name);
                 }
             }
         }
@@ -341,7 +341,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
-                check_ref(&mut ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
+                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
         }
 
@@ -359,7 +359,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
-                check_ref(&mut ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
+                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
             }
         }
     };
