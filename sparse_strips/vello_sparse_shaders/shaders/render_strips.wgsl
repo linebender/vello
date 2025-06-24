@@ -119,13 +119,13 @@ fn vs_main(
         out.paint_tex_id = paint_tex_id;
         
         let encoded_image = unpack_encoded_image(paint_tex_id);
-        let atlas_uv = encoded_image.translate 
+        let transformed_coords = encoded_image.translate 
             + encoded_image.transform.xy * f32(x0) 
             + encoded_image.transform.zw * f32(y0);
         // Apply image offset to the base texture coordinates
-        let offset_u0v0 = atlas_uv + encoded_image.image_offset;
+        let atlas_coords = transformed_coords + encoded_image.image_offset;
         // Vertex position within the texture
-        out.sample_xy = offset_u0v0 
+        out.sample_xy = atlas_coords 
             + x * f32(width) * encoded_image.x_advance 
             + y * f32(config.strip_height) * encoded_image.y_advance;
     } else {
@@ -190,14 +190,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let encoded_image = unpack_encoded_image(in.paint_tex_id);
         let image_offset = encoded_image.image_offset;
         let image_size = encoded_image.image_size;
-        let local_xy = in.sample_xy  - image_offset;
+        let local_xy = in.sample_xy - image_offset;
         let extended_xy = vec2<f32>(
             extend_mode(local_xy.x, encoded_image.extend_modes.x, image_size.x),
             extend_mode(local_xy.y, encoded_image.extend_modes.y, image_size.y)
         );
-        let final_xy = image_offset + extended_xy;
         
         if encoded_image.quality == IMAGE_QUALITY_HIGH {
+            let final_xy = image_offset + extended_xy;
             let sample_color = bicubic_sample(
                 atlas_texture,
                 final_xy,
@@ -207,6 +207,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
             final_color = alpha * sample_color;
         } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
+            let final_xy = image_offset + extended_xy - vec2(0.5);
             let sample_color = bilinear_sample(
                 atlas_texture,
                 final_xy,
@@ -216,6 +217,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
             final_color = alpha * sample_color;
         } else if encoded_image.quality == IMAGE_QUALITY_LOW {
+            let final_xy = image_offset + extended_xy;
             final_color = alpha * textureLoad(atlas_texture, vec2<u32>(final_xy), 0);
         }
     } else {
@@ -233,6 +235,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     return final_color;
 }
+
 
 struct EncodedImage {
     /// The rendering quality of the image.
@@ -332,23 +335,22 @@ fn extend_mode_normalized(t: f32, mode: u32) -> f32 {
     }
 }
 
+
 fn extend_mode(t: f32, mode: u32, max: f32) -> f32 {
     switch mode {
         case EXTEND_PAD: {
             return clamp(t, 0.0, max - 1.0);
         }
         case EXTEND_REPEAT: {
-            return t - floor(t / max) * max;
+            return extend_mode_normalized(t / max, mode) * max;
         }
         case EXTEND_REFLECT, default: {
-            let normalized = t / max;
-            let reflected = abs(normalized - 2.0 * round(0.5 * normalized));
-            return reflected * max;
+            return extend_mode_normalized(t / max, mode) * max;
         }
     }
 }
 
-// Bilinear filtering (matching CPU implementation approach)
+// Bilinear filtering
 //
 // Bilinear filtering consists of sampling the 4 surrounding pixels of the target point and
 // interpolating them with a bilinear filter.
@@ -359,36 +361,18 @@ fn bilinear_sample(
     image_size: vec2<f32>,
     extend_modes: vec2<u32>
 ) -> vec4<f32> {
-    let frac_coords = fract(coords + 0.5);
-    
-    // Calculate weights
-    let cx = vec2<f32>(1.0 - frac_coords.x, frac_coords.x);
-    let cy = vec2<f32>(1.0 - frac_coords.y, frac_coords.y);
-    
-    var result = vec4<f32>(0.0);
-    
-    // Sample at fractional positions (matching CPU: pos + [-0.5, 0.5])
-    let offsets = array<f32, 2>(-0.5, 0.5);
-    for (var x_idx = 0; x_idx < 2; x_idx++) {
-        for (var y_idx = 0; y_idx < 2; y_idx++) {
-            let offset = vec2<f32>(offsets[x_idx], offsets[y_idx]);
-            let sample_pos_f = coords + offset;
-            let local_xy = sample_pos_f - image_offset;
-            let clamped_pos = vec2<f32>(
-                extend_mode(local_xy.x, extend_modes.x, image_size.x),
-                extend_mode(local_xy.y, extend_modes.y, image_size.y)
-            );
-            let atlas_xy = image_offset + clamped_pos;
-            let sample_color = textureLoad(tex, vec2<u32>(atlas_xy), 0);
-            let weight = cx[x_idx] * cy[y_idx];
-            result += sample_color * weight;
-        }
-    }
-    
-    return result;
+    let atlas_max = image_offset + image_size - vec2(1.0);
+    let atlas_uv_clamped = clamp(coords, image_offset, atlas_max);
+    let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
+    let uv_frac = fract(coords);
+    let a = textureLoad(tex, vec2<i32>(uv_quad.xy), 0);
+    let b = textureLoad(tex, vec2<i32>(uv_quad.xw), 0);
+    let c = textureLoad(tex, vec2<i32>(uv_quad.zy), 0);
+    let d = textureLoad(tex, vec2<i32>(uv_quad.zw), 0);
+    return mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
 }
 
-// Bicubic filtering using Mitchell filter with B=1/3, C=1/3 (matching CPU implementation approach)
+// Bicubic filtering using Mitchell filter with B=1/3, C=1/3
 //
 // Cubic resampling consists of sampling the 16 surrounding pixels of the target point and
 // interpolating them with a cubic filter. The generated matrix is 4x4 and represent the coefficients
@@ -401,39 +385,48 @@ fn bicubic_sample(
     image_size: vec2<f32>,
     extend_modes: vec2<u32>,
 ) -> vec4<f32> {
-    let frac_coords = fract(coords + 0.5);
+     let atlas_max = image_offset + image_size - vec2(1.0);
+     let frac_coords = fract(coords + 0.5);
+     // Get cubic weights for x and y directions
+     let cx = cubic_weights(frac_coords.x);
+     let cy = cubic_weights(frac_coords.y);
+     
+     // Sample 4x4 grid around coords
+     let s00 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, -1.5), image_offset, atlas_max)), 0);
+     let s10 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, -1.5), image_offset, atlas_max)), 0);
+     let s20 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, -1.5), image_offset, atlas_max)), 0);
+     let s30 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, -1.5), image_offset, atlas_max)), 0);
+     
+     let s01 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, -0.5), image_offset, atlas_max)), 0);
+     let s11 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, -0.5), image_offset, atlas_max)), 0);
+     let s21 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, -0.5), image_offset, atlas_max)), 0);
+     let s31 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, -0.5), image_offset, atlas_max)), 0);
+     
+     let s02 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, 0.5), image_offset, atlas_max)), 0);
+     let s12 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, 0.5), image_offset, atlas_max)), 0);
+     let s22 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, 0.5), image_offset, atlas_max)), 0);
+     let s32 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, 0.5), image_offset, atlas_max)), 0);
+     
+     let s03 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, 1.5), image_offset, atlas_max)), 0);
+     let s13 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, 1.5), image_offset, atlas_max)), 0);
+     let s23 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, 1.5), image_offset, atlas_max)), 0);
+     let s33 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, 1.5), image_offset, atlas_max)), 0);
     
-    // Get cubic weights for x and y directions using matrix-based approach (same as CPU)
-    let cx = cubic_weights(frac_coords.x);
-    let cy = cubic_weights(frac_coords.y);
-    
-    var result = vec4<f32>(0.0);
-    
-    // Sample 4x4 grid at fractional positions (matching CPU: pos + [-1.5, -0.5, 0.5, 1.5])
-    let offsets = array<f32, 4>(-1.5, -0.5, 0.5, 1.5);
-    for (var x_idx = 0; x_idx < 4; x_idx++) {
-        for (var y_idx = 0; y_idx < 4; y_idx++) {
-            let offset = vec2<f32>(offsets[x_idx], offsets[y_idx]);
-            let sample_pos_f = coords + offset;
-            let local_xy = sample_pos_f - image_offset;
-            let clamped_pos = vec2<f32>(
-                extend_mode(local_xy.x, extend_modes.x, image_size.x),
-                extend_mode(local_xy.y, extend_modes.y, image_size.y)
-            );
-            let atlas_xy = image_offset + clamped_pos;
-            let sample_color = textureLoad(tex, vec2<u32>(atlas_xy), 0);
-            let weight = cx[x_idx] * cy[y_idx];
-            result += sample_color * weight;
-        }
-    }
+    // Interpolate in x direction for each row
+    let row0 = cx.x * s00 + cx.y * s10 + cx.z * s20 + cx.w * s30;
+    let row1 = cx.x * s01 + cx.y * s11 + cx.z * s21 + cx.w * s31;
+    let row2 = cx.x * s02 + cx.y * s12 + cx.z * s22 + cx.w * s32;
+    let row3 = cx.x * s03 + cx.y * s13 + cx.z * s23 + cx.w * s33;
+    // Interpolate in y direction
+    let result = cy.x * row0 + cy.y * row1 + cy.z * row2 + cy.w * row3;
     
     // Clamp each component to [0,1] and ensure color components don't exceed alpha
-    result.r = min(clamp(result.r, 0.0, 1.0), result.a);
-    result.g = min(clamp(result.g, 0.0, 1.0), result.a);
-    result.b = min(clamp(result.b, 0.0, 1.0), result.a);
-    result.a = min(clamp(result.a, 0.0, 1.0), result.a);
-    
-    return result;
+    return vec4<f32>(
+        min(clamp(result.r, 0.0, 1.0), result.a),
+        min(clamp(result.g, 0.0, 1.0), result.a),
+        min(clamp(result.b, 0.0, 1.0), result.a),
+        min(clamp(result.a, 0.0, 1.0), result.a)
+    );
 }
 
 // Cubic resampler logic borrowed from Skia (same as CPU cubic_resampler function)

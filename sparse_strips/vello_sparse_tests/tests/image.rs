@@ -404,7 +404,7 @@ fn image_bilinear_10x_scale_2(ctx: &mut impl Renderer) {
 //
 // We also ported the cubic polynomials directly from current Skia, while tiny-skia (seems?) to use
 // either an outdated version or a slightly adapted one.
-#[vello_test(skip_hybrid)]
+#[vello_test]
 fn image_bicubic_identity(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -416,7 +416,7 @@ fn image_bicubic_identity(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(hybrid_tolerance = 3)]
 fn image_bicubic_2x_scale(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -428,7 +428,7 @@ fn image_bicubic_2x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(skip_hybrid)]
+#[vello_test(hybrid_tolerance = 5)]
 fn image_bicubic_5x_scale(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -440,7 +440,7 @@ fn image_bicubic_5x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(hybrid_tolerance = 7)]
 fn image_bicubic_10x_scale(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -452,7 +452,7 @@ fn image_bicubic_10x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(hybrid_tolerance = 7)]
 fn image_bicubic_with_rotation(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -464,7 +464,7 @@ fn image_bicubic_with_rotation(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(skip_hybrid)]
+#[vello_test(hybrid_tolerance = 5)]
 fn image_bicubic_with_translation(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -476,7 +476,7 @@ fn image_bicubic_with_translation(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(hybrid_tolerance = 7)]
 fn image_bicubic_10x_scale_2(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x3(ctx);
     quality(
