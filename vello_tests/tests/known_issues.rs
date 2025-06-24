@@ -15,7 +15,7 @@
 use scenes::ImageCache;
 use vello::{
     AaConfig, Scene,
-    kurbo::{Affine, Rect},
+    kurbo::{Affine, Point, Rect, Size},
     peniko::{Extend, ImageFormat, ImageQuality, color::palette},
 };
 use vello_tests::{TestParams, smoke_snapshot_test_sync};
@@ -76,6 +76,26 @@ fn many_bins_gpu() {
 #[should_panic]
 fn many_bins_cpu() {
     many_bins(true);
+}
+
+/// Test for <https://github.com/linebender/vello/issues/1066>
+#[test]
+#[should_panic]
+fn test_negative_dash_offset() {
+    let mut scene = Scene::new();
+    let stroke = vello::kurbo::Stroke::new(1.0).with_dashes(-30., [4., 2.]);
+    scene.stroke(
+        &stroke,
+        Affine::IDENTITY,
+        vello::peniko::Color::from_rgb8(0, 255, 0),
+        None,
+        &Rect::from_origin_size(Point::new(1., 1.), Size::new(28., 28.)),
+    );
+    let mut params = TestParams::new("negative_dash_offset", 30, 30);
+    params.anti_aliasing = AaConfig::Area;
+    smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
 }
 
 const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/smoke/data_image_roundtrip.png");
