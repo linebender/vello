@@ -44,7 +44,7 @@ See all the attributes that can be passed to `vello_test` in `vello_dev_macros/t
 Requirements:
  - on MacOS, a minimum Clang major version of 20 is required.
 
-To run the `vello_sparse_tests` suite on WebGL headless:
+To run the `vello_sparse_tests` suite including the WebGL tests:
 
 ```sh
 wasm-pack test --headless --chrome --features webgl

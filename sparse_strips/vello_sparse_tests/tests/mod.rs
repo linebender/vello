@@ -37,4 +37,5 @@ mod mask;
 mod mix;
 mod opacity;
 mod renderer;
+#[macro_use]
 mod util;

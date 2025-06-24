@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::gradient::tan_45;
+use crate::load_image;
 use crate::renderer::Renderer;
 use crate::util::crossed_line_star;
 use std::f64::consts::PI;
-use std::path::Path;
 use std::sync::Arc;
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::Image;
@@ -13,33 +13,28 @@ use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_dev_macros::vello_test;
 
-pub(crate) fn load_image(name: &str) -> Arc<Pixmap> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/assets/{name}.png"));
-    Arc::new(Pixmap::from_png(std::fs::File::open(path).unwrap()).unwrap())
-}
-
 fn rgb_img_10x10() -> Arc<Pixmap> {
-    load_image("rgb_image_10x10")
+    load_image!("rgb_image_10x10")
 }
 
 fn rgb_img_2x2() -> Arc<Pixmap> {
-    load_image("rgb_image_2x2")
+    load_image!("rgb_image_2x2")
 }
 
 fn rgb_img_2x3() -> Arc<Pixmap> {
-    load_image("rgb_image_2x3")
+    load_image!("rgb_image_2x3")
 }
 
 fn rgba_img_10x10() -> Arc<Pixmap> {
-    load_image("rgba_image_10x10")
+    load_image!("rgba_image_10x10")
 }
 
 fn luma_img_10x10() -> Arc<Pixmap> {
-    load_image("luma_image_10x10")
+    load_image!("luma_image_10x10")
 }
 
 fn lumaa_img_10x10() -> Arc<Pixmap> {
-    load_image("lumaa_image_10x10")
+    load_image!("lumaa_image_10x10")
 }
 
 fn repeat(ctx: &mut impl Renderer, x_extend: Extend, y_extend: Extend) {
