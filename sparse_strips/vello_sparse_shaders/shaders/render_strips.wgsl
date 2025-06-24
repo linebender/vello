@@ -349,6 +349,9 @@ fn extend_mode(t: f32, mode: u32, max: f32) -> f32 {
 }
 
 // Bilinear filtering (matching CPU implementation approach)
+//
+// Bilinear filtering consists of sampling the 4 surrounding pixels of the target point and
+// interpolating them with a bilinear filter.
 fn bilinear_sample(
     tex: texture_2d<f32>,
     coords: vec2<f32>,
@@ -386,6 +389,11 @@ fn bilinear_sample(
 }
 
 // Bicubic filtering using Mitchell filter with B=1/3, C=1/3 (matching CPU implementation approach)
+//
+// Cubic resampling consists of sampling the 16 surrounding pixels of the target point and
+// interpolating them with a cubic filter. The generated matrix is 4x4 and represent the coefficients
+// of the cubic function used to  calculate weights based on the `x_fract` and `y_fract` of the
+// location we are looking at.
 fn bicubic_sample(
     tex: texture_2d<f32>,
     coords: vec2<f32>,
@@ -428,10 +436,37 @@ fn bicubic_sample(
     return result;
 }
 
+// Cubic resampler logic borrowed from Skia (same as CPU cubic_resampler function)
+// Mitchell-Netravali cubic filter coefficients with parameters B=1/3 and C=1/3
+const MF: array<vec4<f32>, 4> = array<vec4<f32>, 4>(
+    vec4<f32>(
+        (1.0 / 6.0) / 3.0,
+        -(3.0 / 6.0) / 3.0 - 1.0 / 3.0,
+        (3.0 / 6.0) / 3.0 + 2.0 * 1.0 / 3.0,
+        -(1.0 / 6.0) / 3.0 - 1.0 / 3.0
+    ),
+    vec4<f32>(
+        1.0 - (2.0 / 6.0) / 3.0,
+        0.0,
+        -3.0 + (12.0 / 6.0) / 3.0 + 1.0 / 3.0,
+        2.0 - (9.0 / 6.0) / 3.0 - 1.0 / 3.0
+    ),
+    vec4<f32>(
+        (1.0 / 6.0) / 3.0,
+        (3.0 / 6.0) / 3.0 + 1.0 / 3.0,
+        3.0 - (15.0 / 6.0) / 3.0 - 2.0 * 1.0 / 3.0,
+        -2.0 + (9.0 / 6.0) / 3.0 + 1.0 / 3.0
+    ),
+    vec4<f32>(
+        0.0,
+        0.0,
+        -1.0 / 3.0,
+        (1.0 / 6.0) / 3.0 + 1.0 / 3.0
+    )
+);
+
 // Calculate the weights for a single fractional value (same as CPU weights function)
 fn cubic_weights(fract: f32) -> vec4<f32> {
-    let MF = mf_resampler();
-    
     return vec4<f32>(
         single_weight(fract, MF[0][0], MF[0][1], MF[0][2], MF[0][3]),
         single_weight(fract, MF[1][0], MF[1][1], MF[1][2], MF[1][3]),
@@ -445,41 +480,3 @@ fn cubic_weights(fract: f32) -> vec4<f32> {
 fn single_weight(t: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
     return t * (t * (t * d + c) + b) + a;
 }
-
-
-// Mitchell filter with the variables B = 1/3 and C = 1/3 (same as CPU mf_resampler)
-fn mf_resampler() -> array<vec4<f32>, 4> {
-    return cubic_resampler(1.0 / 3.0, 1.0 / 3.0);
-}
-
-// Cubic resampler logic borrowed from Skia (same as CPU cubic_resampler function)
-// This allows us to define a resampler kernel based on two variables B and C
-fn cubic_resampler(b: f32, c: f32) -> array<vec4<f32>, 4> {
-    return array<vec4<f32>, 4>(
-        vec4<f32>(
-            (1.0 / 6.0) * b,
-            -(3.0 / 6.0) * b - c,
-            (3.0 / 6.0) * b + 2.0 * c,
-            -(1.0 / 6.0) * b - c
-        ),
-        vec4<f32>(
-            1.0 - (2.0 / 6.0) * b,
-            0.0,
-            -3.0 + (12.0 / 6.0) * b + c,
-            2.0 - (9.0 / 6.0) * b - c
-        ),
-        vec4<f32>(
-            (1.0 / 6.0) * b,
-            (3.0 / 6.0) * b + c,
-            3.0 - (15.0 / 6.0) * b - 2.0 * c,
-            -2.0 + (9.0 / 6.0) * b + c
-        ),
-        vec4<f32>(
-            0.0,
-            0.0,
-            -c,
-            (1.0 / 6.0) * b + c
-        )
-    );
-}
-
