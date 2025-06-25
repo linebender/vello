@@ -728,10 +728,12 @@ pub struct EncodedGradient {
 }
 
 impl EncodedGradient {
+    /// Get the lookup table for sampling u8-based gradient values.
     pub fn u8_lut(&self) -> &GradientLut<u8> {
         self.u8_lut.get_or_init(|| GradientLut::new(&self.ranges))
     }
 
+    /// Get the lookup table for sampling f32-based gradient values.
     pub fn f32_lut(&self) -> &GradientLut<f32> {
         self.f32_lut.get_or_init(|| GradientLut::new(&self.ranges))
     }
@@ -989,6 +991,9 @@ impl FromF32Color for u8 {
 /// A lookup table for sampled gradient values.
 #[derive(Debug)]
 pub struct GradientLut<T: Copy + Clone + FromF32Color> {
+    // Note that this representation of sampled values _might_ change in the future.
+    // Right now, we are storing them on a pixel-basis, but in the future we might instead store
+    // the values by their channel (i.e. store R, G, B, A values separately).
     lut: Vec<[T; 4]>,
     scale: f32,
 }
