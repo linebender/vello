@@ -32,6 +32,27 @@ static DIFFS_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs")
 });
 
+/// Helper for loading png images contained within "tests/assets/**".
+#[macro_export]
+macro_rules! load_image {
+    ($name:expr) => {{
+        #[cfg(target_arch = "wasm32")]
+        {
+            let bytes = include_bytes!(concat!("../tests/assets/", $name, ".png"));
+            std::sync::Arc::new(vello_common::pixmap::Pixmap::from_png(&bytes[..]).unwrap())
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("tests/assets/{}.png", $name));
+            std::sync::Arc::new(
+                vello_common::pixmap::Pixmap::from_png(std::fs::File::open(path).unwrap()).unwrap(),
+            )
+        }
+    }};
+}
+
 pub(crate) fn get_ctx<T: Renderer>(
     width: u16,
     height: u16,

@@ -80,6 +80,14 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         &format!("{}_cpu_f32_neon", input_fn_name),
         input_fn_name.span(),
     );
+    let u8_fn_name_scalar_wasm = Ident::new(
+        &format!("{}_cpu_u8_scalar_wasm", input_fn_name),
+        input_fn_name.span(),
+    );
+    let f32_fn_name_scalar_wasm: Ident = Ident::new(
+        &format!("{}_cpu_f32_scalar_wasm", input_fn_name),
+        input_fn_name.span(),
+    );
     let multithreaded_fn_name = Ident::new(
         &format!("{}_cpu_multithreaded", input_fn_name),
         input_fn_name.span(),
@@ -99,6 +107,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let f32_fn_name_str_scalar = f32_fn_name_scalar.to_string();
     let u8_fn_name_str_neon = u8_fn_name_neon.to_string();
     let f32_fn_name_str_neon = f32_fn_name_neon.to_string();
+    let u8_fn_name_scalar_wasm_str = u8_fn_name_scalar_wasm.to_string();
+    let f32_fn_name_scalar_wasm_str = f32_fn_name_scalar_wasm.to_string();
     let multithreaded_fn_name_str = multithreaded_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
     let webgl_fn_name_str = webgl_fn_name.to_string();
@@ -182,15 +192,30 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                        level: &str,
                        ignore: bool,
                        render_mode: proc_macro2::TokenStream| {
+        // Use the name to infer if the test is running in the browser.
+        let is_wasm_test = fn_name_str.contains("wasm");
+        // WASM cannot create references, so force `is_reference` to be `false` unconditionally.
+        let is_reference = if is_wasm_test { false } else { is_reference };
         let ignore_snippet = if ignore {
             ignore_snippet.clone()
         } else {
             quote! {}
         };
 
+        let (cfg_attr, test_attr) = if is_wasm_test {
+            assert_eq!(num_threads, 0, "wasm is single threaded");
+            (
+                quote! { #[cfg(target_arch = "wasm32")] },
+                quote! { #[wasm_bindgen_test::wasm_bindgen_test] },
+            )
+        } else {
+            (quote! {}, quote! { #[test] })
+        };
+
         quote! {
+            #cfg_attr
             #ignore_snippet
-            #[test]
+            #test_attr
             fn #fn_name() {
                 use crate::util::{
                     check_ref, get_ctx
@@ -225,6 +250,26 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let f32_snippet = cpu_snippet(
         f32_fn_name_scalar,
         f32_fn_name_str_scalar,
+        cpu_f32_tolerance_scalar,
+        true,
+        0,
+        "fallback",
+        skip_cpu,
+        quote! { RenderMode::OptimizeQuality },
+    );
+    let u8_snippet_wasm = cpu_snippet(
+        u8_fn_name_scalar_wasm,
+        u8_fn_name_scalar_wasm_str,
+        cpu_u8_tolerance_scalar,
+        false,
+        0,
+        "fallback",
+        skip_cpu,
+        quote! { RenderMode::OptimizeSpeed },
+    );
+    let f32_snippet_wasm = cpu_snippet(
+        f32_fn_name_scalar_wasm,
+        f32_fn_name_scalar_wasm_str,
         cpu_f32_tolerance_scalar,
         true,
         0,
@@ -274,9 +319,13 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
 
         #neon_u8_snippet
 
+        #u8_snippet_wasm
+
         #f32_snippet
 
         #neon_f32_snippet
+
+        #f32_snippet_wasm
 
         #multi_threaded_snippet
 

@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::image::load_image;
+use crate::load_image;
 use crate::renderer::Renderer;
 use smallvec::smallvec;
 use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, RED, YELLOW};
@@ -49,7 +49,7 @@ fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
     };
 
     let image = Image {
-        pixmap: load_image("cowboy"),
+        pixmap: load_image!("cowboy"),
         x_extend: Extend::Pad,
         y_extend: Extend::Pad,
         quality: ImageQuality::Low,
