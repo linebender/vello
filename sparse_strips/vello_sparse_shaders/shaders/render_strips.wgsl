@@ -126,8 +126,8 @@ fn vs_main(
         let atlas_coords = transformed_coords + encoded_image.image_offset;
         // Vertex position within the texture
         out.sample_xy = atlas_coords 
-            + x * f32(width) * encoded_image.x_advance 
-            + y * f32(config.strip_height) * encoded_image.y_advance;
+            + encoded_image.transform.xy * x * f32(width)
+            + encoded_image.transform.zw * y * f32(config.strip_height);
     } else {
         out.paint_type = paint_type;
         out.paint_tex_id = paint_tex_id;
@@ -242,10 +242,6 @@ struct EncodedImage {
     quality: u32,
     /// The extends in the horizontal and vertical direction.
     extend_modes: vec2<u32>,
-    /// The advance in image coordinates for one step in the x direction.
-    x_advance: vec2<f32>,
-    /// The advance in image coordinates for one step in the y direction.
-    y_advance: vec2<f32>,
     /// The size of the image in pixels.
     image_size: vec2<f32>,
     /// The offset of the image in pixels.
@@ -266,26 +262,20 @@ fn unpack_encoded_image(paint_tex_id: u32) -> EncodedImage {
     let extend_y = texel0.z;
 
     let texel1 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_id + 1u, 0), 0);
-    let x_advance = vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y));
-    let y_advance = vec2<f32>(bitcast<f32>(texel1.z), bitcast<f32>(texel1.w));
+    let image_size = vec2<f32>(f32(texel1.x), f32(texel1.y));
+    let image_offset = vec2<f32>(f32(texel1.z), f32(texel1.w));
 
     let texel2 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_id + 2u, 0), 0);
-    let image_size = vec2<f32>(f32(texel2.x), f32(texel2.y));
-    let image_offset = vec2<f32>(f32(texel2.z), f32(texel2.w));
-
     let texel3 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_id + 3u, 0), 0);
-    let texel4 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_id + 4u, 0), 0);
     let transform = vec4<f32>(
-        bitcast<f32>(texel3.x), bitcast<f32>(texel3.y), 
-        bitcast<f32>(texel3.z), bitcast<f32>(texel3.w)
+        bitcast<f32>(texel2.x), bitcast<f32>(texel2.y), 
+        bitcast<f32>(texel2.z), bitcast<f32>(texel2.w)
     );
-    let translate = vec2<f32>(bitcast<f32>(texel4.x), bitcast<f32>(texel4.y));
+    let translate = vec2<f32>(bitcast<f32>(texel3.x), bitcast<f32>(texel3.y));
 
     return EncodedImage(
         quality, 
         vec2<u32>(extend_x, extend_y),
-        x_advance,
-        y_advance,
         image_size,
         image_offset,
         transform,

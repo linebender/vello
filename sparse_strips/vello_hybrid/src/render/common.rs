@@ -67,16 +67,11 @@ pub(crate) struct GpuEncodedImage {
     pub extend_modes: [u32; 2],
     pub _padding0: u32,
     // 2nd 16 bytes
-    /// The advance in image coordinates for one step in the x direction.
-    pub x_advance: [f32; 2],
-    /// The advance in image coordinates for one step in the y direction.
-    pub y_advance: [f32; 2],
-    // 3rd 16 bytes
     /// The size of the image in pixels.
     pub image_size: [u32; 2],
     /// The offset of the image in pixels.
     pub image_offset: [u32; 2],
-    // 4th & 5th 16 bytes
+    // 3rd & 4th 16 bytes
     /// A transform to apply to the image.
     pub transform: [f32; 6],
     pub _padding1: [u32; 2],

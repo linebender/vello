@@ -196,7 +196,7 @@ fn image_with_transform_skew_x_2(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(skip_hybrid)]
+#[vello_test]
 fn image_with_transform_skew_y_1(ctx: &mut impl Renderer) {
     transform(
         ctx,
