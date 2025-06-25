@@ -10,7 +10,7 @@ use smallvec::{SmallVec, smallvec};
 use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
-use vello_common::encode::{EncodeExt, EncodedPaint};
+use vello_common::encode::EncodeExt;
 use vello_common::kurbo::{Affine, Point};
 use vello_common::peniko;
 use vello_common::peniko::{ColorStop, ColorStops, Gradient, GradientKind};
