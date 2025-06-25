@@ -718,7 +718,7 @@ pub struct EncodedGradient {
     /// How much to advance into the x/y direction for one step in the y direction.
     pub y_advance: Vec2,
     /// The color ranges of the gradient.
-    pub ranges: Vec<GradientRange>,
+    ranges: Vec<GradientRange>,
     /// Whether the gradient should be padded.
     pub pad: bool,
     /// Whether the gradient requires `source_over` compositing.
