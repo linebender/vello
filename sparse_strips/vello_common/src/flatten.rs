@@ -118,7 +118,11 @@ pub fn stroke(path: &BezPath, style: &Stroke, affine: Affine, line_buf: &mut Vec
 }
 
 /// Expand a stroked path to a filled path.
-pub fn expand_stroke(path: impl IntoIterator<Item = PathEl>, style: &Stroke, tolerance: f64) -> BezPath {
+pub fn expand_stroke(
+    path: impl IntoIterator<Item = PathEl>,
+    style: &Stroke,
+    tolerance: f64,
+) -> BezPath {
     kurbo::stroke(path, style, &StrokeOpts::default(), tolerance)
 }
 
