@@ -968,6 +968,7 @@ mod private {
 
 /// A helper trait for converting a premultiplied f32 color to `Self`.
 pub trait FromF32Color: Sized {
+    /// Convert from a premultiplied f32 color to `Self`.
     fn from_f32(color: &[f32; 4]) -> [Self; 4];
 }
 
