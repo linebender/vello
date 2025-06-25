@@ -96,6 +96,7 @@ impl DataItem {
         line_buf
     }
 
+    /// Get the expanded strokes.
     pub fn expanded_strokes(&self) -> Vec<BezPath> {
         let mut paths = vec![];
 
