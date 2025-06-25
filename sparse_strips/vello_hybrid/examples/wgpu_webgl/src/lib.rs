@@ -122,7 +122,7 @@ struct AppState {
     renderer_wrapper: RendererWrapper,
     need_render: bool,
     canvas: HtmlCanvasElement,
-    image_cache: ImageCache<wgpu::Texture>,
+    image_cache: ImageCache,
 }
 
 impl AppState {
@@ -449,7 +449,7 @@ pub async fn render_scene(
     scene: vello_hybrid::Scene,
     width: u16,
     height: u16,
-    image_cache: ImageCache<wgpu::Texture>,
+    image_cache: ImageCache,
 ) {
     let canvas = web_sys::Window::document(&web_sys::window().unwrap())
         .unwrap()

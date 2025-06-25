@@ -153,7 +153,7 @@ impl Renderer for RenderContext {
 
 pub(crate) struct HybridRenderer {
     scene: Scene,
-    image_cache: ImageCache<wgpu::Texture>,
+    image_cache: ImageCache,
     device: wgpu::Device,
     queue: wgpu::Queue,
     #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
@@ -492,19 +492,19 @@ impl Renderer for HybridRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Upload Test Image"),
             });
-        let texture = self.upload_image_to_texture(&self.device, &self.queue, &pixmap);
-        let image_id = self.image_cache.insert(texture);
-        let image_resource = self.image_cache.get(image_id).unwrap();
-        self.renderer.borrow_mut().copy_texture_to_atlas(
+
+        // Upload image to cache and atlas in one step!
+        let image_id = self.renderer.borrow_mut().upload_image(
+            &self.device,
+            &self.queue,
             &mut encoder,
-            &image_resource.texture,
-            image_resource.offset,
-            image_resource.width(),
-            image_resource.height(),
+            &mut self.image_cache,
+            &pixmap,
         );
+
         self.queue.submit([encoder.finish()]);
 
-        ImageSource::OpaqueId(image_resource.id)
+        ImageSource::OpaqueId(image_id)
     }
 }
 
@@ -515,57 +515,5 @@ impl GlyphRenderer for HybridRenderer {
 
     fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
         self.scene.stroke_glyph(glyph);
-    }
-}
-
-impl HybridRenderer {
-    fn upload_image_to_texture(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        image: &Pixmap,
-    ) -> wgpu::Texture {
-        let image_width = image.width() as u32;
-        let image_height = image.height() as u32;
-
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Uploaded Image Texture"),
-            size: wgpu::Extent3d {
-                width: image_width,
-                height: image_height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            image.data_as_u8_slice(),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                // 4 bytes per RGBA pixel
-                bytes_per_row: Some(4 * image_width),
-                rows_per_image: Some(image_height),
-            },
-            wgpu::Extent3d {
-                width: image_width,
-                height: image_height,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        texture
     }
 }

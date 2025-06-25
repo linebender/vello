@@ -37,7 +37,7 @@ async fn run() {
 
     let width = DimensionConstraints::convert_dimension(width);
     let height = DimensionConstraints::convert_dimension(height);
-    let image_cache = ImageCache::<wgpu::Texture>::new();
+    let image_cache = ImageCache::new();
 
     let mut scene = Scene::new(width, height);
     render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));

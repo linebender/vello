@@ -19,4 +19,4 @@ pub use common::{Config, GpuStrip, RenderSize};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use webgl::WebGlRenderer;
 #[cfg(feature = "wgpu")]
-pub use wgpu::{RenderTargetConfig, Renderer};
+pub use wgpu::{AtlasWriter, RenderTargetConfig, Renderer};

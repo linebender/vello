@@ -39,14 +39,12 @@ mod scene;
 #[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
 mod schedule;
 pub mod util;
-#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-pub use image_cache::WebGlTextureWrapper;
-pub use image_cache::{ImageCache, ImageResource, TextureHandle};
+pub use image_cache::{ImageCache, ImageResource};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::WebGlRenderer;
-pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(feature = "wgpu")]
-pub use render::{RenderTargetConfig, Renderer};
+pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
+pub use render::{Config, GpuStrip, RenderSize};
 pub use scene::Scene;
 pub use util::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;

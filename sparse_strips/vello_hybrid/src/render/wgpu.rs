@@ -24,7 +24,8 @@ use core::{fmt::Debug, mem, num::NonZeroU64};
 
 use bytemuck::{Pod, Zeroable};
 use vello_common::{
-    coarse::WideTile, encode::EncodedPaint, kurbo::Affine, paint::ImageSource, tile::Tile,
+    coarse::WideTile, encode::EncodedPaint, kurbo::Affine, paint::ImageSource, pixmap::Pixmap,
+    tile::Tile,
 };
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
@@ -83,7 +84,7 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
-        image_cache: &ImageCache<wgpu::Texture>,
+        image_cache: &ImageCache,
     ) -> Result<(), RenderError> {
         let encoded_paints = self.prepare_gpu_encoded_paints(&scene.encoded_paints, image_cache);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -102,30 +103,78 @@ impl Renderer {
         self.scheduler.do_scene(&mut junk, scene)
     }
 
-    /// Upload an image to the atlas texture.
-    pub fn copy_texture_to_atlas(
+    /// Upload image to cache and atlas in one step. Returns the `ImageId`.
+    ///
+    /// It's used when an image is not already in the cache.
+    ///
+    /// This is a convenience method that:
+    /// 1. Reserves space in the image cache
+    /// 2. Writes the image data directly to the atlas
+    /// 3. Returns the `ImageId` for use in rendering
+    pub fn upload_image<T: AtlasWriter>(
         &mut self,
+        device: &Device,
+        queue: &Queue,
         encoder: &mut CommandEncoder,
-        texture: &Texture,
+        image_cache: &mut crate::ImageCache,
+        writer: &T,
+    ) -> vello_common::paint::ImageId {
+        let width = writer.width();
+        let height = writer.height();
+        let image_id = image_cache.allocate(width, height);
+        let image_resource = image_cache.get(image_id).expect("Image resource not found");
+
+        self.write_to_atlas(
+            device,
+            queue,
+            encoder,
+            writer,
+            image_resource.offset,
+            width,
+            height,
+        );
+
+        image_id
+    }
+
+    /// Write image data to the atlas texture using any type that implements `AtlasWriter`.
+    ///
+    /// This method allows efficient uploading from different sources:
+    /// - `Pixmap`: Direct upload without intermediate texture
+    /// - `Texture`: Texture-to-texture copy
+    /// - Custom implementations for other image sources
+    pub fn write_to_atlas<T: AtlasWriter>(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        writer: &T,
         offset: [u32; 2],
         width: u32,
         height: u32,
     ) {
-        self.programs
-            .copy_texture_to_atlas(encoder, texture, offset, width, height);
+        writer.write_to_atlas(
+            device,
+            queue,
+            encoder,
+            &self.programs.resources.atlas_texture,
+            offset,
+            width,
+            height,
+        );
     }
 
     fn prepare_gpu_encoded_paints(
         &self,
         encoded_paints: &[EncodedPaint],
-        image_cache: &ImageCache<wgpu::Texture>,
+        image_cache: &ImageCache,
     ) -> Vec<GpuEncodedImage> {
         let mut bytes: Vec<GpuEncodedImage> = Vec::new();
         for paint in encoded_paints {
             match paint {
                 EncodedPaint::Image(img) => {
                     if let ImageSource::OpaqueId(image_id) = img.source {
-                        let image_resource: Option<&crate::ImageResource<wgpu::Texture>> =
+                        let image_resource: Option<&crate::ImageResource> =
                             image_cache.get(image_id);
                         if let Some(image_resource) = image_resource {
                             let transform = img.transform * Affine::translate((-0.5, -0.5));
@@ -135,7 +184,7 @@ impl Renderer {
                                 _padding0: 0,
                                 x_advance: [img.x_advance.x as f32, img.x_advance.y as f32],
                                 y_advance: [img.y_advance.x as f32, img.y_advance.y as f32],
-                                image_size: [image_resource.width(), image_resource.height()],
+                                image_size: [image_resource.width, image_resource.height],
                                 image_offset: image_resource.offset,
                                 transform: transform.as_coeffs().map(|x| x as f32),
                                 _padding1: [0, 0],
@@ -936,39 +985,6 @@ impl Programs {
             .expect("Capacity handled in creation");
         buffer.copy_from_slice(bytemuck::cast_slice(strips));
     }
-
-    fn copy_texture_to_atlas(
-        &mut self,
-        encoder: &mut CommandEncoder,
-        texture: &Texture,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
-    ) {
-        encoder.copy_texture_to_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.resources.atlas_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d {
-                    x: offset[0],
-                    y: offset[1],
-                    z: 0,
-                },
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
-    }
 }
 
 /// A struct containing references to the many objects needed to get work
@@ -1090,5 +1106,147 @@ impl RendererBackend for RendererContext<'_> {
         };
 
         self.do_strip_render_pass(strips, target_index, wgpu_load_op);
+    }
+}
+
+/// Trait for types that can write image data directly to the atlas texture.
+///
+/// This allows efficient uploading from different sources:
+/// - `Pixmap`: Direct upload without intermediate texture
+/// - `Texture`: Texture-to-texture copy
+/// - Custom implementations for other image sources
+pub trait AtlasWriter {
+    /// Get the width of the image.
+    fn width(&self) -> u32;
+    /// Get the height of the image.
+    fn height(&self) -> u32;
+
+    /// Write image data to the atlas texture at the specified offset.
+    fn write_to_atlas(
+        &self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        atlas_texture: &wgpu::Texture,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    );
+}
+
+/// Implementation for `wgpu::Texture` - uses texture-to-texture copy
+impl AtlasWriter for wgpu::Texture {
+    fn width(&self) -> u32 {
+        self.width()
+    }
+
+    fn height(&self) -> u32 {
+        self.height()
+    }
+
+    fn write_to_atlas(
+        &self,
+        _device: &Device,
+        _queue: &Queue,
+        encoder: &mut CommandEncoder,
+        atlas_texture: &wgpu::Texture,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: self,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: atlas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: offset[0],
+                    y: offset[1],
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+}
+
+/// Implementation for `Pixmap` - direct upload to atlas
+impl AtlasWriter for Pixmap {
+    fn width(&self) -> u32 {
+        self.width() as u32
+    }
+
+    fn height(&self) -> u32 {
+        self.height() as u32
+    }
+
+    fn write_to_atlas(
+        &self,
+        _device: &Device,
+        queue: &Queue,
+        _encoder: &mut CommandEncoder,
+        atlas_texture: &wgpu::Texture,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: atlas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: offset[0],
+                    y: offset[1],
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            self.data_as_u8_slice(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+}
+
+/// Implementation for `Arc<Pixmap>`
+impl AtlasWriter for alloc::sync::Arc<Pixmap> {
+    fn width(&self) -> u32 {
+        self.as_ref().width() as u32
+    }
+
+    fn height(&self) -> u32 {
+        self.as_ref().height() as u32
+    }
+
+    fn write_to_atlas(
+        &self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        atlas_texture: &wgpu::Texture,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        self.as_ref()
+            .write_to_atlas(device, queue, encoder, atlas_texture, offset, width, height);
     }
 }

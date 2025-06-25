@@ -45,7 +45,7 @@ struct App<'s> {
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Point>,
-    image_cache: ImageCache<wgpu::Texture>,
+    image_cache: ImageCache,
 }
 
 fn main() {
@@ -328,26 +328,29 @@ impl App<'_> {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Upload Image pass"),
                 });
-        let images: Vec<Pixmap> = vec![
-            ImageScene::read_flower_image(),
-            ImageScene::read_cowboy_image(),
-        ];
-        for image in images {
-            let texture =
-                self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &image);
-            let image_id = self.image_cache.insert(texture);
-            let image_resource = self.image_cache.get(image_id).unwrap();
-            self.renderers[device_id]
-                .as_mut()
-                .unwrap()
-                .copy_texture_to_atlas(
-                    &mut encoder,
-                    &image_resource.texture,
-                    image_resource.offset,
-                    image_resource.width(),
-                    image_resource.height(),
-                );
-        }
+
+        // 1st example — uploading pixmap directly
+        let pixmap1 = ImageScene::read_flower_image();
+        self.renderers[device_id].as_mut().unwrap().upload_image(
+            &device_handle.device,
+            &device_handle.queue,
+            &mut encoder,
+            &mut self.image_cache,
+            &pixmap1,
+        );
+
+        // 2nd example — uploading from a texture (for cases where you already have a texture)
+        let pixmap2 = ImageScene::read_cowboy_image();
+        let texture2 =
+            self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &pixmap2);
+        self.renderers[device_id].as_mut().unwrap().upload_image(
+            &device_handle.device,
+            &device_handle.queue,
+            &mut encoder,
+            &mut self.image_cache,
+            &texture2,
+        );
+
         device_handle.queue.submit([encoder.finish()]);
     }
 
