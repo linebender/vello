@@ -124,7 +124,7 @@ impl<T: GradientLike> Painter for GradientFiller<'_, T> {
 
 pub(crate) fn extend(val: f32, pad: bool) -> f32 {
     if pad {
-        // Gradient ranges are constructed such that values outside [0.0, 1.0] are accepted as well.
+        #[allow(clippy::manual_clamp, reason = "better performance")]
         val.min(1.0).max(0.0)
     } else {
         (val - val.floor()).fract()
