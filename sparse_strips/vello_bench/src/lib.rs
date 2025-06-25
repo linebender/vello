@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 pub mod data;
 pub mod fine;
+pub mod flatten;
 pub mod strip;
 pub mod tile;
 
