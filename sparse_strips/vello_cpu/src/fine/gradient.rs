@@ -7,6 +7,31 @@ use crate::fine::{COLOR_COMPONENTS, FineType, Painter, TILE_HEIGHT_COMPONENTS};
 use vello_common::encode::{EncodedGradient, GradientLike, GradientLut};
 use vello_common::kurbo::Point;
 
+// This will be removed once this crate is ported to SIMD, so for now just duplicating those.
+
+#[cfg(all(feature = "libm", not(feature = "std")))]
+trait FloatExt {
+    fn floor(self) -> f32;
+    fn fract(self) -> f32;
+    fn trunc(self) -> f32;
+}
+
+#[cfg(all(feature = "libm", not(feature = "std")))]
+impl FloatExt for f32 {
+    #[inline(always)]
+    fn floor(self) -> f32 {
+        libm::floorf(self)
+    }
+    #[inline(always)]
+    fn fract(self) -> f32 {
+        self - self.trunc()
+    }
+    #[inline(always)]
+    fn trunc(self) -> f32 {
+        libm::truncf(self)
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct GradientFiller<'a, T: GradientLike> {
     /// The current position that should be processed.

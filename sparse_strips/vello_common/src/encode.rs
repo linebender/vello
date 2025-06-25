@@ -981,10 +981,10 @@ impl FromF32Color for f32 {
 impl FromF32Color for u8 {
     fn from_f32(color: &[f32; 4]) -> [Self; 4] {
         [
-            (color[0] * 255.0 + 0.5) as u8,
-            (color[1] * 255.0 + 0.5) as u8,
-            (color[2] * 255.0 + 0.5) as u8,
-            (color[3] * 255.0 + 0.5) as u8,
+            (color[0] * 255.0 + 0.5) as Self,
+            (color[1] * 255.0 + 0.5) as Self,
+            (color[2] * 255.0 + 0.5) as Self,
+            (color[3] * 255.0 + 0.5) as Self,
         ]
     }
 }
@@ -1021,7 +1021,7 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
             }
 
             let range = &ranges[cur_idx];
-            let mut interpolated = [0.0f32; 4];
+            let mut interpolated = [0.0_f32; 4];
 
             let bias = range.bias;
 
@@ -1029,7 +1029,7 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
                 *comp = bias[comp_idx] + range.scale[comp_idx] * t_val;
             }
 
-            lut.push(T::from_f32(&interpolated))
+            lut.push(T::from_f32(&interpolated));
         });
 
         let scale = lut.len() as f32 - 1.0;
