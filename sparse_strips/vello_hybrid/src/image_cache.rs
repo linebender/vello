@@ -23,10 +23,6 @@ pub struct ImageResource {
 }
 
 /// Manages image resources for the renderer
-#[allow(
-    missing_debug_implementations,
-    reason = "AtlasAllocator doesn't implement Debug"
-)]
 pub struct ImageCache {
     /// Atlas allocator for the images
     atlas: AtlasAllocator,
@@ -34,6 +30,31 @@ pub struct ImageCache {
     slots: Vec<Option<ImageResource>>,
     /// Stack of free indices for O(1) allocation/deallocation
     free_idxs: Vec<usize>,
+}
+
+impl core::fmt::Debug for ImageCache {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Count allocated and free rectangles in the atlas
+        let mut allocated_count = 0;
+        let mut free_count = 0;
+
+        self.atlas.for_each_allocated_rectangle(|_id, _rect| {
+            allocated_count += 1;
+        });
+
+        self.atlas.for_each_free_rectangle(|_rect| {
+            free_count += 1;
+        });
+
+        f.debug_struct("ImageCache")
+            .field("slots", &self.slots)
+            .field("free_idxs", &self.free_idxs)
+            .field("atlas_size", &self.atlas.size())
+            .field("atlas_is_empty", &self.atlas.is_empty())
+            .field("atlas_allocated_count", &allocated_count)
+            .field("atlas_free_count", &free_count)
+            .finish()
+    }
 }
 
 impl Default for ImageCache {

@@ -439,12 +439,12 @@ impl EncodeExt for Image {
         // Similarly to gradients, apply a 0.5 offset so we sample at the center of
         // a pixel.
         let transform = transform.inverse() * Affine::translate((0.5, 0.5));
-        // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
-        // non-opaque images in the first place..
         let (x_advance, y_advance) = x_y_advances(&transform);
 
         let encoded = match &self.source {
             ImageSource::Pixmap(pixmap) => {
+                // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
+                // non-opaque images in the first place..
                 let has_opacities = pixmap.data().iter().any(|pixel| pixel.a != 255);
                 EncodedImage {
                     source: ImageSource::Pixmap(pixmap.clone()),
