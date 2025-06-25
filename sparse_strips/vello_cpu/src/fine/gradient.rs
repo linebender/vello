@@ -4,7 +4,7 @@
 //! Rendering linear gradients.
 
 use crate::fine::{COLOR_COMPONENTS, FineType, Painter, TILE_HEIGHT_COMPONENTS};
-use vello_common::encode::{EncodedGradient, GradientLike, GradientRange};
+use vello_common::encode::{EncodedGradient, GradientLike, GradientLut};
 use vello_common::kurbo::Point;
 
 #[derive(Debug)]
@@ -31,23 +31,14 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
         }
     }
 
-    fn advance(&mut self, target_pos: f32) -> &GradientRange {
-        let mut idx = 0;
-
-        while target_pos > self.gradient.ranges[idx].x1 {
-            idx += 1;
-        }
-
-        &self.gradient.ranges[idx]
-    }
-
     pub(super) fn run<F: FineType>(mut self, target: &mut [F]) {
         let original_pos = self.cur_pos;
+        let lut = F::get_lut(self.gradient);
 
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
             .for_each(|column| {
-                self.run_column(column);
+                self.run_column(column, lut);
                 self.cur_pos += self.gradient.x_advance;
             });
 
@@ -65,19 +56,15 @@ impl<'a, T: GradientLike> GradientFiller<'a, T> {
         }
     }
 
-    fn run_column<F: FineType>(&mut self, col: &mut [F]) {
+    fn run_column<F: FineType>(&mut self, col: &mut [F], lut: &GradientLut<F>) {
         let pad = self.gradient.pad;
         let extend = |val| extend(val, pad);
         let mut pos = self.cur_pos;
 
         for pixel in col.chunks_exact_mut(COLOR_COMPONENTS) {
             let t = extend(self.kind.cur_pos(pos));
-            let range = self.advance(t);
-            let bias = range.bias;
-
-            for (comp_idx, comp) in pixel.iter_mut().enumerate() {
-                *comp = F::from_normalized_f32(bias[comp_idx] + range.scale[comp_idx] * t);
-            }
+            let idx = (t * lut.scale_factor()) as usize;
+            pixel.copy_from_slice(&lut.get(idx));
 
             pos += self.gradient.y_advance;
         }
@@ -110,19 +97,11 @@ impl<T: GradientLike> Painter for GradientFiller<'_, T> {
     }
 }
 
-pub(crate) fn extend(mut val: f32, pad: bool) -> f32 {
+pub(crate) fn extend(val: f32, pad: bool) -> f32 {
     if pad {
         // Gradient ranges are constructed such that values outside [0.0, 1.0] are accepted as well.
-        val
+        val.min(1.0).max(0.0)
     } else {
-        while val < 0.0 {
-            val += 1.0;
-        }
-
-        while val > 1.0 {
-            val -= 1.0;
-        }
-
-        val
+        (val - val.floor()).fract()
     }
 }
