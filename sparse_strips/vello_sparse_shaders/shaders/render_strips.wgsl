@@ -135,9 +135,7 @@ fn vs_main(
     }
 
     // Regular texture coordinates for other render types
-    out.tex_coord = vec2<f32>(f32(instance.col_idx) 
-        + x * f32(width), f32(y0) 
-        + y * f32(config.strip_height));
+    out.tex_coord = vec2<f32>(f32(instance.col_idx) + x * f32(width), y * f32(config.strip_height));
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.rgba_or_slot = instance.rgba_or_slot;
 
