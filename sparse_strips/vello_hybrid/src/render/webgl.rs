@@ -30,13 +30,17 @@ use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::{fmt::Debug, mem};
-use vello_common::{coarse::WideTile, tile::Tile};
+use vello_common::{
+    coarse::WideTile, encode::EncodedPaint, kurbo::Affine, paint::ImageSource, tile::Tile,
+};
 use vello_sparse_shaders::{clear_slots, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
     WebGlUniformLocation, WebGlVertexArrayObject,
 };
+
+use crate::render::common::GpuEncodedImage;
 
 /// Query the WebGL context for the max texture size.
 fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> u32 {
@@ -101,7 +105,11 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
-        self.programs.prepare(&self.gl, &scene.alphas, render_size);
+        // For now, we'll use an empty image cache since WebGL implementation doesn't support images yet
+        let image_cache = crate::ImageCache::new();
+        let encoded_paints = self.prepare_gpu_encoded_paints(&scene.encoded_paints, &image_cache);
+        self.programs
+            .prepare(&self.gl, &scene.alphas, encoded_paints, render_size);
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
@@ -167,6 +175,49 @@ impl WebGlRenderer {
         }
         Ok(())
     }
+
+    fn prepare_gpu_encoded_paints(
+        &self,
+        encoded_paints: &[EncodedPaint],
+        image_cache: &crate::ImageCache,
+    ) -> Vec<GpuEncodedImage> {
+        let mut bytes: Vec<GpuEncodedImage> = Vec::new();
+        for paint in encoded_paints {
+            match paint {
+                EncodedPaint::Image(img) => {
+                    if let ImageSource::OpaqueId(image_id) = img.source {
+                        let image_resource: Option<&crate::ImageResource> =
+                            image_cache.get(image_id);
+                        if let Some(image_resource) = image_resource {
+                            let mut transform = img.transform * Affine::translate((-0.5, -0.5));
+
+                            // For skewing transforms, add a small additional offset to prevent edges
+                            // from crossing exactly through pixel sample points, which can cause artifacts
+                            let coeffs = img.transform.as_coeffs();
+                            let has_skew = coeffs[1].abs() > 1e-6 || coeffs[2].abs() > 1e-6;
+                            if has_skew {
+                                transform *= Affine::translate((0.00001, 0.00001));
+                            }
+
+                            bytes.push(GpuEncodedImage {
+                                quality: img.quality as u32,
+                                extend_modes: [img.extends.0 as u32, img.extends.1 as u32],
+                                _padding0: 0,
+                                image_size: [image_resource.width, image_resource.height],
+                                image_offset: image_resource.offset,
+                                transform: transform.as_coeffs().map(|x| x as f32),
+                                _padding1: [0, 0],
+                            });
+                        }
+                    }
+                }
+                _ => {
+                    unimplemented!("For now, we don't support gradient and rounded rectangle")
+                }
+            }
+        }
+        bytes
+    }
 }
 
 /// Contains the WebGL programs and resources for rendering.
@@ -186,6 +237,8 @@ struct WebGlPrograms {
     render_size: RenderSize,
     /// Scratch buffer for staging alpha texture data.
     alpha_data: Vec<u8>,
+    /// Scratch buffer for staging encoded paints texture data.
+    encoded_paints_data: Vec<u8>,
 }
 
 /// Uniform locations for `strip_program`.
@@ -199,6 +252,10 @@ struct StripUniforms {
     alphas_texture: WebGlUniformLocation,
     /// Clip input texture location.
     clip_input_texture: WebGlUniformLocation,
+    /// Atlas texture location.
+    atlas_texture: WebGlUniformLocation,
+    /// Encoded paints texture location.
+    encoded_paints_texture: WebGlUniformLocation,
 }
 
 /// Uniform locations for `clear_program`.
@@ -219,6 +276,12 @@ struct WebGlResources {
     alphas_texture: WebGlTexture,
     /// Height of alpha texture.
     alpha_texture_height: u32,
+    /// Atlas texture for image data.
+    atlas_texture: WebGlTexture,
+    /// Encoded paints texture for image metadata.
+    encoded_paints_texture: WebGlTexture,
+    /// Height of encoded paints texture.
+    encoded_paints_texture_height: u32,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: WebGlBuffer,
@@ -284,6 +347,7 @@ impl WebGlPrograms {
         initialize_clear_vao(&gl, &resources);
 
         let alpha_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
+        let encoded_paints_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
 
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(
@@ -302,11 +366,18 @@ impl WebGlPrograms {
                 height: 0,
             },
             alpha_data,
+            encoded_paints_data,
         }
     }
 
     /// Prepare resources for rendering.
-    fn prepare(&mut self, gl: &WebGl2RenderingContext, alphas: &[u8], render_size: &RenderSize) {
+    fn prepare(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        alphas: &[u8],
+        encoded_paints: Vec<GpuEncodedImage>,
+        render_size: &RenderSize,
+    ) {
         let max_texture_dimension_2d = self.resources.max_texture_dimension_2d;
         let alpha_texture_width = max_texture_dimension_2d;
 
@@ -330,6 +401,27 @@ impl WebGlPrograms {
 
                 // Track the new height.
                 self.resources.alpha_texture_height = required_alpha_height;
+            }
+        }
+
+        // Update the encoded paints texture size if needed.
+        {
+            let encoded_paints_bytes: &[u8] = bytemuck::cast_slice(&encoded_paints);
+            let required_encoded_paints_height =
+                (encoded_paints_bytes.len() as u32).div_ceil(max_texture_dimension_2d << 4);
+
+            let current_encoded_paints_height = self.resources.encoded_paints_texture_height;
+            if required_encoded_paints_height > current_encoded_paints_height {
+                assert!(
+                    required_encoded_paints_height <= max_texture_dimension_2d,
+                    "Encoded paints texture height exceeds max texture dimensions"
+                );
+
+                let required_encoded_paints_size =
+                    (max_texture_dimension_2d * required_encoded_paints_height) << 4;
+                self.encoded_paints_data
+                    .resize(required_encoded_paints_size as usize, 0);
+                self.resources.encoded_paints_texture_height = required_encoded_paints_height;
             }
         }
 
@@ -456,6 +548,62 @@ impl WebGlPrograms {
                 Some(&packed_array),
             )
             .unwrap();
+        }
+
+        // Process encoded paints data for texture
+        if !encoded_paints.is_empty() {
+            let encoded_paints_texture_width = max_texture_dimension_2d;
+            let encoded_paints_texture_height = self.resources.encoded_paints_texture_height;
+
+            let encoded_paints_bytes: &[u8] = bytemuck::cast_slice(&encoded_paints);
+            self.encoded_paints_data[0..encoded_paints_bytes.len()]
+                .copy_from_slice(encoded_paints_bytes);
+
+            gl.active_texture(WebGl2RenderingContext::TEXTURE1);
+            gl.bind_texture(
+                WebGl2RenderingContext::TEXTURE_2D,
+                Some(&self.resources.encoded_paints_texture),
+            );
+
+            // Pack encoded paints into RGBA uint32 texture
+            let encoded_paints_data_as_u32 =
+                bytemuck::cast_slice::<u8, u32>(&self.encoded_paints_data);
+            let packed_array = js_sys::Uint32Array::from(encoded_paints_data_as_u32);
+
+            gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                WebGl2RenderingContext::RGBA32UI as i32,
+                encoded_paints_texture_width as i32,
+                encoded_paints_texture_height as i32,
+                0,
+                WebGl2RenderingContext::RGBA_INTEGER,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                Some(&packed_array),
+            )
+            .unwrap();
+
+            // Set texture parameters for encoded paints texture
+            gl.tex_parameteri(
+                WebGl2RenderingContext::TEXTURE_2D,
+                WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+                WebGl2RenderingContext::NEAREST as i32,
+            );
+            gl.tex_parameteri(
+                WebGl2RenderingContext::TEXTURE_2D,
+                WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+                WebGl2RenderingContext::NEAREST as i32,
+            );
+            gl.tex_parameteri(
+                WebGl2RenderingContext::TEXTURE_2D,
+                WebGl2RenderingContext::TEXTURE_WRAP_S,
+                WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+            );
+            gl.tex_parameteri(
+                WebGl2RenderingContext::TEXTURE_2D,
+                WebGl2RenderingContext::TEXTURE_WRAP_T,
+                WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+            );
         }
 
         // Clear the view framebuffer.
@@ -589,6 +737,12 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
         clip_input_texture: gl
             .get_uniform_location(program, clip_input_texture_name)
             .unwrap(),
+        atlas_texture: gl
+            .get_uniform_location(program, render_strips::fragment::ATLAS_TEXTURE)
+            .unwrap(),
+        encoded_paints_texture: gl
+            .get_uniform_location(program, render_strips::fragment::ENCODED_PAINTS_TEXTURE)
+            .unwrap(),
     }
 }
 
@@ -625,6 +779,78 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> Web
     {
         gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&alphas_texture));
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+            WebGl2RenderingContext::NEAREST as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+            WebGl2RenderingContext::NEAREST as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_WRAP_S,
+            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_WRAP_T,
+            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+        );
+    }
+
+    // Create and configure atlas texture.
+    let atlas_texture = gl.create_texture().unwrap();
+    {
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&atlas_texture));
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+            WebGl2RenderingContext::LINEAR as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+            WebGl2RenderingContext::LINEAR as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_WRAP_S,
+            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_WRAP_T,
+            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+        );
+
+        // Initialize with empty texture data
+        let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
+        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+            WebGl2RenderingContext::TEXTURE_2D,
+            0,
+            WebGl2RenderingContext::RGBA8 as i32,
+            max_texture_dimension_2d as i32,
+            max_texture_dimension_2d as i32,
+            0,
+            WebGl2RenderingContext::RGBA,
+            WebGl2RenderingContext::UNSIGNED_BYTE,
+            None,
+        )
+        .unwrap();
+    }
+
+    // Create and configure encoded paints texture.
+    let encoded_paints_texture = gl.create_texture().unwrap();
+    {
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&encoded_paints_texture),
+        );
         gl.tex_parameteri(
             WebGl2RenderingContext::TEXTURE_2D,
             WebGl2RenderingContext::TEXTURE_MIN_FILTER,
@@ -694,6 +920,9 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> Web
         strips_buffer,
         alphas_texture,
         alpha_texture_height: 0,
+        atlas_texture,
+        encoded_paints_texture,
+        encoded_paints_texture_height: 0,
         view_config_buffer,
         slot_config_buffer,
         clear_slot_indices_buffer,
@@ -782,10 +1011,10 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
     );
 
     let stride = mem::size_of::<GpuStrip>() as i32;
-    debug_assert_eq!(stride, 16, "expected stride of 16");
+    debug_assert_eq!(stride, 20, "expected stride of 20");
 
     // Configure attributes.
-    for i in 0..4 {
+    for i in 0..5 {
         let location = i as u32;
         let offset = i * 4;
 
@@ -927,6 +1156,26 @@ impl WebGlRendererContext<'_> {
         );
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.clip_input_texture), 1);
+
+        // Bind atlas texture for image rendering
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
+        self.gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.programs.resources.atlas_texture),
+        );
+        self.gl
+            .uniform1i(Some(&self.programs.strip_uniforms.atlas_texture), 2);
+
+        // Bind encoded paints texture for image metadata
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE3);
+        self.gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.programs.resources.encoded_paints_texture),
+        );
+        self.gl.uniform1i(
+            Some(&self.programs.strip_uniforms.encoded_paints_texture),
+            3,
+        );
 
         // Draw.
         self.gl.draw_arrays_instanced(
