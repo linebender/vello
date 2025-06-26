@@ -7,21 +7,15 @@
     clippy::cast_possible_truncation,
     reason = "truncation has no appreciable impact in this demo"
 )]
+#![cfg(target_arch = "wasm32")]
 
-#[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
-#[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
-#[cfg(target_arch = "wasm32")]
 use vello_common::kurbo::{Affine, Point};
-#[cfg(target_arch = "wasm32")]
 use vello_hybrid_scenes::AnyScene;
-#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-#[cfg(target_arch = "wasm32")]
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
-#[cfg(target_arch = "wasm32")]
 struct RendererWrapper {
     renderer: vello_hybrid::Renderer,
     device: wgpu::Device,
@@ -29,9 +23,7 @@ struct RendererWrapper {
     surface: wgpu::Surface<'static>,
 }
 
-#[cfg(target_arch = "wasm32")]
 impl RendererWrapper {
-    #[cfg(target_arch = "wasm32")]
     async fn new(canvas: web_sys::HtmlCanvasElement) -> Self {
         let width = canvas.width();
         let height = canvas.height();
@@ -117,7 +109,6 @@ impl RendererWrapper {
 }
 
 /// State that handles scene rendering and interactions
-#[cfg(target_arch = "wasm32")]
 struct AppState {
     scenes: Box<[AnyScene]>,
     current_scene: usize,
@@ -132,7 +123,6 @@ struct AppState {
     canvas: HtmlCanvasElement,
 }
 
-#[cfg(target_arch = "wasm32")]
 impl AppState {
     async fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene]>) -> Self {
         let width = canvas.width();
@@ -271,7 +261,6 @@ impl AppState {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = requestAnimationFrame)]
@@ -280,7 +269,6 @@ extern "C" {
 
 /// Creates a `HTMLCanvasElement` of the given dimensions and renders the given scenes into it,
 /// with interactive controls for panning, zooming, and switching between scenes.
-#[cfg(target_arch = "wasm32")]
 pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     let canvas = web_sys::Window::document(&web_sys::window().unwrap())
         .unwrap()
@@ -453,7 +441,6 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
 }
 
 /// Creates a `HTMLCanvasElement` and renders a single scene into it
-#[cfg(target_arch = "wasm32")]
 pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
     let canvas = web_sys::Window::document(&web_sys::window().unwrap())
         .unwrap()

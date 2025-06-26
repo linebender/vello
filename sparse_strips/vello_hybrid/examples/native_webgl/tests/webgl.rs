@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Tests whether the WebGL example compiles and runs without panicking.
+#![cfg(target_arch = "wasm32")]
 
-#[cfg(target_arch = "wasm32")]
 mod wasm {
     use native_webgl::render_scene;
     use vello_common::peniko::{color::palette, kurbo::BezPath};
