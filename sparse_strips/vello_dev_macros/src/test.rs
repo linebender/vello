@@ -168,6 +168,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             || input_fn_name_str.contains("blurred_rounded_rect")
     };
 
+    let skip_hybrid_webgl = skip_hybrid || input_fn_name_str.contains("image");
+
     let empty_snippet = quote! {};
     let ignore_snippet = if let Some(reason) = ignore_reason {
         quote! {#[ignore = #reason]}
@@ -176,6 +178,11 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     };
 
     let ignore_hybrid = if skip_hybrid {
+        ignore_snippet.clone()
+    } else {
+        empty_snippet.clone()
+    };
+    let ignore_hybrid_webgl = if skip_hybrid_webgl {
         ignore_snippet.clone()
     } else {
         empty_snippet.clone()
@@ -345,7 +352,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             }
         }
 
-        #ignore_hybrid
+        #ignore_hybrid_webgl
         #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
         #[wasm_bindgen_test::wasm_bindgen_test]
         async fn #webgl_fn_name() {

@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -11,7 +12,9 @@ use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{BlendMode, Fill, Font};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
-use vello_hybrid::{ImageCache, Scene};
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+use vello_hybrid::ImageCache;
+use vello_hybrid::Scene;
 
 pub(crate) trait Renderer: Sized + GlyphRenderer {
     type GlyphRenderer: GlyphRenderer;
@@ -151,18 +154,18 @@ impl Renderer for RenderContext {
     }
 }
 
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
     image_cache: ImageCache,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
     texture: wgpu::Texture,
-    #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
     texture_view: wgpu::TextureView,
     renderer: RefCell<vello_hybrid::Renderer>,
 }
 
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl Renderer for HybridRenderer {
     type GlyphRenderer = Scene;
 
@@ -231,9 +234,7 @@ impl Renderer for HybridRenderer {
             scene,
             device,
             queue,
-            #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
             texture,
-            #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
             texture_view,
             renderer: RefCell::new(renderer),
         }
@@ -323,7 +324,6 @@ impl Renderer for HybridRenderer {
     // This method creates device resources every time it is called. This does not matter much for
     // testing, but should not be used as a basis for implementing something real. This would be a
     // very bad example for that.
-    #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
     fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
@@ -426,8 +426,141 @@ impl Renderer for HybridRenderer {
         texture_copy_buffer.unmap();
     }
 
+    fn width(&self) -> u16 {
+        self.scene.width()
+    }
+
+    fn height(&self) -> u16 {
+        self.scene.height()
+    }
+
+    fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Upload Test Image"),
+            });
+
+        // Upload image to cache and atlas in one step!
+        let image_id = self.renderer.borrow_mut().upload_image(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &mut self.image_cache,
+            &pixmap,
+        );
+
+        self.queue.submit([encoder.finish()]);
+
+        ImageSource::OpaqueId(image_id)
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+pub(crate) struct HybridRenderer {
+    scene: Scene,
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+impl Renderer for HybridRenderer {
+    type GlyphRenderer = Scene;
+
+    fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
+        if num_threads != 0 {
+            panic!("hybrid renderer doesn't support multi-threading");
+        }
+
+        if !matches!(level, Level::Fallback(_)) {
+            panic!("hybrid renderer doesn't support SIMD");
+        }
+
+        let scene = Scene::new(width, height);
+
+        Self { scene }
+    }
+
+    fn fill_path(&mut self, path: &BezPath) {
+        self.scene.fill_path(path);
+    }
+
+    fn stroke_path(&mut self, path: &BezPath) {
+        self.scene.stroke_path(path);
+    }
+
+    fn fill_rect(&mut self, rect: &Rect) {
+        self.scene.fill_rect(rect);
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, _: &Rect, _: f32, _: f32) {
+        unimplemented!()
+    }
+
+    fn stroke_rect(&mut self, rect: &Rect) {
+        self.scene.stroke_rect(rect);
+    }
+
+    fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
+        self.scene.glyph_run(font)
+    }
+
+    fn push_layer(
+        &mut self,
+        clip: Option<&BezPath>,
+        blend_mode: Option<BlendMode>,
+        opacity: Option<f32>,
+        mask: Option<Mask>,
+    ) {
+        self.scene.push_layer(clip, blend_mode, opacity, mask);
+    }
+
+    fn flush(&mut self) {}
+
+    fn push_clip_layer(&mut self, path: &BezPath) {
+        self.scene.push_clip_layer(path);
+    }
+
+    fn push_blend_layer(&mut self, _: BlendMode) {
+        unimplemented!()
+    }
+
+    fn push_opacity_layer(&mut self, _: f32) {
+        unimplemented!()
+    }
+
+    fn push_mask_layer(&mut self, _: Mask) {
+        unimplemented!()
+    }
+
+    fn pop_layer(&mut self) {
+        self.scene.pop_layer();
+    }
+
+    fn set_stroke(&mut self, stroke: Stroke) {
+        self.scene.set_stroke(stroke);
+    }
+
+    fn set_paint(&mut self, paint: impl Into<PaintType>) {
+        let paint_type: PaintType = paint.into();
+        match paint_type {
+            PaintType::Solid(s) => self.scene.set_paint(s),
+            PaintType::Gradient(g) => self.scene.set_paint(g),
+            PaintType::Image(i) => self.scene.set_paint(i),
+        }
+    }
+
+    fn set_paint_transform(&mut self, affine: Affine) {
+        self.scene.set_paint_transform(affine);
+    }
+
+    fn set_fill_rule(&mut self, fill_rule: Fill) {
+        self.scene.set_fill_rule(fill_rule);
+    }
+
+    fn set_transform(&mut self, transform: Affine) {
+        self.scene.set_transform(transform);
+    }
+
     // vello_hybrid WebGL renderer backend.
-    #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
     fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
         use wasm_bindgen::JsCast;
         use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
@@ -486,25 +619,11 @@ impl Renderer for HybridRenderer {
         self.scene.height()
     }
 
-    fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Upload Test Image"),
-            });
+    #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+    fn get_image_source(&mut self, _pixmap: Arc<Pixmap>) -> ImageSource {
+        use vello_common::paint::ImageId;
 
-        // Upload image to cache and atlas in one step!
-        let image_id = self.renderer.borrow_mut().upload_image(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &mut self.image_cache,
-            &pixmap,
-        );
-
-        self.queue.submit([encoder.finish()]);
-
-        ImageSource::OpaqueId(image_id)
+        ImageSource::OpaqueId(ImageId(0))
     }
 }
 
