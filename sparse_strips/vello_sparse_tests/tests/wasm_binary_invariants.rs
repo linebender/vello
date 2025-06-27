@@ -10,7 +10,7 @@ async fn no_simd_instruction_inclusion() {
     // is imperative that there isn't a single SIMD instruction in the resulting binary. These can
     // accidentally creep into the binary due to usage of `#![cfg(target_feature = "simd128")]`. Any
     // inclusion of a SIMD instruction in a non-SIMD WASM binary can invalidate the whole binary for
-    // browsers that do not have SIMD support.
+    // browsers (or WebAssembly runtimes) that do not have SIMD support.
     //
     // This test runs when simd128 is not enabled, and self-introspects the binary to ensure no SIMD
     // instructions are included.
@@ -21,18 +21,21 @@ async fn no_simd_instruction_inclusion() {
 
     let window = web_sys::window().unwrap();
     let url = "/wasm-bindgen-test_bg.wasm";
-    let response = JsFuture::from(window.fetch_with_str(&url)).await.unwrap();
+    let response = JsFuture::from(window.fetch_with_str(url)).await.unwrap();
     let response: web_sys::Response = response.dyn_into().unwrap();
     assert!(response.ok(), "binary could not be fetched");
     let buffer = JsFuture::from(response.array_buffer().unwrap())
         .await
         .unwrap();
-    let bytes = web_sys::js_sys::Uint8Array::new(&buffer).to_vec();
 
-    // Create the default wasm featureset, and explicitly subtract SIMD.
-    let mut wasm_non_simd_validator =
-        Validator::new_with_features(WasmFeatures::default().difference(WasmFeatures::SIMD));
+    let wasm_module_bytes = web_sys::js_sys::Uint8Array::new(&buffer).to_vec();
+    let mut wasm_validator_without_simd =
+        Validator::new_with_features(WasmFeatures::all().difference(WasmFeatures::SIMD));
 
-    // If validation is ok then no simd128 instructions were encountered.
-    assert!(wasm_non_simd_validator.validate_all(&bytes).is_ok());
+    assert!(
+        wasm_validator_without_simd
+            .validate_all(&wasm_module_bytes)
+            .is_ok(),
+        "WebAssembly module contains unexpected SIMD instructions"
+    );
 }
