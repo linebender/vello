@@ -78,6 +78,38 @@ fn many_bins_cpu() {
     many_bins(true);
 }
 
+/// Test for <https://github.com/linebender/vello/issues/1061>
+#[test]
+#[should_panic]
+fn test_layer_size() {
+    let mut scene = Scene::new();
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        vello::peniko::color::AlphaColor::from_rgb8(0, 255, 0),
+        None,
+        &Rect::from_origin_size((0.0, 0.0), (60., 60.)),
+    );
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        vello::peniko::color::AlphaColor::from_rgb8(255, 0, 0),
+        None,
+        &Rect::from_origin_size((20.0, 20.0), (20., 20.)),
+    );
+    scene.push_layer(
+        vello::peniko::Compose::Clear,
+        1.0,
+        vello::kurbo::Affine::IDENTITY,
+        &Rect::from_origin_size((20.0, 20.0), (20., 20.)),
+    );
+    scene.pop_layer();
+    let params = TestParams::new("layer_size", 60, 60);
+    smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
+}
+
 const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/smoke/data_image_roundtrip.png");
 
 /// Test for <https://github.com/linebender/vello/issues/972>
