@@ -541,6 +541,7 @@ impl Scheduler {
             }
             Paint::Indexed(indexed_paint) => {
                 let paint_id = indexed_paint.index();
+                // 16 bytes per textel: Rgba32Uint (4 bytes) * 4 (4 textels)
                 let paint_tex_id = (paint_id * size_of::<GpuEncodedImage>() / 16) as u32;
 
                 match scene.encoded_paints.get(paint_id) {

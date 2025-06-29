@@ -119,13 +119,11 @@ fn vs_main(
         out.paint_tex_id = paint_tex_id;
         
         let encoded_image = unpack_encoded_image(paint_tex_id);
-        let transformed_coords = encoded_image.translate 
-            + encoded_image.transform.xy * f32(x0) 
-            + encoded_image.transform.zw * f32(y0);
-        // Apply image offset to the base texture coordinates
-        let atlas_coords = transformed_coords + encoded_image.image_offset;
         // Vertex position within the texture
-        out.sample_xy = atlas_coords 
+        out.sample_xy = encoded_image.translate 
+            + encoded_image.image_offset
+            + encoded_image.transform.xy * f32(x0) 
+            + encoded_image.transform.zw * f32(y0)
             + encoded_image.transform.xy * x * f32(width)
             + encoded_image.transform.zw * y * f32(config.strip_height);
     } else {

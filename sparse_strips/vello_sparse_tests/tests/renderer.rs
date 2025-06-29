@@ -12,9 +12,7 @@ use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{BlendMode, Fill, Font};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
-#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-use vello_hybrid::ImageCache;
-use vello_hybrid::Scene;
+use vello_hybrid::{ImageCache, Scene};
 
 pub(crate) trait Renderer: Sized + GlyphRenderer {
     type GlyphRenderer: GlyphRenderer;
@@ -459,6 +457,7 @@ impl Renderer for HybridRenderer {
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
+    image_cache: ImageCache,
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -475,8 +474,9 @@ impl Renderer for HybridRenderer {
         }
 
         let scene = Scene::new(width, height);
+        let image_cache = ImageCache::new();
 
-        Self { scene }
+        Self { scene, image_cache }
     }
 
     fn fill_path(&mut self, path: &BezPath) {
@@ -587,7 +587,9 @@ impl Renderer for HybridRenderer {
             height: height.into(),
         };
 
-        renderer.render(&self.scene, &render_size).unwrap();
+        renderer
+            .render(&self.scene, &render_size, &self.image_cache)
+            .unwrap();
 
         let gl = canvas
             .get_context("webgl2")

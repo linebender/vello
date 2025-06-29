@@ -80,6 +80,7 @@ pub fn get_example_scenes() -> Box<[AnyScene]> {
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(simple::SimpleScene::new()),
         AnyScene::new(clip::ClipScene::new()),
+        AnyScene::new(image::ImageScene {}),
     ]
     .into_boxed_slice()
 }
