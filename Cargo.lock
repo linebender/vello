@@ -919,8 +919,9 @@ dependencies = [
 [[package]]
 name = "fearless_simd"
 version = "0.2.0"
-source = "git+https://github.com/raphlinus/fearless_simd?rev=e46bcfd#e46bcfd622dbd7edd8538c836d9b100b6101aa15"
+source = "git+https://github.com/raphlinus/fearless_simd?rev=1c658f7#1c658f79db9eb4014d5bb14ed08c5fb91c44a230"
 dependencies = [
+ "bytemuck",
  "libm",
 ]
 
@@ -1302,6 +1303,7 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash",
+ "serde",
 ]
 
 [[package]]
@@ -3837,7 +3839,9 @@ dependencies = [
  "vello_dev_macros",
  "vello_hybrid",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "wasmparser 0.235.0",
  "web-sys",
  "wgpu",
 ]
@@ -3895,7 +3899,7 @@ dependencies = [
  "rayon",
  "walrus-macro",
  "wasm-encoder",
- "wasmparser",
+ "wasmparser 0.214.0",
 ]
 
 [[package]]
@@ -4085,7 +4089,7 @@ dependencies = [
  "leb128",
  "log",
  "walrus",
- "wasmparser",
+ "wasmparser 0.214.0",
 ]
 
 [[package]]
@@ -4118,6 +4122,19 @@ dependencies = [
  "ahash",
  "bitflags 2.9.1",
  "hashbrown 0.14.5",
+ "indexmap 2.9.0",
+ "semver",
+ "serde",
+]
+
+[[package]]
+name = "wasmparser"
+version = "0.235.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "161296c618fa2d63f6ed5fffd1112937e803cb9ec71b32b01a76321555660917"
+dependencies = [
+ "bitflags 2.9.1",
+ "hashbrown 0.15.3",
  "indexmap 2.9.0",
  "semver",
  "serde",
