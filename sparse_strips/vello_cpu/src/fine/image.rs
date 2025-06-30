@@ -4,6 +4,7 @@
 use crate::fine::{COLOR_COMPONENTS, FineType, Painter, TILE_HEIGHT_COMPONENTS};
 use vello_common::encode::EncodedImage;
 use vello_common::kurbo::{Point, Vec2};
+use vello_common::paint::ImageSource;
 use vello_common::peniko;
 use vello_common::peniko::ImageQuality;
 use vello_common::tile::Tile;
@@ -39,8 +40,14 @@ pub(crate) struct ImageFiller<'a> {
 
 impl<'a> ImageFiller<'a> {
     pub(crate) fn new(image: &'a EncodedImage, start_x: u16, start_y: u16) -> Self {
-        let width = image.pixmap.width() as f32;
-        let height = image.pixmap.height() as f32;
+        let (width, height) = match &image.source {
+            ImageSource::Pixmap(pixmap) => (pixmap.width() as f32, pixmap.height() as f32),
+            ImageSource::OpaqueId(_) => {
+                panic!(
+                    "CPU renderer does not support OpaqueId image sources. Use ImageSource::Pixmap instead."
+                );
+            }
+        };
 
         Self {
             cur_pos: image.transform * Point::new(f64::from(start_x), f64::from(start_y)),
@@ -53,6 +60,13 @@ impl<'a> ImageFiller<'a> {
     }
 
     pub(super) fn run<F: FineType>(mut self, target: &mut [F]) {
+        // Get the pixmap from the image source
+        let ImageSource::Pixmap(pixmap) = &self.image.source else {
+            panic!(
+                "CPU renderer does not support OpaqueId image sources. Use ImageSource::Pixmap instead."
+            );
+        };
+
         // We currently have two branches for filling images: The first case is used for
         // nearest neighbor filtering and for images with no skewing-transform (this is checked
         // by the first two conditions), which allows us to take a faster path.
@@ -67,7 +81,7 @@ impl<'a> ImageFiller<'a> {
             target
                 .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
                 .for_each(|column| {
-                    self.run_complex_column(column);
+                    self.run_complex_column(column, pixmap);
                     self.cur_pos += self.image.x_advance;
                 });
         } else {
@@ -104,6 +118,11 @@ impl<'a> ImageFiller<'a> {
     fn run_simple<F: FineType, E: Extend>(&mut self, target: &mut [F], y_positions: &[f32; 4]) {
         let mut x_pos = self.cur_pos.x;
         let x_advance = self.image.x_advance.x;
+        let ImageSource::Pixmap(pixmap) = &self.image.source else {
+            panic!(
+                "CPU renderer does not support OpaqueId image sources. Use ImageSource::Pixmap instead."
+            );
+        };
 
         target
             .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
@@ -115,9 +134,7 @@ impl<'a> ImageFiller<'a> {
                     .zip(y_positions.iter())
                 {
                     let sample = F::from_rgba8(
-                        &self
-                            .image
-                            .pixmap
+                        &pixmap
                             .sample(extended_x_pos as u16, *y_pos as u16)
                             .to_u8_array()[..],
                     );
@@ -129,7 +146,11 @@ impl<'a> ImageFiller<'a> {
             });
     }
 
-    fn run_complex_column<F: FineType>(&mut self, col: &mut [F]) {
+    fn run_complex_column<F: FineType>(
+        &mut self,
+        col: &mut [F],
+        pixmap: &vello_common::pixmap::Pixmap,
+    ) {
         let extend_point = |mut point: Point| {
             point.x = f64::from(extend(
                 point.x as f32,
@@ -156,11 +177,7 @@ impl<'a> ImageFiller<'a> {
                 ImageQuality::Low => {
                     let point = extend_point(pos);
                     let sample = F::from_rgba8(
-                        &self
-                            .image
-                            .pixmap
-                            .sample(point.x as u16, point.y as u16)
-                            .to_u8_array()[..],
+                        &pixmap.sample(point.x as u16, point.y as u16).to_u8_array()[..],
                     );
                     pixel.copy_from_slice(&sample);
                 }
@@ -186,7 +203,7 @@ impl<'a> ImageFiller<'a> {
 
                     let sample = |p: Point| {
                         let c = |val: u8| f32::from(val) / 255.0;
-                        let s = self.image.pixmap.sample(p.x as u16, p.y as u16);
+                        let s = pixmap.sample(p.x as u16, p.y as u16);
 
                         [c(s.r), c(s.g), c(s.b), c(s.a)]
                     };

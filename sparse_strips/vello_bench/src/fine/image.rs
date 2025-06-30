@@ -7,7 +7,7 @@ use std::sync::Arc;
 use vello_common::coarse::WideTile;
 use vello_common::encode::EncodeExt;
 use vello_common::kurbo::Affine;
-use vello_common::paint::Image;
+use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko;
 use vello_common::peniko::ImageQuality;
 use vello_common::pixmap::Pixmap;
@@ -137,7 +137,7 @@ fn get_colr_image(extend: peniko::Extend, quality: ImageQuality) -> Image {
 
     let pixmap = Pixmap::from_png(&data[..]).unwrap();
     Image {
-        pixmap: Arc::new(pixmap),
+        source: ImageSource::Pixmap(Arc::new(pixmap)),
         x_extend: extend,
         y_extend: extend,
         quality,
@@ -149,7 +149,7 @@ fn get_small_image(extend: peniko::Extend, quality: ImageQuality) -> Image {
 
     let pixmap = Pixmap::from_png(&data[..]).unwrap();
     Image {
-        pixmap: Arc::new(pixmap),
+        source: ImageSource::Pixmap(Arc::new(pixmap)),
         x_extend: extend,
         y_extend: extend,
         quality,

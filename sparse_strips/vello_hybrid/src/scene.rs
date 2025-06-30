@@ -6,6 +6,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::coarse::Wide;
+use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::flatten::Line;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
@@ -27,6 +28,7 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 #[derive(Debug)]
 struct RenderState {
     pub(crate) paint: PaintType,
+    pub(crate) paint_transform: Affine,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
@@ -47,6 +49,8 @@ pub struct Scene {
     pub(crate) tiles: Tiles,
     pub(crate) strip_buf: Vec<Strip>,
     pub(crate) paint: PaintType,
+    pub(crate) paint_transform: Affine,
+    pub(crate) encoded_paints: Vec<EncodedPaint>,
     paint_visible: bool,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
@@ -67,6 +71,8 @@ impl Scene {
             tiles: Tiles::new(),
             strip_buf: vec![],
             paint: render_state.paint,
+            paint_transform: render_state.paint_transform,
+            encoded_paints: vec![],
             paint_visible: true,
             stroke: render_state.stroke,
             transform: render_state.transform,
@@ -80,6 +86,7 @@ impl Scene {
         let transform = Affine::IDENTITY;
         let fill_rule = Fill::NonZero;
         let paint = BLACK.into();
+        let paint_transform = Affine::IDENTITY;
         let stroke = Stroke {
             width: 1.0,
             join: Join::Bevel,
@@ -92,6 +99,7 @@ impl Scene {
             transform,
             fill_rule,
             paint,
+            paint_transform,
             stroke,
             blend_mode,
         }
@@ -103,9 +111,10 @@ impl Scene {
             PaintType::Gradient(_) => {
                 unimplemented!("gradient not implemented")
             }
-            PaintType::Image(_) => {
-                unimplemented!("images not implemented")
-            }
+            PaintType::Image(i) => i.encode_into(
+                &mut self.encoded_paints,
+                self.transform * self.paint_transform,
+            ),
         }
     }
 
@@ -208,8 +217,24 @@ impl Scene {
     //       render time into a texture usable by the renderer backend.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.paint = paint.into();
-        self.paint_visible =
-            matches!(&self.paint, PaintType::Solid(color) if color.components[3] != 0.0);
+        self.paint_visible = match &self.paint {
+            PaintType::Solid(color) => color.components[3] != 0.0,
+            _ => true,
+        };
+    }
+
+    /// Set the current paint transform.
+    ///
+    /// The paint transform is applied to the paint after the transform of the geometry the paint
+    /// is drawn in, i.e., the paint transform is applied after the global transform. This allows
+    /// transforming the paint independently from the drawn geometry.
+    pub fn set_paint_transform(&mut self, paint_transform: Affine) {
+        self.paint_transform = paint_transform;
+    }
+
+    /// Reset the current paint transform.
+    pub fn reset_paint_transform(&mut self) {
+        self.paint_transform = Affine::IDENTITY;
     }
 
     /// Set the fill rule for subsequent fill operations.
@@ -234,6 +259,7 @@ impl Scene {
         self.line_buf.clear();
         self.tiles.reset();
         self.strip_buf.clear();
+        self.encoded_paints.clear();
 
         let render_state = Self::default_render_state();
         self.transform = render_state.transform;
