@@ -19,7 +19,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
 use core::ops::{Add, Div, Mul, Sub};
-use vello_common::encode::{EncodedKind, EncodedPaint};
+use vello_common::encode::{EncodedGradient, EncodedKind, EncodedPaint, FromF32Color, GradientLut};
 use vello_common::paint::{Paint, PremulColor};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
@@ -621,6 +621,7 @@ pub trait FineType:
     + Mul<Self, Output = Self>
     + Sub<Self, Output = Self>
     + Debug
+    + FromF32Color
     + Send
     + Sync
 {
@@ -653,6 +654,8 @@ pub trait FineType:
     fn from_normalized_f32(num: f32) -> Self;
     /// Get the widened representation of the current number.
     fn widen(self) -> Self::Widened;
+    /// Get the lookup table for gradient stops.
+    fn get_lut(gradient: &EncodedGradient) -> &GradientLut<Self>;
 
     /// Perform a normalized multiplication between this number and another
     #[inline(always)]
@@ -755,6 +758,11 @@ impl FineType for u8 {
     fn widen(self) -> Self::Widened {
         u16::from(self)
     }
+
+    #[inline(always)]
+    fn get_lut(gradient: &EncodedGradient) -> &GradientLut<Self> {
+        gradient.u8_lut()
+    }
 }
 
 impl FineType for f32 {
@@ -806,5 +814,10 @@ impl FineType for f32 {
     #[inline(always)]
     fn widen(self) -> Self::Widened {
         self
+    }
+
+    #[inline(always)]
+    fn get_lut(gradient: &EncodedGradient) -> &GradientLut<Self> {
+        gradient.f32_lut()
     }
 }

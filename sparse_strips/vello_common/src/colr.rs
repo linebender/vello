@@ -7,6 +7,7 @@ use crate::color::Srgb;
 use crate::color::{AlphaColor, DynamicColor};
 use crate::glyph::{ColorGlyph, OutlinePath};
 use crate::kurbo::{Affine, BezPath, Point, Rect, Shape};
+use crate::math::FloatExt;
 use crate::peniko::{self, BlendMode, ColorStops, Compose, Extend, Gradient, GradientKind, Mix};
 use alloc::boxed::Box;
 use alloc::vec;
@@ -133,6 +134,17 @@ impl<'a> ColrPainter<'a> {
             let mut new_stop = last_stop;
             new_stop.offset = 1.0;
             stops.push(new_stop);
+        }
+
+        // The COLR spec has the very specific requirement that if there are multiple stops with the
+        // offset 1.0, only the last one should be used. We abstract this away by removing all such
+        // superfluous stops.
+        while let Some(stop) = stops.get(stops.len() - 2).map(|s| s.offset) {
+            if (stop - 1.0).is_nearly_zero() {
+                stops.remove(stops.len() - 2);
+            } else {
+                break;
+            }
         }
 
         ColorStops(stops)

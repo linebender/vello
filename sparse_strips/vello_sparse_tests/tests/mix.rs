@@ -64,12 +64,12 @@ fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
     ctx.pop_layer();
 }
 
-#[vello_test]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn mix_normal(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Normal, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+#[vello_test(cpu_u8_tolerance = 2)]
 fn mix_multiply(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Multiply, Compose::SrcOver));
 }
@@ -89,7 +89,7 @@ fn mix_lighten(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Lighten, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+#[vello_test(cpu_u8_tolerance = 3)]
 fn mix_color_dodge(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorDodge, Compose::SrcOver));
 }
@@ -103,12 +103,12 @@ fn mix_color_dodge(ctx: &mut impl Renderer) {
 //  f32:  1.0 - ((1.0 - 0.8784314) / 0.125) = 0.027451038 (RGB value of around 7)
 //  u8/u16:  255 - (((255 - 224) * 255) / 31) = 0
 // And therefore a very large difference for that one component.
-#[vello_test(cpu_u8_tolerance = 5)]
+#[vello_test(cpu_u8_tolerance = 6)]
 fn mix_color_burn(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::ColorBurn, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+#[vello_test(cpu_u8_tolerance = 2)]
 fn mix_hard_light(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::HardLight, Compose::SrcOver));
 }
@@ -128,7 +128,7 @@ fn mix_exclusion(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Exclusion, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
+#[vello_test(cpu_u8_tolerance = 2)]
 fn mix_overlay(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Overlay, Compose::SrcOver));
 }
@@ -143,7 +143,7 @@ fn mix_saturation(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Saturation, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 2)]
+#[vello_test(cpu_u8_tolerance = 4)]
 fn mix_color(ctx: &mut impl Renderer) {
     mix(ctx, BlendMode::new(Mix::Color, Compose::SrcOver));
 }

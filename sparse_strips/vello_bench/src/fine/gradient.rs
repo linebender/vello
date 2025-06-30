@@ -201,6 +201,7 @@ fn gradient_base<F: FineType>(
     };
 
     let paint = grad.encode_into(&mut paints, Affine::IDENTITY);
+
     fill_single(
         &paint,
         &paints,
