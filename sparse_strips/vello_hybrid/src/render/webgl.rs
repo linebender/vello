@@ -140,7 +140,7 @@ impl WebGlRenderer {
         self.gl
             .bind_framebuffer(WebGl2RenderingContext::DRAW_FRAMEBUFFER, None);
 
-        // #[cfg(debug_assertions)]
+        #[cfg(debug_assertions)]
         {
             let status = self
                 .gl
@@ -165,7 +165,7 @@ impl WebGlRenderer {
             WebGl2RenderingContext::LINEAR,
         );
 
-        // #[cfg(debug_assertions)]
+        #[cfg(debug_assertions)]
         {
             // `get_error` cause synchronous stalls on the calling thread. It's best practice in
             // release to omit this call.
@@ -253,7 +253,7 @@ impl WebGlRenderer {
                             }
 
                             bytes.push(GpuEncodedImage {
-                                quality: 0_u32,
+                                quality: img.quality as u32,
                                 extend_modes: [img.extends.0 as u32, img.extends.1 as u32],
                                 _padding0: 0,
                                 image_size: [image_resource.width, image_resource.height],
@@ -638,27 +638,27 @@ impl WebGlPrograms {
             )
             .unwrap();
 
-            // // Set texture parameters for encoded paints texture
-            // gl.tex_parameteri(
-            //     WebGl2RenderingContext::TEXTURE_2D,
-            //     WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-            //     WebGl2RenderingContext::NEAREST as i32,
-            // );
-            // gl.tex_parameteri(
-            //     WebGl2RenderingContext::TEXTURE_2D,
-            //     WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-            //     WebGl2RenderingContext::NEAREST as i32,
-            // );
-            // gl.tex_parameteri(
-            //     WebGl2RenderingContext::TEXTURE_2D,
-            //     WebGl2RenderingContext::TEXTURE_WRAP_S,
-            //     WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-            // );
-            // gl.tex_parameteri(
-            //     WebGl2RenderingContext::TEXTURE_2D,
-            //     WebGl2RenderingContext::TEXTURE_WRAP_T,
-            //     WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-            // );
+            // Set texture parameters for encoded paints texture
+            gl.tex_parameteri(
+                WebGl2RenderingContext::TEXTURE_2D,
+                WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+                WebGl2RenderingContext::NEAREST as i32,
+            );
+            gl.tex_parameteri(
+                WebGl2RenderingContext::TEXTURE_2D,
+                WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+                WebGl2RenderingContext::NEAREST as i32,
+            );
+            gl.tex_parameteri(
+                WebGl2RenderingContext::TEXTURE_2D,
+                WebGl2RenderingContext::TEXTURE_WRAP_S,
+                WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+            );
+            gl.tex_parameteri(
+                WebGl2RenderingContext::TEXTURE_2D,
+                WebGl2RenderingContext::TEXTURE_WRAP_T,
+                WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+            );
         }
 
         // Clear the view framebuffer.
@@ -1384,6 +1384,29 @@ impl WebGlAtlasWriter for crate::Pixmap {
             Some(rgba_data),
         )
         .unwrap();
+    }
+}
+
+/// Implementation for `Arc<Pixmap>`
+impl WebGlAtlasWriter for alloc::sync::Arc<crate::Pixmap> {
+    fn width(&self) -> u32 {
+        self.as_ref().width() as u32
+    }
+
+    fn height(&self) -> u32 {
+        self.as_ref().height() as u32
+    }
+
+    fn write_to_atlas(
+        &self,
+        gl: &WebGl2RenderingContext,
+        atlas_texture: &WebGlTexture,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        self.as_ref()
+            .write_to_atlas(gl, atlas_texture, offset, width, height);
     }
 }
 

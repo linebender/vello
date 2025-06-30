@@ -1,7 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -13,6 +12,8 @@ use vello_common::peniko::{BlendMode, Fill, Font};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
 use vello_hybrid::{ImageCache, Scene};
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+use web_sys::WebGl2RenderingContext;
 
 pub(crate) trait Renderer: Sized + GlyphRenderer {
     type GlyphRenderer: GlyphRenderer;
@@ -458,6 +459,8 @@ impl Renderer for HybridRenderer {
 pub(crate) struct HybridRenderer {
     scene: Scene,
     image_cache: ImageCache,
+    renderer: RefCell<vello_hybrid::WebGlRenderer>,
+    gl: WebGl2RenderingContext,
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -465,6 +468,9 @@ impl Renderer for HybridRenderer {
     type GlyphRenderer = Scene;
 
     fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
+        use wasm_bindgen::JsCast;
+        use web_sys::HtmlCanvasElement;
+
         if num_threads != 0 {
             panic!("hybrid renderer doesn't support multi-threading");
         }
@@ -476,7 +482,34 @@ impl Renderer for HybridRenderer {
         let scene = Scene::new(width, height);
         let image_cache = ImageCache::new();
 
-        Self { scene, image_cache }
+        // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
+        // the pixmap for diff checking.
+        let document = web_sys::window().unwrap().document().unwrap();
+
+        let canvas = document
+            .create_element("canvas")
+            .unwrap()
+            .dyn_into::<HtmlCanvasElement>()
+            .unwrap();
+
+        canvas.set_width(width.into());
+        canvas.set_height(height.into());
+
+        let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+
+        let gl = canvas
+            .get_context("webgl2")
+            .unwrap()
+            .unwrap()
+            .dyn_into::<WebGl2RenderingContext>()
+            .unwrap();
+
+        Self {
+            scene,
+            image_cache,
+            renderer: RefCell::new(renderer),
+            gl,
+        }
     }
 
     fn fill_path(&mut self, path: &BezPath) {
@@ -562,53 +595,32 @@ impl Renderer for HybridRenderer {
 
     // vello_hybrid WebGL renderer backend.
     fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
-        use wasm_bindgen::JsCast;
-        use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
+        use web_sys::WebGl2RenderingContext;
 
-        let width = self.width();
-        let height = self.height();
+        let width = self.scene.width();
+        let height = self.scene.height();
 
-        // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
-        // the pixmap for diff checking.
-        let document = web_sys::window().unwrap().document().unwrap();
-
-        let canvas = document
-            .create_element("canvas")
-            .unwrap()
-            .dyn_into::<HtmlCanvasElement>()
-            .unwrap();
-
-        canvas.set_width(width.into());
-        canvas.set_height(height.into());
-
-        let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
         let render_size = vello_hybrid::RenderSize {
             width: width.into(),
             height: height.into(),
         };
-
-        renderer
+        self.renderer
+            .borrow_mut()
             .render(&self.scene, &render_size, &self.image_cache)
             .unwrap();
 
-        let gl = canvas
-            .get_context("webgl2")
-            .unwrap()
-            .unwrap()
-            .dyn_into::<WebGl2RenderingContext>()
-            .unwrap();
         let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
-        gl.read_pixels_with_opt_u8_array(
-            0,
-            0,
-            width.into(),
-            height.into(),
-            WebGl2RenderingContext::RGBA,
-            WebGl2RenderingContext::UNSIGNED_BYTE,
-            Some(&mut pixels),
-        )
-        .unwrap();
-
+        self.gl
+            .read_pixels_with_opt_u8_array(
+                0,
+                0,
+                width.into(),
+                height.into(),
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                Some(&mut pixels),
+            )
+            .unwrap();
         let pixmap_data = pixmap.data_as_u8_slice_mut();
         pixmap_data.copy_from_slice(&pixels);
     }
@@ -621,11 +633,12 @@ impl Renderer for HybridRenderer {
         self.scene.height()
     }
 
-    #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-    fn get_image_source(&mut self, _pixmap: Arc<Pixmap>) -> ImageSource {
-        use vello_common::paint::ImageId;
-
-        ImageSource::OpaqueId(ImageId(0))
+    fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
+        let image_id = self
+            .renderer
+            .borrow_mut()
+            .upload_image(&mut self.image_cache, &pixmap);
+        ImageSource::OpaqueId(image_id)
     }
 }
 
