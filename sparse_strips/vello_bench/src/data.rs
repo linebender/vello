@@ -42,8 +42,8 @@ pub fn get_data_items() -> &'static [DataItem] {
 #[derive(Clone, Debug)]
 pub struct DataItem {
     pub name: String,
-    pub fills: Vec<BezPath>,
-    pub strokes: Vec<BezPath>,
+    pub fills: Vec<FilledPath>,
+    pub strokes: Vec<StrokedPath>,
     pub width: u16,
     pub height: u16,
 }
@@ -75,30 +75,40 @@ impl DataItem {
     }
 
     /// Get the raw flattened lines of both fills and strokes.
-    ///
-    /// A stroke width of 2.0 is assumed.
     pub fn lines(&self) -> Vec<Line> {
         let mut line_buf = vec![];
         let mut temp_buf = vec![];
 
         for path in &self.fills {
-            flatten::fill(path, Affine::default(), &mut temp_buf);
+            flatten::fill(&path.path, path.transform, &mut temp_buf);
             line_buf.extend(&temp_buf);
         }
 
-        let stroke = Stroke {
-            // Obviously not all strokes have that width, but it should be good enough
-            // for benchmarking.
-            width: 2.0,
-            ..Default::default()
-        };
-
         for path in &self.strokes {
-            flatten::stroke(path, &stroke, Affine::default(), &mut temp_buf);
+            let stroke = Stroke {
+                width: path.stroke_width as f64,
+                ..Default::default()
+            };
+            flatten::stroke(&path.path, &stroke, path.transform, &mut temp_buf);
             line_buf.extend(&temp_buf);
         }
 
         line_buf
+    }
+
+    /// Get the expanded strokes.
+    pub fn expanded_strokes(&self) -> Vec<BezPath> {
+        let mut paths = vec![];
+
+        for path in &self.strokes {
+            let stroke = Stroke {
+                width: path.stroke_width as f64,
+                ..Default::default()
+            };
+            paths.push(flatten::expand_stroke(path.path.iter(), &stroke, 0.25));
+        }
+
+        paths
     }
 
     /// Get the unsorted tiles.
@@ -153,8 +163,8 @@ fn convert(ctx: &mut ConversionContext, g: &Group) {
                     ctx.add_filled_path(converted.clone());
                 }
 
-                if p.stroke().is_some() {
-                    ctx.add_stroked_path(converted);
+                if let Some(stroke) = p.stroke() {
+                    ctx.add_stroked_path(converted, stroke.width().get());
                 }
             }
             Node::Image(_) | Node::Text(_) => {}
@@ -164,11 +174,24 @@ fn convert(ctx: &mut ConversionContext, g: &Group) {
     ctx.pop();
 }
 
+#[derive(Debug, Clone)]
+pub struct FilledPath {
+    pub path: BezPath,
+    pub transform: Affine,
+}
+
+#[derive(Debug, Clone)]
+pub struct StrokedPath {
+    pub path: BezPath,
+    pub transform: Affine,
+    pub stroke_width: f32,
+}
+
 #[derive(Debug)]
 struct ConversionContext {
     stack: Vec<Affine>,
-    fills: Vec<BezPath>,
-    strokes: Vec<BezPath>,
+    fills: Vec<FilledPath>,
+    strokes: Vec<StrokedPath>,
 }
 
 impl ConversionContext {
@@ -186,11 +209,18 @@ impl ConversionContext {
     }
 
     fn add_filled_path(&mut self, path: BezPath) {
-        self.fills.push(self.get() * path);
+        self.fills.push(FilledPath {
+            path,
+            transform: self.get(),
+        });
     }
 
-    fn add_stroked_path(&mut self, path: BezPath) {
-        self.strokes.push(self.get() * path);
+    fn add_stroked_path(&mut self, path: BezPath, stroke_width: f32) {
+        self.strokes.push(StrokedPath {
+            path,
+            transform: self.get(),
+            stroke_width,
+        });
     }
 
     fn get(&self) -> Affine {

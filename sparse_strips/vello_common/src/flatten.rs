@@ -3,7 +3,7 @@
 
 //! Flattening filled and stroked paths.
 
-use crate::kurbo::{self, Affine, BezPath, Stroke, StrokeOpts};
+use crate::kurbo::{self, Affine, BezPath, PathEl, Stroke, StrokeOpts};
 use alloc::vec::Vec;
 
 /// The flattening tolerance.
@@ -113,8 +113,17 @@ pub fn stroke(path: &BezPath, style: &Stroke, affine: Affine, line_buf: &mut Vec
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
     let tolerance = TOL / affine.as_coeffs()[0].abs().max(affine.as_coeffs()[3].abs());
 
-    let expanded = kurbo::stroke(path.iter(), style, &StrokeOpts::default(), tolerance);
+    let expanded = expand_stroke(path.iter(), style, tolerance);
     fill(&expanded, affine, line_buf);
+}
+
+/// Expand a stroked path to a filled path.
+pub fn expand_stroke(
+    path: impl IntoIterator<Item = PathEl>,
+    style: &Stroke,
+    tolerance: f64,
+) -> BezPath {
+    kurbo::stroke(path, style, &StrokeOpts::default(), tolerance)
 }
 
 fn close_path(start: kurbo::Point, p0: kurbo::Point, line_buf: &mut Vec<Line>) {
