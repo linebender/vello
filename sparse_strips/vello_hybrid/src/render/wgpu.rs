@@ -177,15 +177,7 @@ impl Renderer {
                         let image_resource: Option<&crate::ImageResource> =
                             image_cache.get(image_id);
                         if let Some(image_resource) = image_resource {
-                            let mut transform = img.transform * Affine::translate((-0.5, -0.5));
-
-                            // For skewing transforms, add a small additional offset to prevent edges
-                            // from crossing exactly through pixel sample points, which can cause artifacts
-                            let coeffs = img.transform.as_coeffs();
-                            let has_skew = coeffs[1].abs() > 1e-6 || coeffs[2].abs() > 1e-6;
-                            if has_skew {
-                                transform *= Affine::translate((0.00001, 0.00001));
-                            }
+                            let transform = img.transform * Affine::translate((-0.5, -0.5));
 
                             bytes.push(GpuEncodedImage {
                                 quality: img.quality as u32,
