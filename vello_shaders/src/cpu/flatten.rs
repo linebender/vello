@@ -83,9 +83,7 @@ fn write_line(
 ) {
     assert!(
         !p0.is_nan() && !p1.is_nan(),
-        "wrote NaNs: p0: {:?}, p1: {:?}",
-        p0,
-        p1
+        "wrote NaNs: p0: {p0:?}, p1: {p1:?}"
     );
     bbox.add_pt(p0);
     bbox.add_pt(p1);

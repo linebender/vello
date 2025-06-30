@@ -218,7 +218,7 @@ mod impls {
                         12.,
                         None,
                         Affine::translate((0., y)) * t,
-                        &format!("Start cap: {:?}, End cap: {:?}", start, end),
+                        &format!("Start cap: {start:?}, End cap: {end:?}"),
                     );
                     scene.stroke(
                         &Stroke::new(20.).with_start_cap(start).with_end_cap(end),
@@ -243,7 +243,7 @@ mod impls {
                         12.,
                         None,
                         Affine::translate((0., y)) * t,
-                        &format!("Dashing - Start cap: {:?}, End cap: {:?}", start, end),
+                        &format!("Dashing - Start cap: {start:?}, End cap: {end:?}"),
                     );
                     scene.stroke(
                         &Stroke::new(20.)
@@ -272,7 +272,7 @@ mod impls {
                         12.,
                         None,
                         Affine::translate((0., y)) * t,
-                        &format!("Caps: {:?}, Joins: {:?}", cap, join),
+                        &format!("Caps: {cap:?}, Joins: {join:?}"),
                     );
                     scene.stroke(
                         &Stroke::new(20.).with_caps(cap).with_join(join),
@@ -297,7 +297,7 @@ mod impls {
                     12.,
                     None,
                     Affine::translate((0., y)) * t,
-                    &format!("Miter limit: {}", ml),
+                    &format!("Miter limit: {ml}"),
                 );
                 scene.stroke(
                     &Stroke::new(10.)
@@ -321,7 +321,7 @@ mod impls {
                     12.,
                     None,
                     Affine::translate((0., y)) * t,
-                    &format!("Closed path with join: {:?}", join),
+                    &format!("Closed path with join: {join:?}"),
                 );
                 // The cap style is not important since a closed path shouldn't have any caps.
                 scene.stroke(
