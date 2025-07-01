@@ -80,12 +80,12 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         &format!("{}_cpu_f32_neon", input_fn_name),
         input_fn_name.span(),
     );
-    let u8_fn_name_scalar_wasm = Ident::new(
-        &format!("{}_cpu_u8_scalar_wasm", input_fn_name),
+    let u8_fn_name_wasm = Ident::new(
+        &format!("{}_cpu_u8_wasm", input_fn_name),
         input_fn_name.span(),
     );
-    let f32_fn_name_scalar_wasm: Ident = Ident::new(
-        &format!("{}_cpu_f32_scalar_wasm", input_fn_name),
+    let f32_fn_name_wasm: Ident = Ident::new(
+        &format!("{}_cpu_f32_wasm", input_fn_name),
         input_fn_name.span(),
     );
     let multithreaded_fn_name = Ident::new(
@@ -107,8 +107,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let f32_fn_name_str_scalar = f32_fn_name_scalar.to_string();
     let u8_fn_name_str_neon = u8_fn_name_neon.to_string();
     let f32_fn_name_str_neon = f32_fn_name_neon.to_string();
-    let u8_fn_name_scalar_wasm_str = u8_fn_name_scalar_wasm.to_string();
-    let f32_fn_name_scalar_wasm_str = f32_fn_name_scalar_wasm.to_string();
+    let u8_fn_name_wasm_str = u8_fn_name_wasm.to_string();
+    let f32_fn_name_wasm_str = f32_fn_name_wasm.to_string();
     let multithreaded_fn_name_str = multithreaded_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
     let webgl_fn_name_str = webgl_fn_name.to_string();
@@ -265,8 +265,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         quote! { RenderMode::OptimizeQuality },
     );
     let u8_snippet_wasm = cpu_snippet(
-        u8_fn_name_scalar_wasm,
-        u8_fn_name_scalar_wasm_str,
+        u8_fn_name_wasm,
+        u8_fn_name_wasm_str,
         cpu_u8_tolerance_scalar,
         false,
         0,
@@ -275,8 +275,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         quote! { RenderMode::OptimizeSpeed },
     );
     let f32_snippet_wasm = cpu_snippet(
-        f32_fn_name_scalar_wasm,
-        f32_fn_name_scalar_wasm_str,
+        f32_fn_name_wasm,
+        f32_fn_name_wasm_str,
         cpu_f32_tolerance_scalar,
         true,
         0,
