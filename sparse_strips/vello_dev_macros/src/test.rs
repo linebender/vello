@@ -189,7 +189,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                        num_threads: u16,
                        // Need to pass as string, to avoid dependency on `fearless_simd` and also
                        // so that it works with proc_macros.
-                       level: &str,
+                       level: proc_macro2::TokenStream,
                        ignore: bool,
                        render_mode: proc_macro2::TokenStream| {
         // Use the name to infer if the test is running in the browser.
@@ -237,13 +237,20 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     #[cfg(not(target_arch = "aarch64"))]
     let has_neon = false;
 
+    let wasm_simd_level = quote! {if cfg!(target_feature = "simd128") {
+            "wasm_simd128"
+        } else {
+            "fallback"
+        }
+    };
+
     let u8_snippet = cpu_snippet(
         u8_fn_name_scalar,
         u8_fn_name_str_scalar,
         cpu_u8_tolerance_scalar,
         false,
         0,
-        "fallback",
+        quote! {"fallback"},
         skip_cpu,
         quote! { RenderMode::OptimizeSpeed },
     );
@@ -253,7 +260,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_f32_tolerance_scalar,
         true,
         0,
-        "fallback",
+        quote! {"fallback"},
         skip_cpu,
         quote! { RenderMode::OptimizeQuality },
     );
@@ -263,7 +270,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_u8_tolerance_scalar,
         false,
         0,
-        "fallback",
+        wasm_simd_level.clone(),
         skip_cpu,
         quote! { RenderMode::OptimizeSpeed },
     );
@@ -273,7 +280,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_f32_tolerance_scalar,
         true,
         0,
-        "fallback",
+        wasm_simd_level,
         skip_cpu,
         quote! { RenderMode::OptimizeQuality },
     );
@@ -283,7 +290,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_f32_tolerance_scalar,
         false,
         3,
-        "fallback",
+        quote! {"fallback"},
         skip_cpu,
         quote! { RenderMode::OptimizeQuality },
     );
@@ -294,7 +301,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_u8_tolerance_neon,
         false,
         0,
-        "neon",
+        quote! {"neon"},
         skip_cpu | !has_neon,
         quote! { RenderMode::OptimizeSpeed },
     );
@@ -305,7 +312,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_f32_tolerance_neon,
         false,
         0,
-        "neon",
+        quote! {"neon"},
         skip_cpu | !has_neon,
         quote! { RenderMode::OptimizeQuality },
     );
