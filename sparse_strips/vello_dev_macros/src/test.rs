@@ -80,12 +80,12 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         &format!("{}_cpu_f32_neon", input_fn_name),
         input_fn_name.span(),
     );
-    let u8_fn_name_scalar_wasm = Ident::new(
-        &format!("{}_cpu_u8_scalar_wasm", input_fn_name),
+    let u8_fn_name_wasm = Ident::new(
+        &format!("{}_cpu_u8_wasm", input_fn_name),
         input_fn_name.span(),
     );
-    let f32_fn_name_scalar_wasm: Ident = Ident::new(
-        &format!("{}_cpu_f32_scalar_wasm", input_fn_name),
+    let f32_fn_name_wasm: Ident = Ident::new(
+        &format!("{}_cpu_f32_wasm", input_fn_name),
         input_fn_name.span(),
     );
     let multithreaded_fn_name = Ident::new(
@@ -107,8 +107,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let f32_fn_name_str_scalar = f32_fn_name_scalar.to_string();
     let u8_fn_name_str_neon = u8_fn_name_neon.to_string();
     let f32_fn_name_str_neon = f32_fn_name_neon.to_string();
-    let u8_fn_name_scalar_wasm_str = u8_fn_name_scalar_wasm.to_string();
-    let f32_fn_name_scalar_wasm_str = f32_fn_name_scalar_wasm.to_string();
+    let u8_fn_name_wasm_str = u8_fn_name_wasm.to_string();
+    let f32_fn_name_wasm_str = f32_fn_name_wasm.to_string();
     let multithreaded_fn_name_str = multithreaded_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
     let webgl_fn_name_str = webgl_fn_name.to_string();
@@ -189,7 +189,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                        num_threads: u16,
                        // Need to pass as string, to avoid dependency on `fearless_simd` and also
                        // so that it works with proc_macros.
-                       level: &str,
+                       level: proc_macro2::TokenStream,
                        ignore: bool,
                        render_mode: proc_macro2::TokenStream| {
         // Use the name to infer if the test is running in the browser.
@@ -237,13 +237,20 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     #[cfg(not(target_arch = "aarch64"))]
     let has_neon = false;
 
+    let wasm_simd_level = quote! {if cfg!(target_feature = "simd128") {
+            "wasm_simd128"
+        } else {
+            "fallback"
+        }
+    };
+
     let u8_snippet = cpu_snippet(
         u8_fn_name_scalar,
         u8_fn_name_str_scalar,
         cpu_u8_tolerance_scalar,
         false,
         0,
-        "fallback",
+        quote! {"fallback"},
         skip_cpu,
         quote! { RenderMode::OptimizeSpeed },
     );
@@ -253,27 +260,27 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_f32_tolerance_scalar,
         true,
         0,
-        "fallback",
+        quote! {"fallback"},
         skip_cpu,
         quote! { RenderMode::OptimizeQuality },
     );
     let u8_snippet_wasm = cpu_snippet(
-        u8_fn_name_scalar_wasm,
-        u8_fn_name_scalar_wasm_str,
+        u8_fn_name_wasm,
+        u8_fn_name_wasm_str,
         cpu_u8_tolerance_scalar,
         false,
         0,
-        "fallback",
+        wasm_simd_level.clone(),
         skip_cpu,
         quote! { RenderMode::OptimizeSpeed },
     );
     let f32_snippet_wasm = cpu_snippet(
-        f32_fn_name_scalar_wasm,
-        f32_fn_name_scalar_wasm_str,
+        f32_fn_name_wasm,
+        f32_fn_name_wasm_str,
         cpu_f32_tolerance_scalar,
         true,
         0,
-        "fallback",
+        wasm_simd_level,
         skip_cpu,
         quote! { RenderMode::OptimizeQuality },
     );
@@ -283,7 +290,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_f32_tolerance_scalar,
         false,
         3,
-        "fallback",
+        quote! {"fallback"},
         skip_cpu,
         quote! { RenderMode::OptimizeQuality },
     );
@@ -294,7 +301,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_u8_tolerance_neon,
         false,
         0,
-        "neon",
+        quote! {"neon"},
         skip_cpu | !has_neon,
         quote! { RenderMode::OptimizeSpeed },
     );
@@ -305,7 +312,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_f32_tolerance_neon,
         false,
         0,
-        "neon",
+        quote! {"neon"},
         skip_cpu | !has_neon,
         quote! { RenderMode::OptimizeQuality },
     );

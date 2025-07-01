@@ -359,6 +359,10 @@ jobs:
         run: wasm-pack test --headless --chrome --features webgl
         working-directory: sparse_strips/vello_sparse_tests
 
+      - name: Run vello_sparse_tests (+simd128) on Chrome
+        run: RUSTFLAGS=-Ctarget-feature=+simd128 wasm-pack test --headless --chrome --features webgl
+        working-directory: sparse_strips/vello_sparse_tests
+
 
   check-stable-android:
     name: cargo check (aarch64-android)
