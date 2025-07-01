@@ -168,7 +168,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             || input_fn_name_str.contains("blurred_rounded_rect")
     };
 
-    let skip_hybrid_webgl = skip_hybrid || input_fn_name_str.contains("image");
+    let skip_hybrid_webgl = skip_hybrid;
 
     let empty_snippet = quote! {};
     let ignore_snippet = if let Some(reason) = ignore_reason {
