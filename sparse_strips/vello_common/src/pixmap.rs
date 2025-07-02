@@ -231,6 +231,13 @@ impl Pixmap {
         self.buf[idx]
     }
 
+    /// Sample a pixel from a custom-calculated index. This index should be calculated assuming that
+    /// the data is stored in row-major order.
+    #[inline(always)]
+    pub fn sample_idx(&self, idx: u32) -> PremulRgba8 {
+        self.buf[idx as usize]
+    }
+
     /// Consume the pixmap, returning the data as the underlying [`Vec`] of premultiplied RGBA8.
     ///
     /// The pixels are in row-major order.

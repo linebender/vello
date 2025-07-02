@@ -502,7 +502,7 @@ impl From<EncodedBlurredRoundedRectangle> for EncodedPaint {
 #[derive(Debug)]
 pub struct EncodedImage {
     /// The underlying pixmap of the image.
-    pub pixmap: Arc<Pixmap>,
+    pub source: ImageSource,
     /// The extends in the horizontal and vertical direction.
     pub extends: (Extend, Extend),
     /// The rendering quality of the image.
@@ -1035,6 +1035,12 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
         let scale = lut.len() as f32 - 1.0;
 
         Self { lut, scale }
+    }
+
+    /// Get the sample value at a specific index.
+    #[inline(always)]
+    pub fn get(&self, idx: usize) -> [T; 4] {
+        self.lut[idx]
     }
 
     /// Return the raw array of gradient sample values.

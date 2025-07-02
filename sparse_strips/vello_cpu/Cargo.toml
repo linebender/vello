@@ -17,6 +17,7 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = []
 
 [dependencies]
+bytemuck = { workspace = true }
 libm = { version = "0.2.15", optional = true }
 vello_common = { workspace = true }
 crossbeam-channel = { workspace = true, optional = true }

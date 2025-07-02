@@ -106,6 +106,7 @@
 #![cfg_attr(not(feature = "multithreading"), no_std)]
 
 extern crate alloc;
+extern crate core;
 
 // Suppress the unused_crate_dependencies lint when both std and libm are specified.
 #[cfg(all(feature = "std", feature = "libm"))]
@@ -115,8 +116,7 @@ mod render;
 
 mod dispatch;
 #[doc(hidden)]
-/// This is an internal module, do not access directly.
-pub mod fine;
+pub mod fine2;
 #[doc(hidden)]
 pub mod region;
 mod strip_generator;

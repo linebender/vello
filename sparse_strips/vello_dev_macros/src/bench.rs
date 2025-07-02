@@ -19,9 +19,11 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
         #input_fn
 
         pub fn #input_fn_name(c: &mut criterion::Criterion) {
-            use vello_cpu::fine::Fine;
+            use vello_cpu::fine2::{Fine, U8Kernel, F32Kernel};
             use vello_common::coarse::WideTile;
             use vello_common::tile::Tile;
+            use vello_common::fearless_simd::Simd;
+            use vello_cpu::Level;
 
             fn get_bench_name(suffix1: &str, suffix2: &str) -> String {
                 let module_path = module_path!();
@@ -35,15 +37,38 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
                 format!("{}/{}_{}", module, suffix1, suffix2)
             }
 
-            c.bench_function(&get_bench_name(&#input_fn_name_str, "u8_scalar"), |b| {
-                let mut fine = Fine::<u8>::new();
+            fn run_integer<S: Simd>(b: &mut Bencher, simd: S) {
+                let mut fine = Fine::<S, U8Kernel>::new(simd);
                 #inner_fn_name(b, &mut fine);
-            });
+            }
 
-            c.bench_function(&get_bench_name(&#input_fn_name_str, "f32_scalar"), |b| {
-                let mut fine = Fine::<f32>::new();
+            fn run_float<S: Simd>(b: &mut Bencher, simd: S) {
+                let mut fine = Fine::<S, F32Kernel>::new(simd);
                 #inner_fn_name(b, &mut fine);
-            });
+            }
+
+            // TODO: Re-enable
+            // c.bench_function(&get_bench_name(&#input_fn_name_str, "u8_scalar"), |b| {
+            //     run_integer(b, vello_common::fearless_simd::Fallback::new());
+            // });
+            #[cfg(target_arch = "aarch64")]
+            if let Some(neon) = Level::new().as_neon() {
+                c.bench_function(&get_bench_name(&#input_fn_name_str, "u8_neon"), |b| {
+                    run_integer(b, neon);
+                });
+            }
+
+            //
+            // c.bench_function(&get_bench_name(&#input_fn_name_str, "f32_scalar"), |b| {
+            //     run_float(b, vello_common::fearless_simd::Fallback::new());
+            // });
+
+            #[cfg(target_arch = "aarch64")]
+            if let Some(neon) = Level::new().as_neon() {
+                c.bench_function(&get_bench_name(&#input_fn_name_str, "f32_neon"), |b| {
+                    run_float(b, neon);
+                });
+            }
         }
     };
 

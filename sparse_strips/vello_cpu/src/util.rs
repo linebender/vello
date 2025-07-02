@@ -1,6 +1,14 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::fine2::Splat4thExt;
+use crate::peniko::{BlendMode, Compose, ImageQuality, Mix};
+use vello_common::encode::EncodedImage;
+use vello_common::fearless_simd::{
+    Simd, SimdBase, f32x4, f32x16, mask32x4, mask32x16, u8x32, u16x16, u16x32,
+};
+use vello_common::math::FloatExt;
+
 pub(crate) mod scalar {
     /// Perform an approximate division by 255.
     ///
@@ -54,5 +62,126 @@ pub(crate) mod scalar {
                 }
             }
         }
+    }
+}
+
+pub(crate) trait NormalizedMulExt {
+    fn normalized_mul(self, other: Self) -> Self;
+}
+
+impl<S: Simd> NormalizedMulExt for u8x32<S> {
+    #[inline(always)]
+    fn normalized_mul(self, other: Self) -> Self {
+        let divided = (self.simd.widen_u8x32(self) * other.simd.widen_u8x32(other)).div_255();
+        self.simd.narrow_u16x32(divided)
+    }
+}
+
+pub(crate) trait Div255Ext {
+    fn div_255(self) -> Self;
+}
+
+impl<S: Simd> Div255Ext for u16x32<S> {
+    #[inline(always)]
+    fn div_255(self) -> u16x32<S> {
+        let p1 = u16x32::splat(self.simd, 255);
+        let p2 = self + p1;
+        p2.shr(8)
+    }
+}
+
+impl<S: Simd> Div255Ext for u16x16<S> {
+    #[inline(always)]
+    fn div_255(self) -> u16x16<S> {
+        let p1 = u16x16::splat(self.simd, 255);
+        let p2 = self + p1;
+        p2.shr(8)
+    }
+}
+
+#[inline(always)]
+pub(crate) fn normalized_mul<S: Simd>(a: u8x32<S>, b: u8x32<S>) -> u16x32<S> {
+    (S::widen_u8x32(a.simd, a) * S::widen_u8x32(b.simd, b)).div_255()
+}
+
+pub(crate) trait BlendModeExt {
+    fn is_default(&self) -> bool;
+}
+
+impl BlendModeExt for BlendMode {
+    fn is_default(&self) -> bool {
+        self.mix == Mix::Normal && self.compose == Compose::SrcOver
+    }
+}
+
+pub(crate) struct InlineMap<I, F> {
+    iter: I,
+    f: F,
+}
+
+impl<I, F, T, U> Iterator for InlineMap<I, F>
+where
+    I: Iterator<Item = T>,
+    F: FnMut(T) -> U,
+{
+    type Item = U;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(&mut self.f)
+    }
+
+    #[inline(always)]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+pub(crate) trait InlineMapExt: Iterator + Sized {
+    #[inline(always)]
+    fn inline_map<U, F>(self, f: F) -> InlineMap<Self, F>
+    where
+        F: FnMut(Self::Item) -> U,
+    {
+        InlineMap { iter: self, f }
+    }
+}
+
+// Implement for all iterators
+impl<I: Iterator> InlineMapExt for I {}
+
+pub(crate) trait EncodedImageExt {
+    fn has_skew(&self) -> bool;
+    fn nearest_neighbor(&self) -> bool;
+}
+
+impl EncodedImageExt for EncodedImage {
+    fn has_skew(&self) -> bool {
+        !(self.x_advance.y as f32).is_nearly_zero() || !(self.y_advance.x as f32).is_nearly_zero()
+    }
+
+    fn nearest_neighbor(&self) -> bool {
+        self.quality == ImageQuality::Low
+    }
+}
+
+pub(crate) trait Premultiply {
+    fn premultiply(self, alphas: Self) -> Self;
+    fn unpremultiply(self, alphas: Self) -> Self;
+}
+
+impl<S: Simd> Premultiply for f32x4<S> {
+    #[inline(always)]
+    fn premultiply(self, alphas: f32x4<S>) -> Self {
+        self * alphas
+    }
+
+    #[inline(always)]
+    fn unpremultiply(self, alphas: f32x4<S>) -> Self {
+        let zero = f32x4::splat(alphas.simd, 0.0);
+        let divided = self / alphas;
+
+        self.simd
+            .select_f32x4(self.simd.simd_eq_f32x4(alphas, zero), zero, divided)
     }
 }
