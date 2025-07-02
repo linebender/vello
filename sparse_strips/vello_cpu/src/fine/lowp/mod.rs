@@ -168,7 +168,7 @@ mod fill {
         src: T,
         blend_mode: BlendMode,
     ) {
-        let default_mix = blend_mode.mix == Mix::Normal;
+        let default_mix = matches!(blend_mode.mix, Mix::Normal | Mix::Clip);
         let mask = u8x32::splat(simd, 255);
         for (next_dest, next_src) in dest.chunks_exact_mut(32).zip(src) {
             let bg_v = u8x32::from_slice(simd, next_dest);
@@ -238,7 +238,7 @@ mod alpha_fill {
         blend_mode: BlendMode,
         alphas: &[u8],
     ) {
-        let default_mix = blend_mode.mix == Mix::Normal;
+        let default_mix = matches!(blend_mode.mix, Mix::Normal | Mix::Clip);
 
         for ((next_bg, next_mask), next_src) in dest
             .chunks_exact_mut(32)

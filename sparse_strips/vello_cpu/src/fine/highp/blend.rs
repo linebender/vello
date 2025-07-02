@@ -26,7 +26,7 @@ impl<S: Simd> Channels<S> {
 // TODO: blending is still extremely slow, investigate whether there is something obvious we are
 // missing that other renderers do.
 pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMode) -> f32x16<S> {
-    if blend_mode.mix == Mix::Normal {
+    if matches!(blend_mode.mix, Mix::Normal | Mix::Clip) {
         return src_c;
     }
     // See https://www.w3.org/TR/compositing-1/#blending
@@ -83,9 +83,7 @@ trait MixExt {
 impl MixExt for BlendMode {
     fn mix<S: Simd>(&self, src: Channels<S>, bg: Channels<S>) -> Channels<S> {
         match self.mix {
-            Mix::Normal => src,
-            // Same as `Normal`.
-            Mix::Clip => src,
+            Mix::Normal | Mix::Clip => src,
             Mix::Multiply => Multiply::mix(src, bg),
             Mix::Screen => Screen::mix(src, bg),
             Mix::Overlay => Overlay::mix(src, bg),
