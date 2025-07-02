@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 use vello_common::kurbo::{Affine, Rect};
-use vello_common::paint::Image;
+use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderContext;
@@ -32,7 +32,7 @@ impl ImageScene {
 
         Self {
             cowboy_image: Image {
-                pixmap: Arc::new(pixmap),
+                source: ImageSource::Pixmap(Arc::new(pixmap)),
                 quality: ImageQuality::Medium,
                 x_extend: Extend::Pad,
                 y_extend: Extend::Pad,
