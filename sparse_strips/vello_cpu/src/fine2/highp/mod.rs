@@ -76,7 +76,9 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         start_x: u16,
         start_y: u16,
     ) -> Box<dyn Painter + 'a> {
-        Box::new(SimpleImageFiller::new(simd, image, pixmap, start_x, start_y))
+        Box::new(SimpleImageFiller::new(
+            simd, image, pixmap, start_x, start_y,
+        ))
     }
 
     fn image_painter<'a>(
@@ -96,7 +98,9 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         start_x: u16,
         start_y: u16,
     ) -> Box<dyn Painter + 'a> {
-        Box::new(FilteredImageFiller::new(simd, image, pixmap, start_x, start_y))
+        Box::new(FilteredImageFiller::new(
+            simd, image, pixmap, start_x, start_y,
+        ))
     }
 
     fn blurred_rounded_rectangle_painter<'a>(

@@ -13,7 +13,13 @@ pub(crate) struct BilinearImageFiller<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> BilinearImageFiller<'a, S> {
-    pub(crate) fn new(simd: S, image: &'a EncodedImage, pixmap: &'a Pixmap, start_x: u16, start_y: u16) -> Self {
+    pub(crate) fn new(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> Self {
         let data = ImageFillerData::new(simd, image, pixmap, start_x, start_y);
 
         Self { data, simd }

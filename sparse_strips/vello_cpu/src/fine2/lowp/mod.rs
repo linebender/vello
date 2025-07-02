@@ -83,7 +83,9 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         start_x: u16,
         start_y: u16,
     ) -> Box<dyn Painter + 'a> {
-        Box::new(SimpleImageFiller::new(simd, image, pixmap, start_x, start_y))
+        Box::new(SimpleImageFiller::new(
+            simd, image, pixmap, start_x, start_y,
+        ))
     }
 
     fn image_painter<'a>(
@@ -104,9 +106,13 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         start_y: u16,
     ) -> Box<dyn Painter + 'a> {
         if image.quality == ImageQuality::Medium {
-            Box::new(BilinearImageFiller::new(simd, image, pixmap, start_x, start_y))
+            Box::new(BilinearImageFiller::new(
+                simd, image, pixmap, start_x, start_y,
+            ))
         } else {
-            Box::new(FilteredImageFiller::new(simd, image, pixmap, start_x, start_y))
+            Box::new(FilteredImageFiller::new(
+                simd, image, pixmap, start_x, start_y,
+            ))
         }
     }
 

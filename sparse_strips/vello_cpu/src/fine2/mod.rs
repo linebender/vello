@@ -504,28 +504,30 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         let ImageSource::Pixmap(pixmap) = &i.source else {
                             panic!("vello_cpu doesn't support the opaque image source.");
                         };
-                        
+
                         match (i.has_skew(), i.nearest_neighbor()) {
                             (_, false) => {
                                 fill_complex_paint!(
-                                i.has_opacities,
-                                T::filtered_image_painter(self.simd, i, pixmap, start_x, start_y)
-                            );
+                                    i.has_opacities,
+                                    T::filtered_image_painter(
+                                        self.simd, i, pixmap, start_x, start_y
+                                    )
+                                );
                             }
                             (false, true) => {
                                 fill_complex_paint!(
-                                i.has_opacities,
-                                T::simple_image_painter(self.simd, i, pixmap, start_x, start_y)
-                            );
+                                    i.has_opacities,
+                                    T::simple_image_painter(self.simd, i, pixmap, start_x, start_y)
+                                );
                             }
                             (true, true) => {
                                 fill_complex_paint!(
-                                i.has_opacities,
-                                T::image_painter(self.simd, i, pixmap, start_x, start_y)
-                            );
+                                    i.has_opacities,
+                                    T::image_painter(self.simd, i, pixmap, start_x, start_y)
+                                );
                             }
                         }
-                    },
+                    }
                 }
             }
         }

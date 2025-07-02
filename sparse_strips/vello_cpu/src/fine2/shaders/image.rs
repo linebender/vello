@@ -15,7 +15,13 @@ pub(crate) struct SimpleImageFiller<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> SimpleImageFiller<'a, S> {
-    pub(crate) fn new(simd: S, image: &'a EncodedImage, pixmap: &'a Pixmap, start_x: u16, start_y: u16) -> Self {
+    pub(crate) fn new(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> Self {
         let data = ImageFillerData::new(simd, image, pixmap, start_x, start_y);
 
         let y_positions = extend_simd(
@@ -74,7 +80,13 @@ pub(crate) struct ImageFiller<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> ImageFiller<'a, S> {
-    pub(crate) fn new(simd: S, image: &'a EncodedImage, pixmap: &'a Pixmap, start_x: u16, start_y: u16) -> Self {
+    pub(crate) fn new(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> Self {
         let data = ImageFillerData::new(simd, image, pixmap, start_x, start_y);
 
         Self { data, simd }
@@ -128,7 +140,13 @@ pub(crate) struct FilteredImageFiller<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> FilteredImageFiller<'a, S> {
-    pub(crate) fn new(simd: S, image: &'a EncodedImage, pixmap: &'a Pixmap, start_x: u16, start_y: u16) -> Self {
+    pub(crate) fn new(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> Self {
         let data = ImageFillerData::new(simd, image, pixmap, start_x, start_y);
 
         Self { data, simd }
@@ -366,7 +384,13 @@ pub(crate) struct ImageFillerData<'a, S: Simd> {
 }
 
 impl<'a, S: Simd> ImageFillerData<'a, S> {
-    pub(crate) fn new(simd: S, image: &'a EncodedImage, pixmap: &'a Pixmap, start_x: u16, start_y: u16) -> Self {
+    pub(crate) fn new(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> Self {
         let width = pixmap.width() as f32;
         let height = pixmap.height() as f32;
         let start_pos = image.transform * Point::new(f64::from(start_x), f64::from(start_y));
