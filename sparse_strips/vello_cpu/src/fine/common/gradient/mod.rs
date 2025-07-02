@@ -74,10 +74,10 @@ impl<'a, S: Simd> Iterator for GradientPainter<'a, S> {
         let t_vals = extend(pos, pad);
         let indices = (t_vals * self.scale_factor).cvt_u32();
 
-        let mut r = [0.0f32; 8];
-        let mut g = [0.0f32; 8];
-        let mut b = [0.0f32; 8];
-        let mut a = [0.0f32; 8];
+        let mut r = [0.0_f32; 8];
+        let mut g = [0.0_f32; 8];
+        let mut b = [0.0_f32; 8];
+        let mut a = [0.0_f32; 8];
 
         // TODO: Investigate whether we can juse use a loop.
         macro_rules! gather {

@@ -85,8 +85,8 @@ pub(crate) trait Div255Ext {
 
 impl<S: Simd> Div255Ext for u16x32<S> {
     #[inline(always)]
-    fn div_255(self) -> u16x32<S> {
-        let p1 = u16x32::splat(self.simd, 255);
+    fn div_255(self) -> Self {
+        let p1 = Self::splat(self.simd, 255);
         let p2 = self + p1;
         p2.shr(8)
     }
@@ -94,8 +94,8 @@ impl<S: Simd> Div255Ext for u16x32<S> {
 
 impl<S: Simd> Div255Ext for u16x16<S> {
     #[inline(always)]
-    fn div_255(self) -> u16x16<S> {
-        let p1 = u16x16::splat(self.simd, 255);
+    fn div_255(self) -> Self {
+        let p1 = Self::splat(self.simd, 255);
         let p2 = self + p1;
         p2.shr(8)
     }
@@ -139,13 +139,13 @@ pub(crate) trait Premultiply {
 
 impl<S: Simd> Premultiply for f32x4<S> {
     #[inline(always)]
-    fn premultiply(self, alphas: f32x4<S>) -> Self {
+    fn premultiply(self, alphas: Self) -> Self {
         self * alphas
     }
 
     #[inline(always)]
-    fn unpremultiply(self, alphas: f32x4<S>) -> Self {
-        let zero = f32x4::splat(alphas.simd, 0.0);
+    fn unpremultiply(self, alphas: Self) -> Self {
+        let zero = Self::splat(alphas.simd, 0.0);
         let divided = self / alphas;
 
         self.simd

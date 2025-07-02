@@ -27,7 +27,7 @@ fn with_transform<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fin
 
 #[vello_bench]
 fn no_transform<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
-    base(b, fine, Affine::IDENTITY)
+    base(b, fine, Affine::IDENTITY);
 }
 
 fn base<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>, transform: Affine) {

@@ -62,5 +62,5 @@ pub(crate) fn fill_single<S: Simd, N: FineKernel<S>>(
         fine.fill(0, width, paint, blend_mode, encoded_paints, None);
 
         std::hint::black_box(&fine);
-    })
+    });
 }

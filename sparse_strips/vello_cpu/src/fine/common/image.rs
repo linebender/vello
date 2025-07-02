@@ -261,7 +261,7 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
                     }
                 }
 
-                interpolated_color = interpolated_color * f32x16::splat(self.simd, 1.0 / 255.0)
+                interpolated_color = interpolated_color * f32x16::splat(self.simd, 1.0 / 255.0);
             }
             ImageQuality::High => {
                 // Compare to <https://github.com/google/skia/blob/84ff153b0093fc83f6c77cd10b025c06a12c5604/src/opts/SkRasterPipeline_opts.h#L5030-L5075>.

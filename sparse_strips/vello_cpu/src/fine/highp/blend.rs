@@ -59,7 +59,7 @@ pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMod
         let p1 = (1.0 - bg_a) * unpremultiplied_src_channel;
         let p2 = bg_a * mix_src_channel;
 
-        *dest_channel = (p1 + p2).premultiply(src_a)
+        *dest_channel = (p1 + p2).premultiply(src_a);
     };
 
     apply_alpha(unpremultiplied_src.r, mix_src.r, &mut res_bg.r);
@@ -175,13 +175,12 @@ separable_mix!(SoftLight, |cs: f32x4<S>, cb: f32x4<S>| {
         .select_f32x4(mask_1, ((16.0 * cb - 12.0) * cb + 4.0) * cb, cb.sqrt());
 
     let mask_2 = cs.simd.simd_le_f32x4(cs, f32x4::splat(cs.simd, 0.5));
-    let res = cs.simd.select_f32x4(
+
+    cs.simd.select_f32x4(
         mask_2,
         cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb),
         cb + (2.0 * cs - 1.0) * (d - cb),
-    );
-
-    res
+    )
 });
 separable_mix!(ColorDodge, |cs: f32x4<S>, cb: f32x4<S>| {
     let mask_1 = cb.simd.simd_eq_f32x4(cb, f32x4::splat(cb.simd, 0.0));
@@ -283,7 +282,7 @@ fn clip_color<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>) {
             simd.simd_gt_f32x4(x, f32x4::splat(simd, 1.0)),
             l + (((*c - l) * (1.0 - l)) / (x - l)),
             *c,
-        )
+        );
     }
 }
 
@@ -293,7 +292,7 @@ fn set_lum<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>, l: f32
     *g = *g + d;
     *b = *b + d;
 
-    clip_color(r, g, b)
+    clip_color(r, g, b);
 }
 
 // Adapted from tiny-skia

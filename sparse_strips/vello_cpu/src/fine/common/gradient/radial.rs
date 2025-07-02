@@ -45,7 +45,7 @@ impl<S: Simd> SimdRadialKind<S> {
             },
         };
 
-        SimdRadialKind { inner }
+        Self { inner }
     }
 }
 

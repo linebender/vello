@@ -62,14 +62,14 @@ pub trait NumericVec<S: Simd>: Copy + Clone + Send + Sync {
 
 impl<S: Simd> NumericVec<S> for f32x16<S> {
     #[inline(always)]
-    fn from_f32(_: S, val: f32x16<S>) -> Self {
+    fn from_f32(_: S, val: Self) -> Self {
         val
     }
 
     #[inline(always)]
     fn from_u8(simd: S, val: u8x16<S>) -> Self {
         let converted = u8_to_f32(val);
-        converted * f32x16::splat(simd, 1.0 / 255.0)
+        converted * Self::splat(simd, 1.0 / 255.0)
     }
 }
 
@@ -84,7 +84,7 @@ impl<S: Simd> NumericVec<S> for u8x16<S> {
     }
 
     #[inline(always)]
-    fn from_u8(_: S, val: u8x16<S>) -> Self {
+    fn from_u8(_: S, val: Self) -> Self {
         val
     }
 }
@@ -149,12 +149,12 @@ impl<S: Simd> CompositeType<f32, S> for f32x16<S> {
 
     #[inline(always)]
     fn from_slice(simd: S, slice: &[f32]) -> Self {
-        <f32x16<_> as SimdBase<_, _>>::from_slice(simd, slice)
+        <Self as SimdBase<_, _>>::from_slice(simd, slice)
     }
 
     #[inline(always)]
     fn from_color(simd: S, color: [f32; 4]) -> Self {
-        f32x16::block_splat(f32x4::from_slice(simd, &color[..]))
+        Self::block_splat(f32x4::from_slice(simd, &color[..]))
     }
 }
 
@@ -163,7 +163,7 @@ impl<S: Simd> CompositeType<u8, S> for u8x32<S> {
 
     #[inline(always)]
     fn from_slice(simd: S, slice: &[u8]) -> Self {
-        <u8x32<_> as SimdBase<_, _>>::from_slice(simd, slice)
+        <Self as SimdBase<_, _>>::from_slice(simd, slice)
     }
 
     #[inline(always)]
@@ -628,9 +628,9 @@ pub trait PosExt<S: Simd> {
 impl<S: Simd> PosExt<S> for f32x4<S> {
     #[inline(always)]
     fn splat_pos(simd: S, pos: f32, _: f32, y_advance: f32) -> Self {
-        let column_mask: f32x4<_> = [0.0, 1.0, 2.0, 3.0].simd_into(simd);
+        let column_mask: Self = [0.0, 1.0, 2.0, 3.0].simd_into(simd);
 
-        f32x4::splat(simd, pos).madd(column_mask, f32x4::splat(simd, y_advance))
+        Self::splat(simd, pos).madd(column_mask, Self::splat(simd, y_advance))
     }
 }
 
@@ -684,7 +684,7 @@ impl<S: Simd> Splat4thExt<S> for u8x16<S> {
     #[inline(always)]
     fn splat_4th(self) -> Self {
         // TODO: SIMDify
-        u8x16 {
+        Self {
             val: [
                 self.val[3],
                 self.val[3],

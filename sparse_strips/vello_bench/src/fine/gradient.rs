@@ -83,17 +83,17 @@ mod extend {
 
     #[vello_bench]
     pub(super) fn pad<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
-        extend(b, fine, peniko::Extend::Pad)
+        extend(b, fine, peniko::Extend::Pad);
     }
 
     #[vello_bench]
     pub(super) fn reflect<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
-        extend(b, fine, peniko::Extend::Reflect)
+        extend(b, fine, peniko::Extend::Reflect);
     }
 
     #[vello_bench]
     pub(super) fn repeat<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
-        extend(b, fine, peniko::Extend::Repeat)
+        extend(b, fine, peniko::Extend::Repeat);
     }
 }
 

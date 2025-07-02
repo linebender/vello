@@ -61,5 +61,5 @@ fn strip_single<S: Simd, N: FineKernel<S>>(
         );
 
         std::hint::black_box(&fine);
-    })
+    });
 }

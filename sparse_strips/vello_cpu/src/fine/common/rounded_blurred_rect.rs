@@ -213,13 +213,13 @@ trait FloatExt<S: Simd> {
 
 impl<S: Simd> FloatExt<S> for f32x8<S> {
     fn compute_erf7(simd: S, x: Self) -> Self {
-        let x = x * f32x8::splat(simd, core::f32::consts::FRAC_2_SQRT_PI);
+        let x = x * Self::splat(simd, core::f32::consts::FRAC_2_SQRT_PI);
         let xx = x * x;
-        let p1 = f32x8::splat(simd, 0.03395).madd(f32x8::splat(simd, 0.0104), xx);
-        let p2 = f32x8::splat(simd, 0.24295).madd(p1, xx);
+        let p1 = Self::splat(simd, 0.03395).madd(Self::splat(simd, 0.0104), xx);
+        let p2 = Self::splat(simd, 0.24295).madd(p1, xx);
         let p3 = x * xx;
         let x = x.madd(p2, p3);
-        let denom = f32x8::splat(simd, 1.0).madd(x, x).sqrt();
+        let denom = Self::splat(simd, 1.0).madd(x, x).sqrt();
         x / denom
     }
 

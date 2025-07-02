@@ -166,7 +166,7 @@ mod fill {
     ) {
         for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
             let one_minus_alpha = 1.0 - next_src.splat_4th();
-            alpha_composite_inner(simd, next_dest, next_src, one_minus_alpha)
+            alpha_composite_inner(simd, next_dest, next_src, one_minus_alpha);
         }
     }
 
@@ -195,7 +195,7 @@ mod fill {
     ) {
         let mut bg_c = f32x16::from_slice(s, dest);
         bg_c = src.madd(one_minus_alpha, bg_c);
-        dest.copy_from_slice(&bg_c.val)
+        dest.copy_from_slice(&bg_c.val);
     }
 }
 
@@ -307,7 +307,6 @@ fn extract_masks<S: Simd>(simd: S, masks: &[u8]) -> f32x16<S> {
 
     let res = f32x16::block_splat(base_mask);
     let zip_low = res.zip_low(res);
-    let zip_high = zip_low.zip_low(zip_low);
 
-    zip_high
+    zip_low.zip_low(zip_low)
 }

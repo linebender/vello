@@ -42,7 +42,7 @@ impl<'a, S: Simd> Iterator for GradientPainter<'a, S> {
         let t_vals = extend(pos, pad);
         let indices = (t_vals * self.scale_factor).cvt_u32();
 
-        let mut vals = [0u8; 64];
+        let mut vals = [0_u8; 64];
         for (val, idx) in vals.chunks_exact_mut(4).zip(indices.val) {
             val.copy_from_slice(&self.lut[idx as usize]);
         }

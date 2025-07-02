@@ -372,7 +372,7 @@ impl Dispatcher for MultiThreadedDispatcher {
                 ),
                 #[cfg(target_arch = "aarch64")]
                 Level::Neon(n) => {
-                    self.rasterize_with::<Neon, U8Kernel>(n, buffer, width, height, encoded_paints)
+                    self.rasterize_with::<Neon, U8Kernel>(n, buffer, width, height, encoded_paints);
                 }
             },
             RenderMode::OptimizeQuality => match self.level {
@@ -385,7 +385,13 @@ impl Dispatcher for MultiThreadedDispatcher {
                 ),
                 #[cfg(target_arch = "aarch64")]
                 Level::Neon(n) => {
-                    self.rasterize_with::<Neon, F32Kernel>(n, buffer, width, height, encoded_paints)
+                    self.rasterize_with::<Neon, F32Kernel>(
+                        n,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
                 }
             },
         }
