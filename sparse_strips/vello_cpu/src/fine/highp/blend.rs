@@ -23,6 +23,8 @@ impl<S: Simd> Channels<S> {
     }
 }
 
+// TODO: blending is still extremely slow, investigate whether there is something obvious we are
+// missing that other renderers do.
 pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMode) -> f32x16<S> {
     if blend_mode.mix == Mix::Normal {
         return src_c;
@@ -45,31 +47,24 @@ pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMod
     let (bg_channels, bg_a) = split(bg);
     let (src_channels, src_a) = split(src_c);
 
-    // For blending, we need to first unpremultiply everything.
-    let mix_bg = bg_channels.unpremultiply(bg_a);
-    let unpremultiplied_src_c = src_channels.unpremultiply(src_a);
-    let mut mix_src = unpremultiplied_src_c;
+    let unpremultiplied_bg = bg_channels.unpremultiply(bg_a);
+    let unpremultiplied_src = src_channels.unpremultiply(src_a);
 
-    let mut res_bg = mix_bg;
+    let mut res_bg = unpremultiplied_bg;
+    let mut mix_src = blend_mode.mix(unpremultiplied_src, unpremultiplied_bg);
 
-    // Mix the source and background color. This will then be our
-    // new source color.
-    // Note that mixing should not affect the alpha value, but since we currently
-    // SIMDify across the pixel range, the alphas will also be affected. Because of that,
-    // we will reset the alpha later to
-    mix_src = blend_mode.mix(mix_src, mix_bg);
+    let apply_alpha = |unpremultiplied_src_channel: f32x4<S>,
+                       mix_src_channel: f32x4<S>,
+                       dest_channel: &mut f32x4<S>| {
+        let p1 = (1.0 - bg_a) * unpremultiplied_src_channel;
+        let p2 = bg_a * mix_src_channel;
 
-    let apply_alpha = |unpre_src_c: f32x4<S>, mut mix_src: f32x4<S>, dest: &mut f32x4<S>| {
-        let p1 = (1.0 - bg_a) * unpre_src_c;
-        let p2 = bg_a * mix_src;
-        mix_src = p1 + p2;
-
-        *dest = mix_src.premultiply(src_a)
+        *dest_channel = (p1 + p2).premultiply(src_a)
     };
 
-    apply_alpha(unpremultiplied_src_c.r, mix_src.r, &mut res_bg.r);
-    apply_alpha(unpremultiplied_src_c.g, mix_src.g, &mut res_bg.g);
-    apply_alpha(unpremultiplied_src_c.b, mix_src.b, &mut res_bg.b);
+    apply_alpha(unpremultiplied_src.r, mix_src.r, &mut res_bg.r);
+    apply_alpha(unpremultiplied_src.g, mix_src.g, &mut res_bg.g);
+    apply_alpha(unpremultiplied_src.b, mix_src.b, &mut res_bg.b);
 
     let combined = simd.combine_f32x8(
         simd.combine_f32x4(res_bg.r, res_bg.g),
