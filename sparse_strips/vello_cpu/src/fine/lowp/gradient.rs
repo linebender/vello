@@ -5,8 +5,11 @@ use core::slice::ChunksExact;
 use vello_common::encode::EncodedGradient;
 use vello_common::fearless_simd::*;
 
+/// An accelerated gradient painter for u8.
+///
+/// Assumes that the gradient has no undefined positions.
 #[derive(Debug)]
-pub(crate) struct GradientFiller<'a, S: Simd> {
+pub(crate) struct GradientPainter<'a, S: Simd> {
     gradient: &'a EncodedGradient,
     lut: &'a [[u8; 4]],
     t_vals: ChunksExact<'a, f32>,
@@ -14,7 +17,7 @@ pub(crate) struct GradientFiller<'a, S: Simd> {
     simd: S,
 }
 
-impl<'a, S: Simd> GradientFiller<'a, S> {
+impl<'a, S: Simd> GradientPainter<'a, S> {
     pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
         let lut = gradient.u8_lut();
         let scale_factor = f32x16::splat(simd, lut.scale_factor());
@@ -29,7 +32,7 @@ impl<'a, S: Simd> GradientFiller<'a, S> {
     }
 }
 
-impl<'a, S: Simd> Iterator for GradientFiller<'a, S> {
+impl<'a, S: Simd> Iterator for GradientPainter<'a, S> {
     type Item = u8x64<S>;
 
     #[inline(always)]
@@ -48,7 +51,7 @@ impl<'a, S: Simd> Iterator for GradientFiller<'a, S> {
     }
 }
 
-impl<S: Simd> crate::fine::Painter for GradientFiller<'_, S> {
+impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
     fn paint_u8(&mut self, buf: &mut [u8]) {
         for chunk in buf.chunks_exact_mut(64) {
             chunk.copy_from_slice(&self.next().unwrap().val);

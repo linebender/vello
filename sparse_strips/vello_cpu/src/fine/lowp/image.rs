@@ -9,13 +9,14 @@ use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x16};
 use vello_common::pixmap::Pixmap;
 
+/// A faster bilinear image renderer for the u8 pipeline.
 #[derive(Debug)]
-pub(crate) struct BilinearImageFiller<'a, S: Simd> {
+pub(crate) struct BilinearImagePainter<'a, S: Simd> {
     data: ImageFillerData<'a, S>,
     simd: S,
 }
 
-impl<'a, S: Simd> BilinearImageFiller<'a, S> {
+impl<'a, S: Simd> BilinearImagePainter<'a, S> {
     pub(crate) fn new(
         simd: S,
         image: &'a EncodedImage,
@@ -29,7 +30,7 @@ impl<'a, S: Simd> BilinearImageFiller<'a, S> {
     }
 }
 
-impl<S: Simd> Iterator for BilinearImageFiller<'_, S> {
+impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
     type Item = u8x16<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -114,4 +115,4 @@ impl<S: Simd> Iterator for BilinearImageFiller<'_, S> {
     }
 }
 
-u8x16_painter!(BilinearImageFiller<'_, S>);
+u8x16_painter!(BilinearImagePainter<'_, S>);

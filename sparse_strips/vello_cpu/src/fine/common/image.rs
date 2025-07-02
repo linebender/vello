@@ -459,8 +459,6 @@ pub(crate) fn extend_simd<S: Simd>(
     match extend {
         // Note that max should be exclusive, so subtract a small bias to enforce that.
         // Otherwise, we might sample out-of-bounds pixels.
-        // Also note that we intentionally don't use `clamp` here, because it's slower than
-        // doing `min` + `max`.
         crate::peniko::Extend::Pad => val.min(max - bias).max(f32x4::splat(simd, 0.0)),
         crate::peniko::Extend::Repeat => val.msub((val * inv_max).floor(), max),
         // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L3274-L3290>
