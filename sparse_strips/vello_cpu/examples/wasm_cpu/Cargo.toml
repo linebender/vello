@@ -1,0 +1,45 @@
+[package]
+name = "wasm_cpu"
+version.workspace = true
+description = "An example showing Vello CPU in the browser."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+bytemuck = { workspace = true, features = [] }
+console_error_panic_hook = "0.1.7"
+console_log = "1.0"
+js-sys = "0.3.77"
+log = { workspace = true }
+vello_common = { workspace = true, features = ["pico_svg"] }
+vello_cpu = { workspace = true }
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4.50"
+web-sys = { version = "0.3.77", features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlCanvasElement",
+    "CssStyleDeclaration",
+    "MouseEvent",
+    "WheelEvent",
+    "KeyboardEvent",
+    "CanvasRenderingContext2d",
+] }
+wgpu = { workspace = true, features = ["webgl"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+parley = { version = "0.4.0", default-features = false, features = ["std"] }
+
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.50"
