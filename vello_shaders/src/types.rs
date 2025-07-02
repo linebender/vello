@@ -52,8 +52,8 @@ pub mod msl {
     impl fmt::Debug for BindingIndex {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match *self {
-                Self::Buffer(i) => write!(f, "msl::BindingIndex::Buffer({})", i),
-                Self::Texture(i) => write!(f, "msl::BindingIndex::Texture({})", i),
+                Self::Buffer(i) => write!(f, "msl::BindingIndex::Buffer({i})"),
+                Self::Texture(i) => write!(f, "msl::BindingIndex::Texture({i})"),
             }
         }
     }
