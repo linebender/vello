@@ -3,7 +3,7 @@
 
 use crate::fine::FineKernel;
 use crate::fine::common::gradient::GradientFiller;
-use crate::fine::common::image::{FilteredImageFiller, ImageFiller, SimpleImageFiller};
+use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::fine::{COLOR_COMPONENTS, Painter};
 use crate::peniko::BlendMode;
@@ -24,7 +24,7 @@ pub struct F32Kernel;
 impl<S: Simd> FineKernel<S> for F32Kernel {
     type Numeric = f32;
     type Composite = f32x16<S>;
-    type Shader = f32x16<S>;
+    type NumericVec = f32x16<S>;
 
     #[inline(always)]
     fn extract_color(color: PremulColor) -> [Self::Numeric; 4] {
@@ -72,32 +72,10 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         Box::new(GradientFiller::new(simd, gradient, has_undefined, t_vals))
     }
 
-    fn plain_nn_image_painter<'a>(
-        simd: S,
-        image: &'a EncodedImage,
-        pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(SimpleImageFiller::new(
-            simd, image, pixmap, start_x, start_y,
-        ))
-    }
-
-    fn nn_image_painter<'a>(
-        simd: S,
-        image: &'a EncodedImage,
-        pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(ImageFiller::new(simd, image, pixmap, start_x, start_y))
-    }
-
     fn apply_mask(
         simd: S,
         target: &mut [Self::Numeric],
-        mut src: impl Iterator<Item = Self::Shader>,
+        mut src: impl Iterator<Item = Self::NumericVec>,
     ) {
         for el in target.chunks_exact_mut(16) {
             let loaded = f32x16::from_slice(simd, el);
@@ -125,7 +103,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         }
     }
 
-    fn alpha_composite_shader(
+    fn alpha_composite_buffer(
         simd: S,
         target: &mut [Self::Numeric],
         shader_src: &[Self::Numeric],

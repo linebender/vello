@@ -6,7 +6,7 @@ mod gradient;
 mod image;
 
 use crate::fine::common;
-use crate::fine::common::image::{FilteredImageFiller, ImageFiller, SimpleImageFiller};
+use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::fine::lowp::image::BilinearImageFiller;
 use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
@@ -30,7 +30,7 @@ pub struct U8Kernel;
 impl<S: Simd> FineKernel<S> for U8Kernel {
     type Numeric = u8;
     type Composite = u8x32<S>;
-    type Shader = u8x16<S>;
+    type NumericVec = u8x16<S>;
 
     #[inline]
     fn extract_color(color: PremulColor) -> [Self::Numeric; 4] {
@@ -74,28 +74,6 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         }
     }
 
-    fn plain_nn_image_painter<'a>(
-        simd: S,
-        image: &'a EncodedImage,
-        pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(SimpleImageFiller::new(
-            simd, image, pixmap, start_x, start_y,
-        ))
-    }
-
-    fn nn_image_painter<'a>(
-        simd: S,
-        image: &'a EncodedImage,
-        pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(ImageFiller::new(simd, image, pixmap, start_x, start_y))
-    }
-
     fn filtered_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
@@ -108,7 +86,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                 simd, image, pixmap, start_x, start_y,
             ))
         } else {
-            Box::new(FilteredImageFiller::new(
+            Box::new(FilteredImagePainter::new(
                 simd, image, pixmap, start_x, start_y,
             ))
         }
@@ -117,7 +95,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     fn apply_mask(
         simd: S,
         target: &mut [Self::Numeric],
-        mut src: impl Iterator<Item = Self::Shader>,
+        mut src: impl Iterator<Item = Self::NumericVec>,
     ) {
         for el in target.chunks_exact_mut(16) {
             let loaded = u8x16::from_slice(simd, el);
@@ -147,7 +125,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         }
     }
 
-    fn alpha_composite_shader(
+    fn alpha_composite_buffer(
         simd: S,
         target: &mut [Self::Numeric],
         shader_src: &[Self::Numeric],

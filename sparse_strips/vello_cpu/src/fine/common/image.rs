@@ -11,7 +11,7 @@ use vello_common::fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x1
 use vello_common::pixmap::Pixmap;
 
 #[derive(Debug)]
-pub(crate) struct SimpleImageFiller<'a, S: Simd> {
+pub(crate) struct PlainNNImagePainter<'a, S: Simd> {
     data: ImageFillerData<'a, S>,
     y_positions: f32x4<S>,
     cur_x_pos: f32x4<S>,
@@ -19,7 +19,7 @@ pub(crate) struct SimpleImageFiller<'a, S: Simd> {
     simd: S,
 }
 
-impl<'a, S: Simd> SimpleImageFiller<'a, S> {
+impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
     pub(crate) fn new(
         simd: S,
         image: &'a EncodedImage,
@@ -59,7 +59,7 @@ impl<'a, S: Simd> SimpleImageFiller<'a, S> {
     }
 }
 
-impl<S: Simd> Iterator for SimpleImageFiller<'_, S> {
+impl<S: Simd> Iterator for PlainNNImagePainter<'_, S> {
     type Item = u8x16<S>;
 
     #[inline(always)]
@@ -80,15 +80,15 @@ impl<S: Simd> Iterator for SimpleImageFiller<'_, S> {
     }
 }
 
-u8x16_painter!(SimpleImageFiller<'_, S>);
+u8x16_painter!(PlainNNImagePainter<'_, S>);
 
 #[derive(Debug)]
-pub(crate) struct ImageFiller<'a, S: Simd> {
+pub(crate) struct NNImagePainter<'a, S: Simd> {
     data: ImageFillerData<'a, S>,
     simd: S,
 }
 
-impl<'a, S: Simd> ImageFiller<'a, S> {
+impl<'a, S: Simd> NNImagePainter<'a, S> {
     pub(crate) fn new(
         simd: S,
         image: &'a EncodedImage,
@@ -102,7 +102,7 @@ impl<'a, S: Simd> ImageFiller<'a, S> {
     }
 }
 
-impl<S: Simd> Iterator for ImageFiller<'_, S> {
+impl<S: Simd> Iterator for NNImagePainter<'_, S> {
     type Item = u8x16<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -140,15 +140,15 @@ impl<S: Simd> Iterator for ImageFiller<'_, S> {
     }
 }
 
-u8x16_painter!(ImageFiller<'_, S>);
+u8x16_painter!(NNImagePainter<'_, S>);
 
 #[derive(Debug)]
-pub(crate) struct FilteredImageFiller<'a, S: Simd> {
+pub(crate) struct FilteredImagePainter<'a, S: Simd> {
     data: ImageFillerData<'a, S>,
     simd: S,
 }
 
-impl<'a, S: Simd> FilteredImageFiller<'a, S> {
+impl<'a, S: Simd> FilteredImagePainter<'a, S> {
     pub(crate) fn new(
         simd: S,
         image: &'a EncodedImage,
@@ -162,7 +162,7 @@ impl<'a, S: Simd> FilteredImageFiller<'a, S> {
     }
 }
 
-impl<S: Simd> Iterator for FilteredImageFiller<'_, S> {
+impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
     type Item = f32x16<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -374,7 +374,7 @@ impl<S: Simd> Iterator for FilteredImageFiller<'_, S> {
     }
 }
 
-f32x16_painter!(FilteredImageFiller<'_, S>);
+f32x16_painter!(FilteredImagePainter<'_, S>);
 
 #[derive(Debug)]
 pub(crate) struct ImageFillerData<'a, S: Simd> {

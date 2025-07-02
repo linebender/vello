@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::fine::{PosExt, ShaderResultF32, ShaderType};
+use crate::fine::{NumericVec, PosExt, ShaderResultF32};
 use crate::kurbo::Point;
 use core::slice::ChunksExact;
 use vello_common::encode::{EncodedGradient, GradientLut};

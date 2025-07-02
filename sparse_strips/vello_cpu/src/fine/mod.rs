@@ -28,6 +28,8 @@ use crate::fine::common::gradient::calculate_t_vals;
 use crate::fine::common::gradient::linear::SimdLinearKind;
 use crate::fine::common::gradient::radial::SimdRadialKind;
 use crate::fine::common::gradient::sweep::SimdSweepKind;
+use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
+use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::util::{BlendModeExt, EncodedImageExt};
 pub use highp::F32Kernel;
 pub use lowp::U8Kernel;
@@ -35,8 +37,6 @@ use vello_common::fearless_simd::{
     Simd, SimdBase, SimdFloat, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4, u32x8,
 };
 use vello_common::pixmap::Pixmap;
-use crate::fine::common::image::FilteredImageFiller;
-use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 
 pub type ScratchBuf<F> = [F; SCRATCH_BUF_SIZE];
 
@@ -55,12 +55,12 @@ impl Numeric for u8 {
     const ONE: Self = 255;
 }
 
-pub trait ShaderType<S: Simd>: Copy + Clone + Send + Sync {
+pub trait NumericVec<S: Simd>: Copy + Clone + Send + Sync {
     fn from_f32(simd: S, val: f32x16<S>) -> Self;
     fn from_u8(simd: S, val: u8x16<S>) -> Self;
 }
 
-impl<S: Simd> ShaderType<S> for f32x16<S> {
+impl<S: Simd> NumericVec<S> for f32x16<S> {
     #[inline(always)]
     fn from_f32(_: S, val: f32x16<S>) -> Self {
         val
@@ -73,7 +73,7 @@ impl<S: Simd> ShaderType<S> for f32x16<S> {
     }
 }
 
-impl<S: Simd> ShaderType<S> for u8x16<S> {
+impl<S: Simd> NumericVec<S> for u8x16<S> {
     #[inline(always)]
     fn from_f32(simd: S, val: f32x16<S>) -> Self {
         let v1 = f32x16::splat(simd, 255.0);
@@ -178,7 +178,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     type Numeric: Numeric;
     /// The type that is used for blending and compositing.
     type Composite: CompositeType<Self::Numeric, S>;
-    type Shader: ShaderType<S>;
+    /// The base SIMD vector type for converting between u8 and f32.
+    type NumericVec: NumericVec<S>;
 
     /// Extract the color from a premultiplied color.
     fn extract_color(color: PremulColor) -> [Self::Numeric; 4];
@@ -193,8 +194,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         has_undefined: bool,
         t_vals: &'a [f32],
     ) -> Box<dyn Painter + 'a>;
-    /// Return the painter used for painting plain nearest-neighbor images. 
-    /// 
+    /// Return the painter used for painting plain nearest-neighbor images.
+    ///
     /// Plain nearest-neighbor images are images with the quality 'Low' and no skewing component in their
     /// transform.
     fn plain_nn_image_painter<'a>(
@@ -203,9 +204,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a>;
-    /// Return the painter used for painting plain nearest-neighbor images. 
-    /// 
+    ) -> Box<dyn Painter + 'a> {
+        Box::new(PlainNNImagePainter::new(
+            simd, image, pixmap, start_x, start_y,
+        ))
+    }
+    /// Return the painter used for painting plain nearest-neighbor images.
+    ///
     /// Same as `plain_nn`, but must also support skewing transforms.
     fn nn_image_painter<'a>(
         simd: S,
@@ -213,7 +218,9 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a>;
+    ) -> Box<dyn Painter + 'a> {
+        Box::new(NNImagePainter::new(simd, image, pixmap, start_x, start_y))
+    }
     /// Return the painter used for painting image with `Medium` or `High` quality.
     fn filtered_image_painter<'a>(
         simd: S,
@@ -222,7 +229,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: u16,
         start_y: u16,
     ) -> Box<dyn Painter + 'a> {
-        Box::new(FilteredImageFiller::new(
+        Box::new(FilteredImagePainter::new(
             simd, image, pixmap, start_x, start_y,
         ))
     }
@@ -235,23 +242,28 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ) -> Box<dyn Painter + 'a> {
         Box::new(BlurredRoundedRectFiller::new(simd, rect, start_x, start_y))
     }
-    fn apply_mask(simd: S, target: &mut [Self::Numeric], src: impl Iterator<Item = Self::Shader>);
-    fn apply_painter<'a>(simd: S, target: &mut [Self::Numeric], painter: Box<dyn Painter + 'a>);
+    /// Apply the mask to the destination buffer.
+    fn apply_mask(simd: S, dest: &mut [Self::Numeric], src: impl Iterator<Item = Self::NumericVec>);
+    /// Apply the painter to the destination buffer.
+    fn apply_painter<'a>(simd: S, dest: &mut [Self::Numeric], painter: Box<dyn Painter + 'a>);
+    /// Do basic alpha compositing with a solid color.
     fn alpha_composite_solid(
         simd: S,
         target: &mut [Self::Numeric],
-        color: [Self::Numeric; 4],
+        src: [Self::Numeric; 4],
         alphas: Option<&[u8]>,
     );
-    fn alpha_composite_shader(
+    /// Do basic alpha compositing with the given buffer.
+    fn alpha_composite_buffer(
         simd: S,
-        target: &mut [Self::Numeric],
-        shader_src: &[Self::Numeric],
+        dest: &mut [Self::Numeric],
+        src: &[Self::Numeric],
         alphas: Option<&[u8]>,
     );
+    /// Blend the source into the destination with the given blend mode.
     fn blend(
         simd: S,
-        target: &mut [Self::Numeric],
+        dest: &mut [Self::Numeric],
         src: impl Iterator<Item = Self::Composite>,
         blend_mode: BlendMode,
         alphas: Option<&[u8]>,
@@ -334,7 +346,11 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 self.clip(cf.x as usize, cf.width as usize, None);
             }
             Cmd::ClipStrip(cs) => {
-                self.clip(cs.x as usize, cs.width as usize, Some(&alphas[cs.alpha_idx..]));
+                self.clip(
+                    cs.x as usize,
+                    cs.width as usize,
+                    Some(&alphas[cs.alpha_idx..]),
+                );
             }
             Cmd::Blend(b) => self.blend(*b),
             Cmd::Mask(m) => {
@@ -348,7 +364,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                 let iter = (start_x..(start_x + width)).map(|x| {
                     let x_in_range = x < m.width();
-                    
+
                     macro_rules! sample {
                         ($idx:expr) => {
                             if x_in_range && (y[$idx] as u16) < m.height() {
@@ -358,7 +374,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             }
                         };
                     }
-                    
+
                     let s1 = sample!(0);
                     let s2 = sample!(1);
                     let s3 = sample!(2);
@@ -370,7 +386,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             s1, s1, s1, s1, s2, s2, s2, s2, s3, s3, s3, s3, s4, s4, s4, s4,
                         ],
                     );
-                    T::Shader::from_u8(self.simd, samples)
+                    T::NumericVec::from_u8(self.simd, samples)
                 });
 
                 T::apply_mask(self.simd, blend_buf, iter);
@@ -382,7 +398,10 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     T::apply_mask(
                         self.simd,
                         blend_buf,
-                        iter::repeat(T::Shader::from_f32(self.simd, f32x16::splat(self.simd, *o))),
+                        iter::repeat(T::NumericVec::from_f32(
+                            self.simd,
+                            f32x16::splat(self.simd, *o),
+                        )),
                     );
                 }
             }
@@ -447,7 +466,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             T::apply_painter(self.simd, color_buf, $filler);
 
                             if default_blend {
-                                T::alpha_composite_shader(self.simd, blend_buf, color_buf, alphas);
+                                T::alpha_composite_buffer(self.simd, blend_buf, color_buf, alphas);
                             } else {
                                 T::blend(
                                     self.simd,
@@ -547,7 +566,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             (false, true) => {
                                 fill_complex_paint!(
                                     i.has_opacities,
-                                    T::plain_nn_image_painter(self.simd, i, pixmap, start_x, start_y)
+                                    T::plain_nn_image_painter(
+                                        self.simd, i, pixmap, start_x, start_y
+                                    )
                                 );
                             }
                             (true, true) => {
@@ -587,7 +608,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let target_buffer =
             &mut target_buffer[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
 
-        T::alpha_composite_shader(self.simd, target_buffer, source_buffer, alphas);
+        T::alpha_composite_buffer(self.simd, target_buffer, source_buffer, alphas);
     }
 }
 
@@ -737,7 +758,7 @@ mod macros {
             impl<S: Simd> crate::fine::Painter for $($type_path)+ {
                 fn paint_u8(&mut self, buf: &mut [u8]) {
                     use vello_common::fearless_simd::*;
-                    use crate::fine::ShaderType;
+                    use crate::fine::NumericVec;
 
                     for chunk in buf.chunks_exact_mut(16) {
                         let next = self.next().unwrap();
@@ -772,7 +793,7 @@ mod macros {
 
                 fn paint_f32(&mut self, buf: &mut [f32]) {
                     use vello_common::fearless_simd::*;
-                    use crate::fine::ShaderType;
+                    use crate::fine::NumericVec;
 
                     for chunk in buf.chunks_exact_mut(16) {
                         let next = self.next().unwrap();

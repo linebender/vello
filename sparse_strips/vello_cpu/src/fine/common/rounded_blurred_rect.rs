@@ -5,7 +5,7 @@
 //!
 //! Implementation is adapted from: <https://git.sr.ht/~raph/blurrr/tree/master/src/distfield.rs>.
 
-use crate::fine::{PosExt, ShaderResultF32, ShaderType};
+use crate::fine::{NumericVec, PosExt, ShaderResultF32};
 use crate::kurbo::{Point, Vec2};
 use vello_common::encode::EncodedBlurredRoundedRectangle;
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x8, u8x16};
