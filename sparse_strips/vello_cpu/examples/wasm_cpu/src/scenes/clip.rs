@@ -19,7 +19,7 @@ use vello_cpu::RenderContext;
 
 /// Clip scene state
 #[derive(Debug)]
-pub struct ClipScene {}
+pub(crate) struct ClipScene {}
 
 impl ExampleScene for ClipScene {
     fn render(&mut self, ctx: &mut RenderContext, root_transform: Affine) {
@@ -29,7 +29,7 @@ impl ExampleScene for ClipScene {
 
 impl ClipScene {
     /// Create a new `ClipScene`
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {}
     }
 }
@@ -48,7 +48,7 @@ fn draw_clipping_outline(ctx: &mut RenderContext, path: &BezPath) {
 }
 
 /// Draws a deeply nested clip of circles.
-pub fn render(ctx: &mut RenderContext, root_transform: Affine) {
+pub(crate) fn render(ctx: &mut RenderContext, root_transform: Affine) {
     const INITIAL_RADIUS: f64 = 48.0;
     const RADIUS_DECREMENT: f64 = 2.5;
     const INNER_COUNT: usize = 10;

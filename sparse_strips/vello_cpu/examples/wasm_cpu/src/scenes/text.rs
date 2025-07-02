@@ -35,7 +35,7 @@ const ROBOTO_FONT: &[u8] =
     include_bytes!("../../../../../../examples/assets/roboto/Roboto-Regular.ttf");
 
 /// State for the text example.
-pub struct TextScene {
+pub(crate) struct TextScene {
     layout: Layout<ColorBrush>,
 }
 
@@ -54,7 +54,7 @@ impl ExampleScene for TextScene {
 
 impl TextScene {
     /// Create a new `TextScene` with the given text.
-    pub fn new(text: &str) -> Self {
+    pub(crate) fn new(text: &str) -> Self {
         // Typically, you'd want to store 1 `layout_cx` and `font_cx` for the
         // duration of the program (or have an instance per thread).
         let mut layout_cx = LayoutContext::new();

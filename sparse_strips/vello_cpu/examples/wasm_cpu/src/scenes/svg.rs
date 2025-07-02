@@ -11,7 +11,7 @@ use vello_cpu::RenderContext;
 use crate::scenes::ExampleScene;
 
 /// SVG scene that renders an SVG file
-pub struct SvgScene {
+pub(crate) struct SvgScene {
     transform: Affine,
     svg: PicoSvg,
 }
@@ -30,7 +30,7 @@ impl ExampleScene for SvgScene {
 
 impl SvgScene {
     /// Create a new `SvgScene` with the Ghost Tiger SVG
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         // Load the ghost tiger SVG by default
         let svg_content = include_str!("../../../../../../examples/assets/Ghostscript_Tiger.svg");
 

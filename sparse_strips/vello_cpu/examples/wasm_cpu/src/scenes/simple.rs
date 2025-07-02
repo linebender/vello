@@ -11,7 +11,7 @@ use crate::scenes::ExampleScene;
 
 /// Simple scene state
 #[derive(Debug)]
-pub struct SimpleScene {}
+pub(crate) struct SimpleScene {}
 
 impl ExampleScene for SimpleScene {
     fn render(&mut self, ctx: &mut RenderContext, root_transform: Affine) {
@@ -21,7 +21,7 @@ impl ExampleScene for SimpleScene {
 
 impl SimpleScene {
     /// Create a new `SimpleScene`
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {}
     }
 }
@@ -33,7 +33,7 @@ impl Default for SimpleScene {
 }
 
 /// Draws a simple scene with shapes
-pub fn render(ctx: &mut RenderContext, root_transform: Affine) {
+pub(crate) fn render(ctx: &mut RenderContext, root_transform: Affine) {
     let mut path = BezPath::new();
     path.move_to((10.0, 10.0));
     path.line_to((180.0, 20.0));

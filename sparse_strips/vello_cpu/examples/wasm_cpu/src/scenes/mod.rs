@@ -13,13 +13,13 @@ use vello_common::kurbo::Affine;
 use vello_cpu::RenderContext;
 
 /// Example scene that can maintain state between renders
-pub trait ExampleScene {
+pub(crate) trait ExampleScene {
     /// Render the scene using the current render context
     fn render(&mut self, ctx: &mut RenderContext, root_transform: Affine);
 }
 
 /// A type-erased example scene
-pub struct AnyScene {
+pub(crate) struct AnyScene {
     /// The render function that calls the wrapped scene's render method
     render_fn: RenderFn,
 }
@@ -35,20 +35,20 @@ impl std::fmt::Debug for AnyScene {
 
 impl AnyScene {
     /// Create a new `AnyScene` from any type that implements `ExampleScene`
-    pub fn new<T: ExampleScene + 'static>(mut scene: T) -> Self {
+    pub(crate) fn new<T: ExampleScene + 'static>(mut scene: T) -> Self {
         Self {
             render_fn: Box::new(move |s, transform| scene.render(s, transform)),
         }
     }
 
     /// Render the scene
-    pub fn render(&mut self, scene: &mut RenderContext, root_transform: Affine) {
+    pub(crate) fn render(&mut self, scene: &mut RenderContext, root_transform: Affine) {
         (self.render_fn)(scene, root_transform);
     }
 }
 
 /// Get all available example scenes
-pub fn get_example_scenes() -> Box<[AnyScene]> {
+pub(crate) fn get_example_scenes() -> Box<[AnyScene]> {
     vec![
         AnyScene::new(svg::SvgScene::new()),
         AnyScene::new(simple::SimpleScene::new()),
