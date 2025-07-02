@@ -128,8 +128,7 @@ fn write_msl(buf: &mut String, info: &ShaderInfo) -> Result<(), fmt::Error> {
     )?;
     writeln!(
         buf,
-        "                binding_indices : Cow::Borrowed(&{:?}),",
-        indices
+        "                binding_indices : Cow::Borrowed(&{indices:?}),",
     )?;
     writeln!(buf, "            }},")?;
     Ok(())

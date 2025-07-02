@@ -14,7 +14,7 @@ use vello_common::encode::EncodedPaint;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 
-pub(crate) trait Dispatcher: Debug {
+pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn wide(&self) -> &Wide;
     fn fill_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, paint: Paint);
     fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint);
