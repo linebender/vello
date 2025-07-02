@@ -14,6 +14,8 @@ use vello_common::pixmap::Pixmap;
 pub(crate) struct SimpleImageFiller<'a, S: Simd> {
     data: ImageFillerData<'a, S>,
     y_positions: f32x4<S>,
+    cur_x_pos: f32x4<S>,
+    advance: f32,
     simd: S,
 }
 
@@ -39,10 +41,19 @@ impl<'a, S: Simd> SimpleImageFiller<'a, S> {
             data.height,
             data.height_inv,
         );
+        
+        let cur_x_pos = f32x4::splat_col_pos(
+            simd,
+            data.cur_pos.x as f32,
+            data.x_advances.0,
+            data.y_advances.0,
+        );
 
         Self {
             data,
+            advance: image.x_advance.x as f32,
             y_positions,
+            cur_x_pos,
             simd,
         }
     }
@@ -55,12 +66,7 @@ impl<S: Simd> Iterator for SimpleImageFiller<'_, S> {
     fn next(&mut self) -> Option<Self::Item> {
         let x_pos = extend_simd(
             self.simd,
-            f32x4::splat_col_pos(
-                self.simd,
-                self.data.cur_pos.x as f32,
-                self.data.x_advances.0,
-                self.data.y_advances.0,
-            ),
+            self.cur_x_pos,
             self.data.image.extends.0,
             self.data.width,
             self.data.width_inv,
@@ -68,7 +74,7 @@ impl<S: Simd> Iterator for SimpleImageFiller<'_, S> {
 
         let samples = sample(self.simd, &self.data, x_pos, self.y_positions);
 
-        self.data.cur_pos += self.data.image.x_advance;
+        self.cur_x_pos = self.cur_x_pos + self.advance;
 
         Some(samples)
     }
