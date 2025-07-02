@@ -70,7 +70,7 @@ pub(crate) fn get_ctx<T: Renderer>(
                 .expect("wasm simd128 should be available"),
         ),
         "fallback" => Level::fallback(),
-        _ => panic!("unknown level: {}", level),
+        _ => panic!("unknown level: {level}"),
     };
 
     let mut ctx = T::new(width, height, num_threads, level);
@@ -290,7 +290,7 @@ pub(crate) fn check_ref(
     let pixmap = render_pixmap(ctx, render_mode);
 
     let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
-    let ref_path = REFS_PATH.join(format!("{}.png", test_name));
+    let ref_path = REFS_PATH.join(format!("{test_name}.png"));
 
     let write_ref_image = || {
         let optimized =
@@ -325,7 +325,7 @@ pub(crate) fn check_ref(
             let _ = std::fs::create_dir_all(DIFFS_PATH.as_path());
         }
 
-        let diff_path = DIFFS_PATH.join(format!("{}.png", specific_name));
+        let diff_path = DIFFS_PATH.join(format!("{specific_name}.png"));
         diff_image
             .save_with_format(&diff_path, image::ImageFormat::Png)
             .unwrap();
@@ -387,7 +387,7 @@ fn append_diff_image_to_browser_document(specific_name: &str, diff_image: &RgbaI
         .unwrap();
 
     let title = document.create_element("h3").unwrap();
-    title.set_text_content(Some(&format!("Test Failed: {}", specific_name)));
+    title.set_text_content(Some(&format!("Test Failed: {specific_name}")));
     title
         .set_attribute("style", "color: red; margin-top: 0;")
         .unwrap();
