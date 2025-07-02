@@ -111,15 +111,15 @@ impl ImageCache {
     }
 
     /// Deallocate an image from the cache, returning true if it existed
-    pub(crate) fn deallocate(&mut self, id: ImageId) -> bool {
+    pub(crate) fn deallocate(&mut self, id: ImageId) -> Option<ImageResource> {
         let index = id.as_u32() as usize;
         if let Some(image_resource) = self.slots.get_mut(index).and_then(Option::take) {
             // Deallocate from the atlas using the stored allocation ID
             self.atlas.deallocate(image_resource.atlas_alloc_id);
             self.free_idxs.push(index);
-            true
+            Some(image_resource)
         } else {
-            false
+            None
         }
     }
 

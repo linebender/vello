@@ -146,6 +146,66 @@ impl Renderer {
         image_id
     }
 
+    /// Destroy an image from the cache and clear the allocated slot in the atlas.
+    pub fn destroy_image(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        image_id: vello_common::paint::ImageId,
+    ) {
+        if let Some(image_resource) = self.image_cache.deallocate(image_id) {
+            self.clear_atlas_region(
+                device,
+                queue,
+                encoder,
+                [
+                    image_resource.offset[0] as u32,
+                    image_resource.offset[1] as u32,
+                ],
+                image_resource.width as u32,
+                image_resource.height as u32,
+            );
+        }
+    }
+
+    /// Clear a specific region of the atlas texture with uninitialized data.
+    fn clear_atlas_region(
+        &mut self,
+        _device: &Device,
+        queue: &Queue,
+        _encoder: &mut CommandEncoder,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        // Rgba8Unorm is 4 bytes per pixel
+        let uninitialized_data = vec![0_u8; (width * height * 4) as usize];
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.programs.resources.atlas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: offset[0],
+                    y: offset[1],
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &uninitialized_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
     fn prepare_gpu_encoded_paints(&self, encoded_paints: &[EncodedPaint]) -> Vec<GpuEncodedImage> {
         let mut bytes: Vec<GpuEncodedImage> = Vec::new();
         for paint in encoded_paints {

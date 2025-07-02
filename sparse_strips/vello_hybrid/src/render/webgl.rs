@@ -216,6 +216,46 @@ impl WebGlRenderer {
         &self.gl
     }
 
+    /// Destroy an image from the cache and clear the allocated slot in the atlas.
+    pub fn destroy_image(&mut self, image_id: vello_common::paint::ImageId) {
+        if let Some(image_resource) = self.image_cache.deallocate(image_id) {
+            self.clear_atlas_region(
+                [
+                    image_resource.offset[0] as u32,
+                    image_resource.offset[1] as u32,
+                ],
+                image_resource.width as u32,
+                image_resource.height as u32,
+            );
+        }
+    }
+
+    /// Clear a specific region of the atlas texture with uninitialized data.
+    fn clear_atlas_region(&mut self, offset: [u32; 2], width: u32, height: u32) {
+        // Rgba8Unorm is 4 bytes per pixel
+        let uninitialized_data = vec![0_u8; (width * height * 4) as usize];
+
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        self.gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.programs.resources.atlas_texture),
+        );
+
+        self.gl
+            .tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,                // mip level
+                offset[0] as i32, // x offset
+                offset[1] as i32, // y offset
+                width as i32,
+                height as i32,
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                Some(&transparent_data),
+            )
+            .unwrap();
+    }
+
     fn prepare_gpu_encoded_paints(&self, encoded_paints: &[EncodedPaint]) -> Vec<GpuEncodedImage> {
         let mut bytes: Vec<GpuEncodedImage> = Vec::new();
         for paint in encoded_paints {

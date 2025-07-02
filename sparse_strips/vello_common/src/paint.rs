@@ -56,6 +56,7 @@ impl From<AlphaColor<Srgb>> for Paint {
 pub struct ImageId(u32);
 
 impl ImageId {
+    // TODO: make this private in future
     /// Create a new image id from a u32.
     pub fn new(value: u32) -> Self {
         Self(value)
