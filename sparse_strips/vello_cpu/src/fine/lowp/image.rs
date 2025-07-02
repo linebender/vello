@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::fine::common::image::{ImageFillerData, extend_simd, sample};
+use crate::fine::common::image::{ImagePainterData, extend, sample};
 use crate::fine::highp::element_wise_splat;
 use crate::fine::macros::u8x16_painter;
 use crate::fine::{PosExt, f32_to_u8};
@@ -12,7 +12,7 @@ use vello_common::pixmap::Pixmap;
 /// A faster bilinear image renderer for the u8 pipeline.
 #[derive(Debug)]
 pub(crate) struct BilinearImagePainter<'a, S: Simd> {
-    data: ImageFillerData<'a, S>,
+    data: ImagePainterData<'a, S>,
     simd: S,
 }
 
@@ -24,7 +24,7 @@ impl<'a, S: Simd> BilinearImagePainter<'a, S> {
         start_x: u16,
         start_y: u16,
     ) -> Self {
-        let data = ImageFillerData::new(simd, image, pixmap, start_x, start_y);
+        let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
         Self { data, simd }
     }
@@ -54,7 +54,7 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
         }
 
         let extend_x = |x_pos: f32x4<S>| {
-            extend_simd(
+            extend(
                 self.simd,
                 x_pos,
                 self.data.image.extends.0,
@@ -64,7 +64,7 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
         };
 
         let extend_y = |y_pos: f32x4<S>| {
-            extend_simd(
+            extend(
                 self.simd,
                 y_pos,
                 self.data.image.extends.1,

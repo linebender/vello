@@ -59,6 +59,7 @@ impl<S: Simd> Iterator for BlurredRoundedRectFiller<S> {
         Some(ShaderResultF32 { r, g, b, a })
     }
 }
+
 impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
     fn paint_u8(&mut self, buf: &mut [u8]) {
         for chunk in buf.chunks_exact_mut(64) {

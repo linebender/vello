@@ -62,7 +62,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         t_vals: &'a [f32],
     ) -> Box<dyn Painter + 'a> {
         if has_undefined {
-            Box::new(common::gradient::GradientFiller::new(
+            Box::new(common::gradient::GradientPainter::new(
                 simd,
                 gradient,
                 has_undefined,

@@ -51,7 +51,7 @@ pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMod
     let unpremultiplied_src = src_channels.unpremultiply(src_a);
 
     let mut res_bg = unpremultiplied_bg;
-    let mut mix_src = blend_mode.mix(unpremultiplied_src, unpremultiplied_bg);
+    let mix_src = blend_mode.mix(unpremultiplied_src, unpremultiplied_bg);
 
     let apply_alpha = |unpremultiplied_src_channel: f32x4<S>,
                        mix_src_channel: f32x4<S>,

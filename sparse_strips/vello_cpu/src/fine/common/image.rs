@@ -10,9 +10,10 @@ use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4};
 use vello_common::pixmap::Pixmap;
 
+/// A painter for nearest-neighbor images with no skewing.
 #[derive(Debug)]
 pub(crate) struct PlainNNImagePainter<'a, S: Simd> {
-    data: ImageFillerData<'a, S>,
+    data: ImagePainterData<'a, S>,
     y_positions: f32x4<S>,
     cur_x_pos: f32x4<S>,
     advance: f32,
@@ -27,9 +28,9 @@ impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
         start_x: u16,
         start_y: u16,
     ) -> Self {
-        let data = ImageFillerData::new(simd, image, pixmap, start_x, start_y);
+        let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
-        let y_positions = extend_simd(
+        let y_positions = extend(
             simd,
             f32x4::splat_pos(
                 simd,
@@ -64,7 +65,7 @@ impl<S: Simd> Iterator for PlainNNImagePainter<'_, S> {
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        let x_pos = extend_simd(
+        let x_pos = extend(
             self.simd,
             self.cur_x_pos,
             self.data.image.extends.0,
@@ -82,9 +83,10 @@ impl<S: Simd> Iterator for PlainNNImagePainter<'_, S> {
 
 u8x16_painter!(PlainNNImagePainter<'_, S>);
 
+/// A painter for nearest-neighbor images with arbitrary transforms.
 #[derive(Debug)]
 pub(crate) struct NNImagePainter<'a, S: Simd> {
-    data: ImageFillerData<'a, S>,
+    data: ImagePainterData<'a, S>,
     simd: S,
 }
 
@@ -96,7 +98,7 @@ impl<'a, S: Simd> NNImagePainter<'a, S> {
         start_x: u16,
         start_y: u16,
     ) -> Self {
-        let data = ImageFillerData::new(simd, image, pixmap, start_x, start_y);
+        let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
         Self { data, simd }
     }
@@ -106,7 +108,7 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
     type Item = u8x16<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let x_positions = extend_simd(
+        let x_positions = extend(
             self.simd,
             f32x4::splat_pos(
                 self.simd,
@@ -119,7 +121,7 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
             self.data.width_inv,
         );
 
-        let y_positions = extend_simd(
+        let y_positions = extend(
             self.simd,
             f32x4::splat_pos(
                 self.simd,
@@ -142,9 +144,10 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
 
 u8x16_painter!(NNImagePainter<'_, S>);
 
+/// A painter for images with bilinear or bicubic filtering.
 #[derive(Debug)]
 pub(crate) struct FilteredImagePainter<'a, S: Simd> {
-    data: ImageFillerData<'a, S>,
+    data: ImagePainterData<'a, S>,
     simd: S,
 }
 
@@ -156,7 +159,7 @@ impl<'a, S: Simd> FilteredImagePainter<'a, S> {
         start_x: u16,
         start_y: u16,
     ) -> Self {
-        let data = ImageFillerData::new(simd, image, pixmap, start_x, start_y);
+        let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
         Self { data, simd }
     }
@@ -204,6 +207,30 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
             u8_to_f32(sample(self.simd, &self.data, x_pos, y_pos))
         };
 
+        macro_rules! extend_x {
+            ($idx:expr,$offsets:expr) => {
+                extend(
+                    self.simd,
+                    x_positions + $offsets[$idx],
+                    self.data.image.extends.0,
+                    self.data.width,
+                    self.data.width_inv,
+                )
+            };
+        }
+
+        macro_rules! extend_y {
+            ($idx:expr,$offsets:expr) => {
+                extend(
+                    self.simd,
+                    y_positions + $offsets[$idx],
+                    self.data.image.extends.1,
+                    self.data.height,
+                    self.data.height_inv,
+                )
+            };
+        }
+
         match self.data.image.quality {
             ImageQuality::Low => unreachable!(),
             ImageQuality::Medium => {
@@ -217,41 +244,11 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
 
                 const OFFSETS: [f32; 2] = [-0.5, 0.5];
 
-                let x_positions = [
-                    extend_simd(
-                        self.simd,
-                        x_positions + OFFSETS[0],
-                        self.data.image.extends.0,
-                        self.data.width,
-                        self.data.width_inv,
-                    ),
-                    extend_simd(
-                        self.simd,
-                        x_positions + OFFSETS[1],
-                        self.data.image.extends.0,
-                        self.data.width,
-                        self.data.width_inv,
-                    ),
-                ];
+                let x_positions = [extend_x!(0, OFFSETS), extend_x!(1, OFFSETS)];
 
-                let y_positions = [
-                    extend_simd(
-                        self.simd,
-                        y_positions + OFFSETS[0],
-                        self.data.image.extends.1,
-                        self.data.height,
-                        self.data.height_inv,
-                    ),
-                    extend_simd(
-                        self.simd,
-                        y_positions + OFFSETS[1],
-                        self.data.image.extends.1,
-                        self.data.height,
-                        self.data.height_inv,
-                    ),
-                ];
+                let y_positions = [extend_y!(0, OFFSETS), extend_y!(1, OFFSETS)];
 
-                // We sample the corners rectangle that covers our current position.
+                // We sample the corners of rectangle that covers our current position.
                 for x_idx in 0..2 {
                     let x_positions = x_positions[x_idx];
 
@@ -274,69 +271,21 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
                 const OFFSETS: [f32; 4] = [-1.5, -0.5, 0.5, 1.5];
 
                 let x_positions = [
-                    extend_simd(
-                        self.simd,
-                        x_positions + OFFSETS[0],
-                        self.data.image.extends.0,
-                        self.data.width,
-                        self.data.width_inv,
-                    ),
-                    extend_simd(
-                        self.simd,
-                        x_positions + OFFSETS[1],
-                        self.data.image.extends.0,
-                        self.data.width,
-                        self.data.width_inv,
-                    ),
-                    extend_simd(
-                        self.simd,
-                        x_positions + OFFSETS[2],
-                        self.data.image.extends.0,
-                        self.data.width,
-                        self.data.width_inv,
-                    ),
-                    extend_simd(
-                        self.simd,
-                        x_positions + OFFSETS[3],
-                        self.data.image.extends.0,
-                        self.data.width,
-                        self.data.width_inv,
-                    ),
+                    extend_x!(0, OFFSETS),
+                    extend_x!(1, OFFSETS),
+                    extend_x!(2, OFFSETS),
+                    extend_x!(3, OFFSETS),
                 ];
 
                 let y_positions = [
-                    extend_simd(
-                        self.simd,
-                        y_positions + OFFSETS[0],
-                        self.data.image.extends.1,
-                        self.data.height,
-                        self.data.height_inv,
-                    ),
-                    extend_simd(
-                        self.simd,
-                        y_positions + OFFSETS[1],
-                        self.data.image.extends.1,
-                        self.data.height,
-                        self.data.height_inv,
-                    ),
-                    extend_simd(
-                        self.simd,
-                        y_positions + OFFSETS[2],
-                        self.data.image.extends.1,
-                        self.data.height,
-                        self.data.height_inv,
-                    ),
-                    extend_simd(
-                        self.simd,
-                        y_positions + OFFSETS[3],
-                        self.data.image.extends.1,
-                        self.data.height,
-                        self.data.height_inv,
-                    ),
+                    extend_y!(0, OFFSETS),
+                    extend_y!(1, OFFSETS),
+                    extend_y!(2, OFFSETS),
+                    extend_y!(3, OFFSETS),
                 ];
 
                 // Note in particular that it is guaranteed that, similarly to bilinear filtering,
-                // the sum of all cx*cy is 1.
+                // the sum of all cx*cy is 1 (modulo some edge cases).
 
                 // We sample the 4x4 grid around the position we are currently looking at.
                 for x_idx in 0..4 {
@@ -376,8 +325,9 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
 
 f32x16_painter!(FilteredImagePainter<'_, S>);
 
+/// Common data used by different image painters
 #[derive(Debug)]
-pub(crate) struct ImageFillerData<'a, S: Simd> {
+pub(crate) struct ImagePainterData<'a, S: Simd> {
     pub(crate) cur_pos: Point,
     pub(crate) image: &'a EncodedImage,
     pub(crate) pixmap: &'a Pixmap,
@@ -390,7 +340,7 @@ pub(crate) struct ImageFillerData<'a, S: Simd> {
     pub(crate) width_u32: u32x4<S>,
 }
 
-impl<'a, S: Simd> ImageFillerData<'a, S> {
+impl<'a, S: Simd> ImagePainterData<'a, S> {
     pub(crate) fn new(
         simd: S,
         image: &'a EncodedImage,
@@ -429,7 +379,7 @@ impl<'a, S: Simd> ImageFillerData<'a, S> {
 #[inline(always)]
 pub(crate) fn sample<S: Simd>(
     simd: S,
-    data: &ImageFillerData<'_, S>,
+    data: &ImagePainterData<'_, S>,
     x_positions: f32x4<S>,
     y_positions: f32x4<S>,
 ) -> u8x16<S> {
@@ -445,7 +395,7 @@ pub(crate) fn sample<S: Simd>(
 }
 
 #[inline(always)]
-pub(crate) fn extend_simd<S: Simd>(
+pub(crate) fn extend<S: Simd>(
     simd: S,
     val: f32x4<S>,
     extend: crate::peniko::Extend,

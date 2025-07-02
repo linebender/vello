@@ -8,6 +8,7 @@ use vello_common::fearless_simd::{Simd, f32x8};
 
 #[derive(Debug)]
 pub(crate) struct SimdLinearKind<S: Simd> {
+    // For consistency with the other gradient types.
     phantom_data: PhantomData<S>,
 }
 

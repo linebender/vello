@@ -29,13 +29,12 @@ pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
         let pos = kind.cur_pos(x_pos, y_pos);
         buf.copy_from_slice(&pos.val);
 
-        cur_pos += gradient.x_advance;
-        cur_pos += gradient.x_advance;
+        cur_pos += 2.0 * gradient.x_advance;
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct GradientFiller<'a, S: Simd> {
+pub(crate) struct GradientPainter<'a, S: Simd> {
     gradient: &'a EncodedGradient,
     lut: &'a GradientLut<f32>,
     t_vals: ChunksExact<'a, f32>,
@@ -44,7 +43,7 @@ pub(crate) struct GradientFiller<'a, S: Simd> {
     simd: S,
 }
 
-impl<'a, S: Simd> GradientFiller<'a, S> {
+impl<'a, S: Simd> GradientPainter<'a, S> {
     pub(crate) fn new(
         simd: S,
         gradient: &'a EncodedGradient,
@@ -65,7 +64,7 @@ impl<'a, S: Simd> GradientFiller<'a, S> {
     }
 }
 
-impl<'a, S: Simd> Iterator for GradientFiller<'a, S> {
+impl<'a, S: Simd> Iterator for GradientPainter<'a, S> {
     type Item = ShaderResultF32<S>;
 
     #[inline(always)]
@@ -80,7 +79,7 @@ impl<'a, S: Simd> Iterator for GradientFiller<'a, S> {
         let mut b = [0.0f32; 8];
         let mut a = [0.0f32; 8];
 
-        // TODO: Us eloop?
+        // TODO: Investigate whether we can juse use a loop.
         macro_rules! gather {
             ($idx:expr) => {
                 let sample = self.lut.get(indices[$idx] as usize);
@@ -129,7 +128,7 @@ impl<'a, S: Simd> Iterator for GradientFiller<'a, S> {
     }
 }
 
-impl<S: Simd> crate::fine::Painter for GradientFiller<'_, S> {
+impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
     fn paint_u8(&mut self, buf: &mut [u8]) {
         for chunk in buf.chunks_exact_mut(64) {
             let first = self.next().unwrap();

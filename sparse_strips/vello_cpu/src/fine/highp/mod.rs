@@ -2,17 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::FineKernel;
-use crate::fine::common::gradient::GradientFiller;
-use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
-use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
+use crate::fine::common::gradient::GradientPainter;
 use crate::fine::{COLOR_COMPONENTS, Painter};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use alloc::boxed::Box;
-use vello_common::encode::{EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage};
+use vello_common::encode::EncodedGradient;
 use vello_common::fearless_simd::*;
 use vello_common::paint::PremulColor;
-use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
 
 pub(crate) mod blend;
@@ -70,7 +67,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         has_undefined: bool,
         t_vals: &'a [f32],
     ) -> Box<dyn Painter + 'a> {
-        Box::new(GradientFiller::new(simd, gradient, has_undefined, t_vals))
+        Box::new(GradientPainter::new(simd, gradient, has_undefined, t_vals))
     }
 
     fn apply_mask(
