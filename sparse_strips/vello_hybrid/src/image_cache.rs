@@ -1,6 +1,8 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+#![allow(dead_code, reason = "Clippy fails when --no-default-features")]
+
 use alloc::vec::Vec;
 use guillotiere::{AllocId, AtlasAllocator, size2};
 use vello_common::paint::ImageId;
@@ -11,14 +13,13 @@ const DEFAULT_ATLAS_SIZE: u32 = 1024;
 #[derive(Debug)]
 pub(crate) struct ImageResource {
     /// The ID of the image
-    #[allow(dead_code, reason = "This is not used in the main code for now")]
-    pub id: ImageId,
+    pub(crate) id: ImageId,
     /// The width of the image
-    pub width: u16,
+    pub(crate) width: u16,
     /// The height of the image
-    pub height: u16,
+    pub(crate) height: u16,
     /// The offset of the image in the atlas
-    pub offset: [u16; 2],
+    pub(crate) offset: [u16; 2],
     /// The atlas allocation ID for deallocation
     atlas_alloc_id: AllocId,
 }
@@ -110,7 +111,6 @@ impl ImageCache {
     }
 
     /// Deallocate an image from the cache, returning true if it existed
-    #[allow(dead_code, reason = "This is not used in the main code for now")]
     pub(crate) fn deallocate(&mut self, id: ImageId) -> bool {
         let index = id.as_u32() as usize;
         if let Some(image_resource) = self.slots.get_mut(index).and_then(Option::take) {
@@ -124,7 +124,6 @@ impl ImageCache {
     }
 
     /// Clear all images from the cache
-    #[allow(dead_code, reason = "This is not used in the main code for now")]
     pub(crate) fn clear(&mut self) {
         self.slots.clear();
         self.free_idxs.clear();

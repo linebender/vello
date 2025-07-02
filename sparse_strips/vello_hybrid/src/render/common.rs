@@ -57,10 +57,7 @@ pub struct GpuStrip {
 // Align to 16 bytes for RGBA32Uint alignment
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
-#[allow(
-    dead_code,
-    reason = "Clippy fails when --no-default-features because webgl impl doesn't use this struct"
-)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuEncodedImage {
     // 1st 16 bytes
     /// The rendering quality of the image.
