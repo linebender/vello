@@ -39,7 +39,7 @@ pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMod
         (Channels { r, g, b }, a)
     };
 
-    let (mut bg_channels, bg_a) = split(bg);
+    let (bg_channels, bg_a) = split(bg);
     let (src_channels, src_a) = split(src_c);
 
     // For blending, we need to first unpremultiply everything.

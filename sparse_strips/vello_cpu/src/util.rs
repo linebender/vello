@@ -1,11 +1,10 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::fine2::Splat4thExt;
 use crate::peniko::{BlendMode, Compose, ImageQuality, Mix};
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{
-    Simd, SimdBase, f32x4, f32x16, mask32x4, mask32x16, u8x32, u16x16, u16x32,
+    Simd, SimdBase, f32x4, u8x32, u16x16, u16x32,
 };
 use vello_common::math::FloatExt;
 
