@@ -580,8 +580,7 @@ impl Renderer {
             static HAS_WARNED: AtomicBool = AtomicBool::new(false);
             if !HAS_WARNED.swap(true, std::sync::atomic::Ordering::Release) {
                 log::warn!(
-                    "Requested debug layers {debug:?} but `debug_layers` feature is not enabled",
-                    debug = debug_layers
+                    "Requested debug layers {debug_layers:?} but `debug_layers` feature is not enabled"
                 );
             }
         }

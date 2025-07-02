@@ -11,7 +11,7 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
 
     let input_fn_name = input_fn.sig.ident.clone();
     let input_fn_name_str = input_fn.sig.ident.to_string();
-    let inner_fn_name = Ident::new(&format!("{}_inner", input_fn_name), input_fn_name.span());
+    let inner_fn_name = Ident::new(&format!("{input_fn_name}_inner"), input_fn_name.span());
 
     input_fn.sig.ident = inner_fn_name.clone();
 

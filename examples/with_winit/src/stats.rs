@@ -172,7 +172,7 @@ impl Snapshot {
                         left_margin,
                         (2. - y) * graph_max_height + thres_text_height_2,
                     )),
-                &format!("{}", t),
+                &format!("{t}"),
             );
             scene.stroke(
                 &Stroke::new(graph_max_height * 0.01),

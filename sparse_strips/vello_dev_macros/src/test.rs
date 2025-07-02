@@ -65,36 +65,36 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
 
     let input_fn_name = input_fn.sig.ident.clone();
     let u8_fn_name_scalar = Ident::new(
-        &format!("{}_cpu_u8_scalar", input_fn_name),
+        &format!("{input_fn_name}_cpu_u8_scalar"),
         input_fn_name.span(),
     );
     let f32_fn_name_scalar = Ident::new(
-        &format!("{}_cpu_f32_scalar", input_fn_name),
+        &format!("{input_fn_name}_cpu_f32_scalar"),
         input_fn_name.span(),
     );
     let u8_fn_name_neon = Ident::new(
-        &format!("{}_cpu_u8_neon", input_fn_name),
+        &format!("{input_fn_name}_cpu_u8_neon"),
         input_fn_name.span(),
     );
     let f32_fn_name_neon = Ident::new(
-        &format!("{}_cpu_f32_neon", input_fn_name),
+        &format!("{input_fn_name}_cpu_f32_neon"),
         input_fn_name.span(),
     );
     let u8_fn_name_wasm = Ident::new(
-        &format!("{}_cpu_u8_wasm", input_fn_name),
+        &format!("{input_fn_name}_cpu_u8_wasm"),
         input_fn_name.span(),
     );
     let f32_fn_name_wasm: Ident = Ident::new(
-        &format!("{}_cpu_f32_wasm", input_fn_name),
+        &format!("{input_fn_name}_cpu_f32_wasm"),
         input_fn_name.span(),
     );
     let multithreaded_fn_name = Ident::new(
-        &format!("{}_cpu_multithreaded", input_fn_name),
+        &format!("{input_fn_name}_cpu_multithreaded"),
         input_fn_name.span(),
     );
-    let hybrid_fn_name = Ident::new(&format!("{}_hybrid", input_fn_name), input_fn_name.span());
+    let hybrid_fn_name = Ident::new(&format!("{input_fn_name}_hybrid"), input_fn_name.span());
     let webgl_fn_name = Ident::new(
-        &format!("{}_hybrid_webgl", input_fn_name),
+        &format!("{input_fn_name}_hybrid_webgl"),
         input_fn_name.span(),
     );
 
@@ -407,7 +407,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                             .try_into()
                             .expect("value to fit for hybrid_tolerance.");
                     }
-                    _ => panic!("unknown pair attribute {}", key_str),
+                    _ => panic!("unknown pair attribute {key_str}"),
                 }
             }
             Attribute::Flag(flag_ident) => {
@@ -421,7 +421,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                         args.skip_cpu = true;
                         args.skip_hybrid = true;
                     }
-                    _ => panic!("unknown flag attribute {}", flag_str),
+                    _ => panic!("unknown flag attribute {flag_str}"),
                 }
             }
         }
