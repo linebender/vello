@@ -51,7 +51,7 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
             // c.bench_function(&get_bench_name(&#input_fn_name_str, "u8_scalar"), |b| {
             //     run_integer(b, vello_common::fearless_simd::Fallback::new());
             // });
-            
+
             #[cfg(target_arch = "aarch64")]
             if let Some(neon) = Level::new().as_neon() {
                 c.bench_function(&get_bench_name(&#input_fn_name_str, "u8_neon"), |b| {

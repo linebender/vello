@@ -157,8 +157,6 @@ impl<S: Simd> Iterator for FilteredImageFiller<'_, S> {
     type Item = f32x16<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let debug = self.data.cur_pos.x == 4.15 && self.data.cur_pos.y == 3.05;
-
         let x_positions = f32x4::splat_col_pos(
             self.simd,
             self.data.cur_pos.x as f32,
@@ -422,7 +420,7 @@ impl<'a, S: Simd> ImageFillerData<'a, S> {
 #[inline(always)]
 pub(crate) fn sample<S: Simd>(
     simd: S,
-    data: &ImageFillerData<S>,
+    data: &ImageFillerData<'_, S>,
     x_positions: f32x4<S>,
     y_positions: f32x4<S>,
 ) -> u8x16<S> {

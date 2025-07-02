@@ -1,14 +1,6 @@
 use crate::fine2::shaders::gradient::SimdGradientKind;
-use vello_common::encode::{FocalData, GradientLike, RadialKind};
-use vello_common::fearless_simd::{Simd, SimdBase, f32x8, mask32x4};
-
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct SimdFocalData<S: Simd> {
-    fr1: f32x8<S>,
-    f_focal_x: f32x8<S>,
-    f_is_swapped: mask32x4<S>,
-    focal_data: FocalData,
-}
+use vello_common::encode::{FocalData, RadialKind};
+use vello_common::fearless_simd::{Simd, SimdBase, f32x8};
 
 pub(crate) enum SimdRadialKindInner<S: Simd> {
     Radial {
@@ -19,7 +11,7 @@ pub(crate) enum SimdRadialKindInner<S: Simd> {
         scaled_r0_squared: f32x8<S>,
     },
     Focal {
-        focal_data: SimdFocalData<S>,
+        focal_data: FocalData,
         fp0: f32x8<S>,
         fp1: f32x8<S>,
     },
@@ -27,7 +19,6 @@ pub(crate) enum SimdRadialKindInner<S: Simd> {
 
 pub(crate) struct SimdRadialKind<S: Simd> {
     inner: SimdRadialKindInner<S>,
-    has_undefined: bool,
 }
 
 impl<S: Simd> SimdRadialKind<S> {
@@ -47,22 +38,11 @@ impl<S: Simd> SimdRadialKind<S> {
             } => SimdRadialKindInner::Focal {
                 fp0: f32x8::splat(simd, *fp0),
                 fp1: f32x8::splat(simd, *fp1),
-                focal_data: SimdFocalData {
-                    fr1: f32x8::splat(simd, focal_data.fr1),
-                    f_focal_x: f32x8::splat(simd, focal_data.f_focal_x),
-                    f_is_swapped: mask32x4::splat(
-                        simd,
-                        i32::MAX * (focal_data.f_is_swapped as i32),
-                    ),
-                    focal_data: *focal_data,
-                },
+                focal_data: *focal_data,
             },
         };
 
-        SimdRadialKind {
-            inner,
-            has_undefined: kind.has_undefined(),
-        }
+        SimdRadialKind { inner }
     }
 }
 
@@ -88,34 +68,32 @@ impl<S: Simd> SimdGradientKind<S> for SimdRadialKind<S> {
                 fp0,
                 fp1,
             } => {
-                let mut t = if focal_data.focal_data.is_focal_on_circle() {
+                let mut t = if focal_data.is_focal_on_circle() {
                     x_pos + y_pos * y_pos / x_pos
-                } else if focal_data.focal_data.is_well_behaved() {
+                } else if focal_data.is_well_behaved() {
                     (x_pos * x_pos + y_pos * y_pos).sqrt() - x_pos * *fp0
-                } else if focal_data.focal_data.is_swapped()
-                    || (1.0 - focal_data.focal_data.f_focal_x < 0.0)
-                {
+                } else if focal_data.is_swapped() || (1.0 - focal_data.f_focal_x < 0.0) {
                     f32x8::splat(simd, -1.0) * (x_pos * x_pos - y_pos * y_pos).sqrt() - x_pos * *fp0
                 } else {
                     (x_pos * x_pos - y_pos * y_pos).sqrt() - x_pos * *fp0
                 };
 
-                if !focal_data.focal_data.is_well_behaved() {
+                if !focal_data.is_well_behaved() {
                     // Radii < 0 should be masked out, too.
                     let is_degenerate = simd.simd_le_f32x8(t, f32x8::splat(simd, 0.0));
 
                     t = simd.select_f32x8(is_degenerate, f32x8::splat(simd, f32::NAN), t);
                 }
 
-                if 1.0 - focal_data.focal_data.f_focal_x < 0.0 {
+                if 1.0 - focal_data.f_focal_x < 0.0 {
                     t = f32x8::splat(simd, -1.0) * t;
                 }
 
-                if !focal_data.focal_data.is_natively_focal() {
+                if !focal_data.is_natively_focal() {
                     t = t + *fp1;
                 }
 
-                if focal_data.focal_data.is_swapped() {
+                if focal_data.is_swapped() {
                     t = f32x8::splat(simd, 1.0) - t;
                 }
 

@@ -17,7 +17,6 @@ pub(crate) struct BlurredRoundedRectFiller<S: Simd> {
     b: f32x8<S>,
     a: f32x8<S>,
     alpha_calculator: AlphaCalculator<S>,
-    simd: S,
 }
 
 impl<S: Simd> BlurredRoundedRectFiller<S> {
@@ -43,7 +42,6 @@ impl<S: Simd> BlurredRoundedRectFiller<S> {
             g,
             b,
             a,
-            simd,
         }
     }
 }

@@ -177,7 +177,7 @@ impl EncodeExt for Gradient {
             }
         };
 
-        let ranges = encode_stops(&stops, pad, self.interpolation_cs, self.hue_direction);
+        let ranges = encode_stops(&stops, self.interpolation_cs, self.hue_direction);
 
         // This represents the transform that needs to be applied to the starting point of a
         // command before starting with the rendering.
@@ -329,7 +329,6 @@ fn apply_reflect(stops: &[ColorStop]) -> SmallVec<[ColorStop; 4]> {
 /// Encode all stops into a sequence of ranges.
 fn encode_stops(
     stops: &[ColorStop],
-    pad: bool,
     cs: ColorSpaceTag,
     hue_dir: HueDirection,
 ) -> Vec<GradientRange> {
@@ -448,7 +447,7 @@ impl EncodeExt for Image {
                 EncodedImage {
                     source: ImageSource::Pixmap(pixmap.clone()),
                     extends: (self.x_extend, self.y_extend),
-                    quality: self.quality,
+                    quality,
                     // While we could optimize RGB8 images, it's probably not worth the trouble.
                     has_opacities: true,
                     transform,
@@ -522,8 +521,11 @@ pub struct LinearKind;
 /// Focal data for a radial gradient.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct FocalData {
+    /// The normalized radius of the outer circle in focal space.
     pub fr1: f32,
+    /// The x-coordinate of the focal point in normalized space [0,1].
     pub f_focal_x: f32,
+    /// Whether the focal points have been swapped.
     pub f_is_swapped: bool,
 }
 

@@ -184,14 +184,6 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     }
 }
 
-enum F32Painter<'a, S: Simd> {
-    BlurredRoundedRect(BlurredRoundedRectFiller<S>),
-    Gradient(GradientFiller<'a, S>),
-    SimpleImage(SimpleImageFiller<'a, S>),
-    Image(ImageFiller<'a, S>),
-    FilteredImage(FilteredImageFiller<'a, S>),
-}
-
 mod fill {
     use crate::fine2::Splat4thExt;
     use crate::fine2::highp::blend;

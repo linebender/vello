@@ -7,25 +7,18 @@ pub(crate) struct GradientFiller<'a, S: Simd> {
     gradient: &'a EncodedGradient,
     lut: &'a [[u8; 4]],
     t_vals: ChunksExact<'a, f32>,
-    has_undefined: bool,
     scale_factor: f32x16<S>,
     simd: S,
 }
 
 impl<'a, S: Simd> GradientFiller<'a, S> {
-    pub(crate) fn new(
-        simd: S,
-        gradient: &'a EncodedGradient,
-        has_undefined: bool,
-        t_vals: &'a [f32],
-    ) -> Self {
+    pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
         let lut = gradient.u8_lut();
         let scale_factor = f32x16::splat(simd, lut.scale_factor());
 
         Self {
             gradient,
             scale_factor,
-            has_undefined,
             lut: lut.lut(),
             t_vals: t_vals.chunks_exact(16),
             simd,
@@ -60,7 +53,7 @@ impl<S: Simd> crate::fine2::Painter for GradientFiller<'_, S> {
         }
     }
 
-    fn paint_f32(&mut self, buf: &mut [f32]) {
+    fn paint_f32(&mut self, _: &mut [f32]) {
         unimplemented!()
     }
 }

@@ -67,12 +67,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                 t_vals,
             ))
         } else {
-            Box::new(gradient::GradientFiller::new(
-                simd,
-                gradient,
-                has_undefined,
-                t_vals,
-            ))
+            Box::new(gradient::GradientFiller::new(simd, gradient, t_vals))
         }
     }
 

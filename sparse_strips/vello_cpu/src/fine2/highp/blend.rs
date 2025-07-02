@@ -56,18 +56,17 @@ pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMod
     // we will reset the alpha later to
     mix_src = blend_mode.mix(mix_src, mix_bg);
 
-    let apply_alpha =
-        |unpre_src_c: f32x4<S>, mut mix_src: f32x4<S>, dest: &mut f32x4<S>, alpha: f32x4<S>| {
-            let p1 = (1.0 - bg_a) * unpre_src_c;
-            let p2 = bg_a * mix_src;
-            mix_src = p1 + p2;
+    let apply_alpha = |unpre_src_c: f32x4<S>, mut mix_src: f32x4<S>, dest: &mut f32x4<S>| {
+        let p1 = (1.0 - bg_a) * unpre_src_c;
+        let p2 = bg_a * mix_src;
+        mix_src = p1 + p2;
 
-            *dest = mix_src.premultiply(src_a)
-        };
+        *dest = mix_src.premultiply(src_a)
+    };
 
-    apply_alpha(unpremultiplied_src_c.r, mix_src.r, &mut res_bg.r, bg_a);
-    apply_alpha(unpremultiplied_src_c.g, mix_src.g, &mut res_bg.g, bg_a);
-    apply_alpha(unpremultiplied_src_c.b, mix_src.b, &mut res_bg.b, bg_a);
+    apply_alpha(unpremultiplied_src_c.r, mix_src.r, &mut res_bg.r);
+    apply_alpha(unpremultiplied_src_c.g, mix_src.g, &mut res_bg.g);
+    apply_alpha(unpremultiplied_src_c.b, mix_src.b, &mut res_bg.b);
 
     let combined = simd.combine_f32x8(
         simd.combine_f32x4(res_bg.r, res_bg.g),
@@ -104,7 +103,6 @@ impl MixExt for BlendMode {
             Mix::Color => Color::mix(src, bg),
             Mix::Hue => Hue::mix(src, bg),
             Mix::Saturation => Saturation::mix(src, bg),
-            _ => unimplemented!(),
         }
     }
 }
