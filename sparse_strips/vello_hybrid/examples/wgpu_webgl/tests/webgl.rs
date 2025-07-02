@@ -6,6 +6,7 @@
 
 mod wasm {
     use vello_common::peniko::{color::palette, kurbo::BezPath};
+    use vello_hybrid::Scene;
     use wasm_bindgen_test::*;
     use wgpu_webgl::render_scene;
 
@@ -16,7 +17,7 @@ mod wasm {
         console_error_panic_hook::set_once();
         console_log::init_with_level(log::Level::Debug).unwrap();
 
-        let mut scene = vello_hybrid::Scene::new(100, 100);
+        let mut scene = Scene::new(100, 100);
 
         // Draw a blue triangle
         let mut path = BezPath::new();

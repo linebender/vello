@@ -51,11 +51,37 @@ impl From<AlphaColor<Srgb>> for Paint {
     }
 }
 
+/// Opaque image handle
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+pub struct ImageId(u32);
+
+impl ImageId {
+    // TODO: make this private in future
+    /// Create a new image id from a u32.
+    pub fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Return the image id as a u32.
+    pub fn as_u32(&self) -> u32 {
+        self.0
+    }
+}
+
+/// Bitmap source used by `Image`.
+#[derive(Debug, Clone)]
+pub enum ImageSource {
+    /// Pixmap pixels travel with the scene packet.
+    Pixmap(Arc<Pixmap>),
+    /// Pixmap pixels were registered earlier; this is just a handle.
+    OpaqueId(ImageId),
+}
+
 /// An image.
 #[derive(Debug, Clone)]
 pub struct Image {
     /// The underlying pixmap of the image.
-    pub pixmap: Arc<Pixmap>,
+    pub source: ImageSource,
     /// Extend mode in the horizontal direction.
     pub x_extend: peniko::Extend,
     /// Extend mode in the vertical direction.
@@ -110,7 +136,7 @@ impl Image {
         let pixmap = Pixmap::from_parts(pixels, width, height);
 
         Self {
-            pixmap: Arc::new(pixmap),
+            source: ImageSource::Pixmap(Arc::new(pixmap)),
             x_extend: image.x_extend,
             y_extend: image.y_extend,
             quality: image.quality,

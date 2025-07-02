@@ -12,6 +12,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use vello_common::kurbo::{Affine, Point};
+use vello_hybrid::Pixmap;
 use vello_hybrid_scenes::AnyScene;
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
@@ -130,7 +131,7 @@ impl AppState {
 
         let renderer_wrapper = RendererWrapper::new(canvas.clone()).await;
 
-        Self {
+        let mut app_state = Self {
             scenes,
             current_scene: 0,
             scene: vello_hybrid::Scene::new(width as u16, height as u16),
@@ -142,7 +143,12 @@ impl AppState {
             renderer_wrapper,
             need_render: true,
             canvas,
-        }
+        };
+
+        // Upload images to the WebGL atlas
+        app_state.upload_images_to_atlas();
+
+        app_state
     }
 
     fn render(&mut self) {
@@ -258,6 +264,92 @@ impl AppState {
         );
 
         self.need_render = true;
+    }
+
+    fn upload_images_to_atlas(&mut self) {
+        use vello_hybrid_scenes::image::ImageScene;
+
+        let mut encoder =
+            self.renderer_wrapper
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Upload Image pass"),
+                });
+
+        // 1st example — uploading pixmap directly to WebGL atlas
+        let pixmap1 = ImageScene::read_flower_image();
+        self.renderer_wrapper.renderer.upload_image(
+            &self.renderer_wrapper.device,
+            &self.renderer_wrapper.queue,
+            &mut encoder,
+            &pixmap1,
+        );
+
+        // 2nd example — uploading from a WebGL texture
+        let pixmap2 = ImageScene::read_cowboy_image();
+        let texture2 = self.upload_image_to_texture(
+            &self.renderer_wrapper.device,
+            &self.renderer_wrapper.queue,
+            &pixmap2,
+        );
+        self.renderer_wrapper.renderer.upload_image(
+            &self.renderer_wrapper.device,
+            &self.renderer_wrapper.queue,
+            &mut encoder,
+            &texture2,
+        );
+
+        self.renderer_wrapper.queue.submit([encoder.finish()]);
+    }
+
+    fn upload_image_to_texture(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image: &Pixmap,
+    ) -> wgpu::Texture {
+        let image_width = image.width() as u32;
+        let image_height = image.height() as u32;
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Uploaded Image Texture"),
+            size: wgpu::Extent3d {
+                width: image_width,
+                height: image_height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            image.data_as_u8_slice(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                // 4 bytes per RGBA pixel
+                bytes_per_row: Some(4 * image_width),
+                rows_per_image: Some(image_height),
+            },
+            wgpu::Extent3d {
+                width: image_width,
+                height: image_height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        texture
     }
 }
 

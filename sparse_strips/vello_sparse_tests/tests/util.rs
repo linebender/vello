@@ -316,7 +316,7 @@ pub(crate) fn check_ref(
     let diff_image = get_diff(&ref_image, &actual, threshold, diff_pixels);
 
     if let Some(diff_image) = diff_image {
-        if std::env::var("REPLACE").is_ok() && is_reference {
+        if should_replace() && is_reference {
             write_ref_image();
             panic!("test was replaced");
         }
@@ -500,4 +500,12 @@ fn is_pix_diff(pixel1: &Rgba<u8>, pixel2: &Rgba<u8>, threshold: u8) -> bool {
     }
 
     different
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn should_replace() -> bool {
+    match std::env::var("REPLACE") {
+        Ok(value) => value == "1",
+        Err(_) => false,
+    }
 }

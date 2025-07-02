@@ -23,7 +23,10 @@ use alloc::vec::Vec;
 use core::{fmt::Debug, mem, num::NonZeroU64};
 
 use bytemuck::{Pod, Zeroable};
-use vello_common::{coarse::WideTile, tile::Tile};
+use vello_common::{
+    coarse::WideTile, encode::EncodedPaint, kurbo::Affine, paint::ImageSource, pixmap::Pixmap,
+    tile::Tile,
+};
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
     Device, PipelineCompilationOptions, Queue, RenderPassColorAttachment, RenderPassDescriptor,
@@ -32,7 +35,8 @@ use wgpu::{
 
 use crate::{
     GpuStrip, RenderError, RenderSize,
-    render::Config,
+    image_cache::{ImageCache, ImageResource},
+    render::{Config, common::GpuEncodedImage},
     scene::Scene,
     schedule::{LoadOp, RendererBackend, Scheduler},
 };
@@ -53,6 +57,7 @@ pub struct RenderTargetConfig {
 pub struct Renderer {
     programs: Programs,
     scheduler: Scheduler,
+    image_cache: ImageCache,
 }
 
 impl Renderer {
@@ -60,12 +65,14 @@ impl Renderer {
     pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
-        let total_slots =
-            (device.limits().max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+        let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
+        let image_cache = ImageCache::new(max_texture_dimension_2d, max_texture_dimension_2d);
 
         Self {
             programs: Programs::new(device, render_target_config, total_slots),
             scheduler: Scheduler::new(total_slots),
+            image_cache,
         }
     }
 
@@ -82,11 +89,12 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
+        let encoded_paints = self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
         self.programs
-            .prepare(device, queue, &scene.alphas, render_size);
+            .prepare(device, queue, &scene.alphas, encoded_paints, render_size);
         let mut junk = RendererContext {
             programs: &mut self.programs,
             device,
@@ -97,6 +105,143 @@ impl Renderer {
 
         self.scheduler.do_scene(&mut junk, scene)
     }
+
+    /// Upload image to cache and atlas in one step. Returns the `ImageId`.
+    ///
+    /// It's used when an image is not already in the cache.
+    ///
+    /// This is a convenience method that:
+    /// 1. Reserves space in the image cache
+    /// 2. Writes the image data directly to the atlas
+    /// 3. Returns the `ImageId` for use in rendering
+    pub fn upload_image<T: AtlasWriter>(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        writer: &T,
+    ) -> vello_common::paint::ImageId {
+        let width = writer.width();
+        let height = writer.height();
+        let image_id = self.image_cache.allocate(width, height);
+        let image_resource = self
+            .image_cache
+            .get(image_id)
+            .expect("Image resource not found");
+        let offset = [
+            image_resource.offset[0] as u32,
+            image_resource.offset[1] as u32,
+        ];
+
+        writer.write_to_atlas(
+            device,
+            queue,
+            encoder,
+            &self.programs.resources.atlas_texture,
+            offset,
+            width,
+            height,
+        );
+
+        image_id
+    }
+
+    /// Destroy an image from the cache and clear the allocated slot in the atlas.
+    pub fn destroy_image(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        image_id: vello_common::paint::ImageId,
+    ) {
+        if let Some(image_resource) = self.image_cache.deallocate(image_id) {
+            self.clear_atlas_region(
+                device,
+                queue,
+                encoder,
+                [
+                    image_resource.offset[0] as u32,
+                    image_resource.offset[1] as u32,
+                ],
+                image_resource.width as u32,
+                image_resource.height as u32,
+            );
+        }
+    }
+
+    /// Clear a specific region of the atlas texture with uninitialized data.
+    fn clear_atlas_region(
+        &mut self,
+        _device: &Device,
+        queue: &Queue,
+        _encoder: &mut CommandEncoder,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        // Rgba8Unorm is 4 bytes per pixel
+        let uninitialized_data = vec![0_u8; (width * height * 4) as usize];
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.programs.resources.atlas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: offset[0],
+                    y: offset[1],
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &uninitialized_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    fn prepare_gpu_encoded_paints(&self, encoded_paints: &[EncodedPaint]) -> Vec<GpuEncodedImage> {
+        let mut bytes: Vec<GpuEncodedImage> = Vec::new();
+        for paint in encoded_paints {
+            match paint {
+                EncodedPaint::Image(img) => {
+                    if let ImageSource::OpaqueId(image_id) = img.source {
+                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
+                        if let Some(image_resource) = image_resource {
+                            let transform = img.transform * Affine::translate((-0.5, -0.5));
+                            // pack two u16 as u32
+                            let image_size = ((image_resource.width as u32) << 16)
+                                | image_resource.height as u32;
+                            let image_offset = ((image_resource.offset[0] as u32) << 16)
+                                | image_resource.offset[1] as u32;
+                            let quality_and_extend_modes = ((img.extends.1 as u32) << 4)
+                                | ((img.extends.0 as u32) << 2)
+                                | img.quality as u32;
+
+                            bytes.push(GpuEncodedImage {
+                                quality_and_extend_modes,
+                                image_size,
+                                image_offset,
+                                _padding1: 0,
+                                transform: transform.as_coeffs().map(|x| x as f32),
+                                _padding2: [0, 0],
+                            });
+                        }
+                    }
+                }
+                _ => {
+                    unimplemented!("Gradient and rounded rectangle unsupported")
+                }
+            }
+        }
+        bytes
+    }
 }
 
 /// Defines the GPU resources and pipelines for rendering.
@@ -106,6 +251,8 @@ struct Programs {
     strip_pipeline: RenderPipeline,
     /// Bind group layout for strip draws
     strip_bind_group_layout: BindGroupLayout,
+    /// Bind group layout for encoded paints
+    encoded_paints_bind_group_layout: BindGroupLayout,
 
     /// Pipeline for clearing slots in slot textures.
     clear_pipeline: RenderPipeline,
@@ -116,6 +263,8 @@ struct Programs {
     render_size: RenderSize,
     /// Scratch buffer for staging alpha texture data.
     alpha_data: Vec<u8>,
+    /// Scratch buffer for staging encoded paints texture data.
+    encoded_paints_data: Vec<u8>,
 }
 
 /// Contains all GPU resources needed for rendering
@@ -125,6 +274,15 @@ struct GpuResources {
     strips_buffer: Buffer,
     /// Texture for alpha values (used by both view and slot rendering)
     alphas_texture: Texture,
+    /// Texture for atlas data
+    // TODO: Support more than one atlas texture
+    atlas_texture: Texture,
+    /// Bind group for atlas texture
+    atlas_bind_group: BindGroup,
+    /// Texture for encoded paints
+    encoded_paints_texture: Texture,
+    /// Bind group for encoded paints
+    encoded_paints_bind_group: BindGroup,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
@@ -160,12 +318,13 @@ struct ClearSlotsConfig {
 
 impl GpuStrip {
     /// Vertex attributes for the strip
-    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 4] {
+    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 5] {
         wgpu::vertex_attr_array![
             0 => Uint32,
             1 => Uint32,
             2 => Uint32,
             3 => Uint32,
+            4 => Uint32,
         ]
     }
 }
@@ -209,6 +368,36 @@ impl Programs {
                 ],
             });
 
+        let atlas_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Atlas Texture Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+
+        let encoded_paints_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Encoded Paints Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+
         // Create bind group layout for clearing slots
         let clear_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -238,7 +427,11 @@ impl Programs {
         let strip_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Strip Pipeline Layout"),
-                bind_group_layouts: &[&strip_bind_group_layout],
+                bind_group_layouts: &[
+                    &strip_bind_group_layout,
+                    &atlas_bind_group_layout,
+                    &encoded_paints_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -390,7 +583,33 @@ impl Programs {
             },
             max_texture_dimension_2d,
         );
-
+        let atlas_texture = Self::make_atlas_texture(
+            device,
+            max_texture_dimension_2d,
+            max_texture_dimension_2d,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let atlas_bind_group = Self::make_atlas_bind_group(
+            device,
+            &atlas_bind_group_layout,
+            &atlas_texture.create_view(&Default::default()),
+        );
+        const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
+        let encoded_paints_data = vec![
+            0;
+            ((max_texture_dimension_2d * INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT) << 4)
+                as usize
+        ];
+        let encoded_paints_texture = Self::make_encoded_paints_texture(
+            device,
+            max_texture_dimension_2d,
+            INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT,
+        );
+        let encoded_paints_bind_group = Self::make_encoded_paints_bind_group(
+            device,
+            &encoded_paints_bind_group_layout,
+            &encoded_paints_texture.create_view(&Default::default()),
+        );
         let slot_bind_groups = Self::make_strip_bind_groups(
             device,
             &strip_bind_group_layout,
@@ -408,14 +627,20 @@ impl Programs {
             slot_bind_groups,
             clear_bind_group,
             alphas_texture,
+            atlas_texture,
+            atlas_bind_group,
+            encoded_paints_texture,
+            encoded_paints_bind_group,
             view_config_buffer,
         };
 
         Self {
             strip_pipeline,
             strip_bind_group_layout,
+            encoded_paints_bind_group_layout,
             resources,
             alpha_data,
+            encoded_paints_data,
             render_size: RenderSize {
                 width: render_target_config.width,
                 height: render_target_config.height,
@@ -474,6 +699,75 @@ impl Programs {
             format: wgpu::TextureFormat::Rgba32Uint,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
+        })
+    }
+
+    fn make_atlas_texture(
+        device: &Device,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Atlas Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        })
+    }
+
+    fn make_atlas_bind_group(
+        device: &Device,
+        atlas_bind_group_layout: &BindGroupLayout,
+        atlas_texture_view: &TextureView,
+    ) -> BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Atlas Bind Group"),
+            layout: atlas_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(atlas_texture_view),
+            }],
+        })
+    }
+
+    fn make_encoded_paints_texture(device: &Device, width: u32, height: u32) -> Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Encoded Paints Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Uint,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        })
+    }
+
+    fn make_encoded_paints_bind_group(
+        device: &Device,
+        encoded_paints_bind_group_layout: &BindGroupLayout,
+        encoded_paints_texture_view: &TextureView,
+    ) -> BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Encoded Paints Bind Group"),
+            layout: encoded_paints_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(encoded_paints_texture_view),
+            }],
         })
     }
 
@@ -546,52 +840,14 @@ impl Programs {
         device: &Device,
         queue: &Queue,
         alphas: &[u8],
+        encoded_paints: Vec<GpuEncodedImage>,
         new_render_size: &RenderSize,
     ) {
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         // Update the alpha texture size if needed
-        {
-            let required_alpha_height = u32::try_from(alphas.len())
-                .unwrap()
-                // There are 16 1-byte alpha values per texel.
-                .div_ceil(max_texture_dimension_2d << 4);
-            debug_assert!(
-                self.resources.alphas_texture.width() == max_texture_dimension_2d,
-                "Alpha texture width must match max texture dimensions"
-            );
-            let current_alpha_height = self.resources.alphas_texture.height();
-            if required_alpha_height > current_alpha_height {
-                // We need to resize the alpha texture to fit the new alpha data.
-                assert!(
-                    required_alpha_height <= max_texture_dimension_2d,
-                    "Alpha texture height exceeds max texture dimensions"
-                );
-
-                // Resize the alpha texture staging buffer.
-                let required_alpha_size = (max_texture_dimension_2d * required_alpha_height) << 4;
-                self.alpha_data.resize(required_alpha_size as usize, 0);
-                // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
-                let alphas_texture = Self::make_alphas_texture(
-                    device,
-                    max_texture_dimension_2d,
-                    required_alpha_height,
-                );
-                self.resources.alphas_texture = alphas_texture;
-
-                // Since the alpha texture has changed, we need to update the clip bind groups.
-                self.resources.slot_bind_groups = Self::make_strip_bind_groups(
-                    device,
-                    &self.strip_bind_group_layout,
-                    &self
-                        .resources
-                        .alphas_texture
-                        .create_view(&Default::default()),
-                    &self.resources.slot_config_buffer,
-                    &self.resources.view_config_buffer,
-                    &self.resources.slot_texture_views,
-                );
-            }
-        }
+        self.maybe_resize_alphas_tex(device, alphas, max_texture_dimension_2d);
+        // Update the encoded paints texture size if needed
+        self.maybe_resize_encoded_paints_tex(device, &encoded_paints, max_texture_dimension_2d);
 
         // Update config buffer if dimensions changed.
         if self.render_size != *new_render_size {
@@ -641,6 +897,122 @@ impl Programs {
                 depth_or_array_layers: 1,
             },
         );
+
+        // Upload encoded paints to the texture
+        let encoded_paints_texture = &self.resources.encoded_paints_texture;
+        let encoded_paints_texture_width = encoded_paints_texture.width();
+        let encoded_paints_texture_height = encoded_paints_texture.height();
+
+        let encoded_paints_bytes = bytemuck::cast_slice(&encoded_paints);
+        self.encoded_paints_data[0..encoded_paints_bytes.len()]
+            .copy_from_slice(encoded_paints_bytes);
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: encoded_paints_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &self.encoded_paints_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), equivalent to bit shift of 4
+                bytes_per_row: Some(encoded_paints_texture_width << 4),
+                rows_per_image: Some(encoded_paints_texture_height),
+            },
+            wgpu::Extent3d {
+                width: encoded_paints_texture_width,
+                height: encoded_paints_texture_height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    fn maybe_resize_alphas_tex(
+        &mut self,
+        device: &Device,
+        alphas: &[u8],
+        max_texture_dimension_2d: u32,
+    ) {
+        let required_alpha_height = u32::try_from(alphas.len())
+            .unwrap()
+            // There are 16 1-byte alpha values per texel.
+            .div_ceil(max_texture_dimension_2d << 4);
+        debug_assert!(
+            self.resources.alphas_texture.width() == max_texture_dimension_2d,
+            "Alpha texture width must match max texture dimensions"
+        );
+        let current_alpha_height = self.resources.alphas_texture.height();
+        if required_alpha_height > current_alpha_height {
+            // We need to resize the alpha texture to fit the new alpha data.
+            assert!(
+                required_alpha_height <= max_texture_dimension_2d,
+                "Alpha texture height exceeds max texture dimensions"
+            );
+
+            // Resize the alpha texture staging buffer.
+            let required_alpha_size = (max_texture_dimension_2d * required_alpha_height) << 4;
+            self.alpha_data.resize(required_alpha_size as usize, 0);
+            // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
+            let alphas_texture =
+                Self::make_alphas_texture(device, max_texture_dimension_2d, required_alpha_height);
+            self.resources.alphas_texture = alphas_texture;
+
+            // Since the alpha texture has changed, we need to update the clip bind groups.
+            self.resources.slot_bind_groups = Self::make_strip_bind_groups(
+                device,
+                &self.strip_bind_group_layout,
+                &self
+                    .resources
+                    .alphas_texture
+                    .create_view(&Default::default()),
+                &self.resources.slot_config_buffer,
+                &self.resources.view_config_buffer,
+                &self.resources.slot_texture_views,
+            );
+        }
+    }
+
+    fn maybe_resize_encoded_paints_tex(
+        &mut self,
+        device: &Device,
+        encoded_paints: &[GpuEncodedImage],
+        max_texture_dimension_2d: u32,
+    ) {
+        let required_encoded_paints_height = u32::try_from(size_of_val(encoded_paints))
+            .unwrap()
+            .div_ceil(max_texture_dimension_2d << 4);
+        debug_assert!(
+            self.resources.encoded_paints_texture.width() == max_texture_dimension_2d,
+            "Encoded paints texture width must match max texture dimensions"
+        );
+        let current_encoded_paints_height = self.resources.encoded_paints_texture.height();
+        if required_encoded_paints_height > current_encoded_paints_height {
+            assert!(
+                required_encoded_paints_height <= max_texture_dimension_2d,
+                "Encoded paints texture height exceeds max texture dimensions"
+            );
+            let required_encoded_paints_size =
+                (max_texture_dimension_2d * required_encoded_paints_height) << 4;
+            self.encoded_paints_data
+                .resize(required_encoded_paints_size as usize, 0);
+            let encoded_paints_texture = Self::make_encoded_paints_texture(
+                device,
+                max_texture_dimension_2d,
+                required_encoded_paints_height,
+            );
+            self.resources.encoded_paints_texture = encoded_paints_texture;
+
+            // Since the encoded paints texture has changed, we need to update the strip bind groups.
+            self.resources.encoded_paints_bind_group = Self::make_encoded_paints_bind_group(
+                device,
+                &self.encoded_paints_bind_group_layout,
+                &self
+                    .resources
+                    .encoded_paints_texture
+                    .create_view(&Default::default()),
+            );
+        }
     }
 
     /// Upload the strip data by creating and assigning a new `self.resources.strips_buffer`.
@@ -705,6 +1077,8 @@ impl RendererContext<'_> {
         });
         render_pass.set_pipeline(&self.programs.strip_pipeline);
         render_pass.set_bind_group(0, &self.programs.resources.slot_bind_groups[ix], &[]);
+        render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
+        render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
         render_pass.draw(0..4, 0..u32::try_from(strips.len()).unwrap());
     }
@@ -776,5 +1150,147 @@ impl RendererBackend for RendererContext<'_> {
         };
 
         self.do_strip_render_pass(strips, target_index, wgpu_load_op);
+    }
+}
+
+/// Trait for types that can write image data directly to the atlas texture.
+///
+/// This allows efficient uploading from different sources:
+/// - `Pixmap`: Direct upload without intermediate texture
+/// - `Texture`: Texture-to-texture copy
+/// - Custom implementations for other image sources
+pub trait AtlasWriter {
+    /// Get the width of the image.
+    fn width(&self) -> u32;
+    /// Get the height of the image.
+    fn height(&self) -> u32;
+
+    /// Write image data to the atlas texture at the specified offset.
+    fn write_to_atlas(
+        &self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        atlas_texture: &wgpu::Texture,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    );
+}
+
+/// Implementation for `wgpu::Texture` - uses texture-to-texture copy
+impl AtlasWriter for wgpu::Texture {
+    fn width(&self) -> u32 {
+        self.width()
+    }
+
+    fn height(&self) -> u32 {
+        self.height()
+    }
+
+    fn write_to_atlas(
+        &self,
+        _device: &Device,
+        _queue: &Queue,
+        encoder: &mut CommandEncoder,
+        atlas_texture: &wgpu::Texture,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: self,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: atlas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: offset[0],
+                    y: offset[1],
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+}
+
+/// Implementation for `Pixmap` - direct upload to atlas
+impl AtlasWriter for Pixmap {
+    fn width(&self) -> u32 {
+        self.width() as u32
+    }
+
+    fn height(&self) -> u32 {
+        self.height() as u32
+    }
+
+    fn write_to_atlas(
+        &self,
+        _device: &Device,
+        queue: &Queue,
+        _encoder: &mut CommandEncoder,
+        atlas_texture: &wgpu::Texture,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: atlas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: offset[0],
+                    y: offset[1],
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            self.data_as_u8_slice(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+}
+
+/// Implementation for `Arc<Pixmap>`
+impl AtlasWriter for alloc::sync::Arc<Pixmap> {
+    fn width(&self) -> u32 {
+        self.as_ref().width() as u32
+    }
+
+    fn height(&self) -> u32 {
+        self.as_ref().height() as u32
+    }
+
+    fn write_to_atlas(
+        &self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        atlas_texture: &wgpu::Texture,
+        offset: [u32; 2],
+        width: u32,
+        height: u32,
+    ) {
+        self.as_ref()
+            .write_to_atlas(device, queue, encoder, atlas_texture, offset, width, height);
     }
 }

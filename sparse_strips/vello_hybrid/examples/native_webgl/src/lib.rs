@@ -50,7 +50,7 @@ impl AppState {
 
         let renderer_wrapper = RendererWrapper::new(canvas.clone());
 
-        Self {
+        let mut app_state = Self {
             scenes,
             current_scene: 0,
             scene: vello_hybrid::Scene::new(width as u16, height as u16),
@@ -62,7 +62,11 @@ impl AppState {
             renderer_wrapper,
             need_render: true,
             canvas,
-        }
+        };
+
+        app_state.upload_images_to_atlas();
+
+        app_state
     }
 
     fn render(&mut self) {
@@ -168,6 +172,77 @@ impl AppState {
                 * self.transform;
 
             self.need_render = true;
+        }
+    }
+
+    /// Upload images to the WebGL atlas texture
+    /// This is the WebGL analogue of the winit example's `upload_images_to_atlas` function
+    fn upload_images_to_atlas(&mut self) {
+        use vello_hybrid_scenes::image::ImageScene;
+
+        // 1st example — uploading pixmap directly to WebGL atlas
+        let pixmap1 = ImageScene::read_flower_image();
+        self.renderer_wrapper.renderer.upload_image(&pixmap1);
+
+        // 2nd example — uploading from a WebGL texture
+        let pixmap2 = ImageScene::read_cowboy_image();
+        let texture2 = self.pixmap_to_webgl_texture(&pixmap2);
+        self.renderer_wrapper.renderer.upload_image(&texture2);
+    }
+
+    /// Convert a pixmap to WebGL texture
+    fn pixmap_to_webgl_texture(
+        &self,
+        pixmap: &vello_hybrid::Pixmap,
+    ) -> vello_hybrid::WebGlTextureWithDimensions {
+        let width = pixmap.width() as u32;
+        let height = pixmap.height() as u32;
+        let rgba_data = pixmap.data_as_u8_slice();
+
+        let gl = &self.renderer_wrapper.renderer.gl_context();
+
+        let texture = gl.create_texture().unwrap();
+        gl.active_texture(web_sys::WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(web_sys::WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
+
+        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+            web_sys::WebGl2RenderingContext::TEXTURE_2D,
+            0,
+            web_sys::WebGl2RenderingContext::RGBA as i32,
+            width as i32,
+            height as i32,
+            0,
+            web_sys::WebGl2RenderingContext::RGBA,
+            web_sys::WebGl2RenderingContext::UNSIGNED_BYTE,
+            Some(rgba_data),
+        )
+        .unwrap();
+
+        gl.tex_parameteri(
+            web_sys::WebGl2RenderingContext::TEXTURE_2D,
+            web_sys::WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+            web_sys::WebGl2RenderingContext::LINEAR as i32,
+        );
+        gl.tex_parameteri(
+            web_sys::WebGl2RenderingContext::TEXTURE_2D,
+            web_sys::WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+            web_sys::WebGl2RenderingContext::LINEAR as i32,
+        );
+        gl.tex_parameteri(
+            web_sys::WebGl2RenderingContext::TEXTURE_2D,
+            web_sys::WebGl2RenderingContext::TEXTURE_WRAP_S,
+            web_sys::WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_parameteri(
+            web_sys::WebGl2RenderingContext::TEXTURE_2D,
+            web_sys::WebGl2RenderingContext::TEXTURE_WRAP_T,
+            web_sys::WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+        );
+
+        vello_hybrid::WebGlTextureWithDimensions {
+            texture,
+            width,
+            height,
         }
     }
 }

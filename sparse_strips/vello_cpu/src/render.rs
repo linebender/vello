@@ -19,6 +19,8 @@ use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
+#[cfg(feature = "text")]
+use vello_common::paint::ImageSource;
 use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
@@ -427,7 +429,7 @@ impl GlyphRenderer for RenderContext {
                 };
 
                 let image = vello_common::paint::Image {
-                    pixmap: Arc::new(glyph.pixmap),
+                    source: ImageSource::Pixmap(Arc::new(glyph.pixmap)),
                     x_extend: crate::peniko::Extend::Pad,
                     y_extend: crate::peniko::Extend::Pad,
                     quality,
@@ -473,7 +475,7 @@ impl GlyphRenderer for RenderContext {
                 };
 
                 let image = vello_common::paint::Image {
-                    pixmap: Arc::new(glyph_pixmap),
+                    source: ImageSource::Pixmap(Arc::new(glyph_pixmap)),
                     x_extend: crate::peniko::Extend::Pad,
                     y_extend: crate::peniko::Extend::Pad,
                     // Since the pixmap will already have the correct size, no need to

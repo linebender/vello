@@ -1,23 +1,30 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
+use std::cell::RefCell;
+use std::sync::Arc;
+
+use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::PaintType;
+use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{BlendMode, Fill, Font};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
 use vello_hybrid::Scene;
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+use web_sys::WebGl2RenderingContext;
 
 pub(crate) trait Renderer: Sized + GlyphRenderer {
+    type GlyphRenderer: GlyphRenderer;
+
     fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self;
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
     fn fill_rect(&mut self, rect: &Rect);
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
     fn stroke_rect(&mut self, rect: &Rect);
-    fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self>;
+    fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -39,9 +46,12 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn render_to_pixmap(&self, pixmap: &mut Pixmap, render_mode: RenderMode);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
+    fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
 }
 
 impl Renderer for RenderContext {
+    type GlyphRenderer = Self;
+
     fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
         let settings = RenderSettings { level, num_threads };
 
@@ -137,9 +147,26 @@ impl Renderer for RenderContext {
     fn height(&self) -> u16 {
         Self::height(self)
     }
+
+    fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
+        ImageSource::Pixmap(pixmap)
+    }
 }
 
-impl Renderer for Scene {
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+pub(crate) struct HybridRenderer {
+    scene: Scene,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    texture: wgpu::Texture,
+    texture_view: wgpu::TextureView,
+    renderer: RefCell<vello_hybrid::Renderer>,
+}
+
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+impl Renderer for HybridRenderer {
+    type GlyphRenderer = Scene;
+
     fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
         if num_threads != 0 {
             panic!("hybrid renderer doesn't support multi-threading");
@@ -149,115 +176,7 @@ impl Renderer for Scene {
             panic!("hybrid renderer doesn't support SIMD");
         }
 
-        Self::new(width, height)
-    }
-
-    fn fill_path(&mut self, path: &BezPath) {
-        Self::fill_path(self, path);
-    }
-
-    fn stroke_path(&mut self, path: &BezPath) {
-        Self::stroke_path(self, path);
-    }
-
-    fn fill_rect(&mut self, rect: &Rect) {
-        Self::fill_rect(self, rect);
-    }
-
-    fn fill_blurred_rounded_rect(&mut self, _: &Rect, _: f32, _: f32) {
-        unimplemented!()
-    }
-
-    fn stroke_rect(&mut self, rect: &Rect) {
-        Self::stroke_rect(self, rect);
-    }
-
-    fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
-        Self::glyph_run(self, font)
-    }
-
-    fn push_layer(
-        &mut self,
-        clip: Option<&BezPath>,
-        blend_mode: Option<BlendMode>,
-        opacity: Option<f32>,
-        mask: Option<Mask>,
-    ) {
-        Self::push_layer(self, clip, blend_mode, opacity, mask);
-    }
-
-    fn flush(&mut self) {}
-
-    fn push_clip_layer(&mut self, path: &BezPath) {
-        Self::push_clip_layer(self, path);
-    }
-
-    fn push_blend_layer(&mut self, _: BlendMode) {
-        unimplemented!()
-    }
-
-    fn push_opacity_layer(&mut self, _: f32) {
-        unimplemented!()
-    }
-
-    fn push_mask_layer(&mut self, _: Mask) {
-        unimplemented!()
-    }
-
-    fn pop_layer(&mut self) {
-        Self::pop_layer(self);
-    }
-
-    fn set_stroke(&mut self, stroke: Stroke) {
-        Self::set_stroke(self, stroke);
-    }
-
-    fn set_paint(&mut self, paint: impl Into<PaintType>) {
-        let paint_type: PaintType = paint.into();
-        match paint_type {
-            PaintType::Solid(s) => Self::set_paint(self, s),
-            PaintType::Gradient(_) => {}
-            PaintType::Image(_) => {}
-        }
-    }
-
-    fn set_paint_transform(&mut self, _: Affine) {
-        unimplemented!();
-    }
-
-    fn set_fill_rule(&mut self, fill_rule: Fill) {
-        Self::set_fill_rule(self, fill_rule);
-    }
-
-    fn set_transform(&mut self, transform: Affine) {
-        Self::set_transform(self, transform);
-    }
-
-    // This method creates device resources every time it is called. This does not matter much for
-    // testing, but should not be used as a basis for implementing something real. This would be a
-    // very bad example for that.
-    #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
-        // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
-        // tests are run in parallel (likely related to the number of device resources being
-        // requested simultaneously). This is "fixed" by putting a mutex around this method,
-        // ensuring only one set of device resources is alive at the same time. This slows down
-        // testing when `cargo test` is used.
-        //
-        // Testing with `cargo nextest` (as on CI) is not meaningfully slowed down. `nextest` runs
-        // each test in its own process (<https://nexte.st/docs/design/why-process-per-test/>),
-        // meaning there is no contention on this mutex.
-        let _guard = {
-            use std::sync::Mutex;
-            static M: Mutex<()> = Mutex::new(());
-            M.lock().unwrap()
-        };
-
-        let width = self.width();
-        let height = self.height();
-
-        // Copied from vello_hybrid/examples/`render_to_file.rs`.
-
+        let scene = Scene::new(width, height);
         // Initialize wgpu device and queue for GPU rendering
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -292,10 +211,11 @@ impl Renderer for Scene {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
+        #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create renderer and render the scene to the texture
-        let mut renderer = vello_hybrid::Renderer::new(
+        let renderer = vello_hybrid::Renderer::new(
             &device,
             &vello_hybrid::RenderTargetConfig {
                 format: texture.format(),
@@ -303,28 +223,147 @@ impl Renderer for Scene {
                 height: height.into(),
             },
         );
+
+        Self {
+            scene,
+            device,
+            queue,
+            texture,
+            texture_view,
+            renderer: RefCell::new(renderer),
+        }
+    }
+
+    fn fill_path(&mut self, path: &BezPath) {
+        self.scene.fill_path(path);
+    }
+
+    fn stroke_path(&mut self, path: &BezPath) {
+        self.scene.stroke_path(path);
+    }
+
+    fn fill_rect(&mut self, rect: &Rect) {
+        self.scene.fill_rect(rect);
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, _: &Rect, _: f32, _: f32) {
+        unimplemented!()
+    }
+
+    fn stroke_rect(&mut self, rect: &Rect) {
+        self.scene.stroke_rect(rect);
+    }
+
+    fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
+        self.scene.glyph_run(font)
+    }
+
+    fn push_layer(
+        &mut self,
+        clip: Option<&BezPath>,
+        blend_mode: Option<BlendMode>,
+        opacity: Option<f32>,
+        mask: Option<Mask>,
+    ) {
+        self.scene.push_layer(clip, blend_mode, opacity, mask);
+    }
+
+    fn flush(&mut self) {}
+
+    fn push_clip_layer(&mut self, path: &BezPath) {
+        self.scene.push_clip_layer(path);
+    }
+
+    fn push_blend_layer(&mut self, _: BlendMode) {
+        unimplemented!()
+    }
+
+    fn push_opacity_layer(&mut self, _: f32) {
+        unimplemented!()
+    }
+
+    fn push_mask_layer(&mut self, _: Mask) {
+        unimplemented!()
+    }
+
+    fn pop_layer(&mut self) {
+        self.scene.pop_layer();
+    }
+
+    fn set_stroke(&mut self, stroke: Stroke) {
+        self.scene.set_stroke(stroke);
+    }
+
+    fn set_paint(&mut self, paint: impl Into<PaintType>) {
+        let paint_type: PaintType = paint.into();
+        match paint_type {
+            PaintType::Solid(s) => self.scene.set_paint(s),
+            PaintType::Gradient(g) => self.scene.set_paint(g),
+            PaintType::Image(i) => self.scene.set_paint(i),
+        }
+    }
+
+    fn set_paint_transform(&mut self, affine: Affine) {
+        self.scene.set_paint_transform(affine);
+    }
+
+    fn set_fill_rule(&mut self, fill_rule: Fill) {
+        self.scene.set_fill_rule(fill_rule);
+    }
+
+    fn set_transform(&mut self, transform: Affine) {
+        self.scene.set_transform(transform);
+    }
+
+    // This method creates device resources every time it is called. This does not matter much for
+    // testing, but should not be used as a basis for implementing something real. This would be a
+    // very bad example for that.
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
+        // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
+        // tests are run in parallel (likely related to the number of device resources being
+        // requested simultaneously). This is "fixed" by putting a mutex around this method,
+        // ensuring only one set of device resources is alive at the same time. This slows down
+        // testing when `cargo test` is used.
+        //
+        // Testing with `cargo nextest` (as on CI) is not meaningfully slowed down. `nextest` runs
+        // each test in its own process (<https://nexte.st/docs/design/why-process-per-test/>),
+        // meaning there is no contention on this mutex.
+        let _guard = {
+            use std::sync::Mutex;
+            static M: Mutex<()> = Mutex::new(());
+            M.lock().unwrap()
+        };
+
+        let width = self.scene.width();
+        let height = self.scene.height();
+
+        // for image in image_cache.images {}
+
         let render_size = vello_hybrid::RenderSize {
             width: width.into(),
             height: height.into(),
         };
         // Copy texture to buffer
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Vello Render To Buffer"),
-        });
-        renderer
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Vello Render To Buffer"),
+            });
+        self.renderer
+            .borrow_mut()
             .render(
-                self,
-                &device,
-                &queue,
+                &self.scene,
+                &self.device,
+                &self.queue,
                 &mut encoder,
                 &render_size,
-                &texture_view,
+                &self.texture_view,
             )
             .unwrap();
 
         // Create a buffer to copy the texture data
         let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
-        let texture_copy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Output Buffer"),
             size: u64::from(bytes_per_row) * u64::from(height),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
@@ -333,7 +372,7 @@ impl Renderer for Scene {
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &texture,
+                texture: &self.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -352,7 +391,7 @@ impl Renderer for Scene {
                 depth_or_array_layers: 1,
             },
         );
-        queue.submit([encoder.finish()]);
+        self.queue.submit([encoder.finish()]);
 
         // Map the buffer for reading
         texture_copy_buffer
@@ -362,7 +401,7 @@ impl Renderer for Scene {
                     panic!("Failed to map texture for reading");
                 }
             });
-        device.poll(wgpu::Maintain::Wait);
+        self.device.poll(wgpu::Maintain::Wait);
 
         // Read back the pixel data
         for (row, buf) in texture_copy_buffer
@@ -380,14 +419,59 @@ impl Renderer for Scene {
         texture_copy_buffer.unmap();
     }
 
-    // vello_hybrid WebGL renderer backend.
-    #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
-        use wasm_bindgen::JsCast;
-        use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
+    fn width(&self) -> u16 {
+        self.scene.width()
+    }
 
-        let width = self.width();
-        let height = self.height();
+    fn height(&self) -> u16 {
+        self.scene.height()
+    }
+
+    fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Upload Test Image"),
+            });
+
+        // Upload image to cache and atlas in one step!
+        let image_id = self.renderer.borrow_mut().upload_image(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &pixmap,
+        );
+
+        self.queue.submit([encoder.finish()]);
+
+        ImageSource::OpaqueId(image_id)
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+pub(crate) struct HybridRenderer {
+    scene: Scene,
+    renderer: RefCell<vello_hybrid::WebGlRenderer>,
+    gl: WebGl2RenderingContext,
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+impl Renderer for HybridRenderer {
+    type GlyphRenderer = Scene;
+
+    fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
+        use wasm_bindgen::JsCast;
+        use web_sys::HtmlCanvasElement;
+
+        if num_threads != 0 {
+            panic!("hybrid renderer doesn't support multi-threading");
+        }
+
+        if !matches!(level, Level::Fallback(_)) {
+            panic!("hybrid renderer doesn't support SIMD");
+        }
+
+        let scene = Scene::new(width, height);
 
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
@@ -402,13 +486,7 @@ impl Renderer for Scene {
         canvas.set_width(width.into());
         canvas.set_height(height.into());
 
-        let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
-        let render_size = vello_hybrid::RenderSize {
-            width: width.into(),
-            height: height.into(),
-        };
-
-        renderer.render(self, &render_size).unwrap();
+        let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
 
         let gl = canvas
             .get_context("webgl2")
@@ -416,27 +494,147 @@ impl Renderer for Scene {
             .unwrap()
             .dyn_into::<WebGl2RenderingContext>()
             .unwrap();
-        let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
-        gl.read_pixels_with_opt_u8_array(
-            0,
-            0,
-            width.into(),
-            height.into(),
-            WebGl2RenderingContext::RGBA,
-            WebGl2RenderingContext::UNSIGNED_BYTE,
-            Some(&mut pixels),
-        )
-        .unwrap();
 
+        Self {
+            scene,
+            renderer: RefCell::new(renderer),
+            gl,
+        }
+    }
+
+    fn fill_path(&mut self, path: &BezPath) {
+        self.scene.fill_path(path);
+    }
+
+    fn stroke_path(&mut self, path: &BezPath) {
+        self.scene.stroke_path(path);
+    }
+
+    fn fill_rect(&mut self, rect: &Rect) {
+        self.scene.fill_rect(rect);
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, _: &Rect, _: f32, _: f32) {
+        unimplemented!()
+    }
+
+    fn stroke_rect(&mut self, rect: &Rect) {
+        self.scene.stroke_rect(rect);
+    }
+
+    fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
+        self.scene.glyph_run(font)
+    }
+
+    fn push_layer(
+        &mut self,
+        clip: Option<&BezPath>,
+        blend_mode: Option<BlendMode>,
+        opacity: Option<f32>,
+        mask: Option<Mask>,
+    ) {
+        self.scene.push_layer(clip, blend_mode, opacity, mask);
+    }
+
+    fn flush(&mut self) {}
+
+    fn push_clip_layer(&mut self, path: &BezPath) {
+        self.scene.push_clip_layer(path);
+    }
+
+    fn push_blend_layer(&mut self, _: BlendMode) {
+        unimplemented!()
+    }
+
+    fn push_opacity_layer(&mut self, _: f32) {
+        unimplemented!()
+    }
+
+    fn push_mask_layer(&mut self, _: Mask) {
+        unimplemented!()
+    }
+
+    fn pop_layer(&mut self) {
+        self.scene.pop_layer();
+    }
+
+    fn set_stroke(&mut self, stroke: Stroke) {
+        self.scene.set_stroke(stroke);
+    }
+
+    fn set_paint(&mut self, paint: impl Into<PaintType>) {
+        let paint_type: PaintType = paint.into();
+        match paint_type {
+            PaintType::Solid(s) => self.scene.set_paint(s),
+            PaintType::Gradient(g) => self.scene.set_paint(g),
+            PaintType::Image(i) => self.scene.set_paint(i),
+        }
+    }
+
+    fn set_paint_transform(&mut self, affine: Affine) {
+        self.scene.set_paint_transform(affine);
+    }
+
+    fn set_fill_rule(&mut self, fill_rule: Fill) {
+        self.scene.set_fill_rule(fill_rule);
+    }
+
+    fn set_transform(&mut self, transform: Affine) {
+        self.scene.set_transform(transform);
+    }
+
+    // vello_hybrid WebGL renderer backend.
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
+        use web_sys::WebGl2RenderingContext;
+
+        let width = self.scene.width();
+        let height = self.scene.height();
+
+        let render_size = vello_hybrid::RenderSize {
+            width: width.into(),
+            height: height.into(),
+        };
+        self.renderer
+            .borrow_mut()
+            .render(&self.scene, &render_size)
+            .unwrap();
+
+        let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
+        self.gl
+            .read_pixels_with_opt_u8_array(
+                0,
+                0,
+                width.into(),
+                height.into(),
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                Some(&mut pixels),
+            )
+            .unwrap();
         let pixmap_data = pixmap.data_as_u8_slice_mut();
         pixmap_data.copy_from_slice(&pixels);
     }
 
     fn width(&self) -> u16 {
-        Self::width(self)
+        self.scene.width()
     }
 
     fn height(&self) -> u16 {
-        Self::height(self)
+        self.scene.height()
+    }
+
+    fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
+        let image_id = self.renderer.borrow_mut().upload_image(&pixmap);
+        ImageSource::OpaqueId(image_id)
+    }
+}
+
+impl GlyphRenderer for HybridRenderer {
+    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
+        self.scene.fill_glyph(glyph);
+    }
+
+    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
+        self.scene.stroke_glyph(glyph);
     }
 }
