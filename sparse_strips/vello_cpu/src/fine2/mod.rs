@@ -12,7 +12,6 @@ use core::iter;
 use vello_common::coarse::{Cmd, WideTile};
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
-    GradientLike,
 };
 use vello_common::paint::{ImageSource, Paint, PremulColor};
 use vello_common::tile::Tile;
@@ -465,7 +464,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                                 fill_complex_paint!(
                                     g.has_opacities,
-                                    T::gradient_painter(self.simd, g, l.has_undefined(), f32_buf)
+                                    T::gradient_painter(self.simd, g, false, f32_buf)
                                 );
                             }
                             EncodedKind::Sweep(s) => {
@@ -480,7 +479,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                                 fill_complex_paint!(
                                     g.has_opacities,
-                                    T::gradient_painter(self.simd, g, s.has_undefined(), f32_buf)
+                                    T::gradient_painter(self.simd, g, false, f32_buf)
                                 );
                             }
                             EncodedKind::Radial(r) => {

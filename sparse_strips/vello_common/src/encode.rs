@@ -14,7 +14,6 @@ use alloc::borrow::Cow;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
-use core::f32::consts::PI;
 #[cfg(feature = "multithreading")]
 use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
@@ -626,70 +625,12 @@ pub enum RadialKind {
 }
 
 impl RadialKind {
-    fn pos_inner(&self, pos: Point) -> Option<f32> {
+    /// Whether the gradient is undefined at any location.
+    pub fn has_undefined(&self) -> bool {
         match self {
-            Self::Radial { bias, scale } => {
-                let mut radius = pos.to_vec2().length() as f32;
-                radius = bias + radius * scale;
-                Some(radius)
-            }
-            Self::Strip { scaled_r0_squared } => {
-                let p1 = scaled_r0_squared - pos.y as f32 * pos.y as f32;
-
-                if p1 < 0.0 {
-                    None
-                } else {
-                    Some(pos.x as f32 + p1.sqrt())
-                }
-            }
-            Self::Focal {
-                focal_data,
-                fp0,
-                fp1,
-            } => {
-                let x = pos.x as f32;
-                let y = pos.y as f32;
-
-                let mut t = if focal_data.is_focal_on_circle() {
-                    // xy_to_2pt_conical_focal_on_circle
-                    x + y * y / x
-                } else if focal_data.is_well_behaved() {
-                    // xy_to_2pt_conical_well_behaved
-                    (x * x + y * y).sqrt() - x * fp0
-                } else if focal_data.is_swapped() || (1.0 - focal_data.f_focal_x < 0.0) {
-                    // xy_to_2pt_conical_smaller
-                    -(x * x - y * y).sqrt() - x * fp0
-                } else {
-                    // xy_to_2pt_conical_greater
-                    (x * x - y * y).sqrt() - x * fp0
-                };
-
-                if !focal_data.is_well_behaved() {
-                    // mask_2pt_conical_degenerates
-                    let is_degenerate = t <= 0.0 || t.is_nan();
-
-                    if is_degenerate {
-                        return None;
-                    }
-                }
-
-                if 1.0 - focal_data.f_focal_x < 0.0 {
-                    // negate_x
-                    t = -t;
-                }
-
-                if !focal_data.is_natively_focal() {
-                    // alter_2pt_conical_compensate_focal
-                    t += fp1;
-                }
-
-                if focal_data.is_swapped() {
-                    // alter_2pt_conical_unswap
-                    t = 1.0 - t;
-                }
-
-                Some(t)
-            }
+            Self::Radial { .. } => false,
+            Self::Strip { .. } => true,
+            Self::Focal { focal_data, .. } => !focal_data.is_well_behaved(),
         }
     }
 }
@@ -758,76 +699,6 @@ pub struct GradientRange {
     /// The scale factors of the range. By calculating bias + x * factors (where x is
     /// between 0.0 and 1.0), we can interpolate between start and end color of the gradient range.
     pub scale: [f32; 4],
-}
-
-/// Sampling positions in a gradient.
-pub trait GradientLike {
-    /// Given a position, return the position on the gradient range.
-    fn cur_pos(&self, pos: Point) -> f32;
-    /// Whether the gradient is possibly not defined over the whole domain of points.
-    fn has_undefined(&self) -> bool;
-    /// Whether the current position is defined in the gradient. If `has_undefined` returns `false`,
-    /// this will return false for all possible points.
-    fn is_defined(&self, pos: Point) -> bool;
-}
-
-impl GradientLike for SweepKind {
-    fn cur_pos(&self, pos: Point) -> f32 {
-        // The position in a sweep gradient is simply determined by its angle from the origin.
-        let angle = (-pos.y as f32).atan2(pos.x as f32);
-
-        let adjusted_angle = if angle >= 0.0 {
-            angle
-        } else {
-            angle + 2.0 * PI
-        };
-
-        (adjusted_angle - self.start_angle) * self.inv_angle_delta
-    }
-
-    fn has_undefined(&self) -> bool {
-        false
-    }
-
-    fn is_defined(&self, _: Point) -> bool {
-        true
-    }
-}
-
-impl GradientLike for LinearKind {
-    fn cur_pos(&self, pos: Point) -> f32 {
-        // The position along a linear gradient is determined by where we are along the
-        // gradient line. Since during encoding, we have applied a transformation such that
-        // the gradient line always goes from (0, 0) to (1, 0), the position along the
-        // gradient line is simply determined by the current x coordinate!
-        pos.x as f32
-    }
-
-    fn has_undefined(&self) -> bool {
-        false
-    }
-
-    fn is_defined(&self, _: Point) -> bool {
-        true
-    }
-}
-
-impl GradientLike for RadialKind {
-    fn cur_pos(&self, pos: Point) -> f32 {
-        self.pos_inner(pos).unwrap_or(0.0)
-    }
-
-    fn has_undefined(&self) -> bool {
-        match self {
-            Self::Radial { .. } => false,
-            Self::Strip { .. } => true,
-            Self::Focal { focal_data, .. } => !focal_data.is_well_behaved(),
-        }
-    }
-
-    fn is_defined(&self, pos: Point) -> bool {
-        self.pos_inner(pos).is_some()
-    }
 }
 
 /// An encoded blurred, rounded rectangle.
