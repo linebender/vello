@@ -72,7 +72,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         Box::new(GradientFiller::new(simd, gradient, has_undefined, t_vals))
     }
 
-    fn simple_image_painter<'a>(
+    fn plain_nn_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
@@ -84,7 +84,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         ))
     }
 
-    fn image_painter<'a>(
+    fn nn_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
@@ -92,27 +92,6 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         start_y: u16,
     ) -> Box<dyn Painter + 'a> {
         Box::new(ImageFiller::new(simd, image, pixmap, start_x, start_y))
-    }
-
-    fn filtered_image_painter<'a>(
-        simd: S,
-        image: &'a EncodedImage,
-        pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(FilteredImageFiller::new(
-            simd, image, pixmap, start_x, start_y,
-        ))
-    }
-
-    fn blurred_rounded_rectangle_painter<'a>(
-        simd: S,
-        rect: &'a EncodedBlurredRoundedRectangle,
-        start_x: u16,
-        start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(BlurredRoundedRectFiller::new(simd, rect, start_x, start_y))
     }
 
     fn apply_mask(

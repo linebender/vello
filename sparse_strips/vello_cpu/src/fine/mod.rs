@@ -35,6 +35,8 @@ use vello_common::fearless_simd::{
     Simd, SimdBase, SimdFloat, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4, u32x8,
 };
 use vello_common::pixmap::Pixmap;
+use crate::fine::common::image::FilteredImageFiller;
+use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 
 pub type ScratchBuf<F> = [F; SCRATCH_BUF_SIZE];
 
@@ -174,45 +176,65 @@ impl<S: Simd> CompositeType<u8, S> for u8x32<S> {
 pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     /// The basic underlying numerical type of the kernel.
     type Numeric: Numeric;
+    /// The type that is used for blending and compositing.
     type Composite: CompositeType<Self::Numeric, S>;
     type Shader: ShaderType<S>;
 
+    /// Extract the color from a premultiplied color.
     fn extract_color(color: PremulColor) -> [Self::Numeric; 4];
+    /// Pack the blend buf into the given region.
     fn pack(simd: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]);
+    /// Repeatedly copy the solid color into the target buffer.
     fn copy_solid(simd: S, target: &mut [Self::Numeric], color: [Self::Numeric; 4]);
+    /// Return the painter used for painting gradients.
     fn gradient_painter<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
         has_undefined: bool,
         t_vals: &'a [f32],
     ) -> Box<dyn Painter + 'a>;
-    fn simple_image_painter<'a>(
+    /// Return the painter used for painting plain nearest-neighbor images. 
+    /// 
+    /// Plain nearest-neighbor images are images with the quality 'Low' and no skewing component in their
+    /// transform.
+    fn plain_nn_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
     ) -> Box<dyn Painter + 'a>;
-    fn image_painter<'a>(
+    /// Return the painter used for painting plain nearest-neighbor images. 
+    /// 
+    /// Same as `plain_nn`, but must also support skewing transforms.
+    fn nn_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
     ) -> Box<dyn Painter + 'a>;
+    /// Return the painter used for painting image with `Medium` or `High` quality.
     fn filtered_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a>;
+    ) -> Box<dyn Painter + 'a> {
+        Box::new(FilteredImageFiller::new(
+            simd, image, pixmap, start_x, start_y,
+        ))
+    }
+    /// Return the painter used for painting blurred rounded rectangles.
     fn blurred_rounded_rectangle_painter<'a>(
         simd: S,
         rect: &'a EncodedBlurredRoundedRectangle,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a>;
+    ) -> Box<dyn Painter + 'a> {
+        Box::new(BlurredRoundedRectFiller::new(simd, rect, start_x, start_y))
+    }
     fn apply_mask(simd: S, target: &mut [Self::Numeric], src: impl Iterator<Item = Self::Shader>);
     fn apply_painter<'a>(simd: S, target: &mut [Self::Numeric], painter: Box<dyn Painter + 'a>);
     fn alpha_composite_solid(
@@ -236,11 +258,16 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     );
 }
 
+/// An object for performing fine rasterization
 #[derive(Debug)]
 pub struct Fine<S: Simd, T: FineKernel<S>> {
+    /// The coordinates of the currently covered wide tile.
     pub(crate) wide_coords: (u16, u16),
+    /// The stack of blend buffers.
     pub(crate) blend_buf: Vec<ScratchBuf<T::Numeric>>,
+    /// An intermediate buffer used by shaders to store their contents.
     pub(crate) paint_buf: ScratchBuf<T::Numeric>,
+    /// An intermediate buffer used by gradients to store the t values.
     pub(crate) f32_buf: Vec<f32>,
     pub(crate) simd: S,
 }
@@ -287,7 +314,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 );
             }
             Cmd::AlphaFill(s) => {
-                let a_slice = &alphas[s.alpha_idx..];
                 self.fill(
                     usize::from(s.x),
                     usize::from(s.width),
@@ -295,7 +321,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     s.blend_mode
                         .unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
                     paints,
-                    Some(a_slice),
+                    Some(&alphas[s.alpha_idx..]),
                 );
             }
             Cmd::PushBuf => {
@@ -521,13 +547,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             (false, true) => {
                                 fill_complex_paint!(
                                     i.has_opacities,
-                                    T::simple_image_painter(self.simd, i, pixmap, start_x, start_y)
+                                    T::plain_nn_image_painter(self.simd, i, pixmap, start_x, start_y)
                                 );
                             }
                             (true, true) => {
                                 fill_complex_paint!(
                                     i.has_opacities,
-                                    T::image_painter(self.simd, i, pixmap, start_x, start_y)
+                                    T::nn_image_painter(self.simd, i, pixmap, start_x, start_y)
                                 );
                             }
                         }
