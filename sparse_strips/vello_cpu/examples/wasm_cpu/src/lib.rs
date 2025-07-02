@@ -15,7 +15,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use vello_common::kurbo::{Affine, Vec2};
 use vello_cpu::Level;
-// use vello_hybrid_scenes::AnyScene;
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
