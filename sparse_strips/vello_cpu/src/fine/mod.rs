@@ -29,7 +29,7 @@ use crate::fine::shaders::gradient::calculate_t_vals;
 use crate::fine::shaders::gradient::linear::SimdLinearKind;
 use crate::fine::shaders::gradient::radial::SimdRadialKind;
 use crate::fine::shaders::gradient::sweep::SimdSweepKind;
-use crate::util::{BlendModeExt, EncodedImageExt, InlineMapExt};
+use crate::util::{BlendModeExt, EncodedImageExt};
 pub use highp::F32Kernel;
 pub use lowp::U8Kernel;
 use vello_common::fearless_simd::{
@@ -320,7 +320,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 let width = (blend_buf.len() / (Tile::HEIGHT as usize * COLOR_COMPONENTS)) as u16;
                 let y = start_y as u32 + u32x4::from_slice(self.simd, &[0, 1, 2, 3]);
 
-                let iter = (start_x..(start_x + width)).inline_map(|x| {
+                let iter = (start_x..(start_x + width)).map(|x| {
                     let x_in_range = x < m.width();
                     let s1 = if x_in_range && (y[0] as u16) < m.height() {
                         m.sample(x, y[0] as u16)
