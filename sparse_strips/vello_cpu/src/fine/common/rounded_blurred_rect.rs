@@ -119,13 +119,13 @@ impl<S: Simd> Iterator for AlphaCalculator<S> {
     type Item = f32x8<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let i = f32x8::splat_col_pos(
+        let i = f32x8::splat_pos(
             self.simd,
             self.cur_pos.x as f32,
             self.x_advance.x as f32,
             self.y_advance.x as f32,
         );
-        let j = f32x8::splat_col_pos(
+        let j = f32x8::splat_pos(
             self.simd,
             self.cur_pos.y as f32,
             self.x_advance.y as f32,

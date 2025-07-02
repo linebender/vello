@@ -33,14 +33,14 @@ impl<S: Simd> Iterator for BilinearImageFiller<'_, S> {
     type Item = u8x16<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let x_positions = f32x4::splat_col_pos(
+        let x_positions = f32x4::splat_pos(
             self.simd,
             self.data.cur_pos.x as f32,
             self.data.x_advances.0,
             self.data.y_advances.0,
         );
 
-        let y_positions = f32x4::splat_col_pos(
+        let y_positions = f32x4::splat_pos(
             self.simd,
             self.data.cur_pos.y as f32,
             self.data.x_advances.1,

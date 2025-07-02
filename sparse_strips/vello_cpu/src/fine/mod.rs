@@ -170,7 +170,9 @@ impl<S: Simd> CompositeType<u8, S> for u8x32<S> {
     }
 }
 
+/// A kernel for performing fine rasterization.
 pub trait FineKernel<S: Simd>: Send + Sync + 'static {
+    /// The basic underlying numerical type of the kernel.
     type Numeric: Numeric;
     type Composite: CompositeType<Self::Numeric, S>;
     type Shader: ShaderType<S>;
@@ -574,13 +576,19 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     }
 }
 
+pub trait Painter {
+    fn paint_u8(&mut self, buf: &mut [u8]);
+    fn paint_f32(&mut self, buf: &mut [f32]);
+}
+
+/// Calculate the x/y position using the x/y advances for each pixel, assuming a tile height of 4.
 pub trait PosExt<S: Simd> {
-    fn splat_col_pos(simd: S, pos: f32, x_advance: f32, y_advance: f32) -> Self;
+    fn splat_pos(simd: S, pos: f32, x_advance: f32, y_advance: f32) -> Self;
 }
 
 impl<S: Simd> PosExt<S> for f32x4<S> {
     #[inline(always)]
-    fn splat_col_pos(simd: S, pos: f32, _: f32, y_advance: f32) -> Self {
+    fn splat_pos(simd: S, pos: f32, _: f32, y_advance: f32) -> Self {
         let column_mask: f32x4<_> = [0.0, 1.0, 2.0, 3.0].simd_into(simd);
 
         f32x4::splat(simd, pos).madd(column_mask, f32x4::splat(simd, y_advance))
@@ -589,14 +597,16 @@ impl<S: Simd> PosExt<S> for f32x4<S> {
 
 impl<S: Simd> PosExt<S> for f32x8<S> {
     #[inline(always)]
-    fn splat_col_pos(simd: S, pos: f32, x_advance: f32, y_advance: f32) -> Self {
+    fn splat_pos(simd: S, pos: f32, x_advance: f32, y_advance: f32) -> Self {
         simd.combine_f32x4(
-            f32x4::splat_col_pos(simd, pos, x_advance, y_advance),
-            f32x4::splat_col_pos(simd, pos + x_advance, x_advance, y_advance),
+            f32x4::splat_pos(simd, pos, x_advance, y_advance),
+            f32x4::splat_pos(simd, pos + x_advance, x_advance, y_advance),
         )
     }
 }
 
+/// Splatting every 4th element in the vector, used for splatting the alpha value of
+/// a color to all lanes.
 pub trait Splat4thExt<S> {
     fn splat_4th(self) -> Self;
 }
@@ -604,8 +614,8 @@ pub trait Splat4thExt<S> {
 impl<S: Simd> Splat4thExt<S> for f32x4<S> {
     #[inline(always)]
     fn splat_4th(self) -> Self {
-        let zip_low = self.zip_high(self);
-        zip_low.zip_high(zip_low)
+        let zip1 = self.zip_high(self);
+        zip1.zip_high(zip1)
     }
 }
 
@@ -618,11 +628,6 @@ impl<S: Simd> Splat4thExt<S> for f32x8<S> {
 
         self.simd.combine_f32x4(p1, p2)
     }
-}
-
-pub trait Painter {
-    fn paint_u8(&mut self, buf: &mut [u8]);
-    fn paint_f32(&mut self, buf: &mut [f32]);
 }
 
 impl<S: Simd> Splat4thExt<S> for f32x16<S> {
@@ -675,7 +680,7 @@ impl<S: Simd> Splat4thExt<S> for u8x32<S> {
     }
 }
 
-/// The results of an f32 shader, with each channel stored separately.
+/// The results of an f32 shader, where each channel stored separately.
 pub(crate) struct ShaderResultF32<S: Simd> {
     pub(crate) r: f32x8<S>,
     pub(crate) g: f32x8<S>,
@@ -684,6 +689,7 @@ pub(crate) struct ShaderResultF32<S: Simd> {
 }
 
 impl<S: Simd> ShaderResultF32<S> {
+    /// Convert the result into two f32x16 elements, interleaved as RGBA.
     #[inline(always)]
     pub(crate) fn get(&self) -> (f32x16<S>, f32x16<S>) {
         let (r_1, r_2) = self.r.simd.split_f32x8(self.r);
@@ -706,6 +712,8 @@ impl<S: Simd> ShaderResultF32<S> {
 }
 
 mod macros {
+    /// The default `Painter` implementation for an iterator
+    /// that returns its results as f32x16.
     macro_rules! f32x16_painter {
         ($($type_path:tt)+) => {
             impl<S: Simd> crate::fine::Painter for $($type_path)+ {

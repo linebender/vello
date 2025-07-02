@@ -24,8 +24,8 @@ pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
     let y_advances = (gradient.y_advance.x as f32, gradient.y_advance.y as f32);
 
     for buf in buf.chunks_exact_mut(8) {
-        let x_pos = f32x8::splat_col_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
-        let y_pos = f32x8::splat_col_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
+        let x_pos = f32x8::splat_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
+        let y_pos = f32x8::splat_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
         let pos = kind.cur_pos(x_pos, y_pos);
         buf.copy_from_slice(&pos.val);
 

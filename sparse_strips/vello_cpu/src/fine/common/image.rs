@@ -31,7 +31,7 @@ impl<'a, S: Simd> SimpleImageFiller<'a, S> {
 
         let y_positions = extend_simd(
             simd,
-            f32x4::splat_col_pos(
+            f32x4::splat_pos(
                 simd,
                 data.cur_pos.y as f32,
                 data.x_advances.1,
@@ -42,7 +42,7 @@ impl<'a, S: Simd> SimpleImageFiller<'a, S> {
             data.height_inv,
         );
 
-        let cur_x_pos = f32x4::splat_col_pos(
+        let cur_x_pos = f32x4::splat_pos(
             simd,
             data.cur_pos.x as f32,
             data.x_advances.0,
@@ -108,7 +108,7 @@ impl<S: Simd> Iterator for ImageFiller<'_, S> {
     fn next(&mut self) -> Option<Self::Item> {
         let x_positions = extend_simd(
             self.simd,
-            f32x4::splat_col_pos(
+            f32x4::splat_pos(
                 self.simd,
                 self.data.cur_pos.x as f32,
                 self.data.x_advances.0,
@@ -121,7 +121,7 @@ impl<S: Simd> Iterator for ImageFiller<'_, S> {
 
         let y_positions = extend_simd(
             self.simd,
-            f32x4::splat_col_pos(
+            f32x4::splat_pos(
                 self.simd,
                 self.data.cur_pos.y as f32,
                 self.data.x_advances.1,
@@ -166,14 +166,14 @@ impl<S: Simd> Iterator for FilteredImageFiller<'_, S> {
     type Item = f32x16<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let x_positions = f32x4::splat_col_pos(
+        let x_positions = f32x4::splat_pos(
             self.simd,
             self.data.cur_pos.x as f32,
             self.data.x_advances.0,
             self.data.y_advances.0,
         );
 
-        let y_positions = f32x4::splat_col_pos(
+        let y_positions = f32x4::splat_pos(
             self.simd,
             self.data.cur_pos.y as f32,
             self.data.x_advances.1,
