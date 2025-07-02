@@ -522,7 +522,7 @@ pub struct LinearKind;
 pub struct FocalData {
     /// The normalized radius of the outer circle in focal space.
     pub fr1: f32,
-    /// The x-coordinate of the focal point in normalized space [0,1].
+    /// The x-coordinate of the focal point in normalized space \[0,1\].
     pub f_focal_x: f32,
     /// Whether the focal points have been swapped.
     pub f_is_swapped: bool,
