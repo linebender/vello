@@ -108,10 +108,6 @@
 extern crate alloc;
 extern crate core;
 
-// Suppress the unused_crate_dependencies lint when both std and libm are specified.
-#[cfg(all(feature = "std", feature = "libm"))]
-use libm as _;
-
 mod render;
 
 mod dispatch;

@@ -10,6 +10,9 @@ use crate::kurbo::{Point, Vec2};
 use vello_common::encode::EncodedBlurredRoundedRectangle;
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x8, u8x16};
 
+#[cfg(not(feature = "std"))]
+use vello_common::kurbo::common::FloatFuncs as _;
+
 #[derive(Debug)]
 pub(crate) struct BlurredRoundedRectFiller<S: Simd> {
     r: f32x8<S>,

@@ -35,9 +35,9 @@ pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMod
     let split = |input: f32x16<S>| {
         let mut storage = [0.0; 16];
         simd.store_interleaved_128_f32x16(input, &mut storage);
-        let input = f32x16::from_slice(simd, &storage);
+        let input_v = f32x16::from_slice(simd, &storage);
 
-        let p1 = simd.split_f32x16(input);
+        let p1 = simd.split_f32x16(input_v);
         let (r, g) = simd.split_f32x8(p1.0);
         let (b, a) = simd.split_f32x8(p1.1);
 

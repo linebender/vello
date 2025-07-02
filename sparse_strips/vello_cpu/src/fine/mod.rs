@@ -505,7 +505,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             EncodedKind::Linear(l) => {
                                 calculate_t_vals(
                                     self.simd,
-                                    SimdLinearKind::new(self.simd, l),
+                                    SimdLinearKind::new(self.simd, *l),
                                     f32_buf,
                                     g,
                                     start_x,
