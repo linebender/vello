@@ -116,7 +116,6 @@ mod render;
 
 mod dispatch;
 #[doc(hidden)]
-/// This is an internal module, do not access directly.
 pub mod fine;
 #[doc(hidden)]
 pub mod region;

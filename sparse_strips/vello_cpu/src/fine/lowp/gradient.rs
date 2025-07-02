@@ -49,7 +49,6 @@ impl<'a, S: Simd> Iterator for GradientFiller<'a, S> {
 }
 
 impl<S: Simd> crate::fine::Painter for GradientFiller<'_, S> {
-    #[inline(never)]
     fn paint_u8(&mut self, buf: &mut [u8]) {
         for chunk in buf.chunks_exact_mut(64) {
             chunk.copy_from_slice(&self.next().unwrap().val);
