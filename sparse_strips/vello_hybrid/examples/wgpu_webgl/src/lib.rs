@@ -54,6 +54,7 @@ impl RendererWrapper {
                         // (8). Some devices (including CI) support only up to 4.
                         max_color_attachments: 4,
                         max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d,
+                        max_buffer_size: adapter.limits().max_buffer_size,
                         ..wgpu::Limits::downlevel_webgl2_defaults()
                     },
                     ..Default::default()
