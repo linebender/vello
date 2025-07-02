@@ -4117,6 +4117,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm_cpu"
+version = "0.5.0"
+dependencies = [
+ "bytemuck",
+ "console_error_panic_hook",
+ "console_log",
+ "js-sys",
+ "log",
+ "parley",
+ "vello_common",
+ "vello_cpu",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+ "wgpu",
+]
+
+[[package]]
 name = "wasmparser"
 version = "0.214.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
