@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use core::slice::ChunksExact;
 use vello_common::encode::EncodedGradient;
 use vello_common::fearless_simd::*;

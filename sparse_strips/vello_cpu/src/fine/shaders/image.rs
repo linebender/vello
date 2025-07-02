@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::fine::highp::element_wise_splat;
 use crate::fine::macros::{f32_iter, u8_iter};
 use crate::fine::{PosExt, Splat4thExt, u8_to_f32};

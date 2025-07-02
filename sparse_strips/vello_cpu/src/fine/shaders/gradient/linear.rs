@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::fine::shaders::gradient::SimdGradientKind;
 use core::marker::PhantomData;
 use vello_common::encode::LinearKind;

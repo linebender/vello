@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::fine::Splat4thExt;
 use crate::peniko::{BlendMode, Compose};
 use vello_common::fearless_simd::*;

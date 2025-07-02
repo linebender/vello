@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::fine::shaders::gradient::SimdGradientKind;
 use vello_common::encode::{FocalData, RadialKind};
 use vello_common::fearless_simd::{Simd, SimdBase, f32x8};

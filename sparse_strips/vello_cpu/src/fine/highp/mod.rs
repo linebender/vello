@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::fine::FineKernel;
 use crate::fine::shaders::gradient::GradientFiller;
 use crate::fine::shaders::image::{FilteredImageFiller, ImageFiller, SimpleImageFiller};
