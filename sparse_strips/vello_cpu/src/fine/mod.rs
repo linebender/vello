@@ -305,13 +305,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 self.blend_buf.pop();
             }
             Cmd::ClipFill(cf) => {
-                self.clip_fill(cf.x as usize, cf.width as usize);
+                self.clip(cf.x as usize, cf.width as usize, None);
             }
             Cmd::ClipStrip(cs) => {
-                let aslice = &alphas[cs.alpha_idx..];
-                self.clip_strip(cs.x as usize, cs.width as usize, aslice);
+                self.clip(cs.x as usize, cs.width as usize, Some(&alphas[cs.alpha_idx..]));
             }
-            Cmd::Blend(b) => self.apply_blend(*b),
+            Cmd::Blend(b) => self.blend(*b),
             Cmd::Mask(m) => {
                 let start_x = self.wide_coords.0 * WideTile::WIDTH;
                 let start_y = self.wide_coords.1 * Tile::HEIGHT;
@@ -323,26 +322,21 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                 let iter = (start_x..(start_x + width)).map(|x| {
                     let x_in_range = x < m.width();
-                    let s1 = if x_in_range && (y[0] as u16) < m.height() {
-                        m.sample(x, y[0] as u16)
-                    } else {
-                        0
-                    };
-                    let s2 = if x_in_range && (y[1] as u16) < m.height() {
-                        m.sample(x, y[1] as u16)
-                    } else {
-                        0
-                    };
-                    let s3 = if x_in_range && (y[2] as u16) < m.height() {
-                        m.sample(x, y[2] as u16)
-                    } else {
-                        0
-                    };
-                    let s4 = if x_in_range && (y[3] as u16) < m.height() {
-                        m.sample(x, y[3] as u16)
-                    } else {
-                        0
-                    };
+                    
+                    macro_rules! sample {
+                        ($idx:expr) => {
+                            if x_in_range && (y[$idx] as u16) < m.height() {
+                                m.sample(x, y[$idx] as u16)
+                            } else {
+                                0
+                            }
+                        };
+                    }
+                    
+                    let s1 = sample!(0);
+                    let s2 = sample!(1);
+                    let s3 = sample!(2);
+                    let s4 = sample!(3);
 
                     let samples = u8x16::from_slice(
                         self.simd,
@@ -370,7 +364,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     }
 
     /// Fill at a given x and with a width using the given paint.
-    // For short strip segments, benchmark showed that not inlining leads to significantly
+    // For short strip segments, benchmarks showed that not inlining leads to significantly
     // worse performance.
     #[inline(always)]
     pub fn fill(
@@ -419,6 +413,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
                 let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
+                // We need to have this as a macro because closures cannot take generic arguments, and
+                // we would have to repeatedly provide all arguments if we made it a function.
                 macro_rules! fill_complex_paint {
                     ($has_opacities:expr, $filler:expr) => {
                         if $has_opacities || alphas.is_some() {
@@ -453,6 +449,11 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         );
                     }
                     EncodedPaint::Gradient(g) => {
+                        // Note that we are calculating the t values first, store them in a separate
+                        // buffer and then pass that buffer to the iterator instead of calculating
+                        // the t values on the fly in the iterator. The latter would be faster, but
+                        // it would probably increase code size a lot, because the functions for
+                        // position calculation need to be inlined for good performance.
                         let f32_buf = &mut self.f32_buf[..width * Tile::HEIGHT as usize];
 
                         match &g.kind {
@@ -536,7 +537,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         }
     }
 
-    fn apply_blend(&mut self, blend_mode: BlendMode) {
+    fn blend(&mut self, blend_mode: BlendMode) {
         let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
 
@@ -551,7 +552,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         );
     }
 
-    fn clip_fill(&mut self, x: usize, width: usize) {
+    fn clip(&mut self, x: usize, width: usize, alphas: Option<&[u8]>) {
         let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
 
@@ -560,22 +561,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let target_buffer =
             &mut target_buffer[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
 
-        T::alpha_composite_shader(self.simd, target_buffer, source_buffer, None);
-    }
-
-    fn clip_strip(&mut self, x: usize, width: usize, alphas: &[u8]) {
-        let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
-        let target_buffer = rest.last_mut().unwrap();
-
-        let source_buffer =
-            &mut source_buffer[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
-        let target_buffer =
-            &mut target_buffer[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
-
-        T::alpha_composite_shader(self.simd, target_buffer, source_buffer, Some(alphas));
+        T::alpha_composite_shader(self.simd, target_buffer, source_buffer, alphas);
     }
 }
 
+/// A trait for shaders that can render their contents into a u8/f32 buffer. Note that while
+/// the trait has a method for both, f32 and u8, some shaders might only support 1 of them, so
+/// care is needed when using them.
 pub trait Painter {
     fn paint_u8(&mut self, buf: &mut [u8]);
     fn paint_f32(&mut self, buf: &mut [f32]);
