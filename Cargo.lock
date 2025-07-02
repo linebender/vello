@@ -3723,6 +3723,7 @@ dependencies = [
  "bytemuck",
  "fearless_simd",
  "libm",
+ "once_cell",
  "peniko",
  "png",
  "roxmltree",

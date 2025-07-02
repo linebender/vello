@@ -10,10 +10,15 @@ use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::{FloatExt, compute_erf7};
 use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor};
 use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
+use crate::pixmap::Pixmap;
 use alloc::borrow::Cow;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+#[cfg(not(feature = "multithreading"))]
+use core::cell::OnceCell;
 use core::f32::consts::PI;
-use core::iter;
+#[cfg(feature = "multithreading")]
+use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
 
 #[cfg(not(feature = "std"))]
@@ -209,6 +214,8 @@ impl EncodeExt for Gradient {
             ranges,
             pad,
             has_opacities,
+            u8_lut: OnceCell::new(),
+            f32_lut: OnceCell::new(),
         };
 
         let idx = paints.len();
@@ -384,35 +391,15 @@ fn encode_stops(
         GradientRange { x1, bias, scale }
     };
 
-    // Note: this could use `Iterator::map_windows` once stabilized, meaning `interpolated_stops`
-    // no longer needs to be collected.
-    let stop_ranges = interpolated_stops.windows(2).map(|s| {
-        let left_stop = &s[0];
-        let right_stop = &s[1];
+    interpolated_stops
+        .windows(2)
+        .map(|s| {
+            let left_stop = &s[0];
+            let right_stop = &s[1];
 
-        create_range(left_stop, right_stop)
-    });
-
-    if pad {
-        // We handle padding by inserting dummy stops in the beginning and end with a very big
-        // range.
-        let left_range = iter::once({
-            let first_stop = interpolated_stops.first().unwrap();
-
-            create_range(first_stop, first_stop)
-        });
-
-        let right_range = iter::once({
-            let last_stop = interpolated_stops.last().unwrap();
-            let mut encoded_range = create_range(last_stop, last_stop);
-            encoded_range.x1 = f32::MAX;
-            encoded_range
-        });
-
-        left_range.chain(stop_ranges.chain(right_range)).collect()
-    } else {
-        stop_ranges.collect()
-    }
+            create_range(left_stop, right_stop)
+        })
+        .collect()
 }
 
 pub(crate) fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
@@ -436,21 +423,36 @@ impl EncodeExt for Image {
     fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
         let idx = paints.len();
 
+        let mut quality = self.quality;
+
+        let c = transform.as_coeffs();
+
+        // Optimize image quality for integer-only translations.
+        if (c[0] as f32 - 1.0).is_nearly_zero()
+            && (c[1] as f32).is_nearly_zero()
+            && (c[2] as f32).is_nearly_zero()
+            && (c[3] as f32 - 1.0).is_nearly_zero()
+            && (c[4].fract() as f32).is_nearly_zero()
+            && (c[5].fract() as f32).is_nearly_zero()
+            && quality == ImageQuality::Medium
+        {
+            quality = ImageQuality::Low;
+        }
+
         // Similarly to gradients, apply a 0.5 offset so we sample at the center of
         // a pixel.
         let transform = transform.inverse() * Affine::translate((0.5, 0.5));
+
         let (x_advance, y_advance) = x_y_advances(&transform);
 
         let encoded = match &self.source {
             ImageSource::Pixmap(pixmap) => {
-                // TODO: This is somewhat expensive for large images, maybe it's not worth optimizing
-                // non-opaque images in the first place..
-                let has_opacities = pixmap.data().iter().any(|pixel| pixel.a != 255);
                 EncodedImage {
                     source: ImageSource::Pixmap(pixmap.clone()),
                     extends: (self.x_extend, self.y_extend),
                     quality: self.quality,
-                    has_opacities,
+                    // While we could optimize RGB8 images, it's probably not worth the trouble.
+                    has_opacities: true,
                     transform,
                     x_advance,
                     y_advance,
@@ -460,7 +462,7 @@ impl EncodeExt for Image {
                 source: ImageSource::OpaqueId(*image),
                 extends: (self.x_extend, self.y_extend),
                 quality: self.quality,
-                has_opacities: false,
+                has_opacities: true,
                 transform,
                 x_advance,
                 y_advance,
@@ -500,7 +502,7 @@ impl From<EncodedBlurredRoundedRectangle> for EncodedPaint {
 #[derive(Debug)]
 pub struct EncodedImage {
     /// The underlying pixmap of the image.
-    pub source: ImageSource,
+    pub pixmap: Arc<Pixmap>,
     /// The extends in the horizontal and vertical direction.
     pub extends: (Extend, Extend),
     /// The rendering quality of the image.
@@ -516,15 +518,15 @@ pub struct EncodedImage {
 }
 
 /// Computed properties of a linear gradient.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct LinearKind;
 
 /// Focal data for a radial gradient.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct FocalData {
-    fr1: f32,
-    f_focal_x: f32,
-    f_is_swapped: bool,
+    pub fr1: f32,
+    pub f_focal_x: f32,
+    pub f_is_swapped: bool,
 }
 
 impl FocalData {
@@ -695,8 +697,10 @@ impl RadialKind {
 /// Computed properties of a sweep gradient.
 #[derive(Debug)]
 pub struct SweepKind {
-    start_angle: f32,
-    inv_angle_delta: f32,
+    /// The start angle of the sweep gradient.
+    pub start_angle: f32,
+    /// The inverse delta between start and end angle.
+    pub inv_angle_delta: f32,
 }
 
 /// A kind of encoded gradient.
@@ -727,6 +731,20 @@ pub struct EncodedGradient {
     pub pad: bool,
     /// Whether the gradient requires `source_over` compositing.
     pub has_opacities: bool,
+    u8_lut: OnceCell<GradientLut<u8>>,
+    f32_lut: OnceCell<GradientLut<f32>>,
+}
+
+impl EncodedGradient {
+    /// Get the lookup table for sampling u8-based gradient values.
+    pub fn u8_lut(&self) -> &GradientLut<u8> {
+        self.u8_lut.get_or_init(|| GradientLut::new(&self.ranges))
+    }
+
+    /// Get the lookup table for sampling f32-based gradient values.
+    pub fn f32_lut(&self) -> &GradientLut<f32> {
+        self.f32_lut.get_or_init(|| GradientLut::new(&self.ranges))
+    }
 }
 
 /// An encoded ange between two color stops.
@@ -947,6 +965,90 @@ fn unit_to_line(p0: Point, p1: Point) -> Affine {
         p0.x,
         p0.y,
     ])
+}
+
+/// A helper trait for converting a premultiplied f32 color to `Self`.
+pub trait FromF32Color: Sized {
+    /// Convert from a premultiplied f32 color to `Self`.
+    fn from_f32(color: &[f32; 4]) -> [Self; 4];
+}
+
+impl FromF32Color for f32 {
+    fn from_f32(color: &[f32; 4]) -> [Self; 4] {
+        *color
+    }
+}
+
+impl FromF32Color for u8 {
+    fn from_f32(color: &[f32; 4]) -> [Self; 4] {
+        [
+            (color[0] * 255.0 + 0.5) as Self,
+            (color[1] * 255.0 + 0.5) as Self,
+            (color[2] * 255.0 + 0.5) as Self,
+            (color[3] * 255.0 + 0.5) as Self,
+        ]
+    }
+}
+
+/// A lookup table for sampled gradient values.
+#[derive(Debug)]
+pub struct GradientLut<T: Copy + Clone + FromF32Color> {
+    lut: Vec<[T; 4]>,
+    scale: f32,
+}
+
+impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
+    /// Create a new lookup table.
+    fn new(ranges: &[GradientRange]) -> Self {
+        // TODO: SIMDify
+
+        // Somewhat arbitrary, but we use 1024 samples for
+        // more than 2 stops, and 512 for just 2 stops. Blend2D does
+        // something similar.
+        let lut_size = if ranges.len() > 1 { 1024 } else { 512 };
+
+        let mut lut = Vec::with_capacity(lut_size);
+
+        let inv_lut_size = 1.0 / lut_size as f32;
+
+        let mut cur_idx = 0;
+
+        (0..lut_size).for_each(|idx| {
+            let t_val = idx as f32 * inv_lut_size;
+
+            while ranges[cur_idx].x1 < t_val {
+                cur_idx += 1;
+            }
+
+            let range = &ranges[cur_idx];
+            let mut interpolated = [0.0_f32; 4];
+
+            let bias = range.bias;
+
+            for (comp_idx, comp) in interpolated.iter_mut().enumerate() {
+                *comp = bias[comp_idx] + range.scale[comp_idx] * t_val;
+            }
+
+            lut.push(T::from_f32(&interpolated));
+        });
+
+        let scale = lut.len() as f32 - 1.0;
+
+        Self { lut, scale }
+    }
+
+    /// Return the raw array of gradient sample values.
+    #[inline(always)]
+    pub fn lut(&self) -> &[[T; 4]] {
+        &self.lut
+    }
+
+    /// Get the scale factor by which to scale the parametric value to
+    /// compute the correct lookup index.
+    #[inline(always)]
+    pub fn scale_factor(&self) -> f32 {
+        self.scale
+    }
 }
 
 mod private {
