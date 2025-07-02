@@ -1,9 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+mod common;
 mod highp;
 mod lowp;
-mod shaders;
 
 use crate::peniko::{BlendMode, Compose, Mix};
 use crate::region::Region;
@@ -24,10 +24,10 @@ pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_C
 pub const SCRATCH_BUF_SIZE: usize =
     WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
 
-use crate::fine::shaders::gradient::calculate_t_vals;
-use crate::fine::shaders::gradient::linear::SimdLinearKind;
-use crate::fine::shaders::gradient::radial::SimdRadialKind;
-use crate::fine::shaders::gradient::sweep::SimdSweepKind;
+use crate::fine::common::gradient::calculate_t_vals;
+use crate::fine::common::gradient::linear::SimdLinearKind;
+use crate::fine::common::gradient::radial::SimdRadialKind;
+use crate::fine::common::gradient::sweep::SimdSweepKind;
 use crate::util::{BlendModeExt, EncodedImageExt};
 pub use highp::F32Kernel;
 pub use lowp::U8Kernel;
@@ -675,6 +675,7 @@ impl<S: Simd> Splat4thExt<S> for u8x32<S> {
     }
 }
 
+/// The results of an f32 shader, with each channel stored separately.
 pub(crate) struct ShaderResultF32<S: Simd> {
     pub(crate) r: f32x8<S>,
     pub(crate) g: f32x8<S>,
@@ -705,7 +706,7 @@ impl<S: Simd> ShaderResultF32<S> {
 }
 
 mod macros {
-    macro_rules! f32_iter {
+    macro_rules! f32x16_painter {
         ($($type_path:tt)+) => {
             impl<S: Simd> crate::fine::Painter for $($type_path)+ {
                 fn paint_u8(&mut self, buf: &mut [u8]) {
@@ -731,7 +732,9 @@ mod macros {
         };
     }
 
-    macro_rules! u8_iter {
+    /// The default `Painter` implementation for an iterator
+    /// that returns its results as u8x16.
+    macro_rules! u8x16_painter {
         ($($type_path:tt)+) => {
             impl<S: Simd> crate::fine::Painter for $($type_path)+ {
                 fn paint_u8(&mut self, buf: &mut [u8]) {
@@ -755,6 +758,6 @@ mod macros {
         };
     }
 
-    pub(crate) use f32_iter;
-    pub(crate) use u8_iter;
+    pub(crate) use f32x16_painter;
+    pub(crate) use u8x16_painter;
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::highp::element_wise_splat;
-use crate::fine::macros::{f32_iter, u8_iter};
+use crate::fine::macros::{f32x16_painter, u8x16_painter};
 use crate::fine::{PosExt, Splat4thExt, u8_to_f32};
 use crate::kurbo::Point;
 use crate::peniko::ImageQuality;
@@ -41,7 +41,7 @@ impl<'a, S: Simd> SimpleImageFiller<'a, S> {
             data.height,
             data.height_inv,
         );
-        
+
         let cur_x_pos = f32x4::splat_col_pos(
             simd,
             data.cur_pos.x as f32,
@@ -80,7 +80,7 @@ impl<S: Simd> Iterator for SimpleImageFiller<'_, S> {
     }
 }
 
-u8_iter!(SimpleImageFiller<'_, S>);
+u8x16_painter!(SimpleImageFiller<'_, S>);
 
 #[derive(Debug)]
 pub(crate) struct ImageFiller<'a, S: Simd> {
@@ -140,7 +140,7 @@ impl<S: Simd> Iterator for ImageFiller<'_, S> {
     }
 }
 
-u8_iter!(ImageFiller<'_, S>);
+u8x16_painter!(ImageFiller<'_, S>);
 
 #[derive(Debug)]
 pub(crate) struct FilteredImageFiller<'a, S: Simd> {
@@ -374,7 +374,7 @@ impl<S: Simd> Iterator for FilteredImageFiller<'_, S> {
     }
 }
 
-f32_iter!(FilteredImageFiller<'_, S>);
+f32x16_painter!(FilteredImageFiller<'_, S>);
 
 #[derive(Debug)]
 pub(crate) struct ImageFillerData<'a, S: Simd> {

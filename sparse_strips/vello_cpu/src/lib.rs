@@ -127,7 +127,7 @@ pub use vello_common::fearless_simd::Level;
 #[cfg(feature = "text")]
 pub use vello_common::glyph::Glyph;
 pub use vello_common::mask::Mask;
-pub use vello_common::paint::{Image, Paint, PaintType, ImageSource};
+pub use vello_common::paint::{Image, ImageSource, Paint, PaintType};
 pub use vello_common::pixmap::Pixmap;
 pub use vello_common::{color, kurbo, peniko};
 

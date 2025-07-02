@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::FineKernel;
-use crate::fine::shaders::gradient::GradientFiller;
-use crate::fine::shaders::image::{FilteredImageFiller, ImageFiller, SimpleImageFiller};
-use crate::fine::shaders::rounded_blurred_rect::BlurredRoundedRectFiller;
+use crate::fine::common::gradient::GradientFiller;
+use crate::fine::common::image::{FilteredImageFiller, ImageFiller, SimpleImageFiller};
+use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::fine::{COLOR_COMPONENTS, Painter};
 use crate::peniko::BlendMode;
 use crate::region::Region;

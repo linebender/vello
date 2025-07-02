@@ -5,10 +5,10 @@ mod compose;
 mod gradient;
 mod image;
 
+use crate::fine::common;
+use crate::fine::common::image::{FilteredImageFiller, ImageFiller, SimpleImageFiller};
+use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::fine::lowp::image::BilinearImageFiller;
-use crate::fine::shaders;
-use crate::fine::shaders::image::{FilteredImageFiller, ImageFiller, SimpleImageFiller};
-use crate::fine::shaders::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
 use crate::fine::{FineKernel, f32_to_u8, highp, u8_to_f32};
 use crate::peniko::BlendMode;
@@ -63,7 +63,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         t_vals: &'a [f32],
     ) -> Box<dyn Painter + 'a> {
         if has_undefined {
-            Box::new(shaders::gradient::GradientFiller::new(
+            Box::new(common::gradient::GradientFiller::new(
                 simd,
                 gradient,
                 has_undefined,
