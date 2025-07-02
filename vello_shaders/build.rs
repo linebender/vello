@@ -68,17 +68,16 @@ fn write_shaders(buf: &mut String, shaders: &[(String, ShaderInfo)]) -> Result<(
             .collect::<Vec<_>>();
         let wg_bufs = &info.workgroup_buffers;
         writeln!(buf, "        {name}: ComputeShader {{")?;
-        writeln!(buf, "            name: Cow::Borrowed({:?}),", name)?;
+        writeln!(buf, "            name: Cow::Borrowed({name:?}),")?;
         writeln!(
             buf,
             "            workgroup_size: {:?},",
             info.workgroup_size
         )?;
-        writeln!(buf, "            bindings: Cow::Borrowed(&{:?}),", bind_tys)?;
+        writeln!(buf, "            bindings: Cow::Borrowed(&{bind_tys:?}),")?;
         writeln!(
             buf,
-            "            workgroup_buffers: Cow::Borrowed(&{:?}),",
-            wg_bufs
+            "            workgroup_buffers: Cow::Borrowed(&{wg_bufs:?}),"
         )?;
         if cfg!(feature = "wgsl") {
             let indices = info
@@ -94,8 +93,7 @@ fn write_shaders(buf: &mut String, shaders: &[(String, ShaderInfo)]) -> Result<(
             )?;
             writeln!(
                 buf,
-                "                binding_indices : Cow::Borrowed(&{:?}),",
-                indices
+                "                binding_indices : Cow::Borrowed(&{indices:?}),"
             )?;
             writeln!(buf, "            }},")?;
         }

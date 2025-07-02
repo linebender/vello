@@ -303,8 +303,8 @@ impl Scheduler {
         #[cfg(debug_assertions)]
         {
             for i in 0..self.total_slots {
-                debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {}", i);
-                debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {}", i);
+                debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {i}");
+                debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {i}");
             }
         }
         debug_assert!(self.rounds_queue.is_empty(), "rounds_queue is not empty");

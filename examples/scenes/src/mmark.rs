@@ -105,7 +105,7 @@ impl TestScene for MMark {
                 element.is_split ^= true;
             }
         }
-        let label = format!("mmark test: {} path elements (up/down to adjust)", n);
+        let label = format!("mmark test: {n} path elements (up/down to adjust)");
         params.text.add(
             scene,
             None,
