@@ -21,10 +21,10 @@ pub fn blend(c: &mut Criterion) {
     soft_light(c);
     difference(c);
     exclusion(c);
-    // hue(c);
-    // saturation(c);
-    // color(c);
-    // luminosity(c);
+    hue(c);
+    saturation(c);
+    color(c);
+    luminosity(c);
 
     clear(c);
     copy(c);
