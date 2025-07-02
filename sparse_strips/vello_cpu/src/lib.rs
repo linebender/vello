@@ -59,7 +59,7 @@
 //!
 //! - `std` (enabled by default): Get floating point functions from the standard library
 //!   (likely using your target's libc).
-//! - `libm`: Use floating point implementations from [libm].
+//! - `libm`: Use floating point implementations from `libm`.
 //! - `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images.
 //!   Also required for rendering glyphs with an embedded PNG.
 //! - `multithreading`: Enable multi-threaded rendering.
