@@ -402,7 +402,7 @@ impl Scheduler {
                     let el = state.stack.last().unwrap();
                     let draw = self.draw_mut(el.round, clip_depth);
 
-                    let (col_idx, paint, rgba_or_slot) = Self::process_paint(&fill.paint, scene, 0);
+                    let (col_idx, rgba_or_slot, paint) = Self::process_paint(&fill.paint, scene, 0);
 
                     let (x, y) = if clip_depth == 1 {
                         (wide_tile_x + fill.x, wide_tile_y)
@@ -428,7 +428,7 @@ impl Scheduler {
                         .try_into()
                         .expect("Sparse strips are bound to u32 range");
 
-                    let (col_idx, paint, rgba_or_slot) =
+                    let (col_idx, rgba_or_slot, paint) =
                         Self::process_paint(&alpha_fill.paint, scene, alpha_col);
 
                     let (x, y) = if clip_depth == 1 {
@@ -528,7 +528,7 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Process a paint and return (`col_idx`, `paint_type`, `rgba_or_slot`)
+    /// Process a paint and return (`col_idx`, `rgba_or_slot`, `paint_type`)
     fn process_paint(paint: &Paint, scene: &Scene, alpha_col: u32) -> (u32, u32, u32) {
         match paint {
             Paint::Solid(color) => {
@@ -537,11 +537,11 @@ impl Scheduler {
                     has_non_zero_alpha(rgba),
                     "Color fields with 0 alpha are reserved for clipping"
                 );
-                (alpha_col, 0, rgba)
+                (alpha_col, rgba, 0)
             }
             Paint::Indexed(indexed_paint) => {
                 let paint_id = indexed_paint.index();
-                // 16 bytes per textel: Rgba32Uint (4 bytes) * 4 (4 textels)
+                // 16 bytes per texel: Rgba32Uint (4 bytes) * 4 (4 texels)
                 let paint_tex_id = (paint_id * size_of::<GpuEncodedImage>() / 16) as u32;
 
                 match scene.encoded_paints.get(paint_id) {
@@ -549,7 +549,7 @@ impl Scheduler {
                         ImageSource::OpaqueId(_) => {
                             let paint_type = 2_u32;
                             let paint_packed = (paint_type << 30) | (paint_tex_id & 0x3FFFFFFF);
-                            (alpha_col, paint_packed, 0)
+                            (alpha_col, 0, paint_packed)
                         }
                         _ => unimplemented!("unsupported image source"),
                     },

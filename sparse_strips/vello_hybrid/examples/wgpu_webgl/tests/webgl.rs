@@ -18,7 +18,7 @@ mod wasm {
         console_log::init_with_level(log::Level::Debug).unwrap();
 
         let mut scene = Scene::new(100, 100);
-        let image_cache = ImageCache::new();
+        let image_cache = ImageCache::default();
 
         // Draw a blue triangle
         let mut path = BezPath::new();

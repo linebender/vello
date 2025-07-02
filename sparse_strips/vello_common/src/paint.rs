@@ -51,9 +51,21 @@ impl From<AlphaColor<Srgb>> for Paint {
     }
 }
 
-/// Opaque GPU handle
+/// Opaque image handle
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
-pub struct ImageId(pub u32);
+pub struct ImageId(u32);
+
+impl ImageId {
+    /// Create a new image id from a u32.
+    pub fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Return the image id as a u32.
+    pub fn as_u32(&self) -> u32 {
+        self.0
+    }
+}
 
 /// Bitmap source used by `Image`.
 #[derive(Debug, Clone)]

@@ -5,25 +5,26 @@ use alloc::vec::Vec;
 use guillotiere::{AllocId, AtlasAllocator, size2};
 use vello_common::paint::ImageId;
 
-const DEFAULT_ATLAS_SIZE: i32 = 1024;
+const DEFAULT_ATLAS_SIZE: u32 = 1024;
 
 /// Represents an image resource for rendering
 #[derive(Debug)]
-pub struct ImageResource {
+pub(crate) struct ImageResource {
     /// The ID of the image
+    #[allow(dead_code, reason = "This is not used in the main code for now")]
     pub id: ImageId,
     /// The width of the image
-    pub width: u32,
+    pub width: u16,
     /// The height of the image
-    pub height: u32,
+    pub height: u16,
     /// The offset of the image in the atlas
-    pub offset: [u32; 2],
+    pub offset: [u16; 2],
     /// The atlas allocation ID for deallocation
-    pub(crate) atlas_alloc_id: AllocId,
+    atlas_alloc_id: AllocId,
 }
 
 /// Manages image resources for the renderer
-pub struct ImageCache {
+pub(crate) struct ImageCache {
     /// Atlas allocator for the images
     atlas: AtlasAllocator,
     /// Vector of optional image resources (None = free slot)
@@ -59,94 +60,72 @@ impl core::fmt::Debug for ImageCache {
 
 impl Default for ImageCache {
     fn default() -> Self {
-        Self::new()
+        Self::new(DEFAULT_ATLAS_SIZE, DEFAULT_ATLAS_SIZE)
     }
 }
 
 impl ImageCache {
     /// Create a new image cache
-    pub fn new() -> Self {
+    pub(crate) fn new(width: u32, height: u32) -> Self {
         Self {
-            atlas: AtlasAllocator::new(size2(DEFAULT_ATLAS_SIZE, DEFAULT_ATLAS_SIZE)),
+            atlas: AtlasAllocator::new(size2(width as i32, height as i32)),
             slots: Vec::new(),
             free_idxs: Vec::new(),
         }
     }
 
-    /// Resize the image cache
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.atlas = AtlasAllocator::new(size2(width as i32, height as i32));
-        self.slots.clear();
-        self.free_idxs.clear();
-    }
-
     /// Get an image resource by its Id
-    pub fn get(&self, id: ImageId) -> Option<&ImageResource> {
-        let index = id.0 as usize;
-        if index < self.slots.len() {
-            self.slots[index].as_ref()
-        } else {
-            None
-        }
+    pub(crate) fn get(&self, id: ImageId) -> Option<&ImageResource> {
+        self.slots.get(id.as_u32() as usize)?.as_ref()
     }
 
     /// Allocate an image in the cache
-    pub fn allocate(&mut self, width: u32, height: u32) -> ImageId {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "u16 is enough for the offset and width/height"
+    )]
+    pub(crate) fn allocate(&mut self, width: u32, height: u32) -> ImageId {
         let alloc = self
             .atlas
             .allocate(size2(width as i32, height as i32))
             .expect("Failed to allocate texture");
-        let atlas_alloc_id = alloc.id;
-        let x = alloc.rectangle.min.x as u32;
-        let y = alloc.rectangle.min.y as u32;
 
-        // Try to reuse a free slot first
-        let index = if let Some(free_index) = self.free_idxs.pop() {
-            free_index
-        } else {
+        let slot_idx = self.free_idxs.pop().unwrap_or_else(|| {
             // No free slots, append to vector
             let index = self.slots.len();
             // Placeholder, will be replaced
             self.slots.push(None);
             index
-        };
+        });
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "u32 is enough for the index"
-        )]
-        let image_id = ImageId(index as u32);
-        let image_resource = ImageResource {
+        let image_id = ImageId::new(slot_idx as u32);
+        self.slots[slot_idx] = Some(ImageResource {
             id: image_id,
-            width,
-            height,
-            offset: [x, y],
-            atlas_alloc_id,
-        };
-
-        self.slots[index] = Some(image_resource);
+            width: width as u16,
+            height: height as u16,
+            offset: [alloc.rectangle.min.x as u16, alloc.rectangle.min.y as u16],
+            atlas_alloc_id: alloc.id,
+        });
         image_id
     }
 
     /// Deallocate an image from the cache, returning true if it existed
-    pub fn deallocate(&mut self, id: ImageId) -> bool {
-        let index = id.0 as usize;
-        if index < self.slots.len() {
-            if let Some(image_resource) = &self.slots[index] {
-                // Deallocate from the atlas using the stored allocation ID
-                self.atlas.deallocate(image_resource.atlas_alloc_id);
-
-                // Mark slot as free and add to free list
-                self.slots[index] = None;
-                self.free_idxs.push(index);
-                return true;
-            }
+    #[allow(dead_code, reason = "This is not used in the main code for now")]
+    pub(crate) fn deallocate(&mut self, id: ImageId) -> bool {
+        let index = id.as_u32() as usize;
+        if let Some(image_resource) = self.slots.get_mut(index).and_then(Option::take) {
+            // Deallocate from the atlas using the stored allocation ID
+            self.atlas.deallocate(image_resource.atlas_alloc_id);
+            self.free_idxs.push(index);
+            true
+        } else {
+            false
         }
-        false
     }
 
     /// Clear all images from the cache
-    pub fn clear(&mut self) {
+    #[allow(dead_code, reason = "This is not used in the main code for now")]
+    pub(crate) fn clear(&mut self) {
         self.slots.clear();
         self.free_idxs.clear();
         self.atlas.clear();
@@ -159,11 +138,11 @@ mod tests {
 
     #[test]
     fn test_insert_single_image() {
-        let mut cache = ImageCache::new();
+        let mut cache = ImageCache::default();
 
         let id = cache.allocate(100, 100);
 
-        assert_eq!(id.0, 0);
+        assert_eq!(id.as_u32(), 0);
         let resource = cache.get(id).unwrap();
         assert_eq!(resource.id, id);
         assert_eq!(resource.width, 100);
@@ -173,13 +152,13 @@ mod tests {
 
     #[test]
     fn test_insert_multiple_images() {
-        let mut cache = ImageCache::new();
+        let mut cache = ImageCache::default();
 
         let id1 = cache.allocate(50, 50);
         let id2 = cache.allocate(75, 75);
 
-        assert_eq!(id1.0, 0);
-        assert_eq!(id2.0, 1);
+        assert_eq!(id1.as_u32(), 0);
+        assert_eq!(id2.as_u32(), 1);
 
         let resource1 = cache.get(id1).unwrap();
         let resource2 = cache.get(id2).unwrap();
@@ -193,15 +172,15 @@ mod tests {
 
     #[test]
     fn test_get_nonexistent_image() {
-        let cache: ImageCache = ImageCache::new();
+        let cache: ImageCache = ImageCache::default();
 
-        assert!(cache.get(ImageId(0)).is_none());
-        assert!(cache.get(ImageId(999)).is_none());
+        assert!(cache.get(ImageId::new(0)).is_none());
+        assert!(cache.get(ImageId::new(999)).is_none());
     }
 
     #[test]
     fn test_remove_image() {
-        let mut cache = ImageCache::new();
+        let mut cache = ImageCache::default();
 
         let id = cache.allocate(100, 100);
         assert!(cache.get(id).is_some());
@@ -212,25 +191,25 @@ mod tests {
 
     #[test]
     fn test_remove_nonexistent_image() {
-        let mut cache: ImageCache = ImageCache::new();
+        let mut cache: ImageCache = ImageCache::default();
 
         // Should not panic when unregistering non-existent image
-        cache.deallocate(ImageId(0));
-        cache.deallocate(ImageId(999));
+        cache.deallocate(ImageId::new(0));
+        cache.deallocate(ImageId::new(999));
     }
 
     #[test]
     fn test_slot_reuse_after_remove() {
-        let mut cache = ImageCache::new();
+        let mut cache = ImageCache::default();
 
         // Register three images
         let id1 = cache.allocate(50, 50);
         let id2 = cache.allocate(60, 60);
         let id3 = cache.allocate(70, 70);
 
-        assert_eq!(id1.0, 0);
-        assert_eq!(id2.0, 1);
-        assert_eq!(id3.0, 2);
+        assert_eq!(id1.as_u32(), 0);
+        assert_eq!(id2.as_u32(), 1);
+        assert_eq!(id3.as_u32(), 2);
 
         // Unregister the middle one
         cache.deallocate(id2);
@@ -239,7 +218,7 @@ mod tests {
         // Register a new image - should reuse slot 1
         let id4 = cache.allocate(80, 80);
         // Reused slot 1
-        assert_eq!(id4.0, 1);
+        assert_eq!(id4.as_u32(), 1);
 
         // Verify other images are still there
         assert!(cache.get(id1).is_some());
@@ -250,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_multiple_remove_and_reuse() {
-        let mut cache = ImageCache::new();
+        let mut cache = ImageCache::default();
 
         // Register several images
         let ids: Vec<_> = (0..5)
@@ -266,18 +245,8 @@ mod tests {
         let new_id2 = cache.allocate(300, 300);
 
         // Should have reused slots 3 and 1 (in reverse order due to stack behavior)
-        assert!(new_id1.0 == 3);
-        assert!(new_id2.0 == 1);
-        assert_ne!(new_id1.0, new_id2.0);
-    }
-
-    #[test]
-    fn test_resize_clears_cache() {
-        let mut cache = ImageCache::new();
-        let id = cache.allocate(100, 100);
-        assert!(cache.get(id).is_some());
-        cache.resize(2048, 2048);
-        // After resize, all images should be cleared
-        assert!(cache.get(id).is_none());
+        assert!(new_id1.as_u32() == 3);
+        assert!(new_id2.as_u32() == 1);
+        assert_ne!(new_id1.as_u32(), new_id2.as_u32());
     }
 }

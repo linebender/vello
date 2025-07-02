@@ -22,6 +22,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::{
     GpuStrip, RenderError, RenderSize,
+    image_cache::{ImageCache, ImageResource},
     render::Config,
     scene::Scene,
     schedule::{LoadOp, RendererBackend, Scheduler},
@@ -56,6 +57,7 @@ pub struct WebGlRenderer {
     programs: WebGlPrograms,
     scheduler: Scheduler,
     gl: WebGl2RenderingContext,
+    image_cache: ImageCache,
 }
 
 impl WebGlRenderer {
@@ -82,25 +84,22 @@ impl WebGlRenderer {
             .dyn_into::<WebGl2RenderingContext>()
             .expect("Context to be a WebGL2 context");
 
-        let total_slots: usize =
-            (get_max_texture_dimension_2d(&gl) / u32::from(Tile::HEIGHT)) as usize;
+        let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
+        let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
+        let image_cache = ImageCache::new(max_texture_dimension_2d, max_texture_dimension_2d);
 
         Self {
             programs: WebGlPrograms::new(gl.clone(), total_slots),
             scheduler: Scheduler::new(total_slots),
             gl,
+            image_cache,
         }
     }
 
     /// Render `scene` using WebGL2
     ///
     /// This method creates GPU resources as needed and schedules potentially multiple draw calls.
-    pub fn render(
-        &mut self,
-        scene: &Scene,
-        render_size: &RenderSize,
-        image_cache: &crate::ImageCache,
-    ) -> Result<(), RenderError> {
+    pub fn render(&mut self, scene: &Scene, render_size: &RenderSize) -> Result<(), RenderError> {
         debug_assert_eq!(
             RenderSize {
                 width: self.gl.drawing_buffer_width() as u32,
@@ -110,7 +109,7 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
-        let encoded_paints = self.prepare_gpu_encoded_paints(&scene.encoded_paints, image_cache);
+        let encoded_paints = self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         self.programs
             .prepare(&self.gl, &scene.alphas, encoded_paints, render_size);
         let mut ctx = WebGlRendererContext {
@@ -185,33 +184,20 @@ impl WebGlRenderer {
     /// It allocates space in the image cache and uploads the image data to the atlas texture.
     pub fn upload_image<T: WebGlAtlasWriter>(
         &mut self,
-        image_cache: &mut crate::ImageCache,
         writer: &T,
     ) -> vello_common::paint::ImageId {
         let width = writer.width();
         let height = writer.height();
-        let image_id = image_cache.allocate(width, height);
-        let image_resource = image_cache.get(image_id).expect("Image resource not found");
+        let image_id = self.image_cache.allocate(width, height);
+        let image_resource = self
+            .image_cache
+            .get(image_id)
+            .expect("Image resource not found");
+        let offset = [
+            image_resource.offset[0] as u32,
+            image_resource.offset[1] as u32,
+        ];
 
-        self.write_to_atlas(writer, image_resource.offset, width, height);
-
-        image_id
-    }
-
-    /// Write image data to the atlas texture using any type that implements `AtlasWriter`.
-    ///
-    /// This is the WebGL analogue of the wgpu Renderer's `write_to_atlas` method.
-    /// This method allows efficient uploading from different sources:
-    /// - `Pixmap`: Direct upload without intermediate texture
-    /// - `ImageData`: Browser `ImageData` objects
-    /// - Custom implementations for other image sources
-    pub fn write_to_atlas<T: WebGlAtlasWriter>(
-        &mut self,
-        writer: &T,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
-    ) {
         writer.write_to_atlas(
             &self.gl,
             &self.programs.resources.atlas_texture,
@@ -219,6 +205,8 @@ impl WebGlRenderer {
             width,
             height,
         );
+
+        image_id
     }
 
     /// Get a reference to the underlying WebGL context.
@@ -228,44 +216,37 @@ impl WebGlRenderer {
         &self.gl
     }
 
-    fn prepare_gpu_encoded_paints(
-        &self,
-        encoded_paints: &[EncodedPaint],
-        image_cache: &crate::ImageCache,
-    ) -> Vec<GpuEncodedImage> {
+    fn prepare_gpu_encoded_paints(&self, encoded_paints: &[EncodedPaint]) -> Vec<GpuEncodedImage> {
         let mut bytes: Vec<GpuEncodedImage> = Vec::new();
         for paint in encoded_paints {
             match paint {
                 EncodedPaint::Image(img) => {
                     if let ImageSource::OpaqueId(image_id) = img.source {
-                        let image_resource: Option<&crate::ImageResource> =
-                            image_cache.get(image_id);
+                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
                         if let Some(image_resource) = image_resource {
-                            let mut transform: Affine =
-                                img.transform * Affine::translate((-0.5, -0.5));
-
-                            // For skewing transforms, add a small additional offset to prevent edges
-                            // from crossing exactly through pixel sample points, which can cause artifacts
-                            let coeffs = img.transform.as_coeffs();
-                            let has_skew = coeffs[1].abs() > 1e-6 || coeffs[2].abs() > 1e-6;
-                            if has_skew {
-                                transform *= Affine::translate((0.00001, 0.00001));
-                            }
+                            let transform = img.transform * Affine::translate((-0.5, -0.5));
+                            // pack two u16 as u32
+                            let image_size = ((image_resource.width as u32) << 16)
+                                | image_resource.height as u32;
+                            let image_offset = ((image_resource.offset[0] as u32) << 16)
+                                | image_resource.offset[1] as u32;
+                            let quality_and_extend_modes = ((img.extends.1 as u32) << 4)
+                                | ((img.extends.0 as u32) << 2)
+                                | img.quality as u32;
 
                             bytes.push(GpuEncodedImage {
-                                quality: img.quality as u32,
-                                extend_modes: [img.extends.0 as u32, img.extends.1 as u32],
-                                _padding0: 0,
-                                image_size: [image_resource.width, image_resource.height],
-                                image_offset: image_resource.offset,
+                                quality_and_extend_modes,
+                                image_size,
+                                image_offset,
+                                _padding1: 0,
                                 transform: transform.as_coeffs().map(|x| x as f32),
-                                _padding1: [0, 0],
+                                _padding2: [0, 0],
                             });
                         }
                     }
                 }
                 _ => {
-                    unimplemented!("For now, we don't support gradient and rounded rectangle")
+                    unimplemented!("Gradient and rounded rectangle unsupported")
                 }
             }
         }
@@ -331,7 +312,8 @@ struct WebGlResources {
     alphas_texture: WebGlTexture,
     /// Height of alpha texture.
     alpha_texture_height: u32,
-    /// Atlas texture for image data.
+    /// Texture for atlas data
+    // TODO: Support more than one atlas texture
     atlas_texture: WebGlTexture,
     /// Encoded paints texture for image metadata.
     encoded_paints_texture: WebGlTexture,
@@ -637,28 +619,6 @@ impl WebGlPrograms {
                 Some(&packed_array),
             )
             .unwrap();
-
-            // Set texture parameters for encoded paints texture
-            gl.tex_parameteri(
-                WebGl2RenderingContext::TEXTURE_2D,
-                WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-                WebGl2RenderingContext::NEAREST as i32,
-            );
-            gl.tex_parameteri(
-                WebGl2RenderingContext::TEXTURE_2D,
-                WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-                WebGl2RenderingContext::NEAREST as i32,
-            );
-            gl.tex_parameteri(
-                WebGl2RenderingContext::TEXTURE_2D,
-                WebGl2RenderingContext::TEXTURE_WRAP_S,
-                WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-            );
-            gl.tex_parameteri(
-                WebGl2RenderingContext::TEXTURE_2D,
-                WebGl2RenderingContext::TEXTURE_WRAP_T,
-                WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-            );
         }
 
         // Clear the view framebuffer.

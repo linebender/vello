@@ -60,7 +60,7 @@ struct StripInstance {
 
 struct VertexOutput {
     // Render type for the strip
-    @location(0) @interpolate(flat) paint_type: u32,
+    @location(0) @interpolate(flat) paint: u32,
     // Texture coordinates for the current fragment
     @location(1) tex_coord: vec2<f32>,
     // UV coordinates for the current fragment, used for image sampling
@@ -69,8 +69,6 @@ struct VertexOutput {
     @location(3) @interpolate(flat) dense_end: u32,
     // Color value or slot index when alpha is 0
     @location(4) @interpolate(flat) rgba_or_slot: u32,
-    // Paint texture id
-    @location(5) @interpolate(flat) paint_tex_id: u32,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position) position: vec4<f32>,
 };
@@ -112,11 +110,9 @@ fn vs_main(
     let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
     let ndc_y = 1.0 - pix_y * 2.0 / f32(config.height);
     let paint_type = instance.paint >> 30u;
-    let paint_tex_id = instance.paint & 0x3FFFFFFF;
 
     if paint_type == PAINT_TYPE_IMAGE {
-        out.paint_type = paint_type;
-        out.paint_tex_id = paint_tex_id;
+        let paint_tex_id = instance.paint & 0x3FFFFFFF;
         
         let encoded_image = unpack_encoded_image(paint_tex_id);
         // Vertex position within the texture
@@ -126,9 +122,8 @@ fn vs_main(
             + encoded_image.transform.zw * f32(y0)
             + encoded_image.transform.xy * x * f32(width)
             + encoded_image.transform.zw * y * f32(config.strip_height);
+        out.paint = instance.paint;
     } else {
-        out.paint_type = paint_type;
-        out.paint_tex_id = paint_tex_id;
         out.sample_xy = vec2<f32>(0.0, 0.0);
     }
 
@@ -181,9 +176,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Apply the alpha value to the unpacked RGBA color or slot index
     let alpha_byte = in.rgba_or_slot >> 24u;
     var final_color = unpack4x8unorm(in.rgba_or_slot);
+    let paint_type = in.paint >> 30u;
 
-    if in.paint_type == PAINT_TYPE_IMAGE {
-        let encoded_image = unpack_encoded_image(in.paint_tex_id);
+    if paint_type == PAINT_TYPE_IMAGE {
+        let paint_tex_id = in.paint & 0x3FFFFFFF;
+        let encoded_image = unpack_encoded_image(paint_tex_id);
         let image_offset = encoded_image.image_offset;
         let image_size = encoded_image.image_size;
         let local_xy = in.sample_xy - image_offset;
@@ -254,21 +251,19 @@ struct EncodedImage {
 
 fn unpack_encoded_image(paint_tex_id: u32) -> EncodedImage {
     let texel0 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_id, 0), 0);
-    let quality = texel0.x;
-    let extend_x = texel0.y;
-    let extend_y = texel0.z;
+    let quality = texel0.x & 0x3u;
+    let extend_x = (texel0.x >> 2u) & 0x3u;
+    let extend_y = (texel0.x >> 4u) & 0x3u;
+    let image_size = vec2<f32>(f32(texel0.y >> 16u), f32(texel0.y & 0xFFFFu));
+    let image_offset = vec2<f32>(f32(texel0.z >> 16u), f32(texel0.z & 0xFFFFu));
 
     let texel1 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_id + 1u, 0), 0);
-    let image_size = vec2<f32>(f32(texel1.x), f32(texel1.y));
-    let image_offset = vec2<f32>(f32(texel1.z), f32(texel1.w));
-
     let texel2 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_id + 2u, 0), 0);
-    let texel3 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_id + 3u, 0), 0);
     let transform = vec4<f32>(
-        bitcast<f32>(texel2.x), bitcast<f32>(texel2.y), 
-        bitcast<f32>(texel2.z), bitcast<f32>(texel2.w)
+        bitcast<f32>(texel1.x), bitcast<f32>(texel1.y), 
+        bitcast<f32>(texel1.z), bitcast<f32>(texel1.w)
     );
-    let translate = vec2<f32>(bitcast<f32>(texel3.x), bitcast<f32>(texel3.y));
+    let translate = vec2<f32>(bitcast<f32>(texel2.x), bitcast<f32>(texel2.y));
 
     return EncodedImage(
         quality, 

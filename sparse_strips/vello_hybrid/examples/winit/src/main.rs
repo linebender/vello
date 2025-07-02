@@ -11,7 +11,7 @@ use std::sync::Arc;
 use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Point};
-use vello_hybrid::{ImageCache, Pixmap, RenderSize, Renderer, Scene};
+use vello_hybrid::{Pixmap, RenderSize, Renderer, Scene};
 use vello_hybrid_scenes::image::ImageScene;
 use vello_hybrid_scenes::{AnyScene, get_example_scenes};
 use winit::{
@@ -45,7 +45,6 @@ struct App<'s> {
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Point>,
-    image_cache: ImageCache,
 }
 
 fn main() {
@@ -88,7 +87,6 @@ fn main() {
         transform: Affine::IDENTITY,
         mouse_down: false,
         last_cursor_position: None,
-        image_cache: ImageCache::new(),
     };
 
     let event_loop = EventLoop::new().unwrap();
@@ -140,12 +138,6 @@ impl ApplicationHandler for App<'_> {
             .resize_with(self.context.devices.len(), || None);
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
-        let max_texture_dimension_2d = self.context.devices[surface.dev_id]
-            .device
-            .limits()
-            .max_texture_dimension_2d;
-        self.image_cache
-            .resize(max_texture_dimension_2d, max_texture_dimension_2d);
 
         self.upload_images_to_atlas(surface.dev_id);
 
@@ -305,7 +297,6 @@ impl ApplicationHandler for App<'_> {
                         &mut encoder,
                         &render_size,
                         &texture_view,
-                        &self.image_cache,
                     )
                     .unwrap();
 
@@ -335,7 +326,6 @@ impl App<'_> {
             &device_handle.device,
             &device_handle.queue,
             &mut encoder,
-            &mut self.image_cache,
             &pixmap1,
         );
 
@@ -347,7 +337,6 @@ impl App<'_> {
             &device_handle.device,
             &device_handle.queue,
             &mut encoder,
-            &mut self.image_cache,
             &texture2,
         );
 

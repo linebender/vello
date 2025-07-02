@@ -11,7 +11,7 @@ use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{BlendMode, Fill, Font};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
-use vello_hybrid::{ImageCache, Scene};
+use vello_hybrid::Scene;
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
 
@@ -156,7 +156,6 @@ impl Renderer for RenderContext {
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
-    image_cache: ImageCache,
     device: wgpu::Device,
     queue: wgpu::Queue,
     texture: wgpu::Texture,
@@ -178,7 +177,6 @@ impl Renderer for HybridRenderer {
         }
 
         let scene = Scene::new(width, height);
-        let mut image_cache = ImageCache::new();
         // Initialize wgpu device and queue for GPU rendering
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -197,8 +195,6 @@ impl Renderer for HybridRenderer {
             None,
         ))
         .expect("Failed to create device");
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        image_cache.resize(max_texture_dimension_2d, max_texture_dimension_2d);
 
         // Create a render target texture
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -229,7 +225,6 @@ impl Renderer for HybridRenderer {
         );
 
         Self {
-            image_cache,
             scene,
             device,
             queue,
@@ -363,7 +358,6 @@ impl Renderer for HybridRenderer {
                 &mut encoder,
                 &render_size,
                 &self.texture_view,
-                &self.image_cache,
             )
             .unwrap();
 
@@ -445,7 +439,6 @@ impl Renderer for HybridRenderer {
             &self.device,
             &self.queue,
             &mut encoder,
-            &mut self.image_cache,
             &pixmap,
         );
 
@@ -458,7 +451,6 @@ impl Renderer for HybridRenderer {
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
-    image_cache: ImageCache,
     renderer: RefCell<vello_hybrid::WebGlRenderer>,
     gl: WebGl2RenderingContext,
 }
@@ -480,7 +472,6 @@ impl Renderer for HybridRenderer {
         }
 
         let scene = Scene::new(width, height);
-        let image_cache = ImageCache::new();
 
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
@@ -506,7 +497,6 @@ impl Renderer for HybridRenderer {
 
         Self {
             scene,
-            image_cache,
             renderer: RefCell::new(renderer),
             gl,
         }
@@ -606,7 +596,7 @@ impl Renderer for HybridRenderer {
         };
         self.renderer
             .borrow_mut()
-            .render(&self.scene, &render_size, &self.image_cache)
+            .render(&self.scene, &render_size)
             .unwrap();
 
         let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
@@ -634,10 +624,7 @@ impl Renderer for HybridRenderer {
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
-        let image_id = self
-            .renderer
-            .borrow_mut()
-            .upload_image(&mut self.image_cache, &pixmap);
+        let image_id = self.renderer.borrow_mut().upload_image(&pixmap);
         ImageSource::OpaqueId(image_id)
     }
 }

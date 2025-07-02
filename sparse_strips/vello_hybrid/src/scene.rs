@@ -263,6 +263,7 @@ impl Scene {
 
         let render_state = Self::default_render_state();
         self.transform = render_state.transform;
+        self.paint_transform = render_state.paint_transform;
         self.fill_rule = render_state.fill_rule;
         self.paint = render_state.paint;
         self.stroke = render_state.stroke;

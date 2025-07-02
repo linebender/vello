@@ -31,7 +31,7 @@ impl ExampleScene for ImageScene {
         );
         scene.set_paint_transform(Affine::translate((0.0, 0.0)));
         scene.set_paint(Image {
-            source: ImageSource::OpaqueId(ImageId(0)),
+            source: ImageSource::OpaqueId(ImageId::new(0)),
             x_extend: Extend::Pad,
             y_extend: Extend::Pad,
             quality: ImageQuality::Low,
@@ -45,7 +45,7 @@ impl ExampleScene for ImageScene {
                 * Affine::scale(0.5),
         );
         scene.set_paint(Image {
-            source: ImageSource::OpaqueId(ImageId(0)),
+            source: ImageSource::OpaqueId(ImageId::new(0)),
             x_extend: Extend::Pad,
             y_extend: Extend::Pad,
             quality: ImageQuality::Low,
@@ -54,7 +54,7 @@ impl ExampleScene for ImageScene {
 
         scene.set_transform(root_transform * Affine::translate((0.0, 500.0)));
         scene.set_paint(Image {
-            source: ImageSource::OpaqueId(ImageId(0)),
+            source: ImageSource::OpaqueId(ImageId::new(0)),
             x_extend: Extend::Pad,
             y_extend: Extend::Pad,
             quality: ImageQuality::Low,
@@ -70,7 +70,7 @@ impl ExampleScene for ImageScene {
         );
         scene.set_paint_transform(Affine::scale(0.25));
         scene.set_paint(Image {
-            source: ImageSource::OpaqueId(ImageId(0)),
+            source: ImageSource::OpaqueId(ImageId::new(0)),
             x_extend: Extend::Repeat,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
@@ -80,7 +80,7 @@ impl ExampleScene for ImageScene {
         scene.set_transform(root_transform * Affine::translate((1000.0, 50.0)));
         scene.set_paint_transform(Affine::scale(0.25));
         scene.set_paint(Image {
-            source: ImageSource::OpaqueId(ImageId(0)),
+            source: ImageSource::OpaqueId(ImageId::new(0)),
             x_extend: Extend::Repeat,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
@@ -90,7 +90,7 @@ impl ExampleScene for ImageScene {
         scene.set_transform(root_transform * Affine::translate((1000.0, 600.0)));
         scene.set_paint_transform(Affine::scale(0.25));
         scene.set_paint(Image {
-            source: ImageSource::OpaqueId(ImageId(0)),
+            source: ImageSource::OpaqueId(ImageId::new(0)),
             x_extend: Extend::Reflect,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
@@ -100,7 +100,7 @@ impl ExampleScene for ImageScene {
         scene.set_transform(root_transform * Affine::translate((1000.0, 1200.0)));
         scene.set_paint_transform(Affine::scale(0.25));
         scene.set_paint(Image {
-            source: ImageSource::OpaqueId(ImageId(0)),
+            source: ImageSource::OpaqueId(ImageId::new(0)),
             x_extend: Extend::Pad,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
@@ -110,7 +110,7 @@ impl ExampleScene for ImageScene {
         scene.set_transform(root_transform * Affine::translate((100.0, 1000.0)));
         scene.set_paint_transform(Affine::IDENTITY);
         scene.set_paint(Image {
-            source: ImageSource::OpaqueId(ImageId(1)),
+            source: ImageSource::OpaqueId(ImageId::new(1)),
             x_extend: Extend::Repeat,
             y_extend: Extend::Repeat,
             quality: ImageQuality::High,

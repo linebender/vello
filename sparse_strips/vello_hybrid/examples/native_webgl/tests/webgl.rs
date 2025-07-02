@@ -7,7 +7,7 @@
 mod wasm {
     use native_webgl::render_scene;
     use vello_common::peniko::{color::palette, kurbo::BezPath};
-    use vello_hybrid::{ImageCache, Scene};
+    use vello_hybrid::Scene;
     use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
@@ -18,7 +18,6 @@ mod wasm {
         console_log::init_with_level(log::Level::Debug).unwrap();
 
         let mut scene = Scene::new(100, 100);
-        let image_cache = ImageCache::new();
 
         // Draw a blue triangle
         let mut path = BezPath::new();
@@ -29,6 +28,6 @@ mod wasm {
         scene.set_paint(palette::css::BLUE);
         scene.fill_path(&path);
 
-        render_scene(scene, 100, 100, image_cache).await;
+        render_scene(scene, 100, 100).await;
     }
 }

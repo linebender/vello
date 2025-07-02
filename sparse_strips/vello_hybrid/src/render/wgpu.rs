@@ -34,7 +34,8 @@ use wgpu::{
 };
 
 use crate::{
-    GpuStrip, ImageCache, RenderError, RenderSize,
+    GpuStrip, RenderError, RenderSize,
+    image_cache::{ImageCache, ImageResource},
     render::{Config, common::GpuEncodedImage},
     scene::Scene,
     schedule::{LoadOp, RendererBackend, Scheduler},
@@ -56,6 +57,7 @@ pub struct RenderTargetConfig {
 pub struct Renderer {
     programs: Programs,
     scheduler: Scheduler,
+    image_cache: ImageCache,
 }
 
 impl Renderer {
@@ -63,12 +65,14 @@ impl Renderer {
     pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
-        let total_slots =
-            (device.limits().max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+        let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
+        let image_cache = ImageCache::new(max_texture_dimension_2d, max_texture_dimension_2d);
 
         Self {
             programs: Programs::new(device, render_target_config, total_slots),
             scheduler: Scheduler::new(total_slots),
+            image_cache,
         }
     }
 
@@ -84,9 +88,8 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
-        image_cache: &ImageCache,
     ) -> Result<(), RenderError> {
-        let encoded_paints = self.prepare_gpu_encoded_paints(&scene.encoded_paints, image_cache);
+        let encoded_paints = self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -116,43 +119,20 @@ impl Renderer {
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-        image_cache: &mut crate::ImageCache,
         writer: &T,
     ) -> vello_common::paint::ImageId {
         let width = writer.width();
         let height = writer.height();
-        let image_id = image_cache.allocate(width, height);
-        let image_resource = image_cache.get(image_id).expect("Image resource not found");
+        let image_id = self.image_cache.allocate(width, height);
+        let image_resource = self
+            .image_cache
+            .get(image_id)
+            .expect("Image resource not found");
+        let offset = [
+            image_resource.offset[0] as u32,
+            image_resource.offset[1] as u32,
+        ];
 
-        self.write_to_atlas(
-            device,
-            queue,
-            encoder,
-            writer,
-            image_resource.offset,
-            width,
-            height,
-        );
-
-        image_id
-    }
-
-    /// Write image data to the atlas texture using any type that implements `AtlasWriter`.
-    ///
-    /// This method allows efficient uploading from different sources:
-    /// - `Pixmap`: Direct upload without intermediate texture
-    /// - `Texture`: Texture-to-texture copy
-    /// - Custom implementations for other image sources
-    pub fn write_to_atlas<T: AtlasWriter>(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-        encoder: &mut CommandEncoder,
-        writer: &T,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
-    ) {
         writer.write_to_atlas(
             device,
             queue,
@@ -162,37 +142,41 @@ impl Renderer {
             width,
             height,
         );
+
+        image_id
     }
 
-    fn prepare_gpu_encoded_paints(
-        &self,
-        encoded_paints: &[EncodedPaint],
-        image_cache: &ImageCache,
-    ) -> Vec<GpuEncodedImage> {
+    fn prepare_gpu_encoded_paints(&self, encoded_paints: &[EncodedPaint]) -> Vec<GpuEncodedImage> {
         let mut bytes: Vec<GpuEncodedImage> = Vec::new();
         for paint in encoded_paints {
             match paint {
                 EncodedPaint::Image(img) => {
                     if let ImageSource::OpaqueId(image_id) = img.source {
-                        let image_resource: Option<&crate::ImageResource> =
-                            image_cache.get(image_id);
+                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
                         if let Some(image_resource) = image_resource {
                             let transform = img.transform * Affine::translate((-0.5, -0.5));
+                            // pack two u16 as u32
+                            let image_size = ((image_resource.width as u32) << 16)
+                                | image_resource.height as u32;
+                            let image_offset = ((image_resource.offset[0] as u32) << 16)
+                                | image_resource.offset[1] as u32;
+                            let quality_and_extend_modes = ((img.extends.1 as u32) << 4)
+                                | ((img.extends.0 as u32) << 2)
+                                | img.quality as u32;
 
                             bytes.push(GpuEncodedImage {
-                                quality: img.quality as u32,
-                                extend_modes: [img.extends.0 as u32, img.extends.1 as u32],
-                                _padding0: 0,
-                                image_size: [image_resource.width, image_resource.height],
-                                image_offset: image_resource.offset,
+                                quality_and_extend_modes,
+                                image_size,
+                                image_offset,
+                                _padding1: 0,
                                 transform: transform.as_coeffs().map(|x| x as f32),
-                                _padding1: [0, 0],
+                                _padding2: [0, 0],
                             });
                         }
                     }
                 }
                 _ => {
-                    unimplemented!("Gradient and rounded rectangle are not supported yet");
+                    unimplemented!("Gradient and rounded rectangle unsupported")
                 }
             }
         }
@@ -231,6 +215,7 @@ struct GpuResources {
     /// Texture for alpha values (used by both view and slot rendering)
     alphas_texture: Texture,
     /// Texture for atlas data
+    // TODO: Support more than one atlas texture
     atlas_texture: Texture,
     /// Bind group for atlas texture
     atlas_bind_group: BindGroup,

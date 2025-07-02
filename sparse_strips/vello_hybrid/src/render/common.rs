@@ -45,9 +45,11 @@ pub struct GpuStrip {
     ///
     /// There are [`Config::strip_height`] alpha values per column.
     pub col_idx: u32,
-    /// Paint data
+    /// Color value or slot index when alpha is 0
     pub rgba_or_slot: u32,
+    /// Packed paint type (2 bits) and paint texture id (30 bits)
     /// Paint type: 0 = solid, 1 = alpha, 2 = image
+    /// Paint texture id locates the encoded image data `EncodedImage`
     pub paint: u32,
 }
 
@@ -62,19 +64,18 @@ pub struct GpuStrip {
 pub(crate) struct GpuEncodedImage {
     // 1st 16 bytes
     /// The rendering quality of the image.
-    pub quality: u32,
+    pub quality_and_extend_modes: u32,
     /// The extends in the horizontal and vertical direction.
-    pub extend_modes: [u32; 2],
-    pub _padding0: u32,
-    // 2nd 16 bytes
     /// The size of the image in pixels.
-    pub image_size: [u32; 2],
-    /// The offset of the image in pixels.
-    pub image_offset: [u32; 2],
-    // 3rd & 4th 16 bytes
+    pub image_size: u32,
+    /// The offset of the image in the atlas texture in pixels.
+    pub image_offset: u32,
+    pub _padding1: u32,
+    // 2nd & 3rd 16 bytes
     /// A transform to apply to the image.
     pub transform: [f32; 6],
-    pub _padding1: [u32; 2],
+    /// Padding to align to 64 bytes (16-byte aligned)
+    pub _padding2: [u32; 2],
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))]

@@ -41,7 +41,6 @@ struct AppState {
     renderer_wrapper: RendererWrapper,
     need_render: bool,
     canvas: HtmlCanvasElement,
-    image_cache: vello_hybrid::ImageCache,
 }
 
 impl AppState {
@@ -51,21 +50,9 @@ impl AppState {
 
         let renderer_wrapper = RendererWrapper::new(canvas.clone());
 
-        // Initialize image cache with appropriate size for WebGL
-        let mut image_cache = vello_hybrid::ImageCache::new();
-        // Get the max texture dimension from the WebGL renderer
-        let max_texture_dimension_2d = renderer_wrapper
-            .renderer
-            .gl_context()
-            .get_parameter(web_sys::WebGl2RenderingContext::MAX_TEXTURE_SIZE)
-            .unwrap()
-            .as_f64()
-            .unwrap() as u32;
-        image_cache.resize(max_texture_dimension_2d, max_texture_dimension_2d);
-
         let mut app_state = Self {
             scenes,
-            current_scene: 4,
+            current_scene: 0,
             scene: vello_hybrid::Scene::new(width as u16, height as u16),
             transform: Affine::IDENTITY,
             mouse_down: false,
@@ -75,7 +62,6 @@ impl AppState {
             renderer_wrapper,
             need_render: true,
             canvas,
-            image_cache,
         };
 
         app_state.upload_images_to_atlas();
@@ -100,7 +86,7 @@ impl AppState {
 
         self.renderer_wrapper
             .renderer
-            .render(&self.scene, &render_size, &self.image_cache)
+            .render(&self.scene, &render_size)
             .unwrap();
         self.need_render = false;
     }
@@ -196,16 +182,12 @@ impl AppState {
 
         // 1st example — uploading pixmap directly to WebGL atlas
         let pixmap1 = ImageScene::read_flower_image();
-        self.renderer_wrapper
-            .renderer
-            .upload_image(&mut self.image_cache, &pixmap1);
+        self.renderer_wrapper.renderer.upload_image(&pixmap1);
 
         // 2nd example — uploading from a WebGL texture
         let pixmap2 = ImageScene::read_cowboy_image();
         let texture2 = self.pixmap_to_webgl_texture(&pixmap2);
-        self.renderer_wrapper
-            .renderer
-            .upload_image(&mut self.image_cache, &texture2);
+        self.renderer_wrapper.renderer.upload_image(&texture2);
     }
 
     /// Convert a pixmap to WebGL texture
@@ -440,12 +422,7 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
 }
 
 /// Creates a `HTMLCanvasElement` and renders a single scene into it
-pub async fn render_scene(
-    scene: vello_hybrid::Scene,
-    width: u16,
-    height: u16,
-    image_cache: vello_hybrid::ImageCache,
-) {
+pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
     let canvas = web_sys::Window::document(&web_sys::window().unwrap())
         .unwrap()
         .create_element("canvas")
@@ -472,5 +449,5 @@ pub async fn render_scene(
         height: height as u32,
     };
 
-    renderer.render(&scene, &render_size, &image_cache).unwrap();
+    renderer.render(&scene, &render_size).unwrap();
 }

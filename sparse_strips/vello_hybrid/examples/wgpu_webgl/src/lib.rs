@@ -12,7 +12,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use vello_common::kurbo::{Affine, Point};
-use vello_hybrid::{ImageCache, Pixmap};
+use vello_hybrid::Pixmap;
 use vello_hybrid_scenes::AnyScene;
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
@@ -122,7 +122,6 @@ struct AppState {
     renderer_wrapper: RendererWrapper,
     need_render: bool,
     canvas: HtmlCanvasElement,
-    image_cache: ImageCache,
 }
 
 impl AppState {
@@ -144,7 +143,6 @@ impl AppState {
             renderer_wrapper,
             need_render: true,
             canvas,
-            image_cache: ImageCache::new(),
         };
 
         // Upload images to the WebGL atlas
@@ -187,7 +185,6 @@ impl AppState {
                 &mut encoder,
                 &render_size,
                 &surface_texture_view,
-                &self.image_cache,
             )
             .unwrap();
 
@@ -285,7 +282,6 @@ impl AppState {
             &self.renderer_wrapper.device,
             &self.renderer_wrapper.queue,
             &mut encoder,
-            &mut self.image_cache,
             &pixmap1,
         );
 
@@ -300,7 +296,6 @@ impl AppState {
             &self.renderer_wrapper.device,
             &self.renderer_wrapper.queue,
             &mut encoder,
-            &mut self.image_cache,
             &texture2,
         );
 
@@ -538,12 +533,7 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
 }
 
 /// Creates a `HTMLCanvasElement` and renders a single scene into it
-pub async fn render_scene(
-    scene: vello_hybrid::Scene,
-    width: u16,
-    height: u16,
-    image_cache: ImageCache,
-) {
+pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
     let canvas = web_sys::Window::document(&web_sys::window().unwrap())
         .unwrap()
         .create_element("canvas")
@@ -590,7 +580,6 @@ pub async fn render_scene(
             &mut encoder,
             &render_size,
             &surface_texture_view,
-            &image_cache,
         )
         .unwrap();
 
