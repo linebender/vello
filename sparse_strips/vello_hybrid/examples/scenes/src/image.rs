@@ -18,8 +18,15 @@ use vello_hybrid::Scene;
 use crate::ExampleScene;
 
 /// Image scene state
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ImageScene {}
+
+impl ImageScene {
+    /// Create a new image scene
+    pub fn new() -> Self {
+        Self {}
+    }
+}
 
 impl ExampleScene for ImageScene {
     fn render(&mut self, scene: &mut Scene, root_transform: Affine) {

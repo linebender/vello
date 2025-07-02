@@ -67,7 +67,7 @@ pub fn get_example_scenes(svg_paths: Option<Vec<&str>>) -> Box<[AnyScene]> {
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
-    scenes.push(AnyScene::new(image::ImageScene {}));
+    scenes.push(AnyScene::new(image::ImageScene::new()));
 
     scenes.into_boxed_slice()
 }
