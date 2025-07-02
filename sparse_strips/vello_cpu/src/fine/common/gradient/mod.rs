@@ -79,7 +79,7 @@ impl<'a, S: Simd> Iterator for GradientPainter<'a, S> {
         let mut b = [0.0_f32; 8];
         let mut a = [0.0_f32; 8];
 
-        // TODO: Investigate whether we can juse use a loop.
+        // TODO: Investigate whether we can use a loop without performance hit.
         macro_rules! gather {
             ($idx:expr) => {
                 let sample = self.lut.get(indices[$idx] as usize);

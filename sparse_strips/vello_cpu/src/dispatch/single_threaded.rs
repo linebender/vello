@@ -10,7 +10,8 @@ use crate::region::Regions;
 use crate::strip_generator::StripGenerator;
 use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
-use vello_common::fearless_simd::{Fallback, Level, Neon, Simd};
+use vello_common::fearless_simd;
+use vello_common::fearless_simd::{Fallback, Level, Simd};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 
@@ -126,31 +127,12 @@ impl Dispatcher for SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
+        #[allow(unreachable_patterns, reason = "platform-dependent")]
         match render_mode {
             RenderMode::OptimizeSpeed => match self.level {
-                Level::Fallback(f) => self.rasterize_with::<Fallback, U8Kernel>(
-                    f,
-                    buffer,
-                    width,
-                    height,
-                    encoded_paints,
-                ),
                 #[cfg(target_arch = "aarch64")]
                 Level::Neon(n) => {
-                    self.rasterize_with::<Neon, U8Kernel>(n, buffer, width, height, encoded_paints);
-                }
-            },
-            RenderMode::OptimizeQuality => match self.level {
-                Level::Fallback(f) => self.rasterize_with::<Fallback, F32Kernel>(
-                    f,
-                    buffer,
-                    width,
-                    height,
-                    encoded_paints,
-                ),
-                #[cfg(target_arch = "aarch64")]
-                Level::Neon(n) => {
-                    self.rasterize_with::<Neon, F32Kernel>(
+                    self.rasterize_with::<fearless_simd::Neon, U8Kernel>(
                         n,
                         buffer,
                         width,
@@ -158,6 +140,32 @@ impl Dispatcher for SingleThreadedDispatcher {
                         encoded_paints,
                     );
                 }
+                Level::Fallback(_) | _ => self.rasterize_with::<Fallback, U8Kernel>(
+                    Fallback::new(),
+                    buffer,
+                    width,
+                    height,
+                    encoded_paints,
+                ),
+            },
+            RenderMode::OptimizeQuality => match self.level {
+                #[cfg(target_arch = "aarch64")]
+                Level::Neon(n) => {
+                    self.rasterize_with::<fearless_simd::Neon, F32Kernel>(
+                        n,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
+                }
+                Level::Fallback(_) | _ => self.rasterize_with::<Fallback, F32Kernel>(
+                    Fallback::new(),
+                    buffer,
+                    width,
+                    height,
+                    encoded_paints,
+                ),
             },
         }
     }

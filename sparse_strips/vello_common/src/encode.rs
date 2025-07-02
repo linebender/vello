@@ -38,6 +38,19 @@ fn exp(val: f32) -> f32 {
     compile_error!("vello_common requires either the `std` or `libm` feature");
 }
 
+#[cfg(feature = "std")]
+fn floor(val: f32) -> f32 {
+    val.floor()
+}
+
+#[cfg(not(feature = "std"))]
+fn floor(val: f32) -> f32 {
+    #[cfg(feature = "libm")]
+    return libm::floorf(val);
+    #[cfg(not(feature = "libm"))]
+    compile_error!("vello_common requires either the `std` or `libm` feature");
+}
+
 /// A trait for encoding gradients.
 pub trait EncodeExt: private::Sealed {
     /// Encode the gradient and push it into a vector of encoded paints, returning
@@ -428,8 +441,8 @@ impl EncodeExt for Image {
             && (c[1] as f32).is_nearly_zero()
             && (c[2] as f32).is_nearly_zero()
             && (c[3] as f32 - 1.0).is_nearly_zero()
-            && (c[4].fract() as f32).is_nearly_zero()
-            && (c[5].fract() as f32).is_nearly_zero()
+            && ((c[4] as f32) - floor(c[4] as f32)).is_nearly_zero()
+            && ((c[5] as f32) - floor(c[5] as f32)).is_nearly_zero()
             && quality == ImageQuality::Medium
         {
             quality = ImageQuality::Low;
