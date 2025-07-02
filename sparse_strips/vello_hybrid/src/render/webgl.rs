@@ -251,7 +251,7 @@ impl WebGlRenderer {
                 height as i32,
                 WebGl2RenderingContext::RGBA,
                 WebGl2RenderingContext::UNSIGNED_BYTE,
-                Some(&transparent_data),
+                Some(&uninitialized_data),
             )
             .unwrap();
     }
