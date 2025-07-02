@@ -1,4 +1,4 @@
-use crate::fine2::{PosExt, ShaderResultF32, ShaderType};
+use crate::fine::{PosExt, ShaderResultF32, ShaderType};
 use crate::kurbo::Point;
 use core::slice::ChunksExact;
 use vello_common::encode::{EncodedGradient, GradientLut};
@@ -126,7 +126,7 @@ impl<'a, S: Simd> Iterator for GradientFiller<'a, S> {
     }
 }
 
-impl<S: Simd> crate::fine2::Painter for GradientFiller<'_, S> {
+impl<S: Simd> crate::fine::Painter for GradientFiller<'_, S> {
     fn paint_u8(&mut self, buf: &mut [u8]) {
         for chunk in buf.chunks_exact_mut(64) {
             let first = self.next().unwrap();

@@ -1,4 +1,4 @@
-use crate::fine2::shaders::gradient::SimdGradientKind;
+use crate::fine::shaders::gradient::SimdGradientKind;
 use vello_common::encode::{FocalData, RadialKind};
 use vello_common::fearless_simd::{Simd, SimdBase, f32x8};
 

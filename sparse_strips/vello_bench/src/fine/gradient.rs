@@ -15,7 +15,7 @@ use vello_common::fearless_simd::Simd;
 use vello_common::kurbo::{Affine, Point};
 use vello_common::peniko;
 use vello_common::peniko::{ColorStop, ColorStops, Gradient, GradientKind};
-use vello_cpu::fine2::{Fine, FineKernel};
+use vello_cpu::fine::{Fine, FineKernel};
 use vello_dev_macros::vello_bench;
 
 pub fn gradient(c: &mut Criterion) {
@@ -65,7 +65,7 @@ mod extend {
     use vello_common::kurbo::Point;
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
-    use vello_cpu::fine2::{Fine, FineKernel};
+    use vello_cpu::fine::{Fine, FineKernel};
     use vello_dev_macros::vello_bench;
 
     fn extend<S: Simd, N: FineKernel<S>>(
@@ -105,7 +105,7 @@ mod linear {
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
 
-    use vello_cpu::fine2::{Fine, FineKernel};
+    use vello_cpu::fine::{Fine, FineKernel};
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
@@ -135,7 +135,7 @@ mod radial {
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
     use vello_common::tile::Tile;
-    use vello_cpu::fine2::{Fine, FineKernel};
+    use vello_cpu::fine::{Fine, FineKernel};
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
@@ -191,7 +191,7 @@ mod sweep {
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
     use vello_common::tile::Tile;
-    use vello_cpu::fine2::{Fine, FineKernel};
+    use vello_cpu::fine::{Fine, FineKernel};
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]

@@ -19,7 +19,7 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
         #input_fn
 
         pub fn #input_fn_name(c: &mut criterion::Criterion) {
-            use vello_cpu::fine2::{Fine, U8Kernel, F32Kernel};
+            use vello_cpu::fine::{Fine, U8Kernel, F32Kernel};
             use vello_common::coarse::WideTile;
             use vello_common::tile::Tile;
             use vello_common::fearless_simd::Simd;

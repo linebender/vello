@@ -1,6 +1,6 @@
-use crate::fine2::highp::element_wise_splat;
-use crate::fine2::macros::{f32_iter, u8_iter};
-use crate::fine2::{PosExt, Splat4thExt, u8_to_f32};
+use crate::fine::highp::element_wise_splat;
+use crate::fine::macros::{f32_iter, u8_iter};
+use crate::fine::{PosExt, Splat4thExt, u8_to_f32};
 use crate::kurbo::Point;
 use crate::peniko::ImageQuality;
 use vello_common::encode::EncodedImage;

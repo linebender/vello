@@ -3,7 +3,7 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
-use crate::fine2::{F32Kernel, Fine, FineKernel, U8Kernel};
+use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
 use crate::kurbo::{Affine, BezPath, PathSeg, Point, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;

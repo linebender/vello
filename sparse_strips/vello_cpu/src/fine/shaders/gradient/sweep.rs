@@ -1,4 +1,4 @@
-use crate::fine2::shaders::gradient::SimdGradientKind;
+use crate::fine::shaders::gradient::SimdGradientKind;
 use core::f32::consts::PI;
 use vello_common::encode::SweepKind;
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x8};

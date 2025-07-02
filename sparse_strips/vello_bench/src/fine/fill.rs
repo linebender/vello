@@ -8,7 +8,7 @@ use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::Simd;
 use vello_common::paint::{Paint, PremulColor};
 use vello_common::peniko::BlendMode;
-use vello_cpu::fine2::{Fine, FineKernel};
+use vello_cpu::fine::{Fine, FineKernel};
 use vello_dev_macros::vello_bench;
 
 pub fn fill(c: &mut Criterion) {

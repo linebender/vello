@@ -12,7 +12,7 @@ use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko;
 use vello_common::peniko::ImageQuality;
 use vello_common::pixmap::Pixmap;
-use vello_cpu::fine2::{Fine, FineKernel};
+use vello_cpu::fine::{Fine, FineKernel};
 
 pub fn image(c: &mut Criterion) {
     transform::none(c);
@@ -36,7 +36,7 @@ mod extend {
     use vello_common::kurbo::Affine;
     use vello_common::peniko;
     use vello_common::peniko::ImageQuality;
-    use vello_cpu::fine2::{Fine, FineKernel};
+    use vello_cpu::fine::{Fine, FineKernel};
     use vello_dev_macros::vello_bench;
 
     fn extend_base<S: Simd, T: FineKernel<S>>(
@@ -76,7 +76,7 @@ mod quality {
     use vello_common::kurbo::Affine;
     use vello_common::peniko;
     use vello_common::peniko::ImageQuality;
-    use vello_cpu::fine2::{Fine, FineKernel};
+    use vello_cpu::fine::{Fine, FineKernel};
     use vello_dev_macros::vello_bench;
 
     fn quality_base<S: Simd, T: FineKernel<S>>(
@@ -113,7 +113,7 @@ mod transform {
     use vello_common::peniko;
     use vello_common::peniko::ImageQuality;
     use vello_common::tile::Tile;
-    use vello_cpu::fine2::{Fine, FineKernel};
+    use vello_cpu::fine::{Fine, FineKernel};
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]

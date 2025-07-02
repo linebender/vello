@@ -2,7 +2,7 @@ use criterion::{Bencher, Criterion};
 use vello_common::coarse::WideTile;
 use vello_common::fearless_simd::Simd;
 use vello_common::tile::Tile;
-use vello_cpu::fine2::{Fine, FineKernel, SCRATCH_BUF_SIZE};
+use vello_cpu::fine::{Fine, FineKernel, SCRATCH_BUF_SIZE};
 use vello_cpu::region::Regions;
 use vello_dev_macros::vello_bench;
 

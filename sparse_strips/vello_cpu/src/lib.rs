@@ -116,7 +116,7 @@ mod render;
 
 mod dispatch;
 #[doc(hidden)]
-pub mod fine2;
+pub mod fine;
 #[doc(hidden)]
 pub mod region;
 mod strip_generator;

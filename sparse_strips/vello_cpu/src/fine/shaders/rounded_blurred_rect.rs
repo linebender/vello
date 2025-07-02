@@ -5,7 +5,7 @@
 //!
 //! Implementation is adapted from: <https://git.sr.ht/~raph/blurrr/tree/master/src/distfield.rs>.
 
-use crate::fine2::{PosExt, ShaderResultF32, ShaderType};
+use crate::fine::{PosExt, ShaderResultF32, ShaderType};
 use crate::kurbo::{Point, Vec2};
 use vello_common::encode::EncodedBlurredRoundedRectangle;
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x8, u8x16};
@@ -59,7 +59,7 @@ impl<S: Simd> Iterator for BlurredRoundedRectFiller<S> {
         Some(ShaderResultF32 { r, g, b, a })
     }
 }
-impl<S: Simd> crate::fine2::Painter for BlurredRoundedRectFiller<S> {
+impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
     fn paint_u8(&mut self, buf: &mut [u8]) {
         for chunk in buf.chunks_exact_mut(64) {
             let first = self.next().unwrap();

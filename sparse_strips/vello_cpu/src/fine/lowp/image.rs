@@ -1,7 +1,7 @@
-use crate::fine2::highp::element_wise_splat;
-use crate::fine2::macros::u8_iter;
-use crate::fine2::shaders::image::{ImageFillerData, extend_simd, sample};
-use crate::fine2::{PosExt, f32_to_u8};
+use crate::fine::highp::element_wise_splat;
+use crate::fine::macros::u8_iter;
+use crate::fine::shaders::image::{ImageFillerData, extend_simd, sample};
+use crate::fine::{PosExt, f32_to_u8};
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x16};
 use vello_common::pixmap::Pixmap;

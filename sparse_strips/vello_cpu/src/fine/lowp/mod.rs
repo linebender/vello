@@ -2,12 +2,12 @@ mod compose;
 mod gradient;
 mod image;
 
-use crate::fine2::lowp::image::BilinearImageFiller;
-use crate::fine2::shaders;
-use crate::fine2::shaders::image::{FilteredImageFiller, ImageFiller, SimpleImageFiller};
-use crate::fine2::shaders::rounded_blurred_rect::BlurredRoundedRectFiller;
-use crate::fine2::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
-use crate::fine2::{FineKernel, f32_to_u8, highp, u8_to_f32};
+use crate::fine::lowp::image::BilinearImageFiller;
+use crate::fine::shaders;
+use crate::fine::shaders::image::{FilteredImageFiller, ImageFiller, SimpleImageFiller};
+use crate::fine::shaders::rounded_blurred_rect::BlurredRoundedRectFiller;
+use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
+use crate::fine::{FineKernel, f32_to_u8, highp, u8_to_f32};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use crate::util::Div255Ext;
@@ -186,9 +186,9 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
 }
 
 mod fill {
-    use crate::fine2::Splat4thExt;
-    use crate::fine2::lowp::compose::ComposeExt;
-    use crate::fine2::lowp::mix;
+    use crate::fine::Splat4thExt;
+    use crate::fine::lowp::compose::ComposeExt;
+    use crate::fine::lowp::mix;
     use crate::peniko::{BlendMode, Mix};
     use crate::util::normalized_mul;
     use vello_common::fearless_simd::*;
@@ -255,9 +255,9 @@ mod fill {
 }
 
 mod strip {
-    use crate::fine2::Splat4thExt;
-    use crate::fine2::lowp::compose::ComposeExt;
-    use crate::fine2::lowp::{extract_masks, mix};
+    use crate::fine::Splat4thExt;
+    use crate::fine::lowp::compose::ComposeExt;
+    use crate::fine::lowp::{extract_masks, mix};
     use crate::peniko::{BlendMode, Mix};
     use crate::util::{Div255Ext, normalized_mul};
     use vello_common::fearless_simd::*;

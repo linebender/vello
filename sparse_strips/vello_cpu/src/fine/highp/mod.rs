@@ -1,8 +1,8 @@
-use crate::fine2::FineKernel;
-use crate::fine2::shaders::gradient::GradientFiller;
-use crate::fine2::shaders::image::{FilteredImageFiller, ImageFiller, SimpleImageFiller};
-use crate::fine2::shaders::rounded_blurred_rect::BlurredRoundedRectFiller;
-use crate::fine2::{COLOR_COMPONENTS, Painter};
+use crate::fine::FineKernel;
+use crate::fine::shaders::gradient::GradientFiller;
+use crate::fine::shaders::image::{FilteredImageFiller, ImageFiller, SimpleImageFiller};
+use crate::fine::shaders::rounded_blurred_rect::BlurredRoundedRectFiller;
+use crate::fine::{COLOR_COMPONENTS, Painter};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use alloc::boxed::Box;
@@ -185,9 +185,9 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
 }
 
 mod fill {
-    use crate::fine2::Splat4thExt;
-    use crate::fine2::highp::blend;
-    use crate::fine2::highp::compose::ComposeExt;
+    use crate::fine::Splat4thExt;
+    use crate::fine::highp::blend;
+    use crate::fine::highp::compose::ComposeExt;
     use crate::peniko::BlendMode;
 
     use vello_common::fearless_simd::*;
@@ -246,9 +246,9 @@ mod fill {
 }
 
 mod strip {
-    use crate::fine2::Splat4thExt;
-    use crate::fine2::highp::compose::ComposeExt;
-    use crate::fine2::highp::{blend, extract_masks};
+    use crate::fine::Splat4thExt;
+    use crate::fine::highp::compose::ComposeExt;
+    use crate::fine::highp::{blend, extract_masks};
     use crate::peniko::BlendMode;
     use vello_common::fearless_simd::*;
 

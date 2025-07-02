@@ -7,7 +7,7 @@ use vello_common::encode::EncodeExt;
 use vello_common::fearless_simd::Simd;
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::tile::Tile;
-use vello_cpu::fine2::{Fine, FineKernel};
+use vello_cpu::fine::{Fine, FineKernel};
 use vello_dev_macros::vello_bench;
 
 pub fn rounded_blurred_rect(c: &mut Criterion) {
