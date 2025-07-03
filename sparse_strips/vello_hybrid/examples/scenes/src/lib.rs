@@ -10,12 +10,30 @@ pub mod svg;
 pub mod text;
 
 use vello_common::kurbo::Affine;
+use vello_common::paint::ImageId;
 use vello_hybrid::Scene;
 
-/// Example scene that can maintain state between renders
+/// Resources that scenes may need each frame.
+#[derive(Debug, Clone, Default)]
+pub struct SceneResources {
+    /// Image ids that have been uploaded to the GPU.
+    pub images: Vec<ImageId>,
+}
+
+impl SceneResources {
+    /// Create a new instance
+    pub fn new() -> Self {
+        Self { images: Vec::new() }
+    }
+}
+
+/// Example scene that can maintain state between renders.
+///
+/// The `resources` parameter contains data such a uploaded image ids.
+/// Scenes that do not require external resources can ignore this parameter.
 pub trait ExampleScene {
-    /// Render the scene using the current state
-    fn render(&mut self, scene: &mut Scene, root_transform: Affine);
+    /// Render the scene using the current state.
+    fn render(&mut self, scene: &mut Scene, root_transform: Affine, resources: &SceneResources);
 }
 
 /// A type-erased example scene
@@ -25,7 +43,7 @@ pub struct AnyScene {
 }
 
 /// A type-erased render function
-type RenderFn = Box<dyn FnMut(&mut Scene, Affine)>;
+type RenderFn = Box<dyn FnMut(&mut Scene, Affine, &SceneResources)>;
 
 impl std::fmt::Debug for AnyScene {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -37,13 +55,18 @@ impl AnyScene {
     /// Create a new `AnyScene` from any type that implements `ExampleScene`
     pub fn new<T: ExampleScene + 'static>(mut scene: T) -> Self {
         Self {
-            render_fn: Box::new(move |s, transform| scene.render(s, transform)),
+            render_fn: Box::new(move |s, transform, res| scene.render(s, transform, res)),
         }
     }
 
     /// Render the scene
-    pub fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
-        (self.render_fn)(scene, root_transform);
+    pub fn render(
+        &mut self,
+        scene: &mut Scene,
+        root_transform: Affine,
+        resources: &SceneResources,
+    ) {
+        (self.render_fn)(scene, root_transform, resources);
     }
 }
 
@@ -80,7 +103,7 @@ pub fn get_example_scenes() -> Box<[AnyScene]> {
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(simple::SimpleScene::new()),
         AnyScene::new(clip::ClipScene::new()),
-        AnyScene::new(image::ImageScene {}),
+        AnyScene::new(image::ImageScene::new()),
     ]
     .into_boxed_slice()
 }

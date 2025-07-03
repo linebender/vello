@@ -11,9 +11,12 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use vello_common::kurbo::{Affine, Point};
+use vello_common::{
+    kurbo::{Affine, Point},
+    paint::ImageId,
+};
 use vello_hybrid::Pixmap;
-use vello_hybrid_scenes::AnyScene;
+use vello_hybrid_scenes::{AnyScene, SceneResources};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
@@ -123,6 +126,8 @@ struct AppState {
     renderer_wrapper: RendererWrapper,
     need_render: bool,
     canvas: HtmlCanvasElement,
+    scene_resources: SceneResources,
+    uploaded_images: Vec<ImageId>,
 }
 
 impl AppState {
@@ -144,6 +149,8 @@ impl AppState {
             renderer_wrapper,
             need_render: true,
             canvas,
+            scene_resources: SceneResources::new(),
+            uploaded_images: Vec::new(),
         };
 
         // Upload images to the WebGL atlas
@@ -160,7 +167,11 @@ impl AppState {
         self.scene.reset();
 
         // Render the current scene with transform
-        self.scenes[self.current_scene].render(&mut self.scene, self.transform);
+        self.scenes[self.current_scene].render(
+            &mut self.scene,
+            self.transform,
+            &self.scene_resources,
+        );
 
         let render_size = vello_hybrid::RenderSize {
             width: self.width,
@@ -223,8 +234,9 @@ impl AppState {
         self.need_render = true;
     }
 
-    fn reset_transform(&mut self) {
+    fn reset_scene(&mut self) {
         self.transform = Affine::IDENTITY;
+        self.upload_images_to_atlas();
         self.need_render = true;
     }
 
@@ -267,8 +279,18 @@ impl AppState {
         self.need_render = true;
     }
 
+    fn handle_destroy_image(&mut self) {
+        if let Some(image_id) = self.uploaded_images.pop() {
+            self.destroy_image(image_id);
+        }
+        self.need_render = true;
+    }
+
     fn upload_images_to_atlas(&mut self) {
         use vello_hybrid_scenes::image::ImageScene;
+
+        self.scene_resources.images.clear();
+        self.uploaded_images.clear();
 
         let mut encoder =
             self.renderer_wrapper
@@ -279,7 +301,7 @@ impl AppState {
 
         // 1st example — uploading pixmap directly to WebGL atlas
         let pixmap1 = ImageScene::read_flower_image();
-        self.renderer_wrapper.renderer.upload_image(
+        let image_id1 = self.renderer_wrapper.renderer.upload_image(
             &self.renderer_wrapper.device,
             &self.renderer_wrapper.queue,
             &mut encoder,
@@ -293,12 +315,15 @@ impl AppState {
             &self.renderer_wrapper.queue,
             &pixmap2,
         );
-        self.renderer_wrapper.renderer.upload_image(
+        let image_id2 = self.renderer_wrapper.renderer.upload_image(
             &self.renderer_wrapper.device,
             &self.renderer_wrapper.queue,
             &mut encoder,
             &texture2,
         );
+
+        self.scene_resources.images = vec![image_id1, image_id2];
+        self.uploaded_images = vec![image_id2, image_id1];
 
         self.renderer_wrapper.queue.submit([encoder.finish()]);
     }
@@ -351,6 +376,22 @@ impl AppState {
         );
 
         texture
+    }
+
+    fn destroy_image(&mut self, image_id: ImageId) {
+        let mut encoder =
+            self.renderer_wrapper
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Destroy Image pass"),
+                });
+        self.renderer_wrapper.renderer.destroy_image(
+            &self.renderer_wrapper.device,
+            &self.renderer_wrapper.queue,
+            &mut encoder,
+            image_id,
+        );
+        self.renderer_wrapper.queue.submit([encoder.finish()]);
     }
 }
 
@@ -494,7 +535,8 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
                 Box::new(move |event: KeyboardEvent| match event.key().as_str() {
                     "ArrowRight" => app_state.borrow_mut().next_scene(),
                     "ArrowLeft" => app_state.borrow_mut().prev_scene(),
-                    " " => app_state.borrow_mut().reset_transform(),
+                    "d" => app_state.borrow_mut().handle_destroy_image(),
+                    " " => app_state.borrow_mut().reset_scene(),
                     _ => {}
                 }) as Box<dyn FnMut(_)>,
             );
@@ -508,7 +550,7 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     let document = web_sys::window().unwrap().document().unwrap();
     let instructions = document.create_element("div").unwrap();
     instructions.set_inner_html(
-        "Left/Right Arrow: Change scene | Space: Reset view | Mouse Drag: Pan | Mouse Wheel: Zoom",
+        "Left/Right Arrow: Change scene | Space: Reset scene | D: Destroy image | Mouse Drag: Pan | Mouse Wheel: Zoom",
     );
     let style = instructions
         .dyn_ref::<web_sys::HtmlElement>()

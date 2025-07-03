@@ -11,9 +11,10 @@ use std::sync::Arc;
 use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Point};
+use vello_common::paint::ImageId;
 use vello_hybrid::{Pixmap, RenderSize, Renderer, Scene};
 use vello_hybrid_scenes::image::ImageScene;
-use vello_hybrid_scenes::{AnyScene, get_example_scenes};
+use vello_hybrid_scenes::{AnyScene, SceneResources, get_example_scenes};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
@@ -45,6 +46,8 @@ struct App<'s> {
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Point>,
+    scene_resources: SceneResources,
+    uploaded_images: Vec<ImageId>,
 }
 
 fn main() {
@@ -87,6 +90,8 @@ fn main() {
         transform: Affine::IDENTITY,
         mouse_down: false,
         last_cursor_position: None,
+        scene_resources: SceneResources::new(),
+        uploaded_images: vec![],
     };
 
     let event_loop = EventLoop::new().unwrap();
@@ -195,12 +200,26 @@ impl ApplicationHandler for App<'_> {
                     window.request_redraw();
                 }
                 Key::Named(NamedKey::Space) => {
+                    let dev_id = surface.dev_id;
+                    let window = window.clone();
                     // Reset transform on spacebar
                     self.transform = Affine::IDENTITY;
+                    self.upload_images_to_atlas(dev_id);
                     window.request_redraw();
                 }
                 Key::Named(NamedKey::Escape) => {
                     event_loop.exit();
+                }
+                Key::Character(str) => {
+                    if str == "d" && self.current_scene == 4 {
+                        let dev_id = surface.dev_id;
+                        let window = window.clone();
+
+                        if let Some(image_id) = self.uploaded_images.pop() {
+                            self.destroy_image(dev_id, image_id);
+                        }
+                        window.request_redraw();
+                    }
                 }
                 _ => {}
             },
@@ -264,7 +283,11 @@ impl ApplicationHandler for App<'_> {
                 self.scene.reset();
 
                 self.scene.set_transform(self.transform);
-                self.scenes[self.current_scene].render(&mut self.scene, self.transform);
+                self.scenes[self.current_scene].render(
+                    &mut self.scene,
+                    self.transform,
+                    &self.scene_resources,
+                );
 
                 let device_handle = &self.context.devices[surface.dev_id];
                 let render_size = RenderSize {
@@ -312,6 +335,9 @@ impl ApplicationHandler for App<'_> {
 
 impl App<'_> {
     fn upload_images_to_atlas(&mut self, device_id: usize) {
+        self.scene_resources.images.clear();
+        self.uploaded_images.clear();
+
         let device_handle = &self.context.devices[device_id];
         let mut encoder =
             device_handle
@@ -322,7 +348,7 @@ impl App<'_> {
 
         // 1st example — uploading pixmap directly
         let pixmap1 = ImageScene::read_flower_image();
-        self.renderers[device_id].as_mut().unwrap().upload_image(
+        let image_id1 = self.renderers[device_id].as_mut().unwrap().upload_image(
             &device_handle.device,
             &device_handle.queue,
             &mut encoder,
@@ -333,12 +359,15 @@ impl App<'_> {
         let pixmap2 = ImageScene::read_cowboy_image();
         let texture2 =
             self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &pixmap2);
-        self.renderers[device_id].as_mut().unwrap().upload_image(
+        let image_id2 = self.renderers[device_id].as_mut().unwrap().upload_image(
             &device_handle.device,
             &device_handle.queue,
             &mut encoder,
             &texture2,
         );
+
+        self.scene_resources.images = vec![image_id1, image_id2];
+        self.uploaded_images = vec![image_id2, image_id1];
 
         device_handle.queue.submit([encoder.finish()]);
     }
@@ -391,5 +420,22 @@ impl App<'_> {
         );
 
         texture
+    }
+
+    fn destroy_image(&mut self, device_id: usize, image_id: ImageId) {
+        let device_handle = &self.context.devices[device_id];
+        let mut encoder =
+            device_handle
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Destroy Image pass"),
+                });
+        self.renderers[device_id].as_mut().unwrap().destroy_image(
+            &device_handle.device,
+            &device_handle.queue,
+            &mut encoder,
+            image_id,
+        );
+        device_handle.queue.submit([encoder.finish()]);
     }
 }

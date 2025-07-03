@@ -80,6 +80,14 @@ impl ImageCache {
         self.slots.get(id.as_u32() as usize)?.as_ref()
     }
 
+    /// Check if an image is in the cache
+    pub(crate) fn contains(&self, id: ImageId) -> bool {
+        self.slots
+            .get(id.as_u32() as usize)
+            .and_then(|slot| slot.as_ref())
+            .is_some()
+    }
+
     /// Allocate an image in the cache
     #[expect(
         clippy::cast_possible_truncation,
@@ -89,7 +97,7 @@ impl ImageCache {
         let alloc = self
             .atlas
             .allocate(size2(width as i32, height as i32))
-            .expect("Failed to allocate texture");
+            .expect("Failed to allocate image in atlas");
 
         let slot_idx = self.free_idxs.pop().unwrap_or_else(|| {
             // No free slots, append to vector
@@ -247,5 +255,14 @@ mod tests {
         assert!(new_id1.as_u32() == 3);
         assert!(new_id2.as_u32() == 1);
         assert_ne!(new_id1.as_u32(), new_id2.as_u32());
+    }
+
+    #[test]
+    fn test_contains() {
+        let mut cache = ImageCache::default();
+        let id = cache.allocate(100, 100);
+        assert!(cache.contains(id));
+        cache.deallocate(id);
+        assert!(!cache.contains(id));
     }
 }

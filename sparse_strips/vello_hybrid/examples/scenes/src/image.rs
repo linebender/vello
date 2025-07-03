@@ -10,28 +10,28 @@ use vello_common::peniko::ImageFormat;
 use vello_common::pixmap::Pixmap;
 use vello_common::{
     kurbo::{Affine, Rect},
-    paint::{Image, ImageId, ImageSource},
+    paint::{Image, ImageSource},
     peniko::{Extend, ImageQuality},
 };
 use vello_hybrid::Scene;
 
-use crate::ExampleScene;
+use crate::{ExampleScene, SceneResources};
 
-/// Image scene state
+/// Image scene shows how to use images in the scene.
 #[derive(Debug, Default)]
-pub struct ImageScene {}
+pub struct ImageScene;
 
 impl ImageScene {
     /// Create a new image scene
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 }
 
 impl ExampleScene for ImageScene {
-    fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
-        let splash_flower_id = ImageId::new(0);
-        let cowboy_id = ImageId::new(1);
+    fn render(&mut self, scene: &mut Scene, root_transform: Affine, resources: &SceneResources) {
+        let splash_flower_id = resources.images.first().copied().unwrap();
+        let cowboy_id = resources.images.get(1).copied().unwrap();
 
         scene.set_transform(
             root_transform
@@ -80,7 +80,7 @@ impl ExampleScene for ImageScene {
         );
         scene.set_paint_transform(Affine::scale(0.25));
         scene.set_paint(Image {
-            source: ImageSource::OpaqueId(ImageId::new(0)),
+            source: ImageSource::OpaqueId(splash_flower_id),
             x_extend: Extend::Repeat,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,

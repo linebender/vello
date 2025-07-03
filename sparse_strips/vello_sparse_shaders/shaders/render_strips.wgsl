@@ -112,8 +112,7 @@ fn vs_main(
     let paint_type = instance.paint >> 30u;
 
     if paint_type == PAINT_TYPE_IMAGE {
-        let paint_tex_id = instance.paint & 0x3FFFFFFF;
-        
+        let paint_tex_id = instance.paint & 0x1FFFFFFFu;
         let encoded_image = unpack_encoded_image(paint_tex_id);
         // Vertex position within the texture
         out.sample_xy = encoded_image.translate 
@@ -179,7 +178,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let paint_type = in.paint >> 30u;
 
     if paint_type == PAINT_TYPE_IMAGE {
-        let paint_tex_id = in.paint & 0x3FFFFFFF;
+        let paint_tex_id = in.paint & 0x1FFFFFFFu;
+        let skip_paint = in.paint >> 29u & 1u;
+        if skip_paint == 1u {
+            discard;
+        }
+        
         let encoded_image = unpack_encoded_image(paint_tex_id);
         let image_offset = encoded_image.image_offset;
         let image_size = encoded_image.image_size;

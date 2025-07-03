@@ -176,6 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::image_cache::ImageCache;
 use crate::render::common::GpuEncodedImage;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
@@ -269,6 +270,7 @@ impl Scheduler {
         &mut self,
         renderer: &mut R,
         scene: &Scene,
+        image_cache: &ImageCache,
     ) -> Result<(), RenderError> {
         let mut tile_state = mem::take(&mut self.tile_state);
         let wide_tiles_per_row = scene.wide.width_tiles();
@@ -287,6 +289,7 @@ impl Scheduler {
                     wide_tile_y,
                     wide_tile,
                     &mut tile_state,
+                    image_cache,
                 )?;
             }
         }
@@ -370,6 +373,7 @@ impl Scheduler {
         wide_tile_y: u16,
         tile: &WideTile,
         state: &mut TileState,
+        image_cache: &ImageCache,
     ) -> Result<(), RenderError> {
         state.stack.clear();
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
@@ -402,7 +406,8 @@ impl Scheduler {
                     let el = state.stack.last().unwrap();
                     let draw = self.draw_mut(el.round, clip_depth);
 
-                    let (col_idx, rgba_or_slot, paint) = Self::process_paint(&fill.paint, scene, 0);
+                    let (col_idx, rgba_or_slot, paint) =
+                        Self::process_paint(&fill.paint, scene, 0, image_cache);
 
                     let (x, y) = if clip_depth == 1 {
                         (wide_tile_x + fill.x, wide_tile_y)
@@ -429,7 +434,7 @@ impl Scheduler {
                         .expect("Sparse strips are bound to u32 range");
 
                     let (col_idx, rgba_or_slot, paint) =
-                        Self::process_paint(&alpha_fill.paint, scene, alpha_col);
+                        Self::process_paint(&alpha_fill.paint, scene, alpha_col, image_cache);
 
                     let (x, y) = if clip_depth == 1 {
                         (wide_tile_x + alpha_fill.x, wide_tile_y)
@@ -528,8 +533,13 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Process a paint and return (`col_idx`, `rgba_or_slot`, `paint_type`)
-    fn process_paint(paint: &Paint, scene: &Scene, alpha_col: u32) -> (u32, u32, u32) {
+    /// Process a paint and return (`col_idx`, `rgba_or_slot`, `paint`)
+    fn process_paint(
+        paint: &Paint,
+        scene: &Scene,
+        alpha_col: u32,
+        image_cache: &ImageCache,
+    ) -> (u32, u32, u32) {
         match paint {
             Paint::Solid(color) => {
                 let rgba = color.as_premul_rgba8().to_u32();
@@ -546,9 +556,12 @@ impl Scheduler {
 
                 match scene.encoded_paints.get(paint_id) {
                     Some(EncodedPaint::Image(encoded_image)) => match &encoded_image.source {
-                        ImageSource::OpaqueId(_) => {
+                        ImageSource::OpaqueId(image_id) => {
                             let paint_type = 2_u32;
-                            let paint_packed = (paint_type << 30) | (paint_tex_id & 0x3FFFFFFF);
+                            let skip_paint = !image_cache.contains(*image_id) as u32;
+                            let paint_packed = (paint_type << 30)
+                                | (skip_paint << 29)
+                                | (paint_tex_id & 0x1FFFFFFF);
                             (alpha_col, 0, paint_packed)
                         }
                         _ => unimplemented!("unsupported image source"),
