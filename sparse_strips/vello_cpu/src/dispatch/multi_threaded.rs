@@ -324,6 +324,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.alpha_storage = Arc::new(OnceLockAlphaStorage::new(self.num_threads));
 
         let workers = self.workers.clone();
+        let alpha_storage = self.alpha_storage.clone();
         // + 1 since we also wait on the main thread.
         let barrier = Arc::new(Barrier::new(usize::from(self.num_threads) + 1));
         let t_barrier = barrier.clone();
@@ -332,6 +333,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             let worker = workers.get().unwrap();
             let mut borrowed = worker.borrow_mut();
             borrowed.reset();
+            borrowed.alpha_storage = alpha_storage.clone();
             t_barrier.wait();
         });
 
