@@ -571,7 +571,7 @@ mod tests {
         ctx.push_clip_layer(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
         ctx.pop_layer();
     }
-    
+
     #[cfg(feature = "multithreading")]
     #[test]
     fn multithreaded_crash_after_reset() {
@@ -580,7 +580,7 @@ mod tests {
             level: Level::new(),
             num_threads: 1,
         };
-        
+
         let mut ctx = RenderContext::new_with(200, 200, &settings);
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
