@@ -203,10 +203,10 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
         self.state = {
             let render_state = RenderState { window, surface };
             self.renderers
-                .resize_with(self.context.devices.len(), || None);
+                .resize_with(self.context.device_pool.len(), || None);
             let id = render_state.surface.dev_id;
             self.renderers[id].get_or_insert_with(|| {
-                let device_handle = &self.context.devices[id];
+                let device_handle = &self.context.device_pool[id];
                 let cache = if let Some((dir, tx)) = self.cache_data.as_ref() {
                     // Safety: Hoping for the best. Given that we're using as private a cache directory as possible, it's
                     // probably fine?
@@ -349,14 +349,11 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                                 }
                                 "v" => {
                                     self.vsync_on = !self.vsync_on;
-                                    self.context.set_present_mode(
-                                        &mut render_state.surface,
-                                        if self.vsync_on {
-                                            wgpu::PresentMode::AutoVsync
-                                        } else {
-                                            wgpu::PresentMode::AutoNoVsync
-                                        },
-                                    );
+                                    render_state.surface.set_present_mode(if self.vsync_on {
+                                        wgpu::PresentMode::AutoVsync
+                                    } else {
+                                        wgpu::PresentMode::AutoNoVsync
+                                    });
                                 }
                                 debug_layer @ ("1" | "2" | "3" | "4") => {
                                     match debug_layer {
@@ -426,8 +423,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
             }
             WindowEvent::Resized(size) => {
                 if let Some(RenderState { surface, window }) = &mut self.state {
-                    self.context
-                        .resize_surface(surface, size.width, size.height);
+                    surface.resize(size.width, size.height);
                     window.request_redraw();
                 }
             }
@@ -481,7 +477,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 };
                 let width = surface.config.width;
                 let height = surface.config.height;
-                let device_handle = &self.context.devices[surface.dev_id];
+                let device_handle = &self.context.device_pool[surface.dev_id];
                 let snapshot = self.stats.snapshot();
 
                 // Allow looping forever
@@ -671,7 +667,7 @@ impl ApplicationHandler<UserEvent> for VelloApp<'_> {
                 let Some(render_state) = &mut self.state else {
                     return;
                 };
-                let device_handle = &self.context.devices[render_state.surface.dev_id];
+                let device_handle = &self.context.device_pool[render_state.surface.dev_id];
                 log::info!("==============\nReloading shaders");
                 let start = Instant::now();
                 let result = self.renderers[render_state.surface.dev_id]
@@ -717,9 +713,9 @@ fn run(
     #[cfg(target_arch = "wasm32")]
     let (render_state, renderers) = {
         let mut renderers = vec![];
-        renderers.resize_with(render_cx.devices.len(), || None);
+        renderers.resize_with(render_cx.device_pool.len(), || None);
         let id = render_state.surface.dev_id;
-        let device_handle = &render_cx.devices[id];
+        let device_handle = &render_cx.device_pool[id];
         let cache: Option<(PipelineCache, PathBuf)> = if let Some(dir) = cache_directory.as_ref() {
             // Safety: Hoping for the best. Given that we're using as private a cache directory as possible, it's
             // probably fine?
