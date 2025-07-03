@@ -555,9 +555,8 @@ impl ColrRenderer for RenderContext {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Level, RenderContext, RenderMode, RenderSettings};
+    use crate::RenderContext;
     use vello_common::kurbo::{Rect, Shape};
-    use vello_common::pixmap::Pixmap;
     use vello_common::tile::Tile;
 
     #[test]
@@ -575,6 +574,9 @@ mod tests {
     #[cfg(feature = "multithreading")]
     #[test]
     fn multithreaded_crash_after_reset() {
+        use crate::{Level, RenderMode, RenderSettings};
+        use vello_common::pixmap::Pixmap;
+
         let mut pixmap = Pixmap::new(200, 200);
         let settings = RenderSettings {
             level: Level::new(),
