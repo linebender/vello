@@ -22,7 +22,12 @@ use vello_hybrid::Scene;
 pub struct ClipScene {}
 
 impl ExampleScene for ClipScene {
-    fn render(&mut self, ctx: &mut Scene, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut Scene,
+        root_transform: Affine,
+        _resources: &crate::SceneResources,
+    ) {
         render(ctx, root_transform);
     }
 }

@@ -35,7 +35,7 @@ use wgpu::{
 
 use crate::{
     GpuStrip, RenderError, RenderSize,
-    image_cache::{ImageCache, ImageResource},
+    image_cache::ImageCache,
     render::{Config, common::GpuEncodedImage},
     scene::Scene,
     schedule::{LoadOp, RendererBackend, Scheduler},
@@ -103,7 +103,7 @@ impl Renderer {
             view,
         };
 
-        self.scheduler.do_scene(&mut junk, scene)
+        self.scheduler.do_scene(&mut junk, scene, &self.image_cache)
     }
 
     /// Upload image to cache and atlas in one step. Returns the `ImageId`.
@@ -207,32 +207,40 @@ impl Renderer {
     }
 
     fn prepare_gpu_encoded_paints(&self, encoded_paints: &[EncodedPaint]) -> Vec<GpuEncodedImage> {
-        let mut bytes: Vec<GpuEncodedImage> = Vec::new();
+        let mut gpu_encoded_images: Vec<GpuEncodedImage> = Vec::with_capacity(encoded_paints.len());
         for paint in encoded_paints {
             match paint {
                 EncodedPaint::Image(img) => {
                     if let ImageSource::OpaqueId(image_id) = img.source {
-                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
-                        if let Some(image_resource) = image_resource {
-                            let transform = img.transform * Affine::translate((-0.5, -0.5));
-                            // pack two u16 as u32
-                            let image_size = ((image_resource.width as u32) << 16)
-                                | image_resource.height as u32;
-                            let image_offset = ((image_resource.offset[0] as u32) << 16)
-                                | image_resource.offset[1] as u32;
-                            let quality_and_extend_modes = ((img.extends.1 as u32) << 4)
-                                | ((img.extends.0 as u32) << 2)
-                                | img.quality as u32;
+                        let (width, height, offset) =
+                            if let Some(image_resource) = self.image_cache.get(image_id) {
+                                (
+                                    image_resource.width,
+                                    image_resource.height,
+                                    image_resource.offset,
+                                )
+                            } else {
+                                (0, 0, [0, 0])
+                            };
+                        let transform = img.transform * Affine::translate((-0.5, -0.5));
+                        // Pack two u16 as u32 (width in high 16 bits, height in low 16 bits)
+                        let image_size = ((width as u32) << 16) | height as u32;
+                        // Pack offset similarly (x in high 16 bits, y in low 16 bits)
+                        let image_offset = ((offset[0] as u32) << 16) | offset[1] as u32;
+                        // Pack quality and extend modes:
+                        // first 2 bits for quality, next 4 bits for extend mode
+                        let quality_and_extend_modes = ((img.extends.1 as u32) << 4)
+                            | ((img.extends.0 as u32) << 2)
+                            | img.quality as u32;
 
-                            bytes.push(GpuEncodedImage {
-                                quality_and_extend_modes,
-                                image_size,
-                                image_offset,
-                                _padding1: 0,
-                                transform: transform.as_coeffs().map(|x| x as f32),
-                                _padding2: [0, 0],
-                            });
-                        }
+                        gpu_encoded_images.push(GpuEncodedImage {
+                            quality_and_extend_modes,
+                            image_size,
+                            image_offset,
+                            _padding1: 0,
+                            transform: transform.as_coeffs().map(|x| x as f32),
+                            _padding2: [0, 0],
+                        });
                     }
                 }
                 _ => {
@@ -240,7 +248,7 @@ impl Renderer {
                 }
             }
         }
-        bytes
+        gpu_encoded_images
     }
 }
 

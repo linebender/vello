@@ -14,7 +14,12 @@ use crate::ExampleScene;
 pub struct SimpleScene {}
 
 impl ExampleScene for SimpleScene {
-    fn render(&mut self, ctx: &mut Scene, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut Scene,
+        root_transform: Affine,
+        _resources: &crate::SceneResources,
+    ) {
         render(ctx, root_transform);
     }
 }
