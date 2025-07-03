@@ -411,7 +411,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     /// Fill at a given x and with a width using the given paint.
     // For short strip segments, benchmarks showed that not inlining leads to significantly
     // worse performance.
-    #[inline(always)]
     pub fn fill(
         &mut self,
         x: usize,
