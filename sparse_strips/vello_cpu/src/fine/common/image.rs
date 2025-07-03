@@ -410,7 +410,10 @@ pub(crate) fn extend<S: Simd>(
         // Note that max should be exclusive, so subtract a small bias to enforce that.
         // Otherwise, we might sample out-of-bounds pixels.
         crate::peniko::Extend::Pad => val.min(max - bias).max(f32x4::splat(simd, 0.0)),
-        crate::peniko::Extend::Repeat => val.msub((val * inv_max).floor(), max),
+        crate::peniko::Extend::Repeat => val
+            .msub((val * inv_max).floor(), max)
+            // In certain edge cases, we might still end up with a higher number.
+            .min(max - 1.0),
         // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L3274-L3290>
         crate::peniko::Extend::Reflect => {
             let u = val
@@ -427,6 +430,8 @@ pub(crate) fn extend<S: Simd>(
             // Note that this is a wrapping sub!
             let biased_bits = m_bits - bias_in_ulps.cvt_u32();
             f32x4::from_bytes(biased_bits.to_bytes())
+                // In certain edge cases, we might still end up with a higher number.
+                .min(max - 1.0)
         }
     }
 }
@@ -517,4 +522,22 @@ const fn cubic_resampler(b: f32, c: f32) -> [[f32; 4]; 4] {
         ],
         [0.0, 0.0, -c, (1.0 / 6.0) * b + c],
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vello_common::fearless_simd::Fallback;
+
+    #[test]
+    fn extend_overflow() {
+        let simd = Fallback::new();
+        let max = f32x4::splat(simd, 128.0);
+        let max_inv = 1.0 / max;
+
+        let num = f32x4::splat(simd, 127.00001);
+        let res = extend(simd, num, crate::peniko::Extend::Repeat, max, max_inv);
+
+        assert!(res[0] <= 127.0);
+    }
 }
