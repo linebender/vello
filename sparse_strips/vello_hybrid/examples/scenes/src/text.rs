@@ -45,7 +45,12 @@ impl fmt::Debug for TextScene {
 }
 
 impl ExampleScene for TextScene {
-    fn render(&mut self, scene: &mut Scene, root_transform: Affine, _resources: &crate::SceneResources) {
+    fn render(
+        &mut self,
+        scene: &mut Scene,
+        root_transform: Affine,
+        _resources: &crate::SceneResources,
+    ) {
         scene.set_transform(root_transform);
         render_text(self, scene);
     }

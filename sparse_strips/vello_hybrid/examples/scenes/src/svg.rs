@@ -26,7 +26,12 @@ impl fmt::Debug for SvgScene {
 }
 
 impl ExampleScene for SvgScene {
-    fn render(&mut self, scene: &mut Scene, root_transform: Affine, _resources: &crate::SceneResources) {
+    fn render(
+        &mut self,
+        scene: &mut Scene,
+        root_transform: Affine,
+        _resources: &crate::SceneResources,
+    ) {
         render_svg(scene, &self.svg.items, root_transform * self.transform);
     }
 }
