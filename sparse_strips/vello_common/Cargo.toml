@@ -17,6 +17,7 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = []
 
 [dependencies]
+once_cell = { workspace = true, optional = true }
 bytemuck = { workspace = true, features = [] }
 peniko = { workspace = true, features = ["bytemuck"] }
 fearless_simd = { workspace = true }
@@ -37,7 +38,7 @@ libm = ["peniko/libm", "skrifa?/libm", "dep:libm", "fearless_simd/libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
 png = ["std", "dep:png"]
 # Enable multi-threaded rendering.
-multithreading = []
+multithreading = ["dep:once_cell"]
 # Add support for text rendering
 text = ["dep:skrifa"]
 

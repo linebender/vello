@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 #![allow(missing_docs, reason = "Not needed for benchmarks")]
+#![allow(dead_code, reason = "Might be unused on platforms not supporting SIMD")]
 
 use criterion::{criterion_group, criterion_main};
 use vello_bench::{fine, flatten, strip, tile};

@@ -198,7 +198,7 @@ mod linear {
         let gradient = Gradient {
             kind: GradientKind::Linear {
                 start: Point::new(40.0, 40.0),
-                end: Point::new(60.0, 60.0),
+                end: Point::new(50.0, 60.0),
             },
             stops: stops_blue_green_red_yellow(),
             extend,

@@ -17,7 +17,7 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = []
 
 [dependencies]
-libm = { version = "0.2.15", optional = true }
+bytemuck = { workspace = true }
 vello_common = { workspace = true }
 crossbeam-channel = { workspace = true, optional = true }
 ordered-channel = { workspace = true, optional = true, features = ["crossbeam-channel"] }
@@ -30,7 +30,7 @@ default = ["std", "png", "text"]
 # Get floating point functions from the standard library (likely using your target’s libc).
 std = ["vello_common/std"]
 # Use floating point implementations from libm.
-libm = ["vello_common/libm", "dep:libm"]
+libm = ["vello_common/libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
 png = ["vello_common/png"]
 # Enable multi-threaded rendering.
