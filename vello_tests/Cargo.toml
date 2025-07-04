@@ -22,3 +22,4 @@ nv-flip = "0.1.2"
 image = { workspace = true, features = ["png"] }
 
 scenes = { workspace = true }
+oxipng = { workspace = true, features = ["freestanding", "parallel"] }

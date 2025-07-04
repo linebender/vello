@@ -94,6 +94,7 @@ impl Snapshot<'_> {
                     &self.reference_path,
                     &self.raw_rendered,
                     Some(self.directory.max_size_in_bytes()),
+                    true,
                 )?;
                 eprintln!(
                     "Updated result for updated test {} to {:?}",
@@ -106,7 +107,13 @@ impl Snapshot<'_> {
                 );
             }
         } else {
-            write_png_to_file(self.params, &self.update_path, &self.raw_rendered, None)?;
+            write_png_to_file(
+                self.params,
+                &self.update_path,
+                &self.raw_rendered,
+                None,
+                false,
+            )?;
             eprintln!(
                 "Wrote result for failing test {} to {:?}\n\
                 Use `VELLO_TEST_UPDATE=all` to update",
@@ -193,6 +200,7 @@ pub fn snapshot_test_image(
             &update_path,
             &raw_rendered,
             Some(directory.max_size_in_bytes()),
+            true,
         )?;
     }
 
@@ -222,6 +230,7 @@ pub fn snapshot_test_image(
                         &reference_path,
                         &raw_rendered,
                         Some(directory.max_size_in_bytes()),
+                        true,
                     )?;
                     eprintln!(
                         "Wrote result for new test {} to {:?}",
@@ -247,6 +256,8 @@ pub fn snapshot_test_image(
                     &update_path,
                     &raw_rendered,
                     Some(directory.max_size_in_bytes()),
+                    // This file could get copied by the user, so optimise as we're writing it out anyway.
+                    true,
                 )?;
                 bail!(
                     "Couldn't find snapshot for test {}. Searched at {:?}\n\

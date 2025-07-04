@@ -3856,6 +3856,7 @@ dependencies = [
  "futures-intrusive",
  "image",
  "nv-flip",
+ "oxipng",
  "png",
  "pollster",
  "scenes",
