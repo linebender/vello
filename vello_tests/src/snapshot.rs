@@ -127,7 +127,7 @@ pub enum SnapshotDirectory {
     Smoke,
     /// Run the test in a git LFS managed directory.
     ///
-    /// This test will ensure that files produced are no larger than 128KiB.
+    /// This test will ensure that files produced are no larger than 64KiB.
     Lfs,
 }
 
@@ -135,7 +135,7 @@ impl SnapshotDirectory {
     fn max_size_in_bytes(self) -> u64 {
         match self {
             Self::Smoke => 4 * 1024, /* 4KiB */
-            Self::Lfs => 128 * 1024, /* 128KiB */
+            Self::Lfs => 64 * 1024,  /* 64KiB */
         }
     }
 }
@@ -144,7 +144,7 @@ impl SnapshotDirectory {
 ///
 /// This will store the files in an LFS managed directory, and has a larger limit on file size.
 ///
-/// This test will ensure that files produced are no larger than 128KiB.
+/// This test will ensure that files produced are no larger than 64KiB.
 pub fn snapshot_test_sync(scene: Scene, params: &TestParams) -> Result<Snapshot<'_>> {
     pollster::block_on(snapshot_test(scene, params, SnapshotDirectory::Lfs))
 }
