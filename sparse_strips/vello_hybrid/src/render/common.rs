@@ -46,7 +46,7 @@ pub struct GpuStrip {
     /// There are [`Config::strip_height`] alpha values per column.
     pub col_idx: u32,
     /// Color value or slot index when alpha is 0
-    pub rgba_or_slot: u32,
+    pub payload: u32,
     /// Packed paint type (2 bits) and paint texture id (30 bits)
     /// Paint type: 0 = solid, 1 = alpha, 2 = image
     /// Paint texture id locates the encoded image data `EncodedImage`
