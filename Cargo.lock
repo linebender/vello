@@ -919,7 +919,7 @@ dependencies = [
 [[package]]
 name = "fearless_simd"
 version = "0.2.0"
-source = "git+https://github.com/raphlinus/fearless_simd?rev=8a1cea7#8a1cea77f15cb6cdf78df06a907fc874615db486"
+source = "git+https://github.com/raphlinus/fearless_simd?rev=42e01d2#42e01d22ef6aebd9aac362b8541df87a4ac8c834"
 dependencies = [
  "bytemuck",
  "libm",
