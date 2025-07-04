@@ -28,7 +28,6 @@
 )]
 
 use std::env;
-use std::fs::File;
 use std::io::ErrorKind;
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -87,7 +86,7 @@ pub async fn render_then_debug(scene: &Scene, params: &TestParams) -> Result<Ima
         .join(name)
         .with_extension("png");
     if env_var_relates_to("VELLO_DEBUG_TEST", &params.name, params.use_cpu) {
-        write_png_to_file(params, &out_path, &image, None)?;
+        write_png_to_file(params, &out_path, &image, None, false)?;
         let (width, height) = (image.width, image.height);
         println!("Wrote debug result ({width}x{height}) to {out_path:?}");
     } else {
@@ -194,20 +193,27 @@ pub fn write_png_to_file(
     out_path: &Path,
     image: &Image,
     max_size_in_bytes: Option<u64>,
+    optimise: bool,
 ) -> Result<(), anyhow::Error> {
     let width = params.width;
     let height = params.height;
-    let mut file = File::create(out_path)?;
-    let mut encoder = png::Encoder::new(&mut file, width, height);
+    let mut data = Vec::new();
+    let mut encoder = png::Encoder::new(&mut data, width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
     writer.write_image_data(image.data.data())?;
     writer.finish()?;
-    let size = file.metadata().unwrap().len();
-    drop(file);
+    if optimise {
+        data = oxipng::optimize_from_memory(&data, &oxipng::Options::max_compression()).unwrap();
+    }
+
+    let size = data.len();
+    std::fs::write(out_path, &data)?;
     let oversized_path = out_path.with_extension("oversized.png");
-    if max_size_in_bytes.is_some_and(|max_size_in_bytes| size > max_size_in_bytes) {
+    if max_size_in_bytes
+        .is_some_and(|max_size_in_bytes| u64::try_from(size).unwrap() > max_size_in_bytes)
+    {
         std::fs::rename(out_path, &oversized_path)?;
         bail!(
             "File was oversized, expected {} bytes, got {size} bytes. New file written to {to}",
