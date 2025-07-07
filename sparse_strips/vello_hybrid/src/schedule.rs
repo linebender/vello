@@ -567,9 +567,9 @@ impl Scheduler {
                                 ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
                             (scene_strip_xy, paint_packed)
                         }
-                        _ => unimplemented!("unsupported image source"),
+                        _ => unimplemented!("Unsupported image source"),
                     },
-                    _ => (0, 0),
+                    _ => unimplemented!("Unsupported paint type"),
                 }
             }
         }
