@@ -108,6 +108,31 @@
 extern crate alloc;
 extern crate core;
 
+macro_rules! time {
+    ($label:expr, $body:tt) => {{
+        let start = ::std::time::Instant::now();
+        let result = {$body};
+        let t = start.elapsed().as_millis();
+        println!("{} in {}ms", $label, t);
+        result
+    }};
+    (us:$label:expr, $body:tt) => {{
+        let start = ::std::time::Instant::now();
+        let result = {$body};
+        let t = start.elapsed().as_micros();
+        println!("{} in {}us", $label, t);
+        result
+    }};
+    (us:$label:expr, $acc:expr, $body:tt) => {{
+        let start = ::std::time::Instant::now();
+        let result = {$body};
+        let t = start.elapsed().as_micros();
+        $acc += t;
+        println!("{} in {}us", $label, t);
+        result
+    }};
+}
+
 mod render;
 
 mod dispatch;

@@ -178,36 +178,98 @@ impl MultiThreadedDispatcher {
     fn run_coarse(&mut self, abort_empty: bool) {
         let result_receiver = self.result_receiver.as_mut().unwrap();
 
+        let start = std::time::Instant::now();
+
+        let mut total_layers = 0;
+        let mut current_depth = 0;
+        let mut max_depth = 0;
+        let mut renders = 0;
+        let mut tot_render_time = 0;
+        let mut tot_push_layer_time = 0;
+        let mut tot_pop_layer_time = 0;
+        let mut tot_match_time = 0;
+
+        let mut received = false;
+        let mut first_recv = 0;
+
+        let mut after_task_time = std::time::Instant::now();
+
         loop {
-            match result_receiver.try_recv() {
-                Ok(cmd) => match cmd {
-                    CoarseCommand::Render {
-                        thread_id,
-                        strips,
-                        fill_rule,
-                        paint,
-                    } => self.wide.generate(&strips, fill_rule, paint, thread_id),
-                    CoarseCommand::PushLayer {
-                        thread_id,
-                        clip_path,
-                        blend_mode,
-                        mask,
-                        opacity,
-                    } => self
-                        .wide
-                        .push_layer(clip_path, blend_mode, mask, opacity, thread_id),
-                    CoarseCommand::PopLayer => self.wide.pop_layer(),
-                },
+
+            let att = after_task_time.elapsed().as_micros();
+            println!("ATT {att}us");
+
+            let msg = time!(us:"try_recv", {
+                result_receiver.try_recv()
+            });
+
+            time!(us:"match_time", tot_match_time, {
+            match msg {
+                Ok(cmd) => {
+                    if !received {
+                        first_recv = start.elapsed().as_micros();
+                        received = true;
+                    }
+                    match cmd {
+                        CoarseCommand::Render {
+                            thread_id,
+                            strips,
+                            fill_rule,
+                            paint,
+                        } => {
+                            renders += 1;
+                            time!(us:"render wide", tot_render_time, {
+                                self.wide.generate(&strips, fill_rule, paint, thread_id)
+                            })
+                        }
+                        CoarseCommand::PushLayer {
+                            thread_id,
+                            clip_path,
+                            blend_mode,
+                            mask,
+                            opacity,
+                        } => time!(us:"push layer", tot_push_layer_time, {
+                            total_layers += 1;
+                            current_depth += 1;
+                            max_depth = max_depth.max(current_depth);
+                            self
+                            .wide
+                            .push_layer(clip_path, blend_mode, mask, opacity, thread_id)
+                        }),
+                        CoarseCommand::PopLayer => time!(us:"pop layer", tot_pop_layer_time, {
+                            current_depth -= 1;
+                            self.wide.pop_layer()
+                        }),
+                    }
+                }
                 Err(e) => match e {
                     TryRecvError::Empty => {
+                        println!("EMPTY");
                         if abort_empty {
-                            return;
+                            break;
                         }
                     }
-                    TryRecvError::Disconnected => return,
+                    TryRecvError::Disconnected => {
+                        break;
+                    }
                 },
             }
+
+            });
+
+            after_task_time = std::time::Instant::now();
         }
+
+        let t = start.elapsed().as_micros();
+        println!("Total layers: {total_layers}");
+        println!("Total push layer time: {tot_push_layer_time}");
+        println!("Total pop layer time: {tot_pop_layer_time}");
+        println!("Max depth: {max_depth}");
+        println!("Renders: {renders}");
+        println!("Total render times: {tot_render_time}");
+        println!("Total match time: {tot_match_time}");
+        println!("first_recv: {first_recv}");
+        println!("abort_empty in {}us", t);
     }
 
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
@@ -343,12 +405,17 @@ impl Dispatcher for MultiThreadedDispatcher {
     }
 
     fn flush(&mut self) {
-        self.flush_tasks();
+        time!("flush_tasks", {
+            self.flush_tasks();
+        });
         let sender = core::mem::take(&mut self.task_sender);
         // Note that dropping the sender will signal to the workers that no more new paths
         // can arrive.
         core::mem::drop(sender);
-        self.run_coarse(false);
+
+        time!("run_coarse", {
+            self.run_coarse(false);
+        });
 
         self.flushed = true;
     }
