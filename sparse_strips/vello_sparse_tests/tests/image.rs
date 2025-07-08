@@ -10,6 +10,7 @@ use std::sync::Arc;
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{Extend, ImageQuality};
+use vello_cpu::kurbo::{Shape, Triangle};
 use vello_dev_macros::vello_test;
 
 fn rgb_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
@@ -486,4 +487,29 @@ fn image_bicubic_10x_scale_2(ctx: &mut impl Renderer) {
         ImageQuality::High,
         Extend::Reflect,
     );
+}
+
+#[vello_test]
+fn image_with_multiple_clip_layers(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
+    let image_rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    let clipped_area1 = Rect::new(20.0, 20.0, 80.0, 80.0);
+    let clipped_area2 = Triangle::new(
+        Point::new(90.0, 10.0),
+        Point::new(32.0, 46.0),
+        Point::new(54.0, 68.0),
+    );
+
+    ctx.push_clip_layer(&clipped_area1.to_path(0.1));
+    ctx.push_clip_layer(&clipped_area2.to_path(0.1));
+    ctx.set_paint_transform(Affine::IDENTITY);
+    ctx.set_paint(Image {
+        source: image_source,
+        x_extend: Extend::Repeat,
+        y_extend: Extend::Repeat,
+        quality: ImageQuality::Low,
+    });
+    ctx.fill_rect(&image_rect);
+    ctx.pop_layer();
+    ctx.pop_layer();
 }

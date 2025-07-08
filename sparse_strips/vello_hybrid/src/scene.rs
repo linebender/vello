@@ -109,7 +109,7 @@ impl Scene {
         match self.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(_) => {
-                unimplemented!("gradient not implemented")
+                unimplemented!("Gradient not implemented")
             }
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints,

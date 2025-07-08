@@ -5,7 +5,7 @@
 use std::f64::consts::PI;
 
 use vello_common::color::PremulRgba8;
-use vello_common::kurbo::BezPath;
+use vello_common::kurbo::{BezPath, Point, Shape, Vec2};
 use vello_common::peniko::ImageFormat;
 use vello_common::pixmap::Pixmap;
 use vello_common::{
@@ -69,23 +69,21 @@ impl ExampleScene for ImageScene {
             y_extend: Extend::Pad,
             quality: ImageQuality::Low,
         });
-        let path = heart_shape();
-        scene.fill_path(&path);
+        scene.fill_path(&heart_shape());
 
-        scene.set_transform(
-            root_transform
-                * Affine::translate((700.0, 500.0))
-                * Affine::rotate(PI / 4.0)
-                * Affine::scale(0.5),
+        scene.set_transform(root_transform * Affine::translate((400.0, 480.0)));
+        scene.push_clip_layer(
+            &circular_star(Point::new(300.0, 220.0), 5, 100.0, 150.0).to_path(0.1),
         );
-        scene.set_paint_transform(Affine::scale(0.25));
+        scene.set_paint_transform(Affine::IDENTITY);
         scene.set_paint(Image {
-            source: ImageSource::OpaqueId(ImageId::new(0)),
+            source: ImageSource::OpaqueId(splash_flower_id),
             x_extend: Extend::Repeat,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
         });
         scene.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
+        scene.pop_layer();
 
         scene.set_transform(root_transform * Affine::translate((1000.0, 50.0)));
         scene.set_paint_transform(Affine::scale(0.25));
@@ -126,6 +124,21 @@ impl ExampleScene for ImageScene {
             quality: ImageQuality::High,
         });
         scene.fill_rect(&Rect::new(0.0, 0.0, 800.0, 160.0));
+
+        scene.set_transform(
+            root_transform
+                * Affine::translate((200.0, 1200.0))
+                * Affine::rotate(PI / 4.0)
+                * Affine::scale(0.5),
+        );
+        scene.set_paint_transform(Affine::scale(0.25));
+        scene.set_paint(Image {
+            source: ImageSource::OpaqueId(ImageId::new(0)),
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Repeat,
+            quality: ImageQuality::Low,
+        });
+        scene.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
     }
 }
 
@@ -205,6 +218,19 @@ fn heart_shape() -> BezPath {
     path.curve_to((160.0, 20.0), (80.0, 120.0), (320.0, 380.0));
     // Right top curve of the heart
     path.curve_to((560.0, 120.0), (480.0, 20.0), (320.0, 100.0));
+    path.close_path();
+    path
+}
+
+fn circular_star(center: Point, n: usize, inner: f64, outer: f64) -> BezPath {
+    let mut path = BezPath::new();
+    let start_angle = -std::f64::consts::FRAC_PI_2;
+    path.move_to(center + outer * Vec2::from_angle(start_angle));
+    for i in 1..n * 2 {
+        let th = start_angle + i as f64 * std::f64::consts::PI / n as f64;
+        let r = if i % 2 == 0 { outer } else { inner };
+        path.line_to(center + r * Vec2::from_angle(th));
+    }
     path.close_path();
     path
 }

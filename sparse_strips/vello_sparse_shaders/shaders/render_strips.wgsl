@@ -10,14 +10,29 @@
 // The alpha values are stored in a texture and sampled during fragment shading.
 // This approach optimizes memory usage by only storing alpha data where needed.
 //
-// The `StripInstance`'s `rgba_or_slot` field can either encode a color or a slot index.
-// If the alpha value is non-zero, the fragment shader samples the alpha texture.
-// Otherwise, the fragment shader samples the source clip texture using the given slot index.
+//
+// `StripInstance::paint` field encodes a color source, a paint type and a paint texture id
+// Color source determines where the fragment shader gets color data from
+// Paint type determines how the fragment shader uses the color data
+// Paint texture id locates the encoded image data `EncodedImage` in `encoded_paints_texture`
+// More details in the `StripInstance` documentation below.
+//
+// `StripInstance::payload` field can either encode a color, [x, y] for image sampling or a slot index
+// - If color source is payload and the paint type is solid, the fragment shader uses the color directly.
+// - If color source is payload and the paint type is image, the fragment shader samples the image.
+// - Otherwise, the fragment shader samples the source clip texture using the given slot index.
+// More details in the `StripInstance` documentation below.
 
-// Paint types to determine how to process a strip
+
+// Color source modes - where the fragment shader gets color data from
+// Use payload (color or image coordinates)
+const COLOR_SOURCE_PAYLOAD: u32 = 0u;
+// Sample from clip texture slot
+const COLOR_SOURCE_SLOT: u32 = 1u;
+
+// Paint types
 const PAINT_TYPE_SOLID: u32 = 0u;  
-const PAINT_TYPE_ALPHA: u32 = 1u;  
-const PAINT_TYPE_IMAGE: u32 = 2u;  
+const PAINT_TYPE_IMAGE: u32 = 1u;  
 
 // Image quality
 const IMAGE_QUALITY_LOW = 0u;
@@ -40,21 +55,38 @@ struct Config {
 
 // Strip instance data
 //
-// `rgba_or_slot` field can either encode a color or a slot index.
-// If the alpha value is non-zero, the fragment shader samples the alpha texture.
-// Otherwise, the fragment shader samples the source clip texture using the given slot index.
+// The `paint` field is packed with metadata that controls how `payload` is interpreted:
+//
+// `paint` bit layout:
+//   - Bit 31:     `color_source`      0 = use payload, 1 = use slot texture
+//   - Bits 29-30: `paint_type`        0 = solid, 1 = image
+//   - Bits 0-28:  `paint_texture_id`  if paint_type = PAINT_TYPE_IMAGE, index of `EncodedImage` 
+//
+// Decision tree for paint/payload interpretation:
+//
+// color_source = 0 (COLOR_SOURCE_PAYLOAD) - Use payload data directly
+// ├── paint_type = 0 (PAINT_TYPE_SOLID) - Solid color rendering
+// │   └── payload = [r, g, b, a] RGBA (packed as u8s)
+// │
+// └── paint_type = 1 (PAINT_TYPE_IMAGE) - Image rendering
+//     └── payload = [x, y] scene coordinates (packed as u16s)
+//
+// color_source = 1 (COLOR_SOURCE_SLOT) - Use slot texture
+// └── payload = slot_index (u32)
 struct StripInstance {
     // [x, y] packed as u16's
+    // x, y — coordinates of the strip
     @location(0) xy: u32,
     // [width, dense_width] packed as u16's
+    // width — width of the strip
+    // dense_width — width of the portion where alpha blending should be applied
     @location(1) widths: u32,
     // Alpha texture column index where this strip's alpha values begin
+    // There are [`Config::strip_height`] alpha values per column.
     @location(2) col_idx: u32,
-    // [r, g, b, a] packed as u8's or a slot index when alpha is 0
-    @location(3) rgba_or_slot: u32,
-    // Packed paint type (2 bits) and paint texture id (30 bits)
-    // Paint type: 0 = solid, 1 = alpha, 2 = image
-    // Paint texture id locates the encoded image data `EncodedImage` in the encoded_paints_texture
+    // See StripInstance documentation above.
+    @location(3) payload: u32,
+    // See StripInstance documentation above.
     @location(4) paint: u32,
 }
 
@@ -68,7 +100,7 @@ struct VertexOutput {
     // Ending x-position of the dense (alpha) region
     @location(3) @interpolate(flat) dense_end: u32,
     // Color value or slot index when alpha is 0
-    @location(4) @interpolate(flat) rgba_or_slot: u32,
+    @location(4) @interpolate(flat) payload: u32,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position) position: vec4<f32>,
 };
@@ -109,28 +141,29 @@ fn vs_main(
     // NDC ranges from -1 to 1, with (0,0) at the center of the viewport
     let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
     let ndc_y = 1.0 - pix_y * 2.0 / f32(config.height);
-    let paint_type = instance.paint >> 30u;
+    let paint_type = (instance.paint >> 29u) & 0x3u;
 
     if paint_type == PAINT_TYPE_IMAGE {
-        let paint_tex_id = instance.paint & 0x3FFFFFFF;
+        let paint_tex_id = instance.paint & 0x1FFFFFFF;
         
         let encoded_image = unpack_encoded_image(paint_tex_id);
-        // Vertex position within the texture
+        // Unpack view coordinates for image sampling
+        let scene_strip_x = instance.payload & 0xffffu;
+        let scene_strip_y = instance.payload >> 16u;
+        // Use view coordinates for image sampling (always in global view space)
         out.sample_xy = encoded_image.translate 
             + encoded_image.image_offset
-            + encoded_image.transform.xy * f32(x0) 
-            + encoded_image.transform.zw * f32(y0)
+            + encoded_image.transform.xy * f32(scene_strip_x) 
+            + encoded_image.transform.zw * f32(scene_strip_y)
             + encoded_image.transform.xy * x * f32(width)
             + encoded_image.transform.zw * y * f32(config.strip_height);
-        out.paint = instance.paint;
-    } else {
-        out.sample_xy = vec2<f32>(0.0, 0.0);
     }
 
     // Regular texture coordinates for other render types
     out.tex_coord = vec2<f32>(f32(instance.col_idx) + x * f32(width), y * f32(config.strip_height));
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
-    out.rgba_or_slot = instance.rgba_or_slot;
+    out.payload = instance.payload;
+    out.paint = instance.paint;
 
     return out;
 }
@@ -174,57 +207,58 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
     // Apply the alpha value to the unpacked RGBA color or slot index
-    let alpha_byte = in.rgba_or_slot >> 24u;
-    var final_color = unpack4x8unorm(in.rgba_or_slot);
-    let paint_type = in.paint >> 30u;
+    let color_source = (in.paint >> 31u) & 0x1u;
+    var final_color: vec4<f32>;
 
-    if paint_type == PAINT_TYPE_IMAGE {
-        let paint_tex_id = in.paint & 0x3FFFFFFF;
-        let encoded_image = unpack_encoded_image(paint_tex_id);
-        let image_offset = encoded_image.image_offset;
-        let image_size = encoded_image.image_size;
-        let local_xy = in.sample_xy - image_offset;
-        let offset = 0.00001;
-        let extended_xy = vec2<f32>(
-            extend_mode(local_xy.x, encoded_image.extend_modes.x, image_size.x - offset),
-            extend_mode(local_xy.y, encoded_image.extend_modes.y, image_size.y - offset)
-        );
-        
-        if encoded_image.quality == IMAGE_QUALITY_HIGH {
-            let final_xy = image_offset + extended_xy;
-            let sample_color = bicubic_sample(
-                atlas_texture,
-                final_xy,
-                image_offset,
-                image_size,
-                encoded_image.extend_modes
+    if color_source == COLOR_SOURCE_PAYLOAD {
+        let paint_type = (in.paint >> 29u) & 0x3u;
+
+        // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE
+        if paint_type == PAINT_TYPE_SOLID {
+            final_color = alpha * unpack4x8unorm(in.payload);
+        } else if paint_type == PAINT_TYPE_IMAGE {
+            let paint_tex_id = in.paint & 0x1FFFFFFF;
+            let encoded_image = unpack_encoded_image(paint_tex_id);
+            let image_offset = encoded_image.image_offset;
+            let image_size = encoded_image.image_size;
+            let local_xy = in.sample_xy - image_offset;
+            let offset = 0.00001;
+            let extended_xy = vec2<f32>(
+                extend_mode(local_xy.x, encoded_image.extend_modes.x, image_size.x - offset),
+                extend_mode(local_xy.y, encoded_image.extend_modes.y, image_size.y - offset)
             );
-            final_color = alpha * sample_color;
-        } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
-            let final_xy = image_offset + extended_xy - vec2(0.5);
-            let sample_color = bilinear_sample(
-                atlas_texture,
-                final_xy,
-                image_offset,
-                image_size,
-                encoded_image.extend_modes
-            );
-            final_color = alpha * sample_color;
-        } else if encoded_image.quality == IMAGE_QUALITY_LOW {
-            let final_xy = image_offset + extended_xy;
-            final_color = alpha * textureLoad(atlas_texture, vec2<u32>(final_xy), 0);
+            
+            if encoded_image.quality == IMAGE_QUALITY_HIGH {
+                let final_xy = image_offset + extended_xy;
+                let sample_color = bicubic_sample(
+                    atlas_texture,
+                    final_xy,
+                    image_offset,
+                    image_size,
+                    encoded_image.extend_modes
+                );
+                final_color = alpha * sample_color;
+            } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
+                let final_xy = image_offset + extended_xy - vec2(0.5);
+                let sample_color = bilinear_sample(
+                    atlas_texture,
+                    final_xy,
+                    image_offset,
+                    image_size,
+                    encoded_image.extend_modes
+                );
+                final_color = alpha * sample_color;
+            } else if encoded_image.quality == IMAGE_QUALITY_LOW {
+                let final_xy = image_offset + extended_xy;
+                final_color = alpha * textureLoad(atlas_texture, vec2<u32>(final_xy), 0);
+            }
         }
     } else {
-        if alpha_byte != 0 {
-            // in.rgba_or_slot encodes a color    
-            final_color = alpha * final_color;
-        } else {
-            // in.rgba_or_slot encodes a slot in the source clip texture
-            let clip_x = u32(in.position.x) & 0xFFu;
-            let clip_y = (u32(in.position.y) & 3) + in.rgba_or_slot * config.strip_height;
-            let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
-            final_color = alpha * clip_in_color;
-        }
+        // in.payload encodes a slot in the source clip texture
+        let clip_x = u32(in.position.x) & 0xFFu;
+        let clip_y = (u32(in.position.y) & 3) + in.payload * config.strip_height;
+        let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
+        final_color = alpha * clip_in_color;
     }
 
     return final_color;

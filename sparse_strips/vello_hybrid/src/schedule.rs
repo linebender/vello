@@ -389,7 +389,7 @@ impl Scheduler {
                     width: WideTile::WIDTH,
                     dense_width: 0,
                     col_idx: 0,
-                    rgba_or_slot: bg,
+                    payload: bg,
                     paint: 0,
                 });
             }
@@ -402,10 +402,12 @@ impl Scheduler {
                     let el = state.stack.last().unwrap();
                     let draw = self.draw_mut(el.round, clip_depth);
 
-                    let (col_idx, rgba_or_slot, paint) = Self::process_paint(&fill.paint, scene, 0);
+                    let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
+                    let (payload, paint) =
+                        Self::process_paint(&fill.paint, scene, (scene_strip_x, scene_strip_y));
 
                     let (x, y) = if clip_depth == 1 {
-                        (wide_tile_x + fill.x, wide_tile_y)
+                        (scene_strip_x, scene_strip_y)
                     } else {
                         (fill.x, el.slot_ix as u16 * Tile::HEIGHT)
                     };
@@ -415,8 +417,8 @@ impl Scheduler {
                         y,
                         width: fill.width,
                         dense_width: 0,
-                        col_idx,
-                        rgba_or_slot,
+                        col_idx: 0,
+                        payload,
                         paint,
                     });
                 }
@@ -424,15 +426,19 @@ impl Scheduler {
                     let el = state.stack.last().unwrap();
                     let draw = self.draw_mut(el.round, clip_depth);
 
-                    let alpha_col = (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
+                    let col_idx = (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
                         .try_into()
                         .expect("Sparse strips are bound to u32 range");
 
-                    let (col_idx, rgba_or_slot, paint) =
-                        Self::process_paint(&alpha_fill.paint, scene, alpha_col);
+                    let (scene_strip_x, scene_strip_y) = (wide_tile_x + alpha_fill.x, wide_tile_y);
+                    let (payload, paint) = Self::process_paint(
+                        &alpha_fill.paint,
+                        scene,
+                        (scene_strip_x, scene_strip_y),
+                    );
 
                     let (x, y) = if clip_depth == 1 {
-                        (wide_tile_x + alpha_fill.x, wide_tile_y)
+                        (scene_strip_x, scene_strip_y)
                     } else {
                         (alpha_fill.x, el.slot_ix as u16 * Tile::HEIGHT)
                     };
@@ -443,7 +449,7 @@ impl Scheduler {
                         width: alpha_fill.width,
                         dense_width: alpha_fill.width,
                         col_idx,
-                        rgba_or_slot,
+                        payload,
                         paint,
                     });
                 }
@@ -488,14 +494,15 @@ impl Scheduler {
                     } else {
                         (clip_fill.x as u16, nos.slot_ix as u16 * Tile::HEIGHT)
                     };
+                    let paint = COLOR_SOURCE_SLOT << 31;
                     draw.0.push(GpuStrip {
                         x,
                         y,
                         width: clip_fill.width as u16,
                         dense_width: 0,
                         col_idx: 0,
-                        rgba_or_slot: tos.slot_ix as u32,
-                        paint: 0,
+                        payload: tos.slot_ix as u32,
+                        paint,
                     });
                 }
                 Cmd::ClipStrip(clip_alpha_fill) => {
@@ -509,6 +516,7 @@ impl Scheduler {
                     } else {
                         (clip_alpha_fill.x as u16, nos.slot_ix as u16 * Tile::HEIGHT)
                     };
+                    let paint = COLOR_SOURCE_SLOT << 31;
                     draw.0.push(GpuStrip {
                         x,
                         y,
@@ -517,8 +525,8 @@ impl Scheduler {
                         col_idx: (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
                             .try_into()
                             .expect("Sparse strips are bound to u32 range"),
-                        rgba_or_slot: tos.slot_ix as u32,
-                        paint: 0,
+                        payload: tos.slot_ix as u32,
+                        paint,
                     });
                 }
                 _ => unimplemented!(),
@@ -528,8 +536,12 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Process a paint and return (`col_idx`, `rgba_or_slot`, `paint_type`)
-    fn process_paint(paint: &Paint, scene: &Scene, alpha_col: u32) -> (u32, u32, u32) {
+    /// Process a paint and return (`payload`, `paint`)
+    fn process_paint(
+        paint: &Paint,
+        scene: &Scene,
+        (scene_strip_x, scene_strip_y): (u16, u16),
+    ) -> (u32, u32) {
         match paint {
             Paint::Solid(color) => {
                 let rgba = color.as_premul_rgba8().to_u32();
@@ -537,7 +549,8 @@ impl Scheduler {
                     has_non_zero_alpha(rgba),
                     "Color fields with 0 alpha are reserved for clipping"
                 );
-                (alpha_col, rgba, 0)
+                let paint_packed = (COLOR_SOURCE_PAYLOAD << 31) | (PAINT_TYPE_SOLID << 29);
+                (rgba, paint_packed)
             }
             Paint::Indexed(indexed_paint) => {
                 let paint_id = indexed_paint.index();
@@ -547,18 +560,27 @@ impl Scheduler {
                 match scene.encoded_paints.get(paint_id) {
                     Some(EncodedPaint::Image(encoded_image)) => match &encoded_image.source {
                         ImageSource::OpaqueId(_) => {
-                            let paint_type = 2_u32;
-                            let paint_packed = (paint_type << 30) | (paint_tex_id & 0x3FFFFFFF);
-                            (alpha_col, 0, paint_packed)
+                            let paint_packed = (COLOR_SOURCE_PAYLOAD << 31)
+                                | (PAINT_TYPE_IMAGE << 29)
+                                | (paint_tex_id & 0x1FFFFFFF);
+                            let scene_strip_xy =
+                                ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                            (scene_strip_xy, paint_packed)
                         }
-                        _ => unimplemented!("unsupported image source"),
+                        _ => unimplemented!("Unsupported image source"),
                     },
-                    _ => (0, 0, 0),
+                    _ => unimplemented!("Unsupported paint type"),
                 }
             }
         }
     }
 }
+
+const COLOR_SOURCE_PAYLOAD: u32 = 0;
+const COLOR_SOURCE_SLOT: u32 = 1;
+
+const PAINT_TYPE_SOLID: u32 = 0;
+const PAINT_TYPE_IMAGE: u32 = 1;
 
 #[inline(always)]
 fn has_non_zero_alpha(rgba: u32) -> bool {

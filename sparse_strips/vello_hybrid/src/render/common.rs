@@ -29,27 +29,26 @@ pub struct Config {
     pub alphas_tex_width_bits: u32,
 }
 
-/// Represents a GPU strip for rendering
+/// Represents a GPU strip for rendering.
+///
+/// This struct corresponds to the `StripInstance` struct in the shader.
+/// See the `StripInstance` documentation in `render_strips.wgsl` for detailed field descriptions.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub struct GpuStrip {
-    /// X coordinate of the strip
+    /// See `StripInstance::xy` documentation in `render_strips.wgsl`.
     pub x: u16,
-    /// Y coordinate of the strip
+    /// See `StripInstance::xy` documentation in `render_strips.wgsl`.
     pub y: u16,
-    /// Width of the strip
+    /// See `StripInstance::widths` documentation in `render_strips.wgsl`.
     pub width: u16,
-    /// Width of the portion where alpha blending should be applied.
+    /// See `StripInstance::widths` documentation in `render_strips.wgsl`.
     pub dense_width: u16,
-    /// Column-index into the alpha texture where this strip's alpha values begin.
-    ///
-    /// There are [`Config::strip_height`] alpha values per column.
+    /// See `StripInstance::col_idx` documentation in `render_strips.wgsl`.
     pub col_idx: u32,
-    /// Color value or slot index when alpha is 0
-    pub rgba_or_slot: u32,
-    /// Packed paint type (2 bits) and paint texture id (30 bits)
-    /// Paint type: 0 = solid, 1 = alpha, 2 = image
-    /// Paint texture id locates the encoded image data `EncodedImage`
+    /// See `StripInstance::payload` documentation in `render_strips.wgsl`.
+    pub payload: u32,
+    /// See `StripInstance::paint` documentation in `render_strips.wgsl`.
     pub paint: u32,
 }
 
