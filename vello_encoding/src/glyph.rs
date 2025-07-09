@@ -3,9 +3,10 @@
 
 use std::ops::Range;
 
-use peniko::{Font, Style};
+use crate::path::EmboldenStyle;
 
 use super::{StreamOffsets, Transform};
+use peniko::{Font, Style};
 
 /// Positioned glyph.
 #[derive(Copy, Clone, Default, Debug)]
@@ -29,6 +30,8 @@ pub struct GlyphRun {
     pub glyph_transform: Option<Transform>,
     /// Size of the font in pixels per em.
     pub font_size: f32,
+    /// The style to use when emboldening with embolden in em.
+    pub embolden_style: EmboldenStyle,
     /// True if hinting is enabled.
     pub hint: bool,
     /// Range of normalized coordinates in the parent encoding.
