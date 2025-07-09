@@ -384,13 +384,17 @@ pub(crate) fn sample<S: Simd>(
     y_positions: f32x4<S>,
 ) -> u8x16<S> {
     let idx = x_positions.cvt_u32() + y_positions.cvt_u32() * data.width_u32;
-    
-    u32x4::from_slice(simd, &[
-        data.pixmap.sample_idx(idx[0]).to_u32(), 
-        data.pixmap.sample_idx(idx[1]).to_u32(), 
-        data.pixmap.sample_idx(idx[2]).to_u32(), 
-        data.pixmap.sample_idx(idx[3]).to_u32()
-    ]).reinterpret_u8()
+
+    u32x4::from_slice(
+        simd,
+        &[
+            data.pixmap.sample_idx(idx[0]).to_u32(),
+            data.pixmap.sample_idx(idx[1]).to_u32(),
+            data.pixmap.sample_idx(idx[2]).to_u32(),
+            data.pixmap.sample_idx(idx[3]).to_u32(),
+        ],
+    )
+    .reinterpret_u8()
 }
 
 #[inline(always)]
