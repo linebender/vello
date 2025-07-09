@@ -39,7 +39,7 @@ impl ComposeExt for BlendMode {
             Compose::Xor => Xor::compose(simd, src_c, bg_c, alpha_mask),
             Compose::Plus => Plus::compose(simd, src_c, bg_c, alpha_mask),
             // Have not been able to find a formula for this, so just fallback to Plus.
-            Compose::PlusLighter => SrcOver::compose(simd, src_c, bg_c, alpha_mask),
+            Compose::PlusLighter => Plus::compose(simd, src_c, bg_c, alpha_mask),
         }
     }
 }
