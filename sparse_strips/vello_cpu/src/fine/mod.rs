@@ -627,7 +627,8 @@ pub trait PosExt<S: Simd> {
 impl<S: Simd> PosExt<S> for f32x4<S> {
     #[inline(always)]
     fn splat_pos(simd: S, pos: f32, _: f32, y_advance: f32) -> Self {
-        let column_mask: Self = [0.0, 1.0, 2.0, 3.0].simd_into(simd);
+        let columns: [f32; Tile::HEIGHT as usize] = [0.0, 1.0, 2.0, 3.0];
+        let column_mask: Self = columns.simd_into(simd);
 
         Self::splat(simd, pos).madd(column_mask, Self::splat(simd, y_advance))
     }
