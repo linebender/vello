@@ -138,6 +138,16 @@ impl Dispatcher for SingleThreadedDispatcher {
                         encoded_paints,
                     );
                 }
+                #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+                Level::WasmSimd128(w) => {
+                    self.rasterize_with::<vello_common::fearless_simd::WasmSimd128, U8Kernel>(
+                        n,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
+                }
                 _ => self.rasterize_with::<Fallback, U8Kernel>(
                     Fallback::new(),
                     buffer,
@@ -150,6 +160,16 @@ impl Dispatcher for SingleThreadedDispatcher {
                 #[cfg(all(feature = "std", target_arch = "aarch64"))]
                 Level::Neon(n) => {
                     self.rasterize_with::<vello_common::fearless_simd::Neon, F32Kernel>(
+                        n,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
+                }
+                #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+                Level::WasmSimd128(w) => {
+                    self.rasterize_with::<vello_common::fearless_simd::WasmSimd128, F32Kernel>(
                         n,
                         buffer,
                         width,
