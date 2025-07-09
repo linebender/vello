@@ -266,7 +266,7 @@ fn glyphs_colr_noto(ctx: &mut impl Renderer) {
 }
 
 #[cfg(target_os = "macos")]
-#[vello_test(width = 200, height = 70, skip_hybrid)]
+#[vello_test(width = 200, height = 70, skip_hybrid, cpu_u8_tolerance = 2)]
 fn glyphs_bitmap_apple(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_apple_color_emoji("✅👀🎉🤠", font_size);

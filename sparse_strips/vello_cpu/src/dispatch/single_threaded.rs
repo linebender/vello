@@ -3,14 +3,14 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
-use crate::fine::{Fine, FineType};
+use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
 use crate::strip_generator::StripGenerator;
 use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
-use vello_common::fearless_simd::Level;
+use vello_common::fearless_simd::{Fallback, Level, Simd};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 
@@ -18,6 +18,7 @@ use vello_common::paint::Paint;
 pub(crate) struct SingleThreadedDispatcher {
     wide: Wide,
     strip_generator: StripGenerator,
+    level: Level,
 }
 
 impl SingleThreadedDispatcher {
@@ -28,18 +29,20 @@ impl SingleThreadedDispatcher {
         Self {
             wide,
             strip_generator,
+            level,
         }
     }
 
-    fn rasterize<F: FineType>(
+    fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
+        simd: S,
         buffer: &mut [u8],
         width: u16,
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
         let mut buffer = Regions::new(width, height, buffer);
-        let mut fine = Fine::new();
+        let mut fine = Fine::<S, F>::new(simd);
 
         buffer.update_regions(|region| {
             let x = region.x;
@@ -48,7 +51,7 @@ impl SingleThreadedDispatcher {
             let wtile = self.wide.get(x, y);
             fine.set_coords(x, y);
 
-            fine.clear(F::extract_color(&wtile.bg));
+            fine.clear(wtile.bg);
             for cmd in &wtile.cmds {
                 fine.run_cmd(cmd, self.strip_generator.alpha_buf(), encoded_paints);
             }
@@ -124,12 +127,64 @@ impl Dispatcher for SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
     ) {
         match render_mode {
-            RenderMode::OptimizeSpeed => {
-                Self::rasterize::<u8>(self, buffer, width, height, encoded_paints);
-            }
-            RenderMode::OptimizeQuality => {
-                Self::rasterize::<f32>(self, buffer, width, height, encoded_paints);
-            }
+            RenderMode::OptimizeSpeed => match self.level {
+                #[cfg(all(feature = "std", target_arch = "aarch64"))]
+                Level::Neon(n) => {
+                    self.rasterize_with::<vello_common::fearless_simd::Neon, U8Kernel>(
+                        n,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
+                }
+                #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+                Level::WasmSimd128(w) => {
+                    self.rasterize_with::<vello_common::fearless_simd::WasmSimd128, U8Kernel>(
+                        w,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
+                }
+                _ => self.rasterize_with::<Fallback, U8Kernel>(
+                    Fallback::new(),
+                    buffer,
+                    width,
+                    height,
+                    encoded_paints,
+                ),
+            },
+            RenderMode::OptimizeQuality => match self.level {
+                #[cfg(all(feature = "std", target_arch = "aarch64"))]
+                Level::Neon(n) => {
+                    self.rasterize_with::<vello_common::fearless_simd::Neon, F32Kernel>(
+                        n,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
+                }
+                #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+                Level::WasmSimd128(w) => {
+                    self.rasterize_with::<vello_common::fearless_simd::WasmSimd128, F32Kernel>(
+                        w,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
+                }
+                _ => self.rasterize_with::<Fallback, F32Kernel>(
+                    Fallback::new(),
+                    buffer,
+                    width,
+                    height,
+                    encoded_paints,
+                ),
+            },
         }
     }
 }

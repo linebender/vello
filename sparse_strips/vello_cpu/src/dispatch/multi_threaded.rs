@@ -3,7 +3,7 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
-use crate::fine::{Fine, FineType};
+use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
 use crate::kurbo::{Affine, BezPath, PathSeg, Point, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
@@ -20,7 +20,7 @@ use std::sync::{Barrier, OnceLock};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
-use vello_common::fearless_simd::Level;
+use vello_common::fearless_simd::{Fallback, Level, Simd};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
@@ -46,6 +46,7 @@ pub(crate) struct MultiThreadedDispatcher {
     alpha_storage: Arc<OnceLockAlphaStorage>,
     task_idx: usize,
     num_threads: u16,
+    level: Level,
     flushed: bool,
 }
 
@@ -93,6 +94,7 @@ impl MultiThreadedDispatcher {
             workers,
             task_sender: None,
             result_receiver: None,
+            level,
             alpha_storage,
             num_threads,
         };
@@ -208,8 +210,9 @@ impl MultiThreadedDispatcher {
         }
     }
 
-    fn rasterize<F: FineType>(
+    fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
+        simd: S,
         buffer: &mut [u8],
         width: u16,
         height: u16,
@@ -225,12 +228,14 @@ impl MultiThreadedDispatcher {
                 let x = region.x;
                 let y = region.y;
 
-                let mut fine = fines.get_or(|| RefCell::new(Fine::new())).borrow_mut();
+                let mut fine = fines
+                    .get_or(|| RefCell::new(Fine::<S, F>::new(simd)))
+                    .borrow_mut();
 
                 let wtile = wide.get(x, y);
                 fine.set_coords(x, y);
 
-                fine.clear(F::extract_color(&wtile.bg));
+                fine.clear(wtile.bg);
                 for cmd in &wtile.cmds {
                     let thread_idx = match cmd {
                         Cmd::AlphaFill(a) => Some(a.thread_idx),
@@ -359,12 +364,64 @@ impl Dispatcher for MultiThreadedDispatcher {
         assert!(self.flushed, "attempted to rasterize before flushing");
 
         match render_mode {
-            RenderMode::OptimizeSpeed => {
-                self.rasterize::<u8>(buffer, width, height, encoded_paints);
-            }
-            RenderMode::OptimizeQuality => {
-                self.rasterize::<f32>(buffer, width, height, encoded_paints);
-            }
+            RenderMode::OptimizeSpeed => match self.level {
+                #[cfg(all(feature = "std", target_arch = "aarch64"))]
+                Level::Neon(n) => {
+                    self.rasterize_with::<vello_common::fearless_simd::Neon, U8Kernel>(
+                        n,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
+                }
+                #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+                Level::WasmSimd128(w) => {
+                    self.rasterize_with::<vello_common::fearless_simd::WasmSimd128, U8Kernel>(
+                        w,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
+                }
+                _ => self.rasterize_with::<Fallback, U8Kernel>(
+                    Fallback::new(),
+                    buffer,
+                    width,
+                    height,
+                    encoded_paints,
+                ),
+            },
+            RenderMode::OptimizeQuality => match self.level {
+                #[cfg(all(feature = "std", target_arch = "aarch64"))]
+                Level::Neon(n) => {
+                    self.rasterize_with::<vello_common::fearless_simd::Neon, F32Kernel>(
+                        n,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
+                }
+                #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+                Level::WasmSimd128(w) => {
+                    self.rasterize_with::<vello_common::fearless_simd::WasmSimd128, F32Kernel>(
+                        w,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                    );
+                }
+                _ => self.rasterize_with::<Fallback, F32Kernel>(
+                    Fallback::new(),
+                    buffer,
+                    width,
+                    height,
+                    encoded_paints,
+                ),
+            },
         }
     }
 }

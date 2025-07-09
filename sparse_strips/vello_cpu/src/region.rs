@@ -42,9 +42,11 @@ impl<'a> Regions<'a> {
                 let mut areas: [&mut [u8]; Tile::HEIGHT as usize] =
                     [&mut [], &mut [], &mut [], &mut []];
 
+                // All rows have the same width, so we can just take the first row.
+                let region_width =
+                    (usize::from(WideTile::WIDTH) * COLOR_COMPONENTS).min(next_lines[0].len());
+
                 for h in 0..region_height {
-                    let region_width =
-                        (usize::from(WideTile::WIDTH) * COLOR_COMPONENTS).min(next_lines[h].len());
                     let next = core::mem::take(&mut next_lines[h]);
                     let (head, tail) = next.split_at_mut(region_width);
                     areas[h] = head;
@@ -55,6 +57,8 @@ impl<'a> Regions<'a> {
                     areas,
                     u16::try_from(x).unwrap(),
                     u16::try_from(y).unwrap(),
+                    region_width as u16 / COLOR_COMPONENTS as u16,
+                    region_height as u16,
                 ));
             }
         }
@@ -89,15 +93,33 @@ pub struct Region<'a> {
     pub(crate) x: u16,
     /// The y coordinate of the wide tile this region covers.
     pub(crate) y: u16,
+    pub width: u16,
+    pub height: u16,
     areas: [&'a mut [u8]; Tile::HEIGHT as usize],
 }
 
 impl<'a> Region<'a> {
-    pub(crate) fn new(areas: [&'a mut [u8]; Tile::HEIGHT as usize], x: u16, y: u16) -> Self {
-        Self { areas, x, y }
+    pub(crate) fn new(
+        areas: [&'a mut [u8]; Tile::HEIGHT as usize],
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    ) -> Self {
+        Self {
+            areas,
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     pub(crate) fn row_mut(&mut self, y: u16) -> &mut [u8] {
         self.areas[usize::from(y)]
+    }
+
+    pub fn areas(&mut self) -> &mut [&'a mut [u8]; Tile::HEIGHT as usize] {
+        &mut self.areas
     }
 }

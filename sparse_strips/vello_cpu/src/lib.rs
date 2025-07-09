@@ -59,7 +59,7 @@
 //!
 //! - `std` (enabled by default): Get floating point functions from the standard library
 //!   (likely using your target's libc).
-//! - `libm`: Use floating point implementations from [libm].
+//! - `libm`: Use floating point implementations from `libm`.
 //! - `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images.
 //!   Also required for rendering glyphs with an embedded PNG.
 //! - `multithreading`: Enable multi-threaded rendering.
@@ -106,16 +106,12 @@
 #![cfg_attr(not(feature = "multithreading"), no_std)]
 
 extern crate alloc;
-
-// Suppress the unused_crate_dependencies lint when both std and libm are specified.
-#[cfg(all(feature = "std", feature = "libm"))]
-use libm as _;
+extern crate core;
 
 mod render;
 
 mod dispatch;
 #[doc(hidden)]
-/// This is an internal module, do not access directly.
 pub mod fine;
 #[doc(hidden)]
 pub mod region;
@@ -127,7 +123,7 @@ pub use vello_common::fearless_simd::Level;
 #[cfg(feature = "text")]
 pub use vello_common::glyph::Glyph;
 pub use vello_common::mask::Mask;
-pub use vello_common::paint::{Image, Paint, PaintType};
+pub use vello_common::paint::{Image, ImageSource, Paint, PaintType};
 pub use vello_common::pixmap::Pixmap;
 pub use vello_common::{color, kurbo, peniko};
 

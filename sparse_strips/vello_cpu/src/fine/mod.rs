@@ -1,106 +1,315 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Fine rasterization runs the commands in each wide tile to determine the final RGBA value
-//! of each pixel and pack it into the pixmap.
+mod common;
+mod highp;
+mod lowp;
 
-mod blend;
-mod gradient;
-mod image;
-mod rounded_blurred_rect;
-
-use crate::fine::gradient::GradientFiller;
-use crate::fine::image::ImageFiller;
-use crate::fine::rounded_blurred_rect::BlurredRoundedRectFiller;
+use crate::peniko::{BlendMode, Compose, Mix};
 use crate::region::Region;
-use crate::util::scalar::div_255;
+use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
-use core::ops::{Add, Div, Mul, Sub};
-use vello_common::encode::{EncodedKind, EncodedPaint};
-use vello_common::paint::{Paint, PremulColor};
-use vello_common::peniko::{BlendMode, Compose, Mix};
-use vello_common::{
-    coarse::{Cmd, WideTile},
-    tile::Tile,
+use vello_common::coarse::{Cmd, WideTile};
+use vello_common::encode::{
+    EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
+use vello_common::paint::{ImageSource, Paint, PremulColor};
+use vello_common::tile::Tile;
 
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_COMPONENTS;
-#[doc(hidden)]
 pub const SCRATCH_BUF_SIZE: usize =
     WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
 
+use crate::fine::common::gradient::calculate_t_vals;
+use crate::fine::common::gradient::linear::SimdLinearKind;
+use crate::fine::common::gradient::radial::SimdRadialKind;
+use crate::fine::common::gradient::sweep::SimdSweepKind;
+use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
+use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
+use crate::util::{BlendModeExt, EncodedImageExt};
+pub use highp::F32Kernel;
+pub use lowp::U8Kernel;
+use vello_common::fearless_simd::{
+    Simd, SimdBase, SimdFloat, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4, u32x8,
+};
+use vello_common::pixmap::Pixmap;
+
 pub type ScratchBuf<F> = [F; SCRATCH_BUF_SIZE];
 
-pub type FineU8 = ScratchBuf<u8>;
-pub type FineF32 = ScratchBuf<f32>;
-
-#[derive(Debug)]
-#[doc(hidden)]
-/// This is an internal struct, do not access directly.
-pub struct Fine<F: FineType> {
-    pub(crate) wide_coords: (u16, u16),
-    pub(crate) blend_buf: Vec<ScratchBuf<F>>,
-    pub(crate) color_buf: ScratchBuf<F>,
+pub trait Numeric: Copy + Default + Clone + Debug + PartialEq + Send + Sync + 'static {
+    const ZERO: Self;
+    const ONE: Self;
 }
 
-impl<F: FineType> Default for Fine<F> {
-    fn default() -> Self {
-        Self::new()
+impl Numeric for f32 {
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
+}
+
+impl Numeric for u8 {
+    const ZERO: Self = 0;
+    const ONE: Self = 255;
+}
+
+pub trait NumericVec<S: Simd>: Copy + Clone + Send + Sync {
+    fn from_f32(simd: S, val: f32x16<S>) -> Self;
+    fn from_u8(simd: S, val: u8x16<S>) -> Self;
+}
+
+impl<S: Simd> NumericVec<S> for f32x16<S> {
+    #[inline(always)]
+    fn from_f32(_: S, val: Self) -> Self {
+        val
+    }
+
+    #[inline(always)]
+    fn from_u8(simd: S, val: u8x16<S>) -> Self {
+        let converted = u8_to_f32(val);
+        converted * Self::splat(simd, 1.0 / 255.0)
     }
 }
 
-impl<F: FineType> Fine<F> {
-    /// Create a new fine rasterizer.
-    pub fn new() -> Self {
-        let blend_buf = [F::ZERO; SCRATCH_BUF_SIZE];
-        let color_buf = [F::ZERO; SCRATCH_BUF_SIZE];
+impl<S: Simd> NumericVec<S> for u8x16<S> {
+    #[inline(always)]
+    fn from_f32(simd: S, val: f32x16<S>) -> Self {
+        let v1 = f32x16::splat(simd, 255.0);
+        let v2 = f32x16::splat(simd, 0.5);
+        let mulled = v2.madd(v1, val);
 
+        f32_to_u8(mulled)
+    }
+
+    #[inline(always)]
+    fn from_u8(_: S, val: Self) -> Self {
+        val
+    }
+}
+
+#[inline(always)]
+pub(crate) fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
+    // TODO: SIMDify
+    [
+        val.val[0] as u8,
+        val.val[1] as u8,
+        val.val[2] as u8,
+        val.val[3] as u8,
+        val.val[4] as u8,
+        val.val[5] as u8,
+        val.val[6] as u8,
+        val.val[7] as u8,
+        val.val[8] as u8,
+        val.val[9] as u8,
+        val.val[10] as u8,
+        val.val[11] as u8,
+        val.val[12] as u8,
+        val.val[13] as u8,
+        val.val[14] as u8,
+        val.val[15] as u8,
+    ]
+    .simd_into(val.simd)
+}
+
+#[inline(always)]
+pub(crate) fn u8_to_f32<S: Simd>(val: u8x16<S>) -> f32x16<S> {
+    // TODO: SIMDify
+    [
+        val.val[0] as f32,
+        val.val[1] as f32,
+        val.val[2] as f32,
+        val.val[3] as f32,
+        val.val[4] as f32,
+        val.val[5] as f32,
+        val.val[6] as f32,
+        val.val[7] as f32,
+        val.val[8] as f32,
+        val.val[9] as f32,
+        val.val[10] as f32,
+        val.val[11] as f32,
+        val.val[12] as f32,
+        val.val[13] as f32,
+        val.val[14] as f32,
+        val.val[15] as f32,
+    ]
+    .simd_into(val.simd)
+}
+
+pub trait CompositeType<N: Numeric, S: Simd>: Copy + Clone + Send + Sync {
+    const LENGTH: usize;
+
+    fn from_slice(simd: S, slice: &[N]) -> Self;
+    fn from_color(simd: S, color: [N; 4]) -> Self;
+}
+
+impl<S: Simd> CompositeType<f32, S> for f32x16<S> {
+    const LENGTH: usize = 16;
+
+    #[inline(always)]
+    fn from_slice(simd: S, slice: &[f32]) -> Self {
+        <Self as SimdBase<_, _>>::from_slice(simd, slice)
+    }
+
+    #[inline(always)]
+    fn from_color(simd: S, color: [f32; 4]) -> Self {
+        Self::block_splat(f32x4::from_slice(simd, &color[..]))
+    }
+}
+
+impl<S: Simd> CompositeType<u8, S> for u8x32<S> {
+    const LENGTH: usize = 32;
+
+    #[inline(always)]
+    fn from_slice(simd: S, slice: &[u8]) -> Self {
+        <Self as SimdBase<_, _>>::from_slice(simd, slice)
+    }
+
+    #[inline(always)]
+    fn from_color(simd: S, color: [u8; 4]) -> Self {
+        u32x8::block_splat(u32x4::splat(simd, u32::from_ne_bytes(color))).reinterpret_u8()
+    }
+}
+
+/// A kernel for performing fine rasterization.
+pub trait FineKernel<S: Simd>: Send + Sync + 'static {
+    /// The basic underlying numerical type of the kernel.
+    type Numeric: Numeric;
+    /// The type that is used for blending and compositing.
+    type Composite: CompositeType<Self::Numeric, S>;
+    /// The base SIMD vector type for converting between u8 and f32.
+    type NumericVec: NumericVec<S>;
+
+    /// Extract the color from a premultiplied color.
+    fn extract_color(color: PremulColor) -> [Self::Numeric; 4];
+    /// Pack the blend buf into the given region.
+    fn pack(simd: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]);
+    /// Repeatedly copy the solid color into the target buffer.
+    fn copy_solid(simd: S, target: &mut [Self::Numeric], color: [Self::Numeric; 4]);
+    /// Return the painter used for painting gradients.
+    fn gradient_painter<'a>(
+        simd: S,
+        gradient: &'a EncodedGradient,
+        has_undefined: bool,
+        t_vals: &'a [f32],
+    ) -> Box<dyn Painter + 'a>;
+    /// Return the painter used for painting plain nearest-neighbor images.
+    ///
+    /// Plain nearest-neighbor images are images with the quality 'Low' and no skewing component in their
+    /// transform.
+    fn plain_nn_image_painter<'a>(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> Box<dyn Painter + 'a> {
+        Box::new(PlainNNImagePainter::new(
+            simd, image, pixmap, start_x, start_y,
+        ))
+    }
+    /// Return the painter used for painting plain nearest-neighbor images.
+    ///
+    /// Same as `plain_nn`, but must also support skewing transforms.
+    fn nn_image_painter<'a>(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> Box<dyn Painter + 'a> {
+        Box::new(NNImagePainter::new(simd, image, pixmap, start_x, start_y))
+    }
+    /// Return the painter used for painting image with `Medium` or `High` quality.
+    fn filtered_image_painter<'a>(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> Box<dyn Painter + 'a> {
+        Box::new(FilteredImagePainter::new(
+            simd, image, pixmap, start_x, start_y,
+        ))
+    }
+    /// Return the painter used for painting blurred rounded rectangles.
+    fn blurred_rounded_rectangle_painter<'a>(
+        simd: S,
+        rect: &'a EncodedBlurredRoundedRectangle,
+        start_x: u16,
+        start_y: u16,
+    ) -> Box<dyn Painter + 'a> {
+        Box::new(BlurredRoundedRectFiller::new(simd, rect, start_x, start_y))
+    }
+    /// Apply the mask to the destination buffer.
+    fn apply_mask(simd: S, dest: &mut [Self::Numeric], src: impl Iterator<Item = Self::NumericVec>);
+    /// Apply the painter to the destination buffer.
+    fn apply_painter<'a>(simd: S, dest: &mut [Self::Numeric], painter: Box<dyn Painter + 'a>);
+    /// Do basic alpha compositing with a solid color.
+    fn alpha_composite_solid(
+        simd: S,
+        target: &mut [Self::Numeric],
+        src: [Self::Numeric; 4],
+        alphas: Option<&[u8]>,
+    );
+    /// Do basic alpha compositing with the given buffer.
+    fn alpha_composite_buffer(
+        simd: S,
+        dest: &mut [Self::Numeric],
+        src: &[Self::Numeric],
+        alphas: Option<&[u8]>,
+    );
+    /// Blend the source into the destination with the given blend mode.
+    fn blend(
+        simd: S,
+        dest: &mut [Self::Numeric],
+        src: impl Iterator<Item = Self::Composite>,
+        blend_mode: BlendMode,
+        alphas: Option<&[u8]>,
+    );
+}
+
+/// An object for performing fine rasterization
+#[derive(Debug)]
+pub struct Fine<S: Simd, T: FineKernel<S>> {
+    /// The coordinates of the currently covered wide tile.
+    pub(crate) wide_coords: (u16, u16),
+    /// The stack of blend buffers.
+    pub(crate) blend_buf: Vec<ScratchBuf<T::Numeric>>,
+    /// An intermediate buffer used by shaders to store their contents.
+    pub(crate) paint_buf: ScratchBuf<T::Numeric>,
+    /// An intermediate buffer used by gradients to store the t values.
+    pub(crate) f32_buf: Vec<f32>,
+    pub(crate) simd: S,
+}
+
+impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
+    pub fn new(simd: S) -> Self {
         Self {
+            simd,
             wide_coords: (0, 0),
-            blend_buf: vec![blend_buf],
-            color_buf,
+            blend_buf: vec![[T::Numeric::ZERO; SCRATCH_BUF_SIZE]],
+            f32_buf: vec![0.0; SCRATCH_BUF_SIZE / 4],
+            paint_buf: [T::Numeric::ZERO; SCRATCH_BUF_SIZE],
         }
     }
 
-    /// Set the coordinates of the current wide tile that is being processed (in tile units).
     pub fn set_coords(&mut self, x: u16, y: u16) {
         self.wide_coords = (x, y);
     }
 
-    pub fn clear(&mut self, premul_color: [F; 4]) {
+    pub fn clear(&mut self, premul_color: PremulColor) {
+        let converted_color = T::extract_color(premul_color);
         let blend_buf = self.blend_buf.last_mut().unwrap();
 
-        if premul_color[0] == premul_color[1]
-            && premul_color[1] == premul_color[2]
-            && premul_color[2] == premul_color[3]
-        {
-            // All components are the same, so we can use memset instead.
-            blend_buf.fill(premul_color[0]);
-        } else {
-            for z in blend_buf.chunks_exact_mut(COLOR_COMPONENTS) {
-                z.copy_from_slice(&premul_color);
-            }
-        }
+        T::copy_solid(self.simd, blend_buf, converted_color);
     }
 
-    #[doc(hidden)]
-    pub fn pack(&mut self, region: &mut Region<'_>) {
+    pub fn pack(&self, region: &mut Region<'_>) {
         let blend_buf = self.blend_buf.last().unwrap();
 
-        for y in 0..Tile::HEIGHT {
-            for (x, pixel) in region
-                .row_mut(y)
-                .chunks_exact_mut(COLOR_COMPONENTS)
-                .enumerate()
-            {
-                let idx = COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
-                pixel.copy_from_slice(&F::to_rgba8(&blend_buf[idx..][..COLOR_COMPONENTS]));
-            }
-        }
+        T::pack(self.simd, region, blend_buf);
     }
 
     pub(crate) fn run_cmd(&mut self, cmd: &Cmd, alphas: &[u8], paints: &[EncodedPaint]) {
@@ -113,78 +322,95 @@ impl<F: FineType> Fine<F> {
                     f.blend_mode
                         .unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
                     paints,
+                    None,
                 );
             }
             Cmd::AlphaFill(s) => {
-                let a_slice = &alphas[s.alpha_idx..];
-                self.strip(
+                self.fill(
                     usize::from(s.x),
                     usize::from(s.width),
-                    a_slice,
                     &s.paint,
                     s.blend_mode
                         .unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
                     paints,
+                    Some(&alphas[s.alpha_idx..]),
                 );
             }
             Cmd::PushBuf => {
-                self.blend_buf.push([F::ZERO; SCRATCH_BUF_SIZE]);
+                self.blend_buf.push([T::Numeric::ZERO; SCRATCH_BUF_SIZE]);
             }
             Cmd::PopBuf => {
                 self.blend_buf.pop();
             }
             Cmd::ClipFill(cf) => {
-                self.clip_fill(cf.x as usize, cf.width as usize);
+                self.clip(cf.x as usize, cf.width as usize, None);
             }
             Cmd::ClipStrip(cs) => {
-                let aslice = &alphas[cs.alpha_idx..];
-                self.clip_strip(cs.x as usize, cs.width as usize, aslice);
+                self.clip(
+                    cs.x as usize,
+                    cs.width as usize,
+                    Some(&alphas[cs.alpha_idx..]),
+                );
             }
-            Cmd::Blend(cb) => {
-                self.apply_blend(*cb);
-            }
-            Cmd::Opacity(o) => {
-                if *o != 1.0 {
-                    self.blend_buf
-                        .last_mut()
-                        .unwrap()
-                        .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
-                        .for_each(|s| {
-                            for c in s {
-                                *c = F::from_normalized_f32(*o).normalized_mul(*c);
-                            }
-                        });
-                }
-            }
+            Cmd::Blend(b) => self.blend(*b),
             Cmd::Mask(m) => {
                 let start_x = self.wide_coords.0 * WideTile::WIDTH;
                 let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
-                for (x, col) in self
-                    .blend_buf
-                    .last_mut()
-                    .unwrap()
-                    .chunks_exact_mut(TILE_HEIGHT_COMPONENTS)
-                    .enumerate()
-                {
-                    for (y, pix) in col.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
-                        let x = start_x + x as u16;
-                        let y = start_y + y as u16;
+                let blend_buf = self.blend_buf.last_mut().unwrap();
 
-                        if x < m.width() && y < m.height() {
-                            let val = F::from_normalized_u8(m.sample(x, y));
+                let width = (blend_buf.len() / (Tile::HEIGHT as usize * COLOR_COMPONENTS)) as u16;
+                let y = start_y as u32 + u32x4::from_slice(self.simd, &[0, 1, 2, 3]);
 
-                            for comp in pix.iter_mut() {
-                                *comp = comp.normalized_mul(val);
+                let iter = (start_x..(start_x + width)).map(|x| {
+                    let x_in_range = x < m.width();
+
+                    macro_rules! sample {
+                        ($idx:expr) => {
+                            if x_in_range && (y[$idx] as u16) < m.height() {
+                                m.sample(x, y[$idx] as u16)
+                            } else {
+                                0
                             }
-                        }
+                        };
                     }
+
+                    let s1 = sample!(0);
+                    let s2 = sample!(1);
+                    let s3 = sample!(2);
+                    let s4 = sample!(3);
+
+                    let samples = u8x16::from_slice(
+                        self.simd,
+                        &[
+                            s1, s1, s1, s1, s2, s2, s2, s2, s3, s3, s3, s3, s4, s4, s4, s4,
+                        ],
+                    );
+                    T::NumericVec::from_u8(self.simd, samples)
+                });
+
+                T::apply_mask(self.simd, blend_buf, iter);
+            }
+            Cmd::Opacity(o) => {
+                if *o != 1.0 {
+                    let blend_buf = self.blend_buf.last_mut().unwrap();
+
+                    T::apply_mask(
+                        self.simd,
+                        blend_buf,
+                        iter::repeat(T::NumericVec::from_f32(
+                            self.simd,
+                            f32x16::splat(self.simd, *o),
+                        )),
+                    );
                 }
             }
         }
     }
 
     /// Fill at a given x and with a width using the given paint.
+    // For short strip segments, benchmarks showed that not inlining leads to significantly
+    // worse performance.
     pub fn fill(
         &mut self,
         x: usize,
@@ -192,201 +418,187 @@ impl<F: FineType> Fine<F> {
         fill: &Paint,
         blend_mode: BlendMode,
         encoded_paints: &[EncodedPaint],
+        alphas: Option<&[u8]>,
     ) {
         let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
             [..TILE_HEIGHT_COMPONENTS * width];
-        let color_buf =
-            &mut self.color_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
-
-        let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
-        let start_y = self.wide_coords.1 * Tile::HEIGHT;
-
-        let default_blend = blend_mode == BlendMode::new(Mix::Normal, Compose::SrcOver);
-
-        fn fill_complex_paint<T: FineType>(
-            color_buf: &mut [T],
-            blend_buf: &mut [T],
-            has_opacities: bool,
-            blend_mode: BlendMode,
-            filler: impl Painter,
-        ) {
-            if has_opacities {
-                filler.paint(color_buf);
-                fill::blend(
-                    blend_buf,
-                    color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-                    blend_mode,
-                );
-            } else {
-                // Similarly to solid colors we can just override the previous values
-                // if all colors in the gradient are fully opaque.
-                filler.paint(blend_buf);
-            }
-        }
+        let default_blend = blend_mode.is_default();
 
         match fill {
             Paint::Solid(color) => {
-                let color = F::extract_color(color);
+                let color = T::extract_color(*color);
 
-                // If color is completely opaque we can just memcopy the colors.
-                if color[3] == F::ONE && default_blend {
-                    for t in blend_buf.chunks_exact_mut(COLOR_COMPONENTS) {
-                        t.copy_from_slice(&color);
-                    }
+                // If color is completely opaque, we can just directly override
+                // the blend buffer.
+                if color[3] == T::Numeric::ONE && default_blend && alphas.is_none() {
+                    T::copy_solid(self.simd, blend_buf, color);
 
                     return;
                 }
 
-                fill::blend(blend_buf, iter::repeat(color), blend_mode);
+                if default_blend {
+                    T::alpha_composite_solid(self.simd, blend_buf, color, alphas);
+                } else {
+                    T::blend(
+                        self.simd,
+                        blend_buf,
+                        iter::repeat(T::Composite::from_color(self.simd, color)),
+                        blend_mode,
+                        alphas,
+                    );
+                }
             }
             Paint::Indexed(paint) => {
+                let color_buf = &mut self.paint_buf[x * TILE_HEIGHT_COMPONENTS..]
+                    [..TILE_HEIGHT_COMPONENTS * width];
+
                 let encoded_paint = &encoded_paints[paint.index()];
 
+                let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
+                let start_y = self.wide_coords.1 * Tile::HEIGHT;
+
+                // We need to have this as a macro because closures cannot take generic arguments, and
+                // we would have to repeatedly provide all arguments if we made it a function.
+                macro_rules! fill_complex_paint {
+                    ($has_opacities:expr, $filler:expr) => {
+                        if $has_opacities || alphas.is_some() {
+                            T::apply_painter(self.simd, color_buf, $filler);
+
+                            if default_blend {
+                                T::alpha_composite_buffer(self.simd, blend_buf, color_buf, alphas);
+                            } else {
+                                T::blend(
+                                    self.simd,
+                                    blend_buf,
+                                    color_buf
+                                        .chunks_exact(T::Composite::LENGTH)
+                                        .map(|s| T::Composite::from_slice(self.simd, s)),
+                                    blend_mode,
+                                    alphas,
+                                );
+                            }
+                        } else {
+                            // Similarly to solid colors we can just override the previous values
+                            // if all colors in the gradient are fully opaque.
+                            T::apply_painter(self.simd, blend_buf, $filler);
+                        }
+                    };
+                }
+
                 match encoded_paint {
-                    EncodedPaint::Gradient(g) => match &g.kind {
-                        EncodedKind::Linear(l) => {
-                            let filler = GradientFiller::new(g, l, start_x, start_y);
-                            fill_complex_paint(
-                                color_buf,
-                                blend_buf,
-                                g.has_opacities,
-                                blend_mode,
-                                filler,
-                            );
-                        }
-                        EncodedKind::Radial(r) => {
-                            let filler = GradientFiller::new(g, r, start_x, start_y);
-                            fill_complex_paint(
-                                color_buf,
-                                blend_buf,
-                                g.has_opacities,
-                                blend_mode,
-                                filler,
-                            );
-                        }
-                        EncodedKind::Sweep(s) => {
-                            let filler = GradientFiller::new(g, s, start_x, start_y);
-                            fill_complex_paint(
-                                color_buf,
-                                blend_buf,
-                                g.has_opacities,
-                                blend_mode,
-                                filler,
-                            );
-                        }
-                    },
-                    EncodedPaint::Image(i) => {
-                        let filler = ImageFiller::new(i, start_x, start_y);
-                        fill_complex_paint(
-                            color_buf,
-                            blend_buf,
-                            i.has_opacities,
-                            blend_mode,
-                            filler,
+                    EncodedPaint::BlurredRoundedRect(b) => {
+                        fill_complex_paint!(
+                            true,
+                            T::blurred_rounded_rectangle_painter(self.simd, b, start_x, start_y)
                         );
                     }
-                    EncodedPaint::BlurredRoundedRect(b) => {
-                        let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
-                        fill_complex_paint(color_buf, blend_buf, true, blend_mode, filler);
+                    EncodedPaint::Gradient(g) => {
+                        // Note that we are calculating the t values first, store them in a separate
+                        // buffer and then pass that buffer to the iterator instead of calculating
+                        // the t values on the fly in the iterator. The latter would be faster, but
+                        // it would probably increase code size a lot, because the functions for
+                        // position calculation need to be inlined for good performance.
+                        let f32_buf = &mut self.f32_buf[..width * Tile::HEIGHT as usize];
+
+                        match &g.kind {
+                            EncodedKind::Linear(l) => {
+                                calculate_t_vals(
+                                    self.simd,
+                                    SimdLinearKind::new(self.simd, *l),
+                                    f32_buf,
+                                    g,
+                                    start_x,
+                                    start_y,
+                                );
+
+                                fill_complex_paint!(
+                                    g.has_opacities,
+                                    T::gradient_painter(self.simd, g, false, f32_buf)
+                                );
+                            }
+                            EncodedKind::Sweep(s) => {
+                                calculate_t_vals(
+                                    self.simd,
+                                    SimdSweepKind::new(self.simd, s),
+                                    f32_buf,
+                                    g,
+                                    start_x,
+                                    start_y,
+                                );
+
+                                fill_complex_paint!(
+                                    g.has_opacities,
+                                    T::gradient_painter(self.simd, g, false, f32_buf)
+                                );
+                            }
+                            EncodedKind::Radial(r) => {
+                                calculate_t_vals(
+                                    self.simd,
+                                    SimdRadialKind::new(self.simd, r),
+                                    f32_buf,
+                                    g,
+                                    start_x,
+                                    start_y,
+                                );
+
+                                fill_complex_paint!(
+                                    g.has_opacities,
+                                    T::gradient_painter(self.simd, g, r.has_undefined(), f32_buf)
+                                );
+                            }
+                        }
                     }
-                }
-            }
-        }
-    }
-
-    /// Strip at a given x and with a width using the given paint and alpha values.
-    pub fn strip(
-        &mut self,
-        x: usize,
-        width: usize,
-        alphas: &[u8],
-        fill: &Paint,
-        blend_mode: BlendMode,
-        paints: &[EncodedPaint],
-    ) {
-        debug_assert!(
-            alphas.len() >= width,
-            "alpha buffer doesn't contain sufficient elements"
-        );
-
-        let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
-            [..TILE_HEIGHT_COMPONENTS * width];
-        let color_buf =
-            &mut self.color_buf[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
-
-        let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
-        let start_y = self.wide_coords.1 * Tile::HEIGHT;
-
-        fn strip_complex_paint<F: FineType>(
-            color_buf: &mut [F],
-            blend_buf: &mut [F],
-            blend_mode: BlendMode,
-            filler: impl Painter,
-            alphas: &[u8],
-        ) {
-            filler.paint(color_buf);
-            strip::blend(
-                blend_buf,
-                color_buf.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-                blend_mode,
-                alphas.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-            );
-        }
-
-        match fill {
-            Paint::Solid(color) => {
-                strip::blend(
-                    blend_buf,
-                    iter::repeat(F::extract_color(color)),
-                    blend_mode,
-                    alphas.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-                );
-            }
-            Paint::Indexed(paint) => {
-                let encoded_paint = &paints[paint.index()];
-
-                match encoded_paint {
-                    EncodedPaint::Gradient(g) => match &g.kind {
-                        EncodedKind::Linear(l) => {
-                            let filler = GradientFiller::new(g, l, start_x, start_y);
-                            strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                        }
-                        EncodedKind::Radial(r) => {
-                            let filler = GradientFiller::new(g, r, start_x, start_y);
-                            strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                        }
-                        EncodedKind::Sweep(s) => {
-                            let filler = GradientFiller::new(g, s, start_x, start_y);
-                            strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                        }
-                    },
                     EncodedPaint::Image(i) => {
-                        let filler = ImageFiller::new(i, start_x, start_y);
-                        strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
-                    }
-                    EncodedPaint::BlurredRoundedRect(b) => {
-                        let filler = BlurredRoundedRectFiller::new(b, start_x, start_y);
-                        strip_complex_paint(color_buf, blend_buf, blend_mode, filler, alphas);
+                        let ImageSource::Pixmap(pixmap) = &i.source else {
+                            panic!("vello_cpu doesn't support the opaque image source.");
+                        };
+
+                        match (i.has_skew(), i.nearest_neighbor()) {
+                            (_, false) => {
+                                fill_complex_paint!(
+                                    i.has_opacities,
+                                    T::filtered_image_painter(
+                                        self.simd, i, pixmap, start_x, start_y
+                                    )
+                                );
+                            }
+                            (false, true) => {
+                                fill_complex_paint!(
+                                    i.has_opacities,
+                                    T::plain_nn_image_painter(
+                                        self.simd, i, pixmap, start_x, start_y
+                                    )
+                                );
+                            }
+                            (true, true) => {
+                                fill_complex_paint!(
+                                    i.has_opacities,
+                                    T::nn_image_painter(self.simd, i, pixmap, start_x, start_y)
+                                );
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    fn apply_blend(&mut self, blend_mode: BlendMode) {
+    fn blend(&mut self, blend_mode: BlendMode) {
         let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
 
-        fill::blend(
+        T::blend(
+            self.simd,
             target_buffer,
             source_buffer
-                .chunks_exact(4)
-                .map(|e| [e[0], e[1], e[2], e[3]]),
+                .chunks_exact(T::Composite::LENGTH)
+                .map(|s| T::Composite::from_slice(self.simd, s)),
             blend_mode,
+            None,
         );
     }
 
-    fn clip_fill(&mut self, x: usize, width: usize) {
+    fn clip(&mut self, x: usize, width: usize, alphas: Option<&[u8]>) {
         let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
 
@@ -395,416 +607,204 @@ impl<F: FineType> Fine<F> {
         let target_buffer =
             &mut target_buffer[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
 
-        fill::alpha_composite(
-            target_buffer,
-            source_buffer
-                .chunks_exact(4)
-                .map(|e| [e[0], e[1], e[2], e[3]]),
-        );
-    }
-
-    fn clip_strip(&mut self, x: usize, width: usize, alphas: &[u8]) {
-        let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
-        let target_buffer = rest.last_mut().unwrap();
-
-        let source_buffer =
-            &mut source_buffer[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
-        let target_buffer =
-            &mut target_buffer[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
-
-        strip::alpha_composite(
-            target_buffer,
-            source_buffer
-                .chunks_exact(4)
-                .map(|e| [e[0], e[1], e[2], e[3]]),
-            alphas.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]),
-        );
+        T::alpha_composite_buffer(self.simd, target_buffer, source_buffer, alphas);
     }
 }
 
-pub(crate) mod fill {
-    // See https://www.w3.org/TR/compositing-1/#porterduffcompositingoperators for the
-    // formulas.
+/// A trait for shaders that can render their contents into a u8/f32 buffer. Note that while
+/// the trait has a method for both, f32 and u8, some shaders might only support 1 of them, so
+/// care is needed when using them.
+pub trait Painter {
+    fn paint_u8(&mut self, buf: &mut [u8]);
+    fn paint_f32(&mut self, buf: &mut [f32]);
+}
 
-    use crate::fine::{COLOR_COMPONENTS, FineType, TILE_HEIGHT_COMPONENTS, blend};
-    use vello_common::peniko::{BlendMode, Compose, Mix};
+/// Calculate the x/y position using the x/y advances for each pixel, assuming a tile height of 4.
+pub trait PosExt<S: Simd> {
+    fn splat_pos(simd: S, pos: f32, x_advance: f32, y_advance: f32) -> Self;
+}
 
-    pub(crate) fn blend<F: FineType, T: Iterator<Item = [F; COLOR_COMPONENTS]>>(
-        target: &mut [F],
-        source: T,
-        blend_mode: BlendMode,
-    ) {
-        match (blend_mode.mix, blend_mode.compose) {
-            (Mix::Normal, Compose::SrcOver) => alpha_composite(target, source),
-            _ => blend::fill::blend(target, source, blend_mode),
+impl<S: Simd> PosExt<S> for f32x4<S> {
+    #[inline(always)]
+    fn splat_pos(simd: S, pos: f32, _: f32, y_advance: f32) -> Self {
+        let columns: [f32; Tile::HEIGHT as usize] = [0.0, 1.0, 2.0, 3.0];
+        let column_mask: Self = columns.simd_into(simd);
+
+        Self::splat(simd, pos).madd(column_mask, Self::splat(simd, y_advance))
+    }
+}
+
+impl<S: Simd> PosExt<S> for f32x8<S> {
+    #[inline(always)]
+    fn splat_pos(simd: S, pos: f32, x_advance: f32, y_advance: f32) -> Self {
+        simd.combine_f32x4(
+            f32x4::splat_pos(simd, pos, x_advance, y_advance),
+            f32x4::splat_pos(simd, pos + x_advance, x_advance, y_advance),
+        )
+    }
+}
+
+/// Splatting every 4th element in the vector, used for splatting the alpha value of
+/// a color to all lanes.
+pub trait Splat4thExt<S> {
+    fn splat_4th(self) -> Self;
+}
+
+impl<S: Simd> Splat4thExt<S> for f32x4<S> {
+    #[inline(always)]
+    fn splat_4th(self) -> Self {
+        let zip1 = self.zip_high(self);
+        zip1.zip_high(zip1)
+    }
+}
+
+impl<S: Simd> Splat4thExt<S> for f32x8<S> {
+    #[inline(always)]
+    fn splat_4th(self) -> Self {
+        let (mut p1, mut p2) = self.simd.split_f32x8(self);
+        p1 = p1.splat_4th();
+        p2 = p2.splat_4th();
+
+        self.simd.combine_f32x4(p1, p2)
+    }
+}
+
+impl<S: Simd> Splat4thExt<S> for f32x16<S> {
+    #[inline(always)]
+    fn splat_4th(self) -> Self {
+        let (mut p1, mut p2) = self.simd.split_f32x16(self);
+        p1 = p1.splat_4th();
+        p2 = p2.splat_4th();
+
+        self.simd.combine_f32x8(p1, p2)
+    }
+}
+
+impl<S: Simd> Splat4thExt<S> for u8x16<S> {
+    #[inline(always)]
+    fn splat_4th(self) -> Self {
+        // TODO: SIMDify
+        Self {
+            val: [
+                self.val[3],
+                self.val[3],
+                self.val[3],
+                self.val[3],
+                self.val[7],
+                self.val[7],
+                self.val[7],
+                self.val[7],
+                self.val[11],
+                self.val[11],
+                self.val[11],
+                self.val[11],
+                self.val[15],
+                self.val[15],
+                self.val[15],
+                self.val[15],
+            ],
+            simd: self.simd,
         }
     }
+}
 
-    pub(crate) fn alpha_composite<F: FineType, T: Iterator<Item = [F; COLOR_COMPONENTS]>>(
-        target: &mut [F],
-        mut source: T,
-    ) {
-        for strip in target.chunks_exact_mut(TILE_HEIGHT_COMPONENTS) {
-            for bg_c in strip.chunks_exact_mut(COLOR_COMPONENTS) {
-                let src_c = source.next().unwrap();
-                for i in 0..COLOR_COMPONENTS {
-                    bg_c[i] = src_c[i].add(bg_c[i].normalized_mul(src_c[3].one_minus()));
+impl<S: Simd> Splat4thExt<S> for u8x32<S> {
+    #[inline(always)]
+    fn splat_4th(self) -> Self {
+        let (mut p1, mut p2) = self.simd.split_u8x32(self);
+        p1 = p1.splat_4th();
+        p2 = p2.splat_4th();
+
+        self.simd.combine_u8x16(p1, p2)
+    }
+}
+
+/// The results of an f32 shader, where each channel stored separately.
+pub(crate) struct ShaderResultF32<S: Simd> {
+    pub(crate) r: f32x8<S>,
+    pub(crate) g: f32x8<S>,
+    pub(crate) b: f32x8<S>,
+    pub(crate) a: f32x8<S>,
+}
+
+impl<S: Simd> ShaderResultF32<S> {
+    /// Convert the result into two f32x16 elements, interleaved as RGBA.
+    #[inline(always)]
+    pub(crate) fn get(&self) -> (f32x16<S>, f32x16<S>) {
+        let (r_1, r_2) = self.r.simd.split_f32x8(self.r);
+        let (g_1, g_2) = self.g.simd.split_f32x8(self.g);
+        let (b_1, b_2) = self.b.simd.split_f32x8(self.b);
+        let (a_1, a_2) = self.a.simd.split_f32x8(self.a);
+
+        let first = self.r.simd.combine_f32x8(
+            self.r.simd.combine_f32x4(r_1, g_1),
+            self.r.simd.combine_f32x4(b_1, a_1),
+        );
+
+        let second = self.r.simd.combine_f32x8(
+            self.r.simd.combine_f32x4(r_2, g_2),
+            self.r.simd.combine_f32x4(b_2, a_2),
+        );
+
+        (first, second)
+    }
+}
+
+mod macros {
+    /// The default `Painter` implementation for an iterator
+    /// that returns its results as f32x16.
+    macro_rules! f32x16_painter {
+        ($($type_path:tt)+) => {
+            impl<S: Simd> crate::fine::Painter for $($type_path)+ {
+                fn paint_u8(&mut self, buf: &mut [u8]) {
+                    use vello_common::fearless_simd::*;
+                    use crate::fine::NumericVec;
+
+                    for chunk in buf.chunks_exact_mut(16) {
+                        let next = self.next().unwrap();
+                        let converted = u8x16::<S>::from_f32(next.simd, next);
+                        chunk.copy_from_slice(&converted.val);
+                    }
+                }
+
+                fn paint_f32(&mut self, buf: &mut [f32]) {
+
+
+                    for chunk in buf.chunks_exact_mut(16) {
+                        let next = self.next().unwrap();
+                        chunk.copy_from_slice(&next.val);
+                    }
                 }
             }
-        }
-    }
-}
-
-pub(crate) mod strip {
-    use crate::fine::{COLOR_COMPONENTS, FineType, TILE_HEIGHT_COMPONENTS, Widened, blend};
-    use vello_common::peniko::{BlendMode, Compose, Mix};
-    use vello_common::tile::Tile;
-
-    pub(crate) fn blend<
-        F: FineType,
-        T: Iterator<Item = [F; COLOR_COMPONENTS]>,
-        A: Iterator<Item = [u8; Tile::HEIGHT as usize]>,
-    >(
-        target: &mut [F],
-        source: T,
-        blend_mode: BlendMode,
-        alphas: A,
-    ) {
-        match (blend_mode.mix, blend_mode.compose) {
-            (Mix::Normal, Compose::SrcOver) => alpha_composite(target, source, alphas),
-            _ => blend::strip::blend(target, source, blend_mode, alphas),
-        }
+        };
     }
 
-    pub(crate) fn alpha_composite<
-        F: FineType,
-        T: Iterator<Item = [F; COLOR_COMPONENTS]>,
-        A: Iterator<Item = [u8; Tile::HEIGHT as usize]>,
-    >(
-        target: &mut [F],
-        mut source: T,
-        mut alphas: A,
-    ) {
-        for bg_c in target.chunks_exact_mut(TILE_HEIGHT_COMPONENTS) {
-            let masks = alphas.next().unwrap();
+    /// The default `Painter` implementation for an iterator
+    /// that returns its results as u8x16.
+    macro_rules! u8x16_painter {
+        ($($type_path:tt)+) => {
+            impl<S: Simd> crate::fine::Painter for $($type_path)+ {
+                fn paint_u8(&mut self, buf: &mut [u8]) {
+                    for chunk in buf.chunks_exact_mut(16) {
+                        let next = self.next().unwrap();
+                        chunk.copy_from_slice(&next.val);
+                    }
+                }
 
-            for j in 0..usize::from(Tile::HEIGHT) {
-                let src_c = source.next().unwrap();
-                let mask_a = F::from_normalized_u8(masks[j]);
-                let inv_src_a_mask_a = mask_a.normalized_mul(src_c[3]).one_minus();
+                fn paint_f32(&mut self, buf: &mut [f32]) {
+                    use vello_common::fearless_simd::*;
+                    use crate::fine::NumericVec;
 
-                for i in 0..COLOR_COMPONENTS {
-                    let p1 = bg_c[j * COLOR_COMPONENTS + i].widen() * inv_src_a_mask_a.widen();
-                    let p2 = src_c[i].widen() * mask_a.widen();
-
-                    bg_c[j * COLOR_COMPONENTS + i] = (p1 + p2).normalize().narrow();
+                    for chunk in buf.chunks_exact_mut(16) {
+                        let next = self.next().unwrap();
+                        let converted = f32x16::<S>::from_u8(next.simd, next);
+                        chunk.copy_from_slice(&converted.val);
+                    }
                 }
             }
-        }
-    }
-}
-
-trait Painter {
-    fn paint<F: FineType>(self, target: &mut [F]);
-}
-
-/// A numeric type that can act as a substitute for another underlying type in case
-/// the results are too big. Currently, this is only used for u8, where certain operations
-/// are first cast to u16 and then cast back to u8.
-pub trait Widened<T: FineType>:
-    Sized
-    + Copy
-    + PartialEq<Self>
-    + PartialOrd<Self>
-    + Add<Self, Output = Self>
-    + Mul<Self, Output = Self>
-    + Sub<Self, Output = Self>
-    + Div<Self, Output = Self>
-    + Debug
-{
-    /// Clamp the current value to the boundaries **of the underlying narrowed type**.
-    #[must_use = "method returns a new number and does not mutate the original value"]
-    fn clamp(self) -> Self;
-    /// Normalize the current value to the range of the underlying narrowed type.
-    #[must_use = "method returns a new number and does not mutate the original value"]
-    fn normalize(self) -> Self;
-    /// Get the minimum between this number and another number.
-    #[must_use = "this returns the result of the comparison, without modifying either input"]
-    fn min(self, other: Self) -> Self;
-    /// Get the maximum between this number and another number.
-    #[must_use = "this returns the result of the comparison, without modifying either input"]
-    fn max(self, other: Self) -> Self;
-    /// Perform a normalizing multiplication between this number and another number.
-    #[must_use = "this returns the result of the multiplication, without modifying either input"]
-    fn normalized_mul(self, other: Self) -> Self;
-    /// Cast the current type to its narrowed representation.
-    fn narrow(self) -> T;
-}
-
-impl Widened<Self> for f32 {
-    #[inline(always)]
-    fn clamp(self) -> Self {
-        Self::clamp(self, Self::ZERO, Self::ONE)
+        };
     }
 
-    #[inline(always)]
-    fn normalize(self) -> Self {
-        // f32 values are always normalized between 0.0 and 1.0.
-        self
-    }
-
-    #[inline(always)]
-    fn min(self, other: Self) -> Self {
-        Self::min(self, other)
-    }
-
-    #[inline(always)]
-    fn max(self, other: Self) -> Self {
-        Self::max(self, other)
-    }
-
-    #[inline(always)]
-    fn normalized_mul(self, other: Self) -> Self {
-        self * other
-    }
-
-    #[inline(always)]
-    fn narrow(self) -> Self {
-        self
-    }
-}
-
-impl Widened<u8> for u16 {
-    #[inline(always)]
-    fn clamp(self) -> Self {
-        Ord::clamp(self, Self::from(u8::ZERO), Self::from(u8::ONE))
-    }
-
-    #[inline(always)]
-    fn normalize(self) -> Self {
-        div_255(self)
-    }
-
-    #[inline(always)]
-    fn min(self, other: Self) -> Self {
-        Ord::min(self, other)
-    }
-
-    #[inline(always)]
-    fn max(self, other: Self) -> Self {
-        Ord::max(self, other)
-    }
-
-    #[inline(always)]
-    fn normalized_mul(self, other: Self) -> Self {
-        (self * other).normalize()
-    }
-
-    #[inline(always)]
-    fn narrow(self) -> u8 {
-        debug_assert!(
-            self <= Self::from(u8::MAX),
-            "cannot narrow integers larger than u8::MAX"
-        );
-
-        self as u8
-    }
-}
-
-/// A type that can be used as the underlying storage for fine rasterization.
-pub trait FineType:
-    Sized
-    + Copy
-    + PartialEq<Self>
-    + PartialOrd<Self>
-    + Add<Self, Output = Self>
-    + Mul<Self, Output = Self>
-    + Sub<Self, Output = Self>
-    + Debug
-    + Send
-    + Sync
-{
-    type Widened: Widened<Self>;
-
-    /// The number that is considered to be the minimum of the normalized range of this type.
-    const ZERO: Self;
-    /// The number that is considered to be in the "center" of the normalized range of this type.
-    const MID: Self;
-    /// The number considered to be the maximum of the normalized range of the type.
-    const ONE: Self;
-
-    /// Return the minimum number.
-    #[must_use = "this returns the result of the comparison, without modifying either input"]
-    fn min(self, other: Self) -> Self;
-    /// Return the maximum number.
-    #[must_use = "this returns the result of the comparison, without modifying either input"]
-    fn max(self, other: Self) -> Self;
-    /// Extract the underlying color from a premultiplied color.
-    fn extract_color(color: &PremulColor) -> [Self; COLOR_COMPONENTS];
-    /// Convert a normalized u8 integer to this type.
-    fn from_normalized_u8(num: u8) -> Self;
-    /// Convert a plain u8 integer to this type.
-    fn from_u8(num: u8) -> Self;
-    /// Convert this number to a normalized f32.
-    fn to_normalized_f32(self) -> f32;
-    /// Convert this number to a normalized u8.
-    fn to_normalized_u8(self) -> u8;
-    /// Convert to this number from a normalized f32.
-    fn from_normalized_f32(num: f32) -> Self;
-    /// Get the widened representation of the current number.
-    fn widen(self) -> Self::Widened;
-
-    /// Perform a normalized multiplication between this number and another
-    #[inline(always)]
-    #[must_use = "this returns the result of the multiplication, without modifying either input"]
-    fn normalized_mul(self, other: Self) -> Self {
-        (self.widen() * other.widen()).normalize().narrow()
-    }
-    /// Perform a widening multiplication and then divide by a third number.
-    #[inline(always)]
-    fn widened_mul_div(self, other: Self, other2: Self) -> Self::Widened {
-        (self.widen() * other.widen()) / other2.widen()
-    }
-    // TODO: These RGBA conversions should be sized to COLOR_COMPONENTS, but will leave that for
-    // the future.
-    /// Convert a slice to a RGBA8 slice.
-    #[inline(always)]
-    fn to_rgba8(src: &[Self]) -> [u8; COLOR_COMPONENTS] {
-        [
-            src[0].to_normalized_u8(),
-            src[1].to_normalized_u8(),
-            src[2].to_normalized_u8(),
-            src[3].to_normalized_u8(),
-        ]
-    }
-    /// Convert a RGBA8 slice to a slice of this type.
-    #[inline(always)]
-    fn from_rgba8(src: &[u8]) -> [Self; COLOR_COMPONENTS] {
-        [
-            Self::from_normalized_u8(src[0]),
-            Self::from_normalized_u8(src[1]),
-            Self::from_normalized_u8(src[2]),
-            Self::from_normalized_u8(src[3]),
-        ]
-    }
-    /// Convert a RGBAF32 slice to a slice of this type.
-    #[inline(always)]
-    fn from_rgbaf32(src: &[f32]) -> [Self; COLOR_COMPONENTS] {
-        [
-            Self::from_normalized_f32(src[0]),
-            Self::from_normalized_f32(src[1]),
-            Self::from_normalized_f32(src[2]),
-            Self::from_normalized_f32(src[3]),
-        ]
-    }
-    /// Calculate "one minus" this number, i.e., `Self::ONE - self`.
-    #[inline(always)]
-    #[must_use = "method returns a new number and does not mutate the original value"]
-    fn one_minus(self) -> Self {
-        Self::ONE - self
-    }
-}
-
-impl FineType for u8 {
-    type Widened = u16;
-    const ZERO: Self = 0;
-    const MID: Self = 127;
-    const ONE: Self = 255;
-
-    #[inline(always)]
-    fn min(self, other: Self) -> Self {
-        Ord::min(self, other)
-    }
-
-    #[inline(always)]
-    fn max(self, other: Self) -> Self {
-        Ord::max(self, other)
-    }
-
-    #[inline(always)]
-    fn extract_color(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
-        color.as_premul_rgba8().to_u8_array()
-    }
-
-    #[inline(always)]
-    fn from_normalized_u8(num: u8) -> Self {
-        num
-    }
-
-    #[inline(always)]
-    fn from_u8(num: u8) -> Self {
-        num
-    }
-
-    #[inline(always)]
-    fn to_normalized_f32(self) -> f32 {
-        f32::from(self) / 255.0
-    }
-
-    #[inline(always)]
-    fn to_normalized_u8(self) -> u8 {
-        self
-    }
-
-    #[inline(always)]
-    fn from_normalized_f32(num: f32) -> Self {
-        (num * 255.0 + 0.5) as Self
-    }
-
-    #[inline(always)]
-    fn widen(self) -> Self::Widened {
-        u16::from(self)
-    }
-}
-
-impl FineType for f32 {
-    type Widened = Self;
-    const ZERO: Self = 0.0;
-    const MID: Self = 0.5;
-    const ONE: Self = 1.0;
-
-    #[inline(always)]
-    fn min(self, other: Self) -> Self {
-        Self::min(self, other)
-    }
-
-    #[inline(always)]
-    fn max(self, other: Self) -> Self {
-        Self::max(self, other)
-    }
-
-    #[inline(always)]
-    fn extract_color(color: &PremulColor) -> [Self; COLOR_COMPONENTS] {
-        color.as_premul_f32().components
-    }
-
-    #[inline(always)]
-    fn from_normalized_u8(num: u8) -> Self {
-        Self::from(num) / 255.0
-    }
-
-    #[inline(always)]
-    fn from_u8(num: u8) -> Self {
-        Self::from(num)
-    }
-
-    #[inline(always)]
-    fn to_normalized_f32(self) -> f32 {
-        self
-    }
-
-    #[inline(always)]
-    fn to_normalized_u8(self) -> u8 {
-        (self * 255.0 + 0.5) as u8
-    }
-
-    #[inline(always)]
-    fn from_normalized_f32(num: f32) -> Self {
-        num
-    }
-
-    #[inline(always)]
-    fn widen(self) -> Self::Widened {
-        self
-    }
+    pub(crate) use f32x16_painter;
+    pub(crate) use u8x16_painter;
 }

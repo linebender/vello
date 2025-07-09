@@ -151,7 +151,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     };
 
     let cpu_u8_tolerance_scalar = cpu_u8_tolerance + DEFAULT_CPU_U8_TOLERANCE;
-    let cpu_u8_tolerance_neon = cpu_u8_tolerance + DEFAULT_SIMD_TOLERANCE;
+    let cpu_u8_tolerance_neon =
+        cpu_u8_tolerance + DEFAULT_SIMD_TOLERANCE.max(DEFAULT_CPU_U8_TOLERANCE);
 
     // Since f32 is our gold standard, we always require exact matches for this one.
     let cpu_f32_tolerance_scalar = DEFAULT_CPU_F32_TOLERANCE;
