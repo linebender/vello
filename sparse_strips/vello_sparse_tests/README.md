@@ -47,7 +47,7 @@ Requirements:
 To run the `vello_sparse_tests` suite including the WebGL tests:
 
 ```sh
-wasm-pack test --headless --chrome --features webgl
+wasm-pack test --headless --chrome --features webgl --release
 ```
 
 To debug the output images in webgl, run the same command without `--headless`. Any tests that fail

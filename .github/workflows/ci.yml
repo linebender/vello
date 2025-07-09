@@ -356,6 +356,8 @@ jobs:
         working-directory: sparse_strips/vello_hybrid/examples/native_webgl
 
       - name: Run vello_sparse_tests on Chrome
+        # We need to run in release mode, because otherwise wasm_parser can't read the
+        # blob, see <https://github.com/linebender/vello/pull/1078#issuecomment-3029336905>
         run: wasm-pack test --headless --chrome --features webgl --release
         working-directory: sparse_strips/vello_sparse_tests
 
