@@ -48,6 +48,8 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
             self.data.y_advances.1,
         );
 
+        // Note that this `fract` has different behavior for negative numbers than the normal,
+        // one.
         #[inline(always)]
         fn fract<S: Simd>(val: f32x4<S>) -> f32x4<S> {
             val - val.floor()

@@ -193,6 +193,8 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
         // center of the location we are sampling, and sample those points
         // using a cubic filter to weight each location's contribution.
 
+        // Note that this `fract` has different behavior for negative numbers than the normal,
+        // one.
         #[inline(always)]
         fn fract<S: Simd>(val: f32x4<S>) -> f32x4<S> {
             val - val.floor()
