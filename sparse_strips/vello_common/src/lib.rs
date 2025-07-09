@@ -77,6 +77,7 @@ pub mod pico_svg;
 pub mod pixmap;
 pub mod strip;
 pub mod tile;
+pub(crate) mod flatten_kurbo;
 
 pub use fearless_simd;
 pub use peniko;
