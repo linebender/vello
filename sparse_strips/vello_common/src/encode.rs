@@ -747,7 +747,7 @@ impl EncodeExt for BlurredRoundedRectangle {
             }
 
             if self.rect.y0 > self.rect.y1 {
-                core::mem::swap(&mut rect.x0, &mut rect.x1);
+                core::mem::swap(&mut rect.y0, &mut rect.y1);
             }
 
             rect
