@@ -102,10 +102,10 @@ pub async fn render_then_debug(scene: &Scene, params: &TestParams) -> Result<Ima
 pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image, anyhow::Error> {
     let mut context = RenderContext::new();
     let device_id = context
-        .device(None)
+        .find_or_create_device(None)
         .await
         .ok_or_else(|| anyhow!("No compatible device found"))?;
-    let device_handle = &mut context.devices[device_id];
+    let device_handle = &mut context.device_pool[device_id];
     let device = &device_handle.device;
     let queue = &device_handle.queue;
     let mut renderer = vello::Renderer::new(
