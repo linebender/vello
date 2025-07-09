@@ -141,7 +141,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
                 Level::WasmSimd128(w) => {
                     self.rasterize_with::<vello_common::fearless_simd::WasmSimd128, U8Kernel>(
-                        n,
+                        w,
                         buffer,
                         width,
                         height,
@@ -170,7 +170,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
                 Level::WasmSimd128(w) => {
                     self.rasterize_with::<vello_common::fearless_simd::WasmSimd128, F32Kernel>(
-                        n,
+                        w,
                         buffer,
                         width,
                         height,
