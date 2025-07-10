@@ -320,20 +320,6 @@ fn unpack_alphas_from_channel(rgba: vec4<u32>, channel_index: u32) -> u32 {
     }
 }
 
-// Polyfills `unpack4x8unorm`.
-//
-// Downlevel targets do not support native WGSL `unpack4x8unorm`.
-// TODO: Remove once we upgrade to WGPU 25.
-fn unpack4x8unorm(rgba_packed: u32) -> vec4<f32> {
-    // Extract each byte and convert to float in range [0,1]
-    return vec4<f32>(
-        f32((rgba_packed >> 0u) & 0xFFu) / 255.0,  // r
-        f32((rgba_packed >> 8u) & 0xFFu) / 255.0,  // g
-        f32((rgba_packed >> 16u) & 0xFFu) / 255.0, // b
-        f32((rgba_packed >> 24u) & 0xFFu) / 255.0  // a
-    );
-}
-
 const EXTEND_PAD: u32 = 0u;
 const EXTEND_REPEAT: u32 = 1u;
 const EXTEND_REFLECT: u32 = 2u;
