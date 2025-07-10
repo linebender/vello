@@ -4,11 +4,15 @@ use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
 use crate::kurbo::{CubicBez, ParamCurve, PathEl, Point, QuadBez};
 
-pub fn flatten<S: Simd>(
+pub(crate) trait Flattener {
+    fn callback(&mut self, el: PathEl);
+}
+
+pub(crate) fn flatten<S: Simd>(
     simd: S,
     path: impl IntoIterator<Item = PathEl>,
     tolerance: f64,
-    mut callback: impl FnMut(PathEl),
+    flattener: &mut impl Flattener,
 ) {
     let mut flatten_ctx = FlattenCtx::default();
     let mut flattened_cubics = vec![];
@@ -20,11 +24,11 @@ pub fn flatten<S: Simd>(
         match el {
             PathEl::MoveTo(p) => {
                 last_pt = Some(p);
-                callback(PathEl::MoveTo(p));
+                flattener.callback(PathEl::MoveTo(p));
             }
             PathEl::LineTo(p) => {
                 last_pt = Some(p);
-                callback(PathEl::LineTo(p));
+                flattener.callback(PathEl::LineTo(p));
             }
             PathEl::QuadTo(_, _) => {
                 unimplemented!()
@@ -49,14 +53,14 @@ pub fn flatten<S: Simd>(
                     let max = flatten_cubic_simd(simd, c, &mut flatten_ctx, tolerance as f32, &mut flattened_cubics);
                     
                     for p in &flattened_cubics[..max] {
-                        callback(PathEl::LineTo(Point::new(p.x as f64, p.y as f64)));
+                        flattener.callback(PathEl::LineTo(Point::new(p.x as f64, p.y as f64)));
                     }
                 }
                 last_pt = Some(p3);
             }
             PathEl::ClosePath => {
                 last_pt = None;
-                callback(PathEl::ClosePath);
+                flattener.callback(PathEl::ClosePath);
             }
         }
     }

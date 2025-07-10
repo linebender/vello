@@ -6,6 +6,7 @@
 use crate::kurbo::{self, Affine, BezPath, PathEl, Stroke, StrokeOpts};
 use alloc::vec::Vec;
 use fearless_simd::Level;
+use crate::flatten_kurbo::Flattener;
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;
@@ -69,6 +70,44 @@ impl Line {
     }
 }
 
+pub struct LineBufFlattener<'a> {
+    line_buf: &'a mut Vec<Line>,
+    start: kurbo::Point,
+    p0: kurbo::Point,
+    closed: bool
+}
+
+impl Flattener for LineBufFlattener<'_> {
+    #[inline]
+    fn callback(&mut self, el: PathEl) {
+        match el {
+            kurbo::PathEl::MoveTo(p) => {
+                if !self.closed && self.p0 != self.start {
+                    close_path(self.start, self.p0, self.line_buf);
+                }
+
+                self.closed = false;
+                self.start = p;
+                self.p0 = p;
+            }
+            kurbo::PathEl::LineTo(p) => {
+                let pt0 = Point::new(self.p0.x as f32, self.p0.y as f32);
+                let pt1 = Point::new(p.x as f32, p.y as f32);
+                self.line_buf.push(Line::new(pt0, pt1));
+                self.p0 = p;
+            }
+            el @ (kurbo::PathEl::QuadTo(_, _) | kurbo::PathEl::CurveTo(_, _, _)) => {
+                unreachable!("Path has been flattened, so shouldn't contain {el:?}.")
+            }
+            kurbo::PathEl::ClosePath => {
+                self.closed = true;
+
+                close_path(self.start, self.p0, self.line_buf);
+            }
+        }
+    }
+}
+
 /// Flatten a filled bezier path into line segments.
 pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
     line_buf.clear();
@@ -78,33 +117,16 @@ pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
     let simd = Level::new().as_neon().unwrap();
 
     let mut closed = false;
+    
+    let mut lb = LineBufFlattener {
+        line_buf,
+        start,
+        p0,
+        closed
+    };
 
     crate::flatten_kurbo::flatten(
-        simd, iter, TOL, |el| match el {
-            kurbo::PathEl::MoveTo(p) => {
-                if !closed && p0 != start {
-                    close_path(start, p0, line_buf);
-                }
-
-                closed = false;
-                start = p;
-                p0 = p;
-            }
-            kurbo::PathEl::LineTo(p) => {
-                let pt0 = Point::new(p0.x as f32, p0.y as f32);
-                let pt1 = Point::new(p.x as f32, p.y as f32);
-                line_buf.push(Line::new(pt0, pt1));
-                p0 = p;
-            }
-            el @ (kurbo::PathEl::QuadTo(_, _) | kurbo::PathEl::CurveTo(_, _, _)) => {
-                unreachable!("Path has been flattened, so shouldn't contain {el:?}.")
-            }
-            kurbo::PathEl::ClosePath => {
-                closed = true;
-
-                close_path(start, p0, line_buf);
-            }
-        }
+        simd, iter, TOL, &mut lb
     );
 
     if !closed {
