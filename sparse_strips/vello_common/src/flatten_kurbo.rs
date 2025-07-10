@@ -46,11 +46,9 @@ pub fn flatten<S: Simd>(
             PathEl::CurveTo(p1, p2, p3) => {
                 if let Some(p0) = last_pt {
                     let c = CubicBez::new(p0, p1, p2, p3);
-                    flattened_cubics.clear();
-
-                    flatten_cubic_simd(simd, c, &mut flatten_ctx, tolerance as f32, &mut flattened_cubics);
+                    let max = flatten_cubic_simd(simd, c, &mut flatten_ctx, tolerance as f32, &mut flattened_cubics);
                     
-                    for p in &flattened_cubics {
+                    for p in &flattened_cubics[..max] {
                         callback(PathEl::LineTo(Point::new(p.x as f64, p.y as f64)));
                     }
                 }
@@ -309,9 +307,7 @@ fn output_lines_simd<S: Simd>(simd: S, ctx: &FlattenCtx, i: usize, x0: f32, dx: 
     }
 }
 
-fn flatten_cubic_simd<S: Simd>(simd: S, c: CubicBez, ctx: &mut FlattenCtx, accuracy: f32, result: &mut Vec<Point32>) {
-    result.clear();
-
+fn flatten_cubic_simd<S: Simd>(simd: S, c: CubicBez, ctx: &mut FlattenCtx, accuracy: f32, result: &mut Vec<Point32>) -> usize {
     let n_quads = estimate_num_quads(c, accuracy);
     eval_cubics_simd(simd, &c, n_quads, ctx);
     let tol = accuracy * (1.0 - TO_QUAD_TOL);
@@ -344,7 +340,7 @@ fn flatten_cubic_simd<S: Simd>(simd: S, c: CubicBez, ctx: &mut FlattenCtx, accur
 
     result[n] = ctx.even_pts[n_quads];
 
-    result.truncate(n + 1);
+    n + 1
 }
 
 fn estimate_num_quads(c: CubicBez, accuracy: f32) -> usize {
