@@ -129,8 +129,8 @@ pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
         simd, iter, TOL, &mut lb
     );
 
-    if !closed {
-        close_path(start, p0, line_buf);
+    if !lb.closed {
+        close_path(lb.start, lb.p0, lb.line_buf);
     }
 }
 
