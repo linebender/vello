@@ -65,6 +65,7 @@ pub mod colr;
 pub mod encode;
 pub mod execute;
 pub mod flatten;
+pub(crate) mod flatten_simd;
 #[cfg(feature = "text")]
 pub mod glyph;
 pub mod mask;
@@ -76,7 +77,6 @@ pub mod pico_svg;
 pub mod pixmap;
 pub mod strip;
 pub mod tile;
-pub(crate) mod flatten_kurbo;
 
 pub use fearless_simd;
 pub use peniko;
