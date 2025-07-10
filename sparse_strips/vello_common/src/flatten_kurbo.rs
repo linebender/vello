@@ -344,7 +344,7 @@ fn flatten_cubic_simd<S: Simd>(simd: S, c: CubicBez, ctx: &mut FlattenCtx, accur
 
     result[n] = ctx.even_pts[n_quads];
 
-    result.resize(n + 1, Point32::default());
+    result.truncate(n + 1);
 }
 
 fn estimate_num_quads(c: CubicBez, accuracy: f32) -> usize {
