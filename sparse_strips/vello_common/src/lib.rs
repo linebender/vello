@@ -45,12 +45,13 @@
 #![cfg_attr(target_pointer_width = "64", warn(clippy::trivially_copy_pass_by_ref))]
 // END LINEBENDER LINT SET
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
-// #![cfg_attr(not(feature = "simd"), forbid(unsafe_code))]
+#![cfg_attr(not(feature = "simd"), forbid(unsafe_code))]
 #![expect(
     clippy::cast_possible_truncation,
     reason = "We temporarily ignore those because the casts\
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
+#![no_std]
 
 // Suppress the unused_crate_dependencies lint when both std and libm are specified.
 #[cfg(all(feature = "std", feature = "libm"))]
