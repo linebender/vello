@@ -52,7 +52,7 @@ pub(crate) fn flatten<S: Simd>(
                     let c = CubicBez::new(p0, p1, p2, p3);
                     let max = flatten_cubic_simd(simd, c, &mut flatten_ctx, tolerance as f32, &mut flattened_cubics);
                     
-                    for p in &flattened_cubics[..max] {
+                    for p in &flattened_cubics[1..max] {
                         flattener.callback(PathEl::LineTo(Point::new(p.x as f64, p.y as f64)));
                     }
                 }
