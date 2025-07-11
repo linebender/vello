@@ -116,7 +116,7 @@ struct FlattenerCallback<'a> {
 }
 
 impl Callback for FlattenerCallback<'_> {
-    #[inline]
+    #[inline(always)]
     fn callback(&mut self, el: PathEl) {
         match el {
             kurbo::PathEl::MoveTo(p) => {
