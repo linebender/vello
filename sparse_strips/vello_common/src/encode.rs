@@ -332,28 +332,11 @@ fn encode_stops(
     cs: ColorSpaceTag,
     hue_dir: HueDirection,
 ) -> Vec<GradientRange> {
+    #[derive(Debug)]
     struct EncodedColorStop {
         offset: f32,
         color: crate::color::PremulColor<Srgb>,
     }
-
-    // Create additional (SRGB-encoded) stops in-between to approximate the color space we want to
-    // interpolate in.
-    let interpolated_stops = stops
-        .windows(2)
-        .flat_map(|s| {
-            let left_stop = &s[0];
-            let right_stop = &s[1];
-
-            let interpolated =
-                gradient::<Srgb>(left_stop.color, right_stop.color, cs, hue_dir, 0.01);
-
-            interpolated.map(|st| EncodedColorStop {
-                offset: left_stop.offset + (right_stop.offset - left_stop.offset) * st.0,
-                color: st.1,
-            })
-        })
-        .collect::<Vec<_>>();
 
     let create_range = |left_stop: &EncodedColorStop, right_stop: &EncodedColorStop| {
         let clamp = |mut color: [f32; 4]| {
@@ -388,15 +371,49 @@ fn encode_stops(
         GradientRange { x1, bias, scale }
     };
 
-    interpolated_stops
-        .windows(2)
-        .map(|s| {
-            let left_stop = &s[0];
-            let right_stop = &s[1];
+    // Create additional (SRGB-encoded) stops in-between to approximate the color space we want to
+    // interpolate in.
+    if cs != ColorSpaceTag::Srgb {
+        let interpolated_stops = stops
+            .windows(2)
+            .flat_map(|s| {
+                let left_stop = &s[0];
+                let right_stop = &s[1];
 
-            create_range(left_stop, right_stop)
-        })
-        .collect()
+                let interpolated =
+                    gradient::<Srgb>(left_stop.color, right_stop.color, cs, hue_dir, 0.01);
+
+                interpolated.map(|st| EncodedColorStop {
+                    offset: left_stop.offset + (right_stop.offset - left_stop.offset) * st.0,
+                    color: st.1,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        interpolated_stops
+            .windows(2)
+            .map(|s| {
+                let left_stop = &s[0];
+                let right_stop = &s[1];
+
+                create_range(left_stop, right_stop)
+            })
+            .collect()
+    }   else {
+        stops.windows(2).map(|c| {
+            let c0 = EncodedColorStop {
+                offset: c[0].offset,
+                color: c[0].color.to_alpha_color::<Srgb>().premultiply()
+            };
+            
+            let c1 = EncodedColorStop {
+                offset: c[1].offset,
+                color: c[1].color.to_alpha_color::<Srgb>().premultiply()
+            };
+            
+            create_range(&c0, &c1)
+        }).collect()
+    }
 }
 
 pub(crate) fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
