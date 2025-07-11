@@ -14,6 +14,7 @@ use alloc::borrow::Cow;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
+use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16, u32x4};
 #[cfg(feature = "multithreading")]
 use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
@@ -678,13 +679,15 @@ pub struct EncodedGradient {
 
 impl EncodedGradient {
     /// Get the lookup table for sampling u8-based gradient values.
-    pub fn u8_lut(&self) -> &GradientLut<u8> {
-        self.u8_lut.get_or_init(|| GradientLut::new(&self.ranges))
+    pub fn u8_lut<S: Simd>(&self, simd: S) -> &GradientLut<u8> {
+        self.u8_lut
+            .get_or_init(|| GradientLut::new(simd, &self.ranges))
     }
 
     /// Get the lookup table for sampling f32-based gradient values.
-    pub fn f32_lut(&self) -> &GradientLut<f32> {
-        self.f32_lut.get_or_init(|| GradientLut::new(&self.ranges))
+    pub fn f32_lut<S: Simd>(&self, simd: S) -> &GradientLut<f32> {
+        self.f32_lut
+            .get_or_init(|| GradientLut::new(simd, &self.ranges))
     }
 }
 
@@ -870,7 +873,7 @@ pub struct GradientLut<T: Copy + Clone + FromF32Color> {
 
 impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
-    fn new(ranges: &[GradientRange]) -> Self {
+    fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
         // TODO: SIMDify
 
         // Somewhat arbitrary, but we use 1024 samples for
@@ -880,27 +883,47 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
 
         let mut lut = Vec::with_capacity(lut_size);
 
-        let inv_lut_size = 1.0 / lut_size as f32;
+        let mut indices = u32x4::splat(simd, 0);
+        let inv_lut_size = f32x4::splat(simd, 1.0 / lut_size as f32);
+        let mut biases = f32x16::splat(simd, 0.0);
+        let mut scales = f32x16::splat(simd, 0.0);
 
-        let mut cur_idx = 0;
+        (0..lut_size).step_by(4).for_each(|idx| {
+            let t_vals = (f32x4::splat(simd, idx as f32)
+                + f32x4::from_slice(simd, &[0.0, 1.0, 2.0, 3.0]))
+                * inv_lut_size;
 
-        (0..lut_size).for_each(|idx| {
-            let t_val = idx as f32 * inv_lut_size;
-
-            while ranges[cur_idx].x1 < t_val {
-                cur_idx += 1;
+            for (index, t_val) in indices.val.iter_mut().zip(t_vals.val) {
+                while ranges[*index as usize].x1 < t_val {
+                    *index += 1;
+                }
             }
 
-            let range = &ranges[cur_idx];
-            let mut interpolated = [0.0_f32; 4];
+            // for i in 0..ranges.len() - 1 {
+            //     let x1 = f32x4::splat(simd, ranges[i].x1);
+            //
+            //     indices = indices + simd.select_u32x4(simd.simd_lt_f32x4(x1, t_vals), u32x4::splat(simd, 1), u32x4::splat(simd, 0));
+            // }
 
-            let bias = range.bias;
-
-            for (comp_idx, comp) in interpolated.iter_mut().enumerate() {
-                *comp = bias[comp_idx] + range.scale[comp_idx] * t_val;
+            for ((idx, biases), scales) in indices
+                .val
+                .iter()
+                .zip(biases.chunks_exact_mut(4))
+                .zip(scales.chunks_exact_mut(4))
+            {
+                let range = &ranges[*idx as usize];
+                biases.copy_from_slice(&range.bias);
+                scales.copy_from_slice(&range.scale);
             }
 
-            lut.push(T::from_f32(&interpolated));
+            let t_vals = element_wise_splat(simd, t_vals);
+
+            let result = biases.madd(scales, t_vals);
+
+            lut.push(T::from_f32(result[0..4].try_into().unwrap()));
+            lut.push(T::from_f32(result[4..8].try_into().unwrap()));
+            lut.push(T::from_f32(result[8..12].try_into().unwrap()));
+            lut.push(T::from_f32(result[12..16].try_into().unwrap()));
         });
 
         let scale = lut.len() as f32 - 1.0;
@@ -926,6 +949,20 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
     pub fn scale_factor(&self) -> f32 {
         self.scale
     }
+}
+
+#[inline(always)]
+pub(crate) fn element_wise_splat<S: Simd>(simd: S, input: f32x4<S>) -> f32x16<S> {
+    simd.combine_f32x8(
+        simd.combine_f32x4(
+            f32x4::splat(simd, input.val[0]),
+            f32x4::splat(simd, input.val[1]),
+        ),
+        simd.combine_f32x4(
+            f32x4::splat(simd, input.val[2]),
+            f32x4::splat(simd, input.val[3]),
+        ),
+    )
 }
 
 mod private {
