@@ -877,9 +877,14 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
         // TODO: SIMDify
 
         // Somewhat arbitrary, but we use 1024 samples for
-        // more than 2 stops, and 512 for just 2 stops. Blend2D does
+        // > 4 stops, 512 for 3 and 256 for 2 and less. Blend2D does
         // something similar.
-        let lut_size = if ranges.len() > 1 { 1024 } else { 512 };
+        // Note that n stops means we have n - 1 gradient ranges!
+        let lut_size = match ranges.len() {
+            1 => 256,
+            2 => 512,
+            _ => 1024,
+        };
 
         let mut lut = Vec::with_capacity(lut_size);
 
