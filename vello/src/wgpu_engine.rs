@@ -834,10 +834,12 @@ impl WgpuEngine {
         entries: Vec<wgpu::BindGroupLayoutEntry>,
         cache: Option<&PipelineCache>,
     ) -> WgpuShader {
-        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader_module = device.create_shader_module_trusted(wgpu::ShaderModuleDescriptor {
             label: Some(label),
             source: wgpu::ShaderSource::Wgsl(wgsl),
-        });
+        },
+        wgpu::ShaderRuntimeChecks::unchecked(),
+        );
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &entries,
