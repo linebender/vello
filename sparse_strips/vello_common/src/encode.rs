@@ -14,9 +14,9 @@ use alloc::borrow::Cow;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
-#[cfg(feature = "multithreading")]
-use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
+#[cfg(feature = "multithreading")]
+use std::sync::OnceLock as OnceCell;
 
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
