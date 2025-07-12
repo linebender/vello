@@ -51,7 +51,7 @@
     reason = "We temporarily ignore those because the casts\
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
-#![no_std]
+#![cfg_attr(not(feature = "multithreading"), no_std)]
 
 // Suppress the unused_crate_dependencies lint when both std and libm are specified.
 #[cfg(all(feature = "std", feature = "libm"))]
