@@ -673,6 +673,7 @@ impl WgpuEngine {
                         label: None,
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: render_target,
+                            depth_slice: None,
                             resolve_target: None,
                             ops: wgpu::Operations {
                                 load: match draw_params.clear_color {
