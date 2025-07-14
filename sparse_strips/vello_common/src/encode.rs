@@ -17,9 +17,10 @@ use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
 use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
-#[cfg(feature = "multithreading")]
-use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
+// So we can just use `OnceCell` regardless of which feature is activated.
+#[cfg(feature = "multithreading")]
+use std::sync::OnceLock as OnceCell;
 
 use crate::simd::{Splat4thExt, element_wise_splat};
 #[cfg(not(feature = "std"))]
