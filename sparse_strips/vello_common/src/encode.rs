@@ -866,7 +866,7 @@ fn unit_to_line(p0: Point, p1: Point) -> Affine {
 }
 
 /// A helper trait for converting a premultiplied f32 color to `Self`.
-pub trait FromF32Color: Sized + Debug {
+pub trait FromF32Color: Sized + Debug + Copy + Clone {
     /// The zero value.
     const ZERO: Self;
     /// Convert from a premultiplied f32 color to `Self`.
@@ -901,12 +901,12 @@ impl FromF32Color for u8 {
 
 /// A lookup table for sampled gradient values.
 #[derive(Debug)]
-pub struct GradientLut<T: Copy + Clone + FromF32Color> {
+pub struct GradientLut<T: FromF32Color> {
     lut: Vec<[T; 4]>,
     scale: f32,
 }
 
-impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
+impl<T: FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
         let lut_size = match ranges.len() {
