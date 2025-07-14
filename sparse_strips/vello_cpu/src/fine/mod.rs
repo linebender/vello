@@ -5,7 +5,7 @@ mod common;
 mod highp;
 mod lowp;
 
-use crate::peniko::{BlendMode, Compose, Mix};
+use crate::peniko::{BlendMode, Compose, ImageQuality, Mix};
 use crate::region::Region;
 use alloc::boxed::Box;
 use alloc::vec;
@@ -221,8 +221,20 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ) -> Box<dyn Painter + 'a> {
         Box::new(NNImagePainter::new(simd, image, pixmap, start_x, start_y))
     }
-    /// Return the painter used for painting image with `Medium` or `High` quality.
-    fn filtered_image_painter<'a>(
+    /// Return the painter used for painting image with `Medium` quality.
+    fn medium_quality_image_painter<'a>(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> Box<dyn Painter + 'a> {
+        Box::new(FilteredImagePainter::new(
+            simd, image, pixmap, start_x, start_y,
+        ))
+    }
+    /// Return the painter used for painting image with `High` quality.
+    fn high_quality_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
@@ -555,12 +567,21 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                         match (i.has_skew(), i.nearest_neighbor()) {
                             (_, false) => {
-                                fill_complex_paint!(
-                                    i.has_opacities,
-                                    T::filtered_image_painter(
-                                        self.simd, i, pixmap, start_x, start_y
-                                    )
-                                );
+                                if i.quality == ImageQuality::Medium {
+                                    fill_complex_paint!(
+                                        i.has_opacities,
+                                        T::medium_quality_image_painter(
+                                            self.simd, i, pixmap, start_x, start_y
+                                        )
+                                    );
+                                }   else {
+                                    fill_complex_paint!(
+                                        i.has_opacities,
+                                        T::high_quality_image_painter(
+                                            self.simd, i, pixmap, start_x, start_y
+                                        )
+                                    );
+                                }
                             }
                             (false, true) => {
                                 fill_complex_paint!(

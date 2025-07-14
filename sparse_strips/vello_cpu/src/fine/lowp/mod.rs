@@ -73,22 +73,16 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         }
     }
 
-    fn filtered_image_painter<'a>(
+    fn medium_quality_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
     ) -> Box<dyn Painter + 'a> {
-        if image.quality == ImageQuality::Medium {
-            Box::new(BilinearImagePainter::new(
-                simd, image, pixmap, start_x, start_y,
-            ))
-        } else {
-            Box::new(FilteredImagePainter::new(
-                simd, image, pixmap, start_x, start_y,
-            ))
-        }
+        Box::new(BilinearImagePainter::new(
+            simd, image, pixmap, start_x, start_y,
+        ))
     }
 
     fn apply_mask(
