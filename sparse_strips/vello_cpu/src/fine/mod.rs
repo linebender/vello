@@ -36,6 +36,7 @@ use vello_common::fearless_simd::{
     Simd, SimdBase, SimdFloat, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4, u32x8,
 };
 use vello_common::pixmap::Pixmap;
+use vello_common::simd::Splat4thExt;
 
 pub type ScratchBuf<F> = [F; SCRATCH_BUF_SIZE];
 
@@ -671,81 +672,6 @@ impl<S: Simd> PosExt<S> for f32x8<S> {
             f32x4::splat_pos(simd, pos, x_advance, y_advance),
             f32x4::splat_pos(simd, pos + x_advance, x_advance, y_advance),
         )
-    }
-}
-
-/// Splatting every 4th element in the vector, used for splatting the alpha value of
-/// a color to all lanes.
-pub trait Splat4thExt<S> {
-    fn splat_4th(self) -> Self;
-}
-
-impl<S: Simd> Splat4thExt<S> for f32x4<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        let zip1 = self.zip_high(self);
-        zip1.zip_high(zip1)
-    }
-}
-
-impl<S: Simd> Splat4thExt<S> for f32x8<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        let (mut p1, mut p2) = self.simd.split_f32x8(self);
-        p1 = p1.splat_4th();
-        p2 = p2.splat_4th();
-
-        self.simd.combine_f32x4(p1, p2)
-    }
-}
-
-impl<S: Simd> Splat4thExt<S> for f32x16<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        let (mut p1, mut p2) = self.simd.split_f32x16(self);
-        p1 = p1.splat_4th();
-        p2 = p2.splat_4th();
-
-        self.simd.combine_f32x8(p1, p2)
-    }
-}
-
-impl<S: Simd> Splat4thExt<S> for u8x16<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        // TODO: SIMDify
-        Self {
-            val: [
-                self.val[3],
-                self.val[3],
-                self.val[3],
-                self.val[3],
-                self.val[7],
-                self.val[7],
-                self.val[7],
-                self.val[7],
-                self.val[11],
-                self.val[11],
-                self.val[11],
-                self.val[11],
-                self.val[15],
-                self.val[15],
-                self.val[15],
-                self.val[15],
-            ],
-            simd: self.simd,
-        }
-    }
-}
-
-impl<S: Simd> Splat4thExt<S> for u8x32<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        let (mut p1, mut p2) = self.simd.split_u8x32(self);
-        p1 = p1.splat_4th();
-        p2 = p2.splat_4th();
-
-        self.simd.combine_u8x16(p1, p2)
     }
 }
 

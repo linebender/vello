@@ -268,20 +268,6 @@ mod alpha_fill {
 }
 
 #[inline(always)]
-pub(crate) fn element_wise_splat<S: Simd>(simd: S, input: f32x4<S>) -> f32x16<S> {
-    simd.combine_f32x8(
-        simd.combine_f32x4(
-            f32x4::splat(simd, input.val[0]),
-            f32x4::splat(simd, input.val[1]),
-        ),
-        simd.combine_f32x4(
-            f32x4::splat(simd, input.val[2]),
-            f32x4::splat(simd, input.val[3]),
-        ),
-    )
-}
-
-#[inline(always)]
 fn extract_masks<S: Simd>(simd: S, masks: &[u8]) -> f32x16<S> {
     let mut base_mask = [
         masks[0] as f32,

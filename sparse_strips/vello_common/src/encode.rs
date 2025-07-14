@@ -16,11 +16,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
-use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x8, f32x16};
+use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
 #[cfg(feature = "multithreading")]
 use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
 
+use crate::simd::{Splat4thExt, element_wise_splat};
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 
@@ -944,6 +945,10 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
 
                 let mut result = biases.madd(scales, t_vals);
                 let alphas = result.splat_4th();
+                // Due to floating-point impreciseness, it can happen that
+                // values either become greater than 1 or the RGB channels
+                // become greater than the alpha channel. To prevent overflows
+                // in later parts of the pipeline, we need to take the minimum here.
                 result = result.min(1.0).min(alphas);
                 let (im1, im2) = simd.split_f32x16(result);
                 let (r1, r2) = simd.split_f32x8(im1);
@@ -982,56 +987,6 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
     pub fn scale_factor(&self) -> f32 {
         self.scale
     }
-}
-
-/// Splatting every 4th element in the vector, used for splatting the alpha value of
-/// a color to all lanes.
-pub trait Splat4thExt<S> {
-    fn splat_4th(self) -> Self;
-}
-
-impl<S: Simd> Splat4thExt<S> for f32x4<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        let zip1 = self.zip_high(self);
-        zip1.zip_high(zip1)
-    }
-}
-
-impl<S: Simd> Splat4thExt<S> for f32x8<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        let (mut p1, mut p2) = self.simd.split_f32x8(self);
-        p1 = p1.splat_4th();
-        p2 = p2.splat_4th();
-
-        self.simd.combine_f32x4(p1, p2)
-    }
-}
-
-impl<S: Simd> Splat4thExt<S> for f32x16<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        let (mut p1, mut p2) = self.simd.split_f32x16(self);
-        p1 = p1.splat_4th();
-        p2 = p2.splat_4th();
-
-        self.simd.combine_f32x8(p1, p2)
-    }
-}
-
-#[inline(always)]
-pub(crate) fn element_wise_splat<S: Simd>(simd: S, input: f32x4<S>) -> f32x16<S> {
-    simd.combine_f32x8(
-        simd.combine_f32x4(
-            f32x4::splat(simd, input.val[0]),
-            f32x4::splat(simd, input.val[1]),
-        ),
-        simd.combine_f32x4(
-            f32x4::splat(simd, input.val[2]),
-            f32x4::splat(simd, input.val[3]),
-        ),
-    )
 }
 
 mod private {
