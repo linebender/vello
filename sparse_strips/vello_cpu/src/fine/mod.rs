@@ -195,7 +195,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ) -> impl Painter + 'a {
         GradientPainter::new(simd, gradient, false, t_vals)
     }
-    /// Return the painter used for painting gradients.
+    /// Return the painter used for painting gradients, with support for masking undefined locations.
     fn gradient_painter_with_undefined<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
