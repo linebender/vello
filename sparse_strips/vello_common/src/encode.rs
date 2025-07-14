@@ -861,22 +861,25 @@ fn unit_to_line(p0: Point, p1: Point) -> Affine {
 /// A helper trait for converting a premultiplied f32 color to `Self`.
 pub trait FromF32Color: Sized {
     /// Convert from a premultiplied f32 color to `Self`.
-    fn from_f32(color: &[f32; 4]) -> [Self; 4];
+    fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4];
 }
 
 impl FromF32Color for f32 {
-    fn from_f32(color: &[f32; 4]) -> [Self; 4] {
-        *color
+    fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4] {
+        color.val
     }
 }
 
 impl FromF32Color for u8 {
-    fn from_f32(color: &[f32; 4]) -> [Self; 4] {
+    fn from_f32<S: Simd>(mut color: f32x4<S>) -> [Self; 4] {
+        let simd = color.simd;
+        color = f32x4::splat(simd, 0.5).madd(color, f32x4::splat(simd, 255.0));
+        
         [
-            (color[0] * 255.0 + 0.5) as Self,
-            (color[1] * 255.0 + 0.5) as Self,
-            (color[2] * 255.0 + 0.5) as Self,
-            (color[3] * 255.0 + 0.5) as Self,
+            color[0] as Self,
+            color[1] as Self,
+            color[2] as Self,
+            color[3] as Self,
         ]
     }
 }
@@ -920,13 +923,7 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
                     *index += 1;
                 }
             }
-
-            // for i in 0..ranges.len() - 1 {
-            //     let x1 = f32x4::splat(simd, ranges[i].x1);
-            //
-            //     indices = indices + simd.select_u32x4(simd.simd_lt_f32x4(x1, t_vals), u32x4::splat(simd, 1), u32x4::splat(simd, 0));
-            // }
-
+            
             for ((idx, biases), scales) in indices
                 .val
                 .iter()
@@ -941,11 +938,14 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
             let t_vals = element_wise_splat(simd, t_vals);
 
             let result = biases.madd(scales, t_vals);
+            let (im1, im2) = simd.split_f32x16(result);
+            let (r1, r2) = simd.split_f32x8(im1);
+            let (r3, r4) = simd.split_f32x8(im2);
 
-            lut.push(T::from_f32(result[0..4].try_into().unwrap()));
-            lut.push(T::from_f32(result[4..8].try_into().unwrap()));
-            lut.push(T::from_f32(result[8..12].try_into().unwrap()));
-            lut.push(T::from_f32(result[12..16].try_into().unwrap()));
+            lut.push(T::from_f32(r1));
+            lut.push(T::from_f32(r2));
+            lut.push(T::from_f32(r3));
+            lut.push(T::from_f32(r4));
         });
 
         let scale = lut.len() as f32 - 1.0;
