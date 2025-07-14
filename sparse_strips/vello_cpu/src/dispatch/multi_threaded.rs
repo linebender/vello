@@ -59,7 +59,7 @@ impl MultiThreadedDispatcher {
             .unwrap();
         let alpha_storage = Arc::new(OnceLockAlphaStorage::new(num_threads));
         let workers = Arc::new(ThreadLocal::new());
-        let task_batch = vec![];
+        let task_batch = std::vec![];
 
         {
             let alpha_storage = alpha_storage.clone();
