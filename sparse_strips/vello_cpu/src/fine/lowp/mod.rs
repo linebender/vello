@@ -5,21 +5,17 @@ mod compose;
 mod gradient;
 mod image;
 
-use crate::fine::common;
-use crate::fine::common::image::FilteredImagePainter;
 use crate::fine::lowp::image::BilinearImagePainter;
 use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
 use crate::fine::{FineKernel, f32_to_u8, highp, u8_to_f32};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use crate::util::Div255Ext;
-use alloc::boxed::Box;
 use bytemuck::cast_slice;
 use vello_common::coarse::WideTile;
 use vello_common::encode::{EncodedGradient, EncodedImage};
 use vello_common::fearless_simd::*;
 use vello_common::paint::PremulColor;
-use vello_common::peniko::ImageQuality;
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
 

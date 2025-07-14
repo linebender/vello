@@ -2,12 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::FineKernel;
-use crate::fine::common::gradient::GradientPainter;
 use crate::fine::{COLOR_COMPONENTS, Painter};
 use crate::peniko::BlendMode;
 use crate::region::Region;
-use alloc::boxed::Box;
-use vello_common::encode::EncodedGradient;
 use vello_common::fearless_simd::*;
 use vello_common::paint::PremulColor;
 use vello_common::tile::Tile;

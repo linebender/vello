@@ -7,7 +7,6 @@ mod lowp;
 
 use crate::peniko::{BlendMode, Compose, ImageQuality, Mix};
 use crate::region::Region;
-use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;

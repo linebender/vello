@@ -15,7 +15,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
-use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16, u32x4};
+use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
 #[cfg(feature = "multithreading")]
 use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
@@ -861,6 +861,7 @@ fn unit_to_line(p0: Point, p1: Point) -> Affine {
 
 /// A helper trait for converting a premultiplied f32 color to `Self`.
 pub trait FromF32Color: Sized {
+    /// The zero value.
     const ZERO: Self;
     /// Convert from a premultiplied f32 color to `Self`.
     fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4];
