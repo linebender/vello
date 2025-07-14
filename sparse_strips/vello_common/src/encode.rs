@@ -888,14 +888,12 @@ impl FromF32Color for u8 {
         let simd = color.simd;
         color = f32x4::splat(simd, 0.5).madd(color, f32x4::splat(simd, 255.0));
 
-        let res = [
+        [
             color[0] as Self,
             color[1] as Self,
             color[2] as Self,
             color[3] as Self,
-        ];
-
-        res
+        ]
     }
 }
 
