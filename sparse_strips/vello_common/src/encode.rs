@@ -902,12 +902,6 @@ pub struct GradientLut<T: Copy + Clone + FromF32Color> {
 impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
-        // TODO: SIMDify
-        
-        // Somewhat arbitrary, but we use 1024 samples for
-        // > 4 stops, 512 for 3 and 256 for 2 and less. Blend2D does
-        // something similar.
-        // Note that n stops means we have n - 1 gradient ranges!
         let lut_size = match ranges.len() {
             1 => 256,
             2 => 512,
