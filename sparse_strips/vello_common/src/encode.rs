@@ -906,48 +906,49 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
             _ => 1024,
         };
 
-        let mut lut = Vec::with_capacity(lut_size);
-
-        let mut indices = u32x4::splat(simd, 0);
-        let inv_lut_size = f32x4::splat(simd, 1.0 / lut_size as f32);
-        let mut biases = f32x16::splat(simd, 0.0);
-        let mut scales = f32x16::splat(simd, 0.0);
-
-        (0..lut_size).step_by(4).for_each(|idx| {
-            let t_vals = (f32x4::splat(simd, idx as f32)
-                + f32x4::from_slice(simd, &[0.0, 1.0, 2.0, 3.0]))
-                * inv_lut_size;
-
-            for (index, t_val) in indices.val.iter_mut().zip(t_vals.val) {
-                while ranges[*index as usize].x1 < t_val {
-                    *index += 1;
-                }
+        let mut lut = Vec::with_capacity(lut_size + 4);
+        
+        let ramps = {
+            let mut ramps = Vec::with_capacity(ranges.len());
+            let mut prev_idx = 0;
+            
+            for range in ranges {
+                let trunc_idx = (range.x1 * lut_size as f32) as usize;
+                
+                ramps.push((prev_idx..trunc_idx, trunc_idx, range));
+                prev_idx = trunc_idx;
             }
             
-            for ((idx, biases), scales) in indices
-                .val
-                .iter()
-                .zip(biases.chunks_exact_mut(4))
-                .zip(scales.chunks_exact_mut(4))
-            {
-                let range = &ranges[*idx as usize];
-                biases.copy_from_slice(&range.bias);
-                scales.copy_from_slice(&range.scale);
-            }
+            ramps
+        };
 
-            let t_vals = element_wise_splat(simd, t_vals);
+        let inv_lut_size = f32x4::splat(simd, 1.0 / lut_size as f32);
+        
+        for (ramp_range, trunc_idx, range) in ramps {
+            let biases = f32x16::block_splat(f32x4::from_slice(simd, &range.bias));
+            let scales = f32x16::block_splat(f32x4::from_slice(simd, &range.scale));
+            
+            ramp_range.step_by(4).for_each(|idx| {
+                let t_vals = (f32x4::splat(simd, idx as f32)
+                    + f32x4::from_slice(simd, &[0.0, 1.0, 2.0, 3.0]))
+                    * inv_lut_size;
 
-            let result = biases.madd(scales, t_vals);
-            let (im1, im2) = simd.split_f32x16(result);
-            let (r1, r2) = simd.split_f32x8(im1);
-            let (r3, r4) = simd.split_f32x8(im2);
+                let t_vals = element_wise_splat(simd, t_vals);
 
-            lut.push(T::from_f32(r1));
-            lut.push(T::from_f32(r2));
-            lut.push(T::from_f32(r3));
-            lut.push(T::from_f32(r4));
-        });
+                let result = biases.madd(scales, t_vals);
+                let (im1, im2) = simd.split_f32x16(result);
+                let (r1, r2) = simd.split_f32x8(im1);
+                let (r3, r4) = simd.split_f32x8(im2);
 
+                lut.push(T::from_f32(r1));
+                lut.push(T::from_f32(r2));
+                lut.push(T::from_f32(r3));
+                lut.push(T::from_f32(r4));
+            });
+            
+            lut.truncate(trunc_idx);
+        }
+        
         let scale = lut.len() as f32 - 1.0;
 
         Self { lut, scale }
