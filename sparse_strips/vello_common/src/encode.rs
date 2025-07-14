@@ -16,7 +16,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
-use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16, f32x8};
+use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x8, f32x16};
 #[cfg(feature = "multithreading")]
 use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
@@ -401,20 +401,23 @@ fn encode_stops(
                 create_range(left_stop, right_stop)
             })
             .collect()
-    }   else {
-        stops.windows(2).map(|c| {
-            let c0 = EncodedColorStop {
-                offset: c[0].offset,
-                color: c[0].color.to_alpha_color::<Srgb>().premultiply()
-            };
-            
-            let c1 = EncodedColorStop {
-                offset: c[1].offset,
-                color: c[1].color.to_alpha_color::<Srgb>().premultiply()
-            };
-            
-            create_range(&c0, &c1)
-        }).collect()
+    } else {
+        stops
+            .windows(2)
+            .map(|c| {
+                let c0 = EncodedColorStop {
+                    offset: c[0].offset,
+                    color: c[0].color.to_alpha_color::<Srgb>().premultiply(),
+                };
+
+                let c1 = EncodedColorStop {
+                    offset: c[1].offset,
+                    color: c[1].color.to_alpha_color::<Srgb>().premultiply(),
+                };
+
+                create_range(&c0, &c1)
+            })
+            .collect()
     }
 }
 
@@ -882,18 +885,17 @@ impl FromF32Color for u8 {
     fn from_f32<S: Simd>(mut color: f32x4<S>) -> [Self; 4] {
         let simd = color.simd;
         color = f32x4::splat(simd, 0.5).madd(color, f32x4::splat(simd, 255.0));
-        
+
         let res = [
             color[0] as Self,
             color[1] as Self,
             color[2] as Self,
             color[3] as Self,
         ];
-        
+
         res
     }
 }
-
 
 /// A lookup table for sampled gradient values.
 #[derive(Debug)]
@@ -911,28 +913,28 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
             _ => 1024,
         };
 
-        let mut lut = vec![[T::ZERO, T::ZERO, T::ZERO, T::ZERO] ; lut_size + 4];
-        
+        let mut lut = vec![[T::ZERO, T::ZERO, T::ZERO, T::ZERO]; lut_size + 4];
+
         let ramps = {
             let mut ramps = Vec::with_capacity(ranges.len());
             let mut prev_idx = 0;
-            
+
             for range in ranges {
                 let max_idx = (range.x1 * lut_size as f32) as usize;
-                
+
                 ramps.push((prev_idx..max_idx, range));
                 prev_idx = max_idx;
             }
-            
+
             ramps
         };
 
         let inv_lut_size = f32x4::splat(simd, 1.0 / lut_size as f32);
-        
+
         for (ramp_range, range) in ramps {
             let biases = f32x16::block_splat(f32x4::from_slice(simd, &range.bias));
             let scales = f32x16::block_splat(f32x4::from_slice(simd, &range.scale));
-            
+
             ramp_range.step_by(4).for_each(|idx| {
                 let t_vals = (f32x4::splat(simd, idx as f32)
                     + f32x4::from_slice(simd, &[0.0, 1.0, 2.0, 3.0]))
@@ -954,9 +956,9 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
                 lut[3] = T::from_f32(r4);
             });
         }
-        
+
         lut.truncate(lut_size);
-        
+
         let scale = lut.len() as f32 - 1.0;
 
         Self { lut, scale }

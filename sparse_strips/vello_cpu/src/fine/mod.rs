@@ -23,10 +23,10 @@ pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_C
 pub const SCRATCH_BUF_SIZE: usize =
     WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
 
-use crate::fine::common::gradient::{calculate_t_vals, GradientPainter};
 use crate::fine::common::gradient::linear::SimdLinearKind;
 use crate::fine::common::gradient::radial::SimdRadialKind;
 use crate::fine::common::gradient::sweep::SimdSweepKind;
+use crate::fine::common::gradient::{GradientPainter, calculate_t_vals};
 use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::util::{BlendModeExt, EncodedImageExt};
@@ -213,9 +213,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: u16,
         start_y: u16,
     ) -> impl Painter + 'a {
-        PlainNNImagePainter::new(
-            simd, image, pixmap, start_x, start_y,
-        )
+        PlainNNImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
     /// Return the painter used for painting plain nearest-neighbor images.
     ///
@@ -237,9 +235,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: u16,
         start_y: u16,
     ) -> impl Painter + 'a {
-        FilteredImagePainter::new(
-            simd, image, pixmap, start_x, start_y,
-        )
+        FilteredImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
     /// Return the painter used for painting image with `High` quality.
     fn high_quality_image_painter<'a>(
@@ -249,9 +245,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: u16,
         start_y: u16,
     ) -> impl Painter + 'a {
-        FilteredImagePainter::new(
-            simd, image, pixmap, start_x, start_y,
-        )
+        FilteredImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
     /// Return the painter used for painting blurred rounded rectangles.
     fn blurred_rounded_rectangle_painter<'a>(
@@ -566,13 +560,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                         g.has_opacities,
                                         T::gradient_painter_with_undefined(self.simd, g, f32_buf)
                                     );
-                                }   else {
+                                } else {
                                     fill_complex_paint!(
                                         g.has_opacities,
                                         T::gradient_painter(self.simd, g, f32_buf)
                                     );
                                 }
-                                
                             }
                         }
                     }
@@ -590,7 +583,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                             self.simd, i, pixmap, start_x, start_y
                                         )
                                     );
-                                }   else {
+                                } else {
                                     fill_complex_paint!(
                                         i.has_opacities,
                                         T::high_quality_image_painter(

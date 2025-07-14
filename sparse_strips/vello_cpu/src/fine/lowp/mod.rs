@@ -66,9 +66,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         start_x: u16,
         start_y: u16,
     ) -> impl Painter + 'a {
-        BilinearImagePainter::new(
-            simd, image, pixmap, start_x, start_y,
-        )
+        BilinearImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
 
     fn apply_mask(
