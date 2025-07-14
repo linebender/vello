@@ -11,6 +11,7 @@ use crate::math::{FloatExt, compute_erf7};
 use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor};
 use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
 use alloc::borrow::Cow;
+use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
@@ -860,17 +861,22 @@ fn unit_to_line(p0: Point, p1: Point) -> Affine {
 
 /// A helper trait for converting a premultiplied f32 color to `Self`.
 pub trait FromF32Color: Sized {
+    const ZERO: Self;
     /// Convert from a premultiplied f32 color to `Self`.
     fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4];
 }
 
 impl FromF32Color for f32 {
+    const ZERO: Self = 0.0;
+
     fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4] {
         color.val
     }
 }
 
 impl FromF32Color for u8 {
+    const ZERO: Self = 0;
+
     fn from_f32<S: Simd>(mut color: f32x4<S>) -> [Self; 4] {
         let simd = color.simd;
         color = f32x4::splat(simd, 0.5).madd(color, f32x4::splat(simd, 255.0));
@@ -906,17 +912,17 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
             _ => 1024,
         };
 
-        let mut lut = Vec::with_capacity(lut_size + 4);
+        let mut lut = vec![[T::ZERO, T::ZERO, T::ZERO, T::ZERO] ; lut_size + 4];
         
         let ramps = {
             let mut ramps = Vec::with_capacity(ranges.len());
             let mut prev_idx = 0;
             
             for range in ranges {
-                let trunc_idx = (range.x1 * lut_size as f32) as usize;
+                let max_idx = (range.x1 * lut_size as f32) as usize;
                 
-                ramps.push((prev_idx..trunc_idx, trunc_idx, range));
-                prev_idx = trunc_idx;
+                ramps.push((prev_idx..max_idx, range));
+                prev_idx = max_idx;
             }
             
             ramps
@@ -924,7 +930,7 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
 
         let inv_lut_size = f32x4::splat(simd, 1.0 / lut_size as f32);
         
-        for (ramp_range, trunc_idx, range) in ramps {
+        for (ramp_range, range) in ramps {
             let biases = f32x16::block_splat(f32x4::from_slice(simd, &range.bias));
             let scales = f32x16::block_splat(f32x4::from_slice(simd, &range.scale));
             
@@ -940,14 +946,14 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
                 let (r1, r2) = simd.split_f32x8(im1);
                 let (r3, r4) = simd.split_f32x8(im2);
 
-                lut.push(T::from_f32(r1));
-                lut.push(T::from_f32(r2));
-                lut.push(T::from_f32(r3));
-                lut.push(T::from_f32(r4));
+                lut[idx] = T::from_f32(r1);
+                lut[idx + 1] = T::from_f32(r2);
+                lut[idx + 2] = T::from_f32(r3);
+                lut[idx + 3] = T::from_f32(r4);
             });
-            
-            lut.truncate(trunc_idx);
         }
+        
+        lut.truncate(lut_size);
         
         let scale = lut.len() as f32 - 1.0;
 
