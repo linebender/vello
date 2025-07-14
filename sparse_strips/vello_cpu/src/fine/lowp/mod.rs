@@ -58,19 +58,9 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     fn gradient_painter<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
-        has_undefined: bool,
         t_vals: &'a [f32],
     ) -> Box<dyn Painter + 'a> {
-        if has_undefined {
-            Box::new(common::gradient::GradientPainter::new(
-                simd,
-                gradient,
-                has_undefined,
-                t_vals,
-            ))
-        } else {
-            Box::new(gradient::GradientPainter::new(simd, gradient, t_vals))
-        }
+        Box::new(gradient::GradientPainter::new(simd, gradient, t_vals))
     }
 
     fn medium_quality_image_painter<'a>(

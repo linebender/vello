@@ -24,7 +24,7 @@ pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_C
 pub const SCRATCH_BUF_SIZE: usize =
     WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
 
-use crate::fine::common::gradient::calculate_t_vals;
+use crate::fine::common::gradient::{calculate_t_vals, GradientPainter};
 use crate::fine::common::gradient::linear::SimdLinearKind;
 use crate::fine::common::gradient::radial::SimdRadialKind;
 use crate::fine::common::gradient::sweep::SimdSweepKind;
@@ -191,9 +191,18 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     fn gradient_painter<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
-        has_undefined: bool,
         t_vals: &'a [f32],
-    ) -> Box<dyn Painter + 'a>;
+    ) -> Box<dyn Painter + 'a> {
+        Box::new(GradientPainter::new(simd, gradient, false, t_vals))
+    }
+    /// Return the painter used for painting gradients.
+    fn gradient_painter_with_undefined<'a>(
+        simd: S,
+        gradient: &'a EncodedGradient,
+        t_vals: &'a [f32],
+    ) -> Box<dyn Painter + 'a> {
+        Box::new(GradientPainter::new(simd, gradient, true, t_vals))
+    }
     /// Return the painter used for painting plain nearest-neighbor images.
     ///
     /// Plain nearest-neighbor images are images with the quality 'Low' and no skewing component in their
@@ -525,7 +534,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                                 fill_complex_paint!(
                                     g.has_opacities,
-                                    T::gradient_painter(self.simd, g, false, f32_buf)
+                                    T::gradient_painter(self.simd, g, f32_buf)
                                 );
                             }
                             EncodedKind::Sweep(s) => {
@@ -540,7 +549,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                                 fill_complex_paint!(
                                     g.has_opacities,
-                                    T::gradient_painter(self.simd, g, false, f32_buf)
+                                    T::gradient_painter(self.simd, g, f32_buf)
                                 );
                             }
                             EncodedKind::Radial(r) => {
@@ -553,10 +562,18 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     start_y,
                                 );
 
-                                fill_complex_paint!(
-                                    g.has_opacities,
-                                    T::gradient_painter(self.simd, g, r.has_undefined(), f32_buf)
-                                );
+                                if r.has_undefined() {
+                                    fill_complex_paint!(
+                                        g.has_opacities,
+                                        T::gradient_painter_with_undefined(self.simd, g, f32_buf)
+                                    );
+                                }   else {
+                                    fill_complex_paint!(
+                                        g.has_opacities,
+                                        T::gradient_painter(self.simd, g, f32_buf)
+                                    );
+                                }
+                                
                             }
                         }
                     }

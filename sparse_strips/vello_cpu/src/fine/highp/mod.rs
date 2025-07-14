@@ -61,15 +61,6 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         }
     }
 
-    fn gradient_painter<'a>(
-        simd: S,
-        gradient: &'a EncodedGradient,
-        has_undefined: bool,
-        t_vals: &'a [f32],
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(GradientPainter::new(simd, gradient, has_undefined, t_vals))
-    }
-
     fn apply_mask(
         simd: S,
         dest: &mut [Self::Numeric],
