@@ -10,6 +10,7 @@ use crate::region::Regions;
 use crate::strip_generator::StripGenerator;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
@@ -59,7 +60,7 @@ impl MultiThreadedDispatcher {
             .unwrap();
         let alpha_storage = Arc::new(OnceLockAlphaStorage::new(num_threads));
         let workers = Arc::new(ThreadLocal::new());
-        let task_batch = std::vec![];
+        let task_batch = vec![];
 
         {
             let alpha_storage = alpha_storage.clone();
