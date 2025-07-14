@@ -890,6 +890,7 @@ impl FromF32Color for u8 {
     }
 }
 
+
 /// A lookup table for sampled gradient values.
 #[derive(Debug)]
 pub struct GradientLut<T: Copy + Clone + FromF32Color> {
@@ -901,7 +902,7 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
         // TODO: SIMDify
-
+        
         // Somewhat arbitrary, but we use 1024 samples for
         // > 4 stops, 512 for 3 and 256 for 2 and less. Blend2D does
         // something similar.
