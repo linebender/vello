@@ -11,11 +11,12 @@ use crate::math::{FloatExt, compute_erf7};
 use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor};
 use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
 use alloc::borrow::Cow;
+use alloc::fmt::Debug;
 use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
-use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
+use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16, f32x8};
 #[cfg(feature = "multithreading")]
 use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
@@ -860,7 +861,7 @@ fn unit_to_line(p0: Point, p1: Point) -> Affine {
 }
 
 /// A helper trait for converting a premultiplied f32 color to `Self`.
-pub trait FromF32Color: Sized {
+pub trait FromF32Color: Sized + Debug {
     /// The zero value.
     const ZERO: Self;
     /// Convert from a premultiplied f32 color to `Self`.
@@ -882,12 +883,14 @@ impl FromF32Color for u8 {
         let simd = color.simd;
         color = f32x4::splat(simd, 0.5).madd(color, f32x4::splat(simd, 255.0));
         
-        [
+        let res = [
             color[0] as Self,
             color[1] as Self,
             color[2] as Self,
             color[3] as Self,
-        ]
+        ];
+        
+        res
     }
 }
 
@@ -937,7 +940,9 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
 
                 let t_vals = element_wise_splat(simd, t_vals);
 
-                let result = biases.madd(scales, t_vals);
+                let mut result = biases.madd(scales, t_vals);
+                let alphas = result.splat_4th();
+                result = result.min(1.0).min(alphas);
                 let (im1, im2) = simd.split_f32x16(result);
                 let (r1, r2) = simd.split_f32x8(im1);
                 let (r3, r4) = simd.split_f32x8(im2);
@@ -974,6 +979,42 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
     #[inline(always)]
     pub fn scale_factor(&self) -> f32 {
         self.scale
+    }
+}
+
+/// Splatting every 4th element in the vector, used for splatting the alpha value of
+/// a color to all lanes.
+pub trait Splat4thExt<S> {
+    fn splat_4th(self) -> Self;
+}
+
+impl<S: Simd> Splat4thExt<S> for f32x4<S> {
+    #[inline(always)]
+    fn splat_4th(self) -> Self {
+        let zip1 = self.zip_high(self);
+        zip1.zip_high(zip1)
+    }
+}
+
+impl<S: Simd> Splat4thExt<S> for f32x8<S> {
+    #[inline(always)]
+    fn splat_4th(self) -> Self {
+        let (mut p1, mut p2) = self.simd.split_f32x8(self);
+        p1 = p1.splat_4th();
+        p2 = p2.splat_4th();
+
+        self.simd.combine_f32x4(p1, p2)
+    }
+}
+
+impl<S: Simd> Splat4thExt<S> for f32x16<S> {
+    #[inline(always)]
+    fn splat_4th(self) -> Self {
+        let (mut p1, mut p2) = self.simd.split_f32x16(self);
+        p1 = p1.splat_4th();
+        p2 = p2.splat_4th();
+
+        self.simd.combine_f32x8(p1, p2)
     }
 }
 
