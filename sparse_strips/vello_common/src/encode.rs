@@ -947,10 +947,11 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
                 let (r1, r2) = simd.split_f32x8(im1);
                 let (r3, r4) = simd.split_f32x8(im2);
 
-                lut[idx] = T::from_f32(r1);
-                lut[idx + 1] = T::from_f32(r2);
-                lut[idx + 2] = T::from_f32(r3);
-                lut[idx + 3] = T::from_f32(r4);
+                let lut = &mut lut[idx..][..4];
+                lut[0] = T::from_f32(r1);
+                lut[1] = T::from_f32(r2);
+                lut[2] = T::from_f32(r3);
+                lut[3] = T::from_f32(r4);
             });
         }
         
