@@ -59,8 +59,8 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         simd: S,
         gradient: &'a EncodedGradient,
         t_vals: &'a [f32],
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(gradient::GradientPainter::new(simd, gradient, t_vals))
+    ) -> impl Painter + 'a {
+        gradient::GradientPainter::new(simd, gradient, t_vals)
     }
 
     fn medium_quality_image_painter<'a>(
@@ -69,10 +69,10 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(BilinearImagePainter::new(
+    ) -> impl Painter + 'a {
+        BilinearImagePainter::new(
             simd, image, pixmap, start_x, start_y,
-        ))
+        )
     }
 
     fn apply_mask(
@@ -90,7 +90,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     }
 
     #[inline(always)]
-    fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], mut painter: Box<dyn Painter + 'a>) {
+    fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], mut painter: impl Painter + 'a) {
         painter.paint_u8(dest);
     }
 

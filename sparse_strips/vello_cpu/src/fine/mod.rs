@@ -192,16 +192,16 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         simd: S,
         gradient: &'a EncodedGradient,
         t_vals: &'a [f32],
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(GradientPainter::new(simd, gradient, false, t_vals))
+    ) -> impl Painter + 'a {
+        GradientPainter::new(simd, gradient, false, t_vals)
     }
     /// Return the painter used for painting gradients.
     fn gradient_painter_with_undefined<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
         t_vals: &'a [f32],
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(GradientPainter::new(simd, gradient, true, t_vals))
+    ) -> impl Painter + 'a {
+        GradientPainter::new(simd, gradient, true, t_vals)
     }
     /// Return the painter used for painting plain nearest-neighbor images.
     ///
@@ -213,10 +213,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(PlainNNImagePainter::new(
+    ) -> impl Painter + 'a {
+        PlainNNImagePainter::new(
             simd, image, pixmap, start_x, start_y,
-        ))
+        )
     }
     /// Return the painter used for painting plain nearest-neighbor images.
     ///
@@ -227,8 +227,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(NNImagePainter::new(simd, image, pixmap, start_x, start_y))
+    ) -> impl Painter + 'a {
+        NNImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
     /// Return the painter used for painting image with `Medium` quality.
     fn medium_quality_image_painter<'a>(
@@ -237,10 +237,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(FilteredImagePainter::new(
+    ) -> impl Painter + 'a {
+        FilteredImagePainter::new(
             simd, image, pixmap, start_x, start_y,
-        ))
+        )
     }
     /// Return the painter used for painting image with `High` quality.
     fn high_quality_image_painter<'a>(
@@ -249,10 +249,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(FilteredImagePainter::new(
+    ) -> impl Painter + 'a {
+        FilteredImagePainter::new(
             simd, image, pixmap, start_x, start_y,
-        ))
+        )
     }
     /// Return the painter used for painting blurred rounded rectangles.
     fn blurred_rounded_rectangle_painter<'a>(
@@ -260,13 +260,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         rect: &'a EncodedBlurredRoundedRectangle,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(BlurredRoundedRectFiller::new(simd, rect, start_x, start_y))
+    ) -> impl Painter + 'a {
+        BlurredRoundedRectFiller::new(simd, rect, start_x, start_y)
     }
     /// Apply the mask to the destination buffer.
     fn apply_mask(simd: S, dest: &mut [Self::Numeric], src: impl Iterator<Item = Self::NumericVec>);
     /// Apply the painter to the destination buffer.
-    fn apply_painter<'a>(simd: S, dest: &mut [Self::Numeric], painter: Box<dyn Painter + 'a>);
+    fn apply_painter<'a>(simd: S, dest: &mut [Self::Numeric], painter: impl Painter + 'a);
     /// Do basic alpha compositing with a solid color.
     fn alpha_composite_solid(
         simd: S,
