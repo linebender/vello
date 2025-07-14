@@ -10,6 +10,7 @@ use crate::region::Regions;
 use crate::strip_generator::StripGenerator;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
