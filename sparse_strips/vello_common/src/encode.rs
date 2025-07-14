@@ -909,6 +909,7 @@ pub struct GradientLut<T: FromF32Color> {
 impl<T: FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
+        // Inspired by Blend2D.
         let lut_size = match ranges.len() {
             1 => 256,
             2 => 512,
