@@ -58,6 +58,8 @@ only break in edge cases, and some of them are also only related to conversions 
 use libm as _;
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 pub mod blurred_rounded_rect;
 pub mod coarse;
