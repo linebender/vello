@@ -111,7 +111,7 @@ pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
     if !closed {
         close_path(start, p0, line_buf);
     }
-    
+
     // A path that contains NaN is ill-defined, so ignore it.
     if is_nan {
         line_buf.clear();
@@ -147,9 +147,9 @@ fn close_path(start: kurbo::Point, p0: kurbo::Point, line_buf: &mut Vec<Line>) {
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec;
     use super::*;
-    
+    use alloc::vec;
+
     #[test]
     fn clear_nan_paths() {
         let mut path = BezPath::new();
@@ -157,10 +157,10 @@ mod tests {
         path.line_to((2.0, 0.0));
         path.line_to((4.0, f64::NAN));
         path.close_path();
-        
+
         let mut line_buf = vec![];
         fill(&path, Affine::default(), &mut line_buf);
-        
+
         assert!(line_buf.is_empty());
     }
 }
