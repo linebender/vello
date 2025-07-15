@@ -1,4 +1,4 @@
-use fearless_simd::{f32x16, u8x16, Simd, SimdInto};
+use fearless_simd::{Simd, SimdInto, f32x16, u8x16};
 
 // TODO: Remove `f32_to_u8` from `vello_cpu` and use this one!
 /// Convert `f32x16` to `u8x16`.
@@ -25,5 +25,5 @@ pub fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
         converted[14] as u8,
         converted[15] as u8,
     ]
-        .simd_into(val.simd)
+    .simd_into(val.simd)
 }

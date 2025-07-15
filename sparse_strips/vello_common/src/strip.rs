@@ -6,9 +6,9 @@
 use crate::flatten::Line;
 use crate::peniko::Fill;
 use crate::tile::{Tile, Tiles};
+use crate::util::f32_to_u8;
 use alloc::vec::Vec;
 use fearless_simd::*;
-use crate::util::f32_to_u8;
 
 /// A strip.
 #[derive(Debug, Clone, Copy)]
@@ -136,7 +136,7 @@ fn render_impl<S: Simd>(
                         let mulled = p1.madd(p3, coverage);
                         location_winding[x] = mulled.min(p3);
                     }
-                    
+
                     let p1 = s.combine_f32x4(location_winding[0], location_winding[1]);
                     let p2 = s.combine_f32x4(location_winding[2], location_winding[3]);
 
