@@ -19,6 +19,7 @@ const MIX_HUE = 12u;
 const MIX_SATURATION = 13u;
 const MIX_COLOR = 14u;
 const MIX_LUMINOSITY = 15u;
+const MIX_LUMINANCE_CLIP = 64u;
 const MIX_CLIP = 128u;
 
 fn screen(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
@@ -240,8 +241,13 @@ fn blend_compose(
             fb = 1.0;
         }
         case COMPOSE_SRC_IN: {
-            fa = ab;
-            fb = 0.0;
+            if (get_mix(mode) == MIX_LUMINANCE_CLIP) {
+                fa = dot(cs, vec3<f32>(0.3, 0.59, 0.11));
+                fb = 0.0;
+            } else {
+                fa = ab;
+                fb = 0.0;
+            }
         }
         case COMPOSE_DEST_IN: {
             fa = 0.0;
@@ -281,6 +287,11 @@ fn blend_compose(
     let co = as_fa * cs + ab_fb * cb;
     // Modes like COMPOSE_PLUS can generate alpha > 1.0, so clamp.
     return vec4(co, min(as_fa + ab_fb, 1.0));
+}
+
+// Helper function to extract Mix value from mode
+fn get_mix(mode: u32) -> u32 {
+    return (mode >> 8u) & 0xffu;
 }
 
 // Apply color mixing and composition. Both input and output colors are

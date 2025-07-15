@@ -29,7 +29,7 @@ edition = "2021"
 # and with the MSRV in the `Unreleased` section of CHANGELOG.md.
 rust-version = "1.82"
 license = "Apache-2.0 OR MIT"
-repository = "https://github.com/linebender/vello"
+repository = "https://github.com/mTvare6/vello"
 
 [workspace.lints]
 
@@ -102,7 +102,7 @@ skrifa = "0.26.0"
 # The version of kurbo used below should be kept in sync
 # with the version of kurbo used by peniko.
 # peniko = "0.2.0"
-peniko = { version = "0.2.0", git = "https://github.com/linebender/peniko.git", rev = "d114c62" }
+
 # FIXME: This can be removed once peniko supports the schemars feature.
 kurbo = "0.11.1"
 futures-intrusive = "0.5.0"
