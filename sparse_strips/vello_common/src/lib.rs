@@ -79,6 +79,7 @@ pub mod pico_svg;
 pub mod pixmap;
 pub mod strip;
 pub mod tile;
+mod util;
 
 pub use fearless_simd;
 pub use peniko;
