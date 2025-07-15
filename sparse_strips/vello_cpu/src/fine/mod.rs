@@ -589,7 +589,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         if blend_mode.is_default() {
             T::alpha_composite_buffer(self.simd, target_buffer, source_buffer, None);
-        }   else {
+        } else {
             T::blend(
                 self.simd,
                 target_buffer,
@@ -600,7 +600,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 None,
             );
         }
-        
     }
 
     fn clip(&mut self, x: usize, width: usize, alphas: Option<&[u8]>) {
