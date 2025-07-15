@@ -12,6 +12,7 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use vello_common::kurbo::Shape;
 use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
@@ -576,6 +577,12 @@ impl Worker {
                             paint,
                         };
                         result_sender.send(task_idx, coarse_command).unwrap();
+                    };
+
+                    let path = if path.is_nan() {
+                        crate::kurbo::Rect::new(0.0, 0.0, 1.0, 1.0).into_path(0.1)
+                    } else {
+                        path
                     };
 
                     self.strip_generator
