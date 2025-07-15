@@ -277,7 +277,8 @@ fn nested_clip_path_panic_2(ctx: &mut impl Renderer) {
 }
 
 #[vello_test(no_ref, width = 10, height = 16)]
-fn new_panic(ctx: &mut impl Renderer) {
+// https://github.com/linebender/vello/issues/1072
+fn intersected_clip_bbox_with_x0_gt_x1(ctx: &mut impl Renderer) {
     ctx.push_clip_layer(&Rect::new(0., 0., 4., 4.).to_path(0.1));
     ctx.push_clip_layer(&Rect::new(0., 8., 260., 16.).to_path(0.1));
     ctx.pop_layer();
