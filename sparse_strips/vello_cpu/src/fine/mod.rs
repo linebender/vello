@@ -91,24 +91,26 @@ impl<S: Simd> NumericVec<S> for u8x16<S> {
 
 #[inline(always)]
 pub(crate) fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
-    // TODO: SIMDify
+    let simd = val.simd;
+    let converted = simd.cvt_u32_f32x16(val);
+    
     [
-        val.val[0] as u8,
-        val.val[1] as u8,
-        val.val[2] as u8,
-        val.val[3] as u8,
-        val.val[4] as u8,
-        val.val[5] as u8,
-        val.val[6] as u8,
-        val.val[7] as u8,
-        val.val[8] as u8,
-        val.val[9] as u8,
-        val.val[10] as u8,
-        val.val[11] as u8,
-        val.val[12] as u8,
-        val.val[13] as u8,
-        val.val[14] as u8,
-        val.val[15] as u8,
+        converted[0] as u8,
+        converted[1] as u8,
+        converted[2] as u8,
+        converted[3] as u8,
+        converted[4] as u8,
+        converted[5] as u8,
+        converted[6] as u8,
+        converted[7] as u8,
+        converted[8] as u8,
+        converted[9] as u8,
+        converted[10] as u8,
+        converted[11] as u8,
+        converted[12] as u8,
+        converted[13] as u8,
+        converted[14] as u8,
+        converted[15] as u8,
     ]
     .simd_into(val.simd)
 }
