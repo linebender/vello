@@ -117,11 +117,6 @@ fn render_impl<S: Simd>(
                         let mulled = p1.madd(coverage, p2);
                         location_winding[x] = mulled.min(p2);
                     }
-
-                    let p1 = s.combine_f32x4(location_winding[0], location_winding[1]);
-                    let p2 = s.combine_f32x4(location_winding[2], location_winding[3]);
-
-                    alpha_buf.extend_from_slice(&f32_to_u8(s.combine_f32x8(p1, p2)).val);
                 }
                 Fill::EvenOdd => {
                     let p1 = f32x4::splat(s, 0.5);
@@ -136,13 +131,13 @@ fn render_impl<S: Simd>(
                         let mulled = p1.madd(p3, coverage);
                         location_winding[x] = mulled.min(p3);
                     }
-
-                    let p1 = s.combine_f32x4(location_winding[0], location_winding[1]);
-                    let p2 = s.combine_f32x4(location_winding[2], location_winding[3]);
-
-                    alpha_buf.extend_from_slice(&f32_to_u8(s.combine_f32x8(p1, p2)).val);
                 }
             };
+
+            let p1 = s.combine_f32x4(location_winding[0], location_winding[1]);
+            let p2 = s.combine_f32x4(location_winding[2], location_winding[3]);
+
+            alpha_buf.extend_from_slice(&f32_to_u8(s.combine_f32x8(p1, p2)).val);
 
             #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
             for x in 0..Tile::WIDTH as usize {
