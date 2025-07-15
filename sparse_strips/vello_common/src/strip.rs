@@ -114,13 +114,13 @@ fn render_impl<S: Simd>(
                         let area = location_winding[x];
                         let coverage = area.abs();
                         let mulled = p1.madd(coverage, p2);
-                        let slice = mulled.val;
-                        // TODO: Improve this
-                        alpha_buf.push(slice[0] as u8);
-                        alpha_buf.push(slice[1] as u8);
-                        alpha_buf.push(slice[2] as u8);
-                        alpha_buf.push(slice[3] as u8);
+                        location_winding[x] = mulled.min(p2);
                     }
+
+                    let p1 = s.combine_f32x4(location_winding[0], location_winding[1]);
+                    let p2 = s.combine_f32x4(location_winding[2], location_winding[3]);
+
+                    alpha_buf.extend_from_slice(&f32_to_u8(s.combine_f32x8(p1, p2)).val);
                 }
                 Fill::EvenOdd => {
                     let p1 = f32x4::splat(s, 0.5);
@@ -133,13 +133,13 @@ fn render_impl<S: Simd>(
                         let im1 = p1.madd(area, p1).floor();
                         let coverage = area.madd(p2, im1).abs();
                         let mulled = p1.madd(p3, coverage);
-                        let slice = mulled.val;
-                        // TODO: Improve this
-                        alpha_buf.push(slice[0] as u8);
-                        alpha_buf.push(slice[1] as u8);
-                        alpha_buf.push(slice[2] as u8);
-                        alpha_buf.push(slice[3] as u8);
+                        location_winding[x] = mulled.min(p3);
                     }
+                    
+                    let p1 = s.combine_f32x4(location_winding[0], location_winding[1]);
+                    let p2 = s.combine_f32x4(location_winding[2], location_winding[3]);
+
+                    alpha_buf.extend_from_slice(&f32_to_u8(s.combine_f32x8(p1, p2)).val);
                 }
             };
 
@@ -350,4 +350,30 @@ fn render_impl<S: Simd>(
 
         accumulated_winding = accumulated_winding + acc;
     }
+}
+
+#[inline(always)]
+pub(crate) fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
+    let simd = val.simd;
+    let converted = simd.cvt_u32_f32x16(val);
+
+    [
+        converted[0] as u8,
+        converted[1] as u8,
+        converted[2] as u8,
+        converted[3] as u8,
+        converted[4] as u8,
+        converted[5] as u8,
+        converted[6] as u8,
+        converted[7] as u8,
+        converted[8] as u8,
+        converted[9] as u8,
+        converted[10] as u8,
+        converted[11] as u8,
+        converted[12] as u8,
+        converted[13] as u8,
+        converted[14] as u8,
+        converted[15] as u8,
+    ]
+        .simd_into(val.simd)
 }
