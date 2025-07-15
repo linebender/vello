@@ -476,7 +476,7 @@ impl Wide {
             }
 
             // If we've reached the bottom of the clip bounding box, stop processing
-            if cur_wtile_y == clip_bbox.y1() {
+            if cur_wtile_y >= clip_bbox.y1() {
                 break;
             }
 
@@ -597,7 +597,7 @@ impl Wide {
             }
 
             // If we've reached the bottom of the clip bounding box, stop processing
-            if cur_wtile_y == clip_bbox.y1() {
+            if cur_wtile_y >= clip_bbox.y1() {
                 break;
             }
 

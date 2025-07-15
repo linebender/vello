@@ -275,3 +275,11 @@ fn nested_clip_path_panic_2(ctx: &mut impl Renderer) {
     ctx.pop_layer();
     ctx.pop_layer();
 }
+
+#[vello_test(no_ref, width = 10, height = 16)]
+fn new_panic(ctx: &mut impl Renderer) {
+    ctx.push_clip_layer(&Rect::new(0., 0., 4., 4.).to_path(0.1));
+    ctx.push_clip_layer(&Rect::new(0., 8., 260., 16.).to_path(0.1));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
