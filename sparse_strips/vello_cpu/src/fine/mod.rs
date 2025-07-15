@@ -587,15 +587,20 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
 
-        T::blend(
-            self.simd,
-            target_buffer,
-            source_buffer
-                .chunks_exact(T::Composite::LENGTH)
-                .map(|s| T::Composite::from_slice(self.simd, s)),
-            blend_mode,
-            None,
-        );
+        if blend_mode.is_default() {
+            T::alpha_composite_buffer(self.simd, target_buffer, source_buffer, None);
+        }   else {
+            T::blend(
+                self.simd,
+                target_buffer,
+                source_buffer
+                    .chunks_exact(T::Composite::LENGTH)
+                    .map(|s| T::Composite::from_slice(self.simd, s)),
+                blend_mode,
+                None,
+            );
+        }
+        
     }
 
     fn clip(&mut self, x: usize, width: usize, alphas: Option<&[u8]>) {
