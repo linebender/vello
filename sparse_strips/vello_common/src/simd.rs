@@ -15,6 +15,7 @@ pub trait Splat4thExt<S> {
 impl<S: Simd> Splat4thExt<S> for f32x4<S> {
     #[inline(always)]
     fn splat_4th(self) -> Self {
+        // TODO: Explore whether it's just faster to manually access the 4th element and splat it.
         let zip1 = self.zip_high(self);
         zip1.zip_high(zip1)
     }
