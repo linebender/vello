@@ -116,7 +116,7 @@ pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
     // A path that contains NaN is ill-defined, so ignore it.
     if is_nan {
         warn!("A path contains NaN, ignoring it.");
-        
+
         line_buf.clear();
     }
 }
