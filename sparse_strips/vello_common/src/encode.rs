@@ -913,7 +913,7 @@ impl<T: FromF32Color> GradientLut<T> {
             2 => 512,
             _ => 1024,
         };
-        
+
         // Add a bit of padding since we always process in blocks of 4, even though less might be
         // needed.
         let mut lut = vec![[T::ZERO, T::ZERO, T::ZERO, T::ZERO]; lut_size + 3];
@@ -934,15 +934,14 @@ impl<T: FromF32Color> GradientLut<T> {
         };
 
         let inv_lut_size = f32x4::splat(simd, 1.0 / lut_size as f32);
+        let add_factor = f32x4::from_slice(simd, &[0.0, 1.0, 2.0, 3.0]) * inv_lut_size;
 
         for (ramp_range, range) in ramps {
             let biases = f32x16::block_splat(f32x4::from_slice(simd, &range.bias));
             let scales = f32x16::block_splat(f32x4::from_slice(simd, &range.scale));
 
             ramp_range.step_by(4).for_each(|idx| {
-                let t_vals = (f32x4::splat(simd, idx as f32)
-                    + f32x4::from_slice(simd, &[0.0, 1.0, 2.0, 3.0]))
-                    * inv_lut_size;
+                let t_vals = add_factor.madd(f32x4::splat(simd, idx as f32), inv_lut_size);
 
                 let t_vals = element_wise_splat(simd, t_vals);
 
