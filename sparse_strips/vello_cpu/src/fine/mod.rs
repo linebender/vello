@@ -92,14 +92,11 @@ impl<S: Simd> NumericVec<S> for u8x16<S> {
 #[inline(always)]
 pub(crate) fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
     let simd = val.simd;
-    let (x8_1, x8_2) = simd.split_f32x16(val);
-    let (s1, s2) = simd.split_f32x8(x8_1);
-    let (s3, s4) = simd.split_f32x8(x8_2);
+    let converted = val.cvt_u32().reinterpret_u8();
 
-    let p1 = s1.cvt_u32().reinterpret_u8();
-    let p2 = s2.cvt_u32().reinterpret_u8();
-    let p3 = s3.cvt_u32().reinterpret_u8();
-    let p4 = s4.cvt_u32().reinterpret_u8();
+    let (x8_1, x8_2) = simd.split_u8x64(converted);
+    let (p1, p2) = simd.split_u8x32(x8_1);
+    let (p3, p4) = simd.split_u8x32(x8_2);
 
     let uzp1 = simd.unzip_low_u8x16(p1, p2);
     let uzp2 = simd.unzip_low_u8x16(p3, p4);
