@@ -3864,10 +3864,8 @@ dependencies = [
  "bytemuck",
  "clap",
  "image",
- "peniko",
  "svg",
  "usvg",
- "vello_common",
  "vello_cpu",
 ]
 

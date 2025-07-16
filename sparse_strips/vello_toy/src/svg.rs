@@ -11,16 +11,15 @@
 use clap::Parser;
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder};
-use peniko::Fill;
-use peniko::color::AlphaColor;
-use peniko::kurbo::Stroke;
 use std::io::Cursor;
 use std::path;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use usvg::tiny_skia_path::PathSegment;
 use usvg::{Node, Paint, PaintOrder};
-use vello_common::kurbo::{Affine, BezPath};
+use vello_cpu::color::AlphaColor;
+use vello_cpu::kurbo::{Affine, BezPath, Stroke};
+use vello_cpu::peniko::Fill;
 use vello_cpu::{Level, Pixmap, RenderContext, RenderMode, RenderSettings};
 
 fn main() {
