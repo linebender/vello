@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::common::image::{ImagePainterData, extend, sample};
-use crate::fine::highp::element_wise_splat;
 use crate::fine::macros::u8x16_painter;
 use crate::fine::{PosExt, f32_to_u8};
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x16};
 use vello_common::pixmap::Pixmap;
+use vello_common::simd::element_wise_splat;
 
 /// A faster bilinear image renderer for the u8 pipeline.
 #[derive(Debug)]
