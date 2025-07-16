@@ -3861,9 +3861,14 @@ dependencies = [
 name = "vello_toy"
 version = "0.0.0"
 dependencies = [
+ "bytemuck",
  "clap",
+ "image",
+ "peniko",
  "svg",
+ "usvg",
  "vello_common",
+ "vello_cpu",
 ]
 
 [[package]]
