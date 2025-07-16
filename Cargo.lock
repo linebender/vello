@@ -3866,6 +3866,7 @@ dependencies = [
  "image",
  "svg",
  "usvg",
+ "vello_common",
  "vello_cpu",
 ]
 
