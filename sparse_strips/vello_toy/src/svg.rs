@@ -61,7 +61,7 @@ fn main() {
 
     let avg_runtime = (runtime.as_millis() as f32) / (num_iters as f32);
 
-    eprintln!("average runtime {}ms", avg_runtime);
+    eprintln!("average runtime {avg_runtime}ms");
 
     write_pixmap(&mut pixmap);
 }
