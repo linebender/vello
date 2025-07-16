@@ -913,8 +913,10 @@ impl<T: FromF32Color> GradientLut<T> {
             2 => 512,
             _ => 1024,
         };
-
-        let mut lut = vec![[T::ZERO, T::ZERO, T::ZERO, T::ZERO]; lut_size + 4];
+        
+        // Add a bit of padding since we always process in blocks of 4, even though less might be
+        // needed.
+        let mut lut = vec![[T::ZERO, T::ZERO, T::ZERO, T::ZERO]; lut_size + 3];
 
         // Calculate how many indices are covered by each range.
         let ramps = {
