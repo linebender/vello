@@ -25,6 +25,7 @@ roxmltree = { version = "0.20.0", optional = true }
 skrifa = { workspace = true, optional = true }
 smallvec = { workspace = true }
 libm = { version = "0.2.15", optional = true }
+log = { workspace = true }
 
 [features]
 default = ["std", "png", "text"]

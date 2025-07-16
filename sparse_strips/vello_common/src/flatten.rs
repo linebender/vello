@@ -5,6 +5,7 @@
 
 use crate::kurbo::{self, Affine, BezPath, PathEl, Stroke, StrokeOpts};
 use alloc::vec::Vec;
+use log::warn;
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;
@@ -114,6 +115,8 @@ pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
 
     // A path that contains NaN is ill-defined, so ignore it.
     if is_nan {
+        warn!("A path contains NaN, ignoring it.");
+        
         line_buf.clear();
     }
 }
