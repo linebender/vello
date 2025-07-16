@@ -2,12 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::FineKernel;
-use crate::fine::common::gradient::GradientPainter;
 use crate::fine::{COLOR_COMPONENTS, Painter};
 use crate::peniko::BlendMode;
 use crate::region::Region;
-use alloc::boxed::Box;
-use vello_common::encode::EncodedGradient;
 use vello_common::fearless_simd::*;
 use vello_common::paint::PremulColor;
 use vello_common::tile::Tile;
@@ -61,15 +58,6 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         }
     }
 
-    fn gradient_painter<'a>(
-        simd: S,
-        gradient: &'a EncodedGradient,
-        has_undefined: bool,
-        t_vals: &'a [f32],
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(GradientPainter::new(simd, gradient, has_undefined, t_vals))
-    }
-
     fn apply_mask(
         simd: S,
         dest: &mut [Self::Numeric],
@@ -83,7 +71,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     }
 
     #[inline(always)]
-    fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], mut painter: Box<dyn Painter + 'a>) {
+    fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], mut painter: impl Painter + 'a) {
         painter.paint_f32(dest);
     }
 
@@ -277,20 +265,6 @@ mod alpha_fill {
         let res = (src_c * mask_a).madd(bg_c, inv_src_a_mask_a);
         dest.copy_from_slice(&res.val);
     }
-}
-
-#[inline(always)]
-pub(crate) fn element_wise_splat<S: Simd>(simd: S, input: f32x4<S>) -> f32x16<S> {
-    simd.combine_f32x8(
-        simd.combine_f32x4(
-            f32x4::splat(simd, input.val[0]),
-            f32x4::splat(simd, input.val[1]),
-        ),
-        simd.combine_f32x4(
-            f32x4::splat(simd, input.val[2]),
-            f32x4::splat(simd, input.val[3]),
-        ),
-    )
 }
 
 #[inline(always)]

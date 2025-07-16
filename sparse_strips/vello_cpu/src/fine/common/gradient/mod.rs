@@ -50,7 +50,7 @@ impl<'a, S: Simd> GradientPainter<'a, S> {
         has_undefined: bool,
         t_vals: &'a [f32],
     ) -> Self {
-        let lut = gradient.f32_lut();
+        let lut = gradient.f32_lut(simd);
         let scale_factor = f32x8::splat(simd, lut.scale_factor());
 
         Self {
