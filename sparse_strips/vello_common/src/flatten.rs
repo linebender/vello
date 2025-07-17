@@ -5,8 +5,11 @@
 
 use crate::flatten_simd::Callback;
 use crate::kurbo::{self, Affine, BezPath, PathEl, Stroke, StrokeOpts};
+use crate::strip::Strip;
+use crate::tile::Tiles;
 use alloc::vec::Vec;
-use fearless_simd::Level;
+use fearless_simd::{Level, Simd, simd_dispatch};
+use peniko::Fill;
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;
@@ -71,10 +74,21 @@ impl Line {
 }
 
 /// Flatten a filled bezier path into line segments.
-pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
+pub fn fill(level: Level, path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
+    fill_dispatch(level, path, affine, line_buf);
+}
+
+simd_dispatch!(fill_dispatch(
+    level,
+    path: &BezPath, 
+    affine: Affine,
+    line_buf: &mut Vec<Line>
+) = fill_impl);
+
+/// Flatten a filled bezier path into line segments.
+pub fn fill_impl<S: Simd>(simd: S, path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
     line_buf.clear();
     let iter = path.iter().map(|el| affine * el);
-    let simd = Level::new().as_neon().unwrap();
 
     let mut lb = FlattenerCallback {
         line_buf,
@@ -89,14 +103,19 @@ pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
         close_path(lb.start, lb.p0, lb.line_buf);
     }
 }
-
 /// Flatten a stroked bezier path into line segments.
-pub fn stroke(path: &BezPath, style: &Stroke, affine: Affine, line_buf: &mut Vec<Line>) {
+pub fn stroke(
+    level: Level,
+    path: &BezPath,
+    style: &Stroke,
+    affine: Affine,
+    line_buf: &mut Vec<Line>,
+) {
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
     let tolerance = TOL / affine.as_coeffs()[0].abs().max(affine.as_coeffs()[3].abs());
 
     let expanded = expand_stroke(path.iter(), style, tolerance);
-    fill(&expanded, affine, line_buf);
+    fill(level, &expanded, affine, line_buf);
 }
 
 /// Expand a stroked path to a filled path.
