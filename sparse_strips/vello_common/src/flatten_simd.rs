@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! This is a temporary module that contains a SIMD version of flattening of cubic curves, as
 //! well as some code that was copied from kurbo, which is needed to reimplement the
 //! full `flatten` method.
