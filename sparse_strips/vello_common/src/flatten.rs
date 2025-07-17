@@ -5,11 +5,8 @@
 
 use crate::flatten_simd::Callback;
 use crate::kurbo::{self, Affine, BezPath, PathEl, Stroke, StrokeOpts};
-use crate::strip::Strip;
-use crate::tile::Tiles;
 use alloc::vec::Vec;
 use fearless_simd::{Level, Simd, simd_dispatch};
-use peniko::Fill;
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;

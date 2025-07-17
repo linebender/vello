@@ -80,7 +80,7 @@ impl DataItem {
         let mut temp_buf = vec![];
 
         for path in &self.fills {
-            flatten::fill(&path.path, path.transform, &mut temp_buf);
+            flatten::fill(Level::new(), &path.path, path.transform, &mut temp_buf);
             line_buf.extend(&temp_buf);
         }
 
@@ -89,7 +89,13 @@ impl DataItem {
                 width: path.stroke_width as f64,
                 ..Default::default()
             };
-            flatten::stroke(&path.path, &stroke, path.transform, &mut temp_buf);
+            flatten::stroke(
+                Level::new(),
+                &path.path,
+                &stroke,
+                path.transform,
+                &mut temp_buf,
+            );
             line_buf.extend(&temp_buf);
         }
 

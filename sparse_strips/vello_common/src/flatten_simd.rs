@@ -11,6 +11,9 @@ use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
 
+#[cfg(not(feature = "std"))]
+use crate::kurbo::common::FloatFuncs as _;
+
 // Unlike kurbo, which takes a closure with a callback for outputting the lines, we use a trait
 // instead. The reason is that this way the callback can be inlined, which is not possible with
 // a closure and turned out to have a noticeable overhead.
@@ -199,7 +202,7 @@ fn approx_parabola_integral_simd<S: Simd>(x: f32x8<S>) -> f32x8<S> {
     let simd = x.simd;
 
     const D: f32 = 0.67;
-    const D_POWI_4: f32 = 0.20151121;
+    const D_POWI_4: f32 = 0.201_511_2;
 
     let temp1 = f32x8::splat(simd, D_POWI_4).madd(f32x8::splat(simd, 0.25), x * x);
     let temp2 = temp1.sqrt();
@@ -214,7 +217,7 @@ fn approx_parabola_integral_simd_x4<S: Simd>(x: f32x4<S>) -> f32x4<S> {
     let simd = x.simd;
 
     const D: f32 = 0.67;
-    const D_POWI_4: f32 = 0.20151121;
+    const D_POWI_4: f32 = 0.201_511_2;
 
     let temp1 = f32x4::splat(simd, D_POWI_4).madd(f32x4::splat(simd, 0.25), x * x);
     let temp2 = temp1.sqrt();
@@ -299,7 +302,7 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
     let even_pts: &mut [f32] = bytemuck::cast_slice_mut(&mut result.even_pts);
     let odd_pts: &mut [f32] = bytemuck::cast_slice_mut(&mut result.odd_pts);
 
-    for i in 0..(n + 1) / 2 {
+    for i in 0..n.div_ceil(2) {
         let evaluated = eval_simd(p0_128, p1_128, p2_128, p3_128, t);
         let (low, high) = simd.split_f32x8(evaluated);
 
@@ -319,7 +322,7 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
     let even_pts: &mut [f32] = bytemuck::cast_slice_mut(&mut ctx.even_pts);
     let odd_pts: &mut [f32] = bytemuck::cast_slice_mut(&mut ctx.odd_pts);
 
-    for i in 0..(n + 3) / 4 {
+    for i in 0..n.div_ceil(4) {
         let p0 = f32x8::from_slice(simd, &even_pts[i * 8..][..8]);
         let p_onehalf = f32x8::from_slice(simd, &odd_pts[i * 8..][..8]);
         let p2 = f32x8::from_slice(simd, &even_pts[(i * 8 + 2)..][..8]);
@@ -416,7 +419,7 @@ fn output_lines_simd<S: Simd>(
     let a_inc = 4.0 * dx * da;
     let uscale = f32x8::splat(simd, ctx.uscale[i]);
 
-    for j in 0..(n + 3) / 4 {
+    for j in 0..n.div_ceil(4) {
         let u = approx_parabola_inv_integral_simd(a);
         let t = (-ctx.u0[i] * uscale).madd(u, uscale);
         let mt = 1.0 - t;
