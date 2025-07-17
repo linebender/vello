@@ -3717,6 +3717,7 @@ dependencies = [
  "bytemuck",
  "fearless_simd",
  "libm",
+ "log",
  "peniko",
  "png",
  "roxmltree",

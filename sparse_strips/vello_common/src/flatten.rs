@@ -5,6 +5,7 @@
 
 use crate::kurbo::{self, Affine, BezPath, PathEl, Stroke, StrokeOpts};
 use alloc::vec::Vec;
+use log::warn;
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;
@@ -76,35 +77,47 @@ pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
     let iter = path.iter().map(|el| affine * el);
 
     let mut closed = false;
+    let mut is_nan = false;
 
-    kurbo::flatten(iter, TOL, |el| match el {
-        kurbo::PathEl::MoveTo(p) => {
-            if !closed && p0 != start {
+    kurbo::flatten(iter, TOL, |el| {
+        is_nan |= el.is_nan();
+
+        match el {
+            kurbo::PathEl::MoveTo(p) => {
+                if !closed && p0 != start {
+                    close_path(start, p0, line_buf);
+                }
+
+                closed = false;
+                start = p;
+                p0 = p;
+            }
+            kurbo::PathEl::LineTo(p) => {
+                let pt0 = Point::new(p0.x as f32, p0.y as f32);
+                let pt1 = Point::new(p.x as f32, p.y as f32);
+                line_buf.push(Line::new(pt0, pt1));
+                p0 = p;
+            }
+            el @ (kurbo::PathEl::QuadTo(_, _) | kurbo::PathEl::CurveTo(_, _, _)) => {
+                unreachable!("Path has been flattened, so shouldn't contain {el:?}.")
+            }
+            kurbo::PathEl::ClosePath => {
+                closed = true;
+
                 close_path(start, p0, line_buf);
             }
-
-            closed = false;
-            start = p;
-            p0 = p;
-        }
-        kurbo::PathEl::LineTo(p) => {
-            let pt0 = Point::new(p0.x as f32, p0.y as f32);
-            let pt1 = Point::new(p.x as f32, p.y as f32);
-            line_buf.push(Line::new(pt0, pt1));
-            p0 = p;
-        }
-        el @ (kurbo::PathEl::QuadTo(_, _) | kurbo::PathEl::CurveTo(_, _, _)) => {
-            unreachable!("Path has been flattened, so shouldn't contain {el:?}.")
-        }
-        kurbo::PathEl::ClosePath => {
-            closed = true;
-
-            close_path(start, p0, line_buf);
         }
     });
 
     if !closed {
         close_path(start, p0, line_buf);
+    }
+
+    // A path that contains NaN is ill-defined, so ignore it.
+    if is_nan {
+        warn!("A path contains NaN, ignoring it.");
+
+        line_buf.clear();
     }
 }
 
@@ -132,5 +145,25 @@ fn close_path(start: kurbo::Point, p0: kurbo::Point, line_buf: &mut Vec<Line>) {
 
     if pt0 != pt1 {
         line_buf.push(Line::new(pt0, pt1));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn clear_nan_paths() {
+        let mut path = BezPath::new();
+        path.move_to((0.0, 0.0));
+        path.line_to((2.0, 0.0));
+        path.line_to((4.0, f64::NAN));
+        path.close_path();
+
+        let mut line_buf = vec![];
+        fill(&path, Affine::default(), &mut line_buf);
+
+        assert!(line_buf.is_empty());
     }
 }
