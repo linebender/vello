@@ -7,6 +7,7 @@ use crate::flatten_simd::Callback;
 use crate::kurbo::{self, Affine, BezPath, PathEl, Stroke, StrokeOpts};
 use alloc::vec::Vec;
 use fearless_simd::{Level, Simd, simd_dispatch};
+use log::warn;
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;
@@ -91,6 +92,7 @@ pub fn fill_impl<S: Simd>(simd: S, path: &BezPath, affine: Affine, line_buf: &mu
         line_buf,
         start: kurbo::Point::default(),
         p0: kurbo::Point::default(),
+        is_nan: false,
         closed: false,
     };
 
@@ -98,6 +100,13 @@ pub fn fill_impl<S: Simd>(simd: S, path: &BezPath, affine: Affine, line_buf: &mu
 
     if !lb.closed {
         close_path(lb.start, lb.p0, lb.line_buf);
+    }
+
+    // A path that contains NaN is ill-defined, so ignore it.
+    if lb.is_nan {
+        warn!("A path contains NaN, ignoring it.");
+
+        line_buf.clear();
     }
 }
 /// Flatten a stroked bezier path into line segments.
@@ -128,12 +137,15 @@ struct FlattenerCallback<'a> {
     line_buf: &'a mut Vec<Line>,
     start: kurbo::Point,
     p0: kurbo::Point,
+    is_nan: bool,
     closed: bool,
 }
 
 impl Callback for FlattenerCallback<'_> {
     #[inline(always)]
     fn callback(&mut self, el: PathEl) {
+        self.is_nan |= el.is_nan();
+
         match el {
             kurbo::PathEl::MoveTo(p) => {
                 if !self.closed && self.p0 != self.start {
