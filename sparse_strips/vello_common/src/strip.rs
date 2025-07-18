@@ -77,8 +77,6 @@ fn render_impl<S: Simd>(
     // Note multiple tiles can be at the same location.
     // Note that we are also implicitly assuming here that the tile height exactly fits into a
     // SIMD vector (i.e. 128 bits).
-    // Finally, note that while this variable mainly stores the location winding, we also use
-    // it as a temporary storage for the computed f32 alpha values before converting to u8.
     let mut location_winding = [f32x4::splat(s, 0.0); Tile::WIDTH as usize];
     // The accumulated (fractional) windings at this location's right edge. When we move to the
     // next location, this is splatted to that location's starting winding.
@@ -117,6 +115,10 @@ fn render_impl<S: Simd>(
                         let area = location_winding[x];
                         let coverage = area.abs();
                         let mulled = p1.madd(coverage, p2);
+                        // Note that we are not storing the location winding here but the actual 
+                        // alpha value as f32, so we reuse the variable as a temporary storage.
+                        // Also note that we need the `min` here because the winding can be > 1
+                        // and thus the calculated alpha value need to be clamped to 255.
                         location_winding[x] = mulled.min(p2);
                     }
                 }
@@ -131,6 +133,8 @@ fn render_impl<S: Simd>(
                         let im1 = p1.madd(area, p1).floor();
                         let coverage = area.madd(p2, im1).abs();
                         let mulled = p1.madd(p3, coverage);
+                        // TODO: It is possible that, unlike for `NonZero`, we don't need the `min`
+                        // here.
                         location_winding[x] = mulled.min(p3);
                     }
                 }
