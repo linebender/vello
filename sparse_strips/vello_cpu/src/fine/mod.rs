@@ -92,26 +92,24 @@ impl<S: Simd> NumericVec<S> for u8x16<S> {
 
 #[inline(always)]
 pub(crate) fn u8_to_f32<S: Simd>(val: u8x16<S>) -> f32x16<S> {
-    // TODO: SIMDify
-    [
-        val.val[0] as f32,
-        val.val[1] as f32,
-        val.val[2] as f32,
-        val.val[3] as f32,
-        val.val[4] as f32,
-        val.val[5] as f32,
-        val.val[6] as f32,
-        val.val[7] as f32,
-        val.val[8] as f32,
-        val.val[9] as f32,
-        val.val[10] as f32,
-        val.val[11] as f32,
-        val.val[12] as f32,
-        val.val[13] as f32,
-        val.val[14] as f32,
-        val.val[15] as f32,
-    ]
-    .simd_into(val.simd)
+    let simd = val.simd;
+    let zeroes = u8x16::splat(simd, 0);
+
+    let zip1 = simd.zip_high_u8x16(val, zeroes);
+    let zip2 = simd.zip_low_u8x16(val, zeroes);
+
+    let p1 = simd.zip_low_u8x16(zip2, zeroes).reinterpret_u32().cvt_f32();
+    let p2 = simd
+        .zip_high_u8x16(zip2, zeroes)
+        .reinterpret_u32()
+        .cvt_f32();
+    let p3 = simd.zip_low_u8x16(zip1, zeroes).reinterpret_u32().cvt_f32();
+    let p4 = simd
+        .zip_high_u8x16(zip1, zeroes)
+        .reinterpret_u32()
+        .cvt_f32();
+
+    simd.combine_f32x8(simd.combine_f32x4(p1, p2), simd.combine_f32x4(p3, p4))
 }
 
 pub trait CompositeType<N: Numeric, S: Simd>: Copy + Clone + Send + Sync {
