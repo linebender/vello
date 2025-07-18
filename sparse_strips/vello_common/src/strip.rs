@@ -115,7 +115,7 @@ fn render_impl<S: Simd>(
                         let area = location_winding[x];
                         let coverage = area.abs();
                         let mulled = p1.madd(coverage, p2);
-                        // Note that we are not storing the location winding here but the actual 
+                        // Note that we are not storing the location winding here but the actual
                         // alpha value as f32, so we reuse the variable as a temporary storage.
                         // Also note that we need the `min` here because the winding can be > 1
                         // and thus the calculated alpha value need to be clamped to 255.
