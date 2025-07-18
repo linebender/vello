@@ -77,6 +77,8 @@ fn render_impl<S: Simd>(
     // Note multiple tiles can be at the same location.
     // Note that we are also implicitly assuming here that the tile height exactly fits into a
     // SIMD vector (i.e. 128 bits).
+    // Finally, note that while this variable mainly stores the location winding, we also use
+    // it as a temporary storage for the computed f32 alpha values before converting to u8.
     let mut location_winding = [f32x4::splat(s, 0.0); Tile::WIDTH as usize];
     // The accumulated (fractional) windings at this location's right edge. When we move to the
     // next location, this is splatted to that location's starting winding.
