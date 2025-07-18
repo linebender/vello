@@ -84,6 +84,23 @@ impl WebGlRenderer {
             .dyn_into::<WebGl2RenderingContext>()
             .expect("Context to be a WebGL2 context");
 
+        #[cfg(debug_assertions)]
+        {
+            // If a WebGL context already exists on this canvas, it will be returned instead of
+            // creating a new one with the correct context_options set. A cached context with
+            // antialias enabled will cause vello_hybrid to fail silently. This assertion catches
+            // that error early.
+            let context_attributes = gl.get_context_attributes().unwrap();
+            let antialias = js_sys::Reflect::get(&context_attributes, &"antialias".into())
+                .unwrap()
+                .as_bool()
+                .unwrap();
+            debug_assert!(
+                !antialias,
+                "WebGL context must be created with `antialias: false` for vello_hybrid to work correctly."
+            );
+        }
+
         let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let image_cache = ImageCache::new(max_texture_dimension_2d, max_texture_dimension_2d);
