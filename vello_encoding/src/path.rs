@@ -79,7 +79,13 @@ impl Style {
         }
     }
 
-    pub fn from_stroke(stroke: &Stroke) -> Self {
+    /// Creates a style from a stroke.
+    ///
+    /// As it isn't meaningful to encode a zero width stroke, returns None if the width is zero.
+    pub fn from_stroke(stroke: &Stroke) -> Option<Self> {
+        if stroke.width == 0.0 {
+            return None;
+        }
         let style = Self::FLAGS_STYLE_BIT;
         let join = match stroke.join {
             Join::Bevel => Self::FLAGS_JOIN_BITS_BEVEL,
@@ -97,10 +103,10 @@ impl Style {
             Cap::Round => Self::FLAGS_END_CAP_BITS_ROUND,
         };
         let miter_limit = crate::math::f32_to_f16(stroke.miter_limit as f32) as u32;
-        Self {
+        Some(Self {
             flags_and_miter_limit: style | join | start_cap | end_cap | miter_limit,
             line_width: stroke.width as f32,
-        }
+        })
     }
 
     #[cfg(test)]
@@ -842,7 +848,7 @@ mod tests {
     fn test_fill_style() {
         assert_eq!(Some(Fill::NonZero), Style::from_fill(Fill::NonZero).fill());
         assert_eq!(Some(Fill::EvenOdd), Style::from_fill(Fill::EvenOdd).fill());
-        assert_eq!(None, Style::from_stroke(&Stroke::default()).fill());
+        assert_eq!(None, Style::from_stroke(&Stroke::default()).unwrap().fill());
     }
 
     #[test]
@@ -859,7 +865,7 @@ mod tests {
                         .with_end_cap(end)
                         .with_join(join)
                         .with_miter_limit(0.);
-                    let encoded = Style::from_stroke(&stroke);
+                    let encoded = Style::from_stroke(&stroke).unwrap();
                     assert_eq!(Some(stroke.width), encoded.stroke_width());
                     assert_eq!(Some(stroke.join), encoded.stroke_join());
                     assert_eq!(Some(stroke.start_cap), encoded.stroke_start_cap());

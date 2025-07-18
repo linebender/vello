@@ -5,23 +5,20 @@ mod compose;
 mod gradient;
 mod image;
 
-use crate::fine::common;
-use crate::fine::common::image::FilteredImagePainter;
 use crate::fine::lowp::image::BilinearImagePainter;
 use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
-use crate::fine::{FineKernel, f32_to_u8, highp, u8_to_f32};
+use crate::fine::{FineKernel, highp, u8_to_f32};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use crate::util::Div255Ext;
-use alloc::boxed::Box;
 use bytemuck::cast_slice;
 use vello_common::coarse::WideTile;
 use vello_common::encode::{EncodedGradient, EncodedImage};
 use vello_common::fearless_simd::*;
 use vello_common::paint::PremulColor;
-use vello_common::peniko::ImageQuality;
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
+use vello_common::util::f32_to_u8;
 
 /// The kernel for doing rendering using u8/u16.
 #[derive(Clone, Copy, Debug)]
@@ -58,37 +55,19 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     fn gradient_painter<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
-        has_undefined: bool,
         t_vals: &'a [f32],
-    ) -> Box<dyn Painter + 'a> {
-        if has_undefined {
-            Box::new(common::gradient::GradientPainter::new(
-                simd,
-                gradient,
-                has_undefined,
-                t_vals,
-            ))
-        } else {
-            Box::new(gradient::GradientPainter::new(simd, gradient, t_vals))
-        }
+    ) -> impl Painter + 'a {
+        gradient::GradientPainter::new(simd, gradient, t_vals)
     }
 
-    fn filtered_image_painter<'a>(
+    fn medium_quality_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        if image.quality == ImageQuality::Medium {
-            Box::new(BilinearImagePainter::new(
-                simd, image, pixmap, start_x, start_y,
-            ))
-        } else {
-            Box::new(FilteredImagePainter::new(
-                simd, image, pixmap, start_x, start_y,
-            ))
-        }
+    ) -> impl Painter + 'a {
+        BilinearImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
 
     fn apply_mask(
@@ -106,7 +85,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     }
 
     #[inline(always)]
-    fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], mut painter: Box<dyn Painter + 'a>) {
+    fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], mut painter: impl Painter + 'a) {
         painter.paint_u8(dest);
     }
 
