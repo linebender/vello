@@ -7,7 +7,7 @@ mod image;
 
 use crate::fine::lowp::image::BilinearImagePainter;
 use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
-use crate::fine::{FineKernel, f32_to_u8, highp, u8_to_f32};
+use crate::fine::{FineKernel, highp, u8_to_f32};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use crate::util::Div255Ext;
@@ -18,6 +18,7 @@ use vello_common::fearless_simd::*;
 use vello_common::paint::PremulColor;
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
+use vello_common::util::f32_to_u8;
 
 /// The kernel for doing rendering using u8/u16.
 #[derive(Clone, Copy, Debug)]
