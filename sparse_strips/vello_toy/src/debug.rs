@@ -42,7 +42,7 @@ fn main() {
 
     if stages.iter().any(|s| s.requires_flatten()) {
         if !args.stroke {
-            flatten::fill(&args.path, Affine::IDENTITY, &mut line_buf);
+            flatten::fill(Level::new(), &args.path, Affine::IDENTITY, &mut line_buf);
         } else {
             let stroke = Stroke {
                 width: args.stroke_width as f64,
@@ -51,7 +51,13 @@ fn main() {
                 end_cap: Cap::Butt,
                 ..Default::default()
             };
-            flatten::stroke(&args.path, &stroke, Affine::IDENTITY, &mut line_buf);
+            flatten::stroke(
+                Level::new(),
+                &args.path,
+                &stroke,
+                Affine::IDENTITY,
+                &mut line_buf,
+            );
         }
     }
 

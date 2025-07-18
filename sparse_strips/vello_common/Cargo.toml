@@ -33,6 +33,7 @@ default = ["std", "png", "text"]
 simd = []
 # Get floating point functions from the standard library (likely using your target’s libc).
 std = ["peniko/std", "skrifa?/std", "fearless_simd/std"]
+bytemuck = ["bytemuck/bytemuck_derive"]
 # Use floating point implementations from libm.
 libm = ["peniko/libm", "skrifa?/libm", "dep:libm", "fearless_simd/libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.

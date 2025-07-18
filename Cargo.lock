@@ -920,7 +920,7 @@ dependencies = [
 [[package]]
 name = "fearless_simd"
 version = "0.2.0"
-source = "git+https://github.com/linebender/fearless_simd?rev=8ca44c0#8ca44c04c186bedcde51de983bfaa54ae3a03e8d"
+source = "git+https://github.com/linebender/fearless_simd?rev=3d1a77c#3d1a77cfb4515c0da307d50dc782c08840b90c70"
 dependencies = [
  "bytemuck",
  "libm",

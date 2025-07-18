@@ -41,7 +41,7 @@ impl StripGenerator {
         transform: Affine,
         func: impl FnOnce(&'a [Strip]),
     ) {
-        flatten::fill(path, transform, &mut self.line_buf);
+        flatten::fill(self.level, path, transform, &mut self.line_buf);
         self.make_strips(fill_rule);
         func(&mut self.strip_buf);
     }
@@ -53,7 +53,7 @@ impl StripGenerator {
         transform: Affine,
         func: impl FnOnce(&'a [Strip]),
     ) {
-        flatten::stroke(path, stroke, transform, &mut self.line_buf);
+        flatten::stroke(self.level, path, stroke, transform, &mut self.line_buf);
         self.make_strips(Fill::NonZero);
         func(&mut self.strip_buf);
     }
