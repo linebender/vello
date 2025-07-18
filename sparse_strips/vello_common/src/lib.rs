@@ -80,6 +80,7 @@ pub mod pixmap;
 pub mod simd;
 pub mod strip;
 pub mod tile;
+pub mod util;
 
 pub use fearless_simd;
 pub use peniko;

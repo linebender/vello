@@ -37,6 +37,7 @@ use vello_common::fearless_simd::{
 };
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::Splat4thExt;
+use vello_common::util::f32_to_u8;
 
 pub type ScratchBuf<F> = [F; SCRATCH_BUF_SIZE];
 
@@ -90,19 +91,6 @@ impl<S: Simd> NumericVec<S> for u8x16<S> {
 }
 
 #[inline(always)]
-pub(crate) fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
-    let simd = val.simd;
-    let converted = val.cvt_u32().reinterpret_u8();
-
-    let (x8_1, x8_2) = simd.split_u8x64(converted);
-    let (p1, p2) = simd.split_u8x32(x8_1);
-    let (p3, p4) = simd.split_u8x32(x8_2);
-
-    let uzp1 = simd.unzip_low_u8x16(p1, p2);
-    let uzp2 = simd.unzip_low_u8x16(p3, p4);
-    simd.unzip_low_u8x16(uzp1, uzp2)
-}
-
 pub(crate) fn u8_to_f32<S: Simd>(val: u8x16<S>) -> f32x16<S> {
     let simd = val.simd;
     let zeroes = u8x16::splat(simd, 0);

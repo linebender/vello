@@ -3717,6 +3717,7 @@ dependencies = [
  "bytemuck",
  "fearless_simd",
  "libm",
+ "log",
  "peniko",
  "png",
  "roxmltree",
@@ -3861,9 +3862,13 @@ dependencies = [
 name = "vello_toy"
 version = "0.0.0"
 dependencies = [
+ "bytemuck",
  "clap",
+ "image",
  "svg",
+ "usvg",
  "vello_common",
+ "vello_cpu",
 ]
 
 [[package]]
