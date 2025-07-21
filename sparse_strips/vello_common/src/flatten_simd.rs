@@ -177,6 +177,9 @@ struct FlattenParams {
     val: f64,
 }
 
+/// This limit was chosen based on the pre-existing GitHub gist.
+/// This limit should not be hit in normal operation, but _might_ be hit for very large
+/// transforms.
 const MAX_QUADS: usize = 16;
 
 #[derive(Default, Debug)]
