@@ -234,8 +234,10 @@ impl MultiThreadedDispatcher {
         // However, if the granularity is too small, we will end up with many
         // context switches if our drawing area is large (for a screen size of 1920x1080,
         // we will end up with around ~2000 regions). We therefore aim to choose a granularity such
-        // that no more than 50 chunks need to be processed by a single thread. However, we also
-        // don't want to put too many regions in a single group (in this case 8) to prevent
+        // that no more than 50 (more or less arbitrarily chosen) chunks need to be processed 
+        // by a single thread. However, we also don't want to put too many regions in a 
+        // single group (the currently chosen values i 8) to prevent stalls in case some of the
+        // later regions contain more work than the previous ones.
         let granularity = {
             const CHUNKS_PER_THREAD: u32 = 50;
             const MIN_GRANULARITY: u32 = 1;
