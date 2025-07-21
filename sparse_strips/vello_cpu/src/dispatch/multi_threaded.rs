@@ -236,7 +236,7 @@ impl MultiThreadedDispatcher {
         // we will end up with around ~2000 regions). We therefore aim to choose a granularity such
         // that no more than 50 (more or less arbitrarily chosen) chunks need to be processed
         // by a single thread. However, we also don't want to put too many regions in a
-        // single group (the currently chosen values i 8) to prevent stalls in case some of the
+        // single group (the currently chosen values is 8) to prevent stalls in case some of the
         // later regions contain more work than the previous ones.
         let granularity = {
             const CHUNKS_PER_THREAD: u32 = 50;
