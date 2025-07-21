@@ -244,7 +244,10 @@ impl MultiThreadedDispatcher {
             const MAX_GRANULARITY: u32 = 8;
 
             let num_regions = buffer.len() as u32;
-            assert!(self.num_threads > 0, "`MultiThreadedDispatcher` should never be created with just 0 threads.");
+            assert!(
+                self.num_threads > 0,
+                "`MultiThreadedDispatcher` should never be created with just 0 threads."
+            );
             let regions_per_thread = num_regions / self.num_threads as u32;
 
             regions_per_thread
