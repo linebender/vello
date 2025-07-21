@@ -65,15 +65,24 @@ impl<'a> Regions<'a> {
 
         Self { regions }
     }
+    
+    /// Return the number of regions.
+    pub fn len(&self) -> usize {
+        self.regions.len()
+    }
 
     /// Apply the given function to each region. The functions will be applied
     /// in parallel in the current threadpool.
     #[cfg(feature = "multithreading")]
-    pub fn update_regions_par(&mut self, func: impl Fn(&mut Region<'_>) + Send + Sync) {
+    pub fn update_regions_par(&mut self, granularity: u32, func: impl Fn(&mut Region<'_>) + Send + Sync) {
         use rayon::iter::ParallelIterator;
-        use rayon::prelude::IntoParallelRefMutIterator;
+        use rayon::prelude::*;
 
-        self.regions.par_iter_mut().for_each(func);
+        self.regions.par_chunks_mut(granularity as usize).for_each(|r| {
+            for region in r {
+                func(region);           
+            }
+        });
     }
 
     /// Apply the given function to each region.

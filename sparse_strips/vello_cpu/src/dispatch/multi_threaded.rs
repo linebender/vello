@@ -223,9 +223,30 @@ impl MultiThreadedDispatcher {
         let fines = ThreadLocal::new();
         let wide = &self.wide;
         let alpha_slots = self.alpha_storage.slots();
+        
+        // Further below, we will use `rayon` to iterate over each region in parallel to run
+        // all commands. There is a trade-off we need to carefully balance: On the one hand, we
+        // want the granularity (i.e. how many regions are processed in a batch on one thread) to
+        // be fine enough so in case the amount of work per region is very different, the work
+        // can still be distributed in a way so that threads don't end up being idle waiting for
+        // other threads to finish. 
+        // 
+        // However, if the granularity is too small, we will end up with many
+        // context switches if our drawing area is large (for a screen size of 1920x1080, 
+        // we will end up with around ~2000 regions). We therefore aim to choose a granularity such
+        // that no more than 50 chunks need to be processed by a single thread.
+        let granularity = {
+            const CHUNKS_PER_THREAD: u32 = 50;
+            debug_assert_ne!(self.num_threads, 0);
+            
+            let num_regions = buffer.len() as u32;
+            let regions_per_thread = num_regions / self.num_threads as u32;
+
+            regions_per_thread.div_ceil(CHUNKS_PER_THREAD).min(1)
+        };
 
         self.thread_pool.install(|| {
-            buffer.update_regions_par(|region| {
+            buffer.update_regions_par(granularity, |region| {
                 let x = region.x;
                 let y = region.y;
 
