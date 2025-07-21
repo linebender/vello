@@ -71,6 +71,11 @@ impl<'a> Regions<'a> {
         self.regions.len()
     }
 
+    /// Return there are no regions.
+    pub fn is_empty(&self) -> bool {
+        self.regions.is_empty()
+    }
+
     /// Apply the given function to each region. The functions will be applied
     /// in parallel in the current threadpool.
     #[cfg(feature = "multithreading")]
