@@ -21,6 +21,10 @@ pub(crate) trait Callback {
     fn callback(&mut self, el: PathEl);
 }
 
+/// See the docs for the kurbo implementation of flattening:
+/// https://docs.rs/kurbo/latest/kurbo/fn.flatten.html
+/// 
+/// This version works using a similar approach but using f32x4/f32x8 SIMD instead. 
 pub(crate) fn flatten<S: Simd>(
     simd: S,
     path: impl IntoIterator<Item = PathEl>,
