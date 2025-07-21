@@ -384,13 +384,8 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let approxint = approx_parabola_integral_simd_x4(xmin);
         let cusp = (sqrt_tol * da_abs) / approxint;
         let val_raw = simd.select_f32x4(mask, noncusp, cusp);
-        let val = f32x4::from_bytes(
-            simd.and_mask32x4(
-                is_finite_simd(val_raw),
-                mask32x4::from_bytes(val_raw.to_bytes()),
-            )
-            .to_bytes(),
-        );
+        let finite_mask = is_finite_simd(val_raw);
+        let val = simd.select_f32x4(finite_mask, val_raw, f32x4::splat(simd, 0.0));
         let u0_u2 = approx_parabola_inv_integral_simd(a0_a2);
         let (u0, u2) = simd.split_f32x8(u0_u2);
         let uscale_a = u2 - u0;
