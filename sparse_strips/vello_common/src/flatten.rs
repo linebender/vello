@@ -74,38 +74,40 @@ pub fn fill(path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
     line_buf.clear();
     let mut start = kurbo::Point::default();
     let mut p0 = kurbo::Point::default();
-    let iter = path.iter().map(|el| affine * el);
 
     let mut closed = false;
     let mut is_nan = false;
 
-    kurbo::flatten(iter, TOL, |el| {
-        is_nan |= el.is_nan();
-
-        match el {
-            kurbo::PathEl::MoveTo(p) => {
-                if !closed && p0 != start {
-                    close_path(start, p0, line_buf);
-                }
-
-                closed = false;
-                start = p;
-                p0 = p;
-            }
-            kurbo::PathEl::LineTo(p) => {
-                let pt0 = Point::new(p0.x as f32, p0.y as f32);
-                let pt1 = Point::new(p.x as f32, p.y as f32);
-                line_buf.push(Line::new(pt0, pt1));
-                p0 = p;
-            }
-            el @ (kurbo::PathEl::QuadTo(_, _) | kurbo::PathEl::CurveTo(_, _, _)) => {
-                unreachable!("Path has been flattened, so shouldn't contain {el:?}.")
-            }
-            kurbo::PathEl::ClosePath => {
-                closed = true;
-
+    let iter = path
+        .iter()
+        .take_while(|el| {
+            is_nan |= el.is_nan();
+            !is_nan
+        })
+        .map(|el| affine * el);
+    kurbo::flatten(iter, TOL, |el|  match el {
+        kurbo::PathEl::MoveTo(p) => {
+            if !closed && p0 != start {
                 close_path(start, p0, line_buf);
             }
+
+            closed = false;
+            start = p;
+            p0 = p;
+        }
+        kurbo::PathEl::LineTo(p) => {
+            let pt0 = Point::new(p0.x as f32, p0.y as f32);
+            let pt1 = Point::new(p.x as f32, p.y as f32);
+            line_buf.push(Line::new(pt0, pt1));
+            p0 = p;
+        }
+        el @ (kurbo::PathEl::QuadTo(_, _) | kurbo::PathEl::CurveTo(_, _, _)) => {
+            unreachable!("Path has been flattened, so shouldn't contain {el:?}.")
+        }
+        kurbo::PathEl::ClosePath => {
+            closed = true;
+
+            close_path(start, p0, line_buf);
         }
     });
 
