@@ -68,6 +68,7 @@ pub mod colr;
 pub mod encode;
 pub mod execute;
 pub mod flatten;
+pub(crate) mod flatten_simd;
 #[cfg(feature = "text")]
 pub mod glyph;
 pub mod mask;
