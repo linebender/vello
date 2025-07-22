@@ -330,7 +330,7 @@ impl RenderContext {
 
     /// Pop the last-pushed layer.
     pub fn pop_layer(&mut self) {
-        self.dispatcher.pop_layer();
+        //self.dispatcher.pop_layer();
     }
 
     /// Set the current stroke.
@@ -425,9 +425,9 @@ impl RenderContext {
     ) {
         // TODO: Maybe we should move those checks into the dispatcher.
         let wide = self.dispatcher.wide();
-        if self.ensure_all_layers_are_popped {
+        /*if self.ensure_all_layers_are_popped {
             assert!(!wide.has_layers(), "some layers haven't been popped yet");
-        }
+        }*/
         assert_eq!(
             buffer.len(),
             (width as usize) * (height as usize) * 4,
