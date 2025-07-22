@@ -104,9 +104,9 @@ skrifa = { version = "0.31.0", default-features = false, features = ["autohint_s
 # with the version of kurbo used by peniko.
 peniko = { version = "0.4.0", default-features = false }
 # FIXME: This can be removed once peniko supports the schemars feature.
-kurbo = { version = "0.11.2", default-features = false }
+kurbo = { version = "0.11.3", default-features = false }
 futures-intrusive = "0.5.0"
-smallvec = "1.15.0"
+smallvec = "1.15.1"
 static_assertions = "1.1.0"
 thiserror = "2.0.12"
 oxipng = { version = "9.1.5", default-features = false }
