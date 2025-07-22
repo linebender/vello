@@ -63,7 +63,17 @@ pub struct RenderSettings {
     /// The number of worker threads that should be used for rendering. Only has an effect
     /// if the `multithreading` feature is active.
     pub num_threads: u16,
-    /// Enable layers symmetry assertions
+    /// Enable layers symmetry assertions, you should generally set this to true.
+    ///
+    /// If enabled, Vello CPU panics if you have not correctly matched
+    /// each [`RenderContext::push_layer`] with a [`RenderContext::pop_layer`].
+    /// Missing pops can have non-local side effects
+    /// (for example, clipping all content after a clip because you missed closing the clip context),
+    /// this avoids users getting into hard to debug states.
+    ///
+    /// Disabling can be useful for implementing APIs cases
+    /// where rendering an incomplete scene must be supported, primarily 2d web canvas.
+    /// All open layers will be threated as closed at render time.
     pub ensure_all_layers_are_popped: bool,
 }
 
