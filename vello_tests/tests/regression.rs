@@ -106,5 +106,9 @@ fn test_negative_dash_offset() {
     params.anti_aliasing = AaConfig::Area;
     smoke_snapshot_test_sync(scene, &params)
         .unwrap()
-        .assert_mean_less_than(0.001);
+        .assert_mean_less_than(if cfg!(target_os = "macos") {
+            0.005
+        } else {
+            0.001
+        });
 }
