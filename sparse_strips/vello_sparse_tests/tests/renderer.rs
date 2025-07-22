@@ -53,7 +53,11 @@ impl Renderer for RenderContext {
     type GlyphRenderer = Self;
 
     fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
-        let settings = RenderSettings { level, num_threads };
+        let settings = RenderSettings {
+            level,
+            num_threads,
+            ensure_all_layers_are_popped: true,
+        };
 
         Self::new_with(width, height, &settings)
     }

@@ -46,6 +46,7 @@ impl AppState {
             &vello_cpu::RenderSettings {
                 num_threads: 0,
                 level: Level::new(),
+                ensure_all_layers_are_popped: true,
             },
         );
 
@@ -110,6 +111,7 @@ impl AppState {
             &vello_cpu::RenderSettings {
                 num_threads: 0,
                 level: Level::new(),
+                ensure_all_layers_are_popped: true,
             },
         );
 

@@ -18,6 +18,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     let settings = RenderSettings {
         level: Level::fallback(),
         num_threads: 0,
+        ensure_all_layers_are_popped: true,
     };
     let mut mask_ctx = RenderContext::new_with(100, 100, &settings);
 

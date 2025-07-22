@@ -51,6 +51,7 @@ pub struct RenderContext {
         allow(dead_code, reason = "used when the `text` feature is enabled")
     )]
     pub(crate) level: Level,
+    pub(crate) ensure_all_layers_are_popped: bool,
     dispatcher: Box<dyn Dispatcher>,
 }
 
@@ -62,6 +63,8 @@ pub struct RenderSettings {
     /// The number of worker threads that should be used for rendering. Only has an effect
     /// if the `multithreading` feature is active.
     pub num_threads: u16,
+    /// Enable layers symmetry assertions
+    pub ensure_all_layers_are_popped: bool,
 }
 
 impl Default for RenderSettings {
@@ -75,6 +78,7 @@ impl Default for RenderSettings {
                 .saturating_sub(1) as u16,
             #[cfg(not(feature = "multithreading"))]
             num_threads: 0,
+            ensure_all_layers_are_popped: true,
         }
     }
 }
@@ -83,15 +87,33 @@ impl RenderContext {
     /// Create a new render context with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
         let settings = RenderSettings::default();
-        Self::new_inner(width, height, settings.num_threads, settings.level)
+        Self::new_inner(
+            width,
+            height,
+            settings.num_threads,
+            settings.level,
+            settings.ensure_all_layers_are_popped,
+        )
     }
 
     /// Create a new render context with specific settings.
     pub fn new_with(width: u16, height: u16, settings: &RenderSettings) -> Self {
-        Self::new_inner(width, height, settings.num_threads, settings.level)
+        Self::new_inner(
+            width,
+            height,
+            settings.num_threads,
+            settings.level,
+            settings.ensure_all_layers_are_popped,
+        )
     }
 
-    fn new_inner(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
+    fn new_inner(
+        width: u16,
+        height: u16,
+        num_threads: u16,
+        level: Level,
+        ensure_all_layers_are_popped: bool,
+    ) -> Self {
         #[cfg(feature = "multithreading")]
         let dispatcher: Box<dyn Dispatcher> = if num_threads == 0 {
             Box::new(SingleThreadedDispatcher::new(width, height, level))
@@ -136,6 +158,7 @@ impl RenderContext {
             stroke,
             temp_path,
             encoded_paints,
+            ensure_all_layers_are_popped,
         }
     }
 
@@ -392,7 +415,9 @@ impl RenderContext {
     ) {
         // TODO: Maybe we should move those checks into the dispatcher.
         let wide = self.dispatcher.wide();
-        assert!(!wide.has_layers(), "some layers haven't been popped yet");
+        if self.ensure_all_layers_are_popped {
+            assert!(!wide.has_layers(), "some layers haven't been popped yet");
+        }
         assert_eq!(
             buffer.len(),
             (width as usize) * (height as usize) * 4,
@@ -483,6 +508,7 @@ impl GlyphRenderer for RenderContext {
                     let settings = RenderSettings {
                         level: self.level,
                         num_threads: 0,
+                        ensure_all_layers_are_popped: self.ensure_all_layers_are_popped,
                     };
 
                     let mut ctx = Self::new_with(glyph.pix_width, glyph.pix_height, &settings);
@@ -606,6 +632,7 @@ mod tests {
         let settings = RenderSettings {
             level: Level::new(),
             num_threads: 1,
+            ensure_all_layers_are_popped: true,
         };
 
         let mut ctx = RenderContext::new_with(200, 200, &settings);

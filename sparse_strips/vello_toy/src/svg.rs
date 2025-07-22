@@ -36,6 +36,7 @@ fn main() {
     let settings = RenderSettings {
         level: Level::new(),
         num_threads: args.num_threads as u16,
+        ensure_all_layers_are_popped: true,
     };
     let mut ctx = RenderContext::new_with(width, height, &settings);
     let mut pixmap = Pixmap::new(width, height);
