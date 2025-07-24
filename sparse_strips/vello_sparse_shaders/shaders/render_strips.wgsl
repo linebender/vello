@@ -59,8 +59,10 @@ struct Config {
 //
 // `paint` bit layout:
 //   - Bit 31:     `color_source`      0 = use payload, 1 = use slot texture
-//   - Bits 29-30: `paint_type`        0 = solid, 1 = image
-//   - Bits 0-28:  `paint_texture_id`  if paint_type = PAINT_TYPE_IMAGE, index of `EncodedImage` 
+//   - Bits 29-30: `paint_type`        0 = solid, 1 = image (only used when color_source = 0)
+//   - Bits 0-28:  Usage depends on color_source:
+//                 - When color_source = 0 and paint_type = 1: `paint_texture_id` (index of `EncodedImage`)
+//                 - When color_source = 1: bits 0-7 contain opacity (0-255)
 //
 // Decision tree for paint/payload interpretation:
 //
@@ -69,10 +71,12 @@ struct Config {
 // │   └── payload = [r, g, b, a] RGBA (packed as u8s)
 // │
 // └── paint_type = 1 (PAINT_TYPE_IMAGE) - Image rendering
-//     └── payload = [x, y] scene coordinates (packed as u16s)
+//     ├── payload = [x, y] scene coordinates (packed as u16s)
+//     └── bits 0-28 = paint_texture_id
 //
 // color_source = 1 (COLOR_SOURCE_SLOT) - Use slot texture
-// └── payload = slot_index (u32)
+// ├── payload = slot_index (u32)
+// └── bits 0-7 = opacity (0-255, where 255 = fully opaque)
 struct StripInstance {
     // [x, y] packed as u16's
     // x, y — coordinates of the strip
