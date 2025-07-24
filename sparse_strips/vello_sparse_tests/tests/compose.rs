@@ -86,3 +86,11 @@ fn compose_dest_atop(ctx: &mut impl Renderer) {
 fn compose_plus(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Plus);
 }
+
+#[vello_test]
+fn empty_destructive_layer(ctx: &mut impl Renderer) {
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.push_blend_layer(Compose::Clear.into());
+    ctx.pop_layer();
+}

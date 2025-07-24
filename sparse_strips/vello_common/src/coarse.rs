@@ -951,9 +951,9 @@ impl WideTile {
 
     /// Blend the current buffer into the previous buffer in the stack.
     pub fn blend(&mut self, blend_mode: BlendMode) {
-        // Optimization: If no drawing happened since the last `PushBuf` and the blend mode
-        // is not destructive, we do not need to do any blending at all.
-        if !matches!(self.cmds.last(), Some(&Cmd::PushBuf)) || blend_mode.is_destructive() {
+        // Optimization: If no drawing happened since the last `PushBuf`,
+        // we do not need to do any blending at all.
+        if !matches!(self.cmds.last(), Some(&Cmd::PushBuf)) {
             self.cmds.push(Cmd::Blend(blend_mode));
         }
     }
