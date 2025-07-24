@@ -562,8 +562,6 @@ impl Scheduler {
                         (0, nos.slot_ix as u16 * Tile::HEIGHT)
                     };
 
-                    // TODO: Quantizing the opacity. Maybe we shouldn't do this quantization? Test
-                    // pass.
                     let opacity_u8 = (tos.opacity * 255.0) as u32;
                     let paint = (COLOR_SOURCE_SLOT << 31) | (opacity_u8 & 0xFF);
 
