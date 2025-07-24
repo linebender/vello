@@ -329,11 +329,11 @@ impl Tiles {
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
-    use fearless_simd::Level;
-    use crate::flatten::{fill, Line, Point};
+    use crate::flatten::{Line, Point, fill};
     use crate::kurbo::{Affine, BezPath};
     use crate::tile::{Tile, Tiles};
+    use fearless_simd::Level;
+    use std::vec;
 
     #[test]
     fn cull_line_at_top() {
