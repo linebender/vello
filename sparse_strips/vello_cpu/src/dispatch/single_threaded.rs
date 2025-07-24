@@ -4,9 +4,10 @@
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
-use crate::kurbo::{Affine, BezPath, Stroke};
+use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
+use crate::render::RectExt;
 use crate::strip_generator::StripGenerator;
 use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
@@ -18,6 +19,7 @@ use vello_common::paint::Paint;
 pub(crate) struct SingleThreadedDispatcher {
     wide: Wide,
     strip_generator: StripGenerator,
+    temp_path: BezPath,
     level: Level,
 }
 
@@ -29,8 +31,45 @@ impl SingleThreadedDispatcher {
         Self {
             wide,
             strip_generator,
+            temp_path: BezPath::new(),
             level,
         }
+    }
+
+    fn fill_path_inner(
+        &mut self,
+        path: Option<&BezPath>,
+        fill_rule: Fill,
+        transform: Affine,
+        paint: Paint,
+    ) {
+        let wide = &mut self.wide;
+
+        let func = |strips| wide.generate(strips, fill_rule, paint, 0);
+        self.strip_generator.generate_filled_path(
+            path.unwrap_or(&self.temp_path),
+            fill_rule,
+            transform,
+            func,
+        );
+    }
+
+    fn stroke_path_inner(
+        &mut self,
+        path: Option<&BezPath>,
+        stroke: &Stroke,
+        transform: Affine,
+        paint: Paint,
+    ) {
+        let wide = &mut self.wide;
+
+        let func = |strips| wide.generate(strips, Fill::NonZero, paint, 0);
+        self.strip_generator.generate_stroked_path(
+            path.unwrap_or(&self.temp_path),
+            stroke,
+            transform,
+            func,
+        );
     }
 
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
@@ -67,19 +106,21 @@ impl Dispatcher for SingleThreadedDispatcher {
     }
 
     fn fill_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, paint: Paint) {
-        let wide = &mut self.wide;
+        self.fill_path_inner(Some(path), fill_rule, transform, paint);
+    }
 
-        let func = |strips| wide.generate(strips, fill_rule, paint, 0);
-        self.strip_generator
-            .generate_filled_path(path, fill_rule, transform, func);
+    fn fill_rect(&mut self, rect: &Rect, transform: Affine, paint: Paint) {
+        rect.into_path(&mut self.temp_path);
+        self.fill_path_inner(None, Fill::NonZero, transform, paint);
     }
 
     fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint) {
-        let wide = &mut self.wide;
+        self.stroke_path_inner(Some(path), stroke, transform, paint);
+    }
 
-        let func = |strips| wide.generate(strips, Fill::NonZero, paint, 0);
-        self.strip_generator
-            .generate_stroked_path(path, stroke, transform, func);
+    fn stroke_rect(&mut self, rect: &Rect, stroke: &Stroke, transform: Affine, paint: Paint) {
+        rect.into_path(&mut self.temp_path);
+        self.stroke_path_inner(None, stroke, transform, paint);
     }
 
     fn push_layer(
@@ -113,6 +154,7 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn reset(&mut self) {
         self.wide.reset();
+        self.temp_path.truncate(0);
         self.strip_generator.reset();
     }
 
