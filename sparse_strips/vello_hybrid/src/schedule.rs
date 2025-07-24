@@ -498,7 +498,8 @@ impl Scheduler {
                     } else {
                         (clip_fill.x as u16, nos.slot_ix as u16 * Tile::HEIGHT)
                     };
-                    let paint = COLOR_SOURCE_SLOT << 31 | 0xFF; // Full opacity in first 8 bits.
+                    // Opacity packed into the first 8 bits – pack full opacity (0xFF).
+                    let paint = COLOR_SOURCE_SLOT << 31 | 0xFF;
                     draw.0.push(GpuStrip {
                         x,
                         y,
@@ -520,7 +521,8 @@ impl Scheduler {
                     } else {
                         (clip_alpha_fill.x as u16, nos.slot_ix as u16 * Tile::HEIGHT)
                     };
-                    let paint = COLOR_SOURCE_SLOT << 31 | 0xFF; // Full opacity in first 8 bits.
+                    // Opacity packed into the first 8 bits – pack full opacity (0xFF).
+                    let paint = COLOR_SOURCE_SLOT << 31 | 0xFF;
                     draw.0.push(GpuStrip {
                         x,
                         y,
@@ -562,8 +564,9 @@ impl Scheduler {
                         (0, nos.slot_ix as u16 * Tile::HEIGHT)
                     };
 
+                    // Opacity packed into the first 8 bits.
                     let opacity_u8 = (tos.opacity * 255.0) as u32;
-                    let paint = (COLOR_SOURCE_SLOT << 31) | (opacity_u8 & 0xFF);
+                    let paint = (COLOR_SOURCE_SLOT << 31) | opacity_u8;
 
                     draw.0.push(GpuStrip {
                         x,
