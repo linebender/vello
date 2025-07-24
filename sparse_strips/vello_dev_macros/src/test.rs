@@ -167,6 +167,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             || input_fn_name_str.contains("mask")
             || input_fn_name_str.contains("mix")
             || input_fn_name_str.contains("blurred_rounded_rect")
+            || input_fn_name_str.contains("clip_clear")
     };
 
     let skip_hybrid_webgl = skip_hybrid;

@@ -8,6 +8,7 @@ use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
 use vello_cpu::color::palette::css::RED;
+use vello_cpu::peniko::Compose;
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 8, height = 8)]
@@ -282,5 +283,20 @@ fn intersected_clip_bbox_with_x0_gt_x1(ctx: &mut impl Renderer) {
     ctx.push_clip_layer(&Rect::new(0., 0., 4., 4.).to_path(0.1));
     ctx.push_clip_layer(&Rect::new(0., 8., 260., 16.).to_path(0.1));
     ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+/// <https://github.com/linebender/vello/issues/1119>
+#[vello_test]
+fn clip_clear(ctx: &mut impl Renderer) {
+    // initial coloring
+    ctx.set_paint(LIME);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.push_layer(
+        Some(&Rect::new(0., 0., 50., 50.).to_path(0.1)),
+        Some(Compose::Clear.into()),
+        None,
+        None,
+    );
     ctx.pop_layer();
 }
