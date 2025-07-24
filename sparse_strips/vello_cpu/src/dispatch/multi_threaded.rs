@@ -459,7 +459,7 @@ impl Debug for MultiThreadedDispatcher {
     }
 }
 
-const SMALL_PATH_THRESHOLD: usize = 9;
+const SMALL_PATH_THRESHOLD: usize = 12;
 
 #[derive(Debug, Clone)]
 enum Path {
@@ -469,7 +469,7 @@ enum Path {
 
 impl Path {
     fn new(path: &BezPath) -> Self {
-        if path.elements().len() <= SMALL_PATH_THRESHOLD {
+        if path.elements().len() < SMALL_PATH_THRESHOLD {
             Path::Small(SmallPath::new(path))
         } else {
             Path::Bez(path.clone())
@@ -492,9 +492,7 @@ impl SmallPath {
     fn new(path: &BezPath) -> Self {
         let mut small_path = SmallVec::new();
         
-        for el in path.elements() {
-            small_path.push(*el);
-        }
+        small_path.extend_from_slice(path.elements());
         
         Self(small_path)
     }
