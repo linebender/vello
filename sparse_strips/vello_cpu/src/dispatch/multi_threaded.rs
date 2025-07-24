@@ -4,9 +4,10 @@
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
-use crate::kurbo::{Affine, BezPath, PathSeg, Point, Stroke};
+use crate::kurbo::{Affine, BezPath, PathSeg, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
+use crate::render::RectExt;
 use crate::strip_generator::StripGenerator;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -274,11 +275,34 @@ impl Dispatcher for MultiThreadedDispatcher {
         });
     }
 
+    fn fill_rect(&mut self, rect: &Rect, transform: Affine, paint: Paint) {
+        let task_idx = self.bump_task_idx();
+
+        self.register_task(RenderTask::FillRect {
+            rect: *rect,
+            transform,
+            paint,
+            task_idx,
+        });
+    }
+
     fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint) {
         let task_idx = self.bump_task_idx();
 
         self.register_task(RenderTask::StrokePath {
             path: path.clone(),
+            transform,
+            paint,
+            stroke: stroke.clone(),
+            task_idx,
+        });
+    }
+
+    fn stroke_rect(&mut self, rect: &Rect, stroke: &Stroke, transform: Affine, paint: Paint) {
+        let task_idx = self.bump_task_idx();
+
+        self.register_task(RenderTask::StrokeRect {
+            rect: *rect,
             transform,
             paint,
             stroke: stroke.clone(),
@@ -466,11 +490,24 @@ enum RenderTask {
         fill_rule: Fill,
         task_idx: usize,
     },
+    FillRect {
+        rect: Rect,
+        transform: Affine,
+        paint: Paint,
+        task_idx: usize,
+    },
     StrokePath {
         path: BezPath,
         transform: Affine,
         paint: Paint,
         stroke: Stroke,
+        task_idx: usize,
+    },
+    StrokeRect {
+        rect: Rect,
+        transform: Affine,
+        stroke: Stroke,
+        paint: Paint,
         task_idx: usize,
     },
     PushLayer {
@@ -493,6 +530,14 @@ impl RenderTask {
                 path, transform, ..
             } => {
                 let path_cost_data = PathCostData::new(path, *transform);
+                estimate_runtime_in_micros(&path_cost_data, false)
+            }
+            Self::FillRect { rect, .. } => {
+                let path_cost_data = PathCostData::rect(rect);
+                estimate_runtime_in_micros(&path_cost_data, false)
+            }
+            Self::StrokeRect { rect, .. } => {
+                let path_cost_data = PathCostData::rect(rect);
                 estimate_runtime_in_micros(&path_cost_data, false)
             }
             Self::StrokePath {
@@ -534,6 +579,7 @@ enum CoarseCommand {
 struct Worker {
     strip_generator: StripGenerator,
     thread_id: u8,
+    temp_path: BezPath,
     alpha_storage: Arc<OnceLockAlphaStorage>,
 }
 
@@ -550,11 +596,13 @@ impl Worker {
         Self {
             strip_generator,
             thread_id,
+            temp_path: BezPath::new(),
             alpha_storage,
         }
     }
 
     fn reset(&mut self) {
+        self.temp_path.truncate(0);
         self.strip_generator.reset();
     }
 
@@ -638,6 +686,57 @@ impl Worker {
                         .send(task_idx, CoarseCommand::PopLayer)
                         .unwrap();
                 }
+                RenderTask::FillRect {
+                    rect,
+                    paint,
+                    transform,
+                    task_idx,
+                } => {
+                    rect.into_path(&mut self.temp_path);
+
+                    let func = |strips: &[Strip]| {
+                        let coarse_command = CoarseCommand::Render {
+                            thread_id: self.thread_id,
+                            strips: strips.into(),
+                            fill_rule: Fill::NonZero,
+                            paint,
+                        };
+                        result_sender.send(task_idx, coarse_command).unwrap();
+                    };
+
+                    self.strip_generator.generate_filled_path(
+                        &self.temp_path,
+                        Fill::NonZero,
+                        transform,
+                        func,
+                    );
+                }
+                RenderTask::StrokeRect {
+                    rect,
+                    paint,
+                    transform,
+                    task_idx,
+                    stroke,
+                } => {
+                    rect.into_path(&mut self.temp_path);
+
+                    let func = |strips: &[Strip]| {
+                        let coarse_command = CoarseCommand::Render {
+                            thread_id: self.thread_id,
+                            strips: strips.into(),
+                            fill_rule: Fill::NonZero,
+                            paint,
+                        };
+                        result_sender.send(task_idx, coarse_command).unwrap();
+                    };
+
+                    self.strip_generator.generate_stroked_path(
+                        &self.temp_path,
+                        &stroke,
+                        transform,
+                        func,
+                    );
+                }
             }
         }
     }
@@ -655,6 +754,14 @@ struct PathCostData {
 }
 
 impl PathCostData {
+    fn rect(rect: &Rect) -> Self {
+        Self {
+            num_line_segments: 4,
+            num_curve_segments: 0,
+            path_length: 32.0,
+        }
+    }
+
     fn new(path: &BezPath, transform: Affine) -> Self {
         let mut num_line_segments = 0;
         let mut num_curve_segments = 0;

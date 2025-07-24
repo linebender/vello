@@ -6,7 +6,7 @@ pub(crate) mod multi_threaded;
 pub(crate) mod single_threaded;
 
 use crate::RenderMode;
-use crate::kurbo::{Affine, BezPath, Stroke};
+use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use core::fmt::Debug;
 use vello_common::coarse::Wide;
@@ -17,7 +17,9 @@ use vello_common::paint::Paint;
 pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn wide(&self) -> &Wide;
     fn fill_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, paint: Paint);
+    fn fill_rect(&mut self, rect: &Rect, transform: Affine, paint: Paint);
     fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint);
+    fn stroke_rect(&mut self, rect: &Rect, stroke: &Stroke, transform: Affine, paint: Paint);
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,

@@ -33,7 +33,6 @@ use vello_common::{
     glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph},
 };
 
-pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
 #[derive(Debug)]
 pub struct RenderContext {
@@ -44,7 +43,6 @@ pub struct RenderContext {
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
-    pub(crate) temp_path: BezPath,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     #[cfg_attr(
         not(feature = "text"),
@@ -122,7 +120,6 @@ impl RenderContext {
             ..Default::default()
         };
         let encoded_paints = vec![];
-        let temp_path = BezPath::new();
 
         Self {
             width,
@@ -134,7 +131,6 @@ impl RenderContext {
             fill_rule,
             level,
             stroke,
-            temp_path,
             encoded_paints,
         }
     }
@@ -172,24 +168,8 @@ impl RenderContext {
 
     /// Fill a rectangle.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        // Don't use `rect.to_path` here, because it will perform a new allocation, which
-        // profiling showed can become a bottleneck for many small rectangles.
-        // TODO: Generalize this so that for example `blurred_rectangle` and other places
-        // can also profit from this.
-        self.temp_path.truncate(0);
-        self.temp_path
-            .push(PathEl::MoveTo(Point::new(rect.x0, rect.y0)));
-        self.temp_path
-            .push(PathEl::LineTo(Point::new(rect.x1, rect.y0)));
-        self.temp_path
-            .push(PathEl::LineTo(Point::new(rect.x1, rect.y1)));
-        self.temp_path
-            .push(PathEl::LineTo(Point::new(rect.x0, rect.y1)));
-        self.temp_path.push(PathEl::ClosePath);
-
         let paint = self.encode_current_paint();
-        self.dispatcher
-            .fill_path(&self.temp_path, self.fill_rule, self.transform, paint);
+        self.dispatcher.fill_rect(rect, self.transform, paint);
     }
 
     /// Fill a blurred rectangle with the given radius and standard deviation.
@@ -229,7 +209,9 @@ impl RenderContext {
 
     /// Stroke a rectangle.
     pub fn stroke_rect(&mut self, rect: &Rect) {
-        self.stroke_path(&rect.to_path(DEFAULT_TOLERANCE));
+        let paint = self.encode_current_paint();
+        self.dispatcher
+            .stroke_rect(rect, &self.stroke, self.transform, paint);
     }
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
@@ -575,6 +557,25 @@ impl ColrRenderer for RenderContext {
 
     fn pop_layer(&mut self) {
         Self::pop_layer(self);
+    }
+}
+
+pub(crate) trait RectExt {
+    fn into_path(&self, path: &mut BezPath);
+}
+
+impl RectExt for Rect {
+    fn into_path(&self, path: &mut BezPath) {
+        // Don't use `rect.to_path` here, because it will perform a new allocation, which
+        // profiling showed can become a bottleneck for many small rectangles.
+        // TODO: Generalize this so that for example `blurred_rectangle` and other places
+        // can also profit from this.
+        path.truncate(0);
+        path.push(PathEl::MoveTo(Point::new(self.x0, self.y0)));
+        path.push(PathEl::LineTo(Point::new(self.x1, self.y0)));
+        path.push(PathEl::LineTo(Point::new(self.x1, self.y1)));
+        path.push(PathEl::LineTo(Point::new(self.x0, self.y1)));
+        path.push(PathEl::ClosePath);
     }
 }
 
