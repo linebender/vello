@@ -18,10 +18,12 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Barrier, OnceLock};
+use smallvec::SmallVec;
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Fallback, Level, Simd};
+use vello_common::kurbo::{segments, PathEl};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
@@ -266,7 +268,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         let task_idx = self.bump_task_idx();
 
         self.register_task(RenderTask::FillPath {
-            path: path.clone(),
+            path: Path::new(path),
             transform,
             paint,
             fill_rule,
@@ -278,7 +280,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         let task_idx = self.bump_task_idx();
 
         self.register_task(RenderTask::StrokePath {
-            path: path.clone(),
+            path: Path::new(path),
             transform,
             paint,
             stroke: stroke.clone(),
@@ -457,17 +459,62 @@ impl Debug for MultiThreadedDispatcher {
     }
 }
 
+const SMALL_PATH_THRESHOLD: usize = 9;
+
+#[derive(Debug, Clone)]
+enum Path {
+    Bez(BezPath),
+    Small(SmallPath),
+}
+
+impl Path {
+    fn new(path: &BezPath) -> Self {
+        if path.elements().len() <= SMALL_PATH_THRESHOLD {
+            Path::Small(SmallPath::new(path))
+        } else {
+            Path::Bez(path.clone())
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SmallPath(SmallVec<[PathEl; SMALL_PATH_THRESHOLD]>);
+
+impl SmallPath {
+    fn into_path(&self, path: &mut BezPath) {
+        path.truncate(0);
+        
+        for el in self.0.iter() {
+            path.push(*el);
+        }
+    }
+    
+    fn new(path: &BezPath) -> Self {
+        let mut small_path = SmallVec::new();
+        
+        for el in path.elements() {
+            small_path.push(*el);
+        }
+        
+        Self(small_path)
+    }
+    
+    fn segments(&self) -> impl Iterator<Item = PathSeg> {
+        segments(self.0.iter().copied())
+    }
+}
+
 #[derive(Debug)]
 enum RenderTask {
     FillPath {
-        path: BezPath,
+        path: Path,
         transform: Affine,
         paint: Paint,
         fill_rule: Fill,
         task_idx: usize,
     },
     StrokePath {
-        path: BezPath,
+        path: Path,
         transform: Affine,
         paint: Paint,
         stroke: Stroke,
@@ -492,19 +539,25 @@ impl RenderTask {
             Self::FillPath {
                 path, transform, ..
             } => {
-                let path_cost_data = PathCostData::new(path, *transform);
+                let path_cost_data =  match path {
+                    Path::Bez(b) => PathCostData::new(b.segments(), *transform),
+                    Path::Small(s) => PathCostData::new(s.segments(), *transform)
+                };
                 estimate_runtime_in_micros(&path_cost_data, false)
             }
             Self::StrokePath {
                 path, transform, ..
             } => {
-                let path_cost_data = PathCostData::new(path, *transform);
+                let path_cost_data =  match path {
+                    Path::Bez(b) => PathCostData::new(b.segments(), *transform),
+                    Path::Small(s) => PathCostData::new(s.segments(), *transform)
+                };
                 estimate_runtime_in_micros(&path_cost_data, true)
             }
             Self::PushLayer { clip_path, .. } => clip_path
                 .as_ref()
                 .map(|c| {
-                    let path_cost_data = PathCostData::new(&c.0, c.1);
+                    let path_cost_data = PathCostData::new(c.0.segments(), c.1);
                     estimate_runtime_in_micros(&path_cost_data, false)
                 })
                 .unwrap_or(0.0),
@@ -534,6 +587,7 @@ enum CoarseCommand {
 struct Worker {
     strip_generator: StripGenerator,
     thread_id: u8,
+    temp_path: BezPath,
     alpha_storage: Arc<OnceLockAlphaStorage>,
 }
 
@@ -550,6 +604,7 @@ impl Worker {
         Self {
             strip_generator,
             thread_id,
+            temp_path: BezPath::new(),
             alpha_storage,
         }
     }
@@ -577,9 +632,18 @@ impl Worker {
                         };
                         result_sender.send(task_idx, coarse_command).unwrap();
                     };
-
-                    self.strip_generator
-                        .generate_filled_path(&path, fill_rule, transform, func);
+                    
+                    match path {
+                        Path::Bez(b) => {
+                            self.strip_generator
+                                .generate_filled_path(&b, fill_rule, transform, func);
+                        }
+                        Path::Small(s) => {
+                            s.into_path(&mut self.temp_path);
+                            self.strip_generator
+                                .generate_filled_path(&self.temp_path, fill_rule, transform, func);
+                        }
+                    }
                 }
                 RenderTask::StrokePath {
                     path,
@@ -598,8 +662,18 @@ impl Worker {
                         result_sender.send(task_idx, coarse_command).unwrap();
                     };
 
-                    self.strip_generator
-                        .generate_stroked_path(&path, &stroke, transform, func);
+                    match path {
+                        Path::Bez(b) => {
+                            self.strip_generator
+                                .generate_stroked_path(&b, &stroke, transform, func);
+                        }
+                        Path::Small(s) => {
+                            s.into_path(&mut self.temp_path);
+
+                            self.strip_generator
+                                .generate_stroked_path(&self.temp_path, &stroke, transform, func);
+                        }
+                    }
                 }
                 RenderTask::PushLayer {
                     clip_path,
@@ -655,7 +729,7 @@ struct PathCostData {
 }
 
 impl PathCostData {
-    fn new(path: &BezPath, transform: Affine) -> Self {
+    fn new(path: impl IntoIterator<Item = PathSeg>, transform: Affine) -> Self {
         let mut num_line_segments = 0;
         let mut num_curve_segments = 0;
         let mut path_length = 0.0;
@@ -669,7 +743,7 @@ impl PathCostData {
             path_length += dx + dy;
         };
 
-        for seg in path.segments() {
+        for seg in path.into_iter() {
             match seg {
                 PathSeg::Line(l) => {
                     num_line_segments += 1;
