@@ -258,7 +258,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let clip_x = u32(in.position.x) & 0xFFu;
         let clip_y = (u32(in.position.y) & 3) + in.payload * config.strip_height;
         let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
-        final_color = alpha * clip_in_color;
+
+        // Extract opacity from first 8 bits (quantized from [0, 255])
+        let opacity = f32(in.paint & 0xFFu) * (1.0 / 255.0);
+
+        final_color = alpha * opacity * clip_in_color;
     }
 
     return final_color;
