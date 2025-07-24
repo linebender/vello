@@ -274,8 +274,8 @@ impl Renderer for HybridRenderer {
         unimplemented!()
     }
 
-    fn push_opacity_layer(&mut self, _: f32) {
-        unimplemented!()
+    fn push_opacity_layer(&mut self, opacity: f32) {
+        self.scene.push_layer(None, None, Some(opacity), None);
     }
 
     fn push_mask_layer(&mut self, _: Mask) {
@@ -542,8 +542,8 @@ impl Renderer for HybridRenderer {
         unimplemented!()
     }
 
-    fn push_opacity_layer(&mut self, _: f32) {
-        unimplemented!()
+    fn push_opacity_layer(&mut self, opacity: f32) {
+        self.scene.push_layer(None, None, Some(opacity), None);
     }
 
     fn push_mask_layer(&mut self, _: Mask) {

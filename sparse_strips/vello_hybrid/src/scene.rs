@@ -183,9 +183,6 @@ impl Scene {
         if blend_mode.is_some() {
             unimplemented!()
         }
-        if opacity.is_some() {
-            unimplemented!()
-        }
         if mask.is_some() {
             unimplemented!()
         }
@@ -194,7 +191,7 @@ impl Scene {
             clip,
             BlendMode::new(Mix::Normal, Compose::SrcOver),
             None,
-            1.0,
+            opacity.unwrap_or(1.),
             0,
         );
     }
