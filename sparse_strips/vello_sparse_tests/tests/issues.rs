@@ -8,6 +8,7 @@ use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
 use vello_cpu::color::palette::css::RED;
+use vello_cpu::peniko::{Color, ColorStop, Gradient};
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 8, height = 8)]
@@ -283,4 +284,27 @@ fn intersected_clip_bbox_with_x0_gt_x1(ctx: &mut impl Renderer) {
     ctx.push_clip_layer(&Rect::new(0., 8., 260., 16.).to_path(0.1));
     ctx.pop_layer();
     ctx.pop_layer();
+}
+
+// https://github.com/web-platform-tests/wpt/blob/master/html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.inside3.html
+/// <https://github.com/linebender/vello/issues/1124>
+#[vello_test(no_ref, width = 100, height = 50)]
+fn gradient_radial_wrong_color(ctx: &mut impl Renderer) {
+    ctx.set_paint(
+        Gradient::new_two_point_radial((50., 25.), 200., (50., 25.), 100.).with_stops([
+            ColorStop {
+                offset: 0.,
+                color: Color::from_rgb8(255, 0, 0).into(),
+            },
+            ColorStop {
+                offset: 0.993,
+                color: Color::from_rgb8(255, 0, 0).into(),
+            },
+            ColorStop {
+                offset: 1.,
+                color: Color::from_rgb8(0, 255, 0).into(),
+            },
+        ]),
+    );
+    ctx.fill_rect(&Rect::new(0., 0., 100., 50.));
 }
