@@ -565,6 +565,6 @@ mod tests {
         tiles.sort_tiles();
 
         let tile = tiles.get(1);
-        assert_eq!(tile.x, 4)
+        assert_eq!(tile.x, 4);
     }
 }
