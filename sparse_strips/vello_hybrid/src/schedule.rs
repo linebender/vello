@@ -498,7 +498,7 @@ impl Scheduler {
                     } else {
                         (clip_fill.x as u16, nos.slot_ix as u16 * Tile::HEIGHT)
                     };
-                    let paint = COLOR_SOURCE_SLOT << 31 | 0xFF;  // Full opacity in first 8 bits.
+                    let paint = COLOR_SOURCE_SLOT << 31 | 0xFF; // Full opacity in first 8 bits.
                     draw.0.push(GpuStrip {
                         x,
                         y,
@@ -539,13 +539,16 @@ impl Scheduler {
                 Cmd::Blend(mode) => {
                     // This blend mode is implicitly supported. Currently no other blend mode is
                     // supported in `vello_hybrid`.
-                    assert!(matches!(
-                        mode,
-                        BlendMode {
-                            mix: Mix::Normal,
-                            compose: Compose::SrcOver
-                        }
-                    ));
+                    assert!(
+                        matches!(
+                            mode,
+                            BlendMode {
+                                mix: Mix::Normal,
+                                compose: Compose::SrcOver
+                            }
+                        ),
+                        "Changing blend mode is unsupported"
+                    );
 
                     let tos = state.stack.last().unwrap();
                     let nos = &state.stack[state.stack.len() - 2];
