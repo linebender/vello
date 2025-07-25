@@ -777,6 +777,7 @@ impl PathCostData {
 fn estimate_path_cost(path_cost_data: &PathCostData, is_stroke: bool) -> f32 {
     let mut cost = path_cost_data.num_line_segments as f32;
     cost += path_cost_data.num_curve_segments as f32 * 2.5;
+    cost = cost * (1.0 + path_cost_data.path_length as f32 / 1024.0);
     
     cost = if is_stroke { cost * 1.5 } else { cost };
     cost
