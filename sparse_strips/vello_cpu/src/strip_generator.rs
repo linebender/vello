@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::kurbo::{Affine, BezPath, Stroke};
+use crate::kurbo::{Affine, BezPath, PathEl, Stroke};
 use crate::peniko::Fill;
 use alloc::vec::Vec;
 use vello_common::fearless_simd::Level;
@@ -36,7 +36,7 @@ impl StripGenerator {
 
     pub(crate) fn generate_filled_path<'a>(
         &'a mut self,
-        path: &BezPath,
+        path: impl IntoIterator<Item=PathEl>,
         fill_rule: Fill,
         transform: Affine,
         func: impl FnOnce(&'a [Strip]),

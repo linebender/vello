@@ -18,11 +18,11 @@ targets = []
 
 [dependencies]
 bytemuck = { workspace = true }
-smallvec = { workspace = true }
 vello_common = { workspace = true }
 crossbeam-channel = { workspace = true, optional = true }
 ordered-channel = { workspace = true, optional = true, features = ["crossbeam-channel"] }
 rayon = { workspace = true, optional = true }
+smallvec = { workspace = true }
 thread_local = { workspace = true, optional = true }
 
 
