@@ -112,7 +112,7 @@ pub fn fill_impl<S: Simd>(simd: S, path: impl IntoIterator<Item = PathEl>, affin
 /// Flatten a stroked bezier path into line segments.
 pub fn stroke(
     level: Level,
-    path: &BezPath,
+    path: impl IntoIterator<Item=PathEl>,
     style: &Stroke,
     affine: Affine,
     line_buf: &mut Vec<Line>,
@@ -120,7 +120,7 @@ pub fn stroke(
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
     let tolerance = TOL / affine.as_coeffs()[0].abs().max(affine.as_coeffs()[3].abs());
 
-    let expanded = expand_stroke(path.iter(), style, tolerance);
+    let expanded = expand_stroke(path, style, tolerance);
     fill(level, &expanded, affine, line_buf);
 }
 

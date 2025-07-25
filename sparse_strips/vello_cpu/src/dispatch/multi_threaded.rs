@@ -16,7 +16,6 @@ use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
-use std::println;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Barrier, OnceLock};
 use smallvec::SmallVec;
@@ -482,14 +481,6 @@ impl Path {
 struct SmallPath(SmallVec<[PathEl; SMALL_PATH_THRESHOLD]>);
 
 impl SmallPath {
-    fn into_path(&self, path: &mut BezPath) {
-        path.truncate(0);
-
-        for el in self.0.iter() {
-            path.push(*el);
-        }
-    }
-
     fn new(path: &BezPath) -> Self {
         let mut small_path = SmallVec::new();
 
@@ -590,7 +581,6 @@ enum CoarseCommand {
 struct Worker {
     strip_generator: StripGenerator,
     thread_id: u8,
-    temp_path: BezPath,
     alpha_storage: Arc<OnceLockAlphaStorage>,
 }
 
@@ -607,7 +597,6 @@ impl Worker {
         Self {
             strip_generator,
             thread_id,
-            temp_path: BezPath::new(),
             alpha_storage,
         }
     }
@@ -670,10 +659,8 @@ impl Worker {
                                 .generate_stroked_path(&b, &stroke, transform, func);
                         }
                         Path::Small(s) => {
-                            s.into_path(&mut self.temp_path);
-
                             self.strip_generator
-                                .generate_stroked_path(&self.temp_path, &stroke, transform, func);
+                                .generate_stroked_path(s.elements(), &stroke, transform, func);
                         }
                     }
                 }
