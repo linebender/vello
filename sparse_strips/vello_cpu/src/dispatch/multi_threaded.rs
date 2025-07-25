@@ -537,14 +537,14 @@ impl RenderTask {
                 };
                 estimate_path_cost(&path_cost_data, true)
             }
-            Self::PushLayer { clip_path, .. } => clip_path
+            Self::PushLayer { clip_path, .. } => 5.0 + clip_path
                 .as_ref()
                 .map(|c| {
                     let path_cost_data = PathCostData::new(c.0.segments(), c.1);
                     estimate_path_cost(&path_cost_data, false)
                 })
                 .unwrap_or(0.0),
-            Self::PopLayer { .. } => 0.0,
+            Self::PopLayer { .. } => 5.0,
         }
     }
 }
