@@ -31,9 +31,9 @@ use vello_common::strip::Strip;
 // TODO: Fine-tune this parameter.
 const COST_THRESHOLD: f32 = 250.0;
 
-type RenderTasksSender = crossbeam_channel::Sender<Vec<RenderTask>>;
-type CoarseCommandSender = ordered_channel::Sender<CoarseCommand>;
-type CoarseCommandReceiver = ordered_channel::Receiver<CoarseCommand>;
+type RenderTasksSender = crossbeam_channel::Sender<(u32, Vec<RenderTask>)>;
+type CoarseCommandSender = ordered_channel::Sender<Vec<CoarseCommand>>;
+type CoarseCommandReceiver = ordered_channel::Receiver<Vec<CoarseCommand>>;
 
 // TODO: In many cases, we pass a reference to an owned path in vello_common/vello_cpu, only
 // to later clone it because the multi-threaded dispatcher needs owned access to the structs.
@@ -47,7 +47,7 @@ pub(crate) struct MultiThreadedDispatcher {
     workers: Arc<ThreadLocal<RefCell<Worker>>>,
     result_receiver: Option<CoarseCommandReceiver>,
     alpha_storage: Arc<OnceLockAlphaStorage>,
-    task_idx: usize,
+    task_idx: u32,
     num_threads: u16,
     level: Level,
     flushed: bool,
@@ -122,7 +122,7 @@ impl MultiThreadedDispatcher {
             let mut worker = worker.borrow_mut();
 
             while let Ok(tasks) = render_task_receiver.recv() {
-                worker.run_tasks(tasks, &mut coarse_command_sender);
+                worker.run_tasks(tasks.0, tasks.1, &mut coarse_command_sender);
             }
 
             // If we reach this point, it means the task_sender has been dropped by the main thread
@@ -154,15 +154,16 @@ impl MultiThreadedDispatcher {
         self.send_pending_tasks(tasks);
     }
 
-    fn bump_task_idx(&mut self) -> usize {
+    fn bump_task_idx(&mut self) -> u32 {
         let idx = self.task_idx;
         self.task_idx += 1;
         idx
     }
 
     fn send_pending_tasks(&mut self, tasks: Vec<RenderTask>) {
+        let task_idx = self.bump_task_idx();
         let task_sender = self.task_sender.as_mut().unwrap();
-        task_sender.send(tasks).unwrap();
+        task_sender.send((task_idx, tasks)).unwrap();
         self.run_coarse(true);
     }
 
@@ -183,23 +184,27 @@ impl MultiThreadedDispatcher {
 
         loop {
             match result_receiver.try_recv() {
-                Ok(cmd) => match cmd {
-                    CoarseCommand::Render {
-                        thread_id,
-                        strips,
-                        fill_rule,
-                        paint,
-                    } => self.wide.generate(&strips, fill_rule, paint, thread_id),
-                    CoarseCommand::PushLayer {
-                        thread_id,
-                        clip_path,
-                        blend_mode,
-                        mask,
-                        opacity,
-                    } => self
-                        .wide
-                        .push_layer(clip_path, blend_mode, mask, opacity, thread_id),
-                    CoarseCommand::PopLayer => self.wide.pop_layer(),
+                Ok(cmds) => {
+                    for cmd in cmds {
+                        match cmd {
+                            CoarseCommand::Render {
+                                thread_id,
+                                strips,
+                                fill_rule,
+                                paint,
+                            } => self.wide.generate(&strips, fill_rule, paint, thread_id),
+                            CoarseCommand::PushLayer {
+                                thread_id,
+                                clip_path,
+                                blend_mode,
+                                mask,
+                                opacity,
+                            } => self
+                                .wide
+                                .push_layer(clip_path, blend_mode, mask, opacity, thread_id),
+                            CoarseCommand::PopLayer => self.wide.pop_layer(),
+                        }
+                    }
                 },
                 Err(e) => match e {
                     TryRecvError::Empty => {
@@ -265,26 +270,20 @@ impl Dispatcher for MultiThreadedDispatcher {
     }
 
     fn fill_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, paint: Paint) {
-        let task_idx = self.bump_task_idx();
-
         self.register_task(RenderTask::FillPath {
             path: Path::new(path),
             transform,
             paint,
             fill_rule,
-            task_idx,
         });
     }
 
     fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint) {
-        let task_idx = self.bump_task_idx();
-
         self.register_task(RenderTask::StrokePath {
             path: Path::new(path),
             transform,
             paint,
             stroke: stroke.clone(),
-            task_idx,
         });
     }
 
@@ -297,22 +296,17 @@ impl Dispatcher for MultiThreadedDispatcher {
         opacity: f32,
         mask: Option<Mask>,
     ) {
-        let task_idx = self.bump_task_idx();
-
         self.register_task(RenderTask::PushLayer {
             clip_path: clip_path.cloned().map(|c| (c, clip_transform)),
             blend_mode,
             opacity,
             mask,
             fill_rule,
-            task_idx,
         });
     }
 
     fn pop_layer(&mut self) {
-        let task_idx = self.bump_task_idx();
-
-        self.register_task(RenderTask::PopLayer { task_idx });
+        self.register_task(RenderTask::PopLayer);
     }
 
     fn reset(&mut self) {
@@ -505,14 +499,12 @@ enum RenderTask {
         transform: Affine,
         paint: Paint,
         fill_rule: Fill,
-        task_idx: usize,
     },
     StrokePath {
         path: Path,
         transform: Affine,
         paint: Paint,
         stroke: Stroke,
-        task_idx: usize,
     },
     PushLayer {
         clip_path: Option<(BezPath, Affine)>,
@@ -520,11 +512,8 @@ enum RenderTask {
         opacity: f32,
         mask: Option<Mask>,
         fill_rule: Fill,
-        task_idx: usize,
     },
-    PopLayer {
-        task_idx: usize,
-    },
+    PopLayer,
 }
 
 impl RenderTask {
@@ -605,7 +594,9 @@ impl Worker {
         self.strip_generator.reset();
     }
 
-    fn run_tasks(&mut self, tasks: Vec<RenderTask>, result_sender: &mut CoarseCommandSender) {
+    fn run_tasks(&mut self, task_idx: u32, tasks: Vec<RenderTask>, result_sender: &mut CoarseCommandSender) {
+        let mut task_buf = Vec::with_capacity(tasks.len());
+        
         for task in tasks {
             match task {
                 RenderTask::FillPath {
@@ -613,7 +604,6 @@ impl Worker {
                     transform,
                     paint,
                     fill_rule,
-                    task_idx,
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseCommand::Render {
@@ -622,7 +612,8 @@ impl Worker {
                             fill_rule,
                             paint,
                         };
-                        result_sender.send(task_idx, coarse_command).unwrap();
+                        
+                        task_buf.push(coarse_command);
                     };
 
                     match path {
@@ -641,7 +632,6 @@ impl Worker {
                     transform,
                     paint,
                     stroke,
-                    task_idx,
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseCommand::Render {
@@ -650,7 +640,8 @@ impl Worker {
                             fill_rule: Fill::NonZero,
                             paint,
                         };
-                        result_sender.send(task_idx, coarse_command).unwrap();
+                        
+                        task_buf.push(coarse_command);
                     };
 
                     match path {
@@ -670,7 +661,6 @@ impl Worker {
                     opacity,
                     mask,
                     fill_rule,
-                    task_idx,
                 } => {
                     let clip = if let Some((c, transform)) = clip_path {
                         let mut strip_buf = &[][..];
@@ -694,15 +684,15 @@ impl Worker {
                         opacity,
                     };
 
-                    result_sender.send(task_idx, coarse_command).unwrap();
+                    task_buf.push(coarse_command);
                 }
-                RenderTask::PopLayer { task_idx } => {
-                    result_sender
-                        .send(task_idx, CoarseCommand::PopLayer)
-                        .unwrap();
+                RenderTask::PopLayer => {
+                    task_buf.push(CoarseCommand::PopLayer);
                 }
             }
         }
+        
+        result_sender.send(task_idx as usize, task_buf).unwrap();
     }
 
     fn place_alphas(&mut self) {
