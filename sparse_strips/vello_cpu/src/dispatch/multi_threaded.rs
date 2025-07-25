@@ -16,6 +16,7 @@ use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
+use std::println;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Barrier, OnceLock};
 use smallvec::SmallVec;
@@ -29,7 +30,7 @@ use vello_common::paint::Paint;
 use vello_common::strip::Strip;
 
 // TODO: Fine-tune this parameter.
-const COST_THRESHOLD: f32 = 5.0;
+const COST_THRESHOLD: f32 = 250.0;
 
 type RenderTasksSender = crossbeam_channel::Sender<Vec<RenderTask>>;
 type CoarseCommandSender = ordered_channel::Sender<CoarseCommand>;
@@ -150,7 +151,7 @@ impl MultiThreadedDispatcher {
     }
 
     fn flush_tasks(&mut self) {
-        let tasks = std::mem::replace(&mut self.task_batch, Vec::with_capacity(50));
+        let tasks = std::mem::replace(&mut self.task_batch, Vec::with_capacity(1));
         self.send_pending_tasks(tasks);
     }
 
@@ -483,22 +484,26 @@ struct SmallPath(SmallVec<[PathEl; SMALL_PATH_THRESHOLD]>);
 impl SmallPath {
     fn into_path(&self, path: &mut BezPath) {
         path.truncate(0);
-        
+
         for el in self.0.iter() {
             path.push(*el);
         }
     }
-    
+
     fn new(path: &BezPath) -> Self {
         let mut small_path = SmallVec::new();
-        
+
         small_path.extend_from_slice(path.elements());
-        
+
         Self(small_path)
     }
-    
+
     fn segments(&self) -> impl Iterator<Item = PathSeg> {
         segments(self.0.iter().copied())
+    }
+    
+    fn elements(&self) -> impl Iterator<Item = PathEl> {
+        self.0.iter().copied()
     }
 }
 
@@ -541,7 +546,7 @@ impl RenderTask {
                     Path::Bez(b) => PathCostData::new(b.segments(), *transform),
                     Path::Small(s) => PathCostData::new(s.segments(), *transform)
                 };
-                estimate_runtime_in_micros(&path_cost_data, false)
+                estimate_path_cost(&path_cost_data, false)
             }
             Self::StrokePath {
                 path, transform, ..
@@ -550,13 +555,13 @@ impl RenderTask {
                     Path::Bez(b) => PathCostData::new(b.segments(), *transform),
                     Path::Small(s) => PathCostData::new(s.segments(), *transform)
                 };
-                estimate_runtime_in_micros(&path_cost_data, true)
+                estimate_path_cost(&path_cost_data, true)
             }
             Self::PushLayer { clip_path, .. } => clip_path
                 .as_ref()
                 .map(|c| {
                     let path_cost_data = PathCostData::new(c.0.segments(), c.1);
-                    estimate_runtime_in_micros(&path_cost_data, false)
+                    estimate_path_cost(&path_cost_data, false)
                 })
                 .unwrap_or(0.0),
             Self::PopLayer { .. } => 0.0,
@@ -630,16 +635,15 @@ impl Worker {
                         };
                         result_sender.send(task_idx, coarse_command).unwrap();
                     };
-                    
+
                     match path {
                         Path::Bez(b) => {
                             self.strip_generator
                                 .generate_filled_path(&b, fill_rule, transform, func);
                         }
                         Path::Small(s) => {
-                            s.into_path(&mut self.temp_path);
                             self.strip_generator
-                                .generate_filled_path(&self.temp_path, fill_rule, transform, func);
+                                .generate_filled_path(s.elements(), fill_rule, transform, func);
                         }
                     }
                 }
@@ -684,7 +688,7 @@ impl Worker {
                     let clip = if let Some((c, transform)) = clip_path {
                         let mut strip_buf = &[][..];
                         self.strip_generator.generate_filled_path(
-                            &c,
+                            c,
                             fill_rule,
                             transform,
                             |strips| strip_buf = strips,
@@ -769,25 +773,11 @@ impl PathCostData {
     }
 }
 
-// This formula was derived by recording benchmarks of how long paths with a certain set of properties
-// take to render and then use "machine learning" to derive a formula which approximates the runtime.
-// The result will be far from accurate, but all we need is a ballpark range, and it's important
-// that the calculation is relatively fast, since it will be run on the main thread for each path.
-// TODO: We will need to update the formula once SIMD + faster stroke expansion landed.
-fn estimate_runtime_in_micros(path_cost_data: &PathCostData, is_stroke: bool) -> f32 {
-    let line_segments = path_cost_data.num_line_segments as f64;
-    let curve_segments = path_cost_data.num_curve_segments as f64;
-    let path_length = path_cost_data.path_length;
 
-    let line_log = (1.0 + line_segments).ln();
-    let curve_log = (1.0 + curve_segments).ln();
-    let path_log = (1.0 + path_length).ln();
-
-    let complexity = 4.6223 - 3.5740 * line_log + 12.5549 * curve_log - 1.4774 * path_log
-        + 1.1412 * line_log * path_log;
-
-    let stroke_multiplier = if is_stroke { 6.8737 } else { 1.0 };
-    let runtime = complexity * stroke_multiplier;
-
-    runtime.max(0.0) as f32
+fn estimate_path_cost(path_cost_data: &PathCostData, is_stroke: bool) -> f32 {
+    let mut cost = path_cost_data.num_line_segments as f32;
+    cost += path_cost_data.num_curve_segments as f32 * 2.5;
+    
+    cost = if is_stroke { cost * 1.5 } else { cost };
+    cost
 }
