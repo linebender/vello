@@ -8,7 +8,7 @@ const SMALL_PATH_THRESHOLD: usize = 12;
 /// of paths. Because of this, we allocate small paths on the stack instead.
 ///
 /// This optimization is not just based on intuition but has actually been shown to have
-/// a significant effect on certain benchmarks.
+/// a significant positive effect on certain benchmarks.
 #[derive(Debug, Clone)]
 pub(crate) enum Path {
     Bez(BezPath),
