@@ -7,6 +7,7 @@ use crate::renderer::Renderer;
 use crate::util::crossed_line_star;
 use std::f64::consts::PI;
 use std::sync::Arc;
+use vello_common::color::palette::css::REBECCA_PURPLE;
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{Extend, ImageQuality};
@@ -250,6 +251,29 @@ fn image_global_alpha(ctx: &mut impl Renderer) {
 
     ctx.set_paint(image);
     ctx.fill_rect(&rect);
+}
+
+#[vello_test]
+fn image_with_opacity(ctx: &mut impl Renderer) {
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+
+    ctx.push_opacity_layer(0.5);
+
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    let image_source = rgb_img_10x10(ctx);
+
+    let image = Image {
+        source: image_source,
+        x_extend: Extend::Repeat,
+        y_extend: Extend::Repeat,
+        quality: ImageQuality::Low,
+    };
+
+    ctx.set_paint(image);
+    ctx.fill_rect(&rect);
+
+    ctx.pop_layer();
 }
 
 fn image_format(ctx: &mut impl Renderer, image_source: ImageSource) {
