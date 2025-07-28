@@ -308,3 +308,26 @@ fn gradient_radial_wrong_color(ctx: &mut impl Renderer) {
     );
     ctx.fill_rect(&Rect::new(0., 0., 100., 50.));
 }
+
+// https://github.com/web-platform-tests/wpt/blob/master/html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.outside3.html
+// See <https://github.com/linebender/vello/issues/1124>.
+#[vello_test(width = 100, height = 50)]
+fn gradient_radial_wrong_color2(ctx: &mut impl Renderer) {
+    ctx.set_paint(
+        Gradient::new_two_point_radial((200., 25.), 20., (200., 25.), 10.).with_stops([
+            ColorStop {
+                offset: 0.,
+                color: Color::from_rgb8(0, 255, 0).into(),
+            },
+            ColorStop {
+                offset: 0.001,
+                color: Color::from_rgb8(255, 0, 0).into(),
+            },
+            ColorStop {
+                offset: 1.,
+                color: Color::from_rgb8(255, 0, 0).into(),
+            },
+        ]),
+    );
+    ctx.fill_rect(&Rect::new(0., 0., 100., 50.));
+}

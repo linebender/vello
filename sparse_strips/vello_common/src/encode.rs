@@ -907,12 +907,7 @@ pub struct GradientLut<T: FromF32Color> {
 impl<T: FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
-        // Inspired by Blend2D.
-        let lut_size = match ranges.len() {
-            1 => 256,
-            2 => 512,
-            _ => 1024,
-        };
+        let lut_size = determine_lut_size(ranges);
 
         // Add a bit of padding since we always process in blocks of 4, even though less might be
         // needed.
@@ -990,6 +985,41 @@ impl<T: FromF32Color> GradientLut<T> {
     pub fn scale_factor(&self) -> f32 {
         self.scale
     }
+}
+
+fn determine_lut_size(ranges: &[GradientRange]) -> usize {
+    // Of course in theory we could still have a stop at 0.0001 in which case this resolution
+    // wouldn't be enough, but for all intents and purposes this should be more than sufficient
+    // for most real cases.
+    const MAX_LEN: usize = 4096;
+
+    // Inspired by Blend2D.
+    // By default:
+    // 256 for 2 stops.
+    // 512 for 3 stops.
+    // 1024 for 4 or more stops.
+    let stop_len = match ranges.len() {
+        1 => 256,
+        2 => 512,
+        _ => 1024,
+    };
+
+    
+    // In case we have some tricky stops (for example 3 stops with 0.0, 0.001, 1.0), we might
+    // increase the resolution.
+    let mut last_x1 = 0.0;
+    let mut min_size = 0;
+
+    for x1 in ranges.iter().map(|e| e.x1) {
+        // For example, if the first stop is at 0.001, then we need a resolution of at least 1000
+        // so that we can still safely capture the first stop.
+        let res = ((1.0 / (x1 - last_x1)).ceil() as usize).next_power_of_two();
+        min_size = min_size.max(res);
+        last_x1 = x1;
+    }
+    
+    // Take the maximum of both, but don't exceed `MAX_LEN`.
+    stop_len.max(min_size).min(MAX_LEN)
 }
 
 mod private {
