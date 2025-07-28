@@ -4,6 +4,7 @@
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
+use crate::dispatch::multi_threaded::small_path::Path;
 use crate::dispatch::multi_threaded::worker::Worker;
 use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
 use crate::kurbo::{Affine, BezPath, PathSeg, Stroke};
@@ -16,7 +17,6 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
-use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Barrier, OnceLock};
@@ -24,12 +24,12 @@ use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Fallback, Level, Simd};
-use vello_common::kurbo::{PathEl, segments};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
 
 mod cost;
+mod small_path;
 mod worker;
 
 type RenderTasksSender = crossbeam_channel::Sender<(u32, Vec<RenderTask>)>;
@@ -451,45 +451,6 @@ impl OnceLockAlphaStorage {
 impl Debug for MultiThreadedDispatcher {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.write_str("MultiThreadedDispatcher { .. }")
-    }
-}
-
-const SMALL_PATH_THRESHOLD: usize = 12;
-
-#[derive(Debug, Clone)]
-pub(crate) enum Path {
-    Bez(BezPath),
-    Small(SmallPath),
-}
-
-impl Path {
-    fn new(path: &BezPath) -> Self {
-        if path.elements().len() < SMALL_PATH_THRESHOLD {
-            Path::Small(SmallPath::new(path))
-        } else {
-            Path::Bez(path.clone())
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct SmallPath(SmallVec<[PathEl; SMALL_PATH_THRESHOLD]>);
-
-impl SmallPath {
-    fn new(path: &BezPath) -> Self {
-        let mut small_path = SmallVec::new();
-
-        small_path.extend_from_slice(path.elements());
-
-        Self(small_path)
-    }
-
-    pub(crate) fn segments(&self) -> impl Iterator<Item = PathSeg> {
-        segments(self.0.iter().copied())
-    }
-
-    pub(crate) fn elements(&self) -> impl Iterator<Item = PathEl> {
-        self.0.iter().copied()
     }
 }
 
