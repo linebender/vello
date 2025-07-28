@@ -36,7 +36,7 @@ impl StripGenerator {
 
     pub(crate) fn generate_filled_path<'a>(
         &'a mut self,
-        path: impl IntoIterator<Item=PathEl>,
+        path: impl IntoIterator<Item = PathEl>,
         fill_rule: Fill,
         transform: Affine,
         func: impl FnOnce(&'a [Strip]),
@@ -48,7 +48,7 @@ impl StripGenerator {
 
     pub(crate) fn generate_stroked_path<'a>(
         &'a mut self,
-        path: impl IntoIterator<Item=PathEl>,
+        path: impl IntoIterator<Item = PathEl>,
         stroke: &Stroke,
         transform: Affine,
         func: impl FnOnce(&'a [Strip]),

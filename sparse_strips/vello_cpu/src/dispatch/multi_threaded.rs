@@ -3,8 +3,9 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
+use crate::dispatch::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
-use crate::kurbo::{Affine, BezPath, PathSeg, Point, Stroke};
+use crate::kurbo::{Affine, BezPath, PathSeg, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
 use crate::strip_generator::StripGenerator;
@@ -15,21 +16,18 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
+use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Barrier, OnceLock};
-use smallvec::SmallVec;
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Fallback, Level, Simd};
-use vello_common::kurbo::{segments, PathEl};
+use vello_common::kurbo::{PathEl, segments};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
-
-// TODO: Fine-tune this parameter.
-const COST_THRESHOLD: f32 = 250.0;
 
 type RenderTasksSender = crossbeam_channel::Sender<(u32, Vec<RenderTask>)>;
 type CoarseCommandSender = ordered_channel::Sender<Vec<CoarseCommand>>;
@@ -139,7 +137,7 @@ impl MultiThreadedDispatcher {
     fn register_task(&mut self, task: RenderTask) {
         self.flushed = false;
 
-        let cost = task.estimate_render_time();
+        let cost = estimate_render_task_cost(&task);
         self.task_batch.push(task);
         self.batch_cost += cost;
 
@@ -205,7 +203,7 @@ impl MultiThreadedDispatcher {
                             CoarseCommand::PopLayer => self.wide.pop_layer(),
                         }
                     }
-                },
+                }
                 Err(e) => match e {
                     TryRecvError::Empty => {
                         if abort_empty {
@@ -456,7 +454,7 @@ impl Debug for MultiThreadedDispatcher {
 const SMALL_PATH_THRESHOLD: usize = 12;
 
 #[derive(Debug, Clone)]
-enum Path {
+pub(crate) enum Path {
     Bez(BezPath),
     Small(SmallPath),
 }
@@ -472,7 +470,7 @@ impl Path {
 }
 
 #[derive(Debug, Clone)]
-struct SmallPath(SmallVec<[PathEl; SMALL_PATH_THRESHOLD]>);
+pub(crate) struct SmallPath(SmallVec<[PathEl; SMALL_PATH_THRESHOLD]>);
 
 impl SmallPath {
     fn new(path: &BezPath) -> Self {
@@ -483,17 +481,17 @@ impl SmallPath {
         Self(small_path)
     }
 
-    fn segments(&self) -> impl Iterator<Item = PathSeg> {
+    pub(crate) fn segments(&self) -> impl Iterator<Item = PathSeg> {
         segments(self.0.iter().copied())
     }
-    
+
     fn elements(&self) -> impl Iterator<Item = PathEl> {
         self.0.iter().copied()
     }
 }
 
 #[derive(Debug)]
-enum RenderTask {
+pub(crate) enum RenderTask {
     FillPath {
         path: Path,
         transform: Affine,
@@ -514,39 +512,6 @@ enum RenderTask {
         fill_rule: Fill,
     },
     PopLayer,
-}
-
-impl RenderTask {
-    fn estimate_render_time(&self) -> f32 {
-        match self {
-            Self::FillPath {
-                path, transform, ..
-            } => {
-                let path_cost_data =  match path {
-                    Path::Bez(b) => PathCostData::new(b.segments(), *transform),
-                    Path::Small(s) => PathCostData::new(s.segments(), *transform)
-                };
-                estimate_path_cost(&path_cost_data, false)
-            }
-            Self::StrokePath {
-                path, transform, ..
-            } => {
-                let path_cost_data =  match path {
-                    Path::Bez(b) => PathCostData::new(b.segments(), *transform),
-                    Path::Small(s) => PathCostData::new(s.segments(), *transform)
-                };
-                estimate_path_cost(&path_cost_data, true)
-            }
-            Self::PushLayer { clip_path, .. } => 5.0 + clip_path
-                .as_ref()
-                .map(|c| {
-                    let path_cost_data = PathCostData::new(c.0.segments(), c.1);
-                    estimate_path_cost(&path_cost_data, false)
-                })
-                .unwrap_or(0.0),
-            Self::PopLayer { .. } => 5.0,
-        }
-    }
 }
 
 enum CoarseCommand {
@@ -594,9 +559,14 @@ impl Worker {
         self.strip_generator.reset();
     }
 
-    fn run_tasks(&mut self, task_idx: u32, tasks: Vec<RenderTask>, result_sender: &mut CoarseCommandSender) {
+    fn run_tasks(
+        &mut self,
+        task_idx: u32,
+        tasks: Vec<RenderTask>,
+        result_sender: &mut CoarseCommandSender,
+    ) {
         let mut task_buf = Vec::with_capacity(tasks.len());
-        
+
         for task in tasks {
             match task {
                 RenderTask::FillPath {
@@ -612,7 +582,7 @@ impl Worker {
                             fill_rule,
                             paint,
                         };
-                        
+
                         task_buf.push(coarse_command);
                     };
 
@@ -622,8 +592,12 @@ impl Worker {
                                 .generate_filled_path(&b, fill_rule, transform, func);
                         }
                         Path::Small(s) => {
-                            self.strip_generator
-                                .generate_filled_path(s.elements(), fill_rule, transform, func);
+                            self.strip_generator.generate_filled_path(
+                                s.elements(),
+                                fill_rule,
+                                transform,
+                                func,
+                            );
                         }
                     }
                 }
@@ -640,7 +614,7 @@ impl Worker {
                             fill_rule: Fill::NonZero,
                             paint,
                         };
-                        
+
                         task_buf.push(coarse_command);
                     };
 
@@ -650,8 +624,12 @@ impl Worker {
                                 .generate_stroked_path(&b, &stroke, transform, func);
                         }
                         Path::Small(s) => {
-                            self.strip_generator
-                                .generate_stroked_path(s.elements(), &stroke, transform, func);
+                            self.strip_generator.generate_stroked_path(
+                                s.elements(),
+                                &stroke,
+                                transform,
+                                func,
+                            );
                         }
                     }
                 }
@@ -691,7 +669,7 @@ impl Worker {
                 }
             }
         }
-        
+
         result_sender.send(task_idx as usize, task_buf).unwrap();
     }
 
@@ -699,63 +677,4 @@ impl Worker {
         let alpha_data = self.strip_generator.alpha_buf().to_vec();
         let _ = self.alpha_storage.store(self.thread_id, alpha_data);
     }
-}
-
-struct PathCostData {
-    num_line_segments: u64,
-    num_curve_segments: u64,
-    path_length: f64,
-}
-
-impl PathCostData {
-    fn new(path: impl IntoIterator<Item = PathSeg>, transform: Affine) -> Self {
-        let mut num_line_segments = 0;
-        let mut num_curve_segments = 0;
-        let mut path_length = 0.0;
-
-        let mut register_path_length = |mut p0: Point, mut p1: Point| {
-            p0 = transform * p0;
-            p1 = transform * p1;
-            // We don't sqrt here because it's too expensive, we just want a rough estimate.
-            let dx = (p1.x - p0.x).abs();
-            let dy = (p1.y - p0.y).abs();
-            path_length += dx + dy;
-        };
-
-        for seg in path.into_iter() {
-            match seg {
-                PathSeg::Line(l) => {
-                    num_line_segments += 1;
-
-                    register_path_length(l.p0, l.p1);
-                }
-                PathSeg::Quad(q) => {
-                    num_curve_segments += 1;
-
-                    register_path_length(q.p0, q.p2);
-                }
-                PathSeg::Cubic(c) => {
-                    num_curve_segments += 1;
-
-                    register_path_length(c.p0, c.p3);
-                }
-            }
-        }
-
-        Self {
-            num_line_segments,
-            num_curve_segments,
-            path_length,
-        }
-    }
-}
-
-
-fn estimate_path_cost(path_cost_data: &PathCostData, is_stroke: bool) -> f32 {
-    let mut cost = path_cost_data.num_line_segments as f32;
-    cost += path_cost_data.num_curve_segments as f32 * 2.5;
-    cost = cost * (1.0 + path_cost_data.path_length as f32 / 1024.0);
-    
-    cost = if is_stroke { cost * 1.5 } else { cost };
-    cost
 }
