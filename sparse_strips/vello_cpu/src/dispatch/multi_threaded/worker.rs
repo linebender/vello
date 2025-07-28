@@ -1,6 +1,6 @@
 use crate::Level;
 use crate::dispatch::multi_threaded::{
-    CoarseCommand, CoarseCommandSender, OnceLockAlphaStorage, Path, RenderTask,
+    CoarseTask, CoarseCommandSender, OnceLockAlphaStorage, Path, RenderTask,
 };
 use crate::peniko::Fill;
 use crate::strip_generator::StripGenerator;
@@ -53,7 +53,7 @@ impl Worker {
                     fill_rule,
                 } => {
                     let func = |strips: &[Strip]| {
-                        let coarse_command = CoarseCommand::Render {
+                        let coarse_command = CoarseTask::Render {
                             thread_id: self.thread_id,
                             strips: strips.into(),
                             fill_rule,
@@ -85,7 +85,7 @@ impl Worker {
                     stroke,
                 } => {
                     let func = |strips: &[Strip]| {
-                        let coarse_command = CoarseCommand::Render {
+                        let coarse_command = CoarseTask::Render {
                             thread_id: self.thread_id,
                             strips: strips.into(),
                             fill_rule: Fill::NonZero,
@@ -131,7 +131,7 @@ impl Worker {
                         None
                     };
 
-                    let coarse_command = CoarseCommand::PushLayer {
+                    let coarse_command = CoarseTask::PushLayer {
                         thread_id: self.thread_id,
                         clip_path: clip,
                         blend_mode,
@@ -142,7 +142,7 @@ impl Worker {
                     task_buf.push(coarse_command);
                 }
                 RenderTask::PopLayer => {
-                    task_buf.push(CoarseCommand::PopLayer);
+                    task_buf.push(CoarseTask::PopLayer);
                 }
             }
         }

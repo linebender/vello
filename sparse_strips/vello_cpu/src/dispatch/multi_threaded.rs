@@ -33,8 +33,8 @@ mod small_path;
 mod worker;
 
 type RenderTasksSender = crossbeam_channel::Sender<(u32, Vec<RenderTask>)>;
-type CoarseCommandSender = ordered_channel::Sender<Vec<CoarseCommand>>;
-type CoarseCommandReceiver = ordered_channel::Receiver<Vec<CoarseCommand>>;
+type CoarseCommandSender = ordered_channel::Sender<Vec<CoarseTask>>;
+type CoarseCommandReceiver = ordered_channel::Receiver<Vec<CoarseTask>>;
 
 // TODO: In many cases, we pass a reference to an owned path in vello_common/vello_cpu, only
 // to later clone it because the multi-threaded dispatcher needs owned access to the structs.
@@ -188,13 +188,13 @@ impl MultiThreadedDispatcher {
                 Ok(cmds) => {
                     for cmd in cmds {
                         match cmd {
-                            CoarseCommand::Render {
+                            CoarseTask::Render {
                                 thread_id,
                                 strips,
                                 fill_rule,
                                 paint,
                             } => self.wide.generate(&strips, fill_rule, paint, thread_id),
-                            CoarseCommand::PushLayer {
+                            CoarseTask::PushLayer {
                                 thread_id,
                                 clip_path,
                                 blend_mode,
@@ -203,7 +203,7 @@ impl MultiThreadedDispatcher {
                             } => self
                                 .wide
                                 .push_layer(clip_path, blend_mode, mask, opacity, thread_id),
-                            CoarseCommand::PopLayer => self.wide.pop_layer(),
+                            CoarseTask::PopLayer => self.wide.pop_layer(),
                         }
                     }
                 }
@@ -478,7 +478,7 @@ pub(crate) enum RenderTask {
     PopLayer,
 }
 
-pub(crate) enum CoarseCommand {
+pub(crate) enum CoarseTask {
     Render {
         thread_id: u8,
         strips: Box<[Strip]>,
