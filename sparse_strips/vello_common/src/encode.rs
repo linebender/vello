@@ -16,6 +16,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
+use std::println;
 use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
 use smallvec::SmallVec;
 // So we can just use `OnceCell` regardless of which feature is activated.
@@ -1012,13 +1013,13 @@ fn determine_lut_size(ranges: &[GradientRange]) -> usize {
     for x1 in ranges.iter().map(|e| e.x1) {
         // For example, if the first stop is at 0.001, then we need a resolution of at least 1000
         // so that we can still safely capture the first stop.
-        let res = ((1.0 / (x1 - last_x1)).ceil() as usize).next_power_of_two();
+        let res = ((1.0 / (x1 - last_x1)).ceil() as usize).min(MAX_LEN).next_power_of_two();
         min_size = min_size.max(res);
         last_x1 = x1;
     }
 
     // Take the maximum of both, but don't exceed `MAX_LEN`.
-    stop_len.max(min_size).min(MAX_LEN)
+    stop_len.max(min_size)
 }
 
 mod private {
