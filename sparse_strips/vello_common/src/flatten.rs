@@ -72,7 +72,12 @@ impl Line {
 }
 
 /// Flatten a filled bezier path into line segments.
-pub fn fill(level: Level, path: impl IntoIterator<Item = PathEl>, affine: Affine, line_buf: &mut Vec<Line>) {
+pub fn fill(
+    level: Level,
+    path: impl IntoIterator<Item = PathEl>,
+    affine: Affine,
+    line_buf: &mut Vec<Line>,
+) {
     fill_dispatch(level, path, affine, line_buf);
 }
 
@@ -84,7 +89,12 @@ simd_dispatch!(fill_dispatch(
 ) = fill_impl);
 
 /// Flatten a filled bezier path into line segments.
-pub fn fill_impl<S: Simd>(simd: S, path: impl IntoIterator<Item = PathEl>, affine: Affine, line_buf: &mut Vec<Line>) {
+pub fn fill_impl<S: Simd>(
+    simd: S,
+    path: impl IntoIterator<Item = PathEl>,
+    affine: Affine,
+    line_buf: &mut Vec<Line>,
+) {
     line_buf.clear();
     let iter = path.into_iter().map(|el| affine * el);
 
@@ -112,7 +122,7 @@ pub fn fill_impl<S: Simd>(simd: S, path: impl IntoIterator<Item = PathEl>, affin
 /// Flatten a stroked bezier path into line segments.
 pub fn stroke(
     level: Level,
-    path: impl IntoIterator<Item=PathEl>,
+    path: impl IntoIterator<Item = PathEl>,
     style: &Stroke,
     affine: Affine,
     line_buf: &mut Vec<Line>,
