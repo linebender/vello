@@ -1004,7 +1004,6 @@ fn determine_lut_size(ranges: &[GradientRange]) -> usize {
         _ => 1024,
     };
 
-    
     // In case we have some tricky stops (for example 3 stops with 0.0, 0.001, 1.0), we might
     // increase the resolution.
     let mut last_x1 = 0.0;
@@ -1017,7 +1016,7 @@ fn determine_lut_size(ranges: &[GradientRange]) -> usize {
         min_size = min_size.max(res);
         last_x1 = x1;
     }
-    
+
     // Take the maximum of both, but don't exceed `MAX_LEN`.
     stop_len.max(min_size).min(MAX_LEN)
 }
