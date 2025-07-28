@@ -3,12 +3,12 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
-use crate::dispatch::cost::{COST_THRESHOLD, estimate_render_task_cost};
+use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
+use crate::dispatch::multi_threaded::worker::Worker;
 use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
 use crate::kurbo::{Affine, BezPath, PathSeg, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
-use crate::strip_generator::StripGenerator;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -28,6 +28,9 @@ use vello_common::kurbo::{PathEl, segments};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
+
+mod cost;
+mod worker;
 
 type RenderTasksSender = crossbeam_channel::Sender<(u32, Vec<RenderTask>)>;
 type CoarseCommandSender = ordered_channel::Sender<Vec<CoarseCommand>>;
@@ -485,7 +488,7 @@ impl SmallPath {
         segments(self.0.iter().copied())
     }
 
-    fn elements(&self) -> impl Iterator<Item = PathEl> {
+    pub(crate) fn elements(&self) -> impl Iterator<Item = PathEl> {
         self.0.iter().copied()
     }
 }
@@ -514,7 +517,7 @@ pub(crate) enum RenderTask {
     PopLayer,
 }
 
-enum CoarseCommand {
+pub(crate) enum CoarseCommand {
     Render {
         thread_id: u8,
         strips: Box<[Strip]>,
@@ -529,152 +532,4 @@ enum CoarseCommand {
         opacity: f32,
     },
     PopLayer,
-}
-
-#[derive(Debug)]
-struct Worker {
-    strip_generator: StripGenerator,
-    thread_id: u8,
-    alpha_storage: Arc<OnceLockAlphaStorage>,
-}
-
-impl Worker {
-    fn new(
-        width: u16,
-        height: u16,
-        thread_id: u8,
-        alpha_storage: Arc<OnceLockAlphaStorage>,
-        level: Level,
-    ) -> Self {
-        let strip_generator = StripGenerator::new(width, height, level);
-
-        Self {
-            strip_generator,
-            thread_id,
-            alpha_storage,
-        }
-    }
-
-    fn reset(&mut self) {
-        self.strip_generator.reset();
-    }
-
-    fn run_tasks(
-        &mut self,
-        task_idx: u32,
-        tasks: Vec<RenderTask>,
-        result_sender: &mut CoarseCommandSender,
-    ) {
-        let mut task_buf = Vec::with_capacity(tasks.len());
-
-        for task in tasks {
-            match task {
-                RenderTask::FillPath {
-                    path,
-                    transform,
-                    paint,
-                    fill_rule,
-                } => {
-                    let func = |strips: &[Strip]| {
-                        let coarse_command = CoarseCommand::Render {
-                            thread_id: self.thread_id,
-                            strips: strips.into(),
-                            fill_rule,
-                            paint,
-                        };
-
-                        task_buf.push(coarse_command);
-                    };
-
-                    match path {
-                        Path::Bez(b) => {
-                            self.strip_generator
-                                .generate_filled_path(&b, fill_rule, transform, func);
-                        }
-                        Path::Small(s) => {
-                            self.strip_generator.generate_filled_path(
-                                s.elements(),
-                                fill_rule,
-                                transform,
-                                func,
-                            );
-                        }
-                    }
-                }
-                RenderTask::StrokePath {
-                    path,
-                    transform,
-                    paint,
-                    stroke,
-                } => {
-                    let func = |strips: &[Strip]| {
-                        let coarse_command = CoarseCommand::Render {
-                            thread_id: self.thread_id,
-                            strips: strips.into(),
-                            fill_rule: Fill::NonZero,
-                            paint,
-                        };
-
-                        task_buf.push(coarse_command);
-                    };
-
-                    match path {
-                        Path::Bez(b) => {
-                            self.strip_generator
-                                .generate_stroked_path(&b, &stroke, transform, func);
-                        }
-                        Path::Small(s) => {
-                            self.strip_generator.generate_stroked_path(
-                                s.elements(),
-                                &stroke,
-                                transform,
-                                func,
-                            );
-                        }
-                    }
-                }
-                RenderTask::PushLayer {
-                    clip_path,
-                    blend_mode,
-                    opacity,
-                    mask,
-                    fill_rule,
-                } => {
-                    let clip = if let Some((c, transform)) = clip_path {
-                        let mut strip_buf = &[][..];
-                        self.strip_generator.generate_filled_path(
-                            c,
-                            fill_rule,
-                            transform,
-                            |strips| strip_buf = strips,
-                        );
-
-                        Some((strip_buf.into(), fill_rule))
-                    } else {
-                        None
-                    };
-
-                    let coarse_command = CoarseCommand::PushLayer {
-                        thread_id: self.thread_id,
-                        clip_path: clip,
-                        blend_mode,
-                        mask,
-                        opacity,
-                    };
-
-                    task_buf.push(coarse_command);
-                }
-                RenderTask::PopLayer => {
-                    task_buf.push(CoarseCommand::PopLayer);
-                }
-            }
-        }
-
-        result_sender.send(task_idx as usize, task_buf).unwrap();
-    }
-
-    fn place_alphas(&mut self) {
-        let alpha_data = self.strip_generator.alpha_buf().to_vec();
-        let _ = self.alpha_storage.store(self.thread_id, alpha_data);
-    }
 }
