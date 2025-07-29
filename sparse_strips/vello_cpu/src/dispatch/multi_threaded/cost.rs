@@ -41,7 +41,7 @@ pub(crate) fn estimate_render_task_cost(task: &RenderTask) -> f32 {
                     .map(|c| estimate_path_cost(c.0.segments(), c.1, false))
                     .unwrap_or(0.0)
         }
-        RenderTask::PopLayer { .. } => LAYER_COST,
+        RenderTask::PopLayer => LAYER_COST,
     }
 }
 
