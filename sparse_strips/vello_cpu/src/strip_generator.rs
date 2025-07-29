@@ -99,7 +99,7 @@ mod tests {
         let mut generator = StripGenerator::new(100, 100, Level::fallback());
         let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
 
-        generator.generate_filled_path(&rect.to_path(0.1), Fill::NonZero, Affine::IDENTITY, |_| {});
+        generator.generate_filled_path(&rect.to_path(0.1), Fill::NonZero, Affine::IDENTITY, true, |_| {});
 
         assert!(!generator.line_buf.is_empty());
         assert!(!generator.strip_buf.is_empty());
