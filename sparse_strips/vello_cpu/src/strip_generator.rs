@@ -67,7 +67,7 @@ impl StripGenerator {
     }
 
     pub(crate) fn take_alpha_buf(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.alphas)
+        core::mem::take(&mut self.alphas)
     }
 
     pub(crate) fn reset(&mut self) {

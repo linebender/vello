@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 use crate::Level;
 use crate::dispatch::multi_threaded::{CoarseTask, CoarseTaskSender, Path, RenderTask};
 use crate::peniko::Fill;

@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 /// There is not much science behind this constant. It was instead determined by doing profiling
 /// and finding a constant that seems to strike a reasonable trade-off between not causing too
 /// big batch sizes
