@@ -112,7 +112,7 @@ fn gradient_with_color_spaces_3(ctx: &mut impl Renderer) {
     gradient_with_color_spaces(ctx, stops_blue_green_red_yellow());
 }
 
-fn padded_stops(ctx: &mut impl Renderer, stops: ColorStops) {
+fn padded_stops(ctx: &mut impl Renderer, offset_1: f32, offset_2: f32) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
     let gradient = Gradient {
@@ -120,7 +120,16 @@ fn padded_stops(ctx: &mut impl Renderer, stops: ColorStops) {
             start: Point::new(10.0, 0.0),
             end: Point::new(90.0, 0.0),
         },
-        stops,
+        stops: ColorStops(smallvec![
+            ColorStop {
+                offset: offset_1,
+                color: DynamicColor::from_alpha_color(GREEN),
+            },
+            ColorStop {
+                offset: offset_2,
+                color: DynamicColor::from_alpha_color(BLUE),
+            },
+        ]),
         ..Default::default()
     };
 
@@ -130,50 +139,17 @@ fn padded_stops(ctx: &mut impl Renderer, stops: ColorStops) {
 
 #[vello_test]
 fn gradient_padded_first_stop(ctx: &mut impl Renderer) {
-    let stops = ColorStops(smallvec![
-        ColorStop {
-            offset: 0.5,
-            color: DynamicColor::from_alpha_color(GREEN),
-        },
-        ColorStop {
-            offset: 1.0,
-            color: DynamicColor::from_alpha_color(BLUE),
-        },
-    ]);
-
-    padded_stops(ctx, stops);
+    padded_stops(ctx, 0.5, 1.0);
 }
 
 #[vello_test]
 fn gradient_padded_last_stop(ctx: &mut impl Renderer) {
-    let stops = ColorStops(smallvec![
-        ColorStop {
-            offset: 0.0,
-            color: DynamicColor::from_alpha_color(GREEN),
-        },
-        ColorStop {
-            offset: 0.5,
-            color: DynamicColor::from_alpha_color(BLUE),
-        },
-    ]);
-
-    padded_stops(ctx, stops);
+    padded_stops(ctx, 0.0, 0.5);
 }
 
 #[vello_test]
 fn gradient_padded_stops(ctx: &mut impl Renderer) {
-    let stops = ColorStops(smallvec![
-        ColorStop {
-            offset: 0.25,
-            color: DynamicColor::from_alpha_color(GREEN),
-        },
-        ColorStop {
-            offset: 0.75,
-            color: DynamicColor::from_alpha_color(BLUE),
-        },
-    ]);
-
-    padded_stops(ctx, stops);
+    padded_stops(ctx, 0.25, 0.75);
 }
 
 mod linear {
