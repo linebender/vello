@@ -13,7 +13,10 @@ const SMALL_PATH_THRESHOLD: usize = 10;
 ///
 /// This optimization is not just based on intuition but has actually been shown to have
 /// a significant positive effect on certain benchmarks.
-#[expect(clippy::large_enum_variant, reason = "we make this trade-off on purpose")]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "we make this trade-off on purpose"
+)]
 #[derive(Debug, Clone)]
 pub(crate) enum Path {
     Bez(BezPath),
