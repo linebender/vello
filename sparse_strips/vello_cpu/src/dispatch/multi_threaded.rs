@@ -32,20 +32,68 @@ mod cost;
 mod small_path;
 mod worker;
 
-type RenderTasksSender = crossbeam_channel::Sender<(u32, Vec<RenderTask>)>;
-type CoarseCommandSender = ordered_channel::Sender<Vec<CoarseTask>>;
-type CoarseCommandReceiver = ordered_channel::Receiver<Vec<CoarseTask>>;
+type RenderTaskSender = crossbeam_channel::Sender<(u32, Vec<RenderTask>)>;
+type CoarseTaskSender = ordered_channel::Sender<Vec<CoarseTask>>;
+type CoarseTaskReceiver = ordered_channel::Receiver<Vec<CoarseTask>>;
 
+/// A dispatcher for multi-threaded rendering.
+///
+/// A small note for future contributors: Unfortunately, the logic of this dispatcher as well as
+/// the lifecycle of the different fields of the dispatcher can be a bit hard to grasp.
+/// The reason for this is that since we have to do a lot of communication across the thread boundary,
+/// we have to work with lots of `Option` and `core::mem::take` operations, to ensure that we are
+/// not needlessly cloning objects.
+///
+/// The below comments will hopefully help with understanding the overall structure and lifecycles
+/// a bit better.
 pub(crate) struct MultiThreadedDispatcher {
+    /// The wide tile container.
     wide: Wide,
+    /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
+    /// The current batch of paths we want to render.
     task_batch: Vec<RenderTask>,
+    /// The cost of the current batch.
     batch_cost: f32,
-    task_sender: Option<RenderTasksSender>,
+    /// The sender used to dispatch new rendering tasks from the main thread.
+    ///
+    /// This field will be set once we call the `init` method.
+    /// This field will be set back to `None` when running `flush` to drop the value and thus
+    /// indicate to receivers that no more rendering tasks will be dispatched from that point onward.
+    task_sender: Option<RenderTaskSender>,
+    /// Contains one worker object for each thread.
+    ///
+    /// The workers will be initialized once when building the multi-threaded dispatcher via
+    /// `MultiThreadedDispatcher::new`.
     workers: Arc<ThreadLocal<RefCell<Worker>>>,
-    result_receiver: Option<CoarseCommandReceiver>,
+    /// The receiver for coarse command tasks, used to do coarse rasterization on the main thread.
+    ///
+    /// Similarly to `task_sender`, this value is set to `None` initially, and will only be set once
+    /// we actually call the `init` method (either when creating the dispatcher for the first time, or
+    /// when resetting it).
+    coarse_task_receiver: Option<CoarseTaskReceiver>,
+    /// The storage for alpha values.
+    ///
+    /// Similarly to the single-threaded dispatcher, we want to be able to reuse the allocation holding
+    /// the alpha values across multiple runs of `reset`. However, we have the problem that during path
+    /// rendering, each thread needs to have its own allocation. We also need to be able to move
+    /// the allocation back and forth between the threads (during path rendering) and the main thread
+    /// (during fine rasterization). Because of this, we wrap it in this `MaybePresent` struct.
+    ///
+    /// During initialization, each thread will "take" the vector allocation out of its slot
+    /// (the vector has a length of `num_threads`, so each thread has a slot belonging to itself)
+    /// and will put it back to its slot after flushing. Then, during fine rasterization, we
+    /// take all slots out of the `MaybePresent` object so that we can easily access each buffer
+    /// when running the commands without having to go through the mutex. After fine rasterization,
+    /// the slots are put back into the `MaybePresent` object.
+    ///
     alpha_storage: MaybePresent<Vec<Vec<u8>>>,
+    /// The task index that will be assigned to the next rendering task.
+    ///
+    /// Since we are rendering the paths on different threads, we need to make sure that they
+    /// come back in the right order. The `task_idx` is used to keep track of that order.
     task_idx: u32,
+    /// The number of threads active in the thread pool.
     num_threads: u16,
     level: Level,
     flushed: bool,
@@ -75,7 +123,7 @@ impl MultiThreadedDispatcher {
             });
         }
 
-        let cmd_idx = 0;
+        let task_idx = 0;
         let batch_cost = 0.0;
         let flushed = false;
 
@@ -84,11 +132,11 @@ impl MultiThreadedDispatcher {
             thread_pool,
             task_batch,
             batch_cost,
-            task_idx: cmd_idx,
+            task_idx,
             flushed,
             workers,
             task_sender: None,
-            result_receiver: None,
+            coarse_task_receiver: None,
             level,
             alpha_storage,
             num_threads,
@@ -101,37 +149,42 @@ impl MultiThreadedDispatcher {
 
     fn init(&mut self) {
         let (render_task_sender, render_task_receiver) = crossbeam_channel::unbounded();
-        let (coarse_command_sender, coarse_command_receiver) = ordered_channel::unbounded();
+        let (coarse_task_sender, coarse_task_receiver) = ordered_channel::unbounded();
         let workers = self.workers.clone();
         let alpha_storage = self.alpha_storage.clone();
 
         self.task_sender = Some(render_task_sender);
-        self.result_receiver = Some(coarse_command_receiver);
+        self.coarse_task_receiver = Some(coarse_task_receiver);
 
+        // Spawn the loop for the worker threads.
         self.thread_pool.spawn_broadcast(move |_| {
             let render_task_receiver = render_task_receiver.clone();
-            let mut coarse_command_sender = coarse_command_sender.clone();
+            let mut coarse_task_sender = coarse_task_sender.clone();
             let worker = workers.get().unwrap();
             let mut worker = worker.borrow_mut();
             let thread_id = worker.thread_id();
 
+            // Take out the allocation for alphas and store it in the worker.
             alpha_storage
                 .with_inner(|alphas| worker.init(std::mem::take(&mut alphas[thread_id as usize])));
 
             while let Ok(tasks) = render_task_receiver.recv() {
-                worker.run_render_tasks(tasks.0, tasks.1, &mut coarse_command_sender);
+                worker.run_render_tasks(tasks.0, tasks.1, &mut coarse_task_sender);
             }
 
-            // If we reach this point, it means the task_sender has been dropped by the main thread
-            // and no more tasks are available. So we are done, and just need to place the alphas
-            // of the worker thread in the hashmap. Then, we drop the `coarse_command_sender`. Once all
-            // worker thread have dropped `coarse_command_sender`, the main thread knows that all alphas
-            // have been placed, and it's safe to proceed.
+            // If we reach this point, it means the `task_sender` has been dropped by the main thread
+            // and no more tasks are available (since we flushed).
+            // So we are done, and just need to place the alphas of the worker thread back into the
+            // vector.
+
             alpha_storage.with_inner(|alphas| {
                 alphas[thread_id as usize] = worker.finalize();
             });
 
-            drop(coarse_command_sender);
+            // Then, we drop the `coarse_task_sender`. Once all worker threads have
+            // dropped their `coarse_task_sender`, the main thread knows that all workers are done
+            // and all alphas have been placed, so it's safe to proceed.
+            drop(coarse_task_sender);
         });
     }
 
@@ -179,7 +232,7 @@ impl MultiThreadedDispatcher {
     //
     // This is why we have the `abort_empty`flag.
     fn run_coarse(&mut self, abort_empty: bool) {
-        let result_receiver = self.result_receiver.as_mut().unwrap();
+        let result_receiver = self.coarse_task_receiver.as_mut().unwrap();
 
         loop {
             match result_receiver.try_recv() {
@@ -316,7 +369,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.task_idx = 0;
         self.flushed = false;
         self.task_sender = None;
-        self.result_receiver = None;
+        self.coarse_task_receiver = None;
         self.alpha_storage.with_inner(|alphas| {
             for alpha in alphas {
                 alpha.clear();

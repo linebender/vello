@@ -1,5 +1,5 @@
 use crate::Level;
-use crate::dispatch::multi_threaded::{CoarseCommandSender, CoarseTask, Path, RenderTask};
+use crate::dispatch::multi_threaded::{CoarseTask, CoarseTaskSender, Path, RenderTask};
 use crate::peniko::Fill;
 use crate::strip_generator::StripGenerator;
 use std::prelude::rust_2015::Vec;
@@ -37,7 +37,7 @@ impl Worker {
         &mut self,
         task_idx: u32,
         tasks: Vec<RenderTask>,
-        result_sender: &mut CoarseCommandSender,
+        result_sender: &mut CoarseTaskSender,
     ) {
         let mut task_buf = Vec::with_capacity(tasks.len());
 
