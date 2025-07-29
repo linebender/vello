@@ -72,13 +72,13 @@ impl EncodeExt for Gradient {
             let mut vec = stops.to_smallvec();
 
             if first_stop.offset != 0.0 {
-                let mut first_stop = first_stop.clone();
+                let mut first_stop = *first_stop;
                 first_stop.offset = 0.0;
                 vec.insert(0, first_stop);
             }
 
             if last_stop.offset != 1.0 {
-                let mut last_stop = last_stop.clone();
+                let mut last_stop = *last_stop;
                 last_stop.offset = 1.0;
                 vec.push(last_stop);
             }
