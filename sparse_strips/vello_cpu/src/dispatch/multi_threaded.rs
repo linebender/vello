@@ -265,7 +265,14 @@ impl Dispatcher for MultiThreadedDispatcher {
         &self.wide
     }
 
-    fn fill_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, paint: Paint) {
+    fn fill_path(
+        &mut self,
+        path: &BezPath,
+        fill_rule: Fill,
+        transform: Affine,
+        paint: Paint,
+        anti_alias: bool,
+    ) {
         let task_idx = self.bump_task_idx();
 
         self.register_task(RenderTask::FillPath {
@@ -274,10 +281,18 @@ impl Dispatcher for MultiThreadedDispatcher {
             paint,
             fill_rule,
             task_idx,
+            anti_alias,
         });
     }
 
-    fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint) {
+    fn stroke_path(
+        &mut self,
+        path: &BezPath,
+        stroke: &Stroke,
+        transform: Affine,
+        paint: Paint,
+        anti_alias: bool,
+    ) {
         let task_idx = self.bump_task_idx();
 
         self.register_task(RenderTask::StrokePath {
@@ -286,6 +301,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             paint,
             stroke: stroke.clone(),
             task_idx,
+            anti_alias,
         });
     }
 
@@ -470,6 +486,7 @@ enum RenderTask {
         transform: Affine,
         paint: Paint,
         fill_rule: Fill,
+        anti_alias: bool,
         task_idx: usize,
     },
     StrokePath {
@@ -477,6 +494,7 @@ enum RenderTask {
         transform: Affine,
         paint: Paint,
         stroke: Stroke,
+        anti_alias: bool,
         task_idx: usize,
     },
     PushLayer {
@@ -573,6 +591,7 @@ impl Worker {
                     paint,
                     fill_rule,
                     task_idx,
+                    anti_alias,
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseCommand::Render {
@@ -585,7 +604,7 @@ impl Worker {
                     };
 
                     self.strip_generator
-                        .generate_filled_path(&path, fill_rule, transform, func);
+                        .generate_filled_path(&path, fill_rule, transform, anti_alias, func);
                 }
                 RenderTask::StrokePath {
                     path,
@@ -593,6 +612,7 @@ impl Worker {
                     paint,
                     stroke,
                     task_idx,
+                    anti_alias,
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseCommand::Render {
@@ -605,7 +625,7 @@ impl Worker {
                     };
 
                     self.strip_generator
-                        .generate_stroked_path(&path, &stroke, transform, func);
+                        .generate_stroked_path(&path, &stroke, transform, anti_alias, func);
                 }
                 RenderTask::PushLayer {
                     clip_path,
@@ -621,6 +641,8 @@ impl Worker {
                             &c,
                             fill_rule,
                             transform,
+                            // TODO: Maybe this should be configurable as well?
+                            true,
                             |strips| strip_buf = strips,
                         );
 

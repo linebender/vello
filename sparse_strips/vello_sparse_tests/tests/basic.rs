@@ -388,3 +388,16 @@ fn oversized_star(ctx: &mut impl Renderer) {
     ctx.set_stroke(stroke);
     ctx.stroke_path(&star_path);
 }
+
+#[vello_test(width = 30, height = 30)]
+fn no_anti_aliasing(ctx: &mut impl Renderer) {
+    let rect = Rect::new(10.0, 10.0, 20.0, 20.0);
+    ctx.set_anti_aliasing(false);
+
+    ctx.set_transform(Affine::rotate_about(
+        45.0 * PI / 180.0,
+        Point::new(15.0, 15.0),
+    ));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
+    ctx.fill_rect(&rect);
+}

@@ -38,9 +38,18 @@ pub fn render(
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u8>,
     fill_rule: Fill,
+    anti_aliasing: bool,
     lines: &[Line],
 ) {
-    render_dispatch(level, tiles, strip_buf, alpha_buf, fill_rule, lines);
+    render_dispatch(
+        level,
+        tiles,
+        strip_buf,
+        alpha_buf,
+        fill_rule,
+        anti_aliasing,
+        lines,
+    );
 }
 
 simd_dispatch!(render_dispatch(
@@ -49,6 +58,7 @@ simd_dispatch!(render_dispatch(
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u8>,
     fill_rule: Fill,
+    anti_aliasing: bool,
     lines: &[Line],
 ) = render_impl);
 
@@ -58,6 +68,7 @@ fn render_impl<S: Simd>(
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u8>,
     fill_rule: Fill,
+    anti_aliasing: bool,
     lines: &[Line],
 ) {
     strip_buf.clear();
@@ -143,7 +154,17 @@ fn render_impl<S: Simd>(
             let p1 = s.combine_f32x4(location_winding[0], location_winding[1]);
             let p2 = s.combine_f32x4(location_winding[2], location_winding[3]);
 
-            alpha_buf.extend_from_slice(&f32_to_u8(s.combine_f32x8(p1, p2)).val);
+            let mut u8_vals = f32_to_u8(s.combine_f32x8(p1, p2));
+
+            if !anti_aliasing {
+                u8_vals = s.select_u8x16(
+                    u8_vals.simd_ge(u8x16::splat(s, 128)),
+                    u8x16::splat(s, 255),
+                    u8x16::splat(s, 0),
+                );
+            }
+
+            alpha_buf.extend_from_slice(&u8_vals.val);
 
             #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
             for x in 0..Tile::WIDTH as usize {

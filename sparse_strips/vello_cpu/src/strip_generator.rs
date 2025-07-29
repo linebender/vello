@@ -39,10 +39,11 @@ impl StripGenerator {
         path: &BezPath,
         fill_rule: Fill,
         transform: Affine,
+        anti_alias: bool,
         func: impl FnOnce(&'a [Strip]),
     ) {
         flatten::fill(self.level, path, transform, &mut self.line_buf);
-        self.make_strips(fill_rule);
+        self.make_strips(fill_rule, anti_alias);
         func(&mut self.strip_buf);
     }
 
@@ -51,10 +52,11 @@ impl StripGenerator {
         path: &BezPath,
         stroke: &Stroke,
         transform: Affine,
+        anti_alias: bool,
         func: impl FnOnce(&'a [Strip]),
     ) {
         flatten::stroke(self.level, path, stroke, transform, &mut self.line_buf);
-        self.make_strips(Fill::NonZero);
+        self.make_strips(Fill::NonZero, anti_alias);
         func(&mut self.strip_buf);
     }
 
@@ -69,7 +71,7 @@ impl StripGenerator {
         self.strip_buf.clear();
     }
 
-    fn make_strips(&mut self, fill_rule: Fill) {
+    fn make_strips(&mut self, fill_rule: Fill, anti_alias: bool) {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
@@ -79,6 +81,7 @@ impl StripGenerator {
             &mut self.strip_buf,
             &mut self.alphas,
             fill_rule,
+            anti_alias,
             &self.line_buf,
         );
     }

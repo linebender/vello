@@ -50,6 +50,7 @@ pub struct Scene {
     pub(crate) strip_buf: Vec<Strip>,
     pub(crate) paint: PaintType,
     pub(crate) paint_transform: Affine,
+    pub(crate) anti_alias: bool,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     paint_visible: bool,
     level: Level,
@@ -67,6 +68,7 @@ impl Scene {
             width,
             height,
             wide: Wide::new(width, height),
+            anti_alias: true,
             alphas: vec![],
             level: Level::fallback(),
             line_buf: vec![],
@@ -144,6 +146,11 @@ impl Scene {
         );
         let paint = self.encode_current_paint();
         self.render_path(Fill::NonZero, paint);
+    }
+
+    /// Set whether to enable anti-aliasing.
+    pub fn set_anti_aliasing(&mut self, value: bool) {
+        self.anti_alias = value;
     }
 
     /// Fill a rectangle with the current paint and fill rule.
@@ -302,6 +309,7 @@ impl Scene {
             &mut self.strip_buf,
             &mut self.alphas,
             fill_rule,
+            self.anti_alias,
             &self.line_buf,
         );
     }
