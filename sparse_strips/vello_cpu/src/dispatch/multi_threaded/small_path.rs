@@ -4,14 +4,16 @@
 use crate::kurbo::{BezPath, PathEl, PathSeg, segments};
 use smallvec::SmallVec;
 
-const SMALL_PATH_THRESHOLD: usize = 12;
+const SMALL_PATH_THRESHOLD: usize = 10;
 
 /// Profiling showed that when dealing with paths with few segments (for example rectangles),
 /// there is a lot of overhead that comes from allocations/deallocations due to extensive cloning
-/// of paths. Because of this, we allocate small paths on the stack instead.
+/// of paths. Because of this, we use a `smallvec` for such paths to prevent excessive
+/// allocations/deallocations.
 ///
 /// This optimization is not just based on intuition but has actually been shown to have
 /// a significant positive effect on certain benchmarks.
+#[expect(clippy::large_enum_variant, reason = "we make this trade-off on purpose")]
 #[derive(Debug, Clone)]
 pub(crate) enum Path {
     Bez(BezPath),
@@ -21,9 +23,9 @@ pub(crate) enum Path {
 impl Path {
     pub(crate) fn new(path: &BezPath) -> Self {
         if path.elements().len() < SMALL_PATH_THRESHOLD {
-            Path::Small(SmallPath::new(path))
+            Self::Small(SmallPath::new(path))
         } else {
-            Path::Bez(path.clone())
+            Self::Bez(path.clone())
         }
     }
 }
