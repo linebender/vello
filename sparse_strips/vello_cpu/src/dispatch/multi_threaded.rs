@@ -136,6 +136,9 @@ impl MultiThreadedDispatcher {
 
     fn register_task(&mut self, task: RenderTask) {
         self.flushed = false;
+        if self.task_sender.is_none() {
+            self.init();
+        }
 
         let cost = task.estimate_render_time();
         self.task_batch.push(task);
@@ -344,6 +347,9 @@ impl Dispatcher for MultiThreadedDispatcher {
     }
 
     fn flush(&mut self) {
+        if self.flushed {
+            return;
+        }
         self.flush_tasks();
         let sender = core::mem::take(&mut self.task_sender);
         // Note that dropping the sender will signal to the workers that no more new paths

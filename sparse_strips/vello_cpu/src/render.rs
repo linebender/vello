@@ -613,5 +613,7 @@ mod tests {
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
         ctx.flush();
         ctx.render_to_pixmap(&mut pixmap, RenderMode::OptimizeQuality);
+        ctx.flush();
+        ctx.render_to_pixmap(&mut pixmap, RenderMode::OptimizeQuality);
     }
 }

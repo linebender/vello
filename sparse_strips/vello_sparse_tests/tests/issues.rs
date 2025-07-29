@@ -330,3 +330,13 @@ fn gradient_radial_outside(ctx: &mut impl Renderer) {
     );
     ctx.fill_rect(&Rect::new(0., 0., 100., 50.));
 }
+
+#[vello_test(no_ref)]
+/// <https://github.com/linebender/vello/issues/1113>
+fn do_not_panic_on_multiple_flushes(ctx: &mut impl Renderer) {
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
+    ctx.flush();
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
+    ctx.flush();
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
+}
