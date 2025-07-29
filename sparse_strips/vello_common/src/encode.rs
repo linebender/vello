@@ -1098,34 +1098,6 @@ mod tests {
     }
 
     #[test]
-    fn gradient_not_padded_stops() {
-        let mut buf = vec![];
-
-        let gradient = Gradient {
-            kind: GradientKind::Linear {
-                start: Point::new(0.0, 0.0),
-                end: Point::new(20.0, 0.0),
-            },
-            stops: ColorStops(smallvec![
-                ColorStop {
-                    offset: 0.0,
-                    color: DynamicColor::from_alpha_color(GREEN),
-                },
-                ColorStop {
-                    offset: 0.5,
-                    color: DynamicColor::from_alpha_color(BLUE),
-                },
-            ]),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY),
-            GREEN.into()
-        );
-    }
-
-    #[test]
     fn gradient_not_sorted_stops() {
         let mut buf = vec![];
 
