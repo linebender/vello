@@ -313,6 +313,8 @@ impl MultiThreadedDispatcher {
             });
         });
 
+        // Don't forget to put back the alpha buffers, so that they can be re-used in
+        // the next path rendering iteration!
         self.alpha_storage.init(alpha_slots);
     }
 }
