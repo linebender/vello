@@ -7,7 +7,7 @@ use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task
 use crate::dispatch::multi_threaded::small_path::Path;
 use crate::dispatch::multi_threaded::worker::Worker;
 use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
-use crate::kurbo::{Affine, BezPath, PathSeg, Stroke};
+use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
 use alloc::boxed::Box;
@@ -18,8 +18,8 @@ use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Barrier, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
@@ -36,9 +36,6 @@ type RenderTasksSender = crossbeam_channel::Sender<(u32, Vec<RenderTask>)>;
 type CoarseCommandSender = ordered_channel::Sender<Vec<CoarseTask>>;
 type CoarseCommandReceiver = ordered_channel::Receiver<Vec<CoarseTask>>;
 
-// TODO: In many cases, we pass a reference to an owned path in vello_common/vello_cpu, only
-// to later clone it because the multi-threaded dispatcher needs owned access to the structs.
-// Figure out whether there is a good way of solving this problem.
 pub(crate) struct MultiThreadedDispatcher {
     wide: Wide,
     thread_pool: ThreadPool,
@@ -47,7 +44,7 @@ pub(crate) struct MultiThreadedDispatcher {
     task_sender: Option<RenderTasksSender>,
     workers: Arc<ThreadLocal<RefCell<Worker>>>,
     result_receiver: Option<CoarseCommandReceiver>,
-    alpha_storage: Arc<OnceLockAlphaStorage>,
+    alpha_storage: MaybePresent<Vec<Vec<u8>>>,
     task_idx: u32,
     num_threads: u16,
     level: Level,
@@ -61,26 +58,20 @@ impl MultiThreadedDispatcher {
             .num_threads(num_threads as usize)
             .build()
             .unwrap();
-        let alpha_storage = Arc::new(OnceLockAlphaStorage::new(num_threads));
+        let alpha_storage = MaybePresent::new(vec![vec![]; usize::from(num_threads)]);
         let workers = Arc::new(ThreadLocal::new());
         let task_batch = vec![];
 
         {
-            let alpha_storage = alpha_storage.clone();
             let thread_ids = Arc::new(AtomicU8::new(0));
             let workers = workers.clone();
 
-            // Initialize all workers once in `new`, so that later on we can just call`.get().unwrap()`.
+            // Create all workers once in `new`, so that later on we can just call`.get().unwrap()`.
             thread_pool.spawn_broadcast(move |_| {
-                let _ = workers.get_or(|| {
-                    RefCell::new(Worker::new(
-                        width,
-                        height,
-                        thread_ids.fetch_add(1, Ordering::SeqCst),
-                        alpha_storage.clone(),
-                        level,
-                    ))
-                });
+                let thread_id = thread_ids.fetch_add(1, Ordering::SeqCst);
+                let worker = Worker::new(width, height, thread_id, level);
+
+                let _ = workers.get_or(|| RefCell::new(worker));
             });
         }
 
@@ -112,6 +103,7 @@ impl MultiThreadedDispatcher {
         let (render_task_sender, render_task_receiver) = crossbeam_channel::unbounded();
         let (coarse_command_sender, coarse_command_receiver) = ordered_channel::unbounded();
         let workers = self.workers.clone();
+        let alpha_storage = self.alpha_storage.clone();
 
         self.task_sender = Some(render_task_sender);
         self.result_receiver = Some(coarse_command_receiver);
@@ -121,9 +113,13 @@ impl MultiThreadedDispatcher {
             let mut coarse_command_sender = coarse_command_sender.clone();
             let worker = workers.get().unwrap();
             let mut worker = worker.borrow_mut();
+            let thread_id = worker.thread_id();
+
+            alpha_storage
+                .with_inner(|alphas| worker.init(std::mem::take(&mut alphas[thread_id as usize])));
 
             while let Ok(tasks) = render_task_receiver.recv() {
-                worker.run_tasks(tasks.0, tasks.1, &mut coarse_command_sender);
+                worker.run_render_tasks(tasks.0, tasks.1, &mut coarse_command_sender);
             }
 
             // If we reach this point, it means the task_sender has been dropped by the main thread
@@ -131,7 +127,9 @@ impl MultiThreadedDispatcher {
             // of the worker thread in the hashmap. Then, we drop the `coarse_command_sender`. Once all
             // worker thread have dropped `coarse_command_sender`, the main thread knows that all alphas
             // have been placed, and it's safe to proceed.
-            worker.place_alphas();
+            alpha_storage.with_inner(|alphas| {
+                alphas[thread_id as usize] = worker.finalize();
+            });
 
             drop(coarse_command_sender);
         });
@@ -230,7 +228,7 @@ impl MultiThreadedDispatcher {
         let mut buffer = Regions::new(width, height, buffer);
         let fines = ThreadLocal::new();
         let wide = &self.wide;
-        let alpha_slots = self.alpha_storage.slots();
+        let alpha_slots = self.alpha_storage.take();
 
         self.thread_pool.install(|| {
             buffer.update_regions_par(|region| {
@@ -253,8 +251,7 @@ impl MultiThreadedDispatcher {
                     };
 
                     let alphas = thread_idx
-                        .and_then(|i| alpha_slots[i as usize].get())
-                        .map(|v| v.as_slice())
+                        .map(|i| alpha_slots[i as usize].as_slice())
                         .unwrap_or(&[]);
                     fine.run_cmd(cmd, alphas, encoded_paints);
                 }
@@ -262,6 +259,8 @@ impl MultiThreadedDispatcher {
                 fine.pack(region);
             });
         });
+
+        self.alpha_storage.init(alpha_slots);
     }
 }
 
@@ -318,11 +317,13 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.flushed = false;
         self.task_sender = None;
         self.result_receiver = None;
-        // TODO: We want to re-use the allocations of the storage somehow.
-        self.alpha_storage = Arc::new(OnceLockAlphaStorage::new(self.num_threads));
+        self.alpha_storage.with_inner(|alphas| {
+            for alpha in alphas {
+                alpha.clear();
+            }
+        });
 
         let workers = self.workers.clone();
-        let alpha_storage = self.alpha_storage.clone();
         // + 1 since we also wait on the main thread.
         let barrier = Arc::new(Barrier::new(usize::from(self.num_threads) + 1));
         let t_barrier = barrier.clone();
@@ -331,7 +332,6 @@ impl Dispatcher for MultiThreadedDispatcher {
             let worker = workers.get().unwrap();
             let mut borrowed = worker.borrow_mut();
             borrowed.reset();
-            borrowed.alpha_storage = alpha_storage.clone();
             t_barrier.wait();
         });
 
@@ -345,7 +345,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         let sender = core::mem::take(&mut self.task_sender);
         // Note that dropping the sender will signal to the workers that no more new paths
         // can arrive.
-        core::mem::drop(sender);
+        drop(sender);
         self.run_coarse(false);
 
         self.flushed = true;
@@ -424,30 +424,6 @@ impl Dispatcher for MultiThreadedDispatcher {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct OnceLockAlphaStorage {
-    slots: Vec<OnceLock<Vec<u8>>>,
-}
-
-impl OnceLockAlphaStorage {
-    pub(crate) fn new(num_threads: u16) -> Self {
-        Self {
-            slots: (0..num_threads).map(|_| OnceLock::new()).collect(),
-        }
-    }
-
-    /// Store alpha data for a specific thread (called once per thread)
-    pub(crate) fn store(&self, thread_id: u8, data: Vec<u8>) -> Result<(), Vec<u8>> {
-        self.slots[thread_id as usize].set(data)
-    }
-
-    fn slots(&self) -> &[OnceLock<Vec<u8>>] {
-        &self.slots
-    }
-
-    // TODO: Probably worth adding a take all method and being able to reuse vec allocations somehow
-}
-
 impl Debug for MultiThreadedDispatcher {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.write_str("MultiThreadedDispatcher { .. }")
@@ -493,4 +469,43 @@ pub(crate) enum CoarseTask {
         opacity: f32,
     },
     PopLayer,
+}
+
+/// An object that might hold a certain value (behind a mutex), and panics if we attempt
+/// to access it when it's not initialized.
+#[derive(Clone)]
+pub(crate) struct MaybePresent<T: Default> {
+    present: Arc<AtomicBool>,
+    value: Arc<Mutex<T>>,
+}
+
+impl<T: Default> MaybePresent<T> {
+    pub(crate) fn new(val: T) -> Self {
+        Self {
+            present: Arc::new(AtomicBool::new(true)),
+            value: Arc::new(Mutex::new(val)),
+        }
+    }
+
+    pub(crate) fn init(&self, value: T) {
+        let mut locked = self.value.lock().unwrap();
+        *locked = value;
+        self.present.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn with_inner(&self, mut func: impl FnMut(&mut T)) {
+        assert!(
+            self.present.load(Ordering::SeqCst),
+            "Tried to access `MaybePresent` before initialization."
+        );
+
+        let mut lock = self.value.lock().unwrap();
+        func(&mut lock);
+    }
+
+    pub(crate) fn take(&self) -> T {
+        let mut locked = self.value.lock().unwrap();
+        self.present.store(false, Ordering::SeqCst);
+        std::mem::take(&mut *locked)
+    }
 }

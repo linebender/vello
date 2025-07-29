@@ -62,6 +62,14 @@ impl StripGenerator {
         &self.alphas
     }
 
+    pub(crate) fn set_alpha_buf(&mut self, alpha_buf: Vec<u8>) {
+        self.alphas = alpha_buf;
+    }
+
+    pub(crate) fn take_alpha_buf(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.alphas)
+    }
+
     pub(crate) fn reset(&mut self) {
         self.line_buf.clear();
         self.tiles.reset();

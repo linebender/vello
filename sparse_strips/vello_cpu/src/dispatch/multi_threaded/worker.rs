@@ -1,42 +1,39 @@
 use crate::Level;
-use crate::dispatch::multi_threaded::{
-    CoarseTask, CoarseCommandSender, OnceLockAlphaStorage, Path, RenderTask,
-};
+use crate::dispatch::multi_threaded::{CoarseCommandSender, CoarseTask, Path, RenderTask};
 use crate::peniko::Fill;
 use crate::strip_generator::StripGenerator;
 use std::prelude::rust_2015::Vec;
-use std::sync::Arc;
 use vello_common::strip::Strip;
 
 #[derive(Debug)]
 pub(crate) struct Worker {
     strip_generator: StripGenerator,
     thread_id: u8,
-    pub(crate) alpha_storage: Arc<OnceLockAlphaStorage>,
 }
 
 impl Worker {
-    pub(crate) fn new(
-        width: u16,
-        height: u16,
-        thread_id: u8,
-        alpha_storage: Arc<OnceLockAlphaStorage>,
-        level: Level,
-    ) -> Self {
+    pub(crate) fn new(width: u16, height: u16, thread_id: u8, level: Level) -> Self {
         let strip_generator = StripGenerator::new(width, height, level);
 
         Self {
             strip_generator,
             thread_id,
-            alpha_storage,
         }
+    }
+
+    pub(crate) fn init(&mut self, alphas: Vec<u8>) {
+        self.strip_generator.set_alpha_buf(alphas);
+    }
+
+    pub(crate) fn thread_id(&self) -> u8 {
+        self.thread_id
     }
 
     pub(crate) fn reset(&mut self) {
         self.strip_generator.reset();
     }
 
-    pub(crate) fn run_tasks(
+    pub(crate) fn run_render_tasks(
         &mut self,
         task_idx: u32,
         tasks: Vec<RenderTask>,
@@ -150,8 +147,7 @@ impl Worker {
         result_sender.send(task_idx as usize, task_buf).unwrap();
     }
 
-    pub(crate) fn place_alphas(&mut self) {
-        let alpha_data = self.strip_generator.alpha_buf().to_vec();
-        let _ = self.alpha_storage.store(self.thread_id, alpha_data);
+    pub(crate) fn finalize(&mut self) -> Vec<u8> {
+        self.strip_generator.take_alpha_buf()
     }
 }

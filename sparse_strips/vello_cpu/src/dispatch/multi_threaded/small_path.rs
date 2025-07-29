@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 
 const SMALL_PATH_THRESHOLD: usize = 12;
 
-/// Profiling showed that when dealing with paths with few segments (such as for example rectangles),
+/// Profiling showed that when dealing with paths with few segments (for example rectangles),
 /// there is a lot of overhead that comes from allocations/deallocations due to extensive cloning
 /// of paths. Because of this, we allocate small paths on the stack instead.
 ///
@@ -31,7 +31,6 @@ pub(crate) struct SmallPath(SmallVec<[PathEl; SMALL_PATH_THRESHOLD]>);
 impl SmallPath {
     fn new(path: &BezPath) -> Self {
         let mut small_path = SmallVec::new();
-
         small_path.extend_from_slice(path.elements());
 
         Self(small_path)
