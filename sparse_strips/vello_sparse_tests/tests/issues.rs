@@ -288,7 +288,7 @@ fn intersected_clip_bbox_with_x0_gt_x1(ctx: &mut impl Renderer) {
 // https://github.com/web-platform-tests/wpt/blob/cfd9285284893e6d63d7770deae0789d7f7457d4/html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.inside3.html
 // See <https://github.com/linebender/vello/issues/1124>.
 #[vello_test(width = 100, height = 50)]
-fn gradient_radial_wrong_color(ctx: &mut impl Renderer) {
+fn gradient_radial_inside(ctx: &mut impl Renderer) {
     ctx.set_paint(
         Gradient::new_two_point_radial((50., 25.), 200., (50., 25.), 100.).with_stops([
             ColorStop {
@@ -311,7 +311,7 @@ fn gradient_radial_wrong_color(ctx: &mut impl Renderer) {
 // https://github.com/web-platform-tests/wpt/blob/cfd9285284893e6d63d7770deae0789d7f7457d4/html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.outside3.html
 // See <https://github.com/linebender/vello/issues/1124>.
 #[vello_test(width = 100, height = 50)]
-fn gradient_radial_wrong_color2(ctx: &mut impl Renderer) {
+fn gradient_radial_outside(ctx: &mut impl Renderer) {
     ctx.set_paint(
         Gradient::new_two_point_radial((200., 25.), 20., (200., 25.), 10.).with_stops([
             ColorStop {
