@@ -587,7 +587,7 @@ impl Renderer for HybridRenderer {
     fn set_transform(&mut self, transform: Affine) {
         self.scene.set_transform(transform);
     }
-    
+
     fn set_anti_aliasing(&mut self, value: bool) {
         self.scene.set_anti_aliasing(value);
     }
