@@ -29,6 +29,7 @@ js-sys = { version = "0.3.77", optional = true }
 web-sys = { version = "0.3.77", features = [
     "HtmlCanvasElement",
     "WebGl2RenderingContext",
+    "WebGlContextAttributes",
     "WebGlProgram",
     "WebGlUniformLocation",
     "WebGlBuffer",

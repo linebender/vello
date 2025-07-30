@@ -19,7 +19,7 @@ pub(crate) struct GradientPainter<'a, S: Simd> {
 
 impl<'a, S: Simd> GradientPainter<'a, S> {
     pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
-        let lut = gradient.u8_lut();
+        let lut = gradient.u8_lut(simd);
         let scale_factor = f32x16::splat(simd, lut.scale_factor());
 
         Self {

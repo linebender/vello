@@ -11,13 +11,20 @@ publish = false
 
 [dependencies]
 svg = { workspace = true }
+usvg = { workspace = true }
+bytemuck = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-# TODO: Should vello_toy be `no_std`?
-vello_common = { workspace = true, features = ["std"] }
+vello_common = { workspace = true }
+vello_cpu = { workspace = true, features = ["multithreading"] }
+image = { workspace = true, features = ["png"] }
 
 [[bin]]
 name = "debug"
 path = "src/debug.rs"
+
+[[bin]]
+name = "svg"
+path = "src/svg.rs"
 
 [lints]
 workspace = true

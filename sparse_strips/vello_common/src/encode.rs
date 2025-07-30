@@ -11,13 +11,18 @@ use crate::math::{FloatExt, compute_erf7};
 use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor};
 use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
 use alloc::borrow::Cow;
+use alloc::fmt::Debug;
+use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
+use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
+use smallvec::{SmallVec, ToSmallVec};
+// So we can just use `OnceCell` regardless of which feature is activated.
 #[cfg(feature = "multithreading")]
-use once_cell::sync::OnceCell;
-use smallvec::SmallVec;
+use std::sync::OnceLock as OnceCell;
 
+use crate::simd::{Splat4thExt, element_wise_splat};
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 
@@ -59,6 +64,27 @@ impl EncodeExt for Gradient {
         let mut base_transform;
 
         let mut stops = Cow::Borrowed(&self.stops.0);
+
+        let first_stop = &stops[0];
+        let last_stop = &stops[stops.len() - 1];
+
+        if first_stop.offset != 0.0 || last_stop.offset != 1.0 {
+            let mut vec = stops.to_smallvec();
+
+            if first_stop.offset != 0.0 {
+                let mut first_stop = *first_stop;
+                first_stop.offset = 0.0;
+                vec.insert(0, first_stop);
+            }
+
+            if last_stop.offset != 1.0 {
+                let mut last_stop = *last_stop;
+                last_stop.offset = 1.0;
+                vec.push(last_stop);
+            }
+
+            stops = Cow::Owned(vec);
+        }
 
         let kind = match self.kind {
             GradientKind::Linear {
@@ -239,11 +265,6 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
         return first;
     }
 
-    // First stop must be at offset 0.0 and last offset must be at 1.0.
-    if gradient.stops[0].offset != 0.0 || gradient.stops[gradient.stops.len() - 1].offset != 1.0 {
-        return first;
-    }
-
     for stops in gradient.stops.windows(2) {
         let f = stops[0];
         let n = stops[1];
@@ -331,28 +352,11 @@ fn encode_stops(
     cs: ColorSpaceTag,
     hue_dir: HueDirection,
 ) -> Vec<GradientRange> {
+    #[derive(Debug)]
     struct EncodedColorStop {
         offset: f32,
         color: crate::color::PremulColor<Srgb>,
     }
-
-    // Create additional (SRGB-encoded) stops in-between to approximate the color space we want to
-    // interpolate in.
-    let interpolated_stops = stops
-        .windows(2)
-        .flat_map(|s| {
-            let left_stop = &s[0];
-            let right_stop = &s[1];
-
-            let interpolated =
-                gradient::<Srgb>(left_stop.color, right_stop.color, cs, hue_dir, 0.01);
-
-            interpolated.map(|st| EncodedColorStop {
-                offset: left_stop.offset + (right_stop.offset - left_stop.offset) * st.0,
-                color: st.1,
-            })
-        })
-        .collect::<Vec<_>>();
 
     let create_range = |left_stop: &EncodedColorStop, right_stop: &EncodedColorStop| {
         let clamp = |mut color: [f32; 4]| {
@@ -387,15 +391,52 @@ fn encode_stops(
         GradientRange { x1, bias, scale }
     };
 
-    interpolated_stops
-        .windows(2)
-        .map(|s| {
-            let left_stop = &s[0];
-            let right_stop = &s[1];
+    // Create additional (SRGB-encoded) stops in-between to approximate the color space we want to
+    // interpolate in.
+    if cs != ColorSpaceTag::Srgb {
+        let interpolated_stops = stops
+            .windows(2)
+            .flat_map(|s| {
+                let left_stop = &s[0];
+                let right_stop = &s[1];
 
-            create_range(left_stop, right_stop)
-        })
-        .collect()
+                let interpolated =
+                    gradient::<Srgb>(left_stop.color, right_stop.color, cs, hue_dir, 0.01);
+
+                interpolated.map(|st| EncodedColorStop {
+                    offset: left_stop.offset + (right_stop.offset - left_stop.offset) * st.0,
+                    color: st.1,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        interpolated_stops
+            .windows(2)
+            .map(|s| {
+                let left_stop = &s[0];
+                let right_stop = &s[1];
+
+                create_range(left_stop, right_stop)
+            })
+            .collect()
+    } else {
+        stops
+            .windows(2)
+            .map(|c| {
+                let c0 = EncodedColorStop {
+                    offset: c[0].offset,
+                    color: c[0].color.to_alpha_color::<Srgb>().premultiply(),
+                };
+
+                let c1 = EncodedColorStop {
+                    offset: c[1].offset,
+                    color: c[1].color.to_alpha_color::<Srgb>().premultiply(),
+                };
+
+                create_range(&c0, &c1)
+            })
+            .collect()
+    }
 }
 
 pub(crate) fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
@@ -678,13 +719,15 @@ pub struct EncodedGradient {
 
 impl EncodedGradient {
     /// Get the lookup table for sampling u8-based gradient values.
-    pub fn u8_lut(&self) -> &GradientLut<u8> {
-        self.u8_lut.get_or_init(|| GradientLut::new(&self.ranges))
+    pub fn u8_lut<S: Simd>(&self, simd: S) -> &GradientLut<u8> {
+        self.u8_lut
+            .get_or_init(|| GradientLut::new(simd, &self.ranges))
     }
 
     /// Get the lookup table for sampling f32-based gradient values.
-    pub fn f32_lut(&self) -> &GradientLut<f32> {
-        self.f32_lut.get_or_init(|| GradientLut::new(&self.ranges))
+    pub fn f32_lut<S: Simd>(&self, simd: S) -> &GradientLut<f32> {
+        self.f32_lut
+            .get_or_init(|| GradientLut::new(simd, &self.ranges))
     }
 }
 
@@ -839,71 +882,103 @@ fn unit_to_line(p0: Point, p1: Point) -> Affine {
 }
 
 /// A helper trait for converting a premultiplied f32 color to `Self`.
-pub trait FromF32Color: Sized {
+pub trait FromF32Color: Sized + Debug + Copy + Clone {
+    /// The zero value.
+    const ZERO: Self;
     /// Convert from a premultiplied f32 color to `Self`.
-    fn from_f32(color: &[f32; 4]) -> [Self; 4];
+    fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4];
 }
 
 impl FromF32Color for f32 {
-    fn from_f32(color: &[f32; 4]) -> [Self; 4] {
-        *color
+    const ZERO: Self = 0.0;
+
+    fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4] {
+        color.val
     }
 }
 
 impl FromF32Color for u8 {
-    fn from_f32(color: &[f32; 4]) -> [Self; 4] {
+    const ZERO: Self = 0;
+
+    fn from_f32<S: Simd>(mut color: f32x4<S>) -> [Self; 4] {
+        let simd = color.simd;
+        color = f32x4::splat(simd, 0.5).madd(color, f32x4::splat(simd, 255.0));
+
         [
-            (color[0] * 255.0 + 0.5) as Self,
-            (color[1] * 255.0 + 0.5) as Self,
-            (color[2] * 255.0 + 0.5) as Self,
-            (color[3] * 255.0 + 0.5) as Self,
+            color[0] as Self,
+            color[1] as Self,
+            color[2] as Self,
+            color[3] as Self,
         ]
     }
 }
 
 /// A lookup table for sampled gradient values.
 #[derive(Debug)]
-pub struct GradientLut<T: Copy + Clone + FromF32Color> {
+pub struct GradientLut<T: FromF32Color> {
     lut: Vec<[T; 4]>,
     scale: f32,
 }
 
-impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
+impl<T: FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
-    fn new(ranges: &[GradientRange]) -> Self {
-        // TODO: SIMDify
+    fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
+        let lut_size = determine_lut_size(ranges);
 
-        // Somewhat arbitrary, but we use 1024 samples for
-        // more than 2 stops, and 512 for just 2 stops. Blend2D does
-        // something similar.
-        let lut_size = if ranges.len() > 1 { 1024 } else { 512 };
+        // Add a bit of padding since we always process in blocks of 4, even though less might be
+        // needed.
+        let mut lut = vec![[T::ZERO, T::ZERO, T::ZERO, T::ZERO]; lut_size + 3];
 
-        let mut lut = Vec::with_capacity(lut_size);
+        // Calculate how many indices are covered by each range.
+        let ramps = {
+            let mut ramps = Vec::with_capacity(ranges.len());
+            let mut prev_idx = 0;
 
-        let inv_lut_size = 1.0 / lut_size as f32;
+            for range in ranges {
+                let max_idx = (range.x1 * lut_size as f32) as usize;
 
-        let mut cur_idx = 0;
-
-        (0..lut_size).for_each(|idx| {
-            let t_val = idx as f32 * inv_lut_size;
-
-            while ranges[cur_idx].x1 < t_val {
-                cur_idx += 1;
+                ramps.push((prev_idx..max_idx, range));
+                prev_idx = max_idx;
             }
 
-            let range = &ranges[cur_idx];
-            let mut interpolated = [0.0_f32; 4];
+            ramps
+        };
 
-            let bias = range.bias;
+        let scale = lut_size as f32 - 1.0;
 
-            for (comp_idx, comp) in interpolated.iter_mut().enumerate() {
-                *comp = bias[comp_idx] + range.scale[comp_idx] * t_val;
-            }
+        let inv_lut_scale = f32x4::splat(simd, 1.0 / scale);
+        let add_factor = f32x4::from_slice(simd, &[0.0, 1.0, 2.0, 3.0]) * inv_lut_scale;
 
-            lut.push(T::from_f32(&interpolated));
-        });
+        for (ramp_range, range) in ramps {
+            let biases = f32x16::block_splat(f32x4::from_slice(simd, &range.bias));
+            let scales = f32x16::block_splat(f32x4::from_slice(simd, &range.scale));
 
-        let scale = lut.len() as f32 - 1.0;
+            ramp_range.step_by(4).for_each(|idx| {
+                let t_vals = add_factor.madd(f32x4::splat(simd, idx as f32), inv_lut_scale);
+
+                let t_vals = element_wise_splat(simd, t_vals);
+
+                let mut result = biases.madd(scales, t_vals);
+                let alphas = result.splat_4th();
+                // Due to floating-point impreciseness, it can happen that
+                // values either become greater than 1 or the RGB channels
+                // become greater than the alpha channel. To prevent overflows
+                // in later parts of the pipeline, we need to take the minimum here.
+                result = result.min(1.0).min(alphas);
+                let (im1, im2) = simd.split_f32x16(result);
+                let (r1, r2) = simd.split_f32x8(im1);
+                let (r3, r4) = simd.split_f32x8(im2);
+
+                let lut = &mut lut[idx..][..4];
+                lut[0] = T::from_f32(r1);
+                lut[1] = T::from_f32(r2);
+                lut[2] = T::from_f32(r3);
+                lut[3] = T::from_f32(r4);
+            });
+        }
+
+        // Due to SIMD we worked in blocks of 4, so we need to truncate to the actual length.
+        lut.truncate(lut_size);
 
         Self { lut, scale }
     }
@@ -926,6 +1001,42 @@ impl<T: Copy + Clone + FromF32Color> GradientLut<T> {
     pub fn scale_factor(&self) -> f32 {
         self.scale
     }
+}
+
+fn determine_lut_size(ranges: &[GradientRange]) -> usize {
+    // Of course in theory we could still have a stop at 0.0001 in which case this resolution
+    // wouldn't be enough, but for all intents and purposes this should be more than sufficient
+    // for most real cases.
+    const MAX_LEN: usize = 4096;
+
+    // Inspired by Blend2D.
+    // By default:
+    // 256 for 2 stops.
+    // 512 for 3 stops.
+    // 1024 for 4 or more stops.
+    let stop_len = match ranges.len() {
+        1 => 256,
+        2 => 512,
+        _ => 1024,
+    };
+
+    // In case we have some tricky stops (for example 3 stops with 0.0, 0.001, 1.0), we might
+    // increase the resolution.
+    let mut last_x1 = 0.0;
+    let mut min_size = 0;
+
+    for x1 in ranges.iter().map(|e| e.x1) {
+        // For example, if the first stop is at 0.001, then we need a resolution of at least 1000
+        // so that we can still safely capture the first stop.
+        let res = ((1.0 / (x1 - last_x1)).ceil() as usize)
+            .min(MAX_LEN)
+            .next_power_of_two();
+        min_size = min_size.max(res);
+        last_x1 = x1;
+    }
+
+    // Take the maximum of both, but don't exceed `MAX_LEN`.
+    stop_len.max(min_size)
 }
 
 mod private {
@@ -980,34 +1091,6 @@ mod tests {
         };
 
         // Should return the color of the first stop.
-        assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY),
-            GREEN.into()
-        );
-    }
-
-    #[test]
-    fn gradient_not_padded_stops() {
-        let mut buf = vec![];
-
-        let gradient = Gradient {
-            kind: GradientKind::Linear {
-                start: Point::new(0.0, 0.0),
-                end: Point::new(20.0, 0.0),
-            },
-            stops: ColorStops(smallvec![
-                ColorStop {
-                    offset: 0.0,
-                    color: DynamicColor::from_alpha_color(GREEN),
-                },
-                ColorStop {
-                    offset: 0.5,
-                    color: DynamicColor::from_alpha_color(BLUE),
-                },
-            ]),
-            ..Default::default()
-        };
-
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY),
             GREEN.into()

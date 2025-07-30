@@ -103,10 +103,12 @@
     clippy::cast_possible_truncation,
     reason = "We cast u16s to u8 in various places where we know for sure that it's < 256"
 )]
-#![cfg_attr(not(feature = "multithreading"), no_std)]
+#![no_std]
 
 extern crate alloc;
 extern crate core;
+#[cfg(feature = "std")]
+extern crate std;
 
 mod render;
 

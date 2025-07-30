@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use usvg::tiny_skia_path::PathSegment;
 use usvg::{Group, Node};
 use vello_common::fearless_simd::Level;
-use vello_common::flatten::Line;
+use vello_common::flatten::{FlattenCtx, Line};
 use vello_common::kurbo::{Affine, BezPath, Stroke};
 use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
@@ -80,7 +80,13 @@ impl DataItem {
         let mut temp_buf = vec![];
 
         for path in &self.fills {
-            flatten::fill(&path.path, path.transform, &mut temp_buf);
+            flatten::fill(
+                Level::new(),
+                &path.path,
+                path.transform,
+                &mut temp_buf,
+                &mut FlattenCtx::default(),
+            );
             line_buf.extend(&temp_buf);
         }
 
@@ -89,7 +95,14 @@ impl DataItem {
                 width: path.stroke_width as f64,
                 ..Default::default()
             };
-            flatten::stroke(&path.path, &stroke, path.transform, &mut temp_buf);
+            flatten::stroke(
+                Level::new(),
+                &path.path,
+                &stroke,
+                path.transform,
+                &mut temp_buf,
+                &mut FlattenCtx::default(),
+            );
             line_buf.extend(&temp_buf);
         }
 

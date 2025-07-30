@@ -475,8 +475,10 @@ impl Wide {
                 cur_wtile_y += 1;
             }
 
-            // If we've reached the bottom of the clip bounding box, stop processing
-            if cur_wtile_y == clip_bbox.y1() {
+            // If we've reached the bottom of the clip bounding box, stop processing.
+            // Note that we are explicitly checking >= instead of ==, so that we abort if the clipping box
+            // is zero-area (see issue 1072).
+            if cur_wtile_y >= clip_bbox.y1() {
                 break;
             }
 
@@ -597,7 +599,9 @@ impl Wide {
             }
 
             // If we've reached the bottom of the clip bounding box, stop processing
-            if cur_wtile_y == clip_bbox.y1() {
+            // Note that we are explicitly checking >= instead of ==, so that we abort if the clipping box
+            // is zero-area (see issue 1072).
+            if cur_wtile_y >= clip_bbox.y1() {
                 break;
             }
 

@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use vello_common::coarse::Wide;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
-use vello_common::flatten::Line;
+use vello_common::flatten::{FlattenCtx, Line};
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
@@ -52,6 +52,8 @@ pub struct Scene {
     pub(crate) paint_transform: Affine,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     paint_visible: bool,
+    level: Level,
+    flatten_ctx: FlattenCtx,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
@@ -67,6 +69,7 @@ impl Scene {
             height,
             wide: Wide::new(width, height),
             alphas: vec![],
+            level: Level::fallback(),
             line_buf: vec![],
             tiles: Tiles::new(),
             strip_buf: vec![],
@@ -75,6 +78,7 @@ impl Scene {
             encoded_paints: vec![],
             paint_visible: true,
             stroke: render_state.stroke,
+            flatten_ctx: FlattenCtx::default(),
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
             blend_mode: render_state.blend_mode,
@@ -123,7 +127,13 @@ impl Scene {
         if !self.paint_visible {
             return;
         }
-        flatten::fill(path, self.transform, &mut self.line_buf);
+        flatten::fill(
+            self.level,
+            path,
+            self.transform,
+            &mut self.line_buf,
+            &mut self.flatten_ctx,
+        );
         let paint = self.encode_current_paint();
         self.render_path(self.fill_rule, paint);
     }
@@ -133,7 +143,14 @@ impl Scene {
         if !self.paint_visible {
             return;
         }
-        flatten::stroke(path, &self.stroke, self.transform, &mut self.line_buf);
+        flatten::stroke(
+            self.level,
+            path,
+            &self.stroke,
+            self.transform,
+            &mut self.line_buf,
+            &mut self.flatten_ctx,
+        );
         let paint = self.encode_current_paint();
         self.render_path(Fill::NonZero, paint);
     }
@@ -164,7 +181,13 @@ impl Scene {
         mask: Option<Mask>,
     ) {
         let clip = if let Some(c) = clip_path {
-            flatten::fill(c, self.transform, &mut self.line_buf);
+            flatten::fill(
+                self.level,
+                c,
+                self.transform,
+                &mut self.line_buf,
+                &mut self.flatten_ctx,
+            );
             self.make_strips(self.fill_rule);
             Some((self.strip_buf.as_slice(), self.fill_rule))
         } else {
@@ -175,9 +198,6 @@ impl Scene {
         if blend_mode.is_some() {
             unimplemented!()
         }
-        if opacity.is_some() {
-            unimplemented!()
-        }
         if mask.is_some() {
             unimplemented!()
         }
@@ -186,7 +206,7 @@ impl Scene {
             clip,
             BlendMode::new(Mix::Normal, Compose::SrcOver),
             None,
-            1.0,
+            opacity.unwrap_or(1.),
             0,
         );
     }
@@ -306,7 +326,13 @@ impl GlyphRenderer for Scene {
     fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
-                flatten::fill(glyph.path, prepared_glyph.transform, &mut self.line_buf);
+                flatten::fill(
+                    self.level,
+                    glyph.path,
+                    prepared_glyph.transform,
+                    &mut self.line_buf,
+                    &mut self.flatten_ctx,
+                );
                 let paint = self.encode_current_paint();
                 self.render_path(Fill::NonZero, paint);
             }
@@ -319,10 +345,12 @@ impl GlyphRenderer for Scene {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
                 flatten::stroke(
+                    self.level,
                     glyph.path,
                     &self.stroke,
                     prepared_glyph.transform,
                     &mut self.line_buf,
+                    &mut self.flatten_ctx,
                 );
                 let paint = self.encode_current_paint();
                 self.render_path(Fill::NonZero, paint);

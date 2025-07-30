@@ -59,8 +59,10 @@ struct Config {
 //
 // `paint` bit layout:
 //   - Bit 31:     `color_source`      0 = use payload, 1 = use slot texture
-//   - Bits 29-30: `paint_type`        0 = solid, 1 = image
-//   - Bits 0-28:  `paint_texture_id`  if paint_type = PAINT_TYPE_IMAGE, index of `EncodedImage` 
+//   - Bits 29-30: `paint_type`        0 = solid, 1 = image (only used when color_source = 0)
+//   - Bits 0-28:  Usage depends on color_source:
+//                 - When color_source = 0 and paint_type = 1: `paint_texture_id` (index of `EncodedImage`)
+//                 - When color_source = 1: bits 0-7 contain opacity (0-255)
 //
 // Decision tree for paint/payload interpretation:
 //
@@ -69,10 +71,12 @@ struct Config {
 // │   └── payload = [r, g, b, a] RGBA (packed as u8s)
 // │
 // └── paint_type = 1 (PAINT_TYPE_IMAGE) - Image rendering
-//     └── payload = [x, y] scene coordinates (packed as u16s)
+//     ├── payload = [x, y] scene coordinates (packed as u16s)
+//     └── bits 0-28 = paint_texture_id
 //
 // color_source = 1 (COLOR_SOURCE_SLOT) - Use slot texture
-// └── payload = slot_index (u32)
+// ├── payload = slot_index (u32)
+// └── bits 0-7 = opacity (0-255, where 255 = fully opaque)
 struct StripInstance {
     // [x, y] packed as u16's
     // x, y — coordinates of the strip
@@ -258,7 +262,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let clip_x = u32(in.position.x) & 0xFFu;
         let clip_y = (u32(in.position.y) & 3) + in.payload * config.strip_height;
         let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
-        final_color = alpha * clip_in_color;
+
+        // Extract opacity from first 8 bits (quantized from [0, 255])
+        let opacity = f32(in.paint & 0xFFu) * (1.0 / 255.0);
+
+        final_color = alpha * opacity * clip_in_color;
     }
 
     return final_color;
@@ -318,20 +326,6 @@ fn unpack_alphas_from_channel(rgba: vec4<u32>, channel_index: u32) -> u32 {
         // Fallback, should never happen
         default: { return rgba.x; }
     }
-}
-
-// Polyfills `unpack4x8unorm`.
-//
-// Downlevel targets do not support native WGSL `unpack4x8unorm`.
-// TODO: Remove once we upgrade to WGPU 25.
-fn unpack4x8unorm(rgba_packed: u32) -> vec4<f32> {
-    // Extract each byte and convert to float in range [0,1]
-    return vec4<f32>(
-        f32((rgba_packed >> 0u) & 0xFFu) / 255.0,  // r
-        f32((rgba_packed >> 8u) & 0xFFu) / 255.0,  // g
-        f32((rgba_packed >> 16u) & 0xFFu) / 255.0, // b
-        f32((rgba_packed >> 24u) & 0xFFu) / 255.0  // a
-    );
 }
 
 const EXTEND_PAD: u32 = 0u;

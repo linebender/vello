@@ -5,9 +5,8 @@ mod common;
 mod highp;
 mod lowp;
 
-use crate::peniko::{BlendMode, Compose, Mix};
+use crate::peniko::{BlendMode, Compose, ImageQuality, Mix};
 use crate::region::Region;
-use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -24,10 +23,10 @@ pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_C
 pub const SCRATCH_BUF_SIZE: usize =
     WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
 
-use crate::fine::common::gradient::calculate_t_vals;
 use crate::fine::common::gradient::linear::SimdLinearKind;
 use crate::fine::common::gradient::radial::SimdRadialKind;
 use crate::fine::common::gradient::sweep::SimdSweepKind;
+use crate::fine::common::gradient::{GradientPainter, calculate_t_vals};
 use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::util::{BlendModeExt, EncodedImageExt};
@@ -37,6 +36,8 @@ use vello_common::fearless_simd::{
     Simd, SimdBase, SimdFloat, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4, u32x8,
 };
 use vello_common::pixmap::Pixmap;
+use vello_common::simd::Splat4thExt;
+use vello_common::util::f32_to_u8;
 
 pub type ScratchBuf<F> = [F; SCRATCH_BUF_SIZE];
 
@@ -90,51 +91,25 @@ impl<S: Simd> NumericVec<S> for u8x16<S> {
 }
 
 #[inline(always)]
-pub(crate) fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
-    // TODO: SIMDify
-    [
-        val.val[0] as u8,
-        val.val[1] as u8,
-        val.val[2] as u8,
-        val.val[3] as u8,
-        val.val[4] as u8,
-        val.val[5] as u8,
-        val.val[6] as u8,
-        val.val[7] as u8,
-        val.val[8] as u8,
-        val.val[9] as u8,
-        val.val[10] as u8,
-        val.val[11] as u8,
-        val.val[12] as u8,
-        val.val[13] as u8,
-        val.val[14] as u8,
-        val.val[15] as u8,
-    ]
-    .simd_into(val.simd)
-}
-
-#[inline(always)]
 pub(crate) fn u8_to_f32<S: Simd>(val: u8x16<S>) -> f32x16<S> {
-    // TODO: SIMDify
-    [
-        val.val[0] as f32,
-        val.val[1] as f32,
-        val.val[2] as f32,
-        val.val[3] as f32,
-        val.val[4] as f32,
-        val.val[5] as f32,
-        val.val[6] as f32,
-        val.val[7] as f32,
-        val.val[8] as f32,
-        val.val[9] as f32,
-        val.val[10] as f32,
-        val.val[11] as f32,
-        val.val[12] as f32,
-        val.val[13] as f32,
-        val.val[14] as f32,
-        val.val[15] as f32,
-    ]
-    .simd_into(val.simd)
+    let simd = val.simd;
+    let zeroes = u8x16::splat(simd, 0);
+
+    let zip1 = simd.zip_high_u8x16(val, zeroes);
+    let zip2 = simd.zip_low_u8x16(val, zeroes);
+
+    let p1 = simd.zip_low_u8x16(zip2, zeroes).reinterpret_u32().cvt_f32();
+    let p2 = simd
+        .zip_high_u8x16(zip2, zeroes)
+        .reinterpret_u32()
+        .cvt_f32();
+    let p3 = simd.zip_low_u8x16(zip1, zeroes).reinterpret_u32().cvt_f32();
+    let p4 = simd
+        .zip_high_u8x16(zip1, zeroes)
+        .reinterpret_u32()
+        .cvt_f32();
+
+    simd.combine_f32x8(simd.combine_f32x4(p1, p2), simd.combine_f32x4(p3, p4))
 }
 
 pub trait CompositeType<N: Numeric, S: Simd>: Copy + Clone + Send + Sync {
@@ -191,9 +166,18 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     fn gradient_painter<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
-        has_undefined: bool,
         t_vals: &'a [f32],
-    ) -> Box<dyn Painter + 'a>;
+    ) -> impl Painter + 'a {
+        GradientPainter::new(simd, gradient, false, t_vals)
+    }
+    /// Return the painter used for painting gradients, with support for masking undefined locations.
+    fn gradient_painter_with_undefined<'a>(
+        simd: S,
+        gradient: &'a EncodedGradient,
+        t_vals: &'a [f32],
+    ) -> impl Painter + 'a {
+        GradientPainter::new(simd, gradient, true, t_vals)
+    }
     /// Return the painter used for painting plain nearest-neighbor images.
     ///
     /// Plain nearest-neighbor images are images with the quality 'Low' and no skewing component in their
@@ -204,10 +188,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(PlainNNImagePainter::new(
-            simd, image, pixmap, start_x, start_y,
-        ))
+    ) -> impl Painter + 'a {
+        PlainNNImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
     /// Return the painter used for painting plain nearest-neighbor images.
     ///
@@ -218,20 +200,28 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(NNImagePainter::new(simd, image, pixmap, start_x, start_y))
+    ) -> impl Painter + 'a {
+        NNImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
-    /// Return the painter used for painting image with `Medium` or `High` quality.
-    fn filtered_image_painter<'a>(
+    /// Return the painter used for painting image with `Medium` quality.
+    fn medium_quality_image_painter<'a>(
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(FilteredImagePainter::new(
-            simd, image, pixmap, start_x, start_y,
-        ))
+    ) -> impl Painter + 'a {
+        FilteredImagePainter::new(simd, image, pixmap, start_x, start_y)
+    }
+    /// Return the painter used for painting image with `High` quality.
+    fn high_quality_image_painter<'a>(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> impl Painter + 'a {
+        FilteredImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
     /// Return the painter used for painting blurred rounded rectangles.
     fn blurred_rounded_rectangle_painter<'a>(
@@ -239,13 +229,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         rect: &'a EncodedBlurredRoundedRectangle,
         start_x: u16,
         start_y: u16,
-    ) -> Box<dyn Painter + 'a> {
-        Box::new(BlurredRoundedRectFiller::new(simd, rect, start_x, start_y))
+    ) -> impl Painter + 'a {
+        BlurredRoundedRectFiller::new(simd, rect, start_x, start_y)
     }
     /// Apply the mask to the destination buffer.
     fn apply_mask(simd: S, dest: &mut [Self::Numeric], src: impl Iterator<Item = Self::NumericVec>);
     /// Apply the painter to the destination buffer.
-    fn apply_painter<'a>(simd: S, dest: &mut [Self::Numeric], painter: Box<dyn Painter + 'a>);
+    fn apply_painter<'a>(simd: S, dest: &mut [Self::Numeric], painter: impl Painter + 'a);
     /// Do basic alpha compositing with a solid color.
     fn alpha_composite_solid(
         simd: S,
@@ -513,7 +503,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                                 fill_complex_paint!(
                                     g.has_opacities,
-                                    T::gradient_painter(self.simd, g, false, f32_buf)
+                                    T::gradient_painter(self.simd, g, f32_buf)
                                 );
                             }
                             EncodedKind::Sweep(s) => {
@@ -528,7 +518,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                                 fill_complex_paint!(
                                     g.has_opacities,
-                                    T::gradient_painter(self.simd, g, false, f32_buf)
+                                    T::gradient_painter(self.simd, g, f32_buf)
                                 );
                             }
                             EncodedKind::Radial(r) => {
@@ -541,10 +531,17 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     start_y,
                                 );
 
-                                fill_complex_paint!(
-                                    g.has_opacities,
-                                    T::gradient_painter(self.simd, g, r.has_undefined(), f32_buf)
-                                );
+                                if r.has_undefined() {
+                                    fill_complex_paint!(
+                                        g.has_opacities,
+                                        T::gradient_painter_with_undefined(self.simd, g, f32_buf)
+                                    );
+                                } else {
+                                    fill_complex_paint!(
+                                        g.has_opacities,
+                                        T::gradient_painter(self.simd, g, f32_buf)
+                                    );
+                                }
                             }
                         }
                     }
@@ -555,12 +552,21 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                         match (i.has_skew(), i.nearest_neighbor()) {
                             (_, false) => {
-                                fill_complex_paint!(
-                                    i.has_opacities,
-                                    T::filtered_image_painter(
-                                        self.simd, i, pixmap, start_x, start_y
-                                    )
-                                );
+                                if i.quality == ImageQuality::Medium {
+                                    fill_complex_paint!(
+                                        i.has_opacities,
+                                        T::medium_quality_image_painter(
+                                            self.simd, i, pixmap, start_x, start_y
+                                        )
+                                    );
+                                } else {
+                                    fill_complex_paint!(
+                                        i.has_opacities,
+                                        T::high_quality_image_painter(
+                                            self.simd, i, pixmap, start_x, start_y
+                                        )
+                                    );
+                                }
                             }
                             (false, true) => {
                                 fill_complex_paint!(
@@ -587,15 +593,19 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
 
-        T::blend(
-            self.simd,
-            target_buffer,
-            source_buffer
-                .chunks_exact(T::Composite::LENGTH)
-                .map(|s| T::Composite::from_slice(self.simd, s)),
-            blend_mode,
-            None,
-        );
+        if blend_mode.is_default() {
+            T::alpha_composite_buffer(self.simd, target_buffer, source_buffer, None);
+        } else {
+            T::blend(
+                self.simd,
+                target_buffer,
+                source_buffer
+                    .chunks_exact(T::Composite::LENGTH)
+                    .map(|s| T::Composite::from_slice(self.simd, s)),
+                blend_mode,
+                None,
+            );
+        }
     }
 
     fn clip(&mut self, x: usize, width: usize, alphas: Option<&[u8]>) {
@@ -641,81 +651,6 @@ impl<S: Simd> PosExt<S> for f32x8<S> {
             f32x4::splat_pos(simd, pos, x_advance, y_advance),
             f32x4::splat_pos(simd, pos + x_advance, x_advance, y_advance),
         )
-    }
-}
-
-/// Splatting every 4th element in the vector, used for splatting the alpha value of
-/// a color to all lanes.
-pub trait Splat4thExt<S> {
-    fn splat_4th(self) -> Self;
-}
-
-impl<S: Simd> Splat4thExt<S> for f32x4<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        let zip1 = self.zip_high(self);
-        zip1.zip_high(zip1)
-    }
-}
-
-impl<S: Simd> Splat4thExt<S> for f32x8<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        let (mut p1, mut p2) = self.simd.split_f32x8(self);
-        p1 = p1.splat_4th();
-        p2 = p2.splat_4th();
-
-        self.simd.combine_f32x4(p1, p2)
-    }
-}
-
-impl<S: Simd> Splat4thExt<S> for f32x16<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        let (mut p1, mut p2) = self.simd.split_f32x16(self);
-        p1 = p1.splat_4th();
-        p2 = p2.splat_4th();
-
-        self.simd.combine_f32x8(p1, p2)
-    }
-}
-
-impl<S: Simd> Splat4thExt<S> for u8x16<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        // TODO: SIMDify
-        Self {
-            val: [
-                self.val[3],
-                self.val[3],
-                self.val[3],
-                self.val[3],
-                self.val[7],
-                self.val[7],
-                self.val[7],
-                self.val[7],
-                self.val[11],
-                self.val[11],
-                self.val[11],
-                self.val[11],
-                self.val[15],
-                self.val[15],
-                self.val[15],
-                self.val[15],
-            ],
-            simd: self.simd,
-        }
-    }
-}
-
-impl<S: Simd> Splat4thExt<S> for u8x32<S> {
-    #[inline(always)]
-    fn splat_4th(self) -> Self {
-        let (mut p1, mut p2) = self.simd.split_u8x32(self);
-        p1 = p1.splat_4th();
-        p2 = p2.splat_4th();
-
-        self.simd.combine_u8x16(p1, p2)
     }
 }
 

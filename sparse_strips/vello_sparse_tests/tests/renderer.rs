@@ -185,15 +185,11 @@ impl Renderer for HybridRenderer {
             compatible_surface: None,
         }))
         .expect("Failed to find an appropriate adapter");
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("Device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::default(),
-            },
-            None,
-        ))
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("Device"),
+            required_features: wgpu::Features::empty(),
+            ..Default::default()
+        }))
         .expect("Failed to create device");
 
         // Create a render target texture
@@ -278,8 +274,8 @@ impl Renderer for HybridRenderer {
         unimplemented!()
     }
 
-    fn push_opacity_layer(&mut self, _: f32) {
-        unimplemented!()
+    fn push_opacity_layer(&mut self, opacity: f32) {
+        self.scene.push_layer(None, None, Some(opacity), None);
     }
 
     fn push_mask_layer(&mut self, _: Mask) {
@@ -401,7 +397,7 @@ impl Renderer for HybridRenderer {
                     panic!("Failed to map texture for reading");
                 }
             });
-        self.device.poll(wgpu::Maintain::Wait);
+        self.device.poll(wgpu::PollType::Wait).unwrap();
 
         // Read back the pixel data
         for (row, buf) in texture_copy_buffer
@@ -546,8 +542,8 @@ impl Renderer for HybridRenderer {
         unimplemented!()
     }
 
-    fn push_opacity_layer(&mut self, _: f32) {
-        unimplemented!()
+    fn push_opacity_layer(&mut self, opacity: f32) {
+        self.scene.push_layer(None, None, Some(opacity), None);
     }
 
     fn push_mask_layer(&mut self, _: Mask) {

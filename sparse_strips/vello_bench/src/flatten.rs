@@ -4,7 +4,9 @@
 use crate::data::get_data_items;
 use criterion::Criterion;
 use vello_common::flatten;
+use vello_common::flatten::FlattenCtx;
 use vello_common::kurbo::Stroke;
+use vello_cpu::Level;
 use vello_cpu::kurbo::Affine;
 
 pub fn flatten(c: &mut Criterion) {
@@ -20,12 +22,24 @@ pub fn flatten(c: &mut Criterion) {
                     let mut temp_buf: Vec<flatten::Line> = vec![];
 
                     for path in &$item.fills {
-                        flatten::fill(&path.path, path.transform, &mut temp_buf);
+                        flatten::fill(
+                            Level::new(),
+                            &path.path,
+                            path.transform,
+                            &mut temp_buf,
+                            &mut FlattenCtx::default(),
+                        );
                         line_buf.extend(&temp_buf);
                     }
 
                     for stroke in &expanded_strokes {
-                        flatten::fill(stroke, Affine::IDENTITY, &mut temp_buf);
+                        flatten::fill(
+                            Level::new(),
+                            stroke,
+                            Affine::IDENTITY,
+                            &mut temp_buf,
+                            &mut FlattenCtx::default(),
+                        );
                         line_buf.extend(&temp_buf);
                     }
 
