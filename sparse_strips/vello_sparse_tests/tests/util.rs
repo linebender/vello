@@ -68,6 +68,8 @@ pub(crate) fn get_ctx<T: Renderer>(
                 .as_wasm_simd128()
                 .expect("wasm simd128 should be available"),
         ),
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        "sse42" => Level::Sse4_2(Level::new().as_sse4_2().expect("SSE4.2 should be available")),
         "fallback" => Level::fallback(),
         _ => panic!("unknown level: {level}"),
     };
