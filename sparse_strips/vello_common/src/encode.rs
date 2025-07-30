@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
 use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
-use smallvec::SmallVec;
+use smallvec::{SmallVec, ToSmallVec};
 // So we can just use `OnceCell` regardless of which feature is activated.
 #[cfg(feature = "multithreading")]
 use std::sync::OnceLock as OnceCell;
@@ -64,6 +64,27 @@ impl EncodeExt for Gradient {
         let mut base_transform;
 
         let mut stops = Cow::Borrowed(&self.stops.0);
+
+        let first_stop = &stops[0];
+        let last_stop = &stops[stops.len() - 1];
+
+        if first_stop.offset != 0.0 || last_stop.offset != 1.0 {
+            let mut vec = stops.to_smallvec();
+
+            if first_stop.offset != 0.0 {
+                let mut first_stop = *first_stop;
+                first_stop.offset = 0.0;
+                vec.insert(0, first_stop);
+            }
+
+            if last_stop.offset != 1.0 {
+                let mut last_stop = *last_stop;
+                last_stop.offset = 1.0;
+                vec.push(last_stop);
+            }
+
+            stops = Cow::Owned(vec);
+        }
 
         let kind = match self.kind {
             GradientKind::Linear {
@@ -241,11 +262,6 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
     let first = Err(gradient.stops[0].color.to_alpha_color::<Srgb>().into());
 
     if gradient.stops.len() == 1 {
-        return first;
-    }
-
-    // First stop must be at offset 0.0 and last offset must be at 1.0.
-    if gradient.stops[0].offset != 0.0 || gradient.stops[gradient.stops.len() - 1].offset != 1.0 {
         return first;
     }
 
@@ -1075,34 +1091,6 @@ mod tests {
         };
 
         // Should return the color of the first stop.
-        assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY),
-            GREEN.into()
-        );
-    }
-
-    #[test]
-    fn gradient_not_padded_stops() {
-        let mut buf = vec![];
-
-        let gradient = Gradient {
-            kind: GradientKind::Linear {
-                start: Point::new(0.0, 0.0),
-                end: Point::new(20.0, 0.0),
-            },
-            stops: ColorStops(smallvec![
-                ColorStop {
-                    offset: 0.0,
-                    color: DynamicColor::from_alpha_color(GREEN),
-                },
-                ColorStop {
-                    offset: 0.5,
-                    color: DynamicColor::from_alpha_color(BLUE),
-                },
-            ]),
-            ..Default::default()
-        };
-
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY),
             GREEN.into()

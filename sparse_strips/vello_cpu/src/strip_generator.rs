@@ -5,7 +5,7 @@ use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::Fill;
 use alloc::vec::Vec;
 use vello_common::fearless_simd::Level;
-use vello_common::flatten::Line;
+use vello_common::flatten::{FlattenCtx, Line};
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
@@ -15,6 +15,7 @@ pub(crate) struct StripGenerator {
     level: Level,
     alphas: Vec<u8>,
     line_buf: Vec<Line>,
+    flatten_ctx: FlattenCtx,
     tiles: Tiles,
     strip_buf: Vec<Strip>,
     width: u16,
@@ -29,6 +30,7 @@ impl StripGenerator {
             line_buf: Vec::new(),
             tiles: Tiles::new(),
             strip_buf: Vec::new(),
+            flatten_ctx: FlattenCtx::default(),
             width,
             height,
         }
@@ -42,8 +44,15 @@ impl StripGenerator {
         anti_alias: bool,
         func: impl FnOnce(&'a [Strip]),
     ) {
-        flatten::fill(self.level, path, transform, &mut self.line_buf);
-        self.make_strips(fill_rule, anti_alias);
+        flatten::fill(
+            self.level,
+            path,
+            transform,
+            &mut self.line_buf,
+            &mut self.flatten_ctx,
+            anti_alias
+        );
+        self.make_strips(fill_rule);
         func(&mut self.strip_buf);
     }
 
@@ -55,8 +64,16 @@ impl StripGenerator {
         anti_alias: bool,
         func: impl FnOnce(&'a [Strip]),
     ) {
-        flatten::stroke(self.level, path, stroke, transform, &mut self.line_buf);
-        self.make_strips(Fill::NonZero, anti_alias);
+        flatten::stroke(
+            self.level,
+            path,
+            stroke,
+            transform,
+            &mut self.line_buf,
+            &mut self.flatten_ctx,
+            anti_alias
+        );
+        self.make_strips(Fill::NonZero);
         func(&mut self.strip_buf);
     }
 
