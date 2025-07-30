@@ -4,9 +4,11 @@
 //! Tests for GitHub issues.
 
 use crate::renderer::Renderer;
-use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
-use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
-use vello_common::peniko::{Color, ColorStop, Fill, Gradient};
+use smallvec::smallvec;
+use vello_common::color::DynamicColor;
+use vello_common::color::palette::css::{BLUE, DARK_BLUE, LIME, REBECCA_PURPLE};
+use vello_common::kurbo::{BezPath, Point, Rect, Shape, Stroke};
+use vello_common::peniko::{Color, ColorStop, ColorStops, Fill, Gradient, GradientKind};
 use vello_cpu::color::palette::css::RED;
 use vello_dev_macros::vello_test;
 
@@ -339,4 +341,31 @@ fn do_not_panic_on_multiple_flushes(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
     ctx.flush();
     ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
+}
+
+// See <https://github.com/linebender/vello/issues/1129>
+#[vello_test]
+fn gradient_with_last_stop_0_opacity(ctx: &mut impl Renderer) {
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+    let gradient = Gradient {
+        kind: GradientKind::Linear {
+            start: Point::new(10.0, 0.0),
+            end: Point::new(90.0, 0.0),
+        },
+        stops: ColorStops(smallvec![
+            ColorStop {
+                offset: 0.0,
+                color: DynamicColor::from_alpha_color(BLUE),
+            },
+            ColorStop {
+                offset: 1.0,
+                color: DynamicColor::from_alpha_color(RED.with_alpha(0.00)),
+            },
+        ]),
+        ..Default::default()
+    };
+
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&rect);
 }
