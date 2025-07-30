@@ -9,6 +9,8 @@ use alloc::vec::Vec;
 use fearless_simd::{Level, Simd, simd_dispatch};
 use log::warn;
 
+pub use crate::flatten_simd::FlattenCtx;
+
 /// The flattening tolerance.
 const TOL: f64 = 0.25;
 
@@ -72,19 +74,32 @@ impl Line {
 }
 
 /// Flatten a filled bezier path into line segments.
-pub fn fill(level: Level, path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
-    fill_dispatch(level, path, affine, line_buf);
+pub fn fill(
+    level: Level,
+    path: &BezPath,
+    affine: Affine,
+    line_buf: &mut Vec<Line>,
+    ctx: &mut FlattenCtx,
+) {
+    fill_dispatch(level, path, affine, line_buf, ctx);
 }
 
 simd_dispatch!(fill_dispatch(
     level,
     path: &BezPath, 
     affine: Affine,
-    line_buf: &mut Vec<Line>
+    line_buf: &mut Vec<Line>, 
+    ctx: &mut FlattenCtx
 ) = fill_impl);
 
 /// Flatten a filled bezier path into line segments.
-pub fn fill_impl<S: Simd>(simd: S, path: &BezPath, affine: Affine, line_buf: &mut Vec<Line>) {
+pub fn fill_impl<S: Simd>(
+    simd: S,
+    path: &BezPath,
+    affine: Affine,
+    line_buf: &mut Vec<Line>,
+    flatten_ctx: &mut FlattenCtx,
+) {
     line_buf.clear();
     let iter = path.iter().map(|el| affine * el);
 
@@ -96,7 +111,7 @@ pub fn fill_impl<S: Simd>(simd: S, path: &BezPath, affine: Affine, line_buf: &mu
         closed: false,
     };
 
-    crate::flatten_simd::flatten(simd, iter, TOL, &mut lb);
+    crate::flatten_simd::flatten(simd, iter, TOL, &mut lb, flatten_ctx);
 
     if !lb.closed {
         close_path(lb.start, lb.p0, lb.line_buf);
@@ -116,12 +131,13 @@ pub fn stroke(
     style: &Stroke,
     affine: Affine,
     line_buf: &mut Vec<Line>,
+    flatten_ctx: &mut FlattenCtx,
 ) {
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
     let tolerance = TOL / affine.as_coeffs()[0].abs().max(affine.as_coeffs()[3].abs());
 
     let expanded = expand_stroke(path.iter(), style, tolerance);
-    fill(level, &expanded, affine, line_buf);
+    fill(level, &expanded, affine, line_buf, flatten_ctx);
 }
 
 /// Expand a stroked path to a filled path.
