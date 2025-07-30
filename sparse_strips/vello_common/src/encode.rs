@@ -16,7 +16,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
-use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
+use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16, mask32x4, mask32x16};
 use smallvec::SmallVec;
 // So we can just use `OnceCell` regardless of which feature is activated.
 #[cfg(feature = "multithreading")]
@@ -339,7 +339,7 @@ fn encode_stops(
     #[derive(Debug)]
     struct EncodedColorStop {
         offset: f32,
-        color: crate::color::PremulColor<Srgb>,
+        color: crate::color::AlphaColor<Srgb>,
     }
 
     let create_range = |left_stop: &EncodedColorStop, right_stop: &EncodedColorStop| {
@@ -378,6 +378,10 @@ fn encode_stops(
     // Create additional (SRGB-encoded) stops in-between to approximate the color space we want to
     // interpolate in.
     if cs != ColorSpaceTag::Srgb {
+        // TODO: The `color` crate will always interpolate in premultiplied space, while for Srgb
+        // we do it in unpremultiplied space since this is more desirable for most 2D rendering
+        // situations (see https://github.com/linebender/vello/issues/1129), so the results might
+        // look off until this is implemented in the `color` crate.
         let interpolated_stops = stops
             .windows(2)
             .flat_map(|s| {
@@ -389,7 +393,7 @@ fn encode_stops(
 
                 interpolated.map(|st| EncodedColorStop {
                     offset: left_stop.offset + (right_stop.offset - left_stop.offset) * st.0,
-                    color: st.1,
+                    color: st.1.un_premultiply(),
                 })
             })
             .collect::<Vec<_>>();
@@ -409,12 +413,12 @@ fn encode_stops(
             .map(|c| {
                 let c0 = EncodedColorStop {
                     offset: c[0].offset,
-                    color: c[0].color.to_alpha_color::<Srgb>().premultiply(),
+                    color: c[0].color.to_alpha_color::<Srgb>(),
                 };
 
                 let c1 = EncodedColorStop {
                     offset: c[1].offset,
-                    color: c[1].color.to_alpha_color::<Srgb>().premultiply(),
+                    color: c[1].color.to_alpha_color::<Srgb>(),
                 };
 
                 create_range(&c0, &c1)
@@ -944,6 +948,13 @@ impl<T: FromF32Color> GradientLut<T> {
 
                 let mut result = biases.madd(scales, t_vals);
                 let alphas = result.splat_4th();
+
+                // Premultiply colors, since we did interpolation in unpremultiplied space.
+                result = {
+                    let mask = mask32x16::block_splat(mask32x4::from_slice(simd, &[-1, -1, -1, 0]));
+                    simd.select_f32x16(mask, result * alphas, alphas)
+                };
+
                 // Due to floating-point impreciseness, it can happen that
                 // values either become greater than 1 or the RGB channels
                 // become greater than the alpha channel. To prevent overflows
