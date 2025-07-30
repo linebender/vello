@@ -12,6 +12,7 @@ use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
+use vello_cpu::kurbo::StrokeCtx;
 
 static DATA: OnceLock<Vec<DataItem>> = OnceLock::new();
 
@@ -101,6 +102,7 @@ impl DataItem {
                 &stroke,
                 path.transform,
                 &mut temp_buf,
+                &mut StrokeCtx::default(),
                 &mut FlattenCtx::default(),
             );
             line_buf.extend(&temp_buf);
@@ -112,13 +114,15 @@ impl DataItem {
     /// Get the expanded strokes.
     pub fn expanded_strokes(&self) -> Vec<BezPath> {
         let mut paths = vec![];
+        let mut stroke_ctx = StrokeCtx::default();
 
         for path in &self.strokes {
             let stroke = Stroke {
                 width: path.stroke_width as f64,
                 ..Default::default()
             };
-            paths.push(flatten::expand_stroke(path.path.iter(), &stroke, 0.25));
+            flatten::expand_stroke(path.path.iter(), &stroke, 0.25, &mut stroke_ctx);
+            paths.push(stroke_ctx.output().clone());
         }
 
         paths

@@ -7,7 +7,7 @@ use vello_common::flatten;
 use vello_common::flatten::FlattenCtx;
 use vello_common::kurbo::Stroke;
 use vello_cpu::Level;
-use vello_cpu::kurbo::Affine;
+use vello_cpu::kurbo::{Affine, StrokeCtx};
 
 pub fn flatten(c: &mut Criterion) {
     let mut g = c.benchmark_group("flatten");
@@ -62,13 +62,14 @@ pub fn strokes(c: &mut Criterion) {
             g.bench_function($item.name.clone(), |b| {
                 b.iter(|| {
                     let mut paths = vec![];
+                    let mut ctx = StrokeCtx::default();
 
                     for path in &$item.strokes {
                         let stroke = Stroke {
                             width: path.stroke_width as f64,
                             ..Default::default()
                         };
-                        paths.push(flatten::expand_stroke(path.path.iter(), &stroke, 0.25));
+                        paths.push(flatten::expand_stroke(path.path.iter(), &stroke, 0.25, &mut ctx));
                     }
 
                     std::hint::black_box(&paths);

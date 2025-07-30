@@ -8,7 +8,7 @@ use crate::kurbo::{self, Affine, BezPath, PathEl, Stroke, StrokeOpts};
 use alloc::vec::Vec;
 use fearless_simd::{Level, Simd, simd_dispatch};
 use log::warn;
-
+use peniko::kurbo::StrokeCtx;
 pub use crate::flatten_simd::FlattenCtx;
 
 /// The flattening tolerance.
@@ -131,13 +131,14 @@ pub fn stroke(
     style: &Stroke,
     affine: Affine,
     line_buf: &mut Vec<Line>,
+    stroke_ctx: &mut StrokeCtx,
     flatten_ctx: &mut FlattenCtx,
 ) {
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
     let tolerance = TOL / affine.as_coeffs()[0].abs().max(affine.as_coeffs()[3].abs());
 
-    let expanded = expand_stroke(path.iter(), style, tolerance);
-    fill(level, &expanded, affine, line_buf, flatten_ctx);
+    expand_stroke(path.iter(), style, tolerance, stroke_ctx);
+    fill(level, &stroke_ctx.output(), affine, line_buf, flatten_ctx);
 }
 
 /// Expand a stroked path to a filled path.
@@ -145,8 +146,9 @@ pub fn expand_stroke(
     path: impl IntoIterator<Item = PathEl>,
     style: &Stroke,
     tolerance: f64,
-) -> BezPath {
-    kurbo::stroke(path, style, &StrokeOpts::default(), tolerance)
+    stroke_ctx: &mut StrokeCtx,
+) {
+    kurbo::stroke_with(path, style, &StrokeOpts::default(), tolerance, stroke_ctx)
 }
 
 struct FlattenerCallback<'a> {

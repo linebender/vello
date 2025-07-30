@@ -9,6 +9,7 @@ use vello_common::flatten::{FlattenCtx, Line};
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
+use vello_common::kurbo::StrokeCtx;
 
 #[derive(Debug)]
 pub(crate) struct StripGenerator {
@@ -16,6 +17,7 @@ pub(crate) struct StripGenerator {
     alphas: Vec<u8>,
     line_buf: Vec<Line>,
     flatten_ctx: FlattenCtx,
+    stroke_ctx: StrokeCtx,
     tiles: Tiles,
     strip_buf: Vec<Strip>,
     width: u16,
@@ -31,6 +33,7 @@ impl StripGenerator {
             tiles: Tiles::new(),
             strip_buf: Vec::new(),
             flatten_ctx: FlattenCtx::default(),
+            stroke_ctx: StrokeCtx::default(),
             width,
             height,
         }
@@ -67,6 +70,7 @@ impl StripGenerator {
             stroke,
             transform,
             &mut self.line_buf,
+            &mut self.stroke_ctx,
             &mut self.flatten_ctx,
         );
         self.make_strips(Fill::NonZero);

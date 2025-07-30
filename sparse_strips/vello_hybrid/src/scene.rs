@@ -10,7 +10,7 @@ use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::flatten::{FlattenCtx, Line};
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
-use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
+use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke, StrokeCtx};
 use vello_common::mask::Mask;
 use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::Font;
@@ -54,6 +54,7 @@ pub struct Scene {
     paint_visible: bool,
     level: Level,
     flatten_ctx: FlattenCtx,
+    stroke_ctx: StrokeCtx,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
@@ -72,6 +73,7 @@ impl Scene {
             level: Level::fallback(),
             line_buf: vec![],
             tiles: Tiles::new(),
+            stroke_ctx: StrokeCtx::default(),
             strip_buf: vec![],
             paint: render_state.paint,
             paint_transform: render_state.paint_transform,
@@ -149,6 +151,7 @@ impl Scene {
             &self.stroke,
             self.transform,
             &mut self.line_buf,
+            &mut self.stroke_ctx,
             &mut self.flatten_ctx,
         );
         let paint = self.encode_current_paint();
@@ -350,6 +353,7 @@ impl GlyphRenderer for Scene {
                     &self.stroke,
                     prepared_glyph.transform,
                     &mut self.line_buf,
+                    &mut self.stroke_ctx,
                     &mut self.flatten_ctx,
                 );
                 let paint = self.encode_current_paint();

@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::renderer::Renderer;
-use vello_common::kurbo::{Affine, BezPath, Cap, CubicBez, Join, Point, Rect, Shape, Stroke};
-use vello_common::peniko::Fill;
+use vello_common::kurbo::{Affine, BezPath, Cap, CubicBez, Join, Rect, Shape, Stroke};
 use vello_cpu::color::AlphaColor;
 use vello_dev_macros::vello_test;
 
