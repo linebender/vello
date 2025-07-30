@@ -508,7 +508,14 @@ impl Renderer {
 
     /// Overwrite `image` with `texture`.
     ///
-    /// Whenever `image` would be rendered, instead the given `Texture` will be used.
+    /// `texture` must have the [`wgpu::TextureFormat::Rgba8Unorm`] format and
+    /// the [`wgpu::TextureUsages::COPY_SRC`] flag set. The `Rgba8UnormSrgb` format
+    /// might also be supported.
+    ///
+    /// The given `Texture`'s data will be copied into the slot in Vello's image
+    /// atlas where the image would be placed each frame.
+    /// This has the effect that wherever you request the image to be drawn (e.g.
+    /// through [`Scene::draw_image`]), the data from the texture will be used instead.
     ///
     /// Correct behaviour is not guaranteed if the texture does not have the same
     /// dimensions as the image, nor if an image which uses the same [data] but different
