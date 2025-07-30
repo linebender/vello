@@ -45,6 +45,7 @@ struct App<'s> {
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Point>,
+    redrawn_count: u8,
 }
 
 fn main() {
@@ -87,6 +88,7 @@ fn main() {
         transform: Affine::IDENTITY,
         mouse_down: false,
         last_cursor_position: None,
+        redrawn_count: 0,
     };
 
     let event_loop = EventLoop::new().unwrap();
@@ -304,6 +306,14 @@ impl ApplicationHandler for App<'_> {
                 surface_texture.present();
 
                 device_handle.device.poll(wgpu::PollType::Poll).unwrap();
+
+                if self.redrawn_count <= 1 {
+                    window.request_redraw();
+                    if self.redrawn_count == 0 {
+                        self.transform *= Affine::translate((100.0, 100.0));
+                    }
+                    self.redrawn_count += 1;
+                }
             }
             _ => {}
         }
