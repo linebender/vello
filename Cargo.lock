@@ -1737,6 +1737,7 @@ dependencies = [
 [[package]]
 name = "kurbo"
 version = "0.11.3"
+source = "git+https://github.com/linebender/kurbo?rev=a0512ab#a0512ab0f5c8946e91189c85afcc4de15f31773d"
 dependencies = [
  "arrayvec",
  "euclid",
