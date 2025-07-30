@@ -50,9 +50,8 @@ impl StripGenerator {
             transform,
             &mut self.line_buf,
             &mut self.flatten_ctx,
-            anti_alias
         );
-        self.make_strips(fill_rule);
+        self.make_strips(fill_rule, anti_alias);
         func(&mut self.strip_buf);
     }
 
@@ -71,9 +70,8 @@ impl StripGenerator {
             transform,
             &mut self.line_buf,
             &mut self.flatten_ctx,
-            anti_alias
         );
-        self.make_strips(Fill::NonZero);
+        self.make_strips(Fill::NonZero, anti_alias);
         func(&mut self.strip_buf);
     }
 
