@@ -406,15 +406,10 @@ fn no_anti_aliasing(ctx: &mut impl Renderer) {
 fn no_anti_aliasing_clip_path(ctx: &mut impl Renderer) {
     ctx.set_anti_aliasing(false);
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
-    // Create a self-intersecting star shape that will show the difference between fill rules
     let star_path = crossed_line_star();
 
-    // Set the fill rule to NonZero before applying the clip
     ctx.set_fill_rule(Fill::NonZero);
-    // Apply the star as a clip
     ctx.push_clip_layer(&star_path);
-    // Draw a rectangle that should be clipped by the star
-    // The NonZero fill rule will treat self-intersecting regions as filled
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);
     ctx.pop_layer();
