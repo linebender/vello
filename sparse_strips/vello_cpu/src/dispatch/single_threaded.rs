@@ -103,6 +103,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         clip_transform: Affine,
         blend_mode: BlendMode,
         opacity: f32,
+        anti_alias: bool,
         mask: Option<Mask>,
     ) {
         let clip = if let Some(c) = clip_path {
@@ -114,7 +115,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 c,
                 fill_rule,
                 clip_transform,
-                true,
+                anti_alias,
                 |strips| strip_buf = strips,
             );
 

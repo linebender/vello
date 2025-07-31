@@ -39,6 +39,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         clip_transform: Affine,
         blend_mode: BlendMode,
         opacity: f32,
+        anti_alias: bool,
         mask: Option<Mask>,
     );
     fn pop_layer(&mut self);

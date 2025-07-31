@@ -312,6 +312,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         clip_transform: Affine,
         blend_mode: BlendMode,
         opacity: f32,
+        anti_alias: bool,
         mask: Option<Mask>,
     ) {
         let task_idx = self.bump_task_idx();
@@ -322,6 +323,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             opacity,
             mask,
             fill_rule,
+            anti_alias,
             task_idx,
         });
     }
@@ -503,6 +505,7 @@ enum RenderTask {
         opacity: f32,
         mask: Option<Mask>,
         fill_rule: Fill,
+        anti_alias: bool,
         task_idx: usize,
     },
     PopLayer {
@@ -634,6 +637,7 @@ impl Worker {
                     mask,
                     fill_rule,
                     task_idx,
+                    anti_alias,
                 } => {
                     let clip = if let Some((c, transform)) = clip_path {
                         let mut strip_buf = &[][..];
@@ -642,7 +646,7 @@ impl Worker {
                             fill_rule,
                             transform,
                             // TODO: Maybe this should be configurable as well?
-                            true,
+                            anti_alias,
                             |strips| strip_buf = strips,
                         );
 

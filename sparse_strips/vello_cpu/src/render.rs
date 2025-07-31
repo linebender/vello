@@ -276,6 +276,7 @@ impl RenderContext {
             self.transform,
             blend_mode,
             opacity,
+            self.anti_alias,
             mask,
         );
     }
