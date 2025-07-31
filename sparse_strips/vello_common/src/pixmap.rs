@@ -191,7 +191,7 @@ impl Pixmap {
 
         Ok(pixmap)
     }
-    
+
     /// Return the current content of the pixmap as a PNG.
     #[cfg(feature = "png")]
     pub fn take_png(self) -> Result<Vec<u8>, png::EncodingError> {
