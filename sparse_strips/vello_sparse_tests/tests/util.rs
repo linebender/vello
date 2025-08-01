@@ -270,7 +270,7 @@ pub(crate) fn check_ref(
 ) {
     let pixmap = render_pixmap(ctx, render_mode);
 
-    let encoded_image = pixmap.take_png().unwrap();
+    let encoded_image = pixmap.into_png().unwrap();
     let ref_path = REFS_PATH.join(format!("{test_name}.png"));
 
     let write_ref_image = || {
@@ -333,7 +333,7 @@ pub(crate) fn check_ref(
     assert!(!is_reference, "WASM cannot create new reference images");
 
     let pixmap = render_pixmap(ctx, render_mode);
-    let encoded_image = pixmap.take_png().unwrap();
+    let encoded_image = pixmap.into_png().unwrap();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
     let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
