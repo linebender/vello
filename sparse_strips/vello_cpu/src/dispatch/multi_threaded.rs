@@ -327,7 +327,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         &self.wide
     }
 
-    fn fill_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, paint: Paint) {
     fn fill_path(
         &mut self,
         path: &BezPath,
@@ -336,8 +335,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         anti_alias: bool,
     ) {
-        let task_idx = self.bump_task_idx();
-
         self.register_task(RenderTask::FillPath {
             path: Path::new(path),
             transform,
@@ -346,7 +343,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             anti_alias,
         });
     }
-        
+
     fn stroke_path(
         &mut self,
         path: &BezPath,
@@ -355,8 +352,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         anti_alias: bool,
     ) {
-        let task_idx = self.bump_task_idx();
-
         self.register_task(RenderTask::StrokePath {
             path: Path::new(path),
             transform,
@@ -425,6 +420,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         if self.flushed {
             return;
         }
+
         self.flush_tasks();
         let sender = core::mem::take(&mut self.task_sender);
         // Note that dropping the sender will signal to the workers that no more new paths

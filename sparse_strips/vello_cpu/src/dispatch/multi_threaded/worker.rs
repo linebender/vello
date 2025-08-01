@@ -51,6 +51,7 @@ impl Worker {
                     transform,
                     paint,
                     fill_rule,
+                    anti_alias,
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseTask::Render {
@@ -66,13 +67,14 @@ impl Worker {
                     match path {
                         Path::Bez(b) => {
                             self.strip_generator
-                                .generate_filled_path(&b, fill_rule, transform, func);
+                                .generate_filled_path(&b, fill_rule, transform, anti_alias, func);
                         }
                         Path::Small(s) => {
                             self.strip_generator.generate_filled_path(
                                 s.elements(),
                                 fill_rule,
                                 transform,
+                                anti_alias,
                                 func,
                             );
                         }
@@ -83,6 +85,7 @@ impl Worker {
                     transform,
                     paint,
                     stroke,
+                    anti_alias,
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseTask::Render {
@@ -98,13 +101,14 @@ impl Worker {
                     match path {
                         Path::Bez(b) => {
                             self.strip_generator
-                                .generate_stroked_path(&b, &stroke, transform, func);
+                                .generate_stroked_path(&b, &stroke, transform, anti_alias, func);
                         }
                         Path::Small(s) => {
                             self.strip_generator.generate_stroked_path(
                                 s.elements(),
                                 &stroke,
                                 transform,
+                                anti_alias,
                                 func,
                             );
                         }
@@ -116,6 +120,7 @@ impl Worker {
                     opacity,
                     mask,
                     fill_rule,
+                    anti_alias,
                 } => {
                     let clip = if let Some((c, transform)) = clip_path {
                         let mut strip_buf = &[][..];
@@ -123,6 +128,7 @@ impl Worker {
                             c,
                             fill_rule,
                             transform,
+                            anti_alias,
                             |strips| strip_buf = strips,
                         );
 
