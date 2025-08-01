@@ -348,6 +348,7 @@ pub(crate) fn check_ref(
 #[cfg(target_arch = "wasm32")]
 fn append_diff_image_to_browser_document(specific_name: &str, diff_image: &RgbaImage) {
     use wasm_bindgen::JsCast;
+    use image::ImageEncoder;
     use web_sys::js_sys::{Array, Uint8Array};
     use web_sys::{Blob, BlobPropertyBag, HtmlImageElement, Url, window};
 
