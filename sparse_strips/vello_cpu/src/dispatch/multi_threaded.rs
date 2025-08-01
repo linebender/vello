@@ -328,20 +328,41 @@ impl Dispatcher for MultiThreadedDispatcher {
     }
 
     fn fill_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, paint: Paint) {
+    fn fill_path(
+        &mut self,
+        path: &BezPath,
+        fill_rule: Fill,
+        transform: Affine,
+        paint: Paint,
+        anti_alias: bool,
+    ) {
+        let task_idx = self.bump_task_idx();
+
         self.register_task(RenderTask::FillPath {
             path: Path::new(path),
             transform,
             paint,
             fill_rule,
+            anti_alias,
         });
     }
+        
+    fn stroke_path(
+        &mut self,
+        path: &BezPath,
+        stroke: &Stroke,
+        transform: Affine,
+        paint: Paint,
+        anti_alias: bool,
+    ) {
+        let task_idx = self.bump_task_idx();
 
-    fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint) {
         self.register_task(RenderTask::StrokePath {
             path: Path::new(path),
             transform,
             paint,
             stroke: stroke.clone(),
+            anti_alias,
         });
     }
 
@@ -352,6 +373,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         clip_transform: Affine,
         blend_mode: BlendMode,
         opacity: f32,
+        anti_alias: bool,
         mask: Option<Mask>,
     ) {
         self.register_task(RenderTask::PushLayer {
@@ -360,6 +382,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             opacity,
             mask,
             fill_rule,
+            anti_alias,
         });
     }
 
@@ -498,12 +521,14 @@ pub(crate) enum RenderTask {
         transform: Affine,
         paint: Paint,
         fill_rule: Fill,
+        anti_alias: bool,
     },
     StrokePath {
         path: Path,
         transform: Affine,
         paint: Paint,
         stroke: Stroke,
+        anti_alias: bool,
     },
     PushLayer {
         clip_path: Option<(BezPath, Affine)>,
@@ -511,6 +536,7 @@ pub(crate) enum RenderTask {
         opacity: f32,
         mask: Option<Mask>,
         fill_rule: Fill,
+        anti_alias: bool,
     },
     PopLayer,
 }

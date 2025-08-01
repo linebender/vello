@@ -8,6 +8,7 @@ use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 use vello_common::peniko::{Color, ColorStop, Fill, Gradient};
 use vello_cpu::color::palette::css::RED;
+use vello_cpu::peniko::Compose;
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 8, height = 8)]
@@ -339,4 +340,37 @@ fn do_not_panic_on_multiple_flushes(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
     ctx.flush();
     ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
+}
+
+/// <https://github.com/linebender/vello/issues/1119>
+#[vello_test]
+fn clip_clear(ctx: &mut impl Renderer) {
+    // initial coloring
+    ctx.set_paint(LIME);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.push_layer(
+        Some(&Rect::new(0., 0., 50., 50.).to_path(0.1)),
+        Some(Compose::Clear.into()),
+        None,
+        None,
+    );
+    ctx.pop_layer();
+}
+
+/// https://github.com/web-platform-tests/wpt/blob/18c64a74b1/html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.html
+/// See <https://github.com/linebender/vello/issues/1056>.
+#[vello_test(width = 100, height = 50)]
+fn gradient_color_alpha(ctx: &mut impl Renderer) {
+    let viewport = Rect::new(0., 0., 100., 50.);
+    ctx.set_paint(Gradient::new_linear((0., 0.), (100., 0.)).with_stops([
+        ColorStop {
+            offset: 0.,
+            color: Color::from_rgba8(255, 255, 0, 0).into(),
+        },
+        ColorStop {
+            offset: 1.,
+            color: Color::from_rgba8(0, 0, 255, 255).into(),
+        },
+    ]));
+    ctx.fill_rect(&viewport);
 }

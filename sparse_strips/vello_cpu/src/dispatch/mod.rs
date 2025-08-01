@@ -16,8 +16,22 @@ use vello_common::paint::Paint;
 
 pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn wide(&self) -> &Wide;
-    fn fill_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, paint: Paint);
-    fn stroke_path(&mut self, path: &BezPath, stroke: &Stroke, transform: Affine, paint: Paint);
+    fn fill_path(
+        &mut self,
+        path: &BezPath,
+        fill_rule: Fill,
+        transform: Affine,
+        paint: Paint,
+        anti_alias: bool,
+    );
+    fn stroke_path(
+        &mut self,
+        path: &BezPath,
+        stroke: &Stroke,
+        transform: Affine,
+        paint: Paint,
+        anti_alias: bool,
+    );
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -25,6 +39,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         clip_transform: Affine,
         blend_mode: BlendMode,
         opacity: f32,
+        anti_alias: bool,
         mask: Option<Mask>,
     );
     fn pop_layer(&mut self);
