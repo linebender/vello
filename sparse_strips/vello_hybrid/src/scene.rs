@@ -3,6 +3,7 @@
 
 //! Basic render operations.
 
+use crate::recording::{Recorder, Recording, RenderCommand};
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::coarse::Wide;
@@ -109,6 +110,310 @@ impl Scene {
             stroke,
             blend_mode,
         }
+    }
+
+    /// Record rendering commands and return recording
+    pub fn record<F>(&mut self, f: F) -> Recording
+    where
+        F: FnOnce(&mut Recorder),
+    {
+        let mut recording = Recording::new();
+        let mut recorder = Recorder::new(&mut recording);
+
+        // Let consumer record their commands
+        f(&mut recorder);
+
+        recording
+    }
+
+    /// Render using recording (caches strips on first use)
+    pub fn render_recording(&mut self, recording: &mut Recording) {
+        // Generate strips if not cached
+        if !recording.has_cached_strips() {
+            self.prepare_recording(recording);
+        }
+
+        // Execute the recording
+        self.execute_recording(recording);
+    }
+
+    /// Record and render immediately
+    pub fn record_and_render<F>(&mut self, f: F) -> Recording
+    where
+        F: FnOnce(&mut Recorder),
+    {
+        let mut recording = self.record(f);
+        self.render_recording(&mut recording);
+        recording
+    }
+
+    /// Render recording if available, otherwise record
+    pub fn render_or_record<F>(&mut self, recording: Option<&mut Recording>, f: F) -> Recording
+    where
+        F: FnOnce(&mut Recorder),
+    {
+        if let Some(existing) = recording {
+            self.render_recording(existing);
+            existing.clone()
+        } else {
+            self.record_and_render(f)
+        }
+    }
+
+    /// Prepare recording by generating cached strips
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        // Generate strips from commands
+        let (strips, alphas, strip_ranges) =
+            self.generate_strips_from_commands(&recording.commands);
+
+        // Store cached data in the recording
+        recording.set_cached_strips(strips.into_boxed_slice(), alphas.into_boxed_slice());
+        recording.set_strip_ranges(strip_ranges);
+    }
+
+    /// Execute recording with cached strips
+    fn execute_recording(&mut self, recording: &Recording) {
+        if let Some((cached_strips, cached_alphas)) = recording.get_cached_strips() {
+            // Prepare cached strips for rendering with adjusted alpha indices
+            let adjusted_strips =
+                self.prepare_cached_strips_for_rendering(cached_strips, cached_alphas);
+
+            // Use pre-calculated strip ranges from when we generated the cache
+            let strip_ranges = recording.get_strip_ranges();
+            let mut range_index = 0;
+
+            // Replay commands in order, using cached strips for geometry
+            for command in &recording.commands {
+                match command {
+                    // For geometry commands, use corresponding cached strips
+                    RenderCommand::FillPath(_)
+                    | RenderCommand::StrokePath(_)
+                    | RenderCommand::FillRect(_)
+                    | RenderCommand::StrokeRect(_) => {
+                        if range_index < strip_ranges.len() {
+                            let (start, count) = strip_ranges[range_index];
+                            let end = (start + count).min(adjusted_strips.len());
+
+                            if start < adjusted_strips.len() && count > 0 {
+                                let paint = self.encode_current_paint();
+                                self.wide.generate(
+                                    &adjusted_strips[start..end],
+                                    self.fill_rule,
+                                    paint,
+                                    0,
+                                );
+                            }
+
+                            range_index += 1;
+                        }
+                    }
+
+                    // Apply render commands to change current state
+                    RenderCommand::SetPaint(paint) => {
+                        self.set_paint(paint.clone());
+                    }
+                    RenderCommand::SetPaintTransform(transform) => {
+                        self.set_paint_transform(*transform);
+                    }
+                    RenderCommand::ResetPaintTransform => {
+                        self.reset_paint_transform();
+                    }
+                    RenderCommand::SetBlendMode(blend_mode) => {
+                        self.set_blend_mode(*blend_mode);
+                    }
+                    RenderCommand::SetTransform(transform) => {
+                        self.set_transform(*transform);
+                    }
+                    RenderCommand::SetFillRule(fill_rule) => {
+                        self.set_fill_rule(*fill_rule);
+                    }
+                    RenderCommand::SetStroke(stroke) => {
+                        self.set_stroke(stroke.clone());
+                    }
+                    RenderCommand::PushLayer {
+                        clip_path,
+                        blend_mode,
+                        opacity,
+                        mask,
+                    } => {
+                        self.push_layer(clip_path.as_ref(), *blend_mode, *opacity, mask.clone());
+                    }
+                    RenderCommand::PopLayer => {
+                        self.pop_layer();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer
+    fn prepare_cached_strips_for_rendering(
+        &mut self,
+        cached_strips: &[Strip],
+        cached_alphas: &[u8],
+    ) -> Vec<Strip> {
+        // Calculate offset for alpha indices based on current buffer size
+        let alpha_offset = self.alphas.len() as u32;
+
+        // Create adjusted strips with corrected alpha indices
+        let mut adjusted_strips = Vec::with_capacity(cached_strips.len());
+        for strip in cached_strips {
+            let mut adjusted_strip = *strip;
+            adjusted_strip.alpha_idx += alpha_offset;
+            adjusted_strips.push(adjusted_strip);
+        }
+
+        // Extend current alpha buffer with cached alphas
+        self.alphas.extend_from_slice(cached_alphas);
+
+        adjusted_strips
+    }
+
+    /// Generate strips from strip-affecting commands and capture ranges
+    fn generate_strips_from_commands(
+        &mut self,
+        commands: &[RenderCommand],
+    ) -> (Vec<Strip>, Vec<u8>, Vec<(usize, usize)>) {
+        let saved_state = self.save_current_state();
+
+        self.line_buf.clear();
+        self.strip_buf.clear();
+        self.alphas.clear();
+
+        let mut collected_strips = Vec::new();
+        let mut collected_alphas = Vec::new();
+        let mut strip_ranges = Vec::new();
+
+        // Execute strip-affecting commands
+        for command in commands {
+            let start_index = collected_strips.len();
+
+            match command {
+                RenderCommand::FillPath(path) => {
+                    self.generate_fill_strips(path, &mut collected_strips, &mut collected_alphas);
+                    let count = collected_strips.len() - start_index;
+                    strip_ranges.push((start_index, count));
+                }
+                RenderCommand::StrokePath(path) => {
+                    self.generate_stroke_strips(path, &mut collected_strips, &mut collected_alphas);
+                    let count = collected_strips.len() - start_index;
+                    strip_ranges.push((start_index, count));
+                }
+                RenderCommand::FillRect(rect) => {
+                    let path = rect.to_path(DEFAULT_TOLERANCE);
+                    self.generate_fill_strips(&path, &mut collected_strips, &mut collected_alphas);
+                    let count = collected_strips.len() - start_index;
+                    strip_ranges.push((start_index, count));
+                }
+                RenderCommand::StrokeRect(rect) => {
+                    let path = rect.to_path(DEFAULT_TOLERANCE);
+                    self.generate_stroke_strips(
+                        &path,
+                        &mut collected_strips,
+                        &mut collected_alphas,
+                    );
+                    let count = collected_strips.len() - start_index;
+                    strip_ranges.push((start_index, count));
+                }
+                RenderCommand::SetTransform(transform) => {
+                    self.transform = *transform;
+                }
+                RenderCommand::SetFillRule(fill_rule) => {
+                    self.fill_rule = *fill_rule;
+                }
+                RenderCommand::SetStroke(stroke) => {
+                    self.stroke = stroke.clone();
+                }
+                _ => {}
+            }
+        }
+
+        self.restore_state(saved_state);
+
+        (collected_strips, collected_alphas, strip_ranges)
+    }
+
+    /// Generate strips for a filled path
+    fn generate_fill_strips(
+        &mut self,
+        path: &BezPath,
+        strips: &mut Vec<Strip>,
+        alphas: &mut Vec<u8>,
+    ) {
+        flatten::fill(self.level, path, self.transform, &mut self.line_buf);
+        self.make_strips_into_buffers(self.fill_rule, strips, alphas);
+    }
+
+    /// Generate strips for a stroked path
+    fn generate_stroke_strips(
+        &mut self,
+        path: &BezPath,
+        strips: &mut Vec<Strip>,
+        alphas: &mut Vec<u8>,
+    ) {
+        flatten::stroke(
+            self.level,
+            path,
+            &self.stroke,
+            self.transform,
+            &mut self.line_buf,
+        );
+        self.make_strips_into_buffers(Fill::NonZero, strips, alphas);
+    }
+
+    /// Generate strips and append to provided buffers
+    fn make_strips_into_buffers(
+        &mut self,
+        fill_rule: Fill,
+        strips: &mut Vec<Strip>,
+        alphas: &mut Vec<u8>,
+    ) {
+        self.strip_buf.clear();
+        self.alphas.clear();
+
+        self.tiles
+            .make_tiles(&self.line_buf, self.width, self.height);
+        self.tiles.sort_tiles();
+        strip::render(
+            self.level,
+            &self.tiles,
+            &mut self.strip_buf,
+            &mut self.alphas,
+            fill_rule,
+            &self.line_buf,
+        );
+
+        // Adjust alpha indices for combined buffer
+        let alpha_offset = alphas.len() as u32;
+        for mut strip in self.strip_buf.iter().cloned() {
+            strip.alpha_idx += alpha_offset;
+            strips.push(strip);
+        }
+        alphas.extend_from_slice(&self.alphas);
+
+        self.line_buf.clear();
+    }
+
+    /// Save current rendering state
+    fn save_current_state(&self) -> RenderState {
+        RenderState {
+            paint: self.paint.clone(),
+            paint_transform: self.paint_transform,
+            stroke: self.stroke.clone(),
+            transform: self.transform,
+            fill_rule: self.fill_rule,
+            blend_mode: self.blend_mode,
+        }
+    }
+
+    /// Restore rendering state
+    fn restore_state(&mut self, state: RenderState) {
+        self.paint = state.paint;
+        self.paint_transform = state.paint_transform;
+        self.stroke = state.stroke;
+        self.transform = state.transform;
+        self.fill_rule = state.fill_rule;
+        self.blend_mode = state.blend_mode;
     }
 
     fn encode_current_paint(&mut self) -> Paint {
