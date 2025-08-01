@@ -125,7 +125,7 @@ mod tests {
         let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
 
         generator.generate_filled_path(
-            &rect.to_path(0.1),
+            rect.to_path(0.1),
             Fill::NonZero,
             Affine::IDENTITY,
             true,
