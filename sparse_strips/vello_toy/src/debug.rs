@@ -23,6 +23,7 @@ use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
 use vello_common::tile::{Tile, Tiles};
 use vello_common::{flatten, strip};
+use vello_cpu::kurbo::StrokeCtx;
 
 fn main() {
     let args = Args::parse();
@@ -63,6 +64,7 @@ fn main() {
                 &stroke,
                 Affine::IDENTITY,
                 &mut line_buf,
+                &mut StrokeCtx::default(),
                 &mut FlattenCtx::default(),
             );
         }

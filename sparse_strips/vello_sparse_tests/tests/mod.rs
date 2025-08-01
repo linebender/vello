@@ -37,6 +37,7 @@ mod mask;
 mod mix;
 mod opacity;
 mod renderer;
+mod scenes;
 #[macro_use]
 mod util;
 #[cfg(target_arch = "wasm32")]
