@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::kurbo::{Affine, BezPath, Stroke};
+use crate::kurbo::{Affine, PathEl, Stroke};
 use crate::peniko::Fill;
 use alloc::vec::Vec;
 use vello_common::fearless_simd::Level;
@@ -38,7 +38,7 @@ impl StripGenerator {
 
     pub(crate) fn generate_filled_path<'a>(
         &'a mut self,
-        path: &BezPath,
+        path: impl IntoIterator<Item = PathEl>,
         fill_rule: Fill,
         transform: Affine,
         anti_alias: bool,
@@ -57,7 +57,7 @@ impl StripGenerator {
 
     pub(crate) fn generate_stroked_path<'a>(
         &'a mut self,
-        path: &BezPath,
+        path: impl IntoIterator<Item = PathEl>,
         stroke: &Stroke,
         transform: Affine,
         anti_alias: bool,
@@ -77,6 +77,16 @@ impl StripGenerator {
 
     pub(crate) fn alpha_buf(&self) -> &[u8] {
         &self.alphas
+    }
+
+    #[cfg(feature = "multithreading")]
+    pub(crate) fn set_alpha_buf(&mut self, alpha_buf: Vec<u8>) {
+        self.alphas = alpha_buf;
+    }
+
+    #[cfg(feature = "multithreading")]
+    pub(crate) fn take_alpha_buf(&mut self) -> Vec<u8> {
+        core::mem::take(&mut self.alphas)
     }
 
     pub(crate) fn reset(&mut self) {
@@ -115,7 +125,7 @@ mod tests {
         let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
 
         generator.generate_filled_path(
-            &rect.to_path(0.1),
+            rect.to_path(0.1),
             Fill::NonZero,
             Affine::IDENTITY,
             true,

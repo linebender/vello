@@ -76,7 +76,7 @@ impl Line {
 /// Flatten a filled bezier path into line segments.
 pub fn fill(
     level: Level,
-    path: &BezPath,
+    path: impl IntoIterator<Item = PathEl>,
     affine: Affine,
     line_buf: &mut Vec<Line>,
     ctx: &mut FlattenCtx,
@@ -86,7 +86,7 @@ pub fn fill(
 
 simd_dispatch!(fill_dispatch(
     level,
-    path: &BezPath, 
+    path: impl IntoIterator<Item = PathEl>, 
     affine: Affine,
     line_buf: &mut Vec<Line>, 
     ctx: &mut FlattenCtx
@@ -95,13 +95,13 @@ simd_dispatch!(fill_dispatch(
 /// Flatten a filled bezier path into line segments.
 pub fn fill_impl<S: Simd>(
     simd: S,
-    path: &BezPath,
+    path: impl IntoIterator<Item = PathEl>,
     affine: Affine,
     line_buf: &mut Vec<Line>,
     flatten_ctx: &mut FlattenCtx,
 ) {
     line_buf.clear();
-    let iter = path.iter().map(|el| affine * el);
+    let iter = path.into_iter().map(|el| affine * el);
 
     let mut lb = FlattenerCallback {
         line_buf,
@@ -127,7 +127,7 @@ pub fn fill_impl<S: Simd>(
 /// Flatten a stroked bezier path into line segments.
 pub fn stroke(
     level: Level,
-    path: &BezPath,
+    path: impl IntoIterator<Item = PathEl>,
     style: &Stroke,
     affine: Affine,
     line_buf: &mut Vec<Line>,
@@ -136,7 +136,7 @@ pub fn stroke(
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
     let tolerance = TOL / affine.as_coeffs()[0].abs().max(affine.as_coeffs()[3].abs());
 
-    let expanded = expand_stroke(path.iter(), style, tolerance);
+    let expanded = expand_stroke(path, style, tolerance);
     fill(level, &expanded, affine, line_buf, flatten_ctx);
 }
 
