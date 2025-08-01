@@ -4,13 +4,11 @@
 //! Utility functions shared across different tests.
 
 use crate::renderer::Renderer;
-use image::codecs::png::PngEncoder;
-use image::{ExtendedColorType, ImageEncoder, Rgba, RgbaImage, load_from_memory};
+use image::{Rgba, RgbaImage, load_from_memory};
 use skrifa::MetadataProvider;
 use skrifa::raw::FileRef;
 use smallvec::smallvec;
 use std::cmp::max;
-use std::io::Cursor;
 use std::sync::Arc;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
@@ -253,23 +251,6 @@ pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
     ])
 }
 
-pub(crate) fn pixmap_to_png(pixmap: Pixmap, width: u32, height: u32) -> Vec<u8> {
-    let img_buf = pixmap.take_unpremultiplied();
-
-    let mut png_data = Vec::new();
-    let cursor = Cursor::new(&mut png_data);
-    let encoder = PngEncoder::new(cursor);
-    encoder
-        .write_image(
-            bytemuck::cast_slice(&img_buf),
-            width,
-            height,
-            ExtendedColorType::Rgba8,
-        )
-        .expect("Failed to encode image");
-    png_data
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn check_ref(
     ctx: &impl Renderer,
@@ -289,7 +270,7 @@ pub(crate) fn check_ref(
 ) {
     let pixmap = render_pixmap(ctx, render_mode);
 
-    let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
+    let encoded_image = pixmap.into_png().unwrap();
     let ref_path = REFS_PATH.join(format!("{test_name}.png"));
 
     let write_ref_image = || {
@@ -352,7 +333,7 @@ pub(crate) fn check_ref(
     assert!(!is_reference, "WASM cannot create new reference images");
 
     let pixmap = render_pixmap(ctx, render_mode);
-    let encoded_image = pixmap_to_png(pixmap, ctx.width() as u32, ctx.height() as u32);
+    let encoded_image = pixmap.into_png().unwrap();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
     let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
@@ -366,6 +347,7 @@ pub(crate) fn check_ref(
 
 #[cfg(target_arch = "wasm32")]
 fn append_diff_image_to_browser_document(specific_name: &str, diff_image: &RgbaImage) {
+    use image::ImageEncoder;
     use wasm_bindgen::JsCast;
     use web_sys::js_sys::{Array, Uint8Array};
     use web_sys::{Blob, BlobPropertyBag, HtmlImageElement, Url, window};
