@@ -13,7 +13,7 @@ use peniko::color::{DynamicColor, palette};
 use peniko::kurbo::{Shape, Stroke};
 use peniko::{
     BrushRef, ColorStop, Extend, Fill, GradientKind, ImageBrushRef, ImageSampler,
-    InterpolationAlphaSpace, LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
+    LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
 };
 
 /// Encoded data streams for a scene.
@@ -286,65 +286,57 @@ impl Encoding {
                 };
                 self.encode_color(color);
             }
-            BrushRef::Gradient(gradient) => {
-                if gradient.interpolation_alpha_space != InterpolationAlphaSpace::Premultiplied {
-                    unimplemented!(
-                        "We don't yet support gradient interpolation which isn't premultiplied, found {:?}.",
-                        gradient.interpolation_alpha_space
-                    )
+            BrushRef::Gradient(gradient) => match gradient.kind {
+                GradientKind::Linear(LinearGradientPosition { start, end }) => {
+                    self.encode_linear_gradient(
+                        DrawLinearGradient {
+                            index: 0,
+                            p0: point_to_f32(start),
+                            p1: point_to_f32(end),
+                        },
+                        gradient.stops.iter().copied(),
+                        alpha,
+                        gradient.extend,
+                    );
                 }
-                match gradient.kind {
-                    GradientKind::Linear(LinearGradientPosition { start, end }) => {
-                        self.encode_linear_gradient(
-                            DrawLinearGradient {
-                                index: 0,
-                                p0: point_to_f32(start),
-                                p1: point_to_f32(end),
-                            },
-                            gradient.stops.iter().copied(),
-                            alpha,
-                            gradient.extend,
-                        );
-                    }
-                    GradientKind::Radial(RadialGradientPosition {
-                        start_center,
-                        start_radius,
-                        end_center,
-                        end_radius,
-                    }) => {
-                        self.encode_radial_gradient(
-                            DrawRadialGradient {
-                                index: 0,
-                                p0: point_to_f32(start_center),
-                                p1: point_to_f32(end_center),
-                                r0: start_radius,
-                                r1: end_radius,
-                            },
-                            gradient.stops.iter().copied(),
-                            alpha,
-                            gradient.extend,
-                        );
-                    }
-                    GradientKind::Sweep(SweepGradientPosition {
-                        center,
-                        start_angle,
-                        end_angle,
-                    }) => {
-                        use core::f32::consts::TAU;
-                        self.encode_sweep_gradient(
-                            DrawSweepGradient {
-                                index: 0,
-                                p0: point_to_f32(center),
-                                t0: start_angle / TAU,
-                                t1: end_angle / TAU,
-                            },
-                            gradient.stops.iter().copied(),
-                            alpha,
-                            gradient.extend,
-                        );
-                    }
+                GradientKind::Radial(RadialGradientPosition {
+                    start_center,
+                    start_radius,
+                    end_center,
+                    end_radius,
+                }) => {
+                    self.encode_radial_gradient(
+                        DrawRadialGradient {
+                            index: 0,
+                            p0: point_to_f32(start_center),
+                            p1: point_to_f32(end_center),
+                            r0: start_radius,
+                            r1: end_radius,
+                        },
+                        gradient.stops.iter().copied(),
+                        alpha,
+                        gradient.extend,
+                    );
                 }
-            }
+                GradientKind::Sweep(SweepGradientPosition {
+                    center,
+                    start_angle,
+                    end_angle,
+                }) => {
+                    use core::f32::consts::TAU;
+                    self.encode_sweep_gradient(
+                        DrawSweepGradient {
+                            index: 0,
+                            p0: point_to_f32(center),
+                            t0: start_angle / TAU,
+                            t1: end_angle / TAU,
+                        },
+                        gradient.stops.iter().copied(),
+                        alpha,
+                        gradient.extend,
+                    );
+                }
+            },
             BrushRef::Image(image) => {
                 self.encode_image(image, alpha);
             }

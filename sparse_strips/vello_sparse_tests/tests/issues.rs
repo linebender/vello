@@ -6,7 +6,7 @@
 use crate::renderer::Renderer;
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
-use vello_common::peniko::{Color, ColorStop, Fill, Gradient};
+use vello_common::peniko::{Color, ColorStop, Fill, Gradient, InterpolationAlphaSpace};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::color::palette::css::{BLACK, RED};
 use vello_cpu::peniko::Compose;
@@ -374,6 +374,30 @@ fn gradient_color_alpha(ctx: &mut impl Renderer) {
             color: Color::from_rgba8(0, 0, 255, 255).into(),
         },
     ]));
+    ctx.fill_rect(&viewport);
+}
+
+/// <https://github.com/web-platform-tests/wpt/blob/18c64a74b1/html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.html>
+/// See <https://github.com/linebender/vello/issues/1056>.
+#[vello_test(width = 100, height = 50)]
+fn gradient_color_alpha_unmul(ctx: &mut impl Renderer) {
+    let viewport = Rect::new(0., 0., 100., 50.);
+    ctx.push_blend_layer(Compose::Clear.into());
+    ctx.pop_layer();
+    ctx.set_paint(
+        Gradient::new_linear((0., 0.), (100., 0.))
+            .with_stops([
+                ColorStop {
+                    offset: 0.,
+                    color: Color::from_rgba8(255, 255, 0, 0).into(),
+                },
+                ColorStop {
+                    offset: 1.,
+                    color: Color::from_rgba8(0, 0, 255, 255).into(),
+                },
+            ])
+            .with_interpolation_alpha_space(InterpolationAlphaSpace::Unpremultiplied),
+    );
     ctx.fill_rect(&viewport);
 }
 
