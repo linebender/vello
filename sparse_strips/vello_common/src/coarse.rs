@@ -162,12 +162,12 @@ impl Wide {
     }
 
     /// Return the number of horizontal tiles.
-    pub fn width_tiles(&self) -> u16 {
+    pub const fn width_tiles(&self) -> u16 {
         self.width.div_ceil(WideTile::WIDTH)
     }
 
     /// Return the number of vertical tiles.
-    pub fn height_tiles(&self) -> u16 {
+    pub const fn height_tiles(&self) -> u16 {
         self.height.div_ceil(Tile::HEIGHT)
     }
 

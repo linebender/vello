@@ -62,7 +62,10 @@ struct Config {
 //   - Bits 29-30: `paint_type`        0 = solid, 1 = image (only used when color_source = 0)
 //   - Bits 0-28:  Usage depends on color_source:
 //                 - When color_source = 0 and paint_type = 1: `paint_texture_id` (index of `EncodedImage`)
-//                 - When color_source = 1: bits 0-7 contain opacity (0-255)
+//                 - When color_source = 1: 
+//                      bits 0-7  contain opacity (0-255)
+//                      bits 8-11 contain compose (0-13)
+//                      bits 12-15 contain mix (0-16)
 //
 // Decision tree for paint/payload interpretation:
 //
@@ -264,14 +267,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
 
         // Extract opacity from first 8 bits (quantized from [0, 255])
-        let opacity = f32(in.paint & 0xFFu) * (1.0 / 255.0);
+        let opacity = f32(in.paint & 0xFFu) / 255.0;
 
         final_color = alpha * opacity * clip_in_color;
     }
 
     return final_color;
 }
-
 
 struct EncodedImage {
     /// The rendering quality of the image.

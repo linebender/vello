@@ -179,8 +179,9 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::GpuEncodedImage;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
-use alloc::vec::Vec;
+use alloc::vec::{self, Vec};
 use core::mem;
+use vello_common::coarse::Wide;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, WideTile},
@@ -196,6 +197,13 @@ pub(crate) trait RendererBackend {
 
     /// Execute a render pass for strips.
     fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp);
+
+    /// Execute a blend pass.
+    fn blend_pass(
+        &mut self,
+        target_commands: &[BlendCommandTarget],
+        slot_commands: &[Vec<BlendCommandSlot>; 2],
+    );
 }
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
@@ -208,6 +216,36 @@ pub(crate) enum LoadOp {
 }
 
 #[derive(Debug)]
+enum BlendCommandSrc {
+    Slot(SlotPosition),
+    Target((u16, u16)),
+}
+
+#[derive(Debug)]
+pub(crate) struct SlotPosition {
+    pub(crate) ix: u8,
+    pub(crate) slot_ix: u16,
+}
+
+#[derive(Debug)]
+pub(crate) struct BlendCommandTarget {
+    pub(crate) mode: BlendMode,
+    pub(crate) blend_slot: usize,
+    pub(crate) src: SlotPosition,
+    pub(crate) dst: (u16, u16),
+    pub(crate) opacity: u8,
+}
+
+#[derive(Debug)]
+pub(crate) struct BlendCommandSlot {
+    pub(crate) mode: BlendMode,
+    pub(crate) blend_slot: usize,
+    pub(crate) src_slot_ix: u16,
+    pub(crate) dst_slot_ix: u16,
+    pub(crate) opacity: u8,
+}
+
+#[derive(Debug)]
 pub(crate) struct Scheduler {
     /// Index of the current round
     round: usize,
@@ -215,6 +253,11 @@ pub(crate) struct Scheduler {
     total_slots: usize,
     /// The slots that are free to use in each slot texture.
     free: [Vec<usize>; 2],
+    /// The slots that are free to use in the blend slot texture.
+    // TODO: Repopulate this on blend flush.
+    blend_slots: Vec<usize>,
+    blend_commands_target: Vec<BlendCommandTarget>,
+    blend_commands_slot_dsts: [Vec<BlendCommandSlot>; 2],
     /// Slots that require clearing before subsequent draws for each slot texture.
     clear: [Vec<u32>; 2],
     /// Rounds are enqueued on push clip commands and dequeued on flush.
@@ -236,9 +279,49 @@ struct Round {
 }
 
 /// State for a single wide tile.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct TileState {
+    index: usize,
     stack: Vec<TileEl>,
+    /// The round when this tile started processing (used to adjust stored rounds after flushes)
+    base_round: usize,
+}
+
+struct TileStates {
+    tiles: Vec<TileState>,
+    wide_tiles_per_row: usize,
+    wide_tiles_per_col: usize,
+}
+
+impl TileStates {
+    fn new(wide_tiles_per_row: usize, wide_tiles_per_col: usize) -> Self {
+        Self {
+            tiles: vec![TileState::default(); wide_tiles_per_row * wide_tiles_per_col],
+            wide_tiles_per_row,
+            wide_tiles_per_col,
+        }
+    }
+
+    fn get(&self, row: u16, col: u16) -> &TileState {
+        &self.tiles[row as usize * self.wide_tiles_per_row + col as usize]
+    }
+
+    fn get_mut(&mut self, row: u16, col: u16) -> &mut TileState {
+        &mut self.tiles[row as usize * self.wide_tiles_per_row + col as usize]
+    }
+
+    fn is_complete(&self, wide: &Wide) -> bool {
+        for row in 0..self.wide_tiles_per_col {
+            for col in 0..self.wide_tiles_per_row {
+                let tile_state = self.get(row as u16, col as u16);
+                let wide_tile = wide.get(col as u16, row as u16);
+                if tile_state.index < wide_tile.cmds.len() {
+                    return false;
+                }
+            }
+        }
+        true
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -252,15 +335,32 @@ struct TileEl {
 struct Draw(Vec<GpuStrip>);
 
 impl Scheduler {
+    /// Adjust a stored round from tile state to account for flushes that occurred
+    /// after the tile started processing.
+    fn adjust_round(&self, stored_round: usize, tile_base_round: usize) -> usize {
+        if self.round > tile_base_round {
+            // Some flushes have happened since this tile started processing.
+            // Ensure the round is not in the past, but don't add unnecessary delays.
+            stored_round.max(self.round)
+        } else {
+            // No flushes have happened, use the stored round as-is
+            stored_round
+        }
+    }
+
     pub(crate) fn new(total_slots: usize) -> Self {
         let free0: Vec<_> = (0..total_slots).collect();
         let free1 = free0.clone();
         let free = [free0, free1];
+        let blend_slots = free[0].clone();
         let clear = [Vec::new(), Vec::new()];
         Self {
             round: 0,
             total_slots,
             free,
+            blend_slots,
+            blend_commands_target: Vec::new(),
+            blend_commands_slot_dsts: [Vec::new(), Vec::new()],
             clear,
             rounds_queue: Default::default(),
             tile_state: Default::default(),
@@ -276,30 +376,44 @@ impl Scheduler {
         let wide_tiles_per_row = scene.wide.width_tiles();
         let wide_tiles_per_col = scene.wide.height_tiles();
 
+        let mut tile_states =
+            TileStates::new(wide_tiles_per_row as usize, wide_tiles_per_col as usize);
+
         // Left to right, top to bottom iteration over wide tiles.
-        for wide_tile_row in 0..wide_tiles_per_col {
-            for wide_tile_col in 0..wide_tiles_per_row {
-                let wide_tile = scene.wide.get(wide_tile_col, wide_tile_row);
-                let wide_tile_x = wide_tile_col * WideTile::WIDTH;
-                let wide_tile_y = wide_tile_row * Tile::HEIGHT;
-                self.do_tile(
-                    renderer,
-                    scene,
-                    wide_tile_x,
-                    wide_tile_y,
-                    wide_tile,
-                    &mut tile_state,
-                )?;
+        while !tile_states.is_complete(&scene.wide) {
+            for wide_tile_row in 0..wide_tiles_per_col {
+                for wide_tile_col in 0..wide_tiles_per_row {
+                    let wide_tile = scene.wide.get(wide_tile_col, wide_tile_row);
+                    let tile_state = tile_states.get_mut(wide_tile_row, wide_tile_col);
+
+                    let wide_tile_x = wide_tile_col * WideTile::WIDTH;
+                    let wide_tile_y = wide_tile_row * Tile::HEIGHT;
+                    self.do_tile(
+                        renderer,
+                        scene,
+                        wide_tile_x,
+                        wide_tile_y,
+                        wide_tile,
+                        tile_state,
+                    )?;
+                }
+            }
+
+            if !self.rounds_queue.is_empty() {
+                // Flush any pending blend commands that are blocking further wide tile rendering.
+                self.flush(renderer, true);
             }
         }
+
         while !self.rounds_queue.is_empty() {
-            self.flush(renderer);
+            self.flush(renderer, true);
         }
 
         // Restore state to reuse allocations.
         self.round = 0;
         self.tile_state = tile_state;
         self.tile_state.stack.clear();
+        self.tile_state.base_round = 0;
         debug_assert!(self.clear[0].is_empty(), "clear has not reset");
         debug_assert!(self.clear[1].is_empty(), "clear has not reset");
         #[cfg(debug_assertions)]
@@ -317,7 +431,7 @@ impl Scheduler {
     /// Flush one round.
     ///
     /// The rounds queue must not be empty.
-    fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
+    fn flush<R: RendererBackend>(&mut self, renderer: &mut R, blend: bool) {
         let round = self.rounds_queue.pop_front().unwrap();
         for (i, draw) in round.draws.iter().enumerate() {
             if draw.0.is_empty() {
@@ -342,6 +456,25 @@ impl Scheduler {
             };
             renderer.render_strips(&draw.0, i, load);
         }
+
+        if blend {
+            renderer.blend_pass(&self.blend_commands_target, &self.blend_commands_slot_dsts);
+
+            // TODO: Use free list.
+            for command in self.blend_commands_target.iter() {
+                self.blend_slots.push(command.blend_slot);
+            }
+            for dsts in self.blend_commands_slot_dsts.iter() {
+                for command in dsts.iter() {
+                    self.blend_slots.push(command.blend_slot);
+                }
+            }
+
+            self.blend_commands_target.clear();
+            self.blend_commands_slot_dsts[0].clear();
+            self.blend_commands_slot_dsts[1].clear();
+        }
+
         for i in 0..2 {
             self.free[i].extend(&round.free[i]);
         }
@@ -373,15 +506,17 @@ impl Scheduler {
         tile: &WideTile,
         state: &mut TileState,
     ) -> Result<(), RenderError> {
-        state.stack.clear();
-        // Sentinel `TileEl` to indicate the end of the stack where we draw all
-        // commands to the final target.
-        state.stack.push(TileEl {
-            slot_ix: usize::MAX,
-            round: self.round,
-            opacity: 1.,
-        });
-        {
+        if state.index == 0 {
+            state.stack.clear();
+            // Set the base round for this tile to track round adjustments after flushes
+            state.base_round = self.round;
+            // Sentinel `TileEl` to indicate the end of the stack where we draw all
+            // commands to the final target.
+            state.stack.push(TileEl {
+                slot_ix: usize::MAX,
+                round: self.round,
+                opacity: 1.,
+            });
             // If the background has a non-zero alpha then we need to render it.
             let bg = tile.bg.as_premul_rgba8().to_u32();
             if has_non_zero_alpha(bg) {
@@ -397,13 +532,29 @@ impl Scheduler {
                 });
             }
         }
-        for cmd in &tile.cmds {
+
+        println!("Tile commands:");
+        for cmd in tile.cmds.iter() {
+            match cmd {
+                Cmd::Fill(_) => println!("*Fill"),
+                Cmd::ClipFill(_) | Cmd::ClipStrip(_) => println!("*Clip"),
+                Cmd::PushBuf => println!("PushBuf"),
+                Cmd::PopBuf => println!("PopBuf"),
+                Cmd::Opacity(_) => println!("Opacity"),
+                Cmd::Mask(_) => println!("Mask"),
+                Cmd::Blend(_) => println!("Blend"),
+                _ => {}
+            }
+        }
+
+        for (index, cmd) in tile.cmds.iter().enumerate().skip(state.index) {
             // Note: this starts at 1 (for the final target)
             let clip_depth = state.stack.len();
             match cmd {
                 Cmd::Fill(fill) => {
                     let el = state.stack.last().unwrap();
-                    let draw = self.draw_mut(el.round, clip_depth);
+                    let adjusted_el_round = self.adjust_round(el.round, state.base_round);
+                    let draw = self.draw_mut(adjusted_el_round, clip_depth);
 
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
                     let (payload, paint) =
@@ -427,7 +578,8 @@ impl Scheduler {
                 }
                 Cmd::AlphaFill(alpha_fill) => {
                     let el = state.stack.last().unwrap();
-                    let draw = self.draw_mut(el.round, clip_depth);
+                    let adjusted_el_round = self.adjust_round(el.round, state.base_round);
+                    let draw = self.draw_mut(adjusted_el_round, clip_depth);
 
                     let col_idx = (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
                         .try_into()
@@ -462,7 +614,8 @@ impl Scheduler {
                         if self.rounds_queue.is_empty() {
                             return Err(RenderError::SlotsExhausted);
                         }
-                        self.flush(renderer);
+                        // TODO: Maybe do without blending first?
+                        self.flush(renderer, true);
                     }
                     let slot_ix = self.free[ix].pop().unwrap();
                     self.clear[ix].push(slot_ix as u32);
@@ -476,22 +629,36 @@ impl Scheduler {
                     let tos = state.stack.pop().unwrap();
                     let nos = state.stack.last_mut().unwrap();
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
+
+                    // Adjust stored rounds to account for any flushes that occurred after tile started
+                    let adjusted_nos_round = self.adjust_round(nos.round, state.base_round);
+                    let adjusted_tos_round = self.adjust_round(tos.round, state.base_round);
+
+                    let round =
+                        adjusted_nos_round.max(adjusted_tos_round + usize::from(next_round));
                     nos.round = round;
                     // free slot after draw
                     debug_assert!(round >= self.round, "round must be after current round");
-                    debug_assert!(
-                        round - self.round < self.rounds_queue.len(),
-                        "round must be in queue"
-                    );
-                    self.rounds_queue[round - self.round].free[1 - clip_depth % 2]
-                        .push(tos.slot_ix);
+
+                    // Ensure the queue is large enough for the calculated round
+                    let rel_round = round - self.round;
+                    while self.rounds_queue.len() <= rel_round {
+                        self.rounds_queue.push_back(Round::default());
+                    }
+
+                    self.rounds_queue[rel_round].free[1 - clip_depth % 2].push(tos.slot_ix);
                 }
                 Cmd::ClipFill(clip_fill) => {
                     let tos = &state.stack[clip_depth - 1];
                     let nos = &state.stack[clip_depth - 2];
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
+
+                    // Adjust stored rounds to account for any flushes that occurred after tile started
+                    let adjusted_nos_round = self.adjust_round(nos.round, state.base_round);
+                    let adjusted_tos_round = self.adjust_round(tos.round, state.base_round);
+
+                    let round =
+                        adjusted_nos_round.max(adjusted_tos_round + usize::from(next_round));
                     let draw = self.draw_mut(round, clip_depth - 1);
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_fill.x as u16, wide_tile_y)
@@ -514,7 +681,13 @@ impl Scheduler {
                     let tos = &state.stack[clip_depth - 1];
                     let nos = &state.stack[clip_depth - 2];
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
+
+                    // Adjust stored rounds to account for any flushes that occurred after tile started
+                    let adjusted_nos_round = self.adjust_round(nos.round, state.base_round);
+                    let adjusted_tos_round = self.adjust_round(tos.round, state.base_round);
+
+                    let round =
+                        adjusted_nos_round.max(adjusted_tos_round + usize::from(next_round));
                     let draw = self.draw_mut(round, clip_depth - 1);
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_alpha_fill.x as u16, wide_tile_y)
@@ -539,49 +712,97 @@ impl Scheduler {
                     state.stack.last_mut().unwrap().opacity = *opacity;
                 }
                 Cmd::Blend(mode) => {
-                    // This blend mode is implicitly supported. Currently no other blend mode is
-                    // supported in `vello_hybrid`.
-                    assert!(
-                        matches!(
-                            mode,
-                            BlendMode {
-                                mix: Mix::Normal,
-                                compose: Compose::SrcOver
-                            }
-                        ),
-                        "Changing blend mode is unsupported"
-                    );
+                    if matches!(
+                        mode,
+                        BlendMode {
+                            mix: Mix::Normal,
+                            compose: Compose::SrcOver
+                        }
+                    ) {
+                        let tos = state.stack.last().unwrap();
+                        let nos = &state.stack[state.stack.len() - 2];
 
-                    let tos = state.stack.last().unwrap();
-                    let nos = &state.stack[state.stack.len() - 2];
+                        let next_round = clip_depth % 2 == 0 && clip_depth > 2;
 
-                    let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
-                    let draw = self.draw_mut(round, clip_depth - 1);
-                    let (x, y) = if clip_depth <= 2 {
-                        (wide_tile_x, wide_tile_y)
+                        // Adjust stored rounds to account for any flushes that occurred after tile started
+                        let adjusted_nos_round = self.adjust_round(nos.round, state.base_round);
+                        let adjusted_tos_round = self.adjust_round(tos.round, state.base_round);
+
+                        let round =
+                            adjusted_nos_round.max(adjusted_tos_round + usize::from(next_round));
+                        let draw = self.draw_mut(round, clip_depth - 1);
+                        let (x, y) = if clip_depth <= 2 {
+                            (wide_tile_x, wide_tile_y)
+                        } else {
+                            (0, nos.slot_ix as u16 * Tile::HEIGHT)
+                        };
+
+                        // Opacity packed into the first 8 bits.
+                        let opacity_u8 = (tos.opacity * 255.0) as u32;
+                        let paint = (COLOR_SOURCE_SLOT << 31) | opacity_u8;
+
+                        draw.0.push(GpuStrip {
+                            x,
+                            y,
+                            width: WideTile::WIDTH,
+                            dense_width: 0,
+                            col_idx: 0,
+                            payload: tos.slot_ix as u32,
+                            paint,
+                        });
                     } else {
-                        (0, nos.slot_ix as u16 * Tile::HEIGHT)
-                    };
+                        // Get free slot in blend slots. If can't, flush with blend.
+                        let blend_slot = if let Some(slot_ix) = self.blend_slots.pop() {
+                            slot_ix
+                        } else {
+                            self.flush(renderer, true);
+                            if self.blend_slots.is_empty() {
+                                return Err(RenderError::SlotsExhausted);
+                            }
+                            self.blend_slots.pop().unwrap()
+                        };
 
-                    // Opacity packed into the first 8 bits.
-                    let opacity_u8 = (tos.opacity * 255.0) as u32;
-                    let paint = (COLOR_SOURCE_SLOT << 31) | opacity_u8;
+                        let tos = state.stack.last().unwrap();
+                        let src_ix = (clip_depth % 2) as u8;
+                        let opacity = (tos.opacity * 255.0) as u8;
 
-                    draw.0.push(GpuStrip {
-                        x,
-                        y,
-                        width: WideTile::WIDTH,
-                        dense_width: 0,
-                        col_idx: 0,
-                        payload: tos.slot_ix as u32,
-                        paint,
-                    });
+                        //println!("Clip depth: {clip_depth}");
+
+                        if clip_depth == 1 {
+                            // Draw directly to the final target.
+                            self.blend_commands_target.push(BlendCommandTarget {
+                                mode: mode.clone(),
+                                blend_slot,
+                                src: SlotPosition {
+                                    ix: src_ix,
+                                    slot_ix: tos.slot_ix as u16,
+                                },
+                                dst: (wide_tile_x, wide_tile_y),
+                                opacity,
+                            });
+                        } else {
+                            let nos = &state.stack[clip_depth - 2];
+                            // Draw to the slot texture.
+                            self.blend_commands_slot_dsts[(1 - src_ix) as usize].push(
+                                BlendCommandSlot {
+                                    mode: mode.clone(),
+                                    blend_slot,
+                                    src_slot_ix: tos.slot_ix as u16,
+                                    dst_slot_ix: nos.slot_ix as u16,
+                                    opacity,
+                                },
+                            );
+                        }
+
+                        state.index = index + 1;
+                        return Ok(());
+                    }
                 }
                 _ => unimplemented!(),
             }
         }
 
+        state.index = tile.cmds.len();
         Ok(())
     }
 

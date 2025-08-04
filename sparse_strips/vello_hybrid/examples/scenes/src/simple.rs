@@ -3,8 +3,10 @@
 
 //! Simple example scene with basic shapes.
 
-use vello_common::kurbo::{Affine, BezPath, Stroke};
+use vello_common::color::palette::css::RED;
+use vello_common::kurbo::{Affine, Rect};
 use vello_common::peniko::color::palette;
+use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_hybrid::Scene;
 
 use crate::ExampleScene;
@@ -34,20 +36,12 @@ impl Default for SimpleScene {
 
 /// Draws a simple scene with shapes
 pub fn render(ctx: &mut Scene, root_transform: Affine) {
-    let mut path = BezPath::new();
-    path.move_to((10.0, 10.0));
-    path.line_to((180.0, 20.0));
-    path.line_to((30.0, 40.0));
-    path.close_path();
+    let rect = Rect::new(0.0, 0.0, 128.0, 4.0);
 
-    // Use a combined transform that includes the root transform
-    let scene_transform = Affine::scale(5.0);
-    ctx.set_transform(root_transform * scene_transform);
-
-    ctx.set_paint(palette::css::REBECCA_PURPLE);
-    ctx.fill_path(&path);
-    let stroke = Stroke::new(1.0);
-    ctx.set_paint(palette::css::DARK_BLUE);
-    ctx.set_stroke(stroke);
-    ctx.stroke_path(&path);
+    ctx.set_paint(palette::css::BLUE);
+    ctx.fill_rect(&rect);
+    ctx.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+    ctx.set_paint(RED);
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
 }

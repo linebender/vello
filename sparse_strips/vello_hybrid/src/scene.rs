@@ -202,16 +202,13 @@ impl Scene {
         };
 
         // Blend mode, opacity, and mask are not supported yet.
-        if blend_mode.is_some() {
-            unimplemented!()
-        }
         if mask.is_some() {
             unimplemented!()
         }
 
         self.wide.push_layer(
             clip,
-            BlendMode::new(Mix::Normal, Compose::SrcOver),
+            blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
             None,
             opacity.unwrap_or(1.),
             0,
@@ -223,14 +220,13 @@ impl Scene {
         self.push_layer(Some(path), None, None, None);
     }
 
+    pub fn push_blend_layer(&mut self, blend_mode: BlendMode) {
+        self.push_layer(None, Some(blend_mode), None, None);
+    }
+
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
         self.wide.pop_layer();
-    }
-
-    /// Set the blend mode for subsequent rendering operations.
-    pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        self.blend_mode = blend_mode;
     }
 
     /// Set the stroke settings for subsequent stroke operations.

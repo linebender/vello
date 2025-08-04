@@ -36,7 +36,10 @@ use wgpu::{
 use crate::{
     GpuStrip, RenderError, RenderSize,
     image_cache::{ImageCache, ImageResource},
-    render::{Config, common::GpuEncodedImage},
+    render::{
+        Config,
+        common::{BlendConfig, CopyConfig, GpuBlendCommand, GpuCopyCommand, GpuEncodedImage},
+    },
     scene::Scene,
     schedule::{LoadOp, RendererBackend, Scheduler},
 };
@@ -74,6 +77,14 @@ impl Renderer {
             scheduler: Scheduler::new(total_slots),
             image_cache,
         }
+    }
+
+    pub fn get_slots_texture_views(&self) -> &[TextureView; 2] {
+        &self.programs.resources.slot_texture_views
+    }
+
+    pub fn get_blend_texture_view(&self) -> &TextureView {
+        &self.programs.resources.blend_texture_view
     }
 
     /// Render `scene` into the provided command encoder.
@@ -257,6 +268,16 @@ struct Programs {
     /// Pipeline for clearing slots in slot textures.
     clear_pipeline: RenderPipeline,
 
+    /// Pipeline for blending wide tiles.
+    blend_pipeline: RenderPipeline,
+    /// Bind group layout for blend operations
+    blend_bind_group_layout: BindGroupLayout,
+
+    /// Pipeline for copying slots between textures.
+    copy_pipeline: RenderPipeline,
+    /// Bind group layout for copy operations
+    copy_bind_group_layout: BindGroupLayout,
+
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
     /// Dimensions of the rendering target
@@ -298,6 +319,26 @@ struct GpuResources {
 
     /// Bind group for clear slots operation
     clear_bind_group: BindGroup,
+
+    /// Blend texture for wide tile blending operations
+    blend_texture: Texture,
+    /// Blend texture view
+    blend_texture_view: TextureView,
+    /// Config buffer for blend operations
+    blend_config_buffer: Buffer,
+
+    /// Config buffer for copy operations to slots
+    copy_slot_config_buffer: Buffer,
+    /// Config buffer for copy operations to final target
+    copy_target_config_buffer: Buffer,
+    /// Bind group for copy operations to slots
+    copy_slot_bind_group: BindGroup,
+    /// Bind group for copy operations to final target
+    copy_target_bind_group: BindGroup,
+
+    /// Buffers for blend and copy commands
+    blend_commands_buffer: Buffer,
+    copy_commands_buffer: Buffer,
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
@@ -325,6 +366,27 @@ impl GpuStrip {
             2 => Uint32,
             3 => Uint32,
             4 => Uint32,
+        ]
+    }
+}
+
+impl GpuBlendCommand {
+    /// Vertex attributes for the blend command
+    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 3] {
+        wgpu::vertex_attr_array![
+            0 => Uint32,  // xy_src
+            1 => Uint32,  // xy_dst
+            2 => Uint32,  // payload
+        ]
+    }
+}
+
+impl GpuCopyCommand {
+    /// Vertex attributes for the copy command
+    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 2] {
+        wgpu::vertex_attr_array![
+            0 => Uint32,  // xy_target
+            1 => Uint32,  // slot_ix
         ]
     }
 }
@@ -414,6 +476,82 @@ impl Programs {
                 }],
             });
 
+        // Create bind group layout for blend operations
+        let blend_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Blend Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        // Create bind group layout for copy operations
+        let copy_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Copy Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
         let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Strip Shader"),
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::RENDER_STRIPS.into()),
@@ -422,6 +560,16 @@ impl Programs {
         let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Clear Slots Shader"),
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::CLEAR_SLOTS.into()),
+        });
+
+        let blend_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Blend Wide Tile Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::BLEND_WIDE_TILE.into()),
+        });
+
+        let copy_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Copy Slot Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::COPY_SLOT.into()),
         });
 
         let strip_pipeline_layout =
@@ -441,6 +589,19 @@ impl Programs {
                 bind_group_layouts: &[&clear_bind_group_layout],
                 push_constant_ranges: &[],
             });
+
+        let blend_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Blend Pipeline Layout"),
+                bind_group_layouts: &[&blend_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let copy_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Copy Pipeline Layout"),
+            bind_group_layouts: &[&copy_bind_group_layout],
+            push_constant_ranges: &[],
+        });
 
         let strip_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Strip Pipeline"),
@@ -499,6 +660,72 @@ impl Programs {
                     format: render_target_config.format,
                     // No blending needed for clearing
                     blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let blend_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Blend Wide Tile Pipeline"),
+            layout: Some(&blend_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &blend_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: size_of::<GpuBlendCommand>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &GpuBlendCommand::vertex_attributes(),
+                }],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &blend_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: render_target_config.format,
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let copy_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Copy Slot Pipeline"),
+            layout: Some(&copy_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &copy_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: size_of::<GpuCopyCommand>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &GpuCopyCommand::vertex_attributes(),
+                }],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &copy_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: render_target_config.format,
+                    blend: Some(BlendState::REPLACE),
                     write_mask: ColorWrites::ALL,
                 })],
                 compilation_options: PipelineCompilationOptions::default(),
@@ -619,6 +846,103 @@ impl Programs {
             &slot_texture_views,
         );
 
+        // Create blend texture
+        let blend_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Blend Texture"),
+            size: wgpu::Extent3d {
+                width: u32::from(WideTile::WIDTH),
+                height: u32::from(Tile::HEIGHT) * slot_count as u32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: render_target_config.format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let blend_texture_view = blend_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create blend config buffer
+        let blend_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Blend Config"),
+            contents: bytemuck::bytes_of(&BlendConfig {
+                wide_tile_width: u32::from(WideTile::WIDTH),
+                wide_tile_height: u32::from(Tile::HEIGHT),
+                slot_texture_height: u32::from(Tile::HEIGHT) * slot_count as u32,
+                final_target_height: render_target_config.height,
+                blend_texture_height: u32::from(Tile::HEIGHT) * slot_count as u32,
+                _padding: [0; 3],
+            }),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Create copy config buffers for slots and final target
+        let copy_slot_config_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Copy Slot Config"),
+                contents: bytemuck::bytes_of(&CopyConfig {
+                    wide_tile_width: u32::from(WideTile::WIDTH),
+                    wide_tile_height: u32::from(Tile::HEIGHT),
+                    slot_texture_height: u32::from(Tile::HEIGHT) * slot_count as u32,
+                    target_texture_width: u32::from(WideTile::WIDTH),
+                    target_texture_height: u32::from(Tile::HEIGHT) * slot_count as u32,
+                    _padding: [0; 3],
+                }),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let copy_target_config_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Copy Target Config"),
+                contents: bytemuck::bytes_of(&CopyConfig {
+                    wide_tile_width: u32::from(WideTile::WIDTH),
+                    wide_tile_height: u32::from(Tile::HEIGHT),
+                    slot_texture_height: u32::from(Tile::HEIGHT) * slot_count as u32,
+                    target_texture_width: render_target_config.width,
+                    target_texture_height: render_target_config.height,
+                    _padding: [0; 3],
+                }),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        // Create copy bind groups
+        let copy_slot_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Copy Slot Bind Group"),
+            layout: &copy_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: copy_slot_config_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&blend_texture_view),
+                },
+            ],
+        });
+
+        let copy_target_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Copy Target Bind Group"),
+            layout: &copy_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: copy_target_config_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&blend_texture_view),
+                },
+            ],
+        });
+
+        // Create command buffers
+        let blend_commands_buffer = Self::make_commands_buffer(device, 0);
+        let copy_commands_buffer = Self::make_commands_buffer(device, 0);
+
         let resources = GpuResources {
             strips_buffer: Self::make_strips_buffer(device, 0),
             clear_slot_indices_buffer,
@@ -632,12 +956,26 @@ impl Programs {
             encoded_paints_texture,
             encoded_paints_bind_group,
             view_config_buffer,
+            blend_texture,
+            blend_texture_view,
+            blend_config_buffer,
+            copy_slot_config_buffer,
+            copy_target_config_buffer,
+            copy_slot_bind_group,
+            copy_target_bind_group,
+            blend_commands_buffer,
+            copy_commands_buffer,
         };
 
         Self {
             strip_pipeline,
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
+            clear_pipeline,
+            blend_pipeline,
+            blend_bind_group_layout,
+            copy_pipeline,
+            copy_bind_group_layout,
             resources,
             alpha_data,
             encoded_paints_data,
@@ -645,8 +983,6 @@ impl Programs {
                 width: render_target_config.width,
                 height: render_target_config.height,
             },
-
-            clear_pipeline,
         }
     }
 
@@ -662,6 +998,15 @@ impl Programs {
     fn make_clear_slot_indices_buffer(device: &Device, required_size: u64) -> Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Slot Indices Buffer"),
+            size: required_size,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    }
+
+    fn make_commands_buffer(device: &Device, required_size: u64) -> Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Commands Buffer"),
             size: required_size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -1129,6 +1474,73 @@ impl RendererContext<'_> {
             render_pass.draw(0..4, 0..u32::try_from(slot_indices.len()).unwrap());
         }
     }
+
+    fn upload_blend_commands(&mut self, commands: &[crate::render::common::GpuBlendCommand]) {
+        let required_size = mem::size_of_val(commands) as u64;
+        self.programs.resources.blend_commands_buffer =
+            Programs::make_commands_buffer(self.device, required_size);
+
+        let mut buffer = self
+            .queue
+            .write_buffer_with(
+                &self.programs.resources.blend_commands_buffer,
+                0,
+                required_size.try_into().unwrap(),
+            )
+            .expect("Capacity handled in creation");
+        buffer.copy_from_slice(bytemuck::cast_slice(commands));
+    }
+
+    fn upload_copy_commands(&mut self, commands: &[crate::render::common::GpuCopyCommand]) {
+        let required_size = mem::size_of_val(commands) as u64;
+        self.programs.resources.copy_commands_buffer =
+            Programs::make_commands_buffer(self.device, required_size);
+
+        let mut buffer = self
+            .queue
+            .write_buffer_with(
+                &self.programs.resources.copy_commands_buffer,
+                0,
+                required_size.try_into().unwrap(),
+            )
+            .expect("Capacity handled in creation");
+        buffer.copy_from_slice(bytemuck::cast_slice(commands));
+    }
+
+    fn do_copy_render_pass(
+        &mut self,
+        commands: &[crate::render::common::GpuCopyCommand],
+        target_index: usize,
+    ) {
+        let (bind_group, target_view) = if target_index == 2 {
+            (&self.programs.resources.copy_target_bind_group, self.view)
+        } else {
+            (
+                &self.programs.resources.copy_slot_bind_group,
+                &self.programs.resources.slot_texture_views[target_index],
+            )
+        };
+
+        let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Copy Pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: target_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        render_pass.set_pipeline(&self.programs.copy_pipeline);
+        render_pass.set_bind_group(0, bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.programs.resources.copy_commands_buffer.slice(..));
+        render_pass.draw(0..4, 0..commands.len() as u32);
+    }
 }
 
 impl RendererBackend for RendererContext<'_> {
@@ -1150,6 +1562,216 @@ impl RendererBackend for RendererContext<'_> {
         };
 
         self.do_strip_render_pass(strips, target_index, wgpu_load_op);
+    }
+
+    fn blend_pass(
+        &mut self,
+        target_commands: &[crate::schedule::BlendCommandTarget],
+        slot_commands: &[Vec<crate::schedule::BlendCommandSlot>; 2],
+    ) {
+        use crate::render::common::{GpuBlendCommand, GpuCopyCommand};
+
+        // Convert blend commands to GPU commands
+        let mut blend_commands = Vec::new();
+        let mut copy_commands_to_target = Vec::new();
+        let mut copy_commands_to_slots: [Vec<GpuCopyCommand>; 2] = [Vec::new(), Vec::new()];
+
+        // Process target commands (those blending to final target)
+        for cmd in target_commands {
+            let src_xy = ((cmd.src.slot_ix as u32 * Tile::HEIGHT as u32) << 16) | 0u32; // x=0 for slots
+            let dst_xy = ((cmd.dst.1 as u32) << 16) | (cmd.dst.0 as u32);
+
+            // Encode payload: opacity (0-7), compose (8-11), mix (12-15),
+            // source texture (16), dest texture (17-18), blend slot (19-26)
+            let opacity = cmd.opacity as u32;
+            let compose = encode_compose_mode(cmd.mode.compose) << 8;
+            let mix = encode_mix_mode(cmd.mode.mix) << 12;
+            let src_texture = (cmd.src.ix as u32) << 16;
+            let dst_texture = 2u32 << 17; // Final target = 2
+            let blend_slot = (cmd.blend_slot as u32) << 19;
+
+            let payload = opacity | compose | mix | src_texture | dst_texture | blend_slot;
+
+            blend_commands.push(GpuBlendCommand {
+                xy_src: src_xy,
+                xy_dst: dst_xy,
+                payload,
+            });
+
+            // Add copy command to copy from blend texture back to final target
+            copy_commands_to_target.push(GpuCopyCommand {
+                xy_target: dst_xy,
+                slot_ix: cmd.blend_slot as u32,
+            });
+        }
+
+        // Process slot commands (those blending between slots)
+        for (dst_slot_ix, commands) in slot_commands.iter().enumerate() {
+            for cmd in commands {
+                let src_xy = ((cmd.src_slot_ix as u32 * Tile::HEIGHT as u32) << 16) | 0u32;
+                let dst_xy = ((cmd.dst_slot_ix as u32 * Tile::HEIGHT as u32) << 16) | 0u32;
+
+                //println!(
+                //    "src_xy: {:?}, x: {}, y: {}",
+                //    src_xy,
+                //    src_xy & 0xFFFF,
+                //    src_xy >> 16,
+                //);
+                //println!(
+                //    "dst_xy: {:?}, x: {}, y: {}",
+                //    dst_xy,
+                //    dst_xy & 0xFFFF,
+                //    dst_xy >> 16,
+                //);
+
+                let opacity = cmd.opacity as u32;
+                let compose = encode_compose_mode(cmd.mode.compose) << 8;
+                let mix = encode_mix_mode(cmd.mode.mix) << 12;
+                let src_texture = (1 - dst_slot_ix as u32) << 16; // Source is the other slot
+                let dst_texture = (dst_slot_ix as u32) << 17;
+                let blend_slot = (cmd.blend_slot as u32) << 19;
+
+                let payload = opacity | compose | mix | src_texture | dst_texture | blend_slot;
+
+                blend_commands.push(GpuBlendCommand {
+                    xy_src: src_xy,
+                    xy_dst: dst_xy,
+                    payload,
+                });
+
+                // Add copy command to copy from blend texture back to destination slot
+                copy_commands_to_slots[dst_slot_ix].push(GpuCopyCommand {
+                    xy_target: dst_xy,
+                    slot_ix: cmd.blend_slot as u32,
+                });
+            }
+        }
+
+        if blend_commands.is_empty() {
+            return;
+        }
+
+        //println!("blend_commands: {:?}", blend_commands);
+        //println!("copy_commands_to_target: {:?}", copy_commands_to_target);
+        //println!("copy_commands_to_slots[0]: {:?}", copy_commands_to_slots[0]);
+        //println!("copy_commands_to_slots[1]: {:?}", copy_commands_to_slots[1]);
+
+        // Upload blend commands
+        self.upload_blend_commands(&blend_commands);
+
+        // Create blend bind group dynamically with the correct final target view
+        let blend_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Dynamic Blend Bind Group"),
+            layout: &self.programs.blend_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self
+                        .programs
+                        .resources
+                        .blend_config_buffer
+                        .as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.programs.resources.slot_texture_views[0],
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.programs.resources.slot_texture_views[1],
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(self.view),
+                },
+            ],
+        });
+
+        // Execute blend pass - blend to blend texture
+        {
+            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Blend Pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &self.programs.resources.blend_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.programs.blend_pipeline);
+            render_pass.set_bind_group(0, &blend_bind_group, &[]);
+            render_pass
+                .set_vertex_buffer(0, self.programs.resources.blend_commands_buffer.slice(..));
+            render_pass.draw(0..4, 0..blend_commands.len() as u32);
+        }
+
+        // Execute copy passes - copy from blend texture to destinations
+        if !copy_commands_to_target.is_empty() {
+            self.upload_copy_commands(&copy_commands_to_target);
+            self.do_copy_render_pass(&copy_commands_to_target, 2); // Target final view
+        }
+
+        for (slot_ix, copy_commands) in copy_commands_to_slots.iter().enumerate() {
+            if !copy_commands.is_empty() {
+                self.upload_copy_commands(copy_commands);
+                self.do_copy_render_pass(copy_commands, slot_ix); // Target slot texture
+            }
+        }
+    }
+}
+
+/// Encode compose mode to u32 for shader
+fn encode_compose_mode(compose: vello_common::peniko::Compose) -> u32 {
+    use vello_common::peniko::Compose;
+    match compose {
+        Compose::Clear => 0,
+        Compose::Copy => 1,
+        Compose::Dest => 2,
+        Compose::SrcOver => 3,
+        Compose::DestOver => 4,
+        Compose::SrcIn => 5,
+        Compose::DestIn => 6,
+        Compose::SrcOut => 7,
+        Compose::DestOut => 8,
+        Compose::SrcAtop => 9,
+        Compose::DestAtop => 10,
+        Compose::Xor => 11,
+        Compose::Plus => 12,
+        Compose::PlusLighter => 13,
+    }
+}
+
+/// Encode mix mode to u32 for shader
+fn encode_mix_mode(mix: vello_common::peniko::Mix) -> u32 {
+    use vello_common::peniko::Mix;
+    match mix {
+        Mix::Normal => 0,
+        Mix::Multiply => 1,
+        Mix::Screen => 2,
+        Mix::Overlay => 3,
+        Mix::Darken => 4,
+        Mix::Lighten => 5,
+        Mix::ColorDodge => 6,
+        Mix::ColorBurn => 7,
+        Mix::HardLight => 8,
+        Mix::SoftLight => 9,
+        Mix::Difference => 10,
+        Mix::Exclusion => 11,
+        Mix::Hue => 12,
+        Mix::Saturation => 13,
+        Mix::Color => 14,
+        Mix::Luminosity => 15,
+        Mix::Clip => 16,
     }
 }
 

@@ -74,6 +74,73 @@ pub(crate) struct GpuEncodedImage {
     pub _padding2: [u32; 2],
 }
 
+/// Represents a GPU blend command for wide tile blending operations.
+///
+/// This struct corresponds to the `BlendCommand` struct in the blend_wide_tile.wgsl shader.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub struct GpuBlendCommand {
+    /// [x, y] packed as u16's - coordinates of the top left of the source wide tile
+    pub xy_src: u32,
+    /// [x, y] packed as u16's - coordinates of the top left of the destination wide tile  
+    pub xy_dst: u32,
+    /// Bits 0-7: opacity
+    /// Bits 8-11: compose
+    /// Bits 12-15: mix
+    /// Bits 16: source texture (0 = slots of ix=0, 1 = slots of ix=1)
+    /// Bits 17-18: dest texture (0 = slots of ix=0, 1 = slots of ix=1, 2 = final target)
+    /// Bits 19-26: blend slot index
+    pub payload: u32,
+}
+
+/// Represents a GPU copy command for copying slots between textures.
+///
+/// This struct corresponds to the `CopyCommand` struct in the copy_slot.wgsl shader.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub struct GpuCopyCommand {
+    /// [x, y] packed as u16's - coordinates of the top left of the target wide tile
+    pub xy_target: u32,
+    /// Slot index to identify the pixel position to sample from
+    pub slot_ix: u32,
+}
+
+/// Configuration for the blend wide tile operations
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct BlendConfig {
+    /// Width of a wide tile (matching `WideTile::WIDTH`).
+    pub wide_tile_width: u32,
+    /// Height of a wide tile (matching `WideTile::HEIGHT`).
+    pub wide_tile_height: u32,
+    /// Height of the slot texture.
+    pub slot_texture_height: u32,
+    /// Height of the final target texture.
+    pub final_target_height: u32,
+    /// Height of the blend texture.
+    pub blend_texture_height: u32,
+    /// Padding for 16-byte alignment
+    pub _padding: [u32; 3],
+}
+
+/// Configuration for the copy slot operations
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct CopyConfig {
+    /// Width of a wide tile (matching `WideTile::WIDTH`).
+    pub wide_tile_width: u32,
+    /// Height of a wide tile (matching `WideTile::HEIGHT`).
+    pub wide_tile_height: u32,
+    /// Height of the slot texture (source).
+    pub slot_texture_height: u32,
+    /// Width of the target texture (destination).
+    pub target_texture_width: u32,
+    /// Height of the target texture (destination).
+    pub target_texture_height: u32,
+    /// Padding for 16-byte alignment
+    pub _padding: [u32; 3],
+}
+
 #[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))]
 pub(crate) fn maybe_warn_about_webgl_feature_conflict() {
     use core::sync::atomic::{AtomicBool, Ordering};
