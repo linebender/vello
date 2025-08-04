@@ -3,11 +3,13 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
+use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
+use crate::dispatch::multi_threaded::small_path::Path;
+use crate::dispatch::multi_threaded::worker::Worker;
 use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
-use crate::kurbo::{Affine, BezPath, PathSeg, Point, Stroke};
+use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
-use crate::strip_generator::StripGenerator;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -16,8 +18,8 @@ use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Barrier, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, Wide};
 use vello_common::encode::EncodedPaint;
@@ -26,26 +28,72 @@ use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
 
-// TODO: Fine-tune this parameter.
-const COST_THRESHOLD: f32 = 5.0;
+mod cost;
+mod small_path;
+mod worker;
 
-type RenderTasksSender = crossbeam_channel::Sender<Vec<RenderTask>>;
-type CoarseCommandSender = ordered_channel::Sender<CoarseCommand>;
-type CoarseCommandReceiver = ordered_channel::Receiver<CoarseCommand>;
+type RenderTaskSender = crossbeam_channel::Sender<(u32, Vec<RenderTask>)>;
+type CoarseTaskSender = ordered_channel::Sender<Vec<CoarseTask>>;
+type CoarseTaskReceiver = ordered_channel::Receiver<Vec<CoarseTask>>;
 
-// TODO: In many cases, we pass a reference to an owned path in vello_common/vello_cpu, only
-// to later clone it because the multi-threaded dispatcher needs owned access to the structs.
-// Figure out whether there is a good way of solving this problem.
+/// A dispatcher for multi-threaded rendering.
+///
+/// A small note for future contributors: Unfortunately, the logic of this dispatcher as well as
+/// the lifecycle of the different fields of the dispatcher can be a bit hard to grasp.
+/// The reason for this is that since we have to do a lot of communication across the thread boundary,
+/// we have to work with lots of `Option` and `core::mem::take` operations, to ensure that we are
+/// not needlessly cloning objects.
+///
+/// The below comments will hopefully help with understanding the overall structure and lifecycles
+/// a bit better.
 pub(crate) struct MultiThreadedDispatcher {
+    /// The wide tile container.
     wide: Wide,
+    /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
+    /// The current batch of paths we want to render.
     task_batch: Vec<RenderTask>,
+    /// The cost of the current batch.
     batch_cost: f32,
-    task_sender: Option<RenderTasksSender>,
+    /// The sender used to dispatch new rendering tasks from the main thread.
+    ///
+    /// This field will be set once we call the `init` method.
+    /// This field will be set back to `None` when running `flush` to drop the value and thus
+    /// indicate to receivers that no more rendering tasks will be dispatched from that point onward.
+    task_sender: Option<RenderTaskSender>,
+    /// Contains one worker object for each thread.
+    ///
+    /// The workers will be initialized once when building the multi-threaded dispatcher via
+    /// `MultiThreadedDispatcher::new`.
     workers: Arc<ThreadLocal<RefCell<Worker>>>,
-    result_receiver: Option<CoarseCommandReceiver>,
-    alpha_storage: Arc<OnceLockAlphaStorage>,
-    task_idx: usize,
+    /// The receiver for coarse command tasks, used to do coarse rasterization on the main thread.
+    ///
+    /// Similarly to `task_sender`, this value is set to `None` initially, and will only be set once
+    /// we actually call the `init` method (either when creating the dispatcher for the first time, or
+    /// when resetting it).
+    coarse_task_receiver: Option<CoarseTaskReceiver>,
+    /// The storage for alpha values.
+    ///
+    /// Similarly to the single-threaded dispatcher, we want to be able to reuse the allocation holding
+    /// the alpha values across multiple runs of `reset`. However, we have the problem that during path
+    /// rendering, each thread needs to have its own allocation. We also need to be able to move
+    /// the allocation back and forth between the threads (during path rendering) and the main thread
+    /// (during fine rasterization). Because of this, we wrap it in this `MaybePresent` struct.
+    ///
+    /// During initialization, each thread will "take" the vector allocation out of its slot
+    /// (the vector has a length of `num_threads`, so each thread has a slot belonging to itself)
+    /// and will put it back to its slot after flushing. Then, during fine rasterization, we
+    /// take all slots out of the `MaybePresent` object so that we can easily access each buffer
+    /// when running the commands without having to go through the mutex. After fine rasterization,
+    /// the slots are put back into the `MaybePresent` object.
+    ///
+    alpha_storage: MaybePresent<Vec<Vec<u8>>>,
+    /// The task index that will be assigned to the next rendering task.
+    ///
+    /// Since we are rendering the paths on different threads, we need to make sure that they
+    /// come back in the right order. The `task_idx` is used to keep track of that order.
+    task_idx: u32,
+    /// The number of threads active in the thread pool.
     num_threads: u16,
     level: Level,
     flushed: bool,
@@ -58,30 +106,24 @@ impl MultiThreadedDispatcher {
             .num_threads(num_threads as usize)
             .build()
             .unwrap();
-        let alpha_storage = Arc::new(OnceLockAlphaStorage::new(num_threads));
+        let alpha_storage = MaybePresent::new(vec![vec![]; usize::from(num_threads)]);
         let workers = Arc::new(ThreadLocal::new());
         let task_batch = vec![];
 
         {
-            let alpha_storage = alpha_storage.clone();
             let thread_ids = Arc::new(AtomicU8::new(0));
             let workers = workers.clone();
 
-            // Initialize all workers once in `new`, so that later on we can just call`.get().unwrap()`.
+            // Create all workers once in `new`, so that later on we can just call`.get().unwrap()`.
             thread_pool.spawn_broadcast(move |_| {
-                let _ = workers.get_or(|| {
-                    RefCell::new(Worker::new(
-                        width,
-                        height,
-                        thread_ids.fetch_add(1, Ordering::SeqCst),
-                        alpha_storage.clone(),
-                        level,
-                    ))
-                });
+                let thread_id = thread_ids.fetch_add(1, Ordering::SeqCst);
+                let worker = Worker::new(width, height, thread_id, level);
+
+                let _ = workers.get_or(|| RefCell::new(worker));
             });
         }
 
-        let cmd_idx = 0;
+        let task_idx = 0;
         let batch_cost = 0.0;
         let flushed = false;
 
@@ -90,11 +132,11 @@ impl MultiThreadedDispatcher {
             thread_pool,
             task_batch,
             batch_cost,
-            task_idx: cmd_idx,
+            task_idx,
             flushed,
             workers,
             task_sender: None,
-            result_receiver: None,
+            coarse_task_receiver: None,
             level,
             alpha_storage,
             num_threads,
@@ -107,30 +149,42 @@ impl MultiThreadedDispatcher {
 
     fn init(&mut self) {
         let (render_task_sender, render_task_receiver) = crossbeam_channel::unbounded();
-        let (coarse_command_sender, coarse_command_receiver) = ordered_channel::unbounded();
+        let (coarse_task_sender, coarse_task_receiver) = ordered_channel::unbounded();
         let workers = self.workers.clone();
+        let alpha_storage = self.alpha_storage.clone();
 
         self.task_sender = Some(render_task_sender);
-        self.result_receiver = Some(coarse_command_receiver);
+        self.coarse_task_receiver = Some(coarse_task_receiver);
 
+        // Spawn the loop for the worker threads.
         self.thread_pool.spawn_broadcast(move |_| {
             let render_task_receiver = render_task_receiver.clone();
-            let mut coarse_command_sender = coarse_command_sender.clone();
+            let mut coarse_task_sender = coarse_task_sender.clone();
             let worker = workers.get().unwrap();
             let mut worker = worker.borrow_mut();
+            let thread_id = worker.thread_id();
+
+            // Take out the allocation for alphas and store it in the worker.
+            alpha_storage
+                .with_inner(|alphas| worker.init(std::mem::take(&mut alphas[thread_id as usize])));
 
             while let Ok(tasks) = render_task_receiver.recv() {
-                worker.run_tasks(tasks, &mut coarse_command_sender);
+                worker.run_render_tasks(tasks.0, tasks.1, &mut coarse_task_sender);
             }
 
-            // If we reach this point, it means the task_sender has been dropped by the main thread
-            // and no more tasks are available. So we are done, and just need to place the alphas
-            // of the worker thread in the hashmap. Then, we drop the `coarse_command_sender`. Once all
-            // worker thread have dropped `coarse_command_sender`, the main thread knows that all alphas
-            // have been placed, and it's safe to proceed.
-            worker.place_alphas();
+            // If we reach this point, it means the `task_sender` has been dropped by the main thread
+            // and no more tasks are available (since we flushed).
+            // So we are done, and just need to place the alphas of the worker thread back into the
+            // vector.
 
-            drop(coarse_command_sender);
+            alpha_storage.with_inner(|alphas| {
+                alphas[thread_id as usize] = worker.finalize();
+            });
+
+            // Then, we drop the `coarse_task_sender`. Once all worker threads have
+            // dropped their `coarse_task_sender`, the main thread knows that all workers are done
+            // and all alphas have been placed, so it's safe to proceed.
+            drop(coarse_task_sender);
         });
     }
 
@@ -140,7 +194,7 @@ impl MultiThreadedDispatcher {
             self.init();
         }
 
-        let cost = task.estimate_render_time();
+        let cost = estimate_render_task_cost(&task);
         self.task_batch.push(task);
         self.batch_cost += cost;
 
@@ -151,19 +205,20 @@ impl MultiThreadedDispatcher {
     }
 
     fn flush_tasks(&mut self) {
-        let tasks = std::mem::replace(&mut self.task_batch, Vec::with_capacity(50));
+        let tasks = std::mem::replace(&mut self.task_batch, Vec::with_capacity(1));
         self.send_pending_tasks(tasks);
     }
 
-    fn bump_task_idx(&mut self) -> usize {
+    fn bump_task_idx(&mut self) -> u32 {
         let idx = self.task_idx;
         self.task_idx += 1;
         idx
     }
 
     fn send_pending_tasks(&mut self, tasks: Vec<RenderTask>) {
+        let task_idx = self.bump_task_idx();
         let task_sender = self.task_sender.as_mut().unwrap();
-        task_sender.send(tasks).unwrap();
+        task_sender.send((task_idx, tasks)).unwrap();
         self.run_coarse(true);
     }
 
@@ -180,28 +235,32 @@ impl MultiThreadedDispatcher {
     //
     // This is why we have the `abort_empty`flag.
     fn run_coarse(&mut self, abort_empty: bool) {
-        let result_receiver = self.result_receiver.as_mut().unwrap();
+        let result_receiver = self.coarse_task_receiver.as_mut().unwrap();
 
         loop {
             match result_receiver.try_recv() {
-                Ok(cmd) => match cmd {
-                    CoarseCommand::Render {
-                        thread_id,
-                        strips,
-                        fill_rule,
-                        paint,
-                    } => self.wide.generate(&strips, fill_rule, paint, thread_id),
-                    CoarseCommand::PushLayer {
-                        thread_id,
-                        clip_path,
-                        blend_mode,
-                        mask,
-                        opacity,
-                    } => self
-                        .wide
-                        .push_layer(clip_path, blend_mode, mask, opacity, thread_id),
-                    CoarseCommand::PopLayer => self.wide.pop_layer(),
-                },
+                Ok(cmds) => {
+                    for cmd in cmds {
+                        match cmd {
+                            CoarseTask::Render {
+                                thread_id,
+                                strips,
+                                fill_rule,
+                                paint,
+                            } => self.wide.generate(&strips, fill_rule, paint, thread_id),
+                            CoarseTask::PushLayer {
+                                thread_id,
+                                clip_path,
+                                blend_mode,
+                                mask,
+                                opacity,
+                            } => self
+                                .wide
+                                .push_layer(clip_path, blend_mode, mask, opacity, thread_id),
+                            CoarseTask::PopLayer => self.wide.pop_layer(),
+                        }
+                    }
+                }
                 Err(e) => match e {
                     TryRecvError::Empty => {
                         if abort_empty {
@@ -225,7 +284,7 @@ impl MultiThreadedDispatcher {
         let mut buffer = Regions::new(width, height, buffer);
         let fines = ThreadLocal::new();
         let wide = &self.wide;
-        let alpha_slots = self.alpha_storage.slots();
+        let alpha_slots = self.alpha_storage.take();
 
         self.thread_pool.install(|| {
             buffer.update_regions_par(|region| {
@@ -248,8 +307,7 @@ impl MultiThreadedDispatcher {
                     };
 
                     let alphas = thread_idx
-                        .and_then(|i| alpha_slots[i as usize].get())
-                        .map(|v| v.as_slice())
+                        .map(|i| alpha_slots[i as usize].as_slice())
                         .unwrap_or(&[]);
                     fine.run_cmd(cmd, alphas, encoded_paints);
                 }
@@ -257,6 +315,10 @@ impl MultiThreadedDispatcher {
                 fine.pack(region);
             });
         });
+
+        // Don't forget to put back the alpha buffers, so that they can be re-used in
+        // the next path rendering iteration!
+        self.alpha_storage.init(alpha_slots);
     }
 }
 
@@ -273,14 +335,11 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         anti_alias: bool,
     ) {
-        let task_idx = self.bump_task_idx();
-
         self.register_task(RenderTask::FillPath {
-            path: path.clone(),
+            path: Path::new(path),
             transform,
             paint,
             fill_rule,
-            task_idx,
             anti_alias,
         });
     }
@@ -293,14 +352,11 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         anti_alias: bool,
     ) {
-        let task_idx = self.bump_task_idx();
-
         self.register_task(RenderTask::StrokePath {
-            path: path.clone(),
+            path: Path::new(path),
             transform,
             paint,
             stroke: stroke.clone(),
-            task_idx,
             anti_alias,
         });
     }
@@ -315,8 +371,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         anti_alias: bool,
         mask: Option<Mask>,
     ) {
-        let task_idx = self.bump_task_idx();
-
         self.register_task(RenderTask::PushLayer {
             clip_path: clip_path.cloned().map(|c| (c, clip_transform)),
             blend_mode,
@@ -324,14 +378,11 @@ impl Dispatcher for MultiThreadedDispatcher {
             mask,
             fill_rule,
             anti_alias,
-            task_idx,
         });
     }
 
     fn pop_layer(&mut self) {
-        let task_idx = self.bump_task_idx();
-
-        self.register_task(RenderTask::PopLayer { task_idx });
+        self.register_task(RenderTask::PopLayer);
     }
 
     fn reset(&mut self) {
@@ -341,12 +392,14 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.task_idx = 0;
         self.flushed = false;
         self.task_sender = None;
-        self.result_receiver = None;
-        // TODO: We want to re-use the allocations of the storage somehow.
-        self.alpha_storage = Arc::new(OnceLockAlphaStorage::new(self.num_threads));
+        self.coarse_task_receiver = None;
+        self.alpha_storage.with_inner(|alphas| {
+            for alpha in alphas {
+                alpha.clear();
+            }
+        });
 
         let workers = self.workers.clone();
-        let alpha_storage = self.alpha_storage.clone();
         // + 1 since we also wait on the main thread.
         let barrier = Arc::new(Barrier::new(usize::from(self.num_threads) + 1));
         let t_barrier = barrier.clone();
@@ -355,7 +408,6 @@ impl Dispatcher for MultiThreadedDispatcher {
             let worker = workers.get().unwrap();
             let mut borrowed = worker.borrow_mut();
             borrowed.reset();
-            borrowed.alpha_storage = alpha_storage.clone();
             t_barrier.wait();
         });
 
@@ -368,11 +420,12 @@ impl Dispatcher for MultiThreadedDispatcher {
         if self.flushed {
             return;
         }
+
         self.flush_tasks();
         let sender = core::mem::take(&mut self.task_sender);
         // Note that dropping the sender will signal to the workers that no more new paths
         // can arrive.
-        core::mem::drop(sender);
+        drop(sender);
         self.run_coarse(false);
 
         self.flushed = true;
@@ -451,30 +504,6 @@ impl Dispatcher for MultiThreadedDispatcher {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct OnceLockAlphaStorage {
-    slots: Vec<OnceLock<Vec<u8>>>,
-}
-
-impl OnceLockAlphaStorage {
-    pub(crate) fn new(num_threads: u16) -> Self {
-        Self {
-            slots: (0..num_threads).map(|_| OnceLock::new()).collect(),
-        }
-    }
-
-    /// Store alpha data for a specific thread (called once per thread)
-    pub(crate) fn store(&self, thread_id: u8, data: Vec<u8>) -> Result<(), Vec<u8>> {
-        self.slots[thread_id as usize].set(data)
-    }
-
-    fn slots(&self) -> &[OnceLock<Vec<u8>>] {
-        &self.slots
-    }
-
-    // TODO: Probably worth adding a take all method and being able to reuse vec allocations somehow
-}
-
 impl Debug for MultiThreadedDispatcher {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.write_str("MultiThreadedDispatcher { .. }")
@@ -482,22 +511,20 @@ impl Debug for MultiThreadedDispatcher {
 }
 
 #[derive(Debug)]
-enum RenderTask {
+pub(crate) enum RenderTask {
     FillPath {
-        path: BezPath,
+        path: Path,
         transform: Affine,
         paint: Paint,
         fill_rule: Fill,
         anti_alias: bool,
-        task_idx: usize,
     },
     StrokePath {
-        path: BezPath,
+        path: Path,
         transform: Affine,
         paint: Paint,
         stroke: Stroke,
         anti_alias: bool,
-        task_idx: usize,
     },
     PushLayer {
         clip_path: Option<(BezPath, Affine)>,
@@ -506,41 +533,11 @@ enum RenderTask {
         mask: Option<Mask>,
         fill_rule: Fill,
         anti_alias: bool,
-        task_idx: usize,
     },
-    PopLayer {
-        task_idx: usize,
-    },
+    PopLayer,
 }
 
-impl RenderTask {
-    fn estimate_render_time(&self) -> f32 {
-        match self {
-            Self::FillPath {
-                path, transform, ..
-            } => {
-                let path_cost_data = PathCostData::new(path, *transform);
-                estimate_runtime_in_micros(&path_cost_data, false)
-            }
-            Self::StrokePath {
-                path, transform, ..
-            } => {
-                let path_cost_data = PathCostData::new(path, *transform);
-                estimate_runtime_in_micros(&path_cost_data, true)
-            }
-            Self::PushLayer { clip_path, .. } => clip_path
-                .as_ref()
-                .map(|c| {
-                    let path_cost_data = PathCostData::new(&c.0, c.1);
-                    estimate_runtime_in_micros(&path_cost_data, false)
-                })
-                .unwrap_or(0.0),
-            Self::PopLayer { .. } => 0.0,
-        }
-    }
-}
-
-enum CoarseCommand {
+pub(crate) enum CoarseTask {
     Render {
         thread_id: u8,
         strips: Box<[Strip]>,
@@ -557,197 +554,46 @@ enum CoarseCommand {
     PopLayer,
 }
 
-#[derive(Debug)]
-struct Worker {
-    strip_generator: StripGenerator,
-    thread_id: u8,
-    alpha_storage: Arc<OnceLockAlphaStorage>,
+/// An object that might hold a certain value (behind a mutex), and panics if we attempt
+/// to access it when it's not initialized.
+#[derive(Clone)]
+pub(crate) struct MaybePresent<T: Default> {
+    present: Arc<AtomicBool>,
+    value: Arc<Mutex<T>>,
 }
 
-impl Worker {
-    fn new(
-        width: u16,
-        height: u16,
-        thread_id: u8,
-        alpha_storage: Arc<OnceLockAlphaStorage>,
-        level: Level,
-    ) -> Self {
-        let strip_generator = StripGenerator::new(width, height, level);
-
+impl<T: Default> MaybePresent<T> {
+    pub(crate) fn new(val: T) -> Self {
         Self {
-            strip_generator,
-            thread_id,
-            alpha_storage,
+            present: Arc::new(AtomicBool::new(true)),
+            value: Arc::new(Mutex::new(val)),
         }
     }
 
-    fn reset(&mut self) {
-        self.strip_generator.reset();
+    pub(crate) fn init(&self, value: T) {
+        let mut locked = self.value.lock().unwrap();
+        *locked = value;
+        self.present.store(true, Ordering::SeqCst);
     }
 
-    fn run_tasks(&mut self, tasks: Vec<RenderTask>, result_sender: &mut CoarseCommandSender) {
-        for task in tasks {
-            match task {
-                RenderTask::FillPath {
-                    path,
-                    transform,
-                    paint,
-                    fill_rule,
-                    task_idx,
-                    anti_alias,
-                } => {
-                    let func = |strips: &[Strip]| {
-                        let coarse_command = CoarseCommand::Render {
-                            thread_id: self.thread_id,
-                            strips: strips.into(),
-                            fill_rule,
-                            paint,
-                        };
-                        result_sender.send(task_idx, coarse_command).unwrap();
-                    };
+    pub(crate) fn with_inner(&self, mut func: impl FnMut(&mut T)) {
+        assert!(
+            self.present.load(Ordering::SeqCst),
+            "Tried to access `MaybePresent` before initialization."
+        );
 
-                    self.strip_generator
-                        .generate_filled_path(&path, fill_rule, transform, anti_alias, func);
-                }
-                RenderTask::StrokePath {
-                    path,
-                    transform,
-                    paint,
-                    stroke,
-                    task_idx,
-                    anti_alias,
-                } => {
-                    let func = |strips: &[Strip]| {
-                        let coarse_command = CoarseCommand::Render {
-                            thread_id: self.thread_id,
-                            strips: strips.into(),
-                            fill_rule: Fill::NonZero,
-                            paint,
-                        };
-                        result_sender.send(task_idx, coarse_command).unwrap();
-                    };
-
-                    self.strip_generator
-                        .generate_stroked_path(&path, &stroke, transform, anti_alias, func);
-                }
-                RenderTask::PushLayer {
-                    clip_path,
-                    blend_mode,
-                    opacity,
-                    mask,
-                    fill_rule,
-                    task_idx,
-                    anti_alias,
-                } => {
-                    let clip = if let Some((c, transform)) = clip_path {
-                        let mut strip_buf = &[][..];
-                        self.strip_generator.generate_filled_path(
-                            &c,
-                            fill_rule,
-                            transform,
-                            // TODO: Maybe this should be configurable as well?
-                            anti_alias,
-                            |strips| strip_buf = strips,
-                        );
-
-                        Some((strip_buf.into(), fill_rule))
-                    } else {
-                        None
-                    };
-
-                    let coarse_command = CoarseCommand::PushLayer {
-                        thread_id: self.thread_id,
-                        clip_path: clip,
-                        blend_mode,
-                        mask,
-                        opacity,
-                    };
-
-                    result_sender.send(task_idx, coarse_command).unwrap();
-                }
-                RenderTask::PopLayer { task_idx } => {
-                    result_sender
-                        .send(task_idx, CoarseCommand::PopLayer)
-                        .unwrap();
-                }
-            }
-        }
+        let mut lock = self.value.lock().unwrap();
+        func(&mut lock);
     }
 
-    fn place_alphas(&mut self) {
-        let alpha_data = self.strip_generator.alpha_buf().to_vec();
-        let _ = self.alpha_storage.store(self.thread_id, alpha_data);
+    pub(crate) fn take(&self) -> T {
+        assert!(
+            self.present.load(Ordering::SeqCst),
+            "Tried to access `MaybePresent` before initialization."
+        );
+
+        let mut locked = self.value.lock().unwrap();
+        self.present.store(false, Ordering::SeqCst);
+        std::mem::take(&mut *locked)
     }
-}
-
-struct PathCostData {
-    num_line_segments: u64,
-    num_curve_segments: u64,
-    path_length: f64,
-}
-
-impl PathCostData {
-    fn new(path: &BezPath, transform: Affine) -> Self {
-        let mut num_line_segments = 0;
-        let mut num_curve_segments = 0;
-        let mut path_length = 0.0;
-
-        let mut register_path_length = |mut p0: Point, mut p1: Point| {
-            p0 = transform * p0;
-            p1 = transform * p1;
-            // We don't sqrt here because it's too expensive, we just want a rough estimate.
-            let dx = (p1.x - p0.x).abs();
-            let dy = (p1.y - p0.y).abs();
-            path_length += dx + dy;
-        };
-
-        for seg in path.segments() {
-            match seg {
-                PathSeg::Line(l) => {
-                    num_line_segments += 1;
-
-                    register_path_length(l.p0, l.p1);
-                }
-                PathSeg::Quad(q) => {
-                    num_curve_segments += 1;
-
-                    register_path_length(q.p0, q.p2);
-                }
-                PathSeg::Cubic(c) => {
-                    num_curve_segments += 1;
-
-                    register_path_length(c.p0, c.p3);
-                }
-            }
-        }
-
-        Self {
-            num_line_segments,
-            num_curve_segments,
-            path_length,
-        }
-    }
-}
-
-// This formula was derived by recording benchmarks of how long paths with a certain set of properties
-// take to render and then use "machine learning" to derive a formula which approximates the runtime.
-// The result will be far from accurate, but all we need is a ballpark range, and it's important
-// that the calculation is relatively fast, since it will be run on the main thread for each path.
-// TODO: We will need to update the formula once SIMD + faster stroke expansion landed.
-fn estimate_runtime_in_micros(path_cost_data: &PathCostData, is_stroke: bool) -> f32 {
-    let line_segments = path_cost_data.num_line_segments as f64;
-    let curve_segments = path_cost_data.num_curve_segments as f64;
-    let path_length = path_cost_data.path_length;
-
-    let line_log = (1.0 + line_segments).ln();
-    let curve_log = (1.0 + curve_segments).ln();
-    let path_log = (1.0 + path_length).ln();
-
-    let complexity = 4.6223 - 3.5740 * line_log + 12.5549 * curve_log - 1.4774 * path_log
-        + 1.1412 * line_log * path_log;
-
-    let stroke_multiplier = if is_stroke { 6.8737 } else { 1.0 };
-    let runtime = complexity * stroke_multiplier;
-
-    runtime.max(0.0) as f32
 }

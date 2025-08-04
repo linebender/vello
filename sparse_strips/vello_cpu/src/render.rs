@@ -612,6 +612,7 @@ mod tests {
 
         ctx.push_clip_layer(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
         ctx.pop_layer();
+        ctx.flush();
     }
 
     #[cfg(feature = "multithreading")]
