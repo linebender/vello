@@ -587,6 +587,11 @@ impl<T: Default> MaybePresent<T> {
     }
 
     pub(crate) fn take(&self) -> T {
+        assert!(
+            self.present.load(Ordering::SeqCst),
+            "Tried to access `MaybePresent` before initialization."
+        );
+
         let mut locked = self.value.lock().unwrap();
         self.present.store(false, Ordering::SeqCst);
         std::mem::take(&mut *locked)
