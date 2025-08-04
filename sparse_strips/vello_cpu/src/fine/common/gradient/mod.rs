@@ -4,6 +4,7 @@
 use crate::fine::{NumericVec, PosExt, ShaderResultF32};
 use crate::kurbo::Point;
 use core::slice::ChunksExact;
+use std::eprintln;
 use vello_common::encode::{EncodedGradient, GradientLut};
 use vello_common::fearless_simd::*;
 
@@ -72,7 +73,13 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
         let pad = self.gradient.pad;
         let pos = f32x8::from_slice(self.simd, self.t_vals.next()?);
         let t_vals = extend(pos, pad);
-        let indices = (t_vals * self.scale_factor).cvt_u32();
+
+        let indices = {
+            // Clear NaNs.
+            let cleared_t_vals = self.simd.select_f32x8(t_vals.simd_eq(t_vals), t_vals, f32x8::splat(self.simd, 0.0));
+
+            (cleared_t_vals * self.scale_factor).cvt_u32()
+        };
 
         let mut r = [0.0_f32; 8];
         let mut g = [0.0_f32; 8];
