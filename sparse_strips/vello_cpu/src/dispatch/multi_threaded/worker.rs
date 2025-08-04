@@ -5,7 +5,7 @@ use crate::Level;
 use crate::dispatch::multi_threaded::{CoarseTask, CoarseTaskSender, Path, RenderTask};
 use crate::peniko::Fill;
 use crate::strip_generator::StripGenerator;
-use std::prelude::rust_2015::Vec;
+use std::vec::Vec;
 use vello_common::strip::Strip;
 
 #[derive(Debug)]
