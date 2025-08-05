@@ -4,7 +4,6 @@
 use crate::fine::{NumericVec, PosExt, ShaderResultF32};
 use crate::kurbo::Point;
 use core::slice::ChunksExact;
-use std::eprintln;
 use vello_common::encode::{EncodedGradient, GradientLut};
 use vello_common::fearless_simd::*;
 
