@@ -11,7 +11,7 @@ use crate::strip_generator::StripGenerator;
 use alloc::vec::Vec;
 use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
-use vello_common::fearless_simd::{simd_dispatch, Level, Simd};
+use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 
@@ -34,11 +34,23 @@ impl SingleThreadedDispatcher {
         }
     }
 
-    fn rasterize_f32(&self, buffer: &mut [u8], width: u16, height: u16, encoded_paints: &[EncodedPaint]) {
+    fn rasterize_f32(
+        &self,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
         rasterize_with_f32_dispatch(self.level, self, buffer, width, height, encoded_paints)
     }
 
-    fn rasterize_u8(&self, buffer: &mut [u8], width: u16, height: u16, encoded_paints: &[EncodedPaint]) {
+    fn rasterize_u8(
+        &self,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
         rasterize_with_u8_dispatch(self.level, self, buffer, width, height, encoded_paints)
     }
 
@@ -177,7 +189,9 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         match render_mode {
             RenderMode::OptimizeSpeed => self.rasterize_u8(buffer, width, height, encoded_paints),
-            RenderMode::OptimizeQuality => self.rasterize_f32(buffer, width, height, encoded_paints),
+            RenderMode::OptimizeQuality => {
+                self.rasterize_f32(buffer, width, height, encoded_paints)
+            }
         }
     }
 }

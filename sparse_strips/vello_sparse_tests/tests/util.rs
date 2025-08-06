@@ -72,10 +72,10 @@ pub(crate) fn get_ctx<T: Renderer>(
         "sse42" => {
             if std::arch::is_x86_feature_detected!("sse4.2") {
                 Level::Sse4_2(unsafe { vello_common::fearless_simd::Sse4_2::new_unchecked() })
-            }   else {
+            } else {
                 panic!("sse4.2 feature not detected");
             }
-        },
+        }
         "fallback" => Level::fallback(),
         _ => panic!("unknown level: {level}"),
     };

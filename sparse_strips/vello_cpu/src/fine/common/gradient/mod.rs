@@ -75,7 +75,11 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
 
         let indices = {
             // Clear NaNs.
-            let cleared_t_vals = self.simd.select_f32x8(t_vals.simd_eq(t_vals), t_vals, f32x8::splat(self.simd, 0.0));
+            let cleared_t_vals = self.simd.select_f32x8(
+                t_vals.simd_eq(t_vals),
+                t_vals,
+                f32x8::splat(self.simd, 0.0),
+            );
 
             (cleared_t_vals * self.scale_factor).cvt_u32()
         };
