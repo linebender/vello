@@ -36,6 +36,7 @@ mod layer;
 mod mask;
 mod mix;
 mod opacity;
+mod recording;
 mod renderer;
 #[macro_use]
 mod util;

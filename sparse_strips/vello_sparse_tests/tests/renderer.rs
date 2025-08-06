@@ -10,6 +10,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{BlendMode, Fill, Font};
 use vello_common::pixmap::Pixmap;
+use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
 use vello_hybrid::Scene;
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -48,6 +49,9 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn width(&self) -> u16;
     fn height(&self) -> u16;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
+    fn record(&mut self, f: impl FnOnce(&mut Recorder<'_>)) -> Recording;
+    fn prepare_recording(&mut self, recording: &mut Recording);
+    fn render_recording(&mut self, recording: &mut Recording);
 }
 
 impl Renderer for RenderContext {
@@ -155,6 +159,18 @@ impl Renderer for RenderContext {
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         ImageSource::Pixmap(pixmap)
+    }
+
+    fn record(&mut self, f: impl FnOnce(&mut Recorder<'_>)) -> Recording {
+        Recordable::record(self, f)
+    }
+
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        Recordable::prepare_recording(self, recording);
+    }
+
+    fn render_recording(&mut self, recording: &mut Recording) {
+        Recordable::render_recording(self, recording);
     }
 }
 
@@ -450,6 +466,18 @@ impl Renderer for HybridRenderer {
         self.queue.submit([encoder.finish()]);
 
         ImageSource::OpaqueId(image_id)
+    }
+
+    fn record(&mut self, f: impl FnOnce(&mut Recorder<'_>)) -> Recording {
+        self.scene.record(f)
+    }
+
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        self.scene.prepare_recording(recording);
+    }
+
+    fn render_recording(&mut self, recording: &mut Recording) {
+        self.scene.render_recording(recording);
     }
 }
 
