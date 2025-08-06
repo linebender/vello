@@ -664,6 +664,18 @@ impl Renderer for HybridRenderer {
         let image_id = self.renderer.borrow_mut().upload_image(&pixmap);
         ImageSource::OpaqueId(image_id)
     }
+
+    fn record(&mut self, f: impl FnOnce(&mut Recorder<'_>)) -> Recording {
+        self.scene.record(f)
+    }
+
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        self.scene.prepare_recording(recording);
+    }
+
+    fn render_recording(&mut self, recording: &mut Recording) {
+        self.scene.render_recording(recording);
+    }
 }
 
 impl GlyphRenderer for HybridRenderer {
