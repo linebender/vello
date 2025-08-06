@@ -65,11 +65,8 @@ fn main() {
                 }
             }
         }
-        let scenes = if svg_paths.is_empty() {
-            get_example_scenes(None)
-        } else {
-            get_example_scenes(Some(svg_paths))
-        };
+        
+        let scenes = get_example_scenes();
 
         start_scene_index = start_scene_index.min(scenes.len() - 1);
         (scenes, start_scene_index)
@@ -83,7 +80,7 @@ fn main() {
         scenes,
         current_scene: start_scene_index,
         render_state: RenderState::Suspended(None),
-        scene: Scene::new(1800, 1200),
+        scene: Scene::new(100, 100),
         transform: Affine::IDENTITY,
         mouse_down: false,
         last_cursor_position: None,
@@ -119,8 +116,7 @@ impl ApplicationHandler for App<'_> {
         let window = cached_window.take().unwrap_or_else(|| {
             create_winit_window(
                 event_loop,
-                self.scene.width().into(),
-                self.scene.height().into(),
+                800,600,
                 true,
             )
         });
@@ -166,10 +162,10 @@ impl ApplicationHandler for App<'_> {
             WindowEvent::Resized(size) => {
                 self.context
                     .resize_surface(surface, size.width, size.height);
-                self.scene = Scene::new(
-                    u16::try_from(size.width).unwrap(),
-                    u16::try_from(size.height).unwrap(),
-                );
+                // self.scene = Scene::new(
+                //     u16::try_from(size.width).unwrap(),
+                //     u16::try_from(size.height).unwrap(),
+                // );
             }
             WindowEvent::KeyboardInput {
                 event:

@@ -201,17 +201,13 @@ impl Scene {
             None
         };
 
-        // Blend mode, opacity, and mask are not supported yet.
-        if blend_mode.is_some() {
-            unimplemented!()
-        }
         if mask.is_some() {
             unimplemented!()
         }
 
         self.wide.push_layer(
             clip,
-            BlendMode::new(Mix::Normal, Compose::SrcOver),
+            blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
             None,
             opacity.unwrap_or(1.),
             0,

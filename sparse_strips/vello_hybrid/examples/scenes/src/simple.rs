@@ -3,8 +3,12 @@
 
 //! Simple example scene with basic shapes.
 
+use parley::Rect;
+use vello_common::color::palette::css::{BLUE, WHITE, YELLOW};
 use vello_common::kurbo::{Affine, BezPath, Stroke};
 use vello_common::peniko::color::palette;
+use vello_common::kurbo::Shape;
+use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_hybrid::Scene;
 
 use crate::ExampleScene;
@@ -33,21 +37,32 @@ impl Default for SimpleScene {
 }
 
 /// Draws a simple scene with shapes
-pub fn render(ctx: &mut Scene, root_transform: Affine) {
-    let mut path = BezPath::new();
-    path.move_to((10.0, 10.0));
-    path.line_to((180.0, 20.0));
-    path.line_to((30.0, 40.0));
-    path.close_path();
+pub fn render(ctx: &mut Scene, _root_transform: Affine) {
+    let path = Rect::new(0.0, 0.0, 100 as f64, 100 as f64).to_path(0.1);
 
-    // Use a combined transform that includes the root transform
-    let scene_transform = Affine::scale(5.0);
-    ctx.set_transform(root_transform * scene_transform);
-
-    ctx.set_paint(palette::css::REBECCA_PURPLE);
+    ctx.set_paint(WHITE);
     ctx.fill_path(&path);
-    let stroke = Stroke::new(1.0);
-    ctx.set_paint(palette::css::DARK_BLUE);
-    ctx.set_stroke(stroke);
-    ctx.stroke_path(&path);
+
+    ctx.push_layer(
+        None,
+        Some(BlendMode::new(Mix::Normal, Compose::SrcOver)),
+        None,
+        None,
+    );
+
+    // Draw the destination layer.
+    ctx.set_paint(YELLOW.with_alpha(1.0));
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 70.0, 70.0));
+    // Draw the source layer.
+    ctx.push_layer(
+        None,
+        Some(BlendMode::new(Mix::Normal, Compose::Xor)),
+        None,
+        None,
+    );
+    ctx.set_paint(BLUE.with_alpha(1.0));
+    ctx.fill_rect(&Rect::new(30.0, 30.0, 90.0, 90.0));
+    // Compose.
+    ctx.pop_layer();
+    ctx.pop_layer();
 }
