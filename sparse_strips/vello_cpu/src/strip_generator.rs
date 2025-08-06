@@ -79,6 +79,10 @@ impl StripGenerator {
         &self.alphas
     }
 
+    pub(crate) fn extend_alpha_buf(&mut self, alphas: &[u8]) {
+        self.alphas.extend_from_slice(alphas);
+    }
+
     #[cfg(feature = "multithreading")]
     pub(crate) fn set_alpha_buf(&mut self, alpha_buf: Vec<u8>) {
         self.alphas = alpha_buf;

@@ -16,6 +16,7 @@ use vello_common::paint::Paint;
 
 pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn wide(&self) -> &Wide;
+    fn wide_mut(&mut self) -> &mut Wide;
     fn fill_path(
         &mut self,
         path: &BezPath,
@@ -53,4 +54,6 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         height: u16,
         encoded_paints: &[EncodedPaint],
     );
+    fn alpha_buf(&self) -> &[u8];
+    fn extend_alpha_buf(&mut self, alphas: &[u8]);
 }
