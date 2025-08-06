@@ -68,7 +68,6 @@ pub struct Recording {
 /// Individual rendering commands that can be recorded
 #[derive(Debug, Clone)]
 pub enum RenderCommand {
-    // Geometry commands (affect strip generation)
     /// Fill a path
     FillPath(BezPath),
     /// Stroke a path
@@ -77,16 +76,12 @@ pub enum RenderCommand {
     FillRect(Rect),
     /// Stroke a rectangle
     StrokeRect(Rect),
-
-    // State commands that affect strip generation
     /// Set the current transform
     SetTransform(Affine),
     /// Set the fill rule
     SetFillRule(Fill),
     /// Set the stroke parameters
     SetStroke(Stroke),
-
-    // Layer commands (clips affect strip generation)
     /// Push a new layer with optional clipping and effects
     PushLayer {
         /// Optional clipping path
@@ -100,8 +95,6 @@ pub enum RenderCommand {
     },
     /// Pop the current layer
     PopLayer,
-
-    // Paint commands (don't affect strip generation - applied at render time)
     /// Set the current paint
     SetPaint(PaintType),
     /// Set the paint transform
@@ -248,7 +241,7 @@ pub trait Recordable {
     /// let recording = scene.record_and_prepare(|ctx| {
     ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
     /// });
-    /// // Strips are now generated and cached, ready for fast rendering
+    /// // Strips are now generated and cached
     /// ```
     fn record_and_prepare<F>(&mut self, f: F) -> Recording
     where
