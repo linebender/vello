@@ -69,7 +69,13 @@ pub(crate) fn get_ctx<T: Renderer>(
                 .expect("wasm simd128 should be available"),
         ),
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        "sse42" => Level::Sse4_2(Level::new().as_sse4_2().expect("SSE4.2 should be available")),
+        "sse42" => {
+            if std::arch::is_x86_feature_detected!("sse4.2") {
+                Level::Sse4_2(unsafe { vello_common::fearless_simd::Sse4_2::new_unchecked() })
+            }   else {
+                panic!("sse4.2 feature not detected");
+            }
+        },
         "fallback" => Level::fallback(),
         _ => panic!("unknown level: {level}"),
     };
