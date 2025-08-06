@@ -36,13 +36,15 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
 
     #[inline(always)]
     fn pack(simd: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]) {
-        simd.vectorize(|| {
-            if region.width != WideTile::WIDTH || region.height != Tile::HEIGHT {
-                pack(region, blend_buf);
-            } else {
+        if region.width != WideTile::WIDTH || region.height != Tile::HEIGHT {
+            // For some reason putting this into `vectorize` as well makes it much slower on
+            // SSE4.2
+            pack(region, blend_buf);
+        } else {
+            simd.vectorize(|| {
                 pack_block(simd, region, blend_buf);
-            }
-        })
+            });
+        }
     }
 
     fn copy_solid(simd: S, dest: &mut [Self::Numeric], src: [Self::Numeric; 4]) {
