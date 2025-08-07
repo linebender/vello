@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
 use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
-use smallvec::SmallVec;
+use smallvec::{SmallVec, ToSmallVec};
 // So we can just use `OnceCell` regardless of which feature is activated.
 #[cfg(feature = "multithreading")]
 use std::sync::OnceLock as OnceCell;
@@ -64,6 +64,27 @@ impl EncodeExt for Gradient {
         let mut base_transform;
 
         let mut stops = Cow::Borrowed(&self.stops.0);
+
+        let first_stop = &stops[0];
+        let last_stop = &stops[stops.len() - 1];
+
+        if first_stop.offset != 0.0 || last_stop.offset != 1.0 {
+            let mut vec = stops.to_smallvec();
+
+            if first_stop.offset != 0.0 {
+                let mut first_stop = *first_stop;
+                first_stop.offset = 0.0;
+                vec.insert(0, first_stop);
+            }
+
+            if last_stop.offset != 1.0 {
+                let mut last_stop = *last_stop;
+                last_stop.offset = 1.0;
+                vec.push(last_stop);
+            }
+
+            stops = Cow::Owned(vec);
+        }
 
         let kind = match self.kind {
             GradientKind::Linear {
@@ -241,11 +262,6 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
     let first = Err(gradient.stops[0].color.to_alpha_color::<Srgb>().into());
 
     if gradient.stops.len() == 1 {
-        return first;
-    }
-
-    // First stop must be at offset 0.0 and last offset must be at 1.0.
-    if gradient.stops[0].offset != 0.0 || gradient.stops[gradient.stops.len() - 1].offset != 1.0 {
         return first;
     }
 
@@ -907,12 +923,7 @@ pub struct GradientLut<T: FromF32Color> {
 impl<T: FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
-        // Inspired by Blend2D.
-        let lut_size = match ranges.len() {
-            1 => 256,
-            2 => 512,
-            _ => 1024,
-        };
+        let lut_size = determine_lut_size(ranges);
 
         // Add a bit of padding since we always process in blocks of 4, even though less might be
         // needed.
@@ -933,15 +944,17 @@ impl<T: FromF32Color> GradientLut<T> {
             ramps
         };
 
-        let inv_lut_size = f32x4::splat(simd, 1.0 / lut_size as f32);
-        let add_factor = f32x4::from_slice(simd, &[0.0, 1.0, 2.0, 3.0]) * inv_lut_size;
+        let scale = lut_size as f32 - 1.0;
+
+        let inv_lut_scale = f32x4::splat(simd, 1.0 / scale);
+        let add_factor = f32x4::from_slice(simd, &[0.0, 1.0, 2.0, 3.0]) * inv_lut_scale;
 
         for (ramp_range, range) in ramps {
             let biases = f32x16::block_splat(f32x4::from_slice(simd, &range.bias));
             let scales = f32x16::block_splat(f32x4::from_slice(simd, &range.scale));
 
             ramp_range.step_by(4).for_each(|idx| {
-                let t_vals = add_factor.madd(f32x4::splat(simd, idx as f32), inv_lut_size);
+                let t_vals = add_factor.madd(f32x4::splat(simd, idx as f32), inv_lut_scale);
 
                 let t_vals = element_wise_splat(simd, t_vals);
 
@@ -967,8 +980,6 @@ impl<T: FromF32Color> GradientLut<T> {
         // Due to SIMD we worked in blocks of 4, so we need to truncate to the actual length.
         lut.truncate(lut_size);
 
-        let scale = lut.len() as f32 - 1.0;
-
         Self { lut, scale }
     }
 
@@ -990,6 +1001,42 @@ impl<T: FromF32Color> GradientLut<T> {
     pub fn scale_factor(&self) -> f32 {
         self.scale
     }
+}
+
+fn determine_lut_size(ranges: &[GradientRange]) -> usize {
+    // Of course in theory we could still have a stop at 0.0001 in which case this resolution
+    // wouldn't be enough, but for all intents and purposes this should be more than sufficient
+    // for most real cases.
+    const MAX_LEN: usize = 4096;
+
+    // Inspired by Blend2D.
+    // By default:
+    // 256 for 2 stops.
+    // 512 for 3 stops.
+    // 1024 for 4 or more stops.
+    let stop_len = match ranges.len() {
+        1 => 256,
+        2 => 512,
+        _ => 1024,
+    };
+
+    // In case we have some tricky stops (for example 3 stops with 0.0, 0.001, 1.0), we might
+    // increase the resolution.
+    let mut last_x1 = 0.0;
+    let mut min_size = 0;
+
+    for x1 in ranges.iter().map(|e| e.x1) {
+        // For example, if the first stop is at 0.001, then we need a resolution of at least 1000
+        // so that we can still safely capture the first stop.
+        let res = ((1.0 / (x1 - last_x1)).ceil() as usize)
+            .min(MAX_LEN)
+            .next_power_of_two();
+        min_size = min_size.max(res);
+        last_x1 = x1;
+    }
+
+    // Take the maximum of both, but don't exceed `MAX_LEN`.
+    stop_len.max(min_size)
 }
 
 mod private {
@@ -1044,34 +1091,6 @@ mod tests {
         };
 
         // Should return the color of the first stop.
-        assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY),
-            GREEN.into()
-        );
-    }
-
-    #[test]
-    fn gradient_not_padded_stops() {
-        let mut buf = vec![];
-
-        let gradient = Gradient {
-            kind: GradientKind::Linear {
-                start: Point::new(0.0, 0.0),
-                end: Point::new(20.0, 0.0),
-            },
-            stops: ColorStops(smallvec![
-                ColorStop {
-                    offset: 0.0,
-                    color: DynamicColor::from_alpha_color(GREEN),
-                },
-                ColorStop {
-                    offset: 0.5,
-                    color: DynamicColor::from_alpha_color(BLUE),
-                },
-            ]),
-            ..Default::default()
-        };
-
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY),
             GREEN.into()

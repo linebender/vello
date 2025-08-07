@@ -17,7 +17,7 @@ use svg::{Document, Node};
 use vello_common::coarse::{Cmd, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
 use vello_common::fearless_simd::Level;
-use vello_common::flatten::Line;
+use vello_common::flatten::{FlattenCtx, Line};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
@@ -42,7 +42,13 @@ fn main() {
 
     if stages.iter().any(|s| s.requires_flatten()) {
         if !args.stroke {
-            flatten::fill(Level::new(), &args.path, Affine::IDENTITY, &mut line_buf);
+            flatten::fill(
+                Level::new(),
+                &args.path,
+                Affine::IDENTITY,
+                &mut line_buf,
+                &mut FlattenCtx::default(),
+            );
         } else {
             let stroke = Stroke {
                 width: args.stroke_width as f64,
@@ -57,6 +63,7 @@ fn main() {
                 &stroke,
                 Affine::IDENTITY,
                 &mut line_buf,
+                &mut FlattenCtx::default(),
             );
         }
     }
@@ -73,6 +80,7 @@ fn main() {
             &mut strip_buf,
             &mut alpha_buf,
             args.fill_rule,
+            true,
             &line_buf,
         );
     }

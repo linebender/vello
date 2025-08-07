@@ -181,6 +181,7 @@ use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::mem;
+use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, WideTile},
     encode::EncodedPaint,
@@ -244,6 +245,7 @@ struct TileState {
 struct TileEl {
     slot_ix: usize,
     round: usize,
+    opacity: f32,
 }
 
 #[derive(Debug, Default)]
@@ -377,6 +379,7 @@ impl Scheduler {
         state.stack.push(TileEl {
             slot_ix: usize::MAX,
             round: self.round,
+            opacity: 1.,
         });
         {
             // If the background has a non-zero alpha then we need to render it.
@@ -466,6 +469,7 @@ impl Scheduler {
                     state.stack.push(TileEl {
                         slot_ix,
                         round: self.round,
+                        opacity: 1.,
                     });
                 }
                 Cmd::PopBuf => {
@@ -494,7 +498,8 @@ impl Scheduler {
                     } else {
                         (clip_fill.x as u16, nos.slot_ix as u16 * Tile::HEIGHT)
                     };
-                    let paint = COLOR_SOURCE_SLOT << 31;
+                    // Opacity packed into the first 8 bits – pack full opacity (0xFF).
+                    let paint = COLOR_SOURCE_SLOT << 31 | 0xFF;
                     draw.0.push(GpuStrip {
                         x,
                         y,
@@ -516,7 +521,8 @@ impl Scheduler {
                     } else {
                         (clip_alpha_fill.x as u16, nos.slot_ix as u16 * Tile::HEIGHT)
                     };
-                    let paint = COLOR_SOURCE_SLOT << 31;
+                    // Opacity packed into the first 8 bits – pack full opacity (0xFF).
+                    let paint = COLOR_SOURCE_SLOT << 31 | 0xFF;
                     draw.0.push(GpuStrip {
                         x,
                         y,
@@ -525,6 +531,49 @@ impl Scheduler {
                         col_idx: (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
                             .try_into()
                             .expect("Sparse strips are bound to u32 range"),
+                        payload: tos.slot_ix as u32,
+                        paint,
+                    });
+                }
+                Cmd::Opacity(opacity) => {
+                    state.stack.last_mut().unwrap().opacity = *opacity;
+                }
+                Cmd::Blend(mode) => {
+                    // This blend mode is implicitly supported. Currently no other blend mode is
+                    // supported in `vello_hybrid`.
+                    assert!(
+                        matches!(
+                            mode,
+                            BlendMode {
+                                mix: Mix::Normal,
+                                compose: Compose::SrcOver
+                            }
+                        ),
+                        "Changing blend mode is unsupported"
+                    );
+
+                    let tos = state.stack.last().unwrap();
+                    let nos = &state.stack[state.stack.len() - 2];
+
+                    let next_round = clip_depth % 2 == 0 && clip_depth > 2;
+                    let round = nos.round.max(tos.round + usize::from(next_round));
+                    let draw = self.draw_mut(round, clip_depth - 1);
+                    let (x, y) = if clip_depth <= 2 {
+                        (wide_tile_x, wide_tile_y)
+                    } else {
+                        (0, nos.slot_ix as u16 * Tile::HEIGHT)
+                    };
+
+                    // Opacity packed into the first 8 bits.
+                    let opacity_u8 = (tos.opacity * 255.0) as u32;
+                    let paint = (COLOR_SOURCE_SLOT << 31) | opacity_u8;
+
+                    draw.0.push(GpuStrip {
+                        x,
+                        y,
+                        width: WideTile::WIDTH,
+                        dense_width: 0,
+                        col_idx: 0,
                         payload: tos.slot_ix as u32,
                         paint,
                     });

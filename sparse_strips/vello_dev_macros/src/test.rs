@@ -163,10 +163,11 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     skip_hybrid |= {
         input_fn_name_str.contains("compose")
             || input_fn_name_str.contains("gradient")
-            || input_fn_name_str.contains("layer")
+            || input_fn_name_str.contains("layer_multiple_properties")
             || input_fn_name_str.contains("mask")
             || input_fn_name_str.contains("mix")
             || input_fn_name_str.contains("blurred_rounded_rect")
+            || input_fn_name_str.contains("clip_clear")
     };
 
     let skip_hybrid_webgl = skip_hybrid;

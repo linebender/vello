@@ -30,8 +30,8 @@ pub(crate) fn flatten<S: Simd>(
     path: impl IntoIterator<Item = PathEl>,
     tolerance: f64,
     callback: &mut impl Callback,
+    flatten_ctx: &mut FlattenCtx,
 ) {
-    let mut flatten_ctx = FlattenCtx::default();
     let mut flattened_cubics = vec![];
 
     let sqrt_tol = tolerance.sqrt();
@@ -69,7 +69,7 @@ pub(crate) fn flatten<S: Simd>(
                     let max = flatten_cubic_simd(
                         simd,
                         c,
-                        &mut flatten_ctx,
+                        flatten_ctx,
                         tolerance as f32,
                         &mut flattened_cubics,
                     );
@@ -182,8 +182,9 @@ struct FlattenParams {
 /// transforms.
 const MAX_QUADS: usize = 16;
 
+/// The context needed for flattening curves.
 #[derive(Default, Debug)]
-struct FlattenCtx {
+pub struct FlattenCtx {
     // The +4 is to encourage alignment; might be better to be explicit
     even_pts: [Point32; MAX_QUADS + 4],
     odd_pts: [Point32; MAX_QUADS],

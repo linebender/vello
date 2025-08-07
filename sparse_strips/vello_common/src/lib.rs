@@ -66,7 +66,6 @@ pub mod coarse;
 #[cfg(feature = "text")]
 pub mod colr;
 pub mod encode;
-pub mod execute;
 pub mod flatten;
 pub(crate) mod flatten_simd;
 #[cfg(feature = "text")]

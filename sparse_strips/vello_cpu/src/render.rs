@@ -45,6 +45,8 @@ pub struct RenderContext {
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
     pub(crate) temp_path: BezPath,
+    // TODO: Consider taking a configurable threshold instead of just a boolean value here.
+    pub(crate) anti_alias: bool,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     #[cfg_attr(
         not(feature = "text"),
@@ -123,12 +125,14 @@ impl RenderContext {
         };
         let encoded_paints = vec![];
         let temp_path = BezPath::new();
+        let anti_alias = true;
 
         Self {
             width,
             height,
             dispatcher,
             transform,
+            anti_alias,
             paint,
             paint_transform,
             fill_rule,
@@ -160,14 +164,14 @@ impl RenderContext {
     pub fn fill_path(&mut self, path: &BezPath) {
         let paint = self.encode_current_paint();
         self.dispatcher
-            .fill_path(path, self.fill_rule, self.transform, paint);
+            .fill_path(path, self.fill_rule, self.transform, paint, self.anti_alias);
     }
 
     /// Stroke a path.
     pub fn stroke_path(&mut self, path: &BezPath) {
         let paint = self.encode_current_paint();
         self.dispatcher
-            .stroke_path(path, &self.stroke, self.transform, paint);
+            .stroke_path(path, &self.stroke, self.transform, paint, self.anti_alias);
     }
 
     /// Fill a rectangle.
@@ -188,8 +192,13 @@ impl RenderContext {
         self.temp_path.push(PathEl::ClosePath);
 
         let paint = self.encode_current_paint();
-        self.dispatcher
-            .fill_path(&self.temp_path, self.fill_rule, self.transform, paint);
+        self.dispatcher.fill_path(
+            &self.temp_path,
+            self.fill_rule,
+            self.transform,
+            paint,
+            self.anti_alias,
+        );
     }
 
     /// Fill a blurred rectangle with the given radius and standard deviation.
@@ -224,6 +233,7 @@ impl RenderContext {
             Fill::NonZero,
             self.transform,
             paint,
+            self.anti_alias,
         );
     }
 
@@ -267,6 +277,7 @@ impl RenderContext {
             self.transform,
             blend_mode,
             opacity,
+            self.anti_alias,
             mask,
         );
     }
@@ -284,6 +295,11 @@ impl RenderContext {
     /// Push a new opacity layer.
     pub fn push_opacity_layer(&mut self, opacity: f32) {
         self.push_layer(None, None, Some(opacity), None);
+    }
+
+    /// Set whether to enable anti-aliasing.
+    pub fn set_anti_aliasing(&mut self, value: bool) {
+        self.anti_alias = value;
     }
 
     /// Push a new mask layer.
@@ -435,6 +451,7 @@ impl GlyphRenderer for RenderContext {
                     Fill::NonZero,
                     prepared_glyph.transform,
                     paint,
+                    self.anti_alias,
                 );
             }
             GlyphType::Bitmap(glyph) => {
@@ -528,6 +545,7 @@ impl GlyphRenderer for RenderContext {
                     &self.stroke,
                     prepared_glyph.transform,
                     paint,
+                    self.anti_alias,
                 );
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
@@ -594,6 +612,7 @@ mod tests {
 
         ctx.push_clip_layer(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
         ctx.pop_layer();
+        ctx.flush();
     }
 
     #[cfg(feature = "multithreading")]
@@ -611,6 +630,8 @@ mod tests {
         let mut ctx = RenderContext::new_with(200, 200, &settings);
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
+        ctx.flush();
+        ctx.render_to_pixmap(&mut pixmap, RenderMode::OptimizeQuality);
         ctx.flush();
         ctx.render_to_pixmap(&mut pixmap, RenderMode::OptimizeQuality);
     }
