@@ -265,6 +265,13 @@ impl Tiles {
 
             // For ease of logic, special-case purely vertical tiles.
             if line_left_x == line_right_x {
+                // Do not emit tiles that are strictly on the right of the viewport. They do not
+                // impact winding, and if we don't do this, we might end up with too big tile
+                // coordinates, which will cause overflows in strip rendering.
+                if line_left_x as u16 >= tile_columns {
+                    continue;
+                }
+
                 let y_top_tiles = (line_top_y as u16).min(tile_rows);
                 let y_bottom_tiles = (line_bottom_y.ceil() as u16).min(tile_rows);
 
@@ -326,8 +333,11 @@ impl Tiles {
 
 #[cfg(test)]
 mod tests {
-    use crate::flatten::{Line, Point};
+    use crate::flatten::{FlattenCtx, Line, Point, fill};
+    use crate::kurbo::{Affine, BezPath};
     use crate::tile::{Tile, Tiles};
+    use fearless_simd::Level;
+    use std::vec;
 
     #[test]
     fn cull_line_at_top() {
@@ -546,5 +556,22 @@ mod tests {
 
         let mut tiles = Tiles::new();
         tiles.make_tiles(&[line], 600, 600);
+    }
+
+    #[test]
+    fn vertical_path_on_the_right_of_viewport() {
+        let path = BezPath::from_svg("M261,0 L78848,0 L78848,4 L261,4 Z").unwrap();
+        let mut line_buf = vec![];
+        fill(
+            Level::new(),
+            &path,
+            Affine::IDENTITY,
+            &mut line_buf,
+            &mut FlattenCtx::default(),
+        );
+
+        let mut tiles = Tiles::new();
+        tiles.make_tiles(&line_buf, 10, 10);
+        assert!(tiles.is_empty());
     }
 }
