@@ -265,13 +265,17 @@ impl Tiles {
 
             // For ease of logic, special-case purely vertical tiles.
             if line_left_x == line_right_x {
+                // Do not emit tiles that are strictly on the right of the viewport. They do not
+                // impact winding, and if we don't do this, we might end up with too big tile
+                // coordinates, which will cause overflows in strip rendering.
+                if line_left_x as u16 >= tile_columns {
+                    continue;
+                }
+
                 let y_top_tiles = (line_top_y as u16).min(tile_rows);
                 let y_bottom_tiles = (line_bottom_y.ceil() as u16).min(tile_rows);
 
-                // Clamp all tiles that are strictly on the right of the viewport to the tile x coordinate
-                // right next to the outside of the viewport. If we don't do this, we might end up
-                // with too big tile coordinates, which will cause overflows in strip rendering.
-                let x = (line_left_x as u16).min(tile_columns + 1);
+                let x = line_left_x as u16;
                 for y_idx in y_top_tiles..y_bottom_tiles {
                     let y = f32::from(y_idx);
 
