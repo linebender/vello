@@ -28,7 +28,7 @@ impl StripGenerator {
             alphas: Vec::new(),
             level,
             line_buf: Vec::new(),
-            tiles: Tiles::new(),
+            tiles: Tiles::new(level),
             strip_buf: Vec::new(),
             flatten_ctx: FlattenCtx::default(),
             width,

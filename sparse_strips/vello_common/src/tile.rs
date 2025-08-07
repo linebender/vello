@@ -6,7 +6,7 @@
 use crate::flatten::Line;
 use alloc::vec;
 use alloc::vec::Vec;
-
+use fearless_simd::Level;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 
@@ -153,20 +153,16 @@ impl Eq for Tile {}
 #[derive(Clone, Debug)]
 pub struct Tiles {
     tile_buf: Vec<Tile>,
+    level: Level,
     sorted: bool,
-}
-
-impl Default for Tiles {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl Tiles {
     /// Create a new tiles container.
-    pub fn new() -> Self {
+    pub fn new(level: Level) -> Self {
         Self {
             tile_buf: vec![],
+            level,
             sorted: false,
         }
     }
@@ -190,7 +186,8 @@ impl Tiles {
     /// Sort the tiles in the container.
     pub fn sort_tiles(&mut self) {
         self.sorted = true;
-        self.tile_buf.sort_unstable();
+        // To enable auto-vectorization.
+        self.level.dispatch(|_| self.tile_buf.sort_unstable());
     }
 
     /// Get the tile at a certain index.

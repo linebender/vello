@@ -66,13 +66,15 @@ pub(crate) fn flatten<S: Simd>(
             PathEl::CurveTo(p1, p2, p3) => {
                 if let Some(p0) = last_pt {
                     let c = CubicBez::new(p0, p1, p2, p3);
-                    let max = flatten_cubic_simd(
-                        simd,
-                        c,
-                        flatten_ctx,
-                        tolerance as f32,
-                        &mut flattened_cubics,
-                    );
+                    let max = simd.vectorize(|| {
+                        flatten_cubic_simd(
+                            simd,
+                            c,
+                            flatten_ctx,
+                            tolerance as f32,
+                            &mut flattened_cubics,
+                        )
+                    });
 
                     for p in &flattened_cubics[1..max] {
                         callback.callback(PathEl::LineTo(Point::new(p.x as f64, p.y as f64)));
@@ -196,7 +198,7 @@ pub struct FlattenCtx {
     n_quads: usize,
 }
 
-#[inline]
+#[inline(always)]
 fn is_finite_simd<S: Simd>(x: f32x4<S>) -> mask32x4<S> {
     let simd = x.simd;
 
@@ -205,7 +207,7 @@ fn is_finite_simd<S: Simd>(x: f32x4<S>) -> mask32x4<S> {
     simd.simd_lt_u32x4(reinterpreted, u32x4::splat(simd, 0x7f80_0000))
 }
 
-#[inline]
+#[inline(always)]
 fn approx_parabola_integral_simd<S: Simd>(x: f32x8<S>) -> f32x8<S> {
     let simd = x.simd;
 
@@ -220,7 +222,7 @@ fn approx_parabola_integral_simd<S: Simd>(x: f32x8<S>) -> f32x8<S> {
     x / temp5
 }
 
-#[inline]
+#[inline(always)]
 fn approx_parabola_integral_simd_x4<S: Simd>(x: f32x4<S>) -> f32x4<S> {
     let simd = x.simd;
 
@@ -235,7 +237,7 @@ fn approx_parabola_integral_simd_x4<S: Simd>(x: f32x4<S>) -> f32x4<S> {
     x / temp5
 }
 
-#[inline]
+#[inline(always)]
 fn approx_parabola_inv_integral_simd<S: Simd>(x: f32x8<S>) -> f32x8<S> {
     let simd = x.simd;
 
@@ -250,13 +252,13 @@ fn approx_parabola_inv_integral_simd<S: Simd>(x: f32x8<S>) -> f32x8<S> {
     x * temp4
 }
 
-#[inline]
+#[inline(always)]
 fn pt_splat_simd<S: Simd>(simd: S, pt: Point32) -> f32x8<S> {
     let p_f64: f64 = bytemuck::cast(pt);
     simd.reinterpret_f32_f64x4(f64x4::splat(simd, p_f64))
 }
 
-#[inline]
+#[inline(always)]
 fn eval_simd<S: Simd>(
     p0: f32x8<S>,
     p1: f32x8<S>,
@@ -273,7 +275,7 @@ fn eval_simd<S: Simd>(
     im0.madd(im1 + im3, t)
 }
 
-#[inline]
+#[inline(always)]
 fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut FlattenCtx) {
     result.n_quads = n;
     let dt = 0.5 / n as f32;
@@ -323,7 +325,7 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
     even_pts[n * 2..][..8].copy_from_slice(&p3_128.val);
 }
 
-#[inline]
+#[inline(always)]
 fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
     let n = ctx.n_quads;
 
@@ -400,7 +402,7 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
     }
 }
 
-#[inline]
+#[inline(always)]
 fn output_lines_simd<S: Simd>(
     simd: S,
     ctx: &FlattenCtx,
@@ -436,6 +438,7 @@ fn output_lines_simd<S: Simd>(
     }
 }
 
+#[inline(always)]
 fn flatten_cubic_simd<S: Simd>(
     simd: S,
     c: CubicBez,
