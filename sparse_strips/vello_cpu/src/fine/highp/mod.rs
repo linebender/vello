@@ -28,7 +28,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
 
     #[inline(always)]
     fn pack(simd: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             for y in 0..Tile::HEIGHT {
                 for (x, pixel) in region
                     .row_mut(y)
@@ -53,7 +53,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     // Not having this tanks performance for some reason.
     #[inline(never)]
     fn copy_solid(simd: S, dest: &mut [Self::Numeric], src: [Self::Numeric; 4]) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             let color = f32x16::block_splat(src.simd_into(simd));
 
             for el in dest.chunks_exact_mut(16) {
@@ -67,7 +67,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         dest: &mut [Self::Numeric],
         mut src: impl Iterator<Item = Self::NumericVec>,
     ) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             for el in dest.chunks_exact_mut(16) {
                 let loaded = f32x16::from_slice(simd, el);
                 let mulled = loaded * src.next().unwrap();
@@ -144,7 +144,7 @@ mod fill {
 
     #[inline(always)]
     pub(super) fn alpha_composite_solid<S: Simd>(s: S, dest: &mut [f32], src: [f32; 4]) {
-        s.vectorize(|| {
+        s.vectorize(#[inline(always)] || {
             let one_minus_alpha = f32x16::block_splat(f32x4::splat(s, src[3]));
             let src_c = f32x16::block_splat(f32x4::simd_from(src, s));
 
@@ -160,7 +160,7 @@ mod fill {
         dest: &mut [f32],
         src: T,
     ) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
                 let one_minus_alpha = 1.0 - next_src.splat_4th();
                 alpha_composite_inner(simd, next_dest, next_src, one_minus_alpha);
@@ -211,7 +211,7 @@ mod alpha_fill {
         src: [f32; 4],
         alphas: &[u8],
     ) {
-        s.vectorize(|| {
+        s.vectorize(#[inline(always)] || {
             let src_a = f32x16::splat(s, src[3]);
             let src_c = f32x16::block_splat(src.simd_into(s));
             let one = f32x16::splat(s, 1.0);
@@ -229,7 +229,7 @@ mod alpha_fill {
         src: T,
         alphas: &[u8],
     ) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             let one = f32x16::splat(simd, 1.0);
 
             for ((next_dest, next_mask), next_src) in dest
@@ -250,7 +250,7 @@ mod alpha_fill {
         alphas: &[u8],
         blend_mode: BlendMode,
     ) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             for ((next_dest, next_mask), next_src) in dest
                 .chunks_exact_mut(16)
                 .zip(alphas.chunks_exact(4))

@@ -66,7 +66,7 @@ pub(crate) fn flatten<S: Simd>(
             PathEl::CurveTo(p1, p2, p3) => {
                 if let Some(p0) = last_pt {
                     let c = CubicBez::new(p0, p1, p2, p3);
-                    let max = simd.vectorize(|| {
+                    let max = simd.vectorize(#[inline(always)] || {
                         flatten_cubic_simd(
                             simd,
                             c,

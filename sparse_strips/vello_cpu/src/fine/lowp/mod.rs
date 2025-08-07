@@ -41,14 +41,14 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
             // SSE4.2
             pack(region, blend_buf);
         } else {
-            simd.vectorize(|| {
+            simd.vectorize(#[inline(always)] || {
                 pack_block(simd, region, blend_buf);
             });
         }
     }
 
     fn copy_solid(simd: S, dest: &mut [Self::Numeric], src: [Self::Numeric; 4]) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             let color =
                 u8x64::block_splat(u32x4::splat(simd, u32::from_ne_bytes(src)).reinterpret_u8());
 
@@ -63,7 +63,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         gradient: &'a EncodedGradient,
         t_vals: &'a [f32],
     ) -> impl Painter + 'a {
-        simd.vectorize(|| gradient::GradientPainter::new(simd, gradient, t_vals))
+        simd.vectorize(#[inline(always)] || gradient::GradientPainter::new(simd, gradient, t_vals))
     }
 
     fn medium_quality_image_painter<'a>(
@@ -73,7 +73,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         start_x: u16,
         start_y: u16,
     ) -> impl Painter + 'a {
-        simd.vectorize(|| BilinearImagePainter::new(simd, image, pixmap, start_x, start_y))
+        simd.vectorize(#[inline(always)] || BilinearImagePainter::new(simd, image, pixmap, start_x, start_y))
     }
 
     fn apply_mask(
@@ -81,7 +81,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         dest: &mut [Self::Numeric],
         mut src: impl Iterator<Item = Self::NumericVec>,
     ) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             for el in dest.chunks_exact_mut(16) {
                 let loaded = u8x16::from_slice(simd, el);
                 let mulled = simd.narrow_u16x16(
@@ -155,7 +155,7 @@ mod fill {
         src: T,
         blend_mode: BlendMode,
     ) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             let default_mix = matches!(blend_mode.mix, Mix::Normal | Mix::Clip);
             let mask = u8x32::splat(simd, 255);
             for (next_dest, next_src) in dest.chunks_exact_mut(32).zip(src) {
@@ -172,7 +172,7 @@ mod fill {
     }
 
     pub(super) fn alpha_composite_solid<S: Simd>(s: S, dest: &mut [u8], src: [u8; 4]) {
-        s.vectorize(|| {
+        s.vectorize(#[inline(always)] || {
             let one_minus_alpha = 255 - u8x32::splat(s, src[3]);
             let src_c = u32x8::splat(s, u32::from_ne_bytes(src)).reinterpret_u8();
 
@@ -194,7 +194,7 @@ mod fill {
         dest: &mut [u8],
         src: T,
     ) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             for (next_dest, next_src) in dest.chunks_exact_mut(32).zip(src) {
                 let one_minus_alpha = 255 - next_src.splat_4th();
                 let bg_v = u8x32::from_slice(simd, next_dest);
@@ -230,7 +230,7 @@ mod alpha_fill {
         blend_mode: BlendMode,
         alphas: &[u8],
     ) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             let default_mix = matches!(blend_mode.mix, Mix::Normal | Mix::Clip);
 
             for ((next_bg, next_mask), next_src) in dest
@@ -259,7 +259,7 @@ mod alpha_fill {
         src: [u8; 4],
         alphas: &[u8],
     ) {
-        s.vectorize(|| {
+        s.vectorize(#[inline(always)] || {
             let src_a = u8x32::splat(s, src[3]);
             let src_c = u32x8::splat(s, u32::from_ne_bytes(src)).reinterpret_u8();
             let one = u8x32::splat(s, 255);
@@ -277,7 +277,7 @@ mod alpha_fill {
         src: T,
         alphas: &[u8],
     ) {
-        simd.vectorize(|| {
+        simd.vectorize(#[inline(always)] || {
             let one = u8x32::splat(simd, 255);
 
             for ((next_dest, next_mask), next_src) in dest
@@ -300,7 +300,7 @@ mod alpha_fill {
         src_a: u8x32<S>,
         one: u8x32<S>,
     ) {
-        s.vectorize(|| {
+        s.vectorize(#[inline(always)] || {
             let bg_v = u8x32::from_slice(s, dest);
 
             let mask_v = extract_masks(s, masks);
