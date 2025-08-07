@@ -333,7 +333,7 @@ impl Tiles {
 
 #[cfg(test)]
 mod tests {
-    use crate::flatten::{Line, Point, fill};
+    use crate::flatten::{FlattenCtx, Line, Point, fill};
     use crate::kurbo::{Affine, BezPath};
     use crate::tile::{Tile, Tiles};
     use fearless_simd::Level;
@@ -562,7 +562,13 @@ mod tests {
     fn vertical_path_on_the_right_of_viewport() {
         let path = BezPath::from_svg("M261,0 L78848,0 L78848,4 L261,4 Z").unwrap();
         let mut line_buf = vec![];
-        fill(Level::new(), &path, Affine::IDENTITY, &mut line_buf);
+        fill(
+            Level::new(),
+            &path,
+            Affine::IDENTITY,
+            &mut line_buf,
+            &mut FlattenCtx::default(),
+        );
 
         let mut tiles = Tiles::new();
         tiles.make_tiles(&line_buf, 10, 10);
