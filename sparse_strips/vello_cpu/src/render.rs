@@ -678,11 +678,11 @@ impl Recordable for RenderContext {
         if let Some((cached_strips, cached_alphas)) = recording.get_cached_strips() {
             let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
 
-            // Use pre-calculated strip ranges from when we generated the cache
+            // Use pre-calculated strip ranges from when we generated the cache.
             let strip_ranges = recording.get_strip_ranges();
             let mut range_index = 0;
 
-            // Replay commands in order, using cached strips for geometry
+            // Replay commands in order, using cached strips for geometry.
             for command in &recording.commands {
                 match command {
                     RenderCommand::FillPath(_)
@@ -750,7 +750,7 @@ impl Recordable for RenderContext {
     }
 }
 
-/// Saved state for recording operations
+/// Saved state for recording operations.
 #[derive(Debug)]
 struct RenderState {
     transform: Affine,
@@ -761,29 +761,29 @@ struct RenderState {
     alphas: Vec<u8>,
 }
 
-/// Recording management implementation
+/// Recording management implementation.
 impl RenderContext {
-    /// Prepare cached strips for rendering by adjusting indices
+    /// Prepare cached strips for rendering by adjusting indices.
     fn prepare_cached_strips(
         &mut self,
         cached_strips: &[Strip],
         cached_alphas: &[u8],
     ) -> Vec<Strip> {
-        // Calculate offset for alpha indices based on current dispatcher's alpha buffer size
+        // Calculate offset for alpha indices based on current dispatcher's alpha buffer size.
         let alpha_offset = self.dispatcher.alpha_buf().len() as u32;
-        // Create adjusted strips with corrected alpha indices
+        // Create adjusted strips with corrected alpha indices.
         let mut adjusted_strips = Vec::with_capacity(cached_strips.len());
         for strip in cached_strips {
             let mut adjusted_strip = *strip;
             adjusted_strip.alpha_idx += alpha_offset;
             adjusted_strips.push(adjusted_strip);
         }
-        // Extend the dispatcher's alpha buffer with cached alphas
+        // Extend the dispatcher's alpha buffer with cached alphas.
         self.dispatcher.extend_alpha_buf(cached_alphas);
         adjusted_strips
     }
 
-    /// Generate strips for a filled path
+    /// Generate strips for a filled path.
     fn generate_fill_strips(
         &mut self,
         path: &BezPath,
@@ -803,7 +803,7 @@ impl RenderContext {
         alphas.extend_from_slice(strip_generator.alpha_buf());
     }
 
-    /// Generate strips for a stroked path
+    /// Generate strips for a stroked path.
     fn generate_stroke_strips(
         &mut self,
         path: &BezPath,
@@ -823,7 +823,7 @@ impl RenderContext {
         alphas.extend_from_slice(strip_generator.alpha_buf());
     }
 
-    /// Save the current rendering state
+    /// Save the current rendering state.
     fn save_current_state(&self) -> RenderState {
         RenderState {
             transform: self.transform,
@@ -835,7 +835,7 @@ impl RenderContext {
         }
     }
 
-    /// Restore the saved rendering state
+    /// Restore the saved rendering state.
     fn restore_current_state(&mut self, state: RenderState) {
         self.transform = state.transform;
         self.fill_rule = state.fill_rule;

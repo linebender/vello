@@ -498,9 +498,9 @@ impl Recordable for Scene {
     }
 }
 
-/// Recording management implementation
+/// Recording management implementation.
 impl Scene {
-    /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer
+    /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "Alphas length conversion is safe in this case"
@@ -510,21 +510,21 @@ impl Scene {
         cached_strips: &[Strip],
         cached_alphas: &[u8],
     ) -> Vec<Strip> {
-        // Calculate offset for alpha indices based on current buffer size
+        // Calculate offset for alpha indices based on current buffer size.
         let alpha_offset = self.alphas.len() as u32;
-        // Create adjusted strips with corrected alpha indices
+        // Create adjusted strips with corrected alpha indices.
         let mut adjusted_strips = Vec::with_capacity(cached_strips.len());
         for strip in cached_strips {
             let mut adjusted_strip = *strip;
             adjusted_strip.alpha_idx += alpha_offset;
             adjusted_strips.push(adjusted_strip);
         }
-        // Extend current alpha buffer with cached alphas
+        // Extend current alpha buffer with cached alphas.
         self.alphas.extend_from_slice(cached_alphas);
         adjusted_strips
     }
 
-    /// Generate strips for a filled path
+    /// Generate strips for a filled path.
     fn generate_fill_strips(
         &mut self,
         path: &BezPath,
@@ -541,7 +541,7 @@ impl Scene {
         self.make_strips_into_buffers(self.fill_rule, strips, alphas);
     }
 
-    /// Generate strips for a stroked path
+    /// Generate strips for a stroked path.
     fn generate_stroke_strips(
         &mut self,
         path: &BezPath,
@@ -559,7 +559,7 @@ impl Scene {
         self.make_strips_into_buffers(Fill::NonZero, strips, alphas);
     }
 
-    /// Generate strips and append to provided buffers
+    /// Generate strips and append to provided buffers.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "Alphas length conversion is safe in this case"
@@ -571,7 +571,7 @@ impl Scene {
         alphas: &mut Vec<u8>,
     ) {
         self.make_strips(fill_rule);
-        // Adjust alpha indices for combined buffer
+        // Adjust alpha indices for combined buffer.
         let alpha_offset = alphas.len() as u32;
         for mut strip in self.strip_buf.iter().cloned() {
             strip.alpha_idx += alpha_offset;
@@ -580,7 +580,7 @@ impl Scene {
         alphas.extend_from_slice(&self.alphas);
     }
 
-    /// Save current rendering state
+    /// Save current rendering state.
     fn save_current_state(&self) -> RenderState {
         RenderState {
             paint: self.paint.clone(),
@@ -594,7 +594,7 @@ impl Scene {
         }
     }
 
-    /// Restore rendering state
+    /// Restore rendering state.
     fn restore_state(&mut self, state: RenderState) {
         self.paint = state.paint;
         self.paint_transform = state.paint_transform;
