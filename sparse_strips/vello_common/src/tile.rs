@@ -562,9 +562,6 @@ mod tests {
 
         let mut tiles = Tiles::new();
         tiles.make_tiles(&line_buf, 10, 10);
-        tiles.sort_tiles();
-
-        let tile = tiles.get(1);
-        assert_eq!(tile.x, 4);
+        assert!(tiles.is_empty());
     }
 }
