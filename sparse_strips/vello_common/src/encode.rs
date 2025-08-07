@@ -16,7 +16,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
-use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
+use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16, mask32x4, mask32x16};
+use peniko::color::AlphaInterpolationSpace;
 use smallvec::{SmallVec, ToSmallVec};
 // So we can just use `OnceCell` regardless of which feature is activated.
 #[cfg(feature = "multithreading")]
@@ -202,7 +203,12 @@ impl EncodeExt for Gradient {
             }
         };
 
-        let ranges = encode_stops(&stops, self.interpolation_cs, self.hue_direction);
+        let ranges = encode_stops(
+            &stops,
+            self.interpolation_cs,
+            self.hue_direction,
+            self.alpha_interpolation_space,
+        );
 
         // This represents the transform that needs to be applied to the starting point of a
         // command before starting with the rendering.
@@ -351,11 +357,12 @@ fn encode_stops(
     stops: &[ColorStop],
     cs: ColorSpaceTag,
     hue_dir: HueDirection,
+    alpha_interpolation_space: AlphaInterpolationSpace,
 ) -> Vec<GradientRange> {
     #[derive(Debug)]
     struct EncodedColorStop {
         offset: f32,
-        color: crate::color::PremulColor<Srgb>,
+        color: crate::color::AlphaColor<Srgb>,
     }
 
     let create_range = |left_stop: &EncodedColorStop, right_stop: &EncodedColorStop| {
@@ -371,8 +378,16 @@ fn encode_stops(
 
         let x0 = left_stop.offset;
         let x1 = right_stop.offset;
-        let c0 = clamp(left_stop.color.components);
-        let c1 = clamp(right_stop.color.components);
+        let c0 = if alpha_interpolation_space.is_unpremultiplied() {
+            clamp(left_stop.color.components)
+        } else {
+            clamp(left_stop.color.premultiply().components)
+        };
+        let c1 = if alpha_interpolation_space.is_unpremultiplied() {
+            clamp(right_stop.color.components)
+        } else {
+            clamp(right_stop.color.premultiply().components)
+        };
 
         // We calculate a bias and scale factor, such that we can simply calculate
         // bias + x * scale to get the interpolated color, where x is between x0 and x1,
@@ -388,7 +403,12 @@ fn encode_stops(
             bias[i] = c0[i] - x0 * scale[i];
         }
 
-        GradientRange { x1, bias, scale }
+        GradientRange {
+            x1,
+            bias,
+            scale,
+            alpha_interpolation_space,
+        }
     };
 
     // Create additional (SRGB-encoded) stops in-between to approximate the color space we want to
@@ -400,8 +420,14 @@ fn encode_stops(
                 let left_stop = &s[0];
                 let right_stop = &s[1];
 
-                let interpolated =
-                    gradient::<Srgb>(left_stop.color, right_stop.color, cs, hue_dir, 0.01);
+                let interpolated = gradient::<Srgb>(
+                    left_stop.color,
+                    right_stop.color,
+                    cs,
+                    hue_dir,
+                    0.01,
+                    alpha_interpolation_space,
+                );
 
                 interpolated.map(|st| EncodedColorStop {
                     offset: left_stop.offset + (right_stop.offset - left_stop.offset) * st.0,
@@ -425,12 +451,12 @@ fn encode_stops(
             .map(|c| {
                 let c0 = EncodedColorStop {
                     offset: c[0].offset,
-                    color: c[0].color.to_alpha_color::<Srgb>().premultiply(),
+                    color: c[0].color.to_alpha_color::<Srgb>(),
                 };
 
                 let c1 = EncodedColorStop {
                     offset: c[1].offset,
-                    color: c[1].color.to_alpha_color::<Srgb>().premultiply(),
+                    color: c[1].color.to_alpha_color::<Srgb>(),
                 };
 
                 create_range(&c0, &c1)
@@ -742,6 +768,7 @@ pub struct GradientRange {
     /// The scale factors of the range. By calculating bias + x * factors (where x is
     /// between 0.0 and 1.0), we can interpolate between start and end color of the gradient range.
     pub scale: [f32; 4],
+    pub alpha_interpolation_space: AlphaInterpolationSpace,
 }
 
 /// An encoded blurred, rounded rectangle.
@@ -960,6 +987,15 @@ impl<T: FromF32Color> GradientLut<T> {
 
                 let mut result = biases.madd(scales, t_vals);
                 let alphas = result.splat_4th();
+                // Premultiply colors, since we did interpolation in unpremultiplied space.
+                if range.alpha_interpolation_space.is_unpremultiplied() {
+                    result = {
+                        let mask =
+                            mask32x16::block_splat(mask32x4::from_slice(simd, &[-1, -1, -1, 0]));
+                        simd.select_f32x16(mask, result * alphas, alphas)
+                    };
+                }
+
                 // Due to floating-point impreciseness, it can happen that
                 // values either become greater than 1 or the RGB channels
                 // become greater than the alpha channel. To prevent overflows

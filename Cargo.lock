@@ -568,8 +568,7 @@ dependencies = [
 [[package]]
 name = "color"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ae467d04a8a8aea5d9a49018a6ade2e4221d92968e8ce55a48c0b1164e5f698"
+source = "git+https://github.com/sagudev/color?branch=interp-alpha#7beb3647dca0564f7c1d8ede29eeaf82094bf3ff"
 dependencies = [
  "bytemuck",
  "libm",
@@ -2499,8 +2498,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 [[package]]
 name = "peniko"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f9529efd019889b2a205193c14ffb6e2839b54ed9d2720674f10f4b04d87ac9"
+source = "git+https://github.com/sagudev/peniko?branch=interp-alpha#7f8e3e2b7ce2bcdc8ddfc223c95b39734c6a5ddb"
 dependencies = [
  "bytemuck",
  "color",
