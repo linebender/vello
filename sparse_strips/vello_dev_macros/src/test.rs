@@ -91,6 +91,14 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         &format!("{input_fn_name}_cpu_f32_sse42"),
         input_fn_name.span(),
     );
+    let u8_fn_name_avx2 = Ident::new(
+        &format!("{input_fn_name}_cpu_u8_avx2"),
+        input_fn_name.span(),
+    );
+    let f32_fn_name_avx2 = Ident::new(
+        &format!("{input_fn_name}_cpu_f32_avx2"),
+        input_fn_name.span(),
+    );
     let u8_fn_name_wasm = Ident::new(
         &format!("{input_fn_name}_cpu_u8_wasm"),
         input_fn_name.span(),
@@ -120,6 +128,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let f32_fn_name_str_neon = f32_fn_name_neon.to_string();
     let u8_fn_name_str_sse42 = u8_fn_name_sse42.to_string();
     let f32_fn_name_str_sse42 = f32_fn_name_sse42.to_string();
+    let u8_fn_name_str_avx2 = u8_fn_name_avx2.to_string();
+    let f32_fn_name_str_avx2 = f32_fn_name_avx2.to_string();
     let u8_fn_name_wasm_str = u8_fn_name_wasm.to_string();
     let f32_fn_name_wasm_str = f32_fn_name_wasm.to_string();
     let multithreaded_fn_name_str = multithreaded_fn_name.to_string();
@@ -264,6 +274,11 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     let has_sse42 = std::arch::is_x86_feature_detected!("sse4.2");
 
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
+    let has_avx2 = false;
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    let has_avx2 = std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma");
+
     let wasm_simd_level = quote! {if cfg!(target_feature = "simd128") {
             "wasm_simd128"
         } else {
@@ -366,6 +381,28 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         quote! { RenderMode::OptimizeQuality },
     );
 
+    let avx2_u8_snippet = cpu_snippet(
+        u8_fn_name_avx2,
+        u8_fn_name_str_avx2,
+        cpu_u8_tolerance_simd,
+        false,
+        0,
+        quote! {"avx2"},
+        skip_cpu | !has_avx2,
+        quote! { RenderMode::OptimizeSpeed },
+    );
+
+    let avx2_f32_snippet = cpu_snippet(
+        f32_fn_name_avx2,
+        f32_fn_name_str_avx2,
+        cpu_f32_tolerance_simd,
+        false,
+        0,
+        quote! {"avx2"},
+        skip_cpu | !has_avx2,
+        quote! { RenderMode::OptimizeQuality },
+    );
+
     let expanded = quote! {
         #input_fn
 
@@ -377,6 +414,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
 
         #sse42_u8_snippet
 
+        #avx2_u8_snippet
+
         #u8_snippet_wasm
 
         #f32_snippet
@@ -384,6 +423,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         #neon_f32_snippet
 
         #sse42_f32_snippet
+
+        #avx2_f32_snippet
 
         #f32_snippet_wasm
 
