@@ -3,6 +3,8 @@
 
 //! Backend agnostic renderer module.
 
+use core::fmt;
+
 use bytemuck::{Pod, Zeroable};
 
 /// Dimensions of the rendering target
@@ -34,7 +36,7 @@ pub struct Config {
 /// This struct corresponds to the `StripInstance` struct in the shader.
 /// See the `StripInstance` documentation in `render_strips.wgsl` for detailed field descriptions.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[derive(Clone, Copy, Zeroable, Pod)]
 pub struct GpuStrip {
     /// See `StripInstance::xy` documentation in `render_strips.wgsl`.
     pub x: u16,
@@ -50,6 +52,85 @@ pub struct GpuStrip {
     pub payload: u32,
     /// See `StripInstance::paint` documentation in `render_strips.wgsl`.
     pub paint: u32,
+}
+
+// Constants must stay in sync with `render_strips.wgsl`.
+const COLOR_SOURCE_PAYLOAD: u32 = 0;
+const COLOR_SOURCE_SLOT: u32 = 1;
+const COLOR_SOURCE_BLEND: u32 = 2;
+const PAINT_TYPE_SOLID: u32 = 0;
+const PAINT_TYPE_IMAGE: u32 = 1;
+
+impl fmt::Debug for GpuStrip {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let color_source = (self.paint >> 30) & 0x3;  // Changed to 2 bits for 3 source types
+        
+        let mut debug_struct = f.debug_struct("GpuStrip");
+        
+        debug_struct
+            .field("x", &self.x)
+            .field("y", &self.y)
+            .field("width", &self.width)
+            .field("dense_width", &self.dense_width)
+            .field("col_idx", &self.col_idx);
+        
+        let paint_info = match color_source {
+            COLOR_SOURCE_PAYLOAD => {
+                let paint_type = (self.paint >> 28) & 0x3;  // Adjusted bit position
+                if paint_type == PAINT_TYPE_SOLID {
+                    format!("Solid(color_source=payload)")
+                } else if paint_type == PAINT_TYPE_IMAGE {
+                    let paint_tex_id = self.paint & 0x0FFFFFFF;  // Adjusted mask
+                    format!("Image(color_source=payload, texture_id={})", paint_tex_id)
+                } else {
+                    format!("Unknown(color_source=payload, type={})", paint_type)
+                }
+            }
+            COLOR_SOURCE_SLOT => {
+                let opacity = self.paint & 0xFF;
+                format!("Slot(color_source=slot, opacity={})", opacity)
+            }
+            COLOR_SOURCE_BLEND => {
+                let dest_slot = (self.paint >> 16) & 0x3FFF;
+                let mix = (self.paint >> 8) & 0xFF;
+                let compose = self.paint & 0xFF;
+                format!("Blend(dest_slot={}, mix={}, compose={})", dest_slot, mix, compose)
+            }
+            _ => format!("Unknown(color_source={})", color_source)
+        };
+        
+        debug_struct.field("paint", &paint_info);
+        
+        // Decode payload based on paint configuration
+        let payload_info = match color_source {
+            COLOR_SOURCE_PAYLOAD => {
+                let paint_type = (self.paint >> 28) & 0x3;
+                if paint_type == PAINT_TYPE_SOLID {
+                    let r = (self.payload >> 0) & 0xFF;
+                    let g = (self.payload >> 8) & 0xFF;
+                    let b = (self.payload >> 16) & 0xFF;
+                    let a = (self.payload >> 24) & 0xFF;
+                    format!("Color(r={}, g={}, b={}, a={})", r, g, b, a)
+                } else if paint_type == PAINT_TYPE_IMAGE {
+                    let x = self.payload & 0xFFFF;
+                    let y = self.payload >> 16;
+                    format!("ImageCoords(x={}, y={})", x, y)
+                } else {
+                    format!("Unknown(raw=0x{:08x})", self.payload)
+                }
+            }
+            COLOR_SOURCE_SLOT => {
+                format!("SlotIndex({})", self.payload)
+            }
+            COLOR_SOURCE_BLEND => {
+                format!("SourceSlot({})", self.payload)
+            }
+            _ => format!("Unknown(raw=0x{:08x})", self.payload)
+        };
+        
+        debug_struct.field("payload", &payload_info);
+        debug_struct.finish()
+    }
 }
 
 /// Represents a GPU encoded image data for rendering

@@ -29,6 +29,7 @@
 const COLOR_SOURCE_PAYLOAD: u32 = 0u;
 // Sample from clip texture slot
 const COLOR_SOURCE_SLOT: u32 = 1u;
+const COLOR_SOURCE_BLEND: u32 = 2u;
 
 // Paint types
 const PAINT_TYPE_SOLID: u32 = 0u;  
@@ -38,6 +39,10 @@ const PAINT_TYPE_IMAGE: u32 = 1u;
 const IMAGE_QUALITY_LOW = 0u;
 const IMAGE_QUALITY_MEDIUM = 1u;
 const IMAGE_QUALITY_HIGH = 2u;
+
+// Blend modes
+const MIX_NORMAL: u32 = 0u;
+const COMPOSE_SRC_OVER: u32 = 3u;
 
 struct Config {
     // Width of the rendering target
@@ -211,7 +216,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
     // Apply the alpha value to the unpacked RGBA color or slot index
-    let color_source = (in.paint >> 31u) & 0x1u;
+    let color_source = (in.paint >> 30u) & 0x3u;
     var final_color: vec4<f32>;
 
     if color_source == COLOR_SOURCE_PAYLOAD {
@@ -257,7 +262,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 final_color = alpha * textureLoad(atlas_texture, vec2<u32>(final_xy), 0);
             }
         }
-    } else {
+    } else if color_source == COLOR_SOURCE_SLOT {
         // in.payload encodes a slot in the source clip texture
         let clip_x = u32(in.position.x) & 0xFFu;
         let clip_y = (u32(in.position.y) & 3) + in.payload * config.strip_height;
@@ -267,6 +272,31 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let opacity = f32(in.paint & 0xFFu) * (1.0 / 255.0);
 
         final_color = alpha * opacity * clip_in_color;
+    } else if color_source == COLOR_SOURCE_BLEND {
+        let dest_slot = (in.paint >> 16u) & 0x3FFFu;
+        let mix_mode = (in.paint >> 8u) & 0xFFu;
+        let compose_mode = in.paint & 0xFFu;
+        
+        // Read source color from slot
+        let src_slot = in.payload;
+        let clip_x = u32(in.position.x) & 0xFFu;
+        let src_y = (u32(in.position.y) & 3u) + src_slot * config.strip_height;
+        let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0);
+        
+        // Read destination color from slot
+        let dest_y = (u32(in.position.y) & 3u) + dest_slot * config.strip_height;
+        let dest_color = textureLoad(clip_input_texture, vec2(clip_x, dest_y), 0);
+        
+        // Can if or switch over the compose modes....
+        // if compose_mode == COMPOSE_SRC_OVER {
+        //     // SrcOver: result = src + dest * (1 - src.a)
+        // }
+
+        // Hard coded SrcOver...
+        final_color = src_color + dest_color * (1.0 - src_color.a);
+        final_color = alpha * final_color;
+
+
     }
 
     return final_color;
