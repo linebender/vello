@@ -267,8 +267,8 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
             }
             ImageQuality::High => {
                 // Compare to <https://github.com/google/skia/blob/84ff153b0093fc83f6c77cd10b025c06a12c5604/src/opts/SkRasterPipeline_opts.h#L5030-L5075>.
-                let cx = weights(x_fract);
-                let cy = weights(y_fract);
+                let cx = self.simd.vectorize(|| weights(x_fract));
+                let cy = self.simd.vectorize(|| weights(y_fract));
 
                 const OFFSETS: [f32; 4] = [-1.5, -0.5, 0.5, 1.5];
 
