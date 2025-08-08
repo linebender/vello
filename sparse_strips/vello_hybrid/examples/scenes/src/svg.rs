@@ -4,7 +4,7 @@
 //! SVG rendering example scene.
 
 use std::fmt;
-use vello_common::kurbo::{Affine, Stroke};
+use vello_common::kurbo::{Affine, BezPath, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_hybrid::Scene;
@@ -96,9 +96,19 @@ fn try_reuse_recording(
 /// Record a fresh scene from scratch
 fn record_fresh(scene_obj: &mut SvgScene, scene: &mut Scene, current_transform: Affine) {
     let start = std::time::Instant::now();
+    //let recording = scene.record(|ctx| {
+    //    ctx.set_transform(current_transform);
+    //    ctx.fill_path(&BezPath::circle(0.0, 0.0, 100.0));
+    //});
+
+    //scene.prepare_recording(&mut recording);
+    //scene.render_recording(&mut recording);
+    //scene.render_or_record(recording, f)
+
     let mut new_recording = scene.record_and_render(|recorder| {
         render_svg_record(recorder, &scene_obj.svg.items, current_transform);
     });
+
     new_recording.set_transform(current_transform);
     print_render_stats("Fresh     ", start.elapsed(), &new_recording);
 

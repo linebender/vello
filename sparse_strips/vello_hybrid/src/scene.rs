@@ -381,7 +381,6 @@ impl Recordable for Scene {
         let saved_state = self.save_current_state();
 
         let mut collected_strips = Vec::new();
-        let mut collected_alphas = Vec::new();
         let mut strip_ranges = Vec::new();
 
         for command in commands {
@@ -389,28 +388,24 @@ impl Recordable for Scene {
 
             match command {
                 RenderCommand::FillPath(path) => {
-                    self.generate_fill_strips(path, &mut collected_strips, &mut collected_alphas);
+                    self.generate_fill_strips(path, &mut collected_strips);
                     let count = collected_strips.len() - start_index;
                     strip_ranges.push((start_index, count));
                 }
                 RenderCommand::StrokePath(path) => {
-                    self.generate_stroke_strips(path, &mut collected_strips, &mut collected_alphas);
+                    self.generate_stroke_strips(path, &mut collected_strips);
                     let count = collected_strips.len() - start_index;
                     strip_ranges.push((start_index, count));
                 }
                 RenderCommand::FillRect(rect) => {
                     let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_fill_strips(&path, &mut collected_strips, &mut collected_alphas);
+                    self.generate_fill_strips(&path, &mut collected_strips);
                     let count = collected_strips.len() - start_index;
                     strip_ranges.push((start_index, count));
                 }
                 RenderCommand::StrokeRect(rect) => {
                     let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_stroke_strips(
-                        &path,
-                        &mut collected_strips,
-                        &mut collected_alphas,
-                    );
+                    self.generate_stroke_strips(&path, &mut collected_strips);
                     let count = collected_strips.len() - start_index;
                     strip_ranges.push((start_index, count));
                 }
@@ -427,8 +422,9 @@ impl Recordable for Scene {
             }
         }
 
+        let alphas = std::mem::take(&mut self.alphas);
         self.restore_state(saved_state);
-        (collected_strips, collected_alphas, strip_ranges)
+        (collected_strips, alphas, strip_ranges)
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
@@ -446,22 +442,16 @@ impl Recordable for Scene {
                     | RenderCommand::StrokePath(_)
                     | RenderCommand::FillRect(_)
                     | RenderCommand::StrokeRect(_) => {
-                        if range_index < strip_ranges.len() {
-                            let (start, count) = strip_ranges[range_index];
+                        assert!(range_index < strip_ranges.len());
+                        let (start, count) = strip_ranges[range_index];
+                        assert!(start < adjusted_strips.len() && count > 0);
 
-                            if start < adjusted_strips.len() && count > 0 {
-                                let end = (start + count).min(adjusted_strips.len());
-                                let paint = self.encode_current_paint();
-                                self.wide.generate(
-                                    &adjusted_strips[start..end],
-                                    self.fill_rule,
-                                    paint,
-                                    0,
-                                );
-                            }
+                        let end = start + count;
+                        let paint = self.encode_current_paint();
+                        self.wide
+                            .generate(&adjusted_strips[start..end], self.fill_rule, paint, 0);
 
-                            range_index += 1;
-                        }
+                        range_index += 1;
                     }
                     RenderCommand::SetPaint(paint) => {
                         self.set_paint(paint.clone());
@@ -512,25 +502,21 @@ impl Scene {
     ) -> Vec<Strip> {
         // Calculate offset for alpha indices based on current buffer size
         let alpha_offset = self.alphas.len() as u32;
-        // Create adjusted strips with corrected alpha indices
-        let mut adjusted_strips = Vec::with_capacity(cached_strips.len());
-        for strip in cached_strips {
-            let mut adjusted_strip = *strip;
-            adjusted_strip.alpha_idx += alpha_offset;
-            adjusted_strips.push(adjusted_strip);
-        }
         // Extend current alpha buffer with cached alphas
         self.alphas.extend_from_slice(cached_alphas);
-        adjusted_strips
+        // Create adjusted strips with corrected alpha indices
+        cached_strips
+            .iter()
+            .map(move |strip| {
+                let mut adjusted_strip = *strip;
+                adjusted_strip.alpha_idx += alpha_offset;
+                adjusted_strip
+            })
+            .collect()
     }
 
     /// Generate strips for a filled path
-    fn generate_fill_strips(
-        &mut self,
-        path: &BezPath,
-        strips: &mut Vec<Strip>,
-        alphas: &mut Vec<u8>,
-    ) {
+    fn generate_fill_strips(&mut self, path: &BezPath, strips: &mut Vec<Strip>) {
         flatten::fill(
             self.level,
             path,
@@ -538,16 +524,11 @@ impl Scene {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.make_strips_into_buffers(self.fill_rule, strips, alphas);
+        self.make_strips_into_buffers(self.fill_rule, strips);
     }
 
     /// Generate strips for a stroked path
-    fn generate_stroke_strips(
-        &mut self,
-        path: &BezPath,
-        strips: &mut Vec<Strip>,
-        alphas: &mut Vec<u8>,
-    ) {
+    fn generate_stroke_strips(&mut self, path: &BezPath, strips: &mut Vec<Strip>) {
         flatten::stroke(
             self.level,
             path,
@@ -556,7 +537,7 @@ impl Scene {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.make_strips_into_buffers(Fill::NonZero, strips, alphas);
+        self.make_strips_into_buffers(Fill::NonZero, strips);
     }
 
     /// Generate strips and append to provided buffers
@@ -564,33 +545,22 @@ impl Scene {
         clippy::cast_possible_truncation,
         reason = "Alphas length conversion is safe in this case"
     )]
-    fn make_strips_into_buffers(
-        &mut self,
-        fill_rule: Fill,
-        strips: &mut Vec<Strip>,
-        alphas: &mut Vec<u8>,
-    ) {
+    fn make_strips_into_buffers(&mut self, fill_rule: Fill, strips: &mut Vec<Strip>) {
         self.make_strips(fill_rule);
-        // Adjust alpha indices for combined buffer
-        let alpha_offset = alphas.len() as u32;
-        for mut strip in self.strip_buf.iter().cloned() {
-            strip.alpha_idx += alpha_offset;
-            strips.push(strip);
-        }
-        alphas.extend_from_slice(&self.alphas);
+        strips.extend(self.strip_buf.drain(..));
     }
 
     /// Save current rendering state
-    fn save_current_state(&self) -> RenderState {
+    fn save_current_state(&mut self) -> RenderState {
         RenderState {
             paint: self.paint.clone(),
             paint_transform: self.paint_transform,
-            stroke: self.stroke.clone(),
+            stroke: std::mem::take(&mut self.stroke),
             transform: self.transform,
             fill_rule: self.fill_rule,
             blend_mode: self.blend_mode,
-            strip_buf: self.strip_buf.clone(),
-            alphas: self.alphas.clone(),
+            strip_buf: std::mem::take(&mut self.strip_buf),
+            alphas: std::mem::take(&mut self.alphas),
         }
     }
 

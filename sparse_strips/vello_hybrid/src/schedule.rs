@@ -319,6 +319,12 @@ impl Scheduler {
     /// The rounds queue must not be empty.
     fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
         let round = self.rounds_queue.pop_front().unwrap();
+        println!(
+            "Strip count: {}, {}, {}",
+            round.draws[0].0.len(),
+            round.draws[1].0.len(),
+            round.draws[2].0.len()
+        );
         for (i, draw) in round.draws.iter().enumerate() {
             if draw.0.is_empty() {
                 continue;

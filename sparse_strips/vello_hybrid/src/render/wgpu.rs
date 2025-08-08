@@ -843,6 +843,7 @@ impl Programs {
         encoded_paints: Vec<GpuEncodedImage>,
         new_render_size: &RenderSize,
     ) {
+        println!("Alpha length: {}", alphas.len());
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         // Update the alpha texture size if needed
         self.maybe_resize_alphas_tex(device, alphas, max_texture_dimension_2d);
