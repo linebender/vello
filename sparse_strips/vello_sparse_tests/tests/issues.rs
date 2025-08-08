@@ -385,7 +385,7 @@ fn multi_threading_oob_access() {
     };
     let mut ctx = RenderContext::new_with(100, 100, &settings);
     let mut pixmap = Pixmap::new(100, 100);
-    
+
     ctx.fill_path(&Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1));
     ctx.flush();
     ctx.render_to_pixmap(&mut pixmap, RenderMode::OptimizeQuality);
