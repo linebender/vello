@@ -77,6 +77,7 @@ pub mod paint;
 #[cfg(feature = "pico_svg")]
 pub mod pico_svg;
 pub mod pixmap;
+pub mod recording;
 pub mod simd;
 pub mod strip;
 pub mod tile;

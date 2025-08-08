@@ -27,6 +27,8 @@ struct Arguments {
     transparent: bool,
     /// Whether the test should not be run on the CPU (`vello_cpu`).
     skip_cpu: bool,
+    /// Whether the test should not be run on the multi-threaded CPU (`vello_cpu`).
+    skip_multithreaded: bool,
     /// Whether the test should not be run on the GPU (`vello_hybrid`).
     skip_hybrid: bool,
     /// The maximum number of pixels that are allowed to completely deviate from the reference
@@ -50,6 +52,7 @@ impl Default for Arguments {
             hybrid_tolerance: 0,
             transparent: false,
             skip_cpu: false,
+            skip_multithreaded: false,
             skip_hybrid: false,
             no_ref: false,
             diff_pixels: 0,
@@ -120,6 +123,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         mut hybrid_tolerance,
         transparent,
         skip_cpu,
+        skip_multithreaded,
         mut skip_hybrid,
         ignore_reason,
         no_ref,
@@ -299,7 +303,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         false,
         3,
         quote! {"fallback"},
-        skip_cpu,
+        skip_cpu | skip_multithreaded,
         quote! { RenderMode::OptimizeQuality },
     );
 
@@ -393,6 +397,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                 match key_str.as_str() {
                     "ignore" => {
                         args.skip_cpu = true;
+                        args.skip_multithreaded = true;
                         args.skip_hybrid = true;
                         args.ignore_reason = Some(parse_string_lit(expr, "ignore"));
                     }
@@ -417,10 +422,12 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                 match flag_str.as_str() {
                     "transparent" => args.transparent = true,
                     "skip_cpu" => args.skip_cpu = true,
+                    "skip_multithreaded" => args.skip_multithreaded = true,
                     "skip_hybrid" => args.skip_hybrid = true,
                     "no_ref" => args.no_ref = true,
                     "ignore" => {
                         args.skip_cpu = true;
+                        args.skip_multithreaded = true;
                         args.skip_hybrid = true;
                     }
                     _ => panic!("unknown flag attribute {flag_str}"),

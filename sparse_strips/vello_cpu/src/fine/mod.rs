@@ -224,12 +224,12 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         FilteredImagePainter::new(simd, image, pixmap, start_x, start_y)
     }
     /// Return the painter used for painting blurred rounded rectangles.
-    fn blurred_rounded_rectangle_painter<'a>(
+    fn blurred_rounded_rectangle_painter(
         simd: S,
-        rect: &'a EncodedBlurredRoundedRectangle,
+        rect: &EncodedBlurredRoundedRectangle,
         start_x: u16,
         start_y: u16,
-    ) -> impl Painter + 'a {
+    ) -> impl Painter {
         BlurredRoundedRectFiller::new(simd, rect, start_x, start_y)
     }
     /// Apply the mask to the destination buffer.

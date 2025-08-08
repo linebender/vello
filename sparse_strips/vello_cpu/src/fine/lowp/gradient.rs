@@ -32,7 +32,7 @@ impl<'a, S: Simd> GradientPainter<'a, S> {
     }
 }
 
-impl<'a, S: Simd> Iterator for GradientPainter<'a, S> {
+impl<S: Simd> Iterator for GradientPainter<'_, S> {
     type Item = u8x64<S>;
 
     #[inline(always)]

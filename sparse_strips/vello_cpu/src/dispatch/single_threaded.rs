@@ -66,6 +66,10 @@ impl Dispatcher for SingleThreadedDispatcher {
         &self.wide
     }
 
+    fn wide_mut(&mut self) -> &mut Wide {
+        &mut self.wide
+    }
+
     fn fill_path(
         &mut self,
         path: &BezPath,
@@ -94,6 +98,14 @@ impl Dispatcher for SingleThreadedDispatcher {
         let func = |strips| wide.generate(strips, Fill::NonZero, paint, 0);
         self.strip_generator
             .generate_stroked_path(path, stroke, transform, anti_alias, func);
+    }
+
+    fn alpha_buf(&self) -> &[u8] {
+        self.strip_generator.alpha_buf()
+    }
+
+    fn extend_alpha_buf(&mut self, alphas: &[u8]) {
+        self.strip_generator.extend_alpha_buf(alphas);
     }
 
     fn push_layer(
