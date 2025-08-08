@@ -273,12 +273,12 @@ impl Scheduler {
         scene: &Scene,
     ) -> Result<(), RenderError> {
         let mut tile_state = mem::take(&mut self.tile_state);
-        let wide_tiles_per_row = scene.wide.width_tiles();
-        let wide_tiles_per_col = scene.wide.height_tiles();
+        let wide_tiles_per_col = scene.wide.width_tiles();
+        let wide_tiles_per_row = scene.wide.height_tiles();
 
         // Left to right, top to bottom iteration over wide tiles.
-        for wide_tile_row in 0..wide_tiles_per_col {
-            for wide_tile_col in 0..wide_tiles_per_row {
+        for wide_tile_row in 0..wide_tiles_per_row {
+            for wide_tile_col in 0..wide_tiles_per_col {
                 let wide_tile = scene.wide.get(wide_tile_col, wide_tile_row);
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
