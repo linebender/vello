@@ -7,16 +7,21 @@ use crate::renderer::Renderer;
 use crate::util::{circular_star, crossed_line_star, miter_stroke_2};
 use std::f64::consts::PI;
 use vello_common::color::palette::css::{
-    BEIGE, BLUE, DARK_BLUE, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, TRANSPARENT,
+    BEIGE, BLUE, DARK_BLUE, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, TRANSPARENT, HOT_PINK,
 };
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
+use vello_cpu::color::palette::css::PINK;
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 8, height = 8)]
 fn full_cover_1(ctx: &mut impl Renderer) {
-    ctx.set_paint(BEIGE);
-    ctx.fill_path(&Rect::new(0.0, 0.0, 8.0, 8.0).to_path(0.1));
+    ctx.set_paint(GREEN);
+    ctx.fill_path(&Rect::new(0.0, 0.0, 8.0, 4.0).to_path(0.1));
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&Rect::new(0.0, 0.0, 5.0, 4.0).to_path(0.1));
+    ctx.set_paint(HOT_PINK);
+    ctx.fill_path(&Rect::new(0.0, 0.0, 2.0, 4.0).to_path(0.1));
 }
 
 #[vello_test(transparent)]
