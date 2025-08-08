@@ -244,6 +244,7 @@ struct TileState {
 #[derive(Clone, Copy, Debug)]
 struct TileEl {
     slot_ix: usize,
+    slot_prime_ix: Option<usize>,
     round: usize,
     opacity: f32,
 }
@@ -267,6 +268,17 @@ impl Scheduler {
         }
     }
 
+    fn should_allocate_prime(cmds: &[Cmd], current_idx: usize) -> bool {
+        for cmd in &cmds[current_idx + 1..] {
+            match cmd {
+                Cmd::PushBuf => return true,
+                Cmd::PopBuf => return false, // End of this buffer's scope
+                _ => continue,
+            }
+        }
+        false
+    }
+
     pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
         renderer: &mut R,
@@ -275,11 +287,13 @@ impl Scheduler {
         let mut tile_state = mem::take(&mut self.tile_state);
         let wide_tiles_per_row = scene.wide.width_tiles();
         let wide_tiles_per_col = scene.wide.height_tiles();
+        println!("do_scene - tile: {{width: {wide_tiles_per_row}, height: {wide_tiles_per_col} }}");
+        println!("self.tile_state len: {tile_state:?}");
 
         // Left to right, top to bottom iteration over wide tiles.
         for wide_tile_row in 0..wide_tiles_per_col {
             for wide_tile_col in 0..wide_tiles_per_row {
-                let wide_tile = scene.wide.get(wide_tile_col, wide_tile_row);
+                let wide_tile = dbg!(scene.wide.get(wide_tile_col, wide_tile_row));
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
                 self.do_tile(
@@ -319,6 +333,8 @@ impl Scheduler {
     /// The rounds queue must not be empty.
     fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
         let round = self.rounds_queue.pop_front().unwrap();
+        println!("Drawing a round:");
+        dbg!(&round);
         for (i, draw) in round.draws.iter().enumerate() {
             if draw.0.is_empty() {
                 continue;
@@ -354,6 +370,7 @@ impl Scheduler {
             // We can draw to the final target
             2
         } else {
+            // We are drawing on one of the two buffer slot textures
             1 - clip_depth % 2
         };
         let rel_round = el_round.saturating_sub(self.round);
@@ -378,6 +395,7 @@ impl Scheduler {
         // commands to the final target.
         state.stack.push(TileEl {
             slot_ix: usize::MAX,
+            slot_prime_ix: None,
             round: self.round,
             opacity: 1.,
         });
@@ -397,7 +415,7 @@ impl Scheduler {
                 });
             }
         }
-        for cmd in &tile.cmds {
+        for (cmd_idx, cmd) in tile.cmds.iter().enumerate() {
             // Note: this starts at 1 (for the final target)
             let clip_depth = state.stack.len();
             match cmd {
@@ -466,37 +484,70 @@ impl Scheduler {
                     }
                     let slot_ix = self.free[ix].pop().unwrap();
                     self.clear[ix].push(slot_ix as u32);
+
+                    let slot_prime_ix = if Self::should_allocate_prime(&tile.cmds, cmd_idx) {
+                        let prime_ix = 1 - ix;
+                        while self.free[prime_ix].is_empty() {
+                            if self.rounds_queue.is_empty() {
+                                return Err(RenderError::SlotsExhausted);
+                            }
+                            self.flush(renderer);
+                        }
+                        let slot_ix_prime = self.free[prime_ix].pop().unwrap();
+                        self.clear[prime_ix].push(slot_ix_prime as u32);
+
+                        Some(slot_ix_prime)
+                    } else {
+                        None
+                    };
+
                     state.stack.push(TileEl {
                         slot_ix,
+                        slot_prime_ix,
                         round: self.round,
                         opacity: 1.,
                     });
                 }
                 Cmd::PopBuf => {
-                    let tos = state.stack.pop().unwrap();
-                    let nos = state.stack.last_mut().unwrap();
+                    // Pop Buffer can push freeing of slots.
+                    let popped_buffer = state.stack.pop().unwrap();
+                    let parent_buffer = state.stack.last_mut().unwrap();
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
-                    nos.round = round;
+                    let round = parent_buffer
+                        .round
+                        .max(popped_buffer.round + usize::from(next_round));
+                    parent_buffer.round = round;
                     // free slot after draw
                     debug_assert!(round >= self.round, "round must be after current round");
                     debug_assert!(
                         round - self.round < self.rounds_queue.len(),
                         "round must be in queue"
                     );
-                    self.rounds_queue[round - self.round].free[1 - clip_depth % 2]
-                        .push(tos.slot_ix);
+
+                    let main_tex_ix = 1 - clip_depth % 2;
+                    self.rounds_queue[round - self.round].free[main_tex_ix]
+                        .push(popped_buffer.slot_ix);
+                    if let Some(slot_prime_ix) = popped_buffer.slot_prime_ix {
+                        let prime_tex_ix = 1 - main_tex_ix; // Opposite texture
+                        self.rounds_queue[round - self.round].free[prime_tex_ix]
+                            .push(slot_prime_ix);
+                    }
                 }
                 Cmd::ClipFill(clip_fill) => {
-                    let tos = &state.stack[clip_depth - 1];
-                    let nos = &state.stack[clip_depth - 2];
+                    let clip_source = &state.stack[clip_depth - 1];
+                    let clip_target = &state.stack[clip_depth - 2];
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
+                    let round = clip_target
+                        .round
+                        .max(clip_source.round + usize::from(next_round));
                     let draw = self.draw_mut(round, clip_depth - 1);
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_fill.x as u16, wide_tile_y)
                     } else {
-                        (clip_fill.x as u16, nos.slot_ix as u16 * Tile::HEIGHT)
+                        (
+                            clip_fill.x as u16,
+                            clip_target.slot_ix as u16 * Tile::HEIGHT,
+                        )
                     };
                     // Opacity packed into the first 8 bits – pack full opacity (0xFF).
                     let paint = COLOR_SOURCE_SLOT << 31 | 0xFF;
@@ -506,20 +557,25 @@ impl Scheduler {
                         width: clip_fill.width as u16,
                         dense_width: 0,
                         col_idx: 0,
-                        payload: tos.slot_ix as u32,
+                        payload: clip_source.slot_ix as u32,
                         paint,
                     });
                 }
                 Cmd::ClipStrip(clip_alpha_fill) => {
-                    let tos = &state.stack[clip_depth - 1];
-                    let nos = &state.stack[clip_depth - 2];
+                    let clip_source = &state.stack[clip_depth - 1];
+                    let clip_target = &state.stack[clip_depth - 2];
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
+                    let round = clip_target
+                        .round
+                        .max(clip_source.round + usize::from(next_round));
                     let draw = self.draw_mut(round, clip_depth - 1);
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_alpha_fill.x as u16, wide_tile_y)
                     } else {
-                        (clip_alpha_fill.x as u16, nos.slot_ix as u16 * Tile::HEIGHT)
+                        (
+                            clip_alpha_fill.x as u16,
+                            clip_target.slot_ix as u16 * Tile::HEIGHT,
+                        )
                     };
                     // Opacity packed into the first 8 bits – pack full opacity (0xFF).
                     let paint = COLOR_SOURCE_SLOT << 31 | 0xFF;
@@ -531,7 +587,7 @@ impl Scheduler {
                         col_idx: (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
                             .try_into()
                             .expect("Sparse strips are bound to u32 range"),
-                        payload: tos.slot_ix as u32,
+                        payload: clip_source.slot_ix as u32,
                         paint,
                     });
                 }
@@ -552,20 +608,24 @@ impl Scheduler {
                         "Changing blend mode is unsupported"
                     );
 
-                    let tos = state.stack.last().unwrap();
-                    let nos = &state.stack[state.stack.len() - 2];
+                    let blend_source: &TileEl = state.stack.last().unwrap();
+                    let blend_target = &state.stack[state.stack.len() - 2];
+
+                    dbg!(blend_source, blend_target);
 
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
+                    let round = blend_target
+                        .round
+                        .max(blend_source.round + usize::from(next_round));
                     let draw = self.draw_mut(round, clip_depth - 1);
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x, wide_tile_y)
                     } else {
-                        (0, nos.slot_ix as u16 * Tile::HEIGHT)
+                        (0, blend_target.slot_ix as u16 * Tile::HEIGHT)
                     };
 
                     // Opacity packed into the first 8 bits.
-                    let opacity_u8 = (tos.opacity * 255.0) as u32;
+                    let opacity_u8 = (blend_source.opacity * 255.0) as u32;
                     let paint = (COLOR_SOURCE_SLOT << 31) | opacity_u8;
 
                     draw.0.push(GpuStrip {
@@ -574,7 +634,7 @@ impl Scheduler {
                         width: WideTile::WIDTH,
                         dense_width: 0,
                         col_idx: 0,
-                        payload: tos.slot_ix as u32,
+                        payload: blend_source.slot_ix as u32,
                         paint,
                     });
                 }
