@@ -12,7 +12,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 /// Cached sparse strip data
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CachedStrips {
     /// The cached sparse strips
     pub strips: Box<[Strip]>,
@@ -53,7 +53,7 @@ impl CachedStrips {
 }
 
 /// A recording of rendering commands that can cache generated strips
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Recording {
     /// Recorded commands
     pub commands: Vec<RenderCommand>,
@@ -216,6 +216,7 @@ pub trait Recordable {
         if !recording.has_cached_strips() {
             let (strips, alphas, strip_ranges) =
                 self.generate_strips_from_commands(&recording.commands);
+            std::println!("Prepare recording: Alpha count: {}", alphas.len());
             recording.set_cached_strips(strips.into_boxed_slice(), alphas.into_boxed_slice());
             recording.set_strip_ranges(strip_ranges);
         }
@@ -271,13 +272,13 @@ pub trait Recordable {
     /// This method provides a convenient way to handle optional recordings.
     /// If a recording is provided, it will be rendered. Otherwise, it will
     /// record and render the provided commands.
-    fn render_or_record<F>(&mut self, recording: Option<&mut Recording>, f: F) -> Recording
+    fn render_or_record<F>(&mut self, recording: Option<Recording>, f: F) -> Recording
     where
         F: FnOnce(&mut Recorder<'_>),
     {
-        if let Some(existing) = recording {
-            self.render_recording(existing);
-            existing.clone()
+        if let Some(mut existing) = recording {
+            self.render_recording(&mut existing);
+            existing
         } else {
             self.record_and_render(f)
         }
