@@ -29,7 +29,8 @@
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
-#![no_std]
+//  Commented out to allow dbg! and println.
+// #![no_std]
 
 extern crate alloc;
 

@@ -196,6 +196,9 @@ pub(crate) trait RendererBackend {
 
     /// Execute a render pass for strips.
     fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp);
+
+    /// Execute a blend pass.
+    fn blend_pass(&mut self, commands: &[BlendCommand]);
 }
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
@@ -205,6 +208,30 @@ pub(crate) trait RendererBackend {
 pub(crate) enum LoadOp {
     Load,
     Clear,
+}
+
+#[derive(Debug)]
+pub(crate) struct BlendCommand {
+    // Source location
+    pub src_texture: u8, // 0 or 1 for slot textures
+    pub src_slot: u16,   // Which slot in that texture
+
+    // Destination location (where result ultimately goes)
+    pub dst_texture: u8,        // 0, 1 for slots, 2 for final target
+    pub dst_location: Location, // Either a slot index or (x,y) for final target
+
+    // Blend parameters
+    pub mode: BlendMode,
+    pub opacity: u8,
+
+    // Where to render in the blend texture
+    pub blend_slot: usize, // Index into blend texture
+}
+
+#[derive(Debug)]
+pub enum Location {
+    Slot(u16),    // For slot textures
+    XY(u16, u16), // For final target
 }
 
 #[derive(Debug)]
@@ -221,6 +248,8 @@ pub(crate) struct Scheduler {
     rounds_queue: VecDeque<Round>,
     /// State for a single wide tile.
     tile_state: TileState,
+    /// Blend slot on a third buffer texture.
+    next_blend_slot: usize,
 }
 
 /// A "round" is a coarse scheduling quantum.
@@ -233,6 +262,7 @@ struct Round {
     draws: [Draw; 3],
     /// Slots that will be freed after drawing into the two slot textures [0, 1].
     free: [Vec<usize>; 2],
+    blend_commands: Vec<BlendCommand>,
 }
 
 /// State for a single wide tile.
@@ -264,6 +294,7 @@ impl Scheduler {
             clear,
             rounds_queue: Default::default(),
             tile_state: Default::default(),
+            next_blend_slot: 0,
         }
     }
 
@@ -318,7 +349,8 @@ impl Scheduler {
     ///
     /// The rounds queue must not be empty.
     fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
-        let round = self.rounds_queue.pop_front().unwrap();
+        println!("FLUSH");
+        let round = dbg!(self.rounds_queue.pop_front().unwrap());
         for (i, draw) in round.draws.iter().enumerate() {
             if draw.0.is_empty() {
                 continue;
@@ -342,8 +374,12 @@ impl Scheduler {
             };
             renderer.render_strips(&draw.0, i, load);
         }
+        renderer.blend_pass(&round.blend_commands);
         for i in 0..2 {
             self.free[i].extend(&round.free[i]);
+        }
+        if self.rounds_queue.is_empty() {
+            self.next_blend_slot = 0;
         }
         self.round += 1;
     }
@@ -397,7 +433,7 @@ impl Scheduler {
                 });
             }
         }
-        for cmd in &tile.cmds {
+        for cmd in dbg!(&tile.cmds) {
             // Note: this starts at 1 (for the final target)
             let clip_depth = state.stack.len();
             match cmd {
@@ -539,44 +575,39 @@ impl Scheduler {
                     state.stack.last_mut().unwrap().opacity = *opacity;
                 }
                 Cmd::Blend(mode) => {
-                    // This blend mode is implicitly supported. Currently no other blend mode is
-                    // supported in `vello_hybrid`.
-                    assert!(
-                        matches!(
-                            mode,
-                            BlendMode {
-                                mix: Mix::Normal,
-                                compose: Compose::SrcOver
-                            }
-                        ),
-                        "Changing blend mode is unsupported"
-                    );
-
                     let tos = state.stack.last().unwrap();
                     let nos = &state.stack[state.stack.len() - 2];
 
-                    let next_round = clip_depth % 2 == 0 && clip_depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
-                    let draw = self.draw_mut(round, clip_depth - 1);
-                    let (x, y) = if clip_depth <= 2 {
-                        (wide_tile_x, wide_tile_y)
+                    let opacity_u8 = (tos.opacity * 255.0) as u8;
+                    let blend_slot = self.next_blend_slot;
+                    self.next_blend_slot += 1;
+
+                    let blend_command = if clip_depth <= 2 {
+                        // Blending to final target
+                        BlendCommand {
+                            src_texture: (1 - clip_depth % 2) as u8,
+                            src_slot: tos.slot_ix as u16,
+                            dst_texture: 2,
+                            dst_location: Location::XY(wide_tile_x, wide_tile_y),
+                            mode: *mode,
+                            opacity: opacity_u8,
+                            blend_slot,
+                        }
                     } else {
-                        (0, nos.slot_ix as u16 * Tile::HEIGHT)
+                        // Blending between slots
+                        let dst_texture = (clip_depth % 2) as u8;
+                        BlendCommand {
+                            src_texture: (1 - clip_depth % 2) as u8,
+                            src_slot: tos.slot_ix as u16,
+                            dst_texture,
+                            dst_location: Location::Slot(nos.slot_ix as u16),
+                            mode: *mode,
+                            opacity: opacity_u8,
+                            blend_slot,
+                        }
                     };
 
-                    // Opacity packed into the first 8 bits.
-                    let opacity_u8 = (tos.opacity * 255.0) as u32;
-                    let paint = (COLOR_SOURCE_SLOT << 31) | opacity_u8;
-
-                    draw.0.push(GpuStrip {
-                        x,
-                        y,
-                        width: WideTile::WIDTH,
-                        dense_width: 0,
-                        col_idx: 0,
-                        payload: tos.slot_ix as u32,
-                        paint,
-                    });
+                    self.rounds_queue[0].blend_commands.push(blend_command);
                 }
                 _ => unimplemented!(),
             }

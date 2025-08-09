@@ -275,8 +275,8 @@ impl Renderer for HybridRenderer {
         self.scene.push_clip_layer(path);
     }
 
-    fn push_blend_layer(&mut self, _: BlendMode) {
-        unimplemented!()
+    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
+        self.scene.push_layer(None, Some(blend_mode), None, None);
     }
 
     fn push_opacity_layer(&mut self, opacity: f32) {
