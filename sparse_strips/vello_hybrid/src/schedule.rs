@@ -189,6 +189,13 @@ use vello_common::{
     tile::Tile,
 };
 
+const COLOR_SOURCE_PAYLOAD: u32 = 0;
+const COLOR_SOURCE_SLOT: u32 = 1;
+const COLOR_SOURCE_BLEND: u32 = 2;
+
+const PAINT_TYPE_SOLID: u32 = 0;
+const PAINT_TYPE_IMAGE: u32 = 1;
+
 /// Trait for abstracting the renderer backend from the scheduler.
 pub(crate) trait RendererBackend {
     /// Clear specific slots in a texture.
@@ -276,6 +283,16 @@ struct TileEl {
     opacity: f32,
 }
 
+impl TileEl {
+    fn get_draw_texture(&self, buffer_depth: usize) -> usize {
+        if buffer_depth > 1 {
+            self.dest_slot.get_texture()
+        } else {
+            2
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct Draw(Vec<GpuStrip>);
 
@@ -358,6 +375,144 @@ impl Scheduler {
     /// The rounds queue must not be empty.
     fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
         let round = self.rounds_queue.pop_front().unwrap();
+
+        #[cfg(debug_assertions)]
+        {
+            println!("=== Round {} ===", self.round);
+
+            for (target_idx, draw) in round.draws.iter().enumerate() {
+                if draw.0.is_empty() {
+                    continue;
+                }
+
+                let target = match target_idx {
+                    0 => "Texture 0 (even clip buffer)",
+                    1 => "Texture 1 (odd clip buffer)",
+                    2 => "Final Output",
+                    _ => "Unknown",
+                };
+
+                println!("  Rendering to: {}", target);
+
+                for (_, strip) in draw.0.iter().enumerate() {
+                    if target_idx < 2 {
+                        let slot_idx = strip.y / Tile::HEIGHT;
+                        println!(
+                            "    S: slot={} x_offset={} width={}x{}",
+                            slot_idx,
+                            strip.x,
+                            strip.width,
+                            if strip.dense_width > 0 {
+                                strip.dense_width
+                            } else {
+                                4
+                            }
+                        );
+                    } else {
+                        // Not a slot texture - final canvas.
+                        println!(
+                            "    S: pos=({}, {}) size={}x{}",
+                            strip.x,
+                            strip.y,
+                            strip.width,
+                            if strip.dense_width > 0 {
+                                strip.dense_width
+                            } else {
+                                4
+                            }
+                        );
+                    }
+
+                    let color_source = (strip.paint >> 30) & 0x3;
+                    match color_source {
+                        COLOR_SOURCE_PAYLOAD => {
+                            let paint_type = (strip.paint >> 28) & 0x3;
+                            match paint_type {
+                                PAINT_TYPE_SOLID => {
+                                    let a = (strip.payload >> 24) & 0xFF;
+                                    let b = (strip.payload >> 16) & 0xFF;
+                                    let g = (strip.payload >> 8) & 0xFF;
+                                    let r = strip.payload & 0xFF;
+                                    println!("      -> Solid color: RGBA({},{},{},{})", r, g, b, a);
+                                }
+                                PAINT_TYPE_IMAGE => {
+                                    let scene_x = strip.payload & 0xFFFF;
+                                    let scene_y = strip.payload >> 16;
+                                    let paint_tex_id = strip.paint & 0x0FFFFFFF;
+                                    println!(
+                                        "      -> Image: scene_pos=({},{}) texture_id={}",
+                                        scene_x, scene_y, paint_tex_id
+                                    );
+                                }
+                                _ => println!("      -> Unknown paint type: {}", paint_type),
+                            }
+                        }
+                        COLOR_SOURCE_SLOT => {
+                            let slot = strip.payload;
+                            let opacity = strip.paint & 0xFF;
+                            let opacity_f = opacity as f32 / 255.0;
+                            println!(
+                                "      -> Sample from slot {} with opacity {:.2}",
+                                slot, opacity_f
+                            );
+                        }
+
+                        COLOR_SOURCE_BLEND => {
+                            let src_slot = strip.payload;
+                            let dest_slot = (strip.paint >> 16) & 0x3FFF;
+                            let mix_mode = (strip.paint >> 8) & 0xFF;
+                            let compose_mode = strip.paint & 0xFF;
+
+                            let compose_name = match compose_mode {
+                                0 => "Clear",
+                                1 => "Copy",
+                                2 => "Dest",
+                                3 => "SrcOver",
+                                4 => "DestOver",
+                                5 => "SrcIn",
+                                6 => "DestIn",
+                                7 => "SrcOut",
+                                8 => "DestOut",
+                                9 => "SrcAtop",
+                                10 => "DestAtop",
+                                11 => "Xor",
+                                12 => "Plus",
+                                13 => "PlusLighter",
+                                _ => "Unknown",
+                            };
+
+                            let mix_name = match mix_mode {
+                                0 => "Normal",
+                                _ => "Unknown",
+                            };
+
+                            println!(
+                                "      -> Blend: src_slot={} dest_slot={} mix={} compose={}",
+                                src_slot, dest_slot, mix_name, compose_name
+                            );
+                        }
+                        _ => println!("      -> Unknown color source: {}", color_source),
+                    }
+
+                    // If it's a sparse strip (dense_width > 0), show alpha column info
+                    if strip.dense_width > 0 {
+                        println!("      -> Alpha column index: {}", strip.col_idx);
+                    }
+                }
+            }
+
+            if !round.free[0].is_empty() || !round.free[1].is_empty() {
+                println!("  Slots freed after rendering:");
+                if !round.free[0].is_empty() {
+                    println!("    Texture 0: {:?}", round.free[0]);
+                }
+                if !round.free[1].is_empty() {
+                    println!("    Texture 1: {:?}", round.free[1]);
+                }
+            }
+
+            println!();
+        }
         for (i, draw) in round.draws.iter().enumerate() {
             if draw.0.is_empty() {
                 continue;
@@ -388,18 +543,12 @@ impl Scheduler {
     }
 
     // Find the appropriate draw call for rendering.
-    fn draw_mut(&mut self, el_round: usize, clip_depth: usize) -> &mut Draw {
-        let ix = if clip_depth == 1 {
-            // We can draw to the final target
-            2
-        } else {
-            1 - clip_depth % 2
-        };
+    fn draw_mut(&mut self, el_round: usize, texture_idx: usize) -> &mut Draw {
         let rel_round = el_round.saturating_sub(self.round);
         if self.rounds_queue.len() == rel_round {
             self.rounds_queue.push_back(Round::default());
         }
-        &mut self.rounds_queue[rel_round].draws[ix]
+        &mut self.rounds_queue[rel_round].draws[texture_idx]
     }
 
     /// Iterates over wide tile commands and schedules them for rendering.
@@ -425,7 +574,7 @@ impl Scheduler {
             // If the background has a non-zero alpha then we need to render it.
             let bg = tile.bg.as_premul_rgba8().to_u32();
             if has_non_zero_alpha(bg) {
-                let draw = self.draw_mut(self.round, 1);
+                let draw = self.draw_mut(self.round, 2);
                 draw.0.push(GpuStrip {
                     x: wide_tile_x,
                     y: wide_tile_y,
@@ -443,7 +592,7 @@ impl Scheduler {
             match cmd {
                 Cmd::Fill(fill) => {
                     let el = state.stack.last().unwrap();
-                    let draw = self.draw_mut(el.round, clip_depth);
+                    let draw = self.draw_mut(el.round, el.get_draw_texture(clip_depth));
 
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
                     let (payload, paint) =
@@ -467,7 +616,7 @@ impl Scheduler {
                 }
                 Cmd::AlphaFill(alpha_fill) => {
                     let el = state.stack.last().unwrap();
-                    let draw = self.draw_mut(el.round, clip_depth);
+                    let draw = self.draw_mut(el.round, el.get_draw_texture(clip_depth));
 
                     let col_idx = (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
                         .try_into()
@@ -505,9 +654,14 @@ impl Scheduler {
                         self.flush(renderer);
                     }
                     let slot = self.claim_free_slot(ix);
+                    let temporary_slot = if should_use_temporary_slot(&tile.cmds, cmd_idx) {
+                        Some(self.claim_free_slot((ix + 1) % 2))
+                    } else {
+                        None
+                    };
                     state.stack.push(TileEl {
                         dest_slot: slot,
-                        temporary_slot: None,
+                        temporary_slot,
                         round: self.round,
                         opacity: 1.,
                     });
@@ -527,13 +681,19 @@ impl Scheduler {
 
                     self.rounds_queue[round - self.round].free[tos.dest_slot.get_texture()]
                         .push(tos.dest_slot.get_idx());
+                    if let Some(temp_slot) = tos.temporary_slot {
+                        self.rounds_queue[round - self.round].free[temp_slot.get_texture()]
+                            .push(temp_slot.get_idx());
+                    }
                 }
                 Cmd::ClipFill(clip_fill) => {
-                    let tos = &state.stack[clip_depth - 1];
+                    let tos: &TileEl = &state.stack[clip_depth - 1];
                     let nos = &state.stack[clip_depth - 2];
+                    // Basically if we are writing onto the even texture, we need to go up a round
+                    // to target it.
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
-                    let draw = self.draw_mut(round, clip_depth - 1);
+                    let draw = self.draw_mut(round, nos.get_draw_texture(clip_depth - 1));
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_fill.x as u16, wide_tile_y)
                     } else {
@@ -559,7 +719,7 @@ impl Scheduler {
                     let nos = &state.stack[clip_depth - 2];
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
-                    let draw = self.draw_mut(round, clip_depth - 1);
+                    let draw = self.draw_mut(round, nos.get_draw_texture(clip_depth - 1));
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_alpha_fill.x as u16, wide_tile_y)
                     } else {
@@ -604,7 +764,8 @@ impl Scheduler {
 
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
-                    let draw = self.draw_mut(round, clip_depth - 1);
+
+                    let draw = self.draw_mut(round, nos.get_draw_texture(clip_depth - 1));
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x, wide_tile_y)
                     } else {
@@ -683,12 +844,6 @@ fn should_use_temporary_slot(cmds: &[Cmd], current_idx: usize) -> bool {
     }
     false
 }
-
-const COLOR_SOURCE_PAYLOAD: u32 = 0;
-const COLOR_SOURCE_SLOT: u32 = 1;
-
-const PAINT_TYPE_SOLID: u32 = 0;
-const PAINT_TYPE_IMAGE: u32 = 1;
 
 #[inline(always)]
 fn has_non_zero_alpha(rgba: u32) -> bool {
