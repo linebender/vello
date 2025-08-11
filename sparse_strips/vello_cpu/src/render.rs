@@ -604,7 +604,7 @@ impl Recordable for RenderContext {
         &mut self,
         commands: &[RenderCommand],
     ) -> (Vec<Strip>, Vec<u8>, Vec<(usize, usize)>) {
-        let saved_state = self.save_current_state();
+        let saved_state = self.take_current_state();
         let mut strip_generator = StripGenerator::new(self.width, self.height, self.level);
         let mut collected_strips = Vec::new();
         let mut strip_ranges = Vec::new();
@@ -649,7 +649,7 @@ impl Recordable for RenderContext {
         }
 
         let collected_alphas = strip_generator.take_alpha_buf();
-        self.restore_current_state(saved_state);
+        self.restore_state(saved_state);
 
         (collected_strips, collected_alphas, strip_ranges)
     }
@@ -803,25 +803,25 @@ impl RenderContext {
     }
 
     /// Save the current rendering state.
-    fn save_current_state(&self) -> RenderState {
+    fn take_current_state(&mut self) -> RenderState {
         RenderState {
-            transform: self.transform,
-            fill_rule: self.fill_rule,
-            stroke: self.stroke.clone(),
             paint: self.paint.clone(),
             paint_transform: self.paint_transform,
-            alphas: self.dispatcher.alpha_buf().to_vec(),
+            transform: self.transform,
+            fill_rule: self.fill_rule,
+            stroke: core::mem::take(&mut self.stroke),
+            alphas: self.dispatcher.take_alpha_buf(),
         }
     }
 
     /// Restore the saved rendering state.
-    fn restore_current_state(&mut self, state: RenderState) {
+    fn restore_state(&mut self, state: RenderState) {
         self.transform = state.transform;
         self.fill_rule = state.fill_rule;
         self.stroke = state.stroke;
         self.paint = state.paint;
         self.paint_transform = state.paint_transform;
-        self.dispatcher.extend_alpha_buf(&state.alphas);
+        self.dispatcher.set_alpha_buf(state.alphas);
     }
 }
 

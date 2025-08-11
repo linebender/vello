@@ -8,6 +8,7 @@ use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
 use crate::strip_generator::StripGenerator;
+use alloc::vec::Vec;
 use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Fallback, Level, Simd};
@@ -106,6 +107,14 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn extend_alpha_buf(&mut self, alphas: &[u8]) {
         self.strip_generator.extend_alpha_buf(alphas);
+    }
+
+    fn take_alpha_buf(&mut self) -> Vec<u8> {
+        self.strip_generator.take_alpha_buf()
+    }
+
+    fn set_alpha_buf(&mut self, alphas: Vec<u8>) {
+        self.strip_generator.set_alpha_buf(alphas);
     }
 
     fn push_layer(
