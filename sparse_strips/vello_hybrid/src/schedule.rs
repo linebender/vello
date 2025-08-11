@@ -241,9 +241,37 @@ struct TileState {
     stack: Vec<TileEl>,
 }
 
+#[derive(Debug, Copy, Clone)]
+enum ClaimedSlot {
+    Texture0(usize),
+    Texture1(usize),
+}
+
+impl ClaimedSlot {
+    fn get_idx(&self) -> usize {
+        match self {
+            ClaimedSlot::Texture0(idx) => *idx,
+            ClaimedSlot::Texture1(idx) => *idx,
+        }
+    }
+
+    fn get_texture(&self) -> usize {
+        match self {
+            ClaimedSlot::Texture0(_) => 0,
+            ClaimedSlot::Texture1(_) => 1,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct TileEl {
-    slot_ix: usize,
+    /// `dest_slot` represents the final location of where the contents of this tile will end up. If
+    /// there are layers, then painting happens to `temporary_slot` such that blending can be done
+    /// to the dest_slot with another slot.
+    dest_slot: ClaimedSlot,
+    /// Temporary slot only used if we know there is another layer pushed above this tile element.
+    /// INVARIANT: This slot and the dest_slot are always on opposite textures.
+    temporary_slot: Option<ClaimedSlot>,
     round: usize,
     opacity: f32,
 }
@@ -264,6 +292,17 @@ impl Scheduler {
             clear,
             rounds_queue: Default::default(),
             tile_state: Default::default(),
+        }
+    }
+
+    fn claim_free_slot(&mut self, texture: usize) -> ClaimedSlot {
+        let slot_ix = self.free[texture].pop().unwrap();
+        self.clear[texture].push(slot_ix as u32);
+
+        match texture {
+            0 => ClaimedSlot::Texture0(slot_ix),
+            1 => ClaimedSlot::Texture1(slot_ix),
+            _ => panic!("invalid slot texture"),
         }
     }
 
@@ -377,7 +416,8 @@ impl Scheduler {
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
         // commands to the final target.
         state.stack.push(TileEl {
-            slot_ix: usize::MAX,
+            dest_slot: ClaimedSlot::Texture0(usize::MAX),
+            temporary_slot: None,
             round: self.round,
             opacity: 1.,
         });
@@ -397,7 +437,7 @@ impl Scheduler {
                 });
             }
         }
-        for cmd in &tile.cmds {
+        for (cmd_idx, cmd) in tile.cmds.iter().enumerate() {
             // Note: this starts at 1 (for the final target)
             let clip_depth = state.stack.len();
             match cmd {
@@ -412,7 +452,7 @@ impl Scheduler {
                     let (x, y) = if clip_depth == 1 {
                         (scene_strip_x, scene_strip_y)
                     } else {
-                        (fill.x, el.slot_ix as u16 * Tile::HEIGHT)
+                        (fill.x, el.dest_slot.get_idx() as u16 * Tile::HEIGHT)
                     };
 
                     draw.0.push(GpuStrip {
@@ -443,7 +483,7 @@ impl Scheduler {
                     let (x, y) = if clip_depth == 1 {
                         (scene_strip_x, scene_strip_y)
                     } else {
-                        (alpha_fill.x, el.slot_ix as u16 * Tile::HEIGHT)
+                        (alpha_fill.x, el.dest_slot.get_idx() as u16 * Tile::HEIGHT)
                     };
 
                     draw.0.push(GpuStrip {
@@ -464,10 +504,10 @@ impl Scheduler {
                         }
                         self.flush(renderer);
                     }
-                    let slot_ix = self.free[ix].pop().unwrap();
-                    self.clear[ix].push(slot_ix as u32);
+                    let slot = self.claim_free_slot(ix);
                     state.stack.push(TileEl {
-                        slot_ix,
+                        dest_slot: slot,
+                        temporary_slot: None,
                         round: self.round,
                         opacity: 1.,
                     });
@@ -484,8 +524,9 @@ impl Scheduler {
                         round - self.round < self.rounds_queue.len(),
                         "round must be in queue"
                     );
-                    self.rounds_queue[round - self.round].free[1 - clip_depth % 2]
-                        .push(tos.slot_ix);
+
+                    self.rounds_queue[round - self.round].free[tos.dest_slot.get_texture()]
+                        .push(tos.dest_slot.get_idx());
                 }
                 Cmd::ClipFill(clip_fill) => {
                     let tos = &state.stack[clip_depth - 1];
@@ -496,17 +537,20 @@ impl Scheduler {
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_fill.x as u16, wide_tile_y)
                     } else {
-                        (clip_fill.x as u16, nos.slot_ix as u16 * Tile::HEIGHT)
+                        (
+                            clip_fill.x as u16,
+                            nos.dest_slot.get_idx() as u16 * Tile::HEIGHT,
+                        )
                     };
                     // Opacity packed into the first 8 bits – pack full opacity (0xFF).
-                    let paint = COLOR_SOURCE_SLOT << 31 | 0xFF;
+                    let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
                     draw.0.push(GpuStrip {
                         x,
                         y,
                         width: clip_fill.width as u16,
                         dense_width: 0,
                         col_idx: 0,
-                        payload: tos.slot_ix as u32,
+                        payload: tos.dest_slot.get_idx() as u32,
                         paint,
                     });
                 }
@@ -519,10 +563,13 @@ impl Scheduler {
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_alpha_fill.x as u16, wide_tile_y)
                     } else {
-                        (clip_alpha_fill.x as u16, nos.slot_ix as u16 * Tile::HEIGHT)
+                        (
+                            clip_alpha_fill.x as u16,
+                            nos.dest_slot.get_idx() as u16 * Tile::HEIGHT,
+                        )
                     };
                     // Opacity packed into the first 8 bits – pack full opacity (0xFF).
-                    let paint = COLOR_SOURCE_SLOT << 31 | 0xFF;
+                    let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
                     draw.0.push(GpuStrip {
                         x,
                         y,
@@ -531,7 +578,7 @@ impl Scheduler {
                         col_idx: (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
                             .try_into()
                             .expect("Sparse strips are bound to u32 range"),
-                        payload: tos.slot_ix as u32,
+                        payload: tos.dest_slot.get_idx() as u32,
                         paint,
                     });
                 }
@@ -561,12 +608,12 @@ impl Scheduler {
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x, wide_tile_y)
                     } else {
-                        (0, nos.slot_ix as u16 * Tile::HEIGHT)
+                        (0, nos.dest_slot.get_idx() as u16 * Tile::HEIGHT)
                     };
 
                     // Opacity packed into the first 8 bits.
                     let opacity_u8 = (tos.opacity * 255.0) as u32;
-                    let paint = (COLOR_SOURCE_SLOT << 31) | opacity_u8;
+                    let paint = (COLOR_SOURCE_SLOT << 30) | opacity_u8;
 
                     draw.0.push(GpuStrip {
                         x,
@@ -574,7 +621,7 @@ impl Scheduler {
                         width: WideTile::WIDTH,
                         dense_width: 0,
                         col_idx: 0,
-                        payload: tos.slot_ix as u32,
+                        payload: tos.dest_slot.get_idx() as u32,
                         paint,
                     });
                 }
@@ -598,7 +645,7 @@ impl Scheduler {
                     has_non_zero_alpha(rgba),
                     "Color fields with 0 alpha are reserved for clipping"
                 );
-                let paint_packed = (COLOR_SOURCE_PAYLOAD << 31) | (PAINT_TYPE_SOLID << 29);
+                let paint_packed = (COLOR_SOURCE_PAYLOAD << 30) | (PAINT_TYPE_SOLID << 29);
                 (rgba, paint_packed)
             }
             Paint::Indexed(indexed_paint) => {
@@ -609,9 +656,9 @@ impl Scheduler {
                 match scene.encoded_paints.get(paint_id) {
                     Some(EncodedPaint::Image(encoded_image)) => match &encoded_image.source {
                         ImageSource::OpaqueId(_) => {
-                            let paint_packed = (COLOR_SOURCE_PAYLOAD << 31)
-                                | (PAINT_TYPE_IMAGE << 29)
-                                | (paint_tex_id & 0x1FFFFFFF);
+                            let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
+                                | (PAINT_TYPE_IMAGE << 28)
+                                | (paint_tex_id & 0x0FFFFFFF);
                             let scene_strip_xy =
                                 ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
                             (scene_strip_xy, paint_packed)
@@ -623,6 +670,18 @@ impl Scheduler {
             }
         }
     }
+}
+
+/// Look ahead to see if it's possible that blending will happen.
+fn should_use_temporary_slot(cmds: &[Cmd], current_idx: usize) -> bool {
+    for cmd in &cmds[current_idx + 1..] {
+        match cmd {
+            Cmd::PushBuf => return true,
+            Cmd::PopBuf => return false, // End of this buffer's scope
+            _ => continue,
+        }
+    }
+    false
 }
 
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
