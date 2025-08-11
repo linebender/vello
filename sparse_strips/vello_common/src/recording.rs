@@ -18,21 +18,17 @@ pub struct CachedStrips {
     strips: Box<[Strip]>,
     /// The alpha buffer data.
     alphas: Box<[u8]>,
-    /// Strip ranges for each geometry command: `(start_index, count)`.
-    strip_ranges: Box<[(usize, usize)]>,
+    /// Strip start indices for each geometry command.
+    strip_start_indices: Box<[usize]>,
 }
 
 impl CachedStrips {
     /// Create a new cached strips instance.
-    pub fn new(
-        strips: Box<[Strip]>,
-        alphas: Box<[u8]>,
-        strip_ranges: Box<[(usize, usize)]>,
-    ) -> Self {
+    pub fn new(strips: Box<[Strip]>, alphas: Box<[u8]>, strip_start_indices: Box<[usize]>) -> Self {
         Self {
             strips,
             alphas,
-            strip_ranges,
+            strip_start_indices,
         }
     }
 
@@ -61,9 +57,9 @@ impl CachedStrips {
         &self.alphas
     }
 
-    /// Get strip ranges as slice.
-    pub fn strip_ranges(&self) -> &[(usize, usize)] {
-        &self.strip_ranges
+    /// Get strip start indices.
+    pub fn strip_start_indices(&self) -> &[usize] {
+        &self.strip_start_indices
     }
 }
 
@@ -172,11 +168,11 @@ impl Recording {
             .map(|cached| (cached.strips(), cached.alphas()))
     }
 
-    /// Get strip ranges.
-    pub fn get_strip_ranges(&self) -> &[(usize, usize)] {
+    /// Get strip start indices.
+    pub fn get_strip_start_indices(&self) -> &[usize] {
         self.cached_strips
             .as_ref()
-            .map_or(&[], |cached| cached.strip_ranges())
+            .map_or(&[], |cached| cached.strip_start_indices())
     }
 
     /// Clear the recording contents.
@@ -196,9 +192,9 @@ impl Recording {
         &mut self,
         strips: Box<[Strip]>,
         alphas: Box<[u8]>,
-        strip_ranges: Box<[(usize, usize)]>,
+        strip_start_indices: Box<[usize]>,
     ) {
-        self.cached_strips = Some(CachedStrips::new(strips, alphas, strip_ranges));
+        self.cached_strips = Some(CachedStrips::new(strips, alphas, strip_start_indices));
     }
 }
 
@@ -219,6 +215,13 @@ impl Default for Recording {
 ///
 /// If you need to preserve the original renderer state, save it before replaying
 /// recordings and restore it afterward.
+///
+/// # Multithreading Limitation
+///
+/// **Note:** Recording and replay functionality is not currently implemented for
+/// `vello_cpu` when multithreading is enabled. This limitation only affects
+/// `vello_cpu` in multithreaded mode; single-threaded `vello_cpu` and `vello_hybrid`
+/// work correctly with recordings.
 pub trait Recordable {
     /// Record rendering commands and return recording.
     ///
@@ -290,12 +293,12 @@ pub trait Recordable {
     /// ```
     fn prepare_recording(&mut self, recording: &mut Recording) {
         if !recording.has_cached_strips() {
-            let (strips, alphas, strip_ranges) =
+            let (strips, alphas, strip_start_indices) =
                 self.generate_strips_from_commands(recording.commands());
             recording.set_cached_strips(
                 strips.into_boxed_slice(),
                 alphas.into_boxed_slice(),
-                strip_ranges.into_boxed_slice(),
+                strip_start_indices.into_boxed_slice(),
             );
         }
     }
@@ -401,11 +404,11 @@ pub trait Recordable {
     /// Returns:
     /// - `collected_strips`: The generated strips.
     /// - `collected_alphas`: The generated alphas.
-    /// - `strip_ranges`: The ranges of strips in the generated strips.
+    /// - `strip_start_indices`: The start indices of strips for each geometry command.
     fn generate_strips_from_commands(
         &mut self,
         commands: &[RenderCommand],
-    ) -> (Vec<Strip>, Vec<u8>, Vec<(usize, usize)>);
+    ) -> (Vec<Strip>, Vec<u8>, Vec<usize>);
 }
 
 /// Recorder context that captures commands.
