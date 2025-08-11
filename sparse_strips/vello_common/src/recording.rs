@@ -173,6 +173,13 @@ impl Recording {
             .as_ref()
             .map_or(&[], |cached| cached.strip_ranges())
     }
+
+    /// Clear the recording contents.
+    pub fn clear(&mut self) {
+        self.commands.clear();
+        self.cached_strips = None;
+        self.transform = Affine::IDENTITY;
+    }
 }
 
 impl Default for Recording {
@@ -201,9 +208,36 @@ pub trait Recordable {
         F: FnOnce(&mut Recorder<'_>),
     {
         let mut recording = Recording::new();
-        let mut recorder = Recorder::new(&mut recording);
-        f(&mut recorder);
+        self.record_into(&mut recording, f);
         recording
+    }
+
+    /// Record rendering commands into an existing recording.
+    ///
+    /// This method allows you to reuse an existing `Recording` instance,
+    /// preserving its allocated memory.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut recording = Recording::new();
+    ///
+    /// // First use
+    /// scene.record_into(&mut recording, |ctx| {
+    ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    /// });
+    ///
+    /// // Reuse the same recording (preserves allocations)
+    /// scene.record_into(&mut recording, |ctx| {
+    ///     ctx.fill_rect(&Rect::new(50.0, 50.0, 150.0, 150.0));
+    ///     ctx.set_paint(Color::BLUE);
+    /// });
+    /// ```
+    fn record_into<F>(&mut self, recording: &mut Recording, f: F)
+    where
+        F: FnOnce(&mut Recorder<'_>),
+    {
+        let mut recorder = Recorder::new(recording);
+        f(&mut recorder);
     }
 
     /// Generate sparse strips for a recording.
@@ -267,6 +301,28 @@ pub trait Recordable {
         recording
     }
 
+    /// Record and prepare strips immediately into an existing recording.
+    ///
+    /// This is a convenience method that combines `record_into` and `prepare_recording`.
+    /// Use this when you want to pre-generate strips without rendering yet while
+    /// reusing an existing recording's allocations.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut recording = Recording::new();
+    /// scene.record_and_prepare_into(&mut recording, |ctx| {
+    ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    /// });
+    /// // Strips are now generated and cached, allocations preserved
+    /// ```
+    fn record_and_prepare_into<F>(&mut self, recording: &mut Recording, f: F)
+    where
+        F: FnOnce(&mut Recorder<'_>),
+    {
+        self.record_into(recording, f);
+        self.prepare_recording(recording);
+    }
+
     /// Record and render immediately.
     ///
     /// This is a convenience method that combines `record` and `render_recording`.
@@ -279,6 +335,28 @@ pub trait Recordable {
         let mut recording = self.record(f);
         self.render_recording(&mut recording);
         recording
+    }
+
+    /// Record and render immediately into an existing recording.
+    ///
+    /// This is a convenience method that combines `record_into` and `render_recording`.
+    /// Use this when you want to execute commands immediately but also keep
+    /// the recording for potential reuse while preserving allocations.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut recording = Recording::new();
+    /// scene.record_and_render_into(&mut recording, |ctx| {
+    ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    /// });
+    /// // Commands are executed and recording is ready for reuse
+    /// ```
+    fn record_and_render_into<F>(&mut self, recording: &mut Recording, f: F)
+    where
+        F: FnOnce(&mut Recorder<'_>),
+    {
+        self.record_into(recording, f);
+        self.render_recording(recording);
     }
 
     /// Execute a recording.
