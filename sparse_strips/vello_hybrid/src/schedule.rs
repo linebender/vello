@@ -378,154 +378,157 @@ impl Scheduler {
     ///
     /// The rounds queue must not be empty.
     fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
-        let round = dbg!(self.rounds_queue.pop_front().unwrap());
+        let round = self.rounds_queue.pop_front().unwrap();
 
-        #[cfg(debug_assertions)]
-        {
-            println!("=== Round {} ===", self.round);
+        // #[cfg(debug_assertions)]
+        // {
+        //     println!("=== Round {} ===", self.round);
 
-            for (target_idx, draw) in round.draws.iter().enumerate() {
-                if draw.0.is_empty() {
-                    continue;
-                }
+        //     for (target_idx, draw) in round.draws.iter().enumerate() {
+        //         if draw.0.is_empty() {
+        //             continue;
+        //         }
 
-                let target = match target_idx {
-                    0 => "Texture 0 (even clip buffer)",
-                    1 => "Texture 1 (odd clip buffer)",
-                    2 => "Final Output",
-                    _ => "Unknown",
-                };
-                let sampling = match target_idx {
-                    0 => "Texture 1 (odd clip buffer)",
-                    1 => "Texture 0 (even clip buffer)",
-                    2 => "Texture 1 (odd clip buffer)",
-                    _ => "Unknown",
-                };
+        //         let target = match target_idx {
+        //             0 => "Texture 0 (even clip buffer)",
+        //             1 => "Texture 1 (odd clip buffer)",
+        //             2 => "Final Output",
+        //             _ => "Unknown",
+        //         };
+        //         let sampling = match target_idx {
+        //             0 => "Texture 1 (odd clip buffer)",
+        //             1 => "Texture 0 (even clip buffer)",
+        //             2 => "Texture 1 (odd clip buffer)",
+        //             _ => "Unknown",
+        //         };
 
-                println!(
-                    "  Rendering to: {} by sampling slots from {}",
-                    target, sampling
-                );
+        //         println!(
+        //             "  Rendering to: {} by sampling slots from {}",
+        //             target, sampling
+        //         );
 
-                for (_, strip) in draw.0.iter().enumerate() {
-                    if target_idx < 2 {
-                        let slot_idx = strip.y / Tile::HEIGHT;
-                        println!(
-                            "    S: slot={} x_offset={} width={}x{}",
-                            slot_idx,
-                            strip.x,
-                            strip.width,
-                            if strip.dense_width > 0 {
-                                strip.dense_width
-                            } else {
-                                4
-                            }
-                        );
-                    } else {
-                        // Not a slot texture - final canvas.
-                        println!(
-                            "    S: pos=({}, {}) size={}x{}",
-                            strip.x,
-                            strip.y,
-                            strip.width,
-                            if strip.dense_width > 0 {
-                                strip.dense_width
-                            } else {
-                                4
-                            }
-                        );
-                    }
+        //         for (_, strip) in draw.0.iter().enumerate() {
+        //             if target_idx < 2 {
+        //                 let slot_idx = strip.y / Tile::HEIGHT;
+        //                 println!(
+        //                     "    S: slot={} x_offset={} width={}",
+        //                     slot_idx,
+        //                     strip.x,
+        //                     if strip.dense_width > 0 {
+        //                         strip.dense_width
+        //                     } else {
+        //                         4
+        //                     }
+        //                 );
+        //             } else {
+        //                 // Not a slot texture - final canvas.
+        //                 println!(
+        //                     "    S: pos=({}, {}) width={}",
+        //                     strip.x,
+        //                     strip.y,
+        //                     if strip.dense_width > 0 {
+        //                         strip.dense_width
+        //                     } else {
+        //                         4
+        //                     }
+        //                 );
+        //             }
 
-                    let color_source = (strip.paint >> 30) & 0x3;
-                    match color_source {
-                        COLOR_SOURCE_PAYLOAD => {
-                            let paint_type = (strip.paint >> 28) & 0x3;
-                            match paint_type {
-                                PAINT_TYPE_SOLID => {
-                                    let a = (strip.payload >> 24) & 0xFF;
-                                    let b = (strip.payload >> 16) & 0xFF;
-                                    let g = (strip.payload >> 8) & 0xFF;
-                                    let r = strip.payload & 0xFF;
-                                    println!("      -> Solid color: RGBA({},{},{},{})", r, g, b, a);
-                                }
-                                PAINT_TYPE_IMAGE => {
-                                    let scene_x = strip.payload & 0xFFFF;
-                                    let scene_y = strip.payload >> 16;
-                                    let paint_tex_id = strip.paint & 0x0FFFFFFF;
-                                    println!(
-                                        "      -> Image: scene_pos=({},{}) texture_id={}",
-                                        scene_x, scene_y, paint_tex_id
-                                    );
-                                }
-                                _ => println!("      -> Unknown paint type: {}", paint_type),
-                            }
-                        }
-                        COLOR_SOURCE_SLOT => {
-                            let slot = strip.payload;
-                            let opacity = strip.paint & 0xFF;
-                            let opacity_f = opacity as f32 / 255.0;
-                            println!(
-                                "      -> Sample from slot {} with opacity {:.2}",
-                                slot, opacity_f
-                            );
-                        }
+        //             let color_source = (strip.paint >> 30) & 0x3;
+        //             match color_source {
+        //                 COLOR_SOURCE_PAYLOAD => {
+        //                     let paint_type = (strip.paint >> 28) & 0x3;
+        //                     match paint_type {
+        //                         PAINT_TYPE_SOLID => {
+        //                             let a = (strip.payload >> 24) & 0xFF;
+        //                             let b = (strip.payload >> 16) & 0xFF;
+        //                             let g = (strip.payload >> 8) & 0xFF;
+        //                             let r = strip.payload & 0xFF;
+        //                             println!("      -> Solid color: RGBA({},{},{},{})", r, g, b, a);
+        //                         }
+        //                         PAINT_TYPE_IMAGE => {
+        //                             let scene_x = strip.payload & 0xFFFF;
+        //                             let scene_y = strip.payload >> 16;
+        //                             let paint_tex_id = strip.paint & 0x0FFFFFFF;
+        //                             println!(
+        //                                 "      -> Image: scene_pos=({},{}) texture_id={}",
+        //                                 scene_x, scene_y, paint_tex_id
+        //                             );
+        //                         }
+        //                         _ => println!("      -> Unknown paint type: {}", paint_type),
+        //                     }
+        //                 }
+        //                 COLOR_SOURCE_SLOT => {
+        //                     let slot = strip.payload;
+        //                     let opacity = strip.paint & 0xFF;
+        //                     let opacity_f = opacity as f32 / 255.0;
+        //                     println!(
+        //                         "      -> Sample from slot {} with opacity {:.2}",
+        //                         slot, opacity_f
+        //                     );
+        //                 }
 
-                        COLOR_SOURCE_BLEND => {
-                            let src_slot = strip.payload;
-                            let dest_slot = (strip.paint >> 16) & 0x3FFF;
-                            let mix_mode = (strip.paint >> 8) & 0xFF;
-                            let compose_mode = strip.paint & 0xFF;
+        //                 COLOR_SOURCE_BLEND => {
+        //                     // Extract slots from payload
+        //                     let src_slot = strip.payload & 0xFFFF; // bits 0-15
+        //                     let dest_slot = (strip.payload >> 16) & 0xFFFF; // bits 16-31
 
-                            let compose_name = match compose_mode {
-                                0 => "Clear",
-                                1 => "Copy",
-                                2 => "Dest",
-                                3 => "SrcOver",
-                                4 => "DestOver",
-                                5 => "SrcIn",
-                                6 => "DestIn",
-                                7 => "SrcOut",
-                                8 => "DestOut",
-                                9 => "SrcAtop",
-                                10 => "DestAtop",
-                                11 => "Xor",
-                                12 => "Plus",
-                                13 => "PlusLighter",
-                                _ => "Unknown",
-                            };
+        //                     // Extract blend parameters from paint
+        //                     let opacity = (strip.paint >> 16) & 0xFF; // bits 16-23
+        //                     let opacity_f = opacity as f32 / 255.0;
+        //                     let mix_mode = (strip.paint >> 8) & 0xFF; // bits 8-15
+        //                     let compose_mode = strip.paint & 0xFF; // bits 0-7
 
-                            let mix_name = match mix_mode {
-                                0 => "Normal",
-                                _ => "Unknown",
-                            };
+        //                     let compose_name = match compose_mode {
+        //                         0 => "Clear",
+        //                         1 => "Copy",
+        //                         2 => "Dest",
+        //                         3 => "SrcOver",
+        //                         4 => "DestOver",
+        //                         5 => "SrcIn",
+        //                         6 => "DestIn",
+        //                         7 => "SrcOut",
+        //                         8 => "DestOut",
+        //                         9 => "SrcAtop",
+        //                         10 => "DestAtop",
+        //                         11 => "Xor",
+        //                         12 => "Plus",
+        //                         13 => "PlusLighter",
+        //                         _ => "Unknown",
+        //                     };
 
-                            println!(
-                                "      -> Blend: src_slot={} dest_slot={} mix={} compose={}",
-                                src_slot, dest_slot, mix_name, compose_name
-                            );
-                        }
-                        _ => println!("      -> Unknown color source: {}", color_source),
-                    }
+        //                     let mix_name = match mix_mode {
+        //                         0 => "Normal",
+        //                         _ => "Unknown",
+        //                     };
 
-                    // If it's a sparse strip (dense_width > 0), show alpha column info
-                    if strip.dense_width > 0 {
-                        println!("      -> Alpha column index: {}", strip.col_idx);
-                    }
-                }
-            }
+        //                     println!(
+        //                         "      -> Blend: src_slot={} dest_slot={} opacity={:.2} mix={} compose={}",
+        //                         src_slot, dest_slot, opacity_f, mix_name, compose_name
+        //                     );
+        //                 }
+        //                 _ => println!("      -> Unknown color source: {}", color_source),
+        //             }
 
-            if !round.free[0].is_empty() || !round.free[1].is_empty() {
-                println!("  Slots freed after rendering:");
-                if !round.free[0].is_empty() {
-                    println!("    Texture 0: {:?}", round.free[0]);
-                }
-                if !round.free[1].is_empty() {
-                    println!("    Texture 1: {:?}", round.free[1]);
-                }
-            }
+        //             // If it's a sparse strip (dense_width > 0), show alpha column info
+        //             if strip.dense_width > 0 {
+        //                 println!("      -> Alpha column index: {}", strip.col_idx);
+        //             }
+        //         }
+        //     }
 
-            println!();
-        }
+        //     if !round.free[0].is_empty() || !round.free[1].is_empty() {
+        //         println!("  Slots freed after rendering:");
+        //         if !round.free[0].is_empty() {
+        //             println!("    Texture 0: {:?}", round.free[0]);
+        //         }
+        //         if !round.free[1].is_empty() {
+        //             println!("    Texture 1: {:?}", round.free[1]);
+        //         }
+        //     }
+
+        //     println!();
+        // }
         for (i, draw) in round.draws.iter().enumerate() {
             let load = {
                 if i == 2 {
@@ -586,7 +589,7 @@ impl Scheduler {
         });
         {
             // If the background has a non-zero alpha then we need to render it.
-            let bg = dbg!(tile).bg.as_premul_rgba8().to_u32();
+            let bg = tile.bg.as_premul_rgba8().to_u32();
             if has_non_zero_alpha(bg) {
                 let draw = self.draw_mut(self.round, 2);
                 draw.0.push(GpuStrip {
@@ -781,7 +784,7 @@ impl Scheduler {
                     if let Some(temp_slot) = nos.temporary_slot {
                         let draw = self.draw_mut(round, nos.dest_slot.get_texture());
                         let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
-                        draw.0.push(dbg!(GpuStrip {
+                        draw.0.push(GpuStrip {
                             x: 0,
                             y: nos.dest_slot.get_idx() as u16 * Tile::HEIGHT,
                             width: WideTile::WIDTH,
@@ -789,7 +792,7 @@ impl Scheduler {
                             col_idx: 0,
                             payload: temp_slot.get_idx() as u32,
                             paint,
-                        }));
+                        });
                     }
 
                     let draw = self.draw_mut(
@@ -810,7 +813,7 @@ impl Scheduler {
                     };
                     // Opacity packed into the first 8 bits – pack full opacity (0xFF).
                     let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
-                    draw.0.push(dbg!(GpuStrip {
+                    draw.0.push(GpuStrip {
                         x,
                         y,
                         width: clip_alpha_fill.width as u16,
@@ -820,7 +823,7 @@ impl Scheduler {
                             .expect("Sparse strips are bound to u32 range"),
                         payload: tos.dest_slot.get_idx() as u32,
                         paint,
-                    }));
+                    });
 
                     let nos_ptr = state.stack.len() - 2;
                     let _ = &mut state.stack[nos_ptr].temporary_slot.take().iter().for_each(
@@ -849,15 +852,11 @@ impl Scheduler {
 
                     let tos = state.stack.last().unwrap();
                     let nos = &state.stack[state.stack.len() - 2];
-                    dbg!(tos, nos);
 
                     let next_round: bool = clip_depth % 2 == 0 && clip_depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
                     if let Some(temp_slot) = nos.temporary_slot {
-                        // let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
-
-                        // I think this can be nos.dest_slot
                         let draw = self.draw_mut(
                             round,
                             if clip_depth <= 2 {
@@ -872,10 +871,17 @@ impl Scheduler {
                             (0, nos.dest_slot.get_idx() as u16 * Tile::HEIGHT)
                         };
 
-                        // Blend tos.dest_slot with nos.temporary_slot into nos.dest_slot
-                        let paint = (COLOR_SOURCE_BLEND << 30) | ((temp_slot.get_idx() as u32) << 16)  // dest_slot (14 bits)
-                            | (0 << 8)  // mix_mode = MIX_NORMAL (8 bits)  
-                            | 3; // compose_mode = COMPOSE_SRC_OVER (8 bits)
+                        let opacity_u8 = (tos.opacity * 255.0) as u32;
+
+                        // src_slot (bits 0-15) | dest_slot (bits 16-31)
+                        let payload =
+                            tos.dest_slot.get_idx() as u32 | ((temp_slot.get_idx() as u32) << 16);
+
+                        // Pack opacity, mix_mode, and compose_mode into paint
+                        let paint = (COLOR_SOURCE_BLEND << 30)
+                            | (opacity_u8 << 16)  // opacity (bits 16-23)
+                            | (0 << 8)            // mix_mode = MIX_NORMAL (bits 8-15)
+                            | 3; // compose_mode = COMPOSE_SRC_OVER (bits 0-7)
 
                         draw.0.push(GpuStrip {
                             x,
@@ -883,7 +889,7 @@ impl Scheduler {
                             width: WideTile::WIDTH,
                             dense_width: 0,
                             col_idx: 0,
-                            payload: tos.dest_slot.get_idx() as u32, // src_slot
+                            payload,
                             paint,
                         });
 
@@ -894,7 +900,6 @@ impl Scheduler {
                         self.rounds_queue[round - self.round].free[temporary_slot.get_texture()]
                             .push(temporary_slot.get_idx());
                     } else {
-                        // let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
                         let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
                         let (x, y) = if (clip_depth - 1) <= 2 {
                             (wide_tile_x, wide_tile_y)

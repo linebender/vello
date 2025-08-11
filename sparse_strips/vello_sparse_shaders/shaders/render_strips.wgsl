@@ -107,10 +107,13 @@ struct Config {
 // └── bits 0-7 = opacity (0-255, where 255 = fully opaque)
 //
 // color_source = 2 (COLOR_SOURCE_BLEND) - Blend two slots
-// ├── payload = src_slot_index (u32) - source slot to blend
-// ├── bits 16-29 = dest_slot (14 bits) - destination slot to blend with
-// ├── bits 8-15 = mix_mode (8 bits) - currently only MIX_NORMAL (0) is used
-// └── bits 0-7 = compose_mode (8 bits) - compose operation (see COMPOSE_* constants)
+// ├── payload = [src_slot, dest_slot] slot indices (packed as u16s)
+// │   ├── bits 0-15 = src_slot (source slot to blend)
+// │   └── bits 16-31 = dest_slot (destination slot to blend with)
+// └── paint bits 0-23:
+//     ├── bits 16-23 = opacity (0-255, applied to blend result)
+//     ├── bits 8-15 = mix_mode (blend mixing mode)
+//     └── bits 0-7 = compose_mode (compositing operation)
 struct StripInstance {
     // [x, y] packed as u16's
     // x, y — coordinates of the strip
@@ -304,15 +307,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         final_color = alpha * opacity * clip_in_color;
     } else if color_source == COLOR_SOURCE_BLEND {
-        let dest_slot = (in.paint >> 16u) & 0x3FFFu;
+        let opacity = f32((in.paint >> 16u) & 0xFFu) * (1.0 / 255.0);
         let mix_mode = (in.paint >> 8u) & 0xFFu;
         let compose_mode = in.paint & 0xFFu;
         
         // Read source color from slot
-        let src_slot = in.payload;
+        let src_slot = in.payload & 0xFFFFu;
+        let dest_slot = (in.payload >> 16u) & 0xFFFFu;
         let clip_x = u32(in.position.x) & 0xFFu;
         let src_y = (u32(in.position.y) & 3u) + src_slot * config.strip_height;
-        let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0);
+        // Apply layer opacity to src_color prior to compositing or blending.
+        let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0) * opacity;
         
         // Read destination color from slot
         let dest_y = (u32(in.position.y) & 3u) + dest_slot * config.strip_height;

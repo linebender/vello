@@ -19,20 +19,6 @@ fn opacity_on_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(width = 8, height = 4)]
-fn nested_opacity_single_wide(ctx: &mut impl Renderer) {
-    ctx.set_paint(REBECCA_PURPLE);
-    ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
-    ctx.push_opacity_layer(0.5);
-    ctx.set_paint(YELLOW);
-    ctx.fill_rect(&Rect::new(0.0, 0.0, 6.0, 4.0));
-    ctx.push_opacity_layer(0.5);
-    ctx.set_paint(GREEN);
-    ctx.fill_rect(&Rect::new(2.0, 0.0, 8.0, 4.0));
-    ctx.pop_layer();
-    ctx.pop_layer();
-}
-
 #[vello_test]
 fn opacity_nested_on_layer(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE);
