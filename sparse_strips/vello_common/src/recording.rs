@@ -189,6 +189,16 @@ impl Default for Recording {
 }
 
 /// Trait for rendering contexts that support recording and replaying operations.
+///
+/// # State Modification During Replay
+///
+/// **Important:** When replaying recordings using methods like `render_recording()`,
+/// the renderer's state (transform, paint, fill rule, stroke settings, etc.) will be
+/// modified to match the state changes captured in the recording. The renderer will
+/// be left in the final state after all commands have been executed.
+///
+/// If you need to preserve the original renderer state, save it before replaying
+/// recordings and restore it afterward.
 pub trait Recordable {
     /// Record rendering commands and return recording.
     ///
