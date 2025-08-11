@@ -40,9 +40,6 @@ const IMAGE_QUALITY_LOW = 0u;
 const IMAGE_QUALITY_MEDIUM = 1u;
 const IMAGE_QUALITY_HIGH = 2u;
 
-// Blend modes
-const MIX_NORMAL: u32 = 0u;
-
 // Composite modes
 const COMPOSE_CLEAR: u32 = 0u;
 const COMPOSE_COPY: u32 = 1u;
@@ -308,6 +305,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         final_color = alpha * opacity * clip_in_color;
     } else if color_source == COLOR_SOURCE_BLEND {
         let opacity = f32((in.paint >> 16u) & 0xFFu) * (1.0 / 255.0);
+        // TODO: Pass and use mix modes.
         let mix_mode = (in.paint >> 8u) & 0xFFu;
         let compose_mode = in.paint & 0xFFu;
         
@@ -323,73 +321,103 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let dest_y = (u32(in.position.y) & 3u) + dest_slot * config.strip_height;
         let dest_color = textureLoad(clip_input_texture, vec2(clip_x, dest_y), 0);
         
-        switch compose_mode {
-            case COMPOSE_CLEAR: {
-                // Clear: result = 0
-                final_color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-            }
-            case COMPOSE_COPY: {
-                // Copy: result = src
-                final_color = src_color;
-            }
-            case COMPOSE_DEST: {
-                // Dest: result = dest
-                final_color = dest_color;
-            }
-            case COMPOSE_SRC_OVER: {
-                // SrcOver: result = src + dest * (1 - src.a)
-                final_color = src_color + dest_color * (1.0 - src_color.a);
-            }
-            case COMPOSE_DEST_OVER: {
-                // DestOver: result = dest + src * (1 - dest.a)
-                final_color = dest_color + src_color * (1.0 - dest_color.a);
-            }
-            case COMPOSE_SRC_IN: {
-                // SrcIn: result = src * dest.a
-                final_color = src_color * dest_color.a;
-            }
-            case COMPOSE_DEST_IN: {
-                // DestIn: result = dest * src.a
-                final_color = dest_color * src_color.a;
-            }
-            case COMPOSE_SRC_OUT: {
-                // SrcOut: result = src * (1 - dest.a)
-                final_color = src_color * (1.0 - dest_color.a);
-            }
-            case COMPOSE_DEST_OUT: {
-                // DestOut: result = dest * (1 - src.a)
-                final_color = dest_color * (1.0 - src_color.a);
-            }
-            case COMPOSE_SRC_ATOP: {
-                // SrcAtop: result = src * dest.a + dest * (1 - src.a)
-                final_color = src_color * dest_color.a + dest_color * (1.0 - src_color.a);
-            }
-            case COMPOSE_DEST_ATOP: {
-                // DestAtop: result = dest * src.a + src * (1 - dest.a)
-                final_color = dest_color * src_color.a + src_color * (1.0 - dest_color.a);
-            }
-            case COMPOSE_XOR: {
-                // Xor: result = src * (1 - dest.a) + dest * (1 - src.a)
-                final_color = src_color * (1.0 - dest_color.a) + dest_color * (1.0 - src_color.a);
-            }
-            case COMPOSE_PLUS: {
-                // Plus: result = min(src + dest, 1)
-                final_color = clamp(src_color + dest_color, vec4<f32>(0.0), vec4<f32>(1.0));
-            }
-            case COMPOSE_PLUS_LIGHTER: {
-                // PlusLighter: result = src + dest (unclamped)
-                final_color = src_color + dest_color;
-            }
-            default: {
-                // Fallback to SrcOver
-                final_color = src_color + dest_color * (1.0 - src_color.a);
-            }
-        }
-
+        // Use the blend_mix_compose function for proper blending
+        final_color = blend_mix_compose(dest_color, src_color, compose_mode);
+        
+        // Apply the alpha mask
         final_color = alpha * final_color;
     }
-
     return final_color;
+}
+
+// Apply color mixing and composition. Both input and output colors are
+// premultiplied RGB.
+// TODO: Add color mixing. Currently only supports compositing.
+fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, compose_mode: u32) -> vec4<f32> {
+    // Fast path for src_over
+    if compose_mode == COMPOSE_SRC_OVER {
+        return backdrop * (1.0 - src.a) + src;
+    }
+    
+    let EPSILON = 1e-15;
+    let inv_src_a = 1.0 / max(src.a, EPSILON);
+    let cs = src.rgb * inv_src_a;
+    let inv_backdrop_a = 1.0 / max(backdrop.a, EPSILON);
+    let cb = backdrop.rgb * inv_backdrop_a;
+    
+    return blend_compose_unpremul(cb, cs, backdrop.a, src.a, compose_mode);
+}
+
+// Apply general compositing operation.
+// Inputs are separated colors and alpha, output is premultiplied.
+fn blend_compose_unpremul(
+    cb: vec3<f32>,
+    cs: vec3<f32>,
+    ab: f32,
+    as_: f32,
+    mode: u32
+) -> vec4<f32> {
+    var fa = 0.0;
+    var fb = 0.0;
+    switch mode {
+        case COMPOSE_COPY: {
+            fa = 1.0;
+            fb = 0.0;
+        }
+        case COMPOSE_DEST: {
+            fa = 0.0;
+            fb = 1.0;
+        }
+        case COMPOSE_SRC_OVER: {
+            fa = 1.0;
+            fb = 1.0 - as_;
+        }
+        case COMPOSE_DEST_OVER: {
+            fa = 1.0 - ab;
+            fb = 1.0;
+        }
+        case COMPOSE_SRC_IN: {
+            fa = ab;
+            fb = 0.0;
+        }
+        case COMPOSE_DEST_IN: {
+            fa = 0.0;
+            fb = as_;
+        }
+        case COMPOSE_SRC_OUT: {
+            fa = 1.0 - ab;
+            fb = 0.0;
+        }
+        case COMPOSE_DEST_OUT: {
+            fa = 0.0;
+            fb = 1.0 - as_;
+        }
+        case COMPOSE_SRC_ATOP: {
+            fa = ab;
+            fb = 1.0 - as_;
+        }
+        case COMPOSE_DEST_ATOP: {
+            fa = 1.0 - ab;
+            fb = as_;
+        }
+        case COMPOSE_XOR: {
+            fa = 1.0 - ab;
+            fb = 1.0 - as_;
+        }
+        case COMPOSE_PLUS: {
+            fa = 1.0;
+            fb = 1.0;
+        }
+        case COMPOSE_PLUS_LIGHTER: {
+            return min(vec4(1.0), vec4(as_ * cs + ab * cb, as_ + ab));
+        }
+        default: {}
+    }
+    let as_fa = as_ * fa;
+    let ab_fb = ab * fb;
+    let co = as_fa * cs + ab_fb * cb;
+    // Modes like COMPOSE_PLUS can generate alpha > 1.0, so clamp.
+    return vec4(co, min(as_fa + ab_fb, 1.0));
 }
 
 
