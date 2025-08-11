@@ -216,13 +216,19 @@ pub(crate) struct Scheduler {
     /// The total number of slots in each slot texture.
     total_slots: usize,
     /// The slots that are free to use in each slot texture.
-    free: [Vec<usize>; 2],
+    free: [Vec<SlotOccupation>; 2],
     /// Slots that require clearing before subsequent draws for each slot texture.
-    clear: [Vec<u32>; 2],
+    clear: [Vec<SlotOccupation>; 2],
     /// Rounds are enqueued on push clip commands and dequeued on flush.
     rounds_queue: VecDeque<Round>,
     /// State for a single wide tile.
     tile_state: TileState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+struct SlotOccupation {
+    slot_idx: usize,
+    texture: u8,
 }
 
 /// A "round" is a coarse scheduling quantum.
@@ -234,7 +240,7 @@ struct Round {
     /// Draw calls scheduled into the two slot textures (0, 1) and the final target (2).
     draws: [Draw; 3],
     /// Slots that will be freed after drawing into the two slot textures [0, 1].
-    free: [Vec<usize>; 2],
+    free: [Vec<SlotOccupation>; 2],
 }
 
 /// State for a single wide tile.
@@ -245,8 +251,8 @@ struct TileState {
 
 #[derive(Clone, Copy, Debug)]
 struct TileEl {
-    slot_ix: usize,
-    slot_prime_ix: Option<usize>,
+    slot_ix: SlotOccupation,
+    slot_prime_ix: Option<SlotOccupation>,
     round: usize,
     opacity: f32,
 }
@@ -256,8 +262,20 @@ struct Draw(Vec<GpuStrip>);
 
 impl Scheduler {
     pub(crate) fn new(total_slots: usize) -> Self {
-        let free0: Vec<_> = (0..total_slots).collect();
-        let free1 = free0.clone();
+        let free0: Vec<_> = (0..total_slots)
+            .map(|idx| SlotOccupation {
+                slot_idx: idx,
+                texture: 0,
+            })
+            .collect();
+        let free1 = free0
+            .clone()
+            .into_iter()
+            .map(|SlotOccupation { slot_idx, .. }| SlotOccupation {
+                slot_idx,
+                texture: 1,
+            })
+            .collect();
         let free = [free0, free1];
         let clear = [Vec::new(), Vec::new()];
         Self {
@@ -270,6 +288,7 @@ impl Scheduler {
         }
     }
 
+    /// This looks ahead to see if another PushBuf is incoming. If so - we will be "blending".
     fn should_allocate_prime(cmds: &[Cmd], current_idx: usize) -> bool {
         for cmd in &cmds[current_idx + 1..] {
             match cmd {
@@ -295,7 +314,7 @@ impl Scheduler {
         // Left to right, top to bottom iteration over wide tiles.
         for wide_tile_row in 0..wide_tiles_per_col {
             for wide_tile_col in 0..wide_tiles_per_row {
-                let wide_tile = dbg!(scene.wide.get(wide_tile_col, wide_tile_row));
+                let wide_tile = scene.wide.get(wide_tile_col, wide_tile_row);
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
                 self.do_tile(
@@ -321,8 +340,20 @@ impl Scheduler {
         #[cfg(debug_assertions)]
         {
             for i in 0..self.total_slots {
-                debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {i}");
-                debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {i}");
+                debug_assert!(
+                    self.free[0].contains(&SlotOccupation {
+                        slot_idx: i,
+                        texture: 0
+                    }),
+                    "free[0] is missing slot {i}"
+                );
+                debug_assert!(
+                    self.free[1].contains(&SlotOccupation {
+                        slot_idx: i,
+                        texture: 1
+                    }),
+                    "free[1] is missing slot {i}"
+                );
             }
         }
         debug_assert!(self.rounds_queue.is_empty(), "rounds_queue is not empty");
@@ -353,7 +384,14 @@ impl Scheduler {
                     LoadOp::Clear
                 } else {
                     // Some slots need to be preserved, so only clear the dirty slots.
-                    renderer.clear_slots(i, self.clear[i].as_slice());
+                    renderer.clear_slots(
+                        i,
+                        self.clear[i]
+                            .iter()
+                            .map(|slot| slot.slot_idx as u32)
+                            .collect::<Vec<u32>>()
+                            .as_slice(),
+                    );
                     self.clear[i].clear();
                     LoadOp::Load
                 }
@@ -396,7 +434,7 @@ impl Scheduler {
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
         // commands to the final target.
         state.stack.push(TileEl {
-            slot_ix: usize::MAX,
+            slot_ix: SlotOccupation { slot_idx: usize::MAX, texture: 0 },
             slot_prime_ix: None,
             round: self.round,
             opacity: 1.,
@@ -417,7 +455,7 @@ impl Scheduler {
                 });
             }
         }
-        for (cmd_idx, cmd) in tile.cmds.iter().enumerate() {
+        for (cmd_idx, cmd) in dbg!(tile).cmds.iter().enumerate() {
             // Note: this starts at 1 (for the final target)
             let clip_depth = state.stack.len();
             match cmd {
@@ -442,14 +480,14 @@ impl Scheduler {
                         if effective_depth == 1 {
                             scene_strip_y
                         } else {
-                            prime_slot as u16 * Tile::HEIGHT
+                            prime_slot.slot_idx as u16 * Tile::HEIGHT
                         }
                     } else {
                         // Write to main slot
                         if clip_depth == 1 {
                             scene_strip_y
                         } else {
-                            el.slot_ix as u16 * Tile::HEIGHT
+                            el.slot_ix.slot_idx as u16 * Tile::HEIGHT
                         }
                     };
 
@@ -495,14 +533,13 @@ impl Scheduler {
                         if effective_depth == 1 {
                             scene_strip_y
                         } else {
-                            prime_slot as u16 * Tile::HEIGHT
+                            prime_slot.slot_idx as u16 * Tile::HEIGHT
                         }
                     } else {
-                        // Write to main slot
-                        if clip_depth == 1 {
+                        if effective_depth == 1 {
                             scene_strip_y
                         } else {
-                            el.slot_ix as u16 * Tile::HEIGHT
+                            el.slot_ix.slot_idx as u16 * Tile::HEIGHT
                         }
                     };
 
@@ -524,26 +561,26 @@ impl Scheduler {
                 }
                 Cmd::PushBuf => {
                     if Self::should_allocate_prime(&tile.cmds, cmd_idx) {
-                        let dest_ix = 1 - clip_depth % 2; // Destination texture
+                        let dest_ix = (1 - clip_depth) % 2; // Destination texture (prime slot)
                         let temp_ix = clip_depth % 2; // Temporary texture
 
-                        while self.free[dest_ix].is_empty() || self.free[temp_ix].is_empty() {
-                            if self.rounds_queue.is_empty() {
-                                return Err(RenderError::SlotsExhausted);
-                            }
-                            self.flush(renderer);
-                        }
+                        // while self.free[dest_ix].is_empty() || self.free[temp_ix].is_empty() {
+                        //     if self.rounds_queue.is_empty() {
+                        //         return Err(RenderError::SlotsExhausted);
+                        //     }
+                        //     self.flush(renderer);
+                        // }
 
                         // Allocate both
                         let dest_slot = self.free[dest_ix].pop().unwrap();
                         let temp_slot = self.free[temp_ix].pop().unwrap();
 
-                        self.clear[dest_ix].push(dest_slot as u32);
-                        self.clear[temp_ix].push(temp_slot as u32);
+                        self.clear[dest_ix].push(dest_slot);
+                        self.clear[temp_ix].push(temp_slot);
 
                         state.stack.push(TileEl {
                             slot_ix: dest_slot,             // Destination (prime) - blend result.
-                            slot_prime_ix: Some(temp_slot), // Temporary accumulation
+                            slot_prime_ix: Some(temp_slot), // Temporary accumulation of fills before blending...
                             round: self.round,
                             opacity: 1.,
                         });
@@ -556,7 +593,7 @@ impl Scheduler {
                             self.flush(renderer);
                         }
                         let slot_ix = self.free[ix].pop().unwrap();
-                        self.clear[ix].push(slot_ix as u32);
+                        self.clear[ix].push(slot_ix);
 
                         state.stack.push(TileEl {
                             slot_ix,
@@ -582,12 +619,13 @@ impl Scheduler {
                         "round must be in queue"
                     );
 
-                    let main_tex_ix = 1 - clip_depth % 2;
-                    self.rounds_queue[round - self.round].free[main_tex_ix]
+
+
+                    self.rounds_queue[round - self.round].free[popped_buffer.slot_ix.texture as usize]
                         .push(popped_buffer.slot_ix);
+
                     if let Some(slot_prime_ix) = popped_buffer.slot_prime_ix {
-                        let prime_tex_ix = 1 - main_tex_ix; // Opposite texture
-                        self.rounds_queue[round - self.round].free[prime_tex_ix]
+                        self.rounds_queue[round - self.round].free[slot_prime_ix.texture as usize]
                             .push(slot_prime_ix);
                     }
                 }
@@ -604,7 +642,7 @@ impl Scheduler {
                     } else {
                         (
                             clip_fill.x as u16,
-                            clip_target.slot_ix as u16 * Tile::HEIGHT,
+                            clip_target.slot_ix.slot_idx as u16 * Tile::HEIGHT,
                         )
                     };
                     // Opacity packed into the first 8 bits – pack full opacity (0xFF).
@@ -615,7 +653,7 @@ impl Scheduler {
                         width: clip_fill.width as u16,
                         dense_width: 0,
                         col_idx: 0,
-                        payload: clip_source.slot_ix as u32,
+                        payload: clip_source.slot_ix.slot_idx as u32,
                         paint,
                     });
                 }
@@ -632,7 +670,7 @@ impl Scheduler {
                     } else {
                         (
                             clip_alpha_fill.x as u16,
-                            clip_target.slot_ix as u16 * Tile::HEIGHT,
+                            clip_target.slot_ix.slot_idx as u16 * Tile::HEIGHT,
                         )
                     };
                     // Opacity packed into the first 8 bits – pack full opacity (0xFF).
@@ -645,7 +683,7 @@ impl Scheduler {
                         col_idx: (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
                             .try_into()
                             .expect("Sparse strips are bound to u32 range"),
-                        payload: clip_source.slot_ix as u32,
+                        payload: clip_source.slot_ix.slot_idx as u32,
                         paint,
                     });
                 }
@@ -654,6 +692,7 @@ impl Scheduler {
                 }
                 Cmd::Blend(mode) => {
                     let blend_source = state.stack.last().unwrap();
+
                     let blend_target = &state.stack[state.stack.len() - 2];
 
                     // Determine where the actual content is for source
@@ -675,16 +714,18 @@ impl Scheduler {
                         let (x, y) = if clip_depth <= 2 {
                             (wide_tile_x, wide_tile_y)
                         } else {
-                            (0, blend_target.slot_ix as u16 * Tile::HEIGHT) // Write to destination
+                            (0, blend_target.slot_ix.slot_idx as u16 * Tile::HEIGHT) // Write to destination
                         };
+
+                        // debug_assert_ne!(dest_temp_slot, source_content_slot, "cmd_idx: {cmd_idx}");
 
                         // Encode blend operation
                         let paint = (COLOR_SOURCE_BLEND << 30)
-                            | ((dest_temp_slot as u32 & 0x3FFF) << 16)  // Where dest content is
+                            | ((dest_temp_slot.slot_idx as u32 & 0x3FFF) << 16)
                             | ((mode.mix as u32) << 8)
                             | (mode.compose as u32);
 
-                        let payload = source_content_slot as u32; // Where source content is
+                        let payload = source_content_slot.slot_idx as u32; // Where source content is
 
                         draw.0.push(GpuStrip {
                             x,
@@ -706,7 +747,7 @@ impl Scheduler {
                         let (x, y) = if clip_depth <= 2 {
                             (wide_tile_x, wide_tile_y)
                         } else {
-                            (0, blend_target.slot_ix as u16 * Tile::HEIGHT)
+                            (0, blend_target.slot_ix.slot_idx as u16 * Tile::HEIGHT)
                         };
 
                         let opacity_u8 = (blend_source.opacity * 255.0) as u32;
@@ -718,12 +759,20 @@ impl Scheduler {
                             width: WideTile::WIDTH,
                             dense_width: 0,
                             col_idx: 0,
-                            payload: source_content_slot as u32, // Use actual content location
+                            payload: source_content_slot.slot_idx as u32, // Use actual content location
                             paint,
                         });
                     }
                 }
                 _ => unimplemented!(),
+            }
+        }
+
+        if state.stack.len() > 1 {
+            // Had nested operations
+            // Force a new round for the next tile
+            while !self.rounds_queue.is_empty() {
+                self.flush(renderer);
             }
         }
 
@@ -756,7 +805,7 @@ impl Scheduler {
                         ImageSource::OpaqueId(_) => {
                             let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
                                 | (PAINT_TYPE_IMAGE << 28)
-                                | (paint_tex_id & 0x1FFFFFFF);
+                                | (paint_tex_id & 0x0FFFFFFF);
                             let scene_strip_xy =
                                 ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
                             (scene_strip_xy, paint_packed)

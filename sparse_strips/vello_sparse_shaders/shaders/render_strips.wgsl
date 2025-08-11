@@ -42,7 +42,22 @@ const IMAGE_QUALITY_HIGH = 2u;
 
 // Blend modes
 const MIX_NORMAL: u32 = 0u;
+
+// Composite modes - must match
+const COMPOSE_CLEAR: u32 = 0u;
+const COMPOSE_COPY: u32 = 1u;
+const COMPOSE_DEST: u32 = 2u;
 const COMPOSE_SRC_OVER: u32 = 3u;
+const COMPOSE_DEST_OVER: u32 = 4u;
+const COMPOSE_SRC_IN: u32 = 5u;
+const COMPOSE_DEST_IN: u32 = 6u;
+const COMPOSE_SRC_OUT: u32 = 7u;
+const COMPOSE_DEST_OUT: u32 = 8u;
+const COMPOSE_SRC_ATOP: u32 = 9u;
+const COMPOSE_DEST_ATOP: u32 = 10u;
+const COMPOSE_XOR: u32 = 11u;
+const COMPOSE_PLUS: u32 = 12u;
+const COMPOSE_PLUS_LIGHTER: u32 = 13u;
 
 struct Config {
     // Width of the rendering target
@@ -150,7 +165,7 @@ fn vs_main(
     // NDC ranges from -1 to 1, with (0,0) at the center of the viewport
     let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
     let ndc_y = 1.0 - pix_y * 2.0 / f32(config.height);
-    let paint_type = (instance.paint >> 29u) & 0x3u;
+    let paint_type = (instance.paint >> 28u) & 0x3u;
 
     if paint_type == PAINT_TYPE_IMAGE {
         let paint_tex_id = instance.paint & 0x1FFFFFFF;
@@ -226,7 +241,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         if paint_type == PAINT_TYPE_SOLID {
             final_color = alpha * unpack4x8unorm(in.payload);
         } else if paint_type == PAINT_TYPE_IMAGE {
-            let paint_tex_id = in.paint & 0x1FFFFFFF;
+            let paint_tex_id = in.paint & 0x0FFFFFFF;
             let encoded_image = unpack_encoded_image(paint_tex_id);
             let image_offset = encoded_image.image_offset;
             let image_size = encoded_image.image_size;
@@ -287,16 +302,70 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let dest_y = (u32(in.position.y) & 3u) + dest_slot * config.strip_height;
         let dest_color = textureLoad(clip_input_texture, vec2(clip_x, dest_y), 0);
         
-        // Can if or switch over the compose modes....
-        // if compose_mode == COMPOSE_SRC_OVER {
-        //     // SrcOver: result = src + dest * (1 - src.a)
-        // }
+        switch compose_mode {
+            case COMPOSE_CLEAR: {
+                // Clear: result = 0
+                final_color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+            }
+            case COMPOSE_COPY: {
+                // Copy: result = src
+                final_color = src_color;
+            }
+            case COMPOSE_DEST: {
+                // Dest: result = dest
+                final_color = dest_color;
+            }
+            case COMPOSE_SRC_OVER: {
+                // SrcOver: result = src + dest * (1 - src.a)
+                final_color = src_color + dest_color * (1.0 - src_color.a);
+            }
+            case COMPOSE_DEST_OVER: {
+                // DestOver: result = dest + src * (1 - dest.a)
+                final_color = dest_color + src_color * (1.0 - dest_color.a);
+            }
+            case COMPOSE_SRC_IN: {
+                // SrcIn: result = src * dest.a
+                final_color = src_color * dest_color.a;
+            }
+            case COMPOSE_DEST_IN: {
+                // DestIn: result = dest * src.a
+                final_color = dest_color * src_color.a;
+            }
+            case COMPOSE_SRC_OUT: {
+                // SrcOut: result = src * (1 - dest.a)
+                final_color = src_color * (1.0 - dest_color.a);
+            }
+            case COMPOSE_DEST_OUT: {
+                // DestOut: result = dest * (1 - src.a)
+                final_color = dest_color * (1.0 - src_color.a);
+            }
+            case COMPOSE_SRC_ATOP: {
+                // SrcAtop: result = src * dest.a + dest * (1 - src.a)
+                final_color = src_color * dest_color.a + dest_color * (1.0 - src_color.a);
+            }
+            case COMPOSE_DEST_ATOP: {
+                // DestAtop: result = dest * src.a + src * (1 - dest.a)
+                final_color = dest_color * src_color.a + src_color * (1.0 - dest_color.a);
+            }
+            case COMPOSE_XOR: {
+                // Xor: result = src * (1 - dest.a) + dest * (1 - src.a)
+                final_color = src_color * (1.0 - dest_color.a) + dest_color * (1.0 - src_color.a);
+            }
+            case COMPOSE_PLUS: {
+                // Plus: result = min(src + dest, 1)
+                final_color = clamp(src_color + dest_color, vec4<f32>(0.0), vec4<f32>(1.0));
+            }
+            case COMPOSE_PLUS_LIGHTER: {
+                // PlusLighter: result = src + dest (unclamped)
+                final_color = src_color + dest_color;
+            }
+            default: {
+                // Fallback to SrcOver
+                final_color = src_color + dest_color * (1.0 - src_color.a);
+            }
+        }
 
-        // Hard coded SrcOver...
-        final_color = src_color + dest_color * (1.0 - src_color.a);
         final_color = alpha * final_color;
-
-
     }
 
     return final_color;

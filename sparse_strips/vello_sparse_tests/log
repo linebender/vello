@@ -1,0 +1,654 @@
+
+running 6 tests
+test compose::compose_wide_tile_nested_cpu_u8_scalar ... FAILED
+test compose::compose_wide_tile_nested_cpu_u8_neon ... FAILED
+test compose::compose_wide_tile_nested_cpu_multithreaded ... FAILED
+test compose::compose_wide_tile_nested_cpu_f32_scalar ... FAILED
+test compose::compose_wide_tile_nested_cpu_f32_neon ... FAILED
+test compose::compose_wide_tile_nested_hybrid ... FAILED
+
+failures:
+
+---- compose::compose_wide_tile_nested_cpu_u8_scalar stdout ----
+
+thread 'compose::compose_wide_tile_nested_cpu_u8_scalar' panicked at sparse_strips/vello_sparse_tests/tests/util.rs:314:9:
+test didnt match reference image
+
+---- compose::compose_wide_tile_nested_cpu_u8_neon stdout ----
+
+thread 'compose::compose_wide_tile_nested_cpu_u8_neon' panicked at sparse_strips/vello_sparse_tests/tests/util.rs:314:9:
+test didnt match reference image
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- compose::compose_wide_tile_nested_cpu_multithreaded stdout ----
+
+thread 'compose::compose_wide_tile_nested_cpu_multithreaded' panicked at sparse_strips/vello_sparse_tests/tests/util.rs:314:9:
+test didnt match reference image
+
+---- compose::compose_wide_tile_nested_cpu_f32_scalar stdout ----
+
+thread 'compose::compose_wide_tile_nested_cpu_f32_scalar' panicked at sparse_strips/vello_sparse_tests/tests/util.rs:314:9:
+test didnt match reference image
+
+---- compose::compose_wide_tile_nested_cpu_f32_neon stdout ----
+
+thread 'compose::compose_wide_tile_nested_cpu_f32_neon' panicked at sparse_strips/vello_sparse_tests/tests/util.rs:314:9:
+test didnt match reference image
+
+---- compose::compose_wide_tile_nested_hybrid stdout ----
+do_scene - tile: {width: 1, height: 2 }
+self.tile_state len: TileState { stack: [] }
+[sparse_strips/vello_hybrid/src/schedule.rs:458:31] tile = WideTile {
+    x: 0,
+    y: 0,
+    bg: PremulColor {
+        premul_u8: PremulRgba8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        },
+        premul_f32: PremulColor {
+            components: [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            cs: PhantomData<color::colorspace::Srgb>,
+        },
+    },
+    cmds: [
+        AlphaFill(
+            CmdAlphaFill {
+                x: 0,
+                width: 4,
+                alpha_idx: 0,
+                thread_idx: 0,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 255,
+                            g: 255,
+                            b: 255,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                1.0,
+                                1.0,
+                                1.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        Fill(
+            CmdFill {
+                x: 4,
+                width: 252,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 255,
+                            g: 255,
+                            b: 255,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                1.0,
+                                1.0,
+                                1.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        PushBuf,
+        AlphaFill(
+            CmdAlphaFill {
+                x: 0,
+                width: 4,
+                alpha_idx: 32,
+                thread_idx: 0,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 0,
+                            g: 0,
+                            b: 255,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                0.0,
+                                0.0,
+                                1.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        Fill(
+            CmdFill {
+                x: 4,
+                width: 252,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 0,
+                            g: 0,
+                            b: 255,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                0.0,
+                                0.0,
+                                1.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        PushBuf,
+        AlphaFill(
+            CmdAlphaFill {
+                x: 48,
+                width: 4,
+                alpha_idx: 64,
+                thread_idx: 0,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 0,
+                            g: 255,
+                            b: 0,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                0.0,
+                                1.0,
+                                0.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        Fill(
+            CmdFill {
+                x: 52,
+                width: 204,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 0,
+                            g: 255,
+                            b: 0,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                0.0,
+                                1.0,
+                                0.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        Blend(
+            BlendMode {
+                mix: Normal,
+                compose: SrcOver,
+            },
+        ),
+        PopBuf,
+        Blend(
+            BlendMode {
+                mix: Normal,
+                compose: SrcOver,
+            },
+        ),
+        PopBuf,
+    ],
+    n_zero_clip: 0,
+    n_clip: 0,
+    n_bufs: 0,
+}
+[sparse_strips/vello_hybrid/src/schedule.rs:458:31] tile = WideTile {
+    x: 0,
+    y: 4,
+    bg: PremulColor {
+        premul_u8: PremulRgba8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        },
+        premul_f32: PremulColor {
+            components: [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            cs: PhantomData<color::colorspace::Srgb>,
+        },
+    },
+    cmds: [
+        AlphaFill(
+            CmdAlphaFill {
+                x: 0,
+                width: 4,
+                alpha_idx: 16,
+                thread_idx: 0,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 255,
+                            g: 255,
+                            b: 255,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                1.0,
+                                1.0,
+                                1.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        Fill(
+            CmdFill {
+                x: 4,
+                width: 252,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 255,
+                            g: 255,
+                            b: 255,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                1.0,
+                                1.0,
+                                1.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        PushBuf,
+        AlphaFill(
+            CmdAlphaFill {
+                x: 0,
+                width: 4,
+                alpha_idx: 48,
+                thread_idx: 0,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 0,
+                            g: 0,
+                            b: 255,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                0.0,
+                                0.0,
+                                1.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        Fill(
+            CmdFill {
+                x: 4,
+                width: 252,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 0,
+                            g: 0,
+                            b: 255,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                0.0,
+                                0.0,
+                                1.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        PushBuf,
+        AlphaFill(
+            CmdAlphaFill {
+                x: 48,
+                width: 4,
+                alpha_idx: 80,
+                thread_idx: 0,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 0,
+                            g: 255,
+                            b: 0,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                0.0,
+                                1.0,
+                                0.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        Fill(
+            CmdFill {
+                x: 52,
+                width: 204,
+                paint: Solid(
+                    PremulColor {
+                        premul_u8: PremulRgba8 {
+                            r: 0,
+                            g: 255,
+                            b: 0,
+                            a: 255,
+                        },
+                        premul_f32: PremulColor {
+                            components: [
+                                0.0,
+                                1.0,
+                                0.0,
+                                1.0,
+                            ],
+                            cs: PhantomData<color::colorspace::Srgb>,
+                        },
+                    },
+                ),
+                blend_mode: None,
+            },
+        ),
+        Blend(
+            BlendMode {
+                mix: Normal,
+                compose: SrcOver,
+            },
+        ),
+        PopBuf,
+        Blend(
+            BlendMode {
+                mix: Normal,
+                compose: SrcOver,
+            },
+        ),
+        PopBuf,
+    ],
+    n_zero_clip: 0,
+    n_clip: 0,
+    n_bufs: 0,
+}
+Drawing a round:
+[sparse_strips/vello_hybrid/src/schedule.rs:370:9] &round = Round {
+    draws: [
+        Draw(
+            [
+                GpuStrip {
+                    x: 0,
+                    y: "8188 (tile=2047, local_y=0)",
+                    width: 4,
+                    dense_width: 4,
+                    col_idx: 8,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=0, g=0, b=255, a=255)",
+                },
+                GpuStrip {
+                    x: 4,
+                    y: "8188 (tile=2047, local_y=0)",
+                    width: 252,
+                    dense_width: 0,
+                    col_idx: 0,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=0, g=0, b=255, a=255)",
+                },
+                GpuStrip {
+                    x: 48,
+                    y: "8184 (tile=2046, local_y=0)",
+                    width: 4,
+                    dense_width: 4,
+                    col_idx: 16,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=0, g=255, b=0, a=255)",
+                },
+                GpuStrip {
+                    x: 52,
+                    y: "8184 (tile=2046, local_y=0)",
+                    width: 204,
+                    dense_width: 0,
+                    col_idx: 0,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=0, g=255, b=0, a=255)",
+                },
+                GpuStrip {
+                    x: 0,
+                    y: "8184 (tile=2046, local_y=0)",
+                    width: 4,
+                    dense_width: 4,
+                    col_idx: 12,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=0, g=0, b=255, a=255)",
+                },
+                GpuStrip {
+                    x: 4,
+                    y: "8184 (tile=2046, local_y=0)",
+                    width: 252,
+                    dense_width: 0,
+                    col_idx: 0,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=0, g=0, b=255, a=255)",
+                },
+                GpuStrip {
+                    x: 48,
+                    y: "8176 (tile=2044, local_y=0)",
+                    width: 4,
+                    dense_width: 4,
+                    col_idx: 20,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=0, g=255, b=0, a=255)",
+                },
+                GpuStrip {
+                    x: 52,
+                    y: "8176 (tile=2044, local_y=0)",
+                    width: 204,
+                    dense_width: 0,
+                    col_idx: 0,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=0, g=255, b=0, a=255)",
+                },
+            ],
+        ),
+        Draw(
+            [
+                GpuStrip {
+                    x: 0,
+                    y: "8188 (tile=2047, local_y=0)",
+                    width: 256,
+                    dense_width: 0,
+                    col_idx: 0,
+                    paint: "Blend(dest_slot=2047, mix=0, compose=3)",
+                    payload: "SourceSlot(2046) [maps to y=8184]",
+                },
+                GpuStrip {
+                    x: 0,
+                    y: "8180 (tile=2045, local_y=0)",
+                    width: 256,
+                    dense_width: 0,
+                    col_idx: 0,
+                    paint: "Blend(dest_slot=2046, mix=0, compose=3)",
+                    payload: "SourceSlot(2044) [maps to y=8176]",
+                },
+            ],
+        ),
+        Draw(
+            [
+                GpuStrip {
+                    x: 0,
+                    y: "0 (tile=0, local_y=0)",
+                    width: 4,
+                    dense_width: 4,
+                    col_idx: 0,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=255, g=255, b=255, a=255)",
+                },
+                GpuStrip {
+                    x: 4,
+                    y: "0 (tile=0, local_y=0)",
+                    width: 252,
+                    dense_width: 0,
+                    col_idx: 0,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=255, g=255, b=255, a=255)",
+                },
+                GpuStrip {
+                    x: 0,
+                    y: "0 (tile=0, local_y=0)",
+                    width: 256,
+                    dense_width: 0,
+                    col_idx: 0,
+                    paint: "Slot(color_source=slot, opacity=255)",
+                    payload: "SourceSlot(2047) [maps to y=8188]",
+                },
+                GpuStrip {
+                    x: 0,
+                    y: "4 (tile=1, local_y=0)",
+                    width: 4,
+                    dense_width: 4,
+                    col_idx: 4,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=255, g=255, b=255, a=255)",
+                },
+                GpuStrip {
+                    x: 4,
+                    y: "4 (tile=1, local_y=0)",
+                    width: 252,
+                    dense_width: 0,
+                    col_idx: 0,
+                    paint: "Solid(color_source=payload)",
+                    payload: "Color(r=255, g=255, b=255, a=255)",
+                },
+                GpuStrip {
+                    x: 0,
+                    y: "4 (tile=1, local_y=0)",
+                    width: 256,
+                    dense_width: 0,
+                    col_idx: 0,
+                    paint: "Slot(color_source=slot, opacity=255)",
+                    payload: "SourceSlot(2046) [maps to y=8184]",
+                },
+            ],
+        ),
+    ],
+    free: [
+        [
+            SlotOccupation {
+                slot_idx: 2046,
+                texture: 0,
+            },
+            SlotOccupation {
+                slot_idx: 2047,
+                texture: 0,
+            },
+            SlotOccupation {
+                slot_idx: 2044,
+                texture: 0,
+            },
+            SlotOccupation {
+                slot_idx: 2045,
+                texture: 0,
+            },
+        ],
+        [
+            SlotOccupation {
+                slot_idx: 2047,
+                texture: 1,
+            },
+            SlotOccupation {
+                slot_idx: 2046,
+                texture: 1,
+            },
+        ],
+    ],
+}
+
+thread 'compose::compose_wide_tile_nested_hybrid' panicked at sparse_strips/vello_sparse_tests/tests/util.rs:314:9:
+test didnt match reference image
+
+
+failures:
+    compose::compose_wide_tile_nested_cpu_f32_neon
+    compose::compose_wide_tile_nested_cpu_f32_scalar
+    compose::compose_wide_tile_nested_cpu_multithreaded
+    compose::compose_wide_tile_nested_cpu_u8_neon
+    compose::compose_wide_tile_nested_cpu_u8_scalar
+    compose::compose_wide_tile_nested_hybrid
+
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 1584 filtered out; finished in 0.14s
+

@@ -29,7 +29,8 @@
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
-#![no_std]
+//  DO NOT COMMIT - for println debugging.
+// #![no_std]
 
 extern crate alloc;
 

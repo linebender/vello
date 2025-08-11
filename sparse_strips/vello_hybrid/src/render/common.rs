@@ -60,37 +60,40 @@ const COLOR_SOURCE_SLOT: u32 = 1;
 const COLOR_SOURCE_BLEND: u32 = 2;
 const PAINT_TYPE_SOLID: u32 = 0;
 const PAINT_TYPE_IMAGE: u32 = 1;
-
 impl fmt::Debug for GpuStrip {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let color_source = (self.paint >> 30) & 0x3;  // Changed to 2 bits for 3 source types
+        let color_source = (self.paint >> 30) & 0x3;  // Changed from 31 to 30 (2 bits)
+        let paint_type = (self.paint >> 28) & 0x3;    // Changed from 29 to 28
         
         let mut debug_struct = f.debug_struct("GpuStrip");
         
+        // Add tile information based on y coordinate
+        let tile_index = self.y / 4 as u16;
+        let tile_local_y = self.y % 4 as u16;
+        
         debug_struct
             .field("x", &self.x)
-            .field("y", &self.y)
+            .field("y", &format!("{} (tile={}, local_y={})", self.y, tile_index, tile_local_y))
             .field("width", &self.width)
             .field("dense_width", &self.dense_width)
             .field("col_idx", &self.col_idx);
         
         let paint_info = match color_source {
-            COLOR_SOURCE_PAYLOAD => {
-                let paint_type = (self.paint >> 28) & 0x3;  // Adjusted bit position
-                if paint_type == PAINT_TYPE_SOLID {
-                    format!("Solid(color_source=payload)")
-                } else if paint_type == PAINT_TYPE_IMAGE {
-                    let paint_tex_id = self.paint & 0x0FFFFFFF;  // Adjusted mask
+            0 => { // COLOR_SOURCE_PAYLOAD
+                if paint_type == 0 { // PAINT_TYPE_SOLID
+                    "Solid(color_source=payload)".to_string()
+                } else if paint_type == 1 { // PAINT_TYPE_IMAGE
+                    let paint_tex_id = self.paint & 0x0FFFFFFF;
                     format!("Image(color_source=payload, texture_id={})", paint_tex_id)
                 } else {
                     format!("Unknown(color_source=payload, type={})", paint_type)
                 }
             }
-            COLOR_SOURCE_SLOT => {
+            1 => { // COLOR_SOURCE_SLOT
                 let opacity = self.paint & 0xFF;
                 format!("Slot(color_source=slot, opacity={})", opacity)
             }
-            COLOR_SOURCE_BLEND => {
+            2 => { // COLOR_SOURCE_BLEND
                 let dest_slot = (self.paint >> 16) & 0x3FFF;
                 let mix = (self.paint >> 8) & 0xFF;
                 let compose = self.paint & 0xFF;
@@ -101,17 +104,16 @@ impl fmt::Debug for GpuStrip {
         
         debug_struct.field("paint", &paint_info);
         
-        // Decode payload based on paint configuration
+        // Enhanced payload info
         let payload_info = match color_source {
-            COLOR_SOURCE_PAYLOAD => {
-                let paint_type = (self.paint >> 28) & 0x3;
-                if paint_type == PAINT_TYPE_SOLID {
+            0 => { // COLOR_SOURCE_PAYLOAD
+                if paint_type == 0 { // PAINT_TYPE_SOLID
                     let r = (self.payload >> 0) & 0xFF;
                     let g = (self.payload >> 8) & 0xFF;
                     let b = (self.payload >> 16) & 0xFF;
                     let a = (self.payload >> 24) & 0xFF;
                     format!("Color(r={}, g={}, b={}, a={})", r, g, b, a)
-                } else if paint_type == PAINT_TYPE_IMAGE {
+                } else if paint_type == 1 { // PAINT_TYPE_IMAGE
                     let x = self.payload & 0xFFFF;
                     let y = self.payload >> 16;
                     format!("ImageCoords(x={}, y={})", x, y)
@@ -119,11 +121,10 @@ impl fmt::Debug for GpuStrip {
                     format!("Unknown(raw=0x{:08x})", self.payload)
                 }
             }
-            COLOR_SOURCE_SLOT => {
-                format!("SlotIndex({})", self.payload)
-            }
-            COLOR_SOURCE_BLEND => {
-                format!("SourceSlot({})", self.payload)
+            1 | 2 => { // COLOR_SOURCE_SLOT or COLOR_SOURCE_BLEND
+                let slot = self.payload;
+                let slot_y = slot as u16 * 4 as u16;
+                format!("SourceSlot({}) [maps to y={}]", slot, slot_y)
             }
             _ => format!("Unknown(raw=0x{:08x})", self.payload)
         };

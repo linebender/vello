@@ -26,41 +26,41 @@ fn compose(ctx: &mut impl Renderer, compose: Compose) {
 #[vello_test(height = 8)]
 fn compose_wide_tile_nested(ctx: &mut impl Renderer) {
     const WIDTH: f64 = 100.0;
-    const HEIGHT: f64 = 4.0;
-    const OFFSET: f64 = 20.0;
-    
+    const HEIGHT: f64 = 8.0;
+    const OFFSET: f64 = 50.0;
+
     // Pure colors: max values only
-    let red = Color::from_rgb8(255, 0, 0);
-    let green = Color::from_rgb8(0, 255, 0);
     let blue = Color::from_rgb8(0, 0, 255);
-    let cyan = Color::from_rgb8(0, 255, 255); // Green + Blue maxed
-    
+    let green = Color::from_rgb8(0, 255, 0);
+    // let blue = Color::from_rgb8(0, 0, 255);
+    // let cyan = Color::from_rgb8(0, 255, 255); // Green + Blue maxed
+
     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
-    
-    // Draw base red rectangle
-    ctx.set_paint(red);
+
+    // Draw base blue rectangle
+    ctx.set_paint(blue);
     ctx.fill_rect(&Rect::new(0.0, 0.0, WIDTH, HEIGHT));
-    
+
     // Start nesting - green with Xor
     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
     ctx.set_paint(green);
     ctx.fill_rect(&Rect::new(OFFSET, 0.0, OFFSET + WIDTH, HEIGHT));
-    
-        // Nest blue with Plus
-        ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
-        ctx.set_paint(blue);
-        ctx.fill_rect(&Rect::new(OFFSET * 2.0, 0.0, OFFSET * 2.0 + WIDTH, HEIGHT));
-        
-            // Nest cyan with Multiply
-            ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
-            ctx.set_paint(cyan);
-            ctx.fill_rect(&Rect::new(OFFSET * 3.0, 0.0, OFFSET * 3.0 + WIDTH, HEIGHT));
-            ctx.pop_layer(); // cyan
-            
-        ctx.pop_layer(); // blue
-        
+
+    // Nest blue with Plus
+    // ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
+    // ctx.set_paint(blue);
+    // ctx.fill_rect(&Rect::new(OFFSET * 2.0, 0.0, OFFSET * 2.0 + WIDTH, HEIGHT));
+
+    //     // Nest cyan with Multiply
+    //     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
+    //     ctx.set_paint(cyan);
+    //     ctx.fill_rect(&Rect::new(OFFSET * 3.0, 0.0, OFFSET * 3.0 + WIDTH, HEIGHT));
+    //     ctx.pop_layer(); // cyan
+
+    // ctx.pop_layer(); // blue
+
     ctx.pop_layer(); // green
-    
+
     ctx.pop_layer(); // base
 }
 
