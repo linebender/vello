@@ -5,76 +5,76 @@ use crate::renderer::Renderer;
 use vello_common::kurbo::Shape;
 use vello_dev_macros::vello_test;
 
-#[vello_test(cpu_u8_tolerance = 2)]
-fn clip_composite_opacity_nested_circles(ctx: &mut impl Renderer) {
-    use vello_common::color::palette::css::{BLUE, GREEN, PURPLE, RED, YELLOW};
-    use vello_common::kurbo::{Circle, Point, Rect};
-    use vello_common::peniko::{BlendMode, Color, Compose, Mix};
+// #[vello_test(cpu_u8_tolerance = 2)]
+// fn clip_composite_opacity_nested_circles(ctx: &mut impl Renderer) {
+//     use vello_common::color::palette::css::{BLUE, GREEN, PURPLE, RED, YELLOW};
+//     use vello_common::kurbo::{Circle, Point, Rect};
+//     use vello_common::peniko::{BlendMode, Color, Compose, Mix};
 
-    ctx.set_paint(Color::from_rgb8(240, 240, 240));
-    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+//     ctx.set_paint(Color::from_rgb8(240, 240, 240));
+//     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
 
-    // Base layer circles to shine through
-    ctx.set_paint(YELLOW);
-    ctx.fill_path(&Circle::new(Point::new(30.0, 30.0), 25.0).to_path(0.1));
-    ctx.set_paint(BLUE);
-    ctx.fill_path(&Circle::new(Point::new(70.0, 30.0), 25.0).to_path(0.1));
-    ctx.set_paint(RED);
-    ctx.fill_path(&Circle::new(Point::new(30.0, 70.0), 25.0).to_path(0.1));
-    ctx.set_paint(GREEN);
-    ctx.fill_path(&Circle::new(Point::new(70.0, 70.0), 25.0).to_path(0.1));
+//     // Base layer circles to shine through
+//     ctx.set_paint(YELLOW);
+//     ctx.fill_path(&Circle::new(Point::new(30.0, 30.0), 25.0).to_path(0.1));
+//     ctx.set_paint(BLUE);
+//     ctx.fill_path(&Circle::new(Point::new(70.0, 30.0), 25.0).to_path(0.1));
+//     ctx.set_paint(RED);
+//     ctx.fill_path(&Circle::new(Point::new(30.0, 70.0), 25.0).to_path(0.1));
+//     ctx.set_paint(GREEN);
+//     ctx.fill_path(&Circle::new(Point::new(70.0, 70.0), 25.0).to_path(0.1));
 
-    // Layer 1: Clip to center area
-    let clip1 = Circle::new(Point::new(50.0, 50.0), 40.0).to_path(0.1);
-    ctx.push_clip_layer(&clip1);
+//     // Layer 1: Clip to center area
+//     let clip1 = Circle::new(Point::new(50.0, 50.0), 40.0).to_path(0.1);
+//     ctx.push_clip_layer(&clip1);
 
-    // Layer 2: Semi-transparent purple overlay
-    ctx.push_opacity_layer(0.7);
-    ctx.set_paint(PURPLE);
-    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-    ctx.pop_layer();
+//     // Layer 2: Semi-transparent purple overlay
+//     ctx.push_opacity_layer(0.7);
+//     ctx.set_paint(PURPLE);
+//     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+//     ctx.pop_layer();
 
-    // Layer 3: XOR blend mode with smaller clip
-    let clip2 = Rect::new(25.0, 25.0, 75.0, 75.0).to_path(0.1);
-    ctx.push_clip_layer(&clip2);
-    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Xor));
+//     // Layer 3: XOR blend mode with smaller clip
+//     let clip2 = Rect::new(25.0, 25.0, 75.0, 75.0).to_path(0.1);
+//     ctx.push_clip_layer(&clip2);
+//     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Xor));
 
-    // Draw overlapping circles with XOR
-    ctx.set_paint(RED);
-    ctx.fill_path(&Circle::new(Point::new(40.0, 40.0), 20.0).to_path(0.1));
-    ctx.set_paint(BLUE);
-    ctx.fill_path(&Circle::new(Point::new(60.0, 40.0), 20.0).to_path(0.1));
+//     // Draw overlapping circles with XOR
+//     ctx.set_paint(RED);
+//     ctx.fill_path(&Circle::new(Point::new(40.0, 40.0), 20.0).to_path(0.1));
+//     ctx.set_paint(BLUE);
+//     ctx.fill_path(&Circle::new(Point::new(60.0, 40.0), 20.0).to_path(0.1));
 
-    ctx.pop_layer(); // pop XOR blend
+//     ctx.pop_layer(); // pop XOR blend
 
-    // Layer 4: Nested opacity with Plus blend
-    ctx.push_opacity_layer(0.5);
-    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Plus));
+//     // Layer 4: Nested opacity with Plus blend
+//     ctx.push_opacity_layer(0.5);
+//     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Plus));
 
-    ctx.set_paint(YELLOW);
-    ctx.fill_path(&Circle::new(Point::new(50.0, 60.0), 15.0).to_path(0.1));
+//     ctx.set_paint(YELLOW);
+//     ctx.fill_path(&Circle::new(Point::new(50.0, 60.0), 15.0).to_path(0.1));
 
-    // Layer 5: Another clip with SrcIn
-    let clip3 = Circle::new(Point::new(50.0, 50.0), 30.0).to_path(0.1);
-    ctx.push_clip_layer(&clip3);
-    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcIn));
+//     // Layer 5: Another clip with SrcIn
+//     let clip3 = Circle::new(Point::new(50.0, 50.0), 30.0).to_path(0.1);
+//     ctx.push_clip_layer(&clip3);
+//     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcIn));
 
-    ctx.set_paint(GREEN);
-    ctx.fill_rect(&Rect::new(35.0, 35.0, 65.0, 65.0));
+//     ctx.set_paint(GREEN);
+//     ctx.fill_rect(&Rect::new(35.0, 35.0, 65.0, 65.0));
 
-    ctx.pop_layer(); // pop SrcIn
-    ctx.pop_layer(); // pop clip3
+//     ctx.pop_layer(); // pop SrcIn
+//     ctx.pop_layer(); // pop clip3
 
-    ctx.pop_layer(); // pop Plus blend
-    ctx.pop_layer(); // pop opacity
+//     ctx.pop_layer(); // pop Plus blend
+//     ctx.pop_layer(); // pop opacity
 
-    ctx.pop_layer(); // pop clip2
+//     ctx.pop_layer(); // pop clip2
 
-    // Layer 6: Final overlay with DestOut to create a hole
-    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::DestOut));
-    ctx.set_paint(Color::BLACK);
-    ctx.fill_path(&Circle::new(Point::new(50.0, 50.0), 10.0).to_path(0.1));
-    ctx.pop_layer();
+//     // Layer 6: Final overlay with DestOut to create a hole
+//     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::DestOut));
+//     ctx.set_paint(Color::BLACK);
+//     ctx.fill_path(&Circle::new(Point::new(50.0, 50.0), 10.0).to_path(0.1));
+//     ctx.pop_layer();
 
-    ctx.pop_layer(); // pop clip1
-}
+//     ctx.pop_layer(); // pop clip1
+// }

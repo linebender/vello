@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::renderer::Renderer;
-use vello_common::color::palette::css::{BLUE, YELLOW};
+use vello_common::color::palette::css::{BLACK, BLUE, PURPLE, RED, WHITE, YELLOW};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_dev_macros::vello_test;
@@ -85,4 +85,34 @@ fn compose_dest_atop(ctx: &mut impl Renderer) {
 #[vello_test]
 fn compose_plus(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Plus);
+}
+
+#[vello_test(height = 8, width = 100)]
+fn composed_layers_nesting(ctx: &mut impl Renderer) {
+    ctx.set_paint(WHITE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 8.0));
+    ctx.push_blend_layer(BlendMode {
+        mix: Mix::Normal,
+        compose: Compose::SrcOver,
+    });
+    {
+        ctx.set_paint(RED);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 80.0, 4.0));
+
+        ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
+        {
+            ctx.set_paint(PURPLE);
+            ctx.fill_rect(&Rect::new(50.0, 0.0, 100.0, 4.0));
+        }
+        ctx.pop_layer();
+
+        // Basically cut...
+        ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::DestOut));
+        {
+            ctx.set_paint(BLACK);
+            ctx.fill_rect(&Rect::new(40.0, 0.0, 60.0, 4.0));
+        }
+        ctx.pop_layer();
+    }
+    ctx.pop_layer();
 }

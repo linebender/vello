@@ -181,7 +181,7 @@ use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::mem;
-use vello_common::peniko::{BlendMode, Compose, Mix};
+use vello_common::peniko::Mix;
 use vello_common::{
     coarse::{Cmd, WideTile},
     encode::EncodedPaint,
@@ -885,6 +885,10 @@ impl Scheduler {
                             payload,
                             paint,
                         });
+                        // TODO(DO NOT SUBMIT): There is a problem with blend dependencies. Currently
+                        // the system has no problem parallelizing dependent blends. Instead, I
+                        // think we need to signal after a blend that we need a new round to
+                        // continue working on the tile. After flushing we can continue.
 
                         // Invalidate the temporary slot after use
                         let nos_ptr = state.stack.len() - 2;
@@ -893,6 +897,7 @@ impl Scheduler {
                         self.rounds_queue[round - self.round].free[temporary_slot.get_texture()]
                             .push(temporary_slot.get_idx());
                     } else {
+                        // TODO(DO NOT SUBMIT): This path is very obviously wrong - and needs to not exist.
                         let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
                         let (x, y) = if (clip_depth - 1) <= 2 {
                             (wide_tile_x, wide_tile_y)
