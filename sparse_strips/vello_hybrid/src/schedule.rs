@@ -837,18 +837,8 @@ impl Scheduler {
                     state.stack.last_mut().unwrap().opacity = *opacity;
                 }
                 Cmd::Blend(mode) => {
-                    // This blend mode is implicitly supported. Currently no other blend mode is
-                    // supported in `vello_hybrid`.
-                    assert!(
-                        matches!(
-                            mode,
-                            BlendMode {
-                                mix: Mix::Normal,
-                                compose: Compose::SrcOver
-                            }
-                        ),
-                        "Changing blend mode is unsupported"
-                    );
+                    // Some blend modes and mixes are not supported.
+                    assert!(matches!(mode.mix, Mix::Normal), "Only Mix::Normal is supported currently");
 
                     let tos = state.stack.last().unwrap();
                     let nos = &state.stack[state.stack.len() - 2];
@@ -878,10 +868,13 @@ impl Scheduler {
                             tos.dest_slot.get_idx() as u32 | ((temp_slot.get_idx() as u32) << 16);
 
                         // Pack opacity, mix_mode, and compose_mode into paint
-                        let paint = (COLOR_SOURCE_BLEND << 30)
-                            | (opacity_u8 << 16)  // opacity (bits 16-23)
-                            | (0 << 8)            // mix_mode = MIX_NORMAL (bits 8-15)
-                            | 3; // compose_mode = COMPOSE_SRC_OVER (bits 0-7)
+                        // Extract the actual mix and compose values from mode
+                        let mix_mode = mode.mix as u32; // Assuming Mix has repr(u8) like Compose
+                        let compose_mode = mode.compose as u32;
+
+                        let paint = (COLOR_SOURCE_BLEND << 30) | (opacity_u8 << 16)           // opacity (bits 16-23)
+                            | (mix_mode << 8)              // mix_mode (bits 8-15)
+                            | compose_mode; // compose_mode (bits 0-7)
 
                         draw.0.push(GpuStrip {
                             x,

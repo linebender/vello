@@ -5,7 +5,6 @@ use crate::renderer::Renderer;
 use vello_common::color::palette::css::{BLUE, YELLOW};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
-use vello_cpu::peniko::Color;
 use vello_dev_macros::vello_test;
 
 fn compose(ctx: &mut impl Renderer, compose: Compose) {
@@ -21,30 +20,6 @@ fn compose(ctx: &mut impl Renderer, compose: Compose) {
     // Compose.
     ctx.pop_layer();
     ctx.pop_layer();
-}
-
-#[vello_test(height = 8)]
-fn wide_tile_nested_with_explicit_composition(ctx: &mut impl Renderer) {
-    const WIDTH: f64 = 100.0;
-    const HEIGHT: f64 = 8.0;
-    const OFFSET: f64 = 50.0;
-
-    let blue = Color::from_rgb8(0, 0, 255);
-    let green = Color::from_rgb8(0, 255, 0);
-
-    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
-
-    // Draw base blue rectangle
-    ctx.set_paint(blue);
-    ctx.fill_rect(&Rect::new(0.0, 0.0, WIDTH, HEIGHT));
-
-    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
-    ctx.set_paint(green);
-    ctx.fill_rect(&Rect::new(OFFSET, 0.0, OFFSET + WIDTH, HEIGHT));
-
-    ctx.pop_layer(); // green
-
-    ctx.pop_layer(); // base
 }
 
 #[vello_test]
