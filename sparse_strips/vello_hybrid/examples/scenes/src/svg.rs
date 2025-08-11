@@ -81,7 +81,7 @@ fn try_reuse_recording(
     let start = std::time::Instant::now();
 
     // Case 1: Identical transforms - can reuse directly
-    if transforms_are_identical(recording.transform, current_transform) {
+    if transforms_are_identical(recording.transform(), current_transform) {
         scene.render_recording(recording);
         print_render_stats("Identical ", start.elapsed(), recording);
         return RenderResult { is_reused: true };

@@ -436,7 +436,7 @@ impl Recordable for Scene {
             let mut range_index = 0;
 
             // Replay commands in order, using cached strips for geometry
-            for command in &recording.commands {
+            for command in recording.commands() {
                 match command {
                     RenderCommand::FillPath(_)
                     | RenderCommand::StrokePath(_)

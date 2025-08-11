@@ -71,11 +71,11 @@ impl CachedStrips {
 #[derive(Debug)]
 pub struct Recording {
     /// Recorded commands.
-    pub commands: Vec<RenderCommand>,
+    commands: Vec<RenderCommand>,
     /// Cached sparse strips.
-    pub cached_strips: Option<CachedStrips>,
+    cached_strips: Option<CachedStrips>,
     /// Last recorded transform.
-    pub transform: Affine,
+    transform: Affine,
 }
 
 /// Individual rendering commands that can be recorded.
@@ -131,6 +131,21 @@ impl Recording {
         self.transform = transform;
     }
 
+    /// Get the current transform.
+    pub fn transform(&self) -> Affine {
+        self.transform
+    }
+
+    /// Get commands as a slice.
+    pub fn commands(&self) -> &[RenderCommand] {
+        &self.commands
+    }
+
+    /// Get the number of commands.
+    pub fn command_count(&self) -> usize {
+        self.commands.len()
+    }
+
     /// Check if recording has cached strips.
     pub fn has_cached_strips(&self) -> bool {
         self.cached_strips.is_some()
@@ -148,16 +163,6 @@ impl Recording {
         self.cached_strips
             .as_ref()
             .map_or(0, |cached| cached.alpha_count())
-    }
-
-    /// Set cached strips.
-    pub fn set_cached_strips(
-        &mut self,
-        strips: Box<[Strip]>,
-        alphas: Box<[u8]>,
-        strip_ranges: Box<[(usize, usize)]>,
-    ) {
-        self.cached_strips = Some(CachedStrips::new(strips, alphas, strip_ranges));
     }
 
     /// Get cached strips.
@@ -179,6 +184,21 @@ impl Recording {
         self.commands.clear();
         self.cached_strips = None;
         self.transform = Affine::IDENTITY;
+    }
+
+    /// Add a command to the recording.
+    pub(crate) fn add_command(&mut self, command: RenderCommand) {
+        self.commands.push(command);
+    }
+
+    /// Set cached strips.
+    pub(crate) fn set_cached_strips(
+        &mut self,
+        strips: Box<[Strip]>,
+        alphas: Box<[u8]>,
+        strip_ranges: Box<[(usize, usize)]>,
+    ) {
+        self.cached_strips = Some(CachedStrips::new(strips, alphas, strip_ranges));
     }
 }
 
@@ -271,7 +291,7 @@ pub trait Recordable {
     fn prepare_recording(&mut self, recording: &mut Recording) {
         if !recording.has_cached_strips() {
             let (strips, alphas, strip_ranges) =
-                self.generate_strips_from_commands(&recording.commands);
+                self.generate_strips_from_commands(recording.commands());
             recording.set_cached_strips(
                 strips.into_boxed_slice(),
                 alphas.into_boxed_slice(),
@@ -404,69 +424,58 @@ impl<'a> Recorder<'a> {
     /// Fill a path with current paint and fill rule.
     pub fn fill_path(&mut self, path: &BezPath) {
         self.recording
-            .commands
-            .push(RenderCommand::FillPath(path.clone()));
+            .add_command(RenderCommand::FillPath(path.clone()));
     }
 
     /// Stroke a path with current paint and stroke settings.
     pub fn stroke_path(&mut self, path: &BezPath) {
         self.recording
-            .commands
-            .push(RenderCommand::StrokePath(path.clone()));
+            .add_command(RenderCommand::StrokePath(path.clone()));
     }
 
     /// Fill a rectangle with current paint and fill rule.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        self.recording.commands.push(RenderCommand::FillRect(*rect));
+        self.recording.add_command(RenderCommand::FillRect(*rect));
     }
 
     /// Stroke a rectangle with current paint and stroke settings.
     pub fn stroke_rect(&mut self, rect: &Rect) {
-        self.recording
-            .commands
-            .push(RenderCommand::StrokeRect(*rect));
+        self.recording.add_command(RenderCommand::StrokeRect(*rect));
     }
 
     /// Set the transform for subsequent operations.
     pub fn set_transform(&mut self, transform: Affine) {
         self.recording
-            .commands
-            .push(RenderCommand::SetTransform(transform));
+            .add_command(RenderCommand::SetTransform(transform));
     }
 
     /// Set the fill rule for subsequent fill operations.
     pub fn set_fill_rule(&mut self, fill_rule: Fill) {
         self.recording
-            .commands
-            .push(RenderCommand::SetFillRule(fill_rule));
+            .add_command(RenderCommand::SetFillRule(fill_rule));
     }
 
     /// Set the stroke settings for subsequent stroke operations.
     pub fn set_stroke(&mut self, stroke: Stroke) {
-        self.recording
-            .commands
-            .push(RenderCommand::SetStroke(stroke));
+        self.recording.add_command(RenderCommand::SetStroke(stroke));
     }
 
     /// Set the paint for subsequent rendering operations.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.recording
-            .commands
-            .push(RenderCommand::SetPaint(paint.into()));
+            .add_command(RenderCommand::SetPaint(paint.into()));
     }
 
     /// Set the current paint transform.
     pub fn set_paint_transform(&mut self, paint_transform: Affine) {
         self.recording
-            .commands
-            .push(RenderCommand::SetPaintTransform(paint_transform));
+            .add_command(RenderCommand::SetPaintTransform(paint_transform));
     }
 
     /// Reset the current paint transform.
     pub fn reset_paint_transform(&mut self) {
         self.recording
-            .commands
-            .push(RenderCommand::ResetPaintTransform);
+            .add_command(RenderCommand::ResetPaintTransform);
     }
 
     /// Push a new layer with the given properties.
@@ -477,7 +486,7 @@ impl<'a> Recorder<'a> {
         opacity: Option<f32>,
         mask: Option<Mask>,
     ) {
-        self.recording.commands.push(RenderCommand::PushLayer {
+        self.recording.add_command(RenderCommand::PushLayer {
             clip_path: clip_path.cloned(),
             blend_mode,
             opacity,
@@ -492,6 +501,6 @@ impl<'a> Recorder<'a> {
 
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
-        self.recording.commands.push(RenderCommand::PopLayer);
+        self.recording.add_command(RenderCommand::PopLayer);
     }
 }
