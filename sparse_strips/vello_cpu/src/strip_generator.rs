@@ -88,7 +88,6 @@ impl StripGenerator {
         self.alphas = alpha_buf;
     }
 
-    #[cfg(feature = "multithreading")]
     pub(crate) fn take_alpha_buf(&mut self) -> Vec<u8> {
         core::mem::take(&mut self.alphas)
     }

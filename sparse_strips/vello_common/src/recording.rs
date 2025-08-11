@@ -12,7 +12,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 /// Cached sparse strip data.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CachedStrips {
     /// The cached sparse strips.
     strips: Box<[Strip]>,
@@ -68,7 +68,7 @@ impl CachedStrips {
 }
 
 /// A recording of rendering commands that can cache generated strips.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Recording {
     /// Recorded commands.
     pub commands: Vec<RenderCommand>,
@@ -79,7 +79,7 @@ pub struct Recording {
 }
 
 /// Individual rendering commands that can be recorded.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum RenderCommand {
     /// Fill a path.
     FillPath(BezPath),

@@ -607,7 +607,6 @@ impl Recordable for RenderContext {
         let saved_state = self.save_current_state();
         let mut strip_generator = StripGenerator::new(self.width, self.height, self.level);
         let mut collected_strips = Vec::new();
-        let mut collected_alphas = Vec::new();
         let mut strip_ranges = Vec::new();
 
         for command in commands {
@@ -615,44 +614,24 @@ impl Recordable for RenderContext {
 
             match command {
                 RenderCommand::FillPath(path) => {
-                    self.generate_fill_strips(
-                        path,
-                        &mut collected_strips,
-                        &mut collected_alphas,
-                        &mut strip_generator,
-                    );
+                    self.generate_fill_strips(path, &mut collected_strips, &mut strip_generator);
                     let count = collected_strips.len() - start_index;
                     strip_ranges.push((start_index, count));
                 }
                 RenderCommand::StrokePath(path) => {
-                    self.generate_stroke_strips(
-                        path,
-                        &mut collected_strips,
-                        &mut collected_alphas,
-                        &mut strip_generator,
-                    );
+                    self.generate_stroke_strips(path, &mut collected_strips, &mut strip_generator);
                     let count = collected_strips.len() - start_index;
                     strip_ranges.push((start_index, count));
                 }
                 RenderCommand::FillRect(rect) => {
                     let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_fill_strips(
-                        &path,
-                        &mut collected_strips,
-                        &mut collected_alphas,
-                        &mut strip_generator,
-                    );
+                    self.generate_fill_strips(&path, &mut collected_strips, &mut strip_generator);
                     let count = collected_strips.len() - start_index;
                     strip_ranges.push((start_index, count));
                 }
                 RenderCommand::StrokeRect(rect) => {
                     let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_stroke_strips(
-                        &path,
-                        &mut collected_strips,
-                        &mut collected_alphas,
-                        &mut strip_generator,
-                    );
+                    self.generate_stroke_strips(&path, &mut collected_strips, &mut strip_generator);
                     let count = collected_strips.len() - start_index;
                     strip_ranges.push((start_index, count));
                 }
@@ -669,6 +648,7 @@ impl Recordable for RenderContext {
             }
         }
 
+        let collected_alphas = strip_generator.take_alpha_buf();
         self.restore_current_state(saved_state);
 
         (collected_strips, collected_alphas, strip_ranges)
@@ -788,7 +768,6 @@ impl RenderContext {
         &mut self,
         path: &BezPath,
         strips: &mut Vec<Strip>,
-        alphas: &mut Vec<u8>,
         strip_generator: &mut StripGenerator,
     ) {
         strip_generator.generate_filled_path(
@@ -800,7 +779,6 @@ impl RenderContext {
                 strips.extend_from_slice(generated_strips);
             },
         );
-        alphas.extend_from_slice(strip_generator.alpha_buf());
     }
 
     /// Generate strips for a stroked path.
@@ -808,7 +786,6 @@ impl RenderContext {
         &mut self,
         path: &BezPath,
         strips: &mut Vec<Strip>,
-        alphas: &mut Vec<u8>,
         strip_generator: &mut StripGenerator,
     ) {
         strip_generator.generate_stroked_path(
@@ -820,7 +797,6 @@ impl RenderContext {
                 strips.extend_from_slice(generated_strips);
             },
         );
-        alphas.extend_from_slice(strip_generator.alpha_buf());
     }
 
     /// Save the current rendering state.
