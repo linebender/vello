@@ -51,7 +51,6 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
     fn record(&mut self, f: impl FnOnce(&mut Recorder<'_>)) -> Recording;
     fn record_into(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
-    fn prepare_recording(&mut self, recording: &mut Recording);
     fn render_recording(&mut self, recording: &mut Recording);
 }
 
@@ -168,10 +167,6 @@ impl Renderer for RenderContext {
 
     fn record_into(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
         Recordable::record_into(self, recording, f);
-    }
-
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(self, recording);
     }
 
     fn render_recording(&mut self, recording: &mut Recording) {
@@ -481,10 +476,6 @@ impl Renderer for HybridRenderer {
         self.scene.record_into(recording, f);
     }
 
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        self.scene.prepare_recording(recording);
-    }
-
     fn render_recording(&mut self, recording: &mut Recording) {
         self.scene.render_recording(recording);
     }
@@ -680,10 +671,6 @@ impl Renderer for HybridRenderer {
 
     fn record_into(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
         self.scene.record_into(recording, f);
-    }
-
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        self.scene.prepare_recording(recording);
     }
 
     fn render_recording(&mut self, recording: &mut Recording) {
