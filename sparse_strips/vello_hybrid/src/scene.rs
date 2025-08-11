@@ -378,7 +378,7 @@ impl Recordable for Scene {
         &mut self,
         commands: &[RenderCommand],
     ) -> (Vec<Strip>, Vec<u8>, Vec<(usize, usize)>) {
-        let saved_state = self.save_current_state();
+        let saved_state = self.take_current_state();
 
         let mut collected_strips = Vec::new();
         let mut strip_ranges = Vec::new();
@@ -560,16 +560,16 @@ impl Scene {
     }
 
     /// Save current rendering state.
-    fn save_current_state(&self) -> RenderState {
+    fn take_current_state(&mut self) -> RenderState {
         RenderState {
             paint: self.paint.clone(),
             paint_transform: self.paint_transform,
-            stroke: self.stroke.clone(),
             transform: self.transform,
             fill_rule: self.fill_rule,
             blend_mode: self.blend_mode,
-            strip_buf: self.strip_buf.clone(),
-            alphas: self.alphas.clone(),
+            stroke: core::mem::take(&mut self.stroke),
+            strip_buf: core::mem::take(&mut self.strip_buf),
+            alphas: core::mem::take(&mut self.alphas),
         }
     }
 
