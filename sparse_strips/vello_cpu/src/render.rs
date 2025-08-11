@@ -669,31 +669,33 @@ impl Recordable for RenderContext {
                     | RenderCommand::StrokePath(_)
                     | RenderCommand::FillRect(_)
                     | RenderCommand::StrokeRect(_) => {
-                        if range_index < strip_ranges.len() {
-                            let (start, count) = strip_ranges[range_index];
-
-                            if start < adjusted_strips.len() && count > 0 {
-                                let paint = self.encode_current_paint();
-                                let end = (start + count).min(adjusted_strips.len());
-                                let fill_rule = match command {
-                                    RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => {
-                                        self.fill_rule
-                                    }
-                                    RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => {
-                                        Fill::NonZero
-                                    }
-                                    _ => Fill::NonZero,
-                                };
-                                self.dispatcher.wide_mut().generate(
-                                    &adjusted_strips[start..end],
-                                    fill_rule,
-                                    paint,
-                                    0,
-                                );
+                        assert!(
+                            range_index < strip_ranges.len(),
+                            "Strip range index out of bounds"
+                        );
+                        let (start, count) = strip_ranges[range_index];
+                        assert!(
+                            start < adjusted_strips.len() && count > 0,
+                            "Invalid strip range"
+                        );
+                        let end = start + count;
+                        let paint = self.encode_current_paint();
+                        let fill_rule = match command {
+                            RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => {
+                                self.fill_rule
                             }
-
-                            range_index += 1;
-                        }
+                            RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => {
+                                Fill::NonZero
+                            }
+                            _ => Fill::NonZero,
+                        };
+                        self.dispatcher.wide_mut().generate(
+                            &adjusted_strips[start..end],
+                            fill_rule,
+                            paint,
+                            0,
+                        );
+                        range_index += 1;
                     }
                     RenderCommand::SetPaint(paint) => {
                         self.set_paint(paint.clone());
@@ -751,16 +753,17 @@ impl RenderContext {
     ) -> Vec<Strip> {
         // Calculate offset for alpha indices based on current dispatcher's alpha buffer size.
         let alpha_offset = self.dispatcher.alpha_buf().len() as u32;
-        // Create adjusted strips with corrected alpha indices.
-        let mut adjusted_strips = Vec::with_capacity(cached_strips.len());
-        for strip in cached_strips {
-            let mut adjusted_strip = *strip;
-            adjusted_strip.alpha_idx += alpha_offset;
-            adjusted_strips.push(adjusted_strip);
-        }
         // Extend the dispatcher's alpha buffer with cached alphas.
         self.dispatcher.extend_alpha_buf(cached_alphas);
-        adjusted_strips
+        // Create adjusted strips with corrected alpha indices.
+        cached_strips
+            .iter()
+            .map(move |strip| {
+                let mut adjusted_strip = *strip;
+                adjusted_strip.alpha_idx += alpha_offset;
+                adjusted_strip
+            })
+            .collect()
     }
 
     /// Generate strips for a filled path.
