@@ -286,7 +286,11 @@ struct TileEl {
 impl TileEl {
     fn get_draw_texture(&self, buffer_depth: usize) -> usize {
         if buffer_depth > 1 {
-            self.dest_slot.get_texture()
+            if let Some(temp_slot) = self.temporary_slot {
+                temp_slot.get_texture()
+            } else {
+                self.dest_slot.get_texture()
+            }
         } else {
             2
         }
@@ -374,7 +378,7 @@ impl Scheduler {
     ///
     /// The rounds queue must not be empty.
     fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
-        let round = self.rounds_queue.pop_front().unwrap();
+        let round = dbg!(self.rounds_queue.pop_front().unwrap());
 
         #[cfg(debug_assertions)]
         {
@@ -391,8 +395,17 @@ impl Scheduler {
                     2 => "Final Output",
                     _ => "Unknown",
                 };
+                let sampling = match target_idx {
+                    0 => "Texture 1 (odd clip buffer)",
+                    1 => "Texture 0 (even clip buffer)",
+                    2 => "Texture 1 (odd clip buffer)",
+                    _ => "Unknown",
+                };
 
-                println!("  Rendering to: {}", target);
+                println!(
+                    "  Rendering to: {} by sampling slots from {}",
+                    target, sampling
+                );
 
                 for (_, strip) in draw.0.iter().enumerate() {
                     if target_idx < 2 {
@@ -514,10 +527,6 @@ impl Scheduler {
             println!();
         }
         for (i, draw) in round.draws.iter().enumerate() {
-            if draw.0.is_empty() {
-                continue;
-            }
-
             let load = {
                 if i == 2 {
                     // We're rendering to the view, don't clear.
@@ -534,6 +543,11 @@ impl Scheduler {
                     LoadOp::Load
                 }
             };
+
+            if draw.0.is_empty() {
+                continue;
+            }
+
             renderer.render_strips(&draw.0, i, load);
         }
         for i in 0..2 {
@@ -572,7 +586,7 @@ impl Scheduler {
         });
         {
             // If the background has a non-zero alpha then we need to render it.
-            let bg = tile.bg.as_premul_rgba8().to_u32();
+            let bg = dbg!(tile).bg.as_premul_rgba8().to_u32();
             if has_non_zero_alpha(bg) {
                 let draw = self.draw_mut(self.round, 2);
                 draw.0.push(GpuStrip {
@@ -601,7 +615,12 @@ impl Scheduler {
                     let (x, y) = if clip_depth == 1 {
                         (scene_strip_x, scene_strip_y)
                     } else {
-                        (fill.x, el.dest_slot.get_idx() as u16 * Tile::HEIGHT)
+                        let slot_idx = if let Some(temp_slot) = el.temporary_slot {
+                            temp_slot.get_idx()
+                        } else {
+                            el.dest_slot.get_idx()
+                        };
+                        (fill.x, slot_idx as u16 * Tile::HEIGHT)
                     };
 
                     draw.0.push(GpuStrip {
@@ -632,7 +651,12 @@ impl Scheduler {
                     let (x, y) = if clip_depth == 1 {
                         (scene_strip_x, scene_strip_y)
                     } else {
-                        (alpha_fill.x, el.dest_slot.get_idx() as u16 * Tile::HEIGHT)
+                        let slot_idx = if let Some(temp_slot) = el.temporary_slot {
+                            temp_slot.get_idx()
+                        } else {
+                            el.dest_slot.get_idx()
+                        };
+                        (alpha_fill.x, slot_idx as u16 * Tile::HEIGHT)
                     };
 
                     draw.0.push(GpuStrip {
@@ -681,6 +705,8 @@ impl Scheduler {
 
                     self.rounds_queue[round - self.round].free[tos.dest_slot.get_texture()]
                         .push(tos.dest_slot.get_idx());
+                    // If a TileEl was not used for blending the temporary slot may still be in use
+                    // and needs to be cleared.
                     if let Some(temp_slot) = tos.temporary_slot {
                         self.rounds_queue[round - self.round].free[temp_slot.get_texture()]
                             .push(temp_slot.get_idx());
@@ -689,11 +715,33 @@ impl Scheduler {
                 Cmd::ClipFill(clip_fill) => {
                     let tos: &TileEl = &state.stack[clip_depth - 1];
                     let nos = &state.stack[clip_depth - 2];
+
                     // Basically if we are writing onto the even texture, we need to go up a round
                     // to target it.
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
-                    let draw = self.draw_mut(round, nos.get_draw_texture(clip_depth - 1));
+                    if let Some(temp_slot) = nos.temporary_slot {
+                        let draw = self.draw_mut(round, nos.dest_slot.get_texture());
+                        let paint: u32 = COLOR_SOURCE_SLOT << 30 | 0xFF; // Full opacity copy
+                        draw.0.push(GpuStrip {
+                            x: 0,
+                            y: nos.dest_slot.get_idx() as u16 * Tile::HEIGHT,
+                            width: WideTile::WIDTH,
+                            dense_width: 0,
+                            col_idx: 0,
+                            payload: temp_slot.get_idx() as u32,
+                            paint,
+                        });
+                    }
+
+                    let draw = self.draw_mut(
+                        round,
+                        if (clip_depth - 1) <= 1 {
+                            2
+                        } else {
+                            nos.dest_slot.get_texture()
+                        },
+                    );
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_fill.x as u16, wide_tile_y)
                     } else {
@@ -713,13 +761,45 @@ impl Scheduler {
                         payload: tos.dest_slot.get_idx() as u32,
                         paint,
                     });
+
+                    let nos_ptr = state.stack.len() - 2;
+                    let _ = &mut state.stack[nos_ptr].temporary_slot.take().iter().for_each(
+                        |temp_slot| {
+                            self.rounds_queue[round - self.round].free[temp_slot.get_texture()]
+                                .push(temp_slot.get_idx());
+                        },
+                    );
                 }
                 Cmd::ClipStrip(clip_alpha_fill) => {
                     let tos = &state.stack[clip_depth - 1];
                     let nos = &state.stack[clip_depth - 2];
+
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
-                    let draw = self.draw_mut(round, nos.get_draw_texture(clip_depth - 1));
+
+                    // If nos has a temporary slot, copy it to dest_slot first
+                    if let Some(temp_slot) = nos.temporary_slot {
+                        let draw = self.draw_mut(round, nos.dest_slot.get_texture());
+                        let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
+                        draw.0.push(dbg!(GpuStrip {
+                            x: 0,
+                            y: nos.dest_slot.get_idx() as u16 * Tile::HEIGHT,
+                            width: WideTile::WIDTH,
+                            dense_width: 0,
+                            col_idx: 0,
+                            payload: temp_slot.get_idx() as u32,
+                            paint,
+                        }));
+                    }
+
+                    let draw = self.draw_mut(
+                        round,
+                        if (clip_depth - 1) <= 1 {
+                            2
+                        } else {
+                            nos.dest_slot.get_texture()
+                        },
+                    );
                     let (x, y) = if clip_depth <= 2 {
                         (wide_tile_x + clip_alpha_fill.x as u16, wide_tile_y)
                     } else {
@@ -730,7 +810,7 @@ impl Scheduler {
                     };
                     // Opacity packed into the first 8 bits – pack full opacity (0xFF).
                     let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
-                    draw.0.push(GpuStrip {
+                    draw.0.push(dbg!(GpuStrip {
                         x,
                         y,
                         width: clip_alpha_fill.width as u16,
@@ -740,7 +820,15 @@ impl Scheduler {
                             .expect("Sparse strips are bound to u32 range"),
                         payload: tos.dest_slot.get_idx() as u32,
                         paint,
-                    });
+                    }));
+
+                    let nos_ptr = state.stack.len() - 2;
+                    let _ = &mut state.stack[nos_ptr].temporary_slot.take().iter().for_each(
+                        |temp_slot| {
+                            self.rounds_queue[round - self.round].free[temp_slot.get_texture()]
+                                .push(temp_slot.get_idx());
+                        },
+                    );
                 }
                 Cmd::Opacity(opacity) => {
                     state.stack.last_mut().unwrap().opacity = *opacity;
@@ -761,30 +849,72 @@ impl Scheduler {
 
                     let tos = state.stack.last().unwrap();
                     let nos = &state.stack[state.stack.len() - 2];
+                    dbg!(tos, nos);
 
-                    let next_round = clip_depth % 2 == 0 && clip_depth > 2;
+                    let next_round: bool = clip_depth % 2 == 0 && clip_depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
-                    let draw = self.draw_mut(round, nos.get_draw_texture(clip_depth - 1));
-                    let (x, y) = if clip_depth <= 2 {
-                        (wide_tile_x, wide_tile_y)
+                    if let Some(temp_slot) = nos.temporary_slot {
+                        // let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
+
+                        // I think this can be nos.dest_slot
+                        let draw = self.draw_mut(
+                            round,
+                            if clip_depth <= 2 {
+                                2
+                            } else {
+                                nos.dest_slot.get_texture()
+                            },
+                        );
+                        let (x, y) = if clip_depth <= 2 {
+                            (wide_tile_x, wide_tile_y)
+                        } else {
+                            (0, nos.dest_slot.get_idx() as u16 * Tile::HEIGHT)
+                        };
+
+                        // Blend tos.dest_slot with nos.temporary_slot into nos.dest_slot
+                        let paint = (COLOR_SOURCE_BLEND << 30) | ((temp_slot.get_idx() as u32) << 16)  // dest_slot (14 bits)
+                            | (0 << 8)  // mix_mode = MIX_NORMAL (8 bits)  
+                            | 3; // compose_mode = COMPOSE_SRC_OVER (8 bits)
+
+                        draw.0.push(GpuStrip {
+                            x,
+                            y,
+                            width: WideTile::WIDTH,
+                            dense_width: 0,
+                            col_idx: 0,
+                            payload: tos.dest_slot.get_idx() as u32, // src_slot
+                            paint,
+                        });
+
+                        // Invalidate the temporary slot after use
+                        let nos_ptr = state.stack.len() - 2;
+                        let temporary_slot =
+                            &mut state.stack[nos_ptr].temporary_slot.take().unwrap();
+                        self.rounds_queue[round - self.round].free[temporary_slot.get_texture()]
+                            .push(temporary_slot.get_idx());
                     } else {
-                        (0, nos.dest_slot.get_idx() as u16 * Tile::HEIGHT)
-                    };
+                        // let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
+                        let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
+                        let (x, y) = if (clip_depth - 1) <= 2 {
+                            (wide_tile_x, wide_tile_y)
+                        } else {
+                            (0, nos.dest_slot.get_idx() as u16 * Tile::HEIGHT)
+                        };
+                        // No temporary slot - just copy with opacity
+                        let opacity_u8 = (tos.opacity * 255.0) as u32;
+                        let paint = (COLOR_SOURCE_SLOT << 30) | opacity_u8;
 
-                    // Opacity packed into the first 8 bits.
-                    let opacity_u8 = (tos.opacity * 255.0) as u32;
-                    let paint = (COLOR_SOURCE_SLOT << 30) | opacity_u8;
-
-                    draw.0.push(GpuStrip {
-                        x,
-                        y,
-                        width: WideTile::WIDTH,
-                        dense_width: 0,
-                        col_idx: 0,
-                        payload: tos.dest_slot.get_idx() as u32,
-                        paint,
-                    });
+                        draw.0.push(GpuStrip {
+                            x,
+                            y,
+                            width: WideTile::WIDTH,
+                            dense_width: 0,
+                            col_idx: 0,
+                            payload: tos.dest_slot.get_idx() as u32,
+                            paint,
+                        });
+                    }
                 }
                 _ => unimplemented!(),
             }

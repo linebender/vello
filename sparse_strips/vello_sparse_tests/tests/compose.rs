@@ -24,12 +24,11 @@ fn compose(ctx: &mut impl Renderer, compose: Compose) {
 }
 
 #[vello_test(height = 8)]
-fn compose_wide_tile_nested(ctx: &mut impl Renderer) {
+fn wide_tile_nested_with_explicit_composition(ctx: &mut impl Renderer) {
     const WIDTH: f64 = 100.0;
     const HEIGHT: f64 = 8.0;
     const OFFSET: f64 = 50.0;
 
-    // Pure colors: max values only
     let blue = Color::from_rgb8(0, 0, 255);
     let green = Color::from_rgb8(0, 255, 0);
 
