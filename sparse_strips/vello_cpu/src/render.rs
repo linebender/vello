@@ -603,11 +603,12 @@ impl Recordable for RenderContext {
     fn generate_strips_from_commands(
         &mut self,
         commands: &[RenderCommand],
-    ) -> (Vec<Strip>, Vec<u8>, Vec<(usize, usize)>) {
+    ) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
         let saved_state = self.take_current_state();
+
         let mut strip_generator = StripGenerator::new(self.width, self.height, self.level);
         let mut collected_strips = Vec::new();
-        let mut strip_ranges = Vec::new();
+        let mut strip_start_indices = Vec::new();
 
         for command in commands {
             let start_index = collected_strips.len();
@@ -615,25 +616,21 @@ impl Recordable for RenderContext {
             match command {
                 RenderCommand::FillPath(path) => {
                     self.generate_fill_strips(path, &mut collected_strips, &mut strip_generator);
-                    let count = collected_strips.len() - start_index;
-                    strip_ranges.push((start_index, count));
+                    strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokePath(path) => {
                     self.generate_stroke_strips(path, &mut collected_strips, &mut strip_generator);
-                    let count = collected_strips.len() - start_index;
-                    strip_ranges.push((start_index, count));
+                    strip_start_indices.push(start_index);
                 }
                 RenderCommand::FillRect(rect) => {
                     let path = rect.to_path(DEFAULT_TOLERANCE);
                     self.generate_fill_strips(&path, &mut collected_strips, &mut strip_generator);
-                    let count = collected_strips.len() - start_index;
-                    strip_ranges.push((start_index, count));
+                    strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokeRect(rect) => {
                     let path = rect.to_path(DEFAULT_TOLERANCE);
                     self.generate_stroke_strips(&path, &mut collected_strips, &mut strip_generator);
-                    let count = collected_strips.len() - start_index;
-                    strip_ranges.push((start_index, count));
+                    strip_start_indices.push(start_index);
                 }
                 RenderCommand::SetTransform(transform) => {
                     self.transform = *transform;
@@ -651,15 +648,15 @@ impl Recordable for RenderContext {
         let collected_alphas = strip_generator.take_alpha_buf();
         self.restore_state(saved_state);
 
-        (collected_strips, collected_alphas, strip_ranges)
+        (collected_strips, collected_alphas, strip_start_indices)
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
         if let Some((cached_strips, cached_alphas)) = recording.get_cached_strips() {
             let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
 
-            // Use pre-calculated strip ranges from when we generated the cache.
-            let strip_ranges = recording.get_strip_ranges();
+            // Use pre-calculated strip start indices from when we generated the cache.
+            let strip_start_indices = recording.get_strip_start_indices();
             let mut range_index = 0;
 
             // Replay commands in order, using cached strips for geometry.
@@ -670,15 +667,19 @@ impl Recordable for RenderContext {
                     | RenderCommand::FillRect(_)
                     | RenderCommand::StrokeRect(_) => {
                         assert!(
-                            range_index < strip_ranges.len(),
+                            range_index < strip_start_indices.len(),
                             "Strip range index out of bounds"
                         );
-                        let (start, count) = strip_ranges[range_index];
+                        let start = strip_start_indices[range_index];
+                        let end = strip_start_indices
+                            .get(range_index + 1)
+                            .copied()
+                            .unwrap_or(adjusted_strips.len());
+                        let count = end - start;
                         assert!(
                             start < adjusted_strips.len() && count > 0,
                             "Invalid strip range"
                         );
-                        let end = start + count;
                         let paint = self.encode_current_paint();
                         let fill_rule = match command {
                             RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => {
