@@ -894,46 +894,6 @@ impl WideTile {
             // we can just pop it instead.
             self.cmds.pop();
         } else {
-            #[cfg(feature = "cpu")]
-            if self.cmds.len() >= 3 {
-                // If we have a non-destructive blend mode with just a single fill/strip,
-                // inline the blend mode instead.
-                // `vello_hybrid` can't leverage this optimization due to fundamental limitations in
-                // GPU texture read/write access.
-                let (_, tail) = self.cmds.split_at(self.cmds.len() - 3);
-
-                let updated = match tail {
-                    [Cmd::PushBuf, Cmd::AlphaFill(a), Cmd::Blend(b)] => {
-                        if !b.is_destructive() && a.blend_mode.is_none() {
-                            let mut blended = a.clone();
-                            blended.blend_mode = Some(*b);
-                            Some(Cmd::AlphaFill(blended))
-                        } else {
-                            None
-                        }
-                    }
-                    [Cmd::PushBuf, Cmd::Fill(a), Cmd::Blend(b)] => {
-                        if !b.is_destructive() && a.blend_mode.is_none() {
-                            let mut blended = a.clone();
-                            blended.blend_mode = Some(*b);
-                            Some(Cmd::Fill(blended))
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-
-                if let Some(updated) = updated {
-                    self.cmds.pop();
-                    self.cmds.pop();
-                    self.cmds.pop();
-                    self.cmds.push(updated);
-
-                    return;
-                }
-            }
-
             self.cmds.push(Cmd::PopBuf);
         }
 
@@ -1073,7 +1033,7 @@ impl BlendModeExt for BlendMode {
 
 #[cfg(test)]
 mod tests {
-    use crate::coarse::{Cmd, CmdFill, Wide, WideTile};
+    use crate::coarse::{Wide, WideTile};
     use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
     use crate::paint::{Paint, PremulColor};
@@ -1107,31 +1067,6 @@ mod tests {
         wide.pop_buf();
 
         assert_eq!(wide.cmds.len(), 4);
-    }
-
-    #[test]
-    fn inline_blend_with_one_fill() {
-        let paint = Paint::Solid(PremulColor::from_alpha_color(AlphaColor::from_rgba8(
-            30, 30, 30, 255,
-        )));
-        let blend_mode = BlendMode::new(Mix::Lighten, Compose::SrcOver);
-
-        let mut wide = WideTile::new(0, 0);
-        wide.push_buf();
-        wide.fill(0, 10, paint.clone());
-        wide.blend(blend_mode);
-        wide.pop_buf();
-
-        assert_eq!(wide.cmds.len(), 1);
-
-        let expected = Cmd::Fill(CmdFill {
-            x: 0,
-            width: 10,
-            paint,
-            blend_mode: Some(blend_mode),
-        });
-
-        assert_eq!(wide.cmds[0], expected);
     }
 
     #[test]

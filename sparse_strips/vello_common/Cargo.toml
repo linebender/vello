@@ -42,8 +42,6 @@ png = ["std", "dep:png"]
 multithreading = ["std"]
 # Add support for text rendering
 text = ["dep:skrifa"]
-# Turn on `vello_cpu` specific optimizations that `vello_hybrid` can't use.
-cpu = []
 
 # Development only features
 
