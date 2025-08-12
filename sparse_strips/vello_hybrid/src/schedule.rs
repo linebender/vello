@@ -901,7 +901,11 @@ impl Scheduler {
                         } else {
                             (0, nos.dest_slot.get_idx() as u16 * Tile::HEIGHT)
                         };
-                        assert_eq!(nos.dest_slot.get_idx(), usize::MAX, "code path only for copying to sentinal slot");
+                        assert_eq!(
+                            nos.dest_slot.get_idx(),
+                            usize::MAX,
+                            "code path only for copying to sentinal slot"
+                        );
                         // The final canvas cannot be read from, hence we canot create a temporary slot
                         // for it. We instead just copy with opacity.
                         let opacity_u8 = (tos.opacity * 255.0) as u32;
