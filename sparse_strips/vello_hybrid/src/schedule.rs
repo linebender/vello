@@ -226,12 +226,10 @@ pub(crate) struct Scheduler {
     clear: [Vec<u32>; 2],
     /// Rounds are enqueued on push clip commands and dequeued on flush.
     rounds_queue: VecDeque<Round>,
-    /// Pending tile work.
-    pending_work: Vec<PendingTileWork>,
 }
 
 #[derive(Debug)]
-struct PendingTileWork {
+struct PendingTileWork<'a> {
     // Used to reference the wide tile.
     wide_tile_col: u16,
     // Used to reference the wide tile.
@@ -239,6 +237,7 @@ struct PendingTileWork {
     next_cmd_idx: usize,
     stack: TileState,
     suspended_at_round: usize,
+    annotated_cmds: Vec<AnnotatedCmd<'a>>,
 }
 
 /// A "round" is a coarse scheduling quantum.
@@ -277,6 +276,23 @@ impl ClaimedSlot {
         match self {
             Self::Texture0(_) => 0,
             Self::Texture1(_) => 1,
+        }
+    }
+}
+
+/// Annotated commands lets the scheduler be smarter about what work to do per command by preparing
+/// some work upfront in `O(N)` time, where `N` is the length of the wide tile draw commands.
+#[derive(Debug)]
+enum AnnotatedCmd<'a> {
+    IdentityBorrowed(&'a Cmd),
+    Generated(Cmd),
+}
+
+impl<'a> AnnotatedCmd<'a> {
+    fn unwrap<'b: 'a>(&'b self) -> &'a Cmd {
+        match self {
+            AnnotatedCmd::IdentityBorrowed(cmd) => cmd,
+            AnnotatedCmd::Generated(cmd) => &cmd,
         }
     }
 }
@@ -323,7 +339,6 @@ impl Scheduler {
             free,
             clear,
             rounds_queue: Default::default(),
-            pending_work: Default::default(),
         }
     }
 
@@ -338,13 +353,14 @@ impl Scheduler {
         }
     }
 
-    pub(crate) fn do_scene<R: RendererBackend>(
+    pub(crate) fn do_scene<'scene, R: RendererBackend>(
         &mut self,
         renderer: &mut R,
-        scene: &Scene,
+        scene: &'scene Scene,
     ) -> Result<(), RenderError> {
         let wide_tiles_per_row = scene.wide.width_tiles();
         let wide_tiles_per_col = scene.wide.height_tiles();
+        let mut pending_work: Vec<PendingTileWork<'scene>> = Default::default();
 
         // Left to right, top to bottom iteration over wide tiles.
         for wide_tile_row in 0..wide_tiles_per_col {
@@ -354,22 +370,24 @@ impl Scheduler {
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
 
                 let mut tile_state = self.initialize_tile(wide_tile, wide_tile_x, wide_tile_y);
+                let annotated_cmds = prepare_cmds(&wide_tile.cmds);
                 match self.do_tile(
                     renderer,
                     scene,
                     wide_tile_x,
                     wide_tile_y,
-                    wide_tile,
+                    &annotated_cmds,
                     &mut tile_state,
                     0,
                 )? {
                     Some(next_cmd_idx) => {
-                        self.pending_work.push(PendingTileWork {
+                        pending_work.push(PendingTileWork {
                             wide_tile_col,
                             wide_tile_row,
                             next_cmd_idx,
                             stack: tile_state,
                             suspended_at_round: self.round,
+                            annotated_cmds,
                         });
                     }
                     None => {
@@ -378,17 +396,16 @@ impl Scheduler {
                 };
             }
         }
-        while !self.rounds_queue.is_empty() || !self.pending_work.is_empty() {
+        while !self.rounds_queue.is_empty() || !pending_work.is_empty() {
             if !self.rounds_queue.is_empty() {
                 self.flush(renderer);
             }
 
             // Resume pending tiles after flush
-            let pending: Vec<PendingTileWork> = mem::take(&mut self.pending_work);
+            let pending: Vec<PendingTileWork<'scene>> = mem::take(&mut pending_work);
             for work in pending {
                 let wide_tile_col = work.wide_tile_col;
                 let wide_tile_row = work.wide_tile_row;
-                let wide_tile = scene.wide.get(wide_tile_col, wide_tile_row);
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
                 let mut tile_state = work.stack;
@@ -403,18 +420,19 @@ impl Scheduler {
                     scene,
                     wide_tile_x,
                     wide_tile_y,
-                    wide_tile,
+                    &work.annotated_cmds,
                     &mut tile_state,
                     work.next_cmd_idx,
                 )? {
                     Some(next_cmd_idx) => {
                         // More work remains
-                        self.pending_work.push(PendingTileWork {
+                        pending_work.push(PendingTileWork {
                             wide_tile_col,
                             wide_tile_row,
                             next_cmd_idx,
                             stack: tile_state,
                             suspended_at_round: self.round,
+                            annotated_cmds: work.annotated_cmds,
                         });
                     }
                     None => {
@@ -521,21 +539,22 @@ impl Scheduler {
     /// Iterates over wide tile commands and schedules them for rendering. Returns
     /// `Some(command_idx)` if there is more work to be done. Returns `None` if the wide tile has
     /// been fully consumed.
-    fn do_tile<R: RendererBackend>(
+    fn do_tile<'a, R: RendererBackend>(
         &mut self,
         renderer: &mut R,
         scene: &Scene,
         wide_tile_x: u16,
         wide_tile_y: u16,
-        tile: &WideTile,
+        cmds: &[AnnotatedCmd<'a>],
         state: &mut TileState,
         start_cmd_idx: usize,
     ) -> Result<Option<usize>, RenderError> {
         let mut has_blended = false;
-        for (offset_cmd_idx, cmd) in tile.cmds[start_cmd_idx..].iter().enumerate() {
+        for (offset_cmd_idx, annotated_cmd) in cmds[start_cmd_idx..].iter().enumerate() {
             let cmd_idx = start_cmd_idx + offset_cmd_idx;
             // Note: this starts at 1 (for the final target)
             let clip_depth = state.stack.len();
+            let cmd = annotated_cmd.unwrap();
             match cmd {
                 Cmd::Fill(fill) => {
                     let el = state.stack.last().unwrap();
@@ -666,19 +685,12 @@ impl Scheduler {
                     }
 
                     let slot = self.claim_free_slot(ix);
-                    // TODO: In the future we can use a two pointer method, where we traverse
-                    // backwards through the wide tile commands to see if the layer follows a "Blend
-                    // -> Pop" pattern compared to something like a "Clip -> Pop" pattern. Then we
-                    // can use that to allocate temporary slots for that layer.
-                    let temporary_slot = if should_use_temporary_slot(&tile.cmds, cmd_idx) {
+                    // TODO: In the future this should be prepared on the annotated cmd.
+                    let temporary_slot = if should_use_temporary_slot(cmds, cmd_idx) {
                         Some(self.claim_free_slot((ix + 1) % 2))
                     } else {
                         None
                     };
-                    // TODO: We need to check the top of the stack - add a temporary slot texture if
-                    // required AND push a GPUStrip that copies the data from the top of stack dest
-                    // up to the temporary slot. This is required in case this layer is later
-                    // blended down.
                     state.stack.push(TileEl {
                         dest_slot: slot,
                         temporary_slot,
@@ -969,9 +981,9 @@ impl Scheduler {
 }
 
 /// Look ahead to see if it's possible that blending will happen.
-fn should_use_temporary_slot(cmds: &[Cmd], current_idx: usize) -> bool {
+fn should_use_temporary_slot<'a>(cmds: &[AnnotatedCmd<'a>], current_idx: usize) -> bool {
     for cmd in &cmds[current_idx + 1..] {
-        match cmd {
+        match cmd.unwrap() {
             Cmd::PushBuf => return true,
             Cmd::PopBuf => return false, // End of this buffer's scope
             _ => continue,
@@ -983,4 +995,41 @@ fn should_use_temporary_slot(cmds: &[Cmd], current_idx: usize) -> bool {
 #[inline(always)]
 fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
+}
+
+/// Does a single linear scan over the wide tile commands to prepare them for `do_tile`. Notably
+/// this function:
+///  - Removes certain optimizations that vello_cpu can leverage.
+///  - TODO: Precompute layers that require temporary slots.
+fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
+    let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Default::default();
+
+    for cmd in cmds {
+        match cmd {
+            Cmd::AlphaFill(fill) if fill.blend_mode.is_some() => {
+                let blend_mode = fill.blend_mode.unwrap();
+                annotated_commands.push(AnnotatedCmd::Generated(Cmd::PushBuf));
+                let mut fill_without_blend = fill.clone();
+                fill_without_blend.blend_mode = None;
+                annotated_commands
+                    .push(AnnotatedCmd::Generated(Cmd::AlphaFill(fill_without_blend)));
+                annotated_commands.push(AnnotatedCmd::Generated(Cmd::Blend(blend_mode)));
+                annotated_commands.push(AnnotatedCmd::Generated(Cmd::PopBuf));
+            }
+            Cmd::Fill(fill) if fill.blend_mode.is_some() => {
+                let blend_mode = fill.blend_mode.unwrap();
+                annotated_commands.push(AnnotatedCmd::Generated(Cmd::PushBuf));
+                let mut fill_without_blend = fill.clone();
+                fill_without_blend.blend_mode = None;
+                annotated_commands.push(AnnotatedCmd::Generated(Cmd::Fill(fill_without_blend)));
+                annotated_commands.push(AnnotatedCmd::Generated(Cmd::Blend(blend_mode)));
+                annotated_commands.push(AnnotatedCmd::Generated(Cmd::PopBuf));
+            }
+            _ => {
+                annotated_commands.push(AnnotatedCmd::IdentityBorrowed(cmd));
+            }
+        }
+    }
+
+    annotated_commands
 }
