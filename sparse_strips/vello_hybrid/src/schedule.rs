@@ -268,15 +268,15 @@ enum ClaimedSlot {
 impl ClaimedSlot {
     fn get_idx(&self) -> usize {
         match self {
-            ClaimedSlot::Texture0(idx) => *idx,
-            ClaimedSlot::Texture1(idx) => *idx,
+            Self::Texture0(idx) => *idx,
+            Self::Texture1(idx) => *idx,
         }
     }
 
     fn get_texture(&self) -> usize {
         match self {
-            ClaimedSlot::Texture0(_) => 0,
-            ClaimedSlot::Texture1(_) => 1,
+            Self::Texture0(_) => 0,
+            Self::Texture1(_) => 1,
         }
     }
 }
@@ -285,10 +285,10 @@ impl ClaimedSlot {
 struct TileEl {
     /// `dest_slot` represents the final location of where the contents of this tile will end up. If
     /// there are layers, then painting happens to `temporary_slot` such that blending can be done
-    /// to the dest_slot with another slot.
+    /// to the `dest_slot` with another slot.
     dest_slot: ClaimedSlot,
     /// Temporary slot only used if we know there is another layer pushed above this tile element.
-    /// INVARIANT: This slot and the dest_slot are always on opposite textures.
+    /// INVARIANT: This slot and the `dest_slot` are always on opposite textures.
     temporary_slot: Option<ClaimedSlot>,
     round: usize,
     opacity: f32,
@@ -773,7 +773,7 @@ impl Scheduler {
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
-                    // If nos has a temporary slot, copy it to dest_slot first
+                    // If nos has a temporary slot, copy it to `dest_slot` first
                     if let Some(temp_slot) = nos.temporary_slot {
                         let draw = self.draw_mut(round, nos.dest_slot.get_texture());
                         let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
@@ -858,7 +858,7 @@ impl Scheduler {
 
                         let opacity_u8 = (tos.opacity * 255.0) as u32;
 
-                        // src_slot (bits 0-15) | dest_slot (bits 16-31)
+                        // src_slot (bits 0-15) | `dest_slot` (bits 16-31)
                         let payload =
                             tos.dest_slot.get_idx() as u32 | ((temp_slot.get_idx() as u32) << 16);
 
@@ -904,10 +904,9 @@ impl Scheduler {
                         assert_eq!(
                             nos.dest_slot.get_idx(),
                             usize::MAX,
-                            "code path only for copying to sentinal slot"
+                            "code path only for copying to sentinel slot"
                         );
-                        // The final canvas cannot be read from, hence we canot create a temporary slot
-                        // for it. We instead just copy with opacity.
+                        // The final canvas is write-only, hence we can only copy with opacity.
                         let opacity_u8 = (tos.opacity * 255.0) as u32;
                         let paint = (COLOR_SOURCE_SLOT << 30) | opacity_u8;
 
