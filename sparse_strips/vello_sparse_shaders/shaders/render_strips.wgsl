@@ -305,7 +305,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         final_color = alpha * opacity * clip_in_color;
     } else if color_source == COLOR_SOURCE_BLEND {
         let opacity = f32((in.paint >> 16u) & 0xFFu) * (1.0 / 255.0);
-        // TODO: Pass and use mix modes.
+        // TODO: Use mix modes. Currently Mix::Normal is hardcoded and this value is discarded.
         let mix_mode = (in.paint >> 8u) & 0xFFu;
         let compose_mode = in.paint & 0xFFu;
         
@@ -314,25 +314,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let dest_slot = (in.payload >> 16u) & 0xFFFFu;
         let clip_x = u32(in.position.x) & 0xFFu;
         let src_y = (u32(in.position.y) & 3u) + src_slot * config.strip_height;
-        // Apply layer opacity to src_color prior to compositing or blending.
-        let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0) * opacity;
+        let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0);
         
         // Read destination color from slot
         let dest_y = (u32(in.position.y) & 3u) + dest_slot * config.strip_height;
         let dest_color = textureLoad(clip_input_texture, vec2(clip_x, dest_y), 0);
-        
-        // Use the blend_mix_compose function for proper blending
-        final_color = blend_mix_compose(dest_color, src_color, compose_mode);
-        
-        // Apply the alpha mask
-        final_color = alpha * final_color;
+
+        final_color = blend_mix_compose(dest_color, src_color * opacity * alpha, compose_mode);
     }
     return final_color;
 }
 
 // Apply color mixing and composition. Both input and output colors are
-// premultiplied RGB.
-// TODO: Add color mixing. Currently only supports compositing.
+// premultiplied RGB. Referenced from:
+//   <https://github.com/linebender/vello/blob/b0e2e598ac62c7b3d04d8660e7b1b7659b596970/vello_shaders/shader/shared/blend.wgsl#L288-L310>
+// TODO: Add color mixing support.
 fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, compose_mode: u32) -> vec4<f32> {
     // Fast path for src_over
     if compose_mode == COMPOSE_SRC_OVER {
@@ -348,8 +344,9 @@ fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, compose_mode: u32) -> 
     return blend_compose_unpremul(cb, cs, backdrop.a, src.a, compose_mode);
 }
 
-// Apply general compositing operation.
-// Inputs are separated colors and alpha, output is premultiplied.
+// Apply general compositing operation. Inputs are separated colors and alpha, output is
+// premultiplied. Referenced from:
+//   <https://github.com/linebender/vello/blob/b0e2e598ac62c7b3d04d8660e7b1b7659b596970/vello_shaders/shader/shared/blend.wgsl#L215>
 fn blend_compose_unpremul(
     cb: vec3<f32>,
     cs: vec3<f32>,
