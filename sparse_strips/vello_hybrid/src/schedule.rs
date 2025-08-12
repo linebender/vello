@@ -1049,20 +1049,23 @@ fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
     let mut pointer_to_push_buf_stack: Vec<usize> = Default::default();
 
     // Second pass: Precompute which buffers will need temporary slots for blending.
-    // TODO: This is currently very loose, and simply assumes if there is a layer above this buffer
-    // that there will be blending.
     for idx in 0..annotated_commands.len() {
         match &annotated_commands[idx].unwrap() {
             Cmd::PushBuf => {
-                if pointer_to_push_buf_stack.len() > 0 {
-                    let push_buf_idx =
-                        pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 1];
-                    annotated_commands[push_buf_idx] = AnnotatedCmd::PushBufWithTemporarySlot;
-                }
                 pointer_to_push_buf_stack.push(idx);
             }
             Cmd::PopBuf => {
                 pointer_to_push_buf_stack.pop();
+            }
+            Cmd::Blend(_) => {
+                // For blending of two layers to work in vello_hybrid, the two slots being blended
+                // must be on the same texture. Hence, annotate the next-on-stack (nos) tile such
+                // that it uses a temporary slot on the same texture as this blend.
+                if pointer_to_push_buf_stack.len() >= 2 {
+                    let push_buf_idx =
+                        pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 2];
+                    annotated_commands[push_buf_idx] = AnnotatedCmd::PushBufWithTemporarySlot;
+                }
             }
             _ => {}
         }
