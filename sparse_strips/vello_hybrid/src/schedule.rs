@@ -286,6 +286,7 @@ impl ClaimedSlot {
 enum AnnotatedCmd<'a> {
     IdentityBorrowed(&'a Cmd),
     Generated(Cmd),
+    PushBufWithTemporarySlot,
 }
 
 impl<'a> AnnotatedCmd<'a> {
@@ -293,6 +294,30 @@ impl<'a> AnnotatedCmd<'a> {
         match self {
             AnnotatedCmd::IdentityBorrowed(cmd) => cmd,
             AnnotatedCmd::Generated(cmd) => &cmd,
+            AnnotatedCmd::PushBufWithTemporarySlot => &Cmd::PushBuf,
+        }
+    }
+}
+
+/// `TemporarySlot` is a container that tracks whether a given tile's temporary slot is live, or
+/// whether the tile never needs the temporary slot.
+#[derive(Clone, Copy, Debug)]
+enum TemporarySlot {
+    None,
+    Valid(ClaimedSlot),
+    Invalid,
+}
+
+impl TemporarySlot {
+    fn take(&mut self) -> Option<ClaimedSlot> {
+        match self {
+            Self::Invalid => None,
+            Self::None => None,
+            Self::Valid(slot) => {
+                let taken = *slot;
+                *self = Self::Invalid;
+                Some(taken)
+            }
         }
     }
 }
@@ -305,7 +330,7 @@ struct TileEl {
     dest_slot: ClaimedSlot,
     /// Temporary slot only used if we know there is another layer pushed above this tile element.
     /// INVARIANT: This slot and the `dest_slot` are always on opposite textures.
-    temporary_slot: Option<ClaimedSlot>,
+    temporary_slot: TemporarySlot,
     round: usize,
     opacity: f32,
 }
@@ -313,7 +338,7 @@ struct TileEl {
 impl TileEl {
     fn get_draw_texture(&self, buffer_depth: usize) -> usize {
         if buffer_depth > 1 {
-            if let Some(temp_slot) = self.temporary_slot {
+            if let TemporarySlot::Valid(temp_slot) = self.temporary_slot {
                 temp_slot.get_texture()
             } else {
                 self.dest_slot.get_texture()
@@ -513,7 +538,7 @@ impl Scheduler {
         // commands to the final target.
         state.stack.push(TileEl {
             dest_slot: ClaimedSlot::Texture0(usize::MAX),
-            temporary_slot: None,
+            temporary_slot: TemporarySlot::None,
             round: self.round,
             opacity: 1.,
         });
@@ -567,7 +592,7 @@ impl Scheduler {
                     let (x, y) = if clip_depth == 1 {
                         (scene_strip_x, scene_strip_y)
                     } else {
-                        let slot_idx = if let Some(temp_slot) = el.temporary_slot {
+                        let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
                             temp_slot.get_idx()
                         } else {
                             el.dest_slot.get_idx()
@@ -603,7 +628,7 @@ impl Scheduler {
                     let (x, y) = if clip_depth == 1 {
                         (scene_strip_x, scene_strip_y)
                     } else {
-                        let slot_idx = if let Some(temp_slot) = el.temporary_slot {
+                        let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
                             temp_slot.get_idx()
                         } else {
                             el.dest_slot.get_idx()
@@ -643,9 +668,9 @@ impl Scheduler {
                     //   2. Creating a GpuStrip to copy from destination to temporary.
                     //   3. Free the stale destination, and claim a new one. Step 3 prevents a blend
                     // into a stale slot which hasn't been cleared yet.
-                    if clip_depth > 1 {
+                    {
                         let tos = state.stack.last_mut().unwrap();
-                        if tos.temporary_slot.is_none() {
+                        if matches!(tos.temporary_slot, TemporarySlot::Invalid) {
                             // Allocate and copy destination into a new temporary slot.
                             let temp_texture = (tos.dest_slot.get_texture() + 1) % 2;
                             while self.free[temp_texture].is_empty() {
@@ -667,7 +692,7 @@ impl Scheduler {
                                 paint,
                             });
 
-                            tos.temporary_slot = Some(temp_slot);
+                            tos.temporary_slot = TemporarySlot::Valid(temp_slot);
 
                             // Deallocate and clear the previous destination slot, and claim a new
                             // destination.
@@ -684,13 +709,15 @@ impl Scheduler {
                         }
                     }
 
+                    // Push a new tile.
+
                     let slot = self.claim_free_slot(ix);
-                    // TODO: In the future this should be prepared on the annotated cmd.
-                    let temporary_slot = if should_use_temporary_slot(cmds, cmd_idx) {
-                        Some(self.claim_free_slot((ix + 1) % 2))
-                    } else {
-                        None
-                    };
+                    let temporary_slot =
+                        if matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot) {
+                            TemporarySlot::Valid(self.claim_free_slot((ix + 1) % 2))
+                        } else {
+                            TemporarySlot::None
+                        };
                     state.stack.push(TileEl {
                         dest_slot: slot,
                         temporary_slot,
@@ -715,7 +742,7 @@ impl Scheduler {
                         .push(tos.dest_slot.get_idx());
                     // If a TileEl was not used for blending the temporary slot may still be in use
                     // and needs to be cleared.
-                    if let Some(temp_slot) = tos.temporary_slot {
+                    if let TemporarySlot::Valid(temp_slot) = tos.temporary_slot {
                         self.rounds_queue[round - self.round].free[temp_slot.get_texture()]
                             .push(temp_slot.get_idx());
                     }
@@ -728,7 +755,7 @@ impl Scheduler {
                     // to target it.
                     let next_round = clip_depth % 2 == 0 && clip_depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
-                    if let Some(temp_slot) = nos.temporary_slot {
+                    if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
                         let draw = self.draw_mut(round, nos.dest_slot.get_texture());
                         let paint: u32 = COLOR_SOURCE_SLOT << 30 | 0xFF; // Full opacity copy
                         draw.0.push(GpuStrip {
@@ -786,7 +813,7 @@ impl Scheduler {
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
                     // If nos has a temporary slot, copy it to `dest_slot` first
-                    if let Some(temp_slot) = nos.temporary_slot {
+                    if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
                         let draw = self.draw_mut(round, nos.dest_slot.get_texture());
                         let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
                         draw.0.push(GpuStrip {
@@ -853,7 +880,7 @@ impl Scheduler {
                     let next_round: bool = clip_depth % 2 == 0 && clip_depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
-                    if let Some(temp_slot) = nos.temporary_slot {
+                    if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
                         let draw = self.draw_mut(
                             round,
                             if clip_depth <= 2 {
@@ -916,7 +943,7 @@ impl Scheduler {
                         assert_eq!(
                             nos.dest_slot.get_idx(),
                             usize::MAX,
-                            "code path only for copying to sentinel slot"
+                            "code path only for copying to sentinel slot, {mode:?}"
                         );
                         // The final canvas is write-only, hence we can only copy with opacity.
                         let opacity_u8 = (tos.opacity * 255.0) as u32;
@@ -980,18 +1007,6 @@ impl Scheduler {
     }
 }
 
-/// Look ahead to see if it's possible that blending will happen.
-fn should_use_temporary_slot<'a>(cmds: &[AnnotatedCmd<'a>], current_idx: usize) -> bool {
-    for cmd in &cmds[current_idx + 1..] {
-        match cmd.unwrap() {
-            Cmd::PushBuf => return true,
-            Cmd::PopBuf => return false, // End of this buffer's scope
-            _ => continue,
-        }
-    }
-    false
-}
-
 #[inline(always)]
 fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
@@ -1003,7 +1018,8 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 ///  - TODO: Precompute layers that require temporary slots.
 fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
     let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Default::default();
-
+    // vello_hybrid cannot support non destructive in-place composites. Expand out to explicit blend
+    // layers.
     for cmd in cmds {
         match cmd {
             Cmd::AlphaFill(fill) if fill.blend_mode.is_some() => {
@@ -1028,6 +1044,27 @@ fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
             _ => {
                 annotated_commands.push(AnnotatedCmd::IdentityBorrowed(cmd));
             }
+        }
+    }
+    let mut pointer_to_push_buf_stack: Vec<usize> = Default::default();
+
+    // Second pass: Precompute which buffers will need temporary slots for blending.
+    // TODO: This is currently very loose, and simply assumes if there is a layer above this buffer
+    // that there will be blending.
+    for idx in 0..annotated_commands.len() {
+        match &annotated_commands[idx].unwrap() {
+            Cmd::PushBuf => {
+                if pointer_to_push_buf_stack.len() > 0 {
+                    let push_buf_idx =
+                        pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 1];
+                    annotated_commands[push_buf_idx] = AnnotatedCmd::PushBufWithTemporarySlot;
+                }
+                pointer_to_push_buf_stack.push(idx);
+            }
+            Cmd::PopBuf => {
+                pointer_to_push_buf_stack.pop();
+            }
+            _ => {}
         }
     }
 
