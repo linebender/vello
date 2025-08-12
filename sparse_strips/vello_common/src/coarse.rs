@@ -894,10 +894,12 @@ impl WideTile {
             // we can just pop it instead.
             self.cmds.pop();
         } else {
-            #[cfg(not(feature = "hybrid"))]
+            #[cfg(feature = "cpu")]
             if self.cmds.len() >= 3 {
                 // If we have a non-destructive blend mode with just a single fill/strip,
                 // inline the blend mode instead.
+                // `vello_hybrid` can't leverage this optimization due to fundamental limitations in
+                // GPU texture read/write access.
                 let (_, tail) = self.cmds.split_at(self.cmds.len() - 3);
 
                 let updated = match tail {
