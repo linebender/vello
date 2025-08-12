@@ -293,7 +293,7 @@ impl<'a> AnnotatedCmd<'a> {
     fn unwrap<'b: 'a>(&'b self) -> &'a Cmd {
         match self {
             AnnotatedCmd::IdentityBorrowed(cmd) => cmd,
-            AnnotatedCmd::Generated(cmd) => &cmd,
+            AnnotatedCmd::Generated(cmd) => cmd,
             AnnotatedCmd::PushBufWithTemporarySlot => &Cmd::PushBuf,
         }
     }
@@ -1014,8 +1014,8 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 
 /// Does a single linear scan over the wide tile commands to prepare them for `do_tile`. Notably
 /// this function:
-///  - Removes certain optimizations that vello_cpu can leverage.
-///  - TODO: Precompute layers that require temporary slots.
+///  - Removes certain optimizations that `vello_cpu` can leverage.
+///  - Precomputes the layers that require temporary slots due to blending.
 fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
     let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Default::default();
     // vello_hybrid cannot support non destructive in-place composites. Expand out to explicit blend
