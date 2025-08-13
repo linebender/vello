@@ -67,6 +67,13 @@ impl CachedStrips {
     pub fn strip_start_indices(&self) -> &[usize] {
         &self.strip_start_indices
     }
+
+    pub fn take(&mut self) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
+        let strips = std::mem::take(&mut self.strips);
+        let alphas = std::mem::take(&mut self.alphas);
+        let strip_start_indices = std::mem::take(&mut self.strip_start_indices);
+        (strips, alphas, strip_start_indices)
+    }
 }
 
 /// A recording of rendering commands that can cache generated strips.
@@ -166,6 +173,11 @@ impl Recording {
     /// Get cached strips.
     pub fn get_cached_strips(&self) -> (&[Strip], &[u8]) {
         (self.cached_strips.strips(), self.cached_strips.alphas())
+    }
+
+    /// Takes cached strip buffers for allocation re-use.
+    pub fn take_cached_strips(&mut self) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
+        self.cached_strips.take()
     }
 
     /// Get strip start indices.

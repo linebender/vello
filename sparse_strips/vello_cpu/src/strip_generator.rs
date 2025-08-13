@@ -87,8 +87,8 @@ impl StripGenerator {
         self.alphas = alpha_buf;
     }
 
-    pub(crate) fn take_alpha_buf(&mut self) -> Vec<u8> {
-        core::mem::take(&mut self.alphas)
+    pub(crate) fn replace_alpha_buf(&mut self, alphas: Vec<u8>) -> Vec<u8> {
+        core::mem::replace(&mut self.alphas, alphas)
     }
 
     pub(crate) fn reset(&mut self) {

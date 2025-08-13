@@ -109,8 +109,8 @@ impl Dispatcher for SingleThreadedDispatcher {
         self.strip_generator.extend_alpha_buf(alphas);
     }
 
-    fn take_alpha_buf(&mut self) -> Vec<u8> {
-        self.strip_generator.take_alpha_buf()
+    fn replace_alpha_buf(&mut self, alphas: Vec<u8>) -> Vec<u8> {
+        self.strip_generator.replace_alpha_buf(alphas)
     }
 
     fn set_alpha_buf(&mut self, alphas: Vec<u8>) {

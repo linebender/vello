@@ -373,7 +373,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         unimplemented!("extend_alpha_buf is not implemented for multi-threaded dispatcher")
     }
 
-    fn take_alpha_buf(&mut self) -> Vec<u8> {
+    fn replace_alpha_buf(&mut self, _alphas: Vec<u8>) -> Vec<u8> {
         unimplemented!("take_alpha_buf is not implemented for multi-threaded dispatcher")
     }
 

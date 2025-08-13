@@ -57,6 +57,6 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
     );
     fn alpha_buf(&self) -> &[u8];
     fn extend_alpha_buf(&mut self, alphas: &[u8]);
-    fn take_alpha_buf(&mut self) -> Vec<u8>;
+    fn replace_alpha_buf(&mut self, alphas: Vec<u8>) -> Vec<u8>;
     fn set_alpha_buf(&mut self, alphas: Vec<u8>);
 }
