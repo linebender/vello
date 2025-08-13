@@ -36,7 +36,7 @@ fn main() {
     let settings = RenderSettings {
         level: Level::new(),
         num_threads: args.num_threads as u16,
-        render_mode: RenderMode::OptimizeSpeed
+        render_mode: RenderMode::OptimizeSpeed,
     };
     let mut ctx = RenderContext::new_with(width, height, settings);
     let mut pixmap = Pixmap::new(width, height);
