@@ -47,6 +47,7 @@ pub struct RenderContext {
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
+    pub(crate) blend_mode: BlendMode,
     pub(crate) temp_path: BezPath,
     // TODO: Consider taking a configurable threshold instead of just a boolean value here.
     pub(crate) anti_alias: bool,
@@ -136,6 +137,7 @@ impl RenderContext {
             dispatcher,
             transform,
             anti_alias,
+            blend_mode: BlendMode::new(Mix::Normal, Compose::SrcOver),
             paint,
             paint_transform,
             fill_rule,
@@ -166,15 +168,27 @@ impl RenderContext {
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
         let paint = self.encode_current_paint();
-        self.dispatcher
-            .fill_path(path, self.fill_rule, self.transform, paint, self.anti_alias);
+        self.dispatcher.fill_path(
+            path,
+            self.fill_rule,
+            self.transform,
+            paint,
+            self.blend_mode,
+            self.anti_alias,
+        );
     }
 
     /// Stroke a path.
     pub fn stroke_path(&mut self, path: &BezPath) {
         let paint = self.encode_current_paint();
-        self.dispatcher
-            .stroke_path(path, &self.stroke, self.transform, paint, self.anti_alias);
+        self.dispatcher.stroke_path(
+            path,
+            &self.stroke,
+            self.transform,
+            paint,
+            self.blend_mode,
+            self.anti_alias,
+        );
     }
 
     /// Fill a rectangle.
@@ -200,6 +214,7 @@ impl RenderContext {
             self.fill_rule,
             self.transform,
             paint,
+            self.blend_mode,
             self.anti_alias,
         );
     }
@@ -236,6 +251,7 @@ impl RenderContext {
             Fill::NonZero,
             self.transform,
             paint,
+            self.blend_mode,
             self.anti_alias,
         );
     }
@@ -454,6 +470,7 @@ impl GlyphRenderer for RenderContext {
                     Fill::NonZero,
                     prepared_glyph.transform,
                     paint,
+                    self.blend_mode,
                     self.anti_alias,
                 );
             }
@@ -548,6 +565,7 @@ impl GlyphRenderer for RenderContext {
                     &self.stroke,
                     prepared_glyph.transform,
                     paint,
+                    self.blend_mode,
                     self.anti_alias,
                 );
             }
@@ -648,6 +666,7 @@ impl Recordable for RenderContext {
                         &adjusted_strips[start..end],
                         fill_rule,
                         paint,
+                        self.blend_mode,
                         0,
                     );
                     range_index += 1;
