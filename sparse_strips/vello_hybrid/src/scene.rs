@@ -315,7 +315,13 @@ impl Scene {
     // Assumes that `line_buf` contains the flattened path.
     fn render_path(&mut self, fill_rule: Fill, paint: Paint) {
         self.make_strips(fill_rule);
-        self.wide.generate(&self.strip_buf, fill_rule, paint, 0);
+        self.wide.generate(
+            &self.strip_buf,
+            fill_rule,
+            paint,
+            BlendMode::new(Mix::Normal, Compose::SrcOver),
+            0,
+        );
     }
 
     fn make_strips(&mut self, fill_rule: Fill) {
@@ -418,8 +424,13 @@ impl Recordable for Scene {
                         }
                         _ => Fill::NonZero,
                     };
-                    self.wide
-                        .generate(&adjusted_strips[start..end], fill_rule, paint, 0);
+                    self.wide.generate(
+                        &adjusted_strips[start..end],
+                        fill_rule,
+                        paint,
+                        BlendMode::new(Mix::Normal, Compose::SrcOver),
+                        0,
+                    );
                     range_index += 1;
                 }
                 RenderCommand::SetPaint(paint) => {

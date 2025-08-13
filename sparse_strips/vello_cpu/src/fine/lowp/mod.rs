@@ -148,7 +148,6 @@ mod fill {
         blend_mode: BlendMode,
     ) {
         let default_mix = matches!(blend_mode.mix, Mix::Normal | Mix::Clip);
-        let mask = u8x32::splat(simd, 255);
         for (next_dest, next_src) in dest.chunks_exact_mut(32).zip(src) {
             let bg_v = u8x32::from_slice(simd, next_dest);
             let src_v = if default_mix {
@@ -156,7 +155,7 @@ mod fill {
             } else {
                 mix(next_src, bg_v, blend_mode)
             };
-            let res = blend_mode.compose(simd, src_v, bg_v, mask);
+            let res = blend_mode.compose(simd, src_v, bg_v, None);
             next_dest.copy_from_slice(&res.val);
         }
     }
@@ -231,7 +230,7 @@ mod alpha_fill {
                 mix(next_src, bg_v, blend_mode)
             };
             let masks = extract_masks(simd, next_mask);
-            let res = blend_mode.compose(simd, src_c, bg_v, masks);
+            let res = blend_mode.compose(simd, src_c, bg_v, Some(masks));
 
             next_bg.copy_from_slice(&res.val);
         }

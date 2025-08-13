@@ -44,6 +44,7 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn set_paint_transform(&mut self, affine: Affine);
     fn set_fill_rule(&mut self, fill_rule: Fill);
     fn set_transform(&mut self, transform: Affine);
+    fn set_blend_mode(&mut self, blend_mode: BlendMode);
     fn set_anti_aliasing(&mut self, value: bool);
     fn render_to_pixmap(&self, pixmap: &mut Pixmap, render_mode: RenderMode);
     fn width(&self) -> u16;
@@ -139,6 +140,10 @@ impl Renderer for RenderContext {
 
     fn set_transform(&mut self, transform: Affine) {
         Self::set_transform(self, transform);
+    }
+
+    fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        Self::set_blend_mode(self, blend_mode);
     }
 
     fn set_anti_aliasing(&mut self, value: bool) {
@@ -330,6 +335,10 @@ impl Renderer for HybridRenderer {
 
     fn set_transform(&mut self, transform: Affine) {
         self.scene.set_transform(transform);
+    }
+
+    fn set_blend_mode(&mut self, _: BlendMode) {
+        unimplemented!()
     }
 
     fn set_anti_aliasing(&mut self, value: bool) {
@@ -537,6 +546,10 @@ impl Renderer for HybridRenderer {
 
     fn fill_path(&mut self, path: &BezPath) {
         self.scene.fill_path(path);
+    }
+
+    fn set_blend_mode(&mut self, _: BlendMode) {
+        unimplemented!()
     }
 
     fn stroke_path(&mut self, path: &BezPath) {

@@ -5,7 +5,7 @@ mod common;
 mod highp;
 mod lowp;
 
-use crate::peniko::{BlendMode, Compose, ImageQuality, Mix};
+use crate::peniko::{BlendMode, ImageQuality};
 use crate::region::Region;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -309,8 +309,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     usize::from(f.x),
                     usize::from(f.width),
                     &f.paint,
-                    f.blend_mode
-                        .unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
+                    f.blend_mode,
                     paints,
                     None,
                 );
@@ -320,8 +319,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     usize::from(s.x),
                     usize::from(s.width),
                     &s.paint,
-                    s.blend_mode
-                        .unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
+                    s.blend_mode,
                     paints,
                     Some(&alphas[s.alpha_idx..]),
                 );
