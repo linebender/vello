@@ -20,33 +20,31 @@ impl ComposeExt for BlendMode {
     fn compose<S: Simd>(
         &self,
         simd: S,
-        src_c: f32x16<S>,
+        mut src_c: f32x16<S>,
         bg_c: f32x16<S>,
         is_layer: bool,
         alpha_mask: f32x16<S>,
     ) -> f32x16<S> {
-        let compose_mask = if is_layer {
-            f32x16::splat(simd, 1.0)
-        }   else {
-            alpha_mask
-        };
+        if is_layer {
+            src_c = src_c * alpha_mask;
+        }
         
         let mut res = match self.compose {
-            Compose::SrcOver => SrcOver::compose(simd, src_c, bg_c, compose_mask),
-            Compose::Clear => Clear::compose(simd, src_c, bg_c, compose_mask),
-            Compose::Copy => Copy::compose(simd, src_c, bg_c, compose_mask),
-            Compose::DestOver => DestOver::compose(simd, src_c, bg_c, compose_mask),
-            Compose::Dest => Dest::compose(simd, src_c, bg_c, compose_mask),
-            Compose::SrcIn => SrcIn::compose(simd, src_c, bg_c, compose_mask),
-            Compose::DestIn => DestIn::compose(simd, src_c, bg_c, compose_mask),
-            Compose::SrcOut => SrcOut::compose(simd, src_c, bg_c, compose_mask),
-            Compose::DestOut => DestOut::compose(simd, src_c, bg_c, compose_mask),
-            Compose::SrcAtop => SrcAtop::compose(simd, src_c, bg_c, compose_mask),
-            Compose::DestAtop => DestAtop::compose(simd, src_c, bg_c, compose_mask),
-            Compose::Xor => Xor::compose(simd, src_c, bg_c, compose_mask),
-            Compose::Plus => Plus::compose(simd, src_c, bg_c, compose_mask),
+            Compose::SrcOver => SrcOver::compose(simd, src_c, bg_c),
+            Compose::Clear => Clear::compose(simd, src_c, bg_c),
+            Compose::Copy => Copy::compose(simd, src_c, bg_c),
+            Compose::DestOver => DestOver::compose(simd, src_c, bg_c),
+            Compose::Dest => Dest::compose(simd, src_c, bg_c),
+            Compose::SrcIn => SrcIn::compose(simd, src_c, bg_c),
+            Compose::DestIn => DestIn::compose(simd, src_c, bg_c),
+            Compose::SrcOut => SrcOut::compose(simd, src_c, bg_c),
+            Compose::DestOut => DestOut::compose(simd, src_c, bg_c),
+            Compose::SrcAtop => SrcAtop::compose(simd, src_c, bg_c),
+            Compose::DestAtop => DestAtop::compose(simd, src_c, bg_c),
+            Compose::Xor => Xor::compose(simd, src_c, bg_c),
+            Compose::Plus => Plus::compose(simd, src_c, bg_c),
             // Have not been able to find a formula for this, so just fallback to Plus.
-            Compose::PlusLighter => Plus::compose(simd, src_c, bg_c, compose_mask),
+            Compose::PlusLighter => Plus::compose(simd, src_c, bg_c),
         };
 
         if !is_layer {
@@ -65,9 +63,8 @@ macro_rules! compose {
         impl $name {
             fn compose<S: Simd>(
                 simd: S,
-                src_c: f32x16<S>,
+                mut src_c: f32x16<S>,
                 bg_c: f32x16<S>,
-                mask: f32x16<S>,
             ) -> f32x16<S> {
                 let al_b = bg_c.splat_4th();
                 let al_s = src_c.splat_4th();
