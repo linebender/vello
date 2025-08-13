@@ -5,6 +5,8 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
+use crate::strip_generator::StripGenerator;
+
 #[cfg(feature = "multithreading")]
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
@@ -25,7 +27,8 @@ use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
-
+use vello_common::recording::{Recordable, Recording, RenderCommand};
+use vello_common::strip::Strip;
 #[cfg(feature = "text")]
 use vello_common::{
     color::{AlphaColor, Srgb},
@@ -593,6 +596,246 @@ impl ColrRenderer for RenderContext {
 
     fn pop_layer(&mut self) {
         Self::pop_layer(self);
+    }
+}
+
+impl Recordable for RenderContext {
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        let buffers = recording.take_cached_strips();
+        let (strips, alphas, strip_start_indices) =
+            self.generate_strips_from_commands(recording.commands(), buffers);
+        recording.set_cached_strips(strips, alphas, strip_start_indices);
+    }
+
+    fn execute_recording(&mut self, recording: &Recording) {
+        let (cached_strips, cached_alphas) = recording.get_cached_strips();
+        let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
+
+        // Use pre-calculated strip start indices from when we generated the cache.
+        let strip_start_indices = recording.get_strip_start_indices();
+        let mut range_index = 0;
+
+        // Replay commands in order, using cached strips for geometry.
+        for command in recording.commands() {
+            match command {
+                RenderCommand::FillPath(_)
+                | RenderCommand::StrokePath(_)
+                | RenderCommand::FillRect(_)
+                | RenderCommand::StrokeRect(_) => {
+                    assert!(
+                        range_index < strip_start_indices.len(),
+                        "Strip range index out of bounds"
+                    );
+                    let start = strip_start_indices[range_index];
+                    let end = strip_start_indices
+                        .get(range_index + 1)
+                        .copied()
+                        .unwrap_or(adjusted_strips.len());
+                    let count = end - start;
+                    assert!(
+                        start < adjusted_strips.len() && count > 0,
+                        "Invalid strip range"
+                    );
+                    let paint = self.encode_current_paint();
+                    let fill_rule = match command {
+                        RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => self.fill_rule,
+                        RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => {
+                            Fill::NonZero
+                        }
+                        _ => Fill::NonZero,
+                    };
+                    self.dispatcher.wide_mut().generate(
+                        &adjusted_strips[start..end],
+                        fill_rule,
+                        paint,
+                        0,
+                    );
+                    range_index += 1;
+                }
+                RenderCommand::SetPaint(paint) => {
+                    self.set_paint(paint.clone());
+                }
+                RenderCommand::SetPaintTransform(transform) => {
+                    self.set_paint_transform(*transform);
+                }
+                RenderCommand::ResetPaintTransform => {
+                    self.reset_paint_transform();
+                }
+                RenderCommand::SetTransform(transform) => {
+                    self.set_transform(*transform);
+                }
+                RenderCommand::SetFillRule(fill_rule) => {
+                    self.set_fill_rule(*fill_rule);
+                }
+                RenderCommand::SetStroke(stroke) => {
+                    self.set_stroke(stroke.clone());
+                }
+                RenderCommand::PushLayer {
+                    clip_path,
+                    blend_mode,
+                    opacity,
+                    mask,
+                } => {
+                    self.push_layer(clip_path.as_ref(), *blend_mode, *opacity, mask.clone());
+                }
+                RenderCommand::PopLayer => {
+                    self.pop_layer();
+                }
+            }
+        }
+    }
+}
+
+/// Saved state for recording operations.
+#[derive(Debug)]
+struct RenderState {
+    transform: Affine,
+    fill_rule: Fill,
+    stroke: Stroke,
+    paint: PaintType,
+    paint_transform: Affine,
+    alphas: Vec<u8>,
+}
+
+/// Recording management implementation.
+impl RenderContext {
+    /// Generate strips from strip commands and capture ranges.
+    ///
+    /// Returns:
+    /// - `collected_strips`: The generated strips.
+    /// - `collected_alphas`: The generated alphas.
+    /// - `strip_start_indices`: The start indices of strips for each geometry command.
+    fn generate_strips_from_commands(
+        &mut self,
+        commands: &[RenderCommand],
+        buffers: (Vec<Strip>, Vec<u8>, Vec<usize>),
+    ) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
+        let (mut collected_strips, mut cached_alphas, mut strip_start_indices) = buffers;
+        collected_strips.clear();
+        cached_alphas.clear();
+        strip_start_indices.clear();
+
+        let saved_state = self.take_current_state(cached_alphas);
+        let mut strip_generator = StripGenerator::new(self.width, self.height, self.level);
+
+        for command in commands {
+            let start_index = collected_strips.len();
+
+            match command {
+                RenderCommand::FillPath(path) => {
+                    self.generate_fill_strips(path, &mut collected_strips, &mut strip_generator);
+                    strip_start_indices.push(start_index);
+                }
+                RenderCommand::StrokePath(path) => {
+                    self.generate_stroke_strips(path, &mut collected_strips, &mut strip_generator);
+                    strip_start_indices.push(start_index);
+                }
+                RenderCommand::FillRect(rect) => {
+                    let path = rect.to_path(DEFAULT_TOLERANCE);
+                    self.generate_fill_strips(&path, &mut collected_strips, &mut strip_generator);
+                    strip_start_indices.push(start_index);
+                }
+                RenderCommand::StrokeRect(rect) => {
+                    let path = rect.to_path(DEFAULT_TOLERANCE);
+                    self.generate_stroke_strips(&path, &mut collected_strips, &mut strip_generator);
+                    strip_start_indices.push(start_index);
+                }
+                RenderCommand::SetTransform(transform) => {
+                    self.transform = *transform;
+                }
+                RenderCommand::SetFillRule(fill_rule) => {
+                    self.fill_rule = *fill_rule;
+                }
+                RenderCommand::SetStroke(stroke) => {
+                    self.stroke = stroke.clone();
+                }
+                _ => {}
+            }
+        }
+
+        let collected_alphas = strip_generator.take_alpha_buf();
+        self.restore_state(saved_state);
+
+        (collected_strips, collected_alphas, strip_start_indices)
+    }
+
+    /// Prepare cached strips for rendering by adjusting indices.
+    fn prepare_cached_strips(
+        &mut self,
+        cached_strips: &[Strip],
+        cached_alphas: &[u8],
+    ) -> Vec<Strip> {
+        // Calculate offset for alpha indices based on current dispatcher's alpha buffer size.
+        let alpha_offset = self.dispatcher.alpha_buf().len() as u32;
+        // Extend the dispatcher's alpha buffer with cached alphas.
+        self.dispatcher.extend_alpha_buf(cached_alphas);
+        // Create adjusted strips with corrected alpha indices.
+        cached_strips
+            .iter()
+            .map(move |strip| {
+                let mut adjusted_strip = *strip;
+                adjusted_strip.alpha_idx += alpha_offset;
+                adjusted_strip
+            })
+            .collect()
+    }
+
+    /// Generate strips for a filled path.
+    fn generate_fill_strips(
+        &mut self,
+        path: &BezPath,
+        strips: &mut Vec<Strip>,
+        strip_generator: &mut StripGenerator,
+    ) {
+        strip_generator.generate_filled_path(
+            path,
+            self.fill_rule,
+            self.transform,
+            self.anti_alias,
+            |generated_strips| {
+                strips.extend_from_slice(generated_strips);
+            },
+        );
+    }
+
+    /// Generate strips for a stroked path.
+    fn generate_stroke_strips(
+        &mut self,
+        path: &BezPath,
+        strips: &mut Vec<Strip>,
+        strip_generator: &mut StripGenerator,
+    ) {
+        strip_generator.generate_stroked_path(
+            path,
+            &self.stroke,
+            self.transform,
+            self.anti_alias,
+            |generated_strips| {
+                strips.extend_from_slice(generated_strips);
+            },
+        );
+    }
+
+    /// Save the current rendering state.
+    fn take_current_state(&mut self, alphas: Vec<u8>) -> RenderState {
+        RenderState {
+            paint: self.paint.clone(),
+            paint_transform: self.paint_transform,
+            transform: self.transform,
+            fill_rule: self.fill_rule,
+            stroke: core::mem::take(&mut self.stroke),
+            alphas: self.dispatcher.replace_alpha_buf(alphas),
+        }
+    }
+
+    /// Restore the saved rendering state.
+    fn restore_state(&mut self, state: RenderState) {
+        self.transform = state.transform;
+        self.fill_rule = state.fill_rule;
+        self.stroke = state.stroke;
+        self.paint = state.paint;
+        self.paint_transform = state.paint_transform;
+        self.dispatcher.set_alpha_buf(state.alphas);
     }
 }
 

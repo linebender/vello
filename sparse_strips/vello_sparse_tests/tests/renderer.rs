@@ -10,6 +10,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{BlendMode, Fill, Font};
 use vello_common::pixmap::Pixmap;
+use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
 use vello_hybrid::Scene;
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -48,6 +49,9 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn width(&self) -> u16;
     fn height(&self) -> u16;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
+    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
+    fn prepare_recording(&mut self, recording: &mut Recording);
+    fn execute_recording(&mut self, recording: &Recording);
 }
 
 impl Renderer for RenderContext {
@@ -155,6 +159,18 @@ impl Renderer for RenderContext {
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         ImageSource::Pixmap(pixmap)
+    }
+
+    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
+        Recordable::record(self, recording, f);
+    }
+
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        Recordable::prepare_recording(self, recording);
+    }
+
+    fn execute_recording(&mut self, recording: &Recording) {
+        Recordable::execute_recording(self, recording);
     }
 }
 
@@ -451,6 +467,18 @@ impl Renderer for HybridRenderer {
 
         ImageSource::OpaqueId(image_id)
     }
+
+    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
+        self.scene.record(recording, f);
+    }
+
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        self.scene.prepare_recording(recording);
+    }
+
+    fn execute_recording(&mut self, recording: &Recording) {
+        self.scene.execute_recording(recording);
+    }
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -635,6 +663,18 @@ impl Renderer for HybridRenderer {
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         let image_id = self.renderer.borrow_mut().upload_image(&pixmap);
         ImageSource::OpaqueId(image_id)
+    }
+
+    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
+        self.scene.record(recording, f);
+    }
+
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        self.scene.prepare_recording(recording);
+    }
+
+    fn execute_recording(&mut self, recording: &Recording) {
+        self.scene.execute_recording(recording);
     }
 }
 

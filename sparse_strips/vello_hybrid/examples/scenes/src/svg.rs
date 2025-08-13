@@ -6,6 +6,7 @@
 use std::fmt;
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
+use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_hybrid::Scene;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -17,6 +18,10 @@ use crate::ExampleScene;
 pub struct SvgScene {
     transform: Affine,
     svg: PicoSvg,
+    /// Whether recording functionality is enabled
+    recording_enabled: bool,
+    /// The recording to reuse, if any
+    recording: Option<Recording>,
 }
 
 impl fmt::Debug for SvgScene {
@@ -27,8 +32,105 @@ impl fmt::Debug for SvgScene {
 
 impl ExampleScene for SvgScene {
     fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
-        render_svg(scene, &self.svg.items, root_transform * self.transform);
+        let current_transform = root_transform * self.transform;
+
+        if self.recording_enabled {
+            // Try to reuse existing recording if possible
+            if let Some(recording) = &mut self.recording {
+                let render_result = try_reuse_recording(scene, recording, current_transform);
+                if render_result.is_reused {
+                    return;
+                }
+            }
+
+            // If we get here, we need to record fresh
+            record_fresh(self, scene, current_transform);
+        } else {
+            // Direct rendering mode (no recording/caching)
+            let start = std::time::Instant::now();
+            render_svg(scene, &self.svg.items, current_transform);
+            let elapsed = start.elapsed();
+            println!(
+                "Direct    : {:.2}ms | No caching",
+                elapsed.as_secs_f64() * 1000.0
+            );
+        }
     }
+
+    fn handle_key(&mut self, key: &str) -> bool {
+        match key {
+            "r" | "R" => {
+                self.toggle_recording();
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+struct RenderResult {
+    is_reused: bool,
+}
+
+/// Try to reuse an existing recording, either directly (TODO: or with translation)
+fn try_reuse_recording(
+    scene: &mut Scene,
+    recording: &mut Recording,
+    current_transform: Affine,
+) -> RenderResult {
+    let start = std::time::Instant::now();
+
+    // Case 1: Identical transforms - can reuse directly
+    if transforms_are_identical(recording.transform(), current_transform) {
+        scene.execute_recording(recording);
+        print_render_stats("Identical ", start.elapsed(), recording);
+        return RenderResult { is_reused: true };
+    }
+
+    // TODO: Implement "Case 2: Check if we can use with translation"
+
+    // Case 3: Can't optimize, need to record fresh
+    RenderResult { is_reused: false }
+}
+
+/// Record a fresh scene from scratch
+fn record_fresh(scene_obj: &mut SvgScene, scene: &mut Scene, current_transform: Affine) {
+    let start = std::time::Instant::now();
+    let mut new_recording = Recording::new();
+    scene.record(&mut new_recording, |recorder| {
+        render_svg_record(recorder, &scene_obj.svg.items, current_transform);
+    });
+    scene.prepare_recording(&mut new_recording);
+    scene.execute_recording(&new_recording);
+    new_recording.set_transform(current_transform);
+    print_render_stats("Fresh     ", start.elapsed(), &new_recording);
+
+    scene_obj.recording = Some(new_recording);
+}
+
+/// Print timing and statistics for a render operation
+fn print_render_stats(render_type: &str, elapsed: std::time::Duration, recording: &Recording) {
+    println!(
+        "{}: {:.2}ms | Strips: {} | Alphas: {}",
+        render_type,
+        elapsed.as_secs_f64() * 1000.0,
+        recording.strip_count(),
+        recording.alpha_count()
+    );
+}
+
+/// Check if two transforms are identical (within tolerance)
+fn transforms_are_identical(a: Affine, b: Affine) -> bool {
+    let a_coeffs = a.as_coeffs();
+    let b_coeffs = b.as_coeffs();
+    let tolerance = 1e-6;
+
+    for i in 0..6 {
+        if (a_coeffs[i] - b_coeffs[i]).abs() > tolerance {
+            return false;
+        }
+    }
+    true
 }
 
 impl SvgScene {
@@ -53,6 +155,8 @@ impl SvgScene {
         Self {
             transform: Affine::scale(3.0),
             svg,
+            recording: None,
+            recording_enabled: true,
         }
     }
 
@@ -65,11 +169,24 @@ impl SvgScene {
         Ok(Self {
             transform: Affine::scale(3.0),
             svg,
+            recording: None,
+            recording_enabled: true,
         })
+    }
+
+    /// Toggle recording functionality on/off
+    /// Returns the new state (true = enabled, false = disabled)
+    pub fn toggle_recording(&mut self) -> bool {
+        self.recording_enabled = !self.recording_enabled;
+        if !self.recording_enabled {
+            self.recording = None;
+        }
+        self.recording_enabled
     }
 }
 
-fn render_svg(ctx: &mut Scene, items: &[Item], transform: Affine) {
+/// Render SVG to recording
+fn render_svg_record(ctx: &mut Recorder<'_>, items: &[Item], transform: Affine) {
     ctx.set_transform(transform);
     for item in items {
         match item {
@@ -84,8 +201,31 @@ fn render_svg(ctx: &mut Scene, items: &[Item], transform: Affine) {
                 ctx.stroke_path(&stroke_item.path);
             }
             Item::Group(group_item) => {
-                render_svg(ctx, &group_item.children, transform * group_item.affine);
+                render_svg_record(ctx, &group_item.children, transform * group_item.affine);
                 ctx.set_transform(transform);
+            }
+        }
+    }
+}
+
+/// Render SVG directly to scene without recording
+fn render_svg(scene: &mut Scene, items: &[Item], transform: Affine) {
+    scene.set_transform(transform);
+    for item in items {
+        match item {
+            Item::Fill(fill_item) => {
+                scene.set_paint(fill_item.color);
+                scene.fill_path(&fill_item.path);
+            }
+            Item::Stroke(stroke_item) => {
+                let style = Stroke::new(stroke_item.width);
+                scene.set_stroke(style);
+                scene.set_paint(stroke_item.color);
+                scene.stroke_path(&stroke_item.path);
+            }
+            Item::Group(group_item) => {
+                render_svg(scene, &group_item.children, transform * group_item.affine);
+                scene.set_transform(transform);
             }
         }
     }
