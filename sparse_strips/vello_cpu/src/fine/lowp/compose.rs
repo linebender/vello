@@ -3,7 +3,7 @@
 
 use crate::fine::Splat4thExt;
 use crate::peniko::{BlendMode, Compose};
-use crate::util::NormalizedMulExt;
+use crate::util::{Div255Ext, NormalizedMulExt};
 use vello_common::fearless_simd::*;
 
 pub(crate) trait ComposeExt {
@@ -12,6 +12,7 @@ pub(crate) trait ComposeExt {
         simd: S,
         src_c: u8x32<S>,
         bg_c: u8x32<S>,
+        is_layer: bool,
         alpha_mask: u8x32<S>,
     ) -> u8x32<S>;
 }
@@ -22,9 +23,10 @@ impl ComposeExt for BlendMode {
         simd: S,
         src_c: u8x32<S>,
         bg_c: u8x32<S>,
+        is_layer: bool,
         alpha_mask: u8x32<S>,
     ) -> u8x32<S> {
-        match self.compose {
+        let mut res =match self.compose {
             Compose::SrcOver => SrcOver::compose(simd, src_c, bg_c, alpha_mask),
             Compose::Clear => Clear::compose(simd, src_c, bg_c, alpha_mask),
             Compose::Copy => Copy::compose(simd, src_c, bg_c, alpha_mask),
@@ -40,7 +42,16 @@ impl ComposeExt for BlendMode {
             Compose::Plus => Plus::compose(simd, src_c, bg_c, alpha_mask),
             // Have not been able to find a formula for this, so just fallback to Plus.
             Compose::PlusLighter => Plus::compose(simd, src_c, bg_c, alpha_mask),
+        };
+        
+        if !is_layer {
+            let alpha_mask_inv = 255 - alpha_mask;
+            let p1 = simd.widen_u8x32(alpha_mask) * simd.widen_u8x32(res);
+            let p2 = simd.widen_u8x32(alpha_mask_inv) * simd.widen_u8x32(bg_c);
+            res = simd.narrow_u16x32((p1 + p2).div_255());
         }
+        
+        res
     }
 }
 

@@ -123,10 +123,11 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         dest: &mut [Self::Numeric],
         src: impl Iterator<Item = Self::Composite>,
         blend_mode: BlendMode,
+        is_layer: bool,
         alphas: Option<&[u8]>,
     ) {
         if let Some(alphas) = alphas {
-            alpha_fill::blend(simd, dest, src, blend_mode, alphas);
+            alpha_fill::blend(simd, dest, src, blend_mode, is_layer, alphas);
         } else {
             fill::blend(simd, dest, src, blend_mode);
         }
@@ -156,7 +157,7 @@ mod fill {
             } else {
                 mix(next_src, bg_v, blend_mode)
             };
-            let res = blend_mode.compose(simd, src_v, bg_v, mask);
+            let res = blend_mode.compose(simd, src_v, bg_v, false, mask);
             next_dest.copy_from_slice(&res.val);
         }
     }
@@ -215,6 +216,7 @@ mod alpha_fill {
         dest: &mut [u8],
         src: T,
         blend_mode: BlendMode,
+        is_layer: bool, 
         alphas: &[u8],
     ) {
         let default_mix = matches!(blend_mode.mix, Mix::Normal | Mix::Clip);
@@ -231,7 +233,7 @@ mod alpha_fill {
                 mix(next_src, bg_v, blend_mode)
             };
             let masks = extract_masks(simd, next_mask);
-            let res = blend_mode.compose(simd, src_c, bg_v, masks);
+            let res = blend_mode.compose(simd, src_c, bg_v, is_layer, masks);
 
             next_bg.copy_from_slice(&res.val);
         }

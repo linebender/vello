@@ -11,6 +11,7 @@ pub(crate) trait ComposeExt {
         simd: S,
         src_c: f32x16<S>,
         bg_c: f32x16<S>,
+        is_layer: bool,
         alpha_mask: f32x16<S>,
     ) -> f32x16<S>;
 }
@@ -21,9 +22,10 @@ impl ComposeExt for BlendMode {
         simd: S,
         src_c: f32x16<S>,
         bg_c: f32x16<S>,
+        is_layer: bool,
         alpha_mask: f32x16<S>,
     ) -> f32x16<S> {
-        match self.compose {
+        let mut res = match self.compose {
             Compose::SrcOver => SrcOver::compose(simd, src_c, bg_c, alpha_mask),
             Compose::Clear => Clear::compose(simd, src_c, bg_c, alpha_mask),
             Compose::Copy => Copy::compose(simd, src_c, bg_c, alpha_mask),
@@ -39,7 +41,14 @@ impl ComposeExt for BlendMode {
             Compose::Plus => Plus::compose(simd, src_c, bg_c, alpha_mask),
             // Have not been able to find a formula for this, so just fallback to Plus.
             Compose::PlusLighter => Plus::compose(simd, src_c, bg_c, alpha_mask),
+        };
+
+        if !is_layer {
+            let alpha_mask_inv = 1.0 - alpha_mask;
+            res = alpha_mask * res + alpha_mask_inv * bg_c;
         }
+
+        res
     }
 }
 

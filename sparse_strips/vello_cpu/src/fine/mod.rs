@@ -256,6 +256,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         dest: &mut [Self::Numeric],
         src: impl Iterator<Item = Self::Composite>,
         blend_mode: BlendMode,
+        is_layer: bool,
         alphas: Option<&[u8]>,
     );
 }
@@ -432,6 +433,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         blend_buf,
                         iter::repeat(T::Composite::from_color(self.simd, color)),
                         blend_mode,
+                        false,
                         alphas,
                     );
                 }
@@ -462,6 +464,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                         .chunks_exact(T::Composite::LENGTH)
                                         .map(|s| T::Composite::from_slice(self.simd, s)),
                                     blend_mode,
+                                    false,
                                     alphas,
                                 );
                             }
@@ -601,6 +604,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     .chunks_exact(T::Composite::LENGTH)
                     .map(|s| T::Composite::from_slice(self.simd, s)),
                 blend_mode,
+                true,
                 None,
             );
         }
