@@ -87,7 +87,13 @@ fn main() {
     }
 
     if stages.iter().any(|s| s.requires_wide_tiles()) {
-        wide.generate(&strip_buf, args.fill_rule, BLACK.into(), BlendMode::new(Mix::Normal, Compose::SrcOver), 0);
+        wide.generate(
+            &strip_buf,
+            args.fill_rule,
+            BLACK.into(),
+            BlendMode::new(Mix::Normal, Compose::SrcOver),
+            0,
+        );
     }
 
     draw_grid(&mut document, args.width, args.height);

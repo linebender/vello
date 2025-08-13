@@ -193,13 +193,13 @@ fn mix_non_isolated(ctx: &mut impl Renderer, mix: Mix) {
     // Just to isolate from the white background.
     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
 
-    let rect = Rect::new(10.5, 10.5, 70.5, 70.5);
+    let rect1 = Rect::new(10.5, 10.5, 70.5, 70.5);
     ctx.set_paint(BLUE.with_alpha(0.5));
-    ctx.fill_rect(&rect);
+    ctx.fill_rect(&rect1);
     ctx.set_blend_mode(BlendMode::new(mix, Compose::SrcOver));
-    let rect = Rect::new(30.5, 30.5, 90.5, 90.5);
+    let rect2 = Rect::new(30.5, 30.5, 90.5, 90.5);
     ctx.set_paint(LIME.with_alpha(0.5));
-    ctx.fill_rect(&rect);
+    ctx.fill_rect(&rect2);
 
     ctx.pop_layer();
 }
