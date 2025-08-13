@@ -67,6 +67,13 @@ pub struct RenderSettings {
     /// The number of worker threads that should be used for rendering. Only has an effect
     /// if the `multithreading` feature is active.
     pub num_threads: u16,
+    /// Whether to prioritize speed or quality when rendering.
+    ///
+    /// For most cases (especially for real-time rendering), it is highly recommented to set
+    /// this to `OptimizeSpeed`. If accuracy is a more significant concern (for example for visual
+    /// regression testing), then you can set this to `OptimizeQuality`.
+    ///
+    pub render_mode: RenderMode,
 }
 
 impl Default for RenderSettings {
@@ -80,6 +87,7 @@ impl Default for RenderSettings {
                 .saturating_sub(1) as u16,
             #[cfg(not(feature = "multithreading"))]
             num_threads: 0,
+            render_mode: RenderMode::OptimizeSpeed,
         }
     }
 }
@@ -419,10 +427,15 @@ impl RenderContext {
     }
 
     /// Render the current context into a pixmap.
-    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap, render_mode: RenderMode) {
+    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         let width = pixmap.width();
         let height = pixmap.height();
-        self.render_to_buffer(pixmap.data_as_u8_slice_mut(), width, height, render_mode);
+        self.render_to_buffer(
+            pixmap.data_as_u8_slice_mut(),
+            width,
+            height,
+            self.settings.render_mode,
+        );
     }
 
     /// Return the width of the pixmap.
@@ -500,6 +513,7 @@ impl GlyphRenderer for RenderContext {
                 let glyph_pixmap = {
                     let settings = RenderSettings {
                         level: self.render_settings.level,
+                        render_mode: self.render_settings.render_mode,
                         num_threads: 0,
                     };
 
@@ -512,7 +526,7 @@ impl GlyphRenderer for RenderContext {
                     // Technically not necessary since we always render single-threaded, but just
                     // to be safe.
                     ctx.flush();
-                    ctx.render_to_pixmap(&mut pix, RenderMode::OptimizeQuality);
+                    ctx.render_to_pixmap(&mut pix);
 
                     pix
                 };
@@ -867,14 +881,15 @@ mod tests {
         let settings = RenderSettings {
             level: Level::new(),
             num_threads: 1,
+            render_mode: RenderMode::OptimizeQuality,
         };
 
         let mut ctx = RenderContext::new_with(200, 200, settings);
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
         ctx.flush();
-        ctx.render_to_pixmap(&mut pixmap, RenderMode::OptimizeQuality);
+        ctx.render_to_pixmap(&mut pixmap);
         ctx.flush();
-        ctx.render_to_pixmap(&mut pixmap, RenderMode::OptimizeQuality);
+        ctx.render_to_pixmap(&mut pixmap);
     }
 }

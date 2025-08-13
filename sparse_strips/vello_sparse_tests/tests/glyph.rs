@@ -254,7 +254,7 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 70, skip_hybrid)]
+#[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
