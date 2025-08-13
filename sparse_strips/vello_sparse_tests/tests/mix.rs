@@ -192,7 +192,7 @@ fn mix_saturation_with_solid(ctx: &mut impl Renderer) {
 fn mix_non_isolated(ctx: &mut impl Renderer, mix: Mix) {
     // Just to isolate from the white background.
     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
-    
+
     let rect = Rect::new(10.5, 10.5, 70.5, 70.5);
     ctx.set_paint(BLUE.with_alpha(0.5));
     ctx.fill_rect(&rect);
@@ -200,7 +200,7 @@ fn mix_non_isolated(ctx: &mut impl Renderer, mix: Mix) {
     let rect = Rect::new(30.5, 30.5, 90.5, 90.5);
     ctx.set_paint(LIME.with_alpha(0.5));
     ctx.fill_rect(&rect);
-    
+
     ctx.pop_layer();
 }
 

@@ -143,7 +143,7 @@ impl Renderer for RenderContext {
     }
 
     fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        Self::set_blend_mode(self, blend_mode);   
+        Self::set_blend_mode(self, blend_mode);
     }
 
     fn set_anti_aliasing(&mut self, value: bool) {
