@@ -43,7 +43,7 @@ impl AppState {
         let renderer = vello_cpu::RenderContext::new_with(
             width as u16,
             height as u16,
-            &vello_cpu::RenderSettings {
+            vello_cpu::RenderSettings {
                 num_threads: 0,
                 level: Level::new(),
             },
@@ -107,7 +107,7 @@ impl AppState {
         self.renderer = vello_cpu::RenderContext::new_with(
             width as u16,
             height as u16,
-            &vello_cpu::RenderSettings {
+            vello_cpu::RenderSettings {
                 num_threads: 0,
                 level: Level::new(),
             },

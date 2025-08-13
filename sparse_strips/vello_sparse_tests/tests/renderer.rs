@@ -60,7 +60,7 @@ impl Renderer for RenderContext {
     fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
         let settings = RenderSettings { level, num_threads };
 
-        Self::new_with(width, height, &settings)
+        Self::new_with(width, height, settings)
     }
 
     fn fill_path(&mut self, path: &BezPath) {

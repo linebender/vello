@@ -19,7 +19,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
         level: Level::fallback(),
         num_threads: 0,
     };
-    let mut mask_ctx = RenderContext::new_with(100, 100, &settings);
+    let mut mask_ctx = RenderContext::new_with(100, 100, settings);
 
     let grad = Gradient {
         kind: GradientKind::Linear {
