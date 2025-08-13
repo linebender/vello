@@ -96,9 +96,11 @@ fn try_reuse_recording(
 /// Record a fresh scene from scratch
 fn record_fresh(scene_obj: &mut SvgScene, scene: &mut Scene, current_transform: Affine) {
     let start = std::time::Instant::now();
-    let mut new_recording = scene.record_and_render(|recorder| {
+    let mut new_recording = Recording::new();
+    scene.record(&mut new_recording, |recorder| {
         render_svg_record(recorder, &scene_obj.svg.items, current_transform);
     });
+    scene.render_recording(&mut new_recording);
     new_recording.set_transform(current_transform);
     print_render_stats("Fresh     ", start.elapsed(), &new_recording);
 

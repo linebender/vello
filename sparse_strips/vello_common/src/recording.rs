@@ -8,23 +8,22 @@ use crate::mask::Mask;
 use crate::paint::PaintType;
 use crate::peniko::{BlendMode, Fill};
 use crate::strip::Strip;
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 /// Cached sparse strip data.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CachedStrips {
     /// The cached sparse strips.
-    strips: Box<[Strip]>,
+    strips: Vec<Strip>,
     /// The alpha buffer data.
-    alphas: Box<[u8]>,
+    alphas: Vec<u8>,
     /// Strip start indices for each geometry command.
-    strip_start_indices: Box<[usize]>,
+    strip_start_indices: Vec<usize>,
 }
 
 impl CachedStrips {
     /// Create a new cached strips instance.
-    pub fn new(strips: Box<[Strip]>, alphas: Box<[u8]>, strip_start_indices: Box<[usize]>) -> Self {
+    pub fn new(strips: Vec<Strip>, alphas: Vec<u8>, strip_start_indices: Vec<usize>) -> Self {
         Self {
             strips,
             alphas,
@@ -32,9 +31,16 @@ impl CachedStrips {
         }
     }
 
+    /// Clear the contents.
+    pub fn clear(&mut self) {
+        self.strips.clear();
+        self.alphas.clear();
+        self.strip_start_indices.clear();
+    }
+
     /// Check if this cached strips is empty.
     pub fn is_empty(&self) -> bool {
-        self.strips.is_empty()
+        self.strips.is_empty() && self.alphas.is_empty() && self.strip_start_indices.is_empty()
     }
 
     /// Get the number of strips.
@@ -69,7 +75,7 @@ pub struct Recording {
     /// Recorded commands.
     commands: Vec<RenderCommand>,
     /// Cached sparse strips.
-    cached_strips: Option<CachedStrips>,
+    cached_strips: CachedStrips,
     /// Last recorded transform.
     transform: Affine,
 }
@@ -117,7 +123,7 @@ impl Recording {
     pub fn new() -> Self {
         Self {
             commands: Vec::new(),
-            cached_strips: None,
+            cached_strips: CachedStrips::default(),
             transform: Affine::IDENTITY,
         }
     }
@@ -144,41 +150,33 @@ impl Recording {
 
     /// Check if recording has cached strips.
     pub fn has_cached_strips(&self) -> bool {
-        self.cached_strips.is_some()
+        !self.cached_strips.is_empty()
     }
 
     /// Get the number of cached strips.
     pub fn strip_count(&self) -> usize {
-        self.cached_strips
-            .as_ref()
-            .map_or(0, |cached| cached.strip_count())
+        self.cached_strips.strip_count()
     }
 
     /// Get the number of cached alpha bytes.
     pub fn alpha_count(&self) -> usize {
-        self.cached_strips
-            .as_ref()
-            .map_or(0, |cached| cached.alpha_count())
+        self.cached_strips.alpha_count()
     }
 
     /// Get cached strips.
-    pub fn get_cached_strips(&self) -> Option<(&[Strip], &[u8])> {
-        self.cached_strips
-            .as_ref()
-            .map(|cached| (cached.strips(), cached.alphas()))
+    pub fn get_cached_strips(&self) -> (&[Strip], &[u8]) {
+        (self.cached_strips.strips(), self.cached_strips.alphas())
     }
 
     /// Get strip start indices.
     pub fn get_strip_start_indices(&self) -> &[usize] {
-        self.cached_strips
-            .as_ref()
-            .map_or(&[], |cached| cached.strip_start_indices())
+        self.cached_strips.strip_start_indices()
     }
 
     /// Clear the recording contents.
     pub fn clear(&mut self) {
         self.commands.clear();
-        self.cached_strips = None;
+        self.cached_strips.clear();
         self.transform = Affine::IDENTITY;
     }
 
@@ -188,13 +186,13 @@ impl Recording {
     }
 
     /// Set cached strips.
-    pub(crate) fn set_cached_strips(
+    pub fn set_cached_strips(
         &mut self,
-        strips: Box<[Strip]>,
-        alphas: Box<[u8]>,
-        strip_start_indices: Box<[usize]>,
+        strips: Vec<Strip>,
+        alphas: Vec<u8>,
+        strip_start_indices: Vec<usize>,
     ) {
-        self.cached_strips = Some(CachedStrips::new(strips, alphas, strip_start_indices));
+        self.cached_strips = CachedStrips::new(strips, alphas, strip_start_indices);
     }
 }
 
@@ -222,50 +220,41 @@ impl Default for Recording {
 /// `vello_cpu` when multithreading is enabled. This limitation only affects
 /// `vello_cpu` in multithreaded mode; single-threaded `vello_cpu` and `vello_hybrid`
 /// work correctly with recordings.
+///
+/// # Usage Pattern
+///
+/// A consumer needs to do the following to render:
+/// ```ignore
+/// let mut recording = Recording::new();
+/// scene.record(&mut recording, |ctx| { ... });
+/// scene.render_recording(&mut recording);
+/// ```
+///
+/// And the following to prepare for later rendering:
+/// ```ignore
+/// let mut recording = Recording::new();
+/// scene.record(&mut recording, |ctx| { ... });
+/// scene.prepare_recording(&mut recording);
+///
+/// // sometime later
+/// scene.render_recording(&mut recording);
+/// ```
 pub trait Recordable {
-    /// Record rendering commands and return recording.
+    /// Record rendering commands into a recording.
     ///
     /// This method allows you to capture a sequence of rendering operations
     /// in a `Recording` that can be cached and replayed later.
     ///
     /// # Example
     /// ```ignore
-    /// let recording = scene.record(|ctx| {
+    /// let mut recording = Recording::new();
+    /// scene.record(&mut recording, |ctx| {
     ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
     ///     ctx.set_paint(Color::RED);
     ///     ctx.stroke_path(&some_path);
     /// });
     /// ```
-    fn record<F>(&mut self, f: F) -> Recording
-    where
-        F: FnOnce(&mut Recorder<'_>),
-    {
-        let mut recording = Recording::new();
-        self.record_into(&mut recording, f);
-        recording
-    }
-
-    /// Record rendering commands into an existing recording.
-    ///
-    /// This method allows you to reuse an existing `Recording` instance,
-    /// preserving its allocated memory.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let mut recording = Recording::new();
-    ///
-    /// // First use
-    /// scene.record_into(&mut recording, |ctx| {
-    ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-    /// });
-    ///
-    /// // Reuse the same recording (preserves allocations)
-    /// scene.record_into(&mut recording, |ctx| {
-    ///     ctx.fill_rect(&Rect::new(50.0, 50.0, 150.0, 150.0));
-    ///     ctx.set_paint(Color::BLUE);
-    /// });
-    /// ```
-    fn record_into<F>(&mut self, recording: &mut Recording, f: F)
+    fn record<F>(&mut self, recording: &mut Recording, f: F)
     where
         F: FnOnce(&mut Recorder<'_>),
     {
@@ -281,27 +270,15 @@ pub trait Recordable {
     ///
     /// # Example
     /// ```ignore
-    /// let mut recording = scene.record(|ctx| {
+    /// let mut recording = Recording::new();
+    /// scene.record(&mut recording, |ctx| {
     ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
     /// });
     ///
     /// // Generate strips explicitly
     /// scene.prepare_recording(&mut recording);
-    ///
-    /// // Now render using pre-generated strips
-    /// scene.render_recording(&mut recording);
     /// ```
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        if !recording.has_cached_strips() {
-            let (strips, alphas, strip_start_indices) =
-                self.generate_strips_from_commands(recording.commands());
-            recording.set_cached_strips(
-                strips.into_boxed_slice(),
-                alphas.into_boxed_slice(),
-                strip_start_indices.into_boxed_slice(),
-            );
-        }
-    }
+    fn prepare_recording(&mut self, recording: &mut Recording);
 
     /// Render using a recording (caches strips on first use).
     ///
@@ -313,102 +290,12 @@ pub trait Recordable {
         self.execute_recording(recording);
     }
 
-    /// Record and prepare strips immediately.
-    ///
-    /// This is a convenience method that combines `record` and `prepare_recording`.
-    /// Use this when you want to pre-generate strips without rendering yet.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let recording = scene.record_and_prepare(|ctx| {
-    ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-    /// });
-    /// // Strips are now generated and cached
-    /// ```
-    fn record_and_prepare<F>(&mut self, f: F) -> Recording
-    where
-        F: FnOnce(&mut Recorder<'_>),
-    {
-        let mut recording = self.record(f);
-        self.prepare_recording(&mut recording);
-        recording
-    }
-
-    /// Record and prepare strips immediately into an existing recording.
-    ///
-    /// This is a convenience method that combines `record_into` and `prepare_recording`.
-    /// Use this when you want to pre-generate strips without rendering yet while
-    /// reusing an existing recording's allocations.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let mut recording = Recording::new();
-    /// scene.record_and_prepare_into(&mut recording, |ctx| {
-    ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-    /// });
-    /// // Strips are now generated and cached, allocations preserved
-    /// ```
-    fn record_and_prepare_into<F>(&mut self, recording: &mut Recording, f: F)
-    where
-        F: FnOnce(&mut Recorder<'_>),
-    {
-        self.record_into(recording, f);
-        self.prepare_recording(recording);
-    }
-
-    /// Record and render immediately.
-    ///
-    /// This is a convenience method that combines `record` and `render_recording`.
-    /// Use this when you want to execute commands immediately but also keep
-    /// the recording for potential reuse.
-    fn record_and_render<F>(&mut self, f: F) -> Recording
-    where
-        F: FnOnce(&mut Recorder<'_>),
-    {
-        let mut recording = self.record(f);
-        self.render_recording(&mut recording);
-        recording
-    }
-
-    /// Record and render immediately into an existing recording.
-    ///
-    /// This is a convenience method that combines `record_into` and `render_recording`.
-    /// Use this when you want to execute commands immediately but also keep
-    /// the recording for potential reuse while preserving allocations.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let mut recording = Recording::new();
-    /// scene.record_and_render_into(&mut recording, |ctx| {
-    ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-    /// });
-    /// // Commands are executed and recording is ready for reuse
-    /// ```
-    fn record_and_render_into<F>(&mut self, recording: &mut Recording, f: F)
-    where
-        F: FnOnce(&mut Recorder<'_>),
-    {
-        self.record_into(recording, f);
-        self.render_recording(recording);
-    }
-
     /// Execute a recording.
     ///
     /// This method executes a previously recorded sequence of operations.
     /// It will generate and cache the necessary rendering data if it hasn't been done yet.
     /// Subsequent calls will reuse the cached data for better performance.
     fn execute_recording(&mut self, recording: &Recording);
-
-    /// Generate strips from strip commands and capture ranges.
-    ///
-    /// Returns:
-    /// - `collected_strips`: The generated strips.
-    /// - `collected_alphas`: The generated alphas.
-    /// - `strip_start_indices`: The start indices of strips for each geometry command.
-    fn generate_strips_from_commands(
-        &mut self,
-        commands: &[RenderCommand],
-    ) -> (Vec<Strip>, Vec<u8>, Vec<usize>);
 }
 
 /// Recorder context that captures commands.

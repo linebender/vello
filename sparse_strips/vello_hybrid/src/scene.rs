@@ -374,6 +374,95 @@ impl GlyphRenderer for Scene {
 }
 
 impl Recordable for Scene {
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        let (strips, alphas, strip_start_indices) =
+            self.generate_strips_from_commands(recording.commands());
+        recording.set_cached_strips(strips, alphas, strip_start_indices);
+    }
+
+    fn execute_recording(&mut self, recording: &Recording) {
+        let (cached_strips, cached_alphas) = recording.get_cached_strips();
+        let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
+
+        // Use pre-calculated strip start indices from when we generated the cache
+        let strip_start_indices = recording.get_strip_start_indices();
+        let mut range_index = 0;
+
+        // Replay commands in order, using cached strips for geometry
+        for command in recording.commands() {
+            match command {
+                RenderCommand::FillPath(_)
+                | RenderCommand::StrokePath(_)
+                | RenderCommand::FillRect(_)
+                | RenderCommand::StrokeRect(_) => {
+                    assert!(
+                        range_index < strip_start_indices.len(),
+                        "Strip range index out of bounds"
+                    );
+                    let start = strip_start_indices[range_index];
+                    let end = strip_start_indices
+                        .get(range_index + 1)
+                        .copied()
+                        .unwrap_or(adjusted_strips.len());
+                    let count = end - start;
+                    assert!(
+                        start < adjusted_strips.len() && count > 0,
+                        "Invalid strip range"
+                    );
+                    let paint = self.encode_current_paint();
+                    let fill_rule = match command {
+                        RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => self.fill_rule,
+                        RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => {
+                            Fill::NonZero
+                        }
+                        _ => Fill::NonZero,
+                    };
+                    self.wide
+                        .generate(&adjusted_strips[start..end], fill_rule, paint, 0);
+                    range_index += 1;
+                }
+                RenderCommand::SetPaint(paint) => {
+                    self.set_paint(paint.clone());
+                }
+                RenderCommand::SetPaintTransform(transform) => {
+                    self.set_paint_transform(*transform);
+                }
+                RenderCommand::ResetPaintTransform => {
+                    self.reset_paint_transform();
+                }
+                RenderCommand::SetTransform(transform) => {
+                    self.set_transform(*transform);
+                }
+                RenderCommand::SetFillRule(fill_rule) => {
+                    self.set_fill_rule(*fill_rule);
+                }
+                RenderCommand::SetStroke(stroke) => {
+                    self.set_stroke(stroke.clone());
+                }
+                RenderCommand::PushLayer {
+                    clip_path,
+                    blend_mode,
+                    opacity,
+                    mask,
+                } => {
+                    self.push_layer(clip_path.as_ref(), *blend_mode, *opacity, mask.clone());
+                }
+                RenderCommand::PopLayer => {
+                    self.pop_layer();
+                }
+            }
+        }
+    }
+}
+
+/// Recording management implementation.
+impl Scene {
+    /// Generate strips from strip commands and capture ranges.
+    ///
+    /// Returns:
+    /// - `collected_strips`: The generated strips.
+    /// - `collected_alphas`: The generated alphas.
+    /// - `strip_start_indices`: The start indices of strips for each geometry command.
     fn generate_strips_from_commands(
         &mut self,
         commands: &[RenderCommand],
@@ -424,86 +513,6 @@ impl Recordable for Scene {
         (collected_strips, alphas, strip_start_indices)
     }
 
-    fn execute_recording(&mut self, recording: &Recording) {
-        if let Some((cached_strips, cached_alphas)) = recording.get_cached_strips() {
-            let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
-
-            // Use pre-calculated strip start indices from when we generated the cache
-            let strip_start_indices = recording.get_strip_start_indices();
-            let mut range_index = 0;
-
-            // Replay commands in order, using cached strips for geometry
-            for command in recording.commands() {
-                match command {
-                    RenderCommand::FillPath(_)
-                    | RenderCommand::StrokePath(_)
-                    | RenderCommand::FillRect(_)
-                    | RenderCommand::StrokeRect(_) => {
-                        assert!(
-                            range_index < strip_start_indices.len(),
-                            "Strip range index out of bounds"
-                        );
-                        let start = strip_start_indices[range_index];
-                        let end = strip_start_indices
-                            .get(range_index + 1)
-                            .copied()
-                            .unwrap_or(adjusted_strips.len());
-                        let count = end - start;
-                        assert!(
-                            start < adjusted_strips.len() && count > 0,
-                            "Invalid strip range"
-                        );
-                        let paint = self.encode_current_paint();
-                        let fill_rule = match command {
-                            RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => {
-                                self.fill_rule
-                            }
-                            RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => {
-                                Fill::NonZero
-                            }
-                            _ => Fill::NonZero,
-                        };
-                        self.wide
-                            .generate(&adjusted_strips[start..end], fill_rule, paint, 0);
-                        range_index += 1;
-                    }
-                    RenderCommand::SetPaint(paint) => {
-                        self.set_paint(paint.clone());
-                    }
-                    RenderCommand::SetPaintTransform(transform) => {
-                        self.set_paint_transform(*transform);
-                    }
-                    RenderCommand::ResetPaintTransform => {
-                        self.reset_paint_transform();
-                    }
-                    RenderCommand::SetTransform(transform) => {
-                        self.set_transform(*transform);
-                    }
-                    RenderCommand::SetFillRule(fill_rule) => {
-                        self.set_fill_rule(*fill_rule);
-                    }
-                    RenderCommand::SetStroke(stroke) => {
-                        self.set_stroke(stroke.clone());
-                    }
-                    RenderCommand::PushLayer {
-                        clip_path,
-                        blend_mode,
-                        opacity,
-                        mask,
-                    } => {
-                        self.push_layer(clip_path.as_ref(), *blend_mode, *opacity, mask.clone());
-                    }
-                    RenderCommand::PopLayer => {
-                        self.pop_layer();
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Recording management implementation.
-impl Scene {
     /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.
     #[expect(
         clippy::cast_possible_truncation,

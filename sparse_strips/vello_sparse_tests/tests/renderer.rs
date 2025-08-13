@@ -49,8 +49,9 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn width(&self) -> u16;
     fn height(&self) -> u16;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
-    fn record(&mut self, f: impl FnOnce(&mut Recorder<'_>)) -> Recording;
-    fn record_into(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
+    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
+    fn prepare_recording(&mut self, recording: &mut Recording);
+    fn execute_recording(&mut self, recording: &Recording);
     fn render_recording(&mut self, recording: &mut Recording);
 }
 
@@ -161,12 +162,16 @@ impl Renderer for RenderContext {
         ImageSource::Pixmap(pixmap)
     }
 
-    fn record(&mut self, f: impl FnOnce(&mut Recorder<'_>)) -> Recording {
-        Recordable::record(self, f)
+    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
+        Recordable::record(self, recording, f);
     }
 
-    fn record_into(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record_into(self, recording, f);
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        Recordable::prepare_recording(self, recording);
+    }
+
+    fn execute_recording(&mut self, recording: &Recording) {
+        Recordable::execute_recording(self, recording);
     }
 
     fn render_recording(&mut self, recording: &mut Recording) {
@@ -468,12 +473,16 @@ impl Renderer for HybridRenderer {
         ImageSource::OpaqueId(image_id)
     }
 
-    fn record(&mut self, f: impl FnOnce(&mut Recorder<'_>)) -> Recording {
-        self.scene.record(f)
+    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
+        self.scene.record(recording, f);
     }
 
-    fn record_into(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        self.scene.record_into(recording, f);
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        self.scene.prepare_recording(recording);
+    }
+
+    fn execute_recording(&mut self, recording: &Recording) {
+        self.scene.execute_recording(recording);
     }
 
     fn render_recording(&mut self, recording: &mut Recording) {
@@ -665,12 +674,16 @@ impl Renderer for HybridRenderer {
         ImageSource::OpaqueId(image_id)
     }
 
-    fn record(&mut self, f: impl FnOnce(&mut Recorder<'_>)) -> Recording {
-        self.scene.record(f)
+    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
+        self.scene.record(recording, f);
     }
 
-    fn record_into(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        self.scene.record_into(recording, f);
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        self.scene.prepare_recording(recording);
+    }
+
+    fn execute_recording(&mut self, recording: &Recording) {
+        self.scene.execute_recording(recording);
     }
 
     fn render_recording(&mut self, recording: &mut Recording) {
