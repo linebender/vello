@@ -894,43 +894,6 @@ impl WideTile {
             // we can just pop it instead.
             self.cmds.pop();
         } else {
-            if self.cmds.len() >= 3 {
-                // If we have a non-destructive blend mode with just a single fill/strip,
-                // inline the blend mode instead.
-                let (_, tail) = self.cmds.split_at(self.cmds.len() - 3);
-
-                let updated = match tail {
-                    [Cmd::PushBuf, Cmd::AlphaFill(a), Cmd::Blend(b)] => {
-                        if !b.is_destructive() && a.blend_mode.is_none() {
-                            let mut blended = a.clone();
-                            blended.blend_mode = Some(*b);
-                            Some(Cmd::AlphaFill(blended))
-                        } else {
-                            None
-                        }
-                    }
-                    [Cmd::PushBuf, Cmd::Fill(a), Cmd::Blend(b)] => {
-                        if !b.is_destructive() && a.blend_mode.is_none() {
-                            let mut blended = a.clone();
-                            blended.blend_mode = Some(*b);
-                            Some(Cmd::Fill(blended))
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-
-                if let Some(updated) = updated {
-                    self.cmds.pop();
-                    self.cmds.pop();
-                    self.cmds.pop();
-                    self.cmds.push(updated);
-
-                    return;
-                }
-            }
-
             self.cmds.push(Cmd::PopBuf);
         }
 
