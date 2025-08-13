@@ -354,6 +354,11 @@ impl RenderContext {
     pub fn paint(&self) -> &PaintType {
         &self.paint
     }
+    
+    /// Set the blend mode that should be used when drawing objects.
+    pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        self.blend_mode = blend_mode;
+    } 
 
     /// Set the current paint transform.
     ///
