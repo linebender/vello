@@ -434,7 +434,7 @@ impl RenderContext {
             pixmap.data_as_u8_slice_mut(),
             width,
             height,
-            self.settings.render_mode,
+            self.render_settings.render_mode,
         );
     }
 
