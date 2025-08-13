@@ -19,6 +19,7 @@ const MIX_HUE = 12u;
 const MIX_SATURATION = 13u;
 const MIX_COLOR = 14u;
 const MIX_LUMINOSITY = 15u;
+const MIX_LUMINANCE_CLIP = 64u;
 const MIX_CLIP = 128u;
 
 fn screen(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
@@ -218,11 +219,12 @@ fn blend_compose(
     cs: vec3<f32>,
     ab: f32,
     as_: f32,
-    mode: u32
+    compose_mode: u32,
+    mix_mode: u32
 ) -> vec4<f32> {
     var fa = 0.0;
     var fb = 0.0;
-    switch mode {
+    switch compose_mode {
         case COMPOSE_COPY: {
             fa = 1.0;
             fb = 0.0;
@@ -241,6 +243,9 @@ fn blend_compose(
         }
         case COMPOSE_SRC_IN: {
             fa = ab;
+            if mix_mode == MIX_LUMINANCE_CLIP {
+                fa *= lum(cb);
+            }
             fb = 0.0;
         }
         case COMPOSE_DEST_IN: {
@@ -305,6 +310,6 @@ fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, mode: u32) -> vec4<f32
         let co = mix(backdrop.rgb, cs, src.a);
         return vec4(co, src.a + backdrop.a * (1.0 - src.a));
     } else {
-        return blend_compose(cb, cs, backdrop.a, src.a, compose_mode);
+        return blend_compose(cb, cs, backdrop.a, src.a, compose_mode, mix_mode);
     }
 }
