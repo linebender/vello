@@ -63,7 +63,7 @@ macro_rules! compose {
         impl $name {
             fn compose<S: Simd>(
                 simd: S,
-                mut src_c: f32x16<S>,
+                src_c: f32x16<S>,
                 bg_c: f32x16<S>,
             ) -> f32x16<S> {
                 let al_b = bg_c.splat_4th();
