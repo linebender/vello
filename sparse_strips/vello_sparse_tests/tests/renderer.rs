@@ -548,6 +548,10 @@ impl Renderer for HybridRenderer {
         self.scene.fill_path(path);
     }
 
+    fn set_blend_mode(&mut self, _: BlendMode) {
+        unimplemented!()
+    }
+
     fn stroke_path(&mut self, path: &BezPath) {
         self.scene.stroke_path(path);
     }
