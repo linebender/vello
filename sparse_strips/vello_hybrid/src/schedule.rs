@@ -367,13 +367,25 @@ impl Scheduler {
         }
     }
 
-    fn claim_free_slot(&mut self, texture: usize) -> ClaimedSlot {
+    fn claim_free_slot<R: RendererBackend>(
+        &mut self,
+        texture: usize,
+        renderer: &mut R,
+    ) -> Result<ClaimedSlot, RenderError> {
+        assert!(matches!(texture, 0 | 1));
+        while self.free[texture].is_empty() {
+            if self.rounds_queue.is_empty() {
+                return Err(RenderError::SlotsExhausted);
+            }
+            self.flush(renderer);
+        }
+
         let slot_ix = self.free[texture].pop().unwrap();
         self.clear[texture].push(slot_ix as u32);
 
         match texture {
-            0 => ClaimedSlot::Texture0(slot_ix),
-            1 => ClaimedSlot::Texture1(slot_ix),
+            0 => Ok(ClaimedSlot::Texture0(slot_ix)),
+            1 => Ok(ClaimedSlot::Texture1(slot_ix)),
             _ => panic!("invalid slot texture"),
         }
     }
@@ -647,19 +659,6 @@ impl Scheduler {
                     });
                 }
                 Cmd::PushBuf => {
-                    if has_blended {
-                        // There has been a popped blend in this run of do_tile. Yield to give the
-                        // blend command a chance to flush.
-                        return Ok(Some(cmd_idx));
-                    }
-                    let ix = clip_depth % 2;
-                    while self.free[ix].is_empty() {
-                        if self.rounds_queue.is_empty() {
-                            return Err(RenderError::SlotsExhausted);
-                        }
-                        self.flush(renderer);
-                    }
-
                     // When we blend we consume temporary slots, and blend into the destination.
                     // This works well _once_. Unfortunately to blend to the buffer again we need to
                     // copy the destination up to a new temporary slot, and we need to clear the
@@ -669,17 +668,16 @@ impl Scheduler {
                     //   3. Free the stale destination, and claim a new one. Step 3 prevents a blend
                     // into a stale slot which hasn't been cleared yet.
                     {
-                        let tos = state.stack.last_mut().unwrap();
+                        let tos: &mut TileEl = state.stack.last_mut().unwrap();
                         if matches!(tos.temporary_slot, TemporarySlot::Invalid) {
+                            if has_blended {
+                                // There has been a popped blend in this run of do_tile. Yield to give the
+                                // blend command a chance to flush.
+                                return Ok(Some(cmd_idx));
+                            }
                             // Allocate and copy destination into a new temporary slot.
                             let temp_texture = (tos.dest_slot.get_texture() + 1) % 2;
-                            while self.free[temp_texture].is_empty() {
-                                if self.rounds_queue.is_empty() {
-                                    return Err(RenderError::SlotsExhausted);
-                                }
-                                self.flush(renderer);
-                            }
-                            let temp_slot = self.claim_free_slot(temp_texture);
+                            let temp_slot = self.claim_free_slot(temp_texture, renderer)?;
                             let draw = self.draw_mut(tos.round, temp_slot.get_texture());
                             let paint = COLOR_SOURCE_SLOT << 30 | 0xFF; // Full opacity copy
                             draw.0.push(GpuStrip {
@@ -699,22 +697,21 @@ impl Scheduler {
                             let dest_slot = tos.dest_slot;
                             self.rounds_queue[tos.round - self.round].free[dest_slot.get_texture()]
                                 .push(dest_slot.get_idx());
-                            while self.free[dest_slot.get_texture()].is_empty() {
-                                if self.rounds_queue.is_empty() {
-                                    return Err(RenderError::SlotsExhausted);
-                                }
-                                self.flush(renderer);
-                            }
-                            tos.dest_slot = self.claim_free_slot(dest_slot.get_texture());
+
+                            tos.dest_slot =
+                                self.claim_free_slot(dest_slot.get_texture(), renderer)?;
+
+                            return Ok(Some(cmd_idx));
                         }
                     }
 
                     // Push a new tile.
+                    let ix = clip_depth % 2;
 
-                    let slot = self.claim_free_slot(ix);
+                    let slot = self.claim_free_slot(ix, renderer)?;
                     let temporary_slot =
                         if matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot) {
-                            TemporarySlot::Valid(self.claim_free_slot((ix + 1) % 2))
+                            TemporarySlot::Valid(self.claim_free_slot((ix + 1) % 2, renderer)?)
                         } else {
                             TemporarySlot::None
                         };
@@ -931,7 +928,7 @@ impl Scheduler {
                         self.rounds_queue[round - self.round].free[temporary_slot.get_texture()]
                             .push(temporary_slot.get_idx());
 
-                        // Signal to yield before pushing a new buffer.
+                        // Signal to suspend before pushing a new buffer.
                         has_blended = true;
                     } else {
                         let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
