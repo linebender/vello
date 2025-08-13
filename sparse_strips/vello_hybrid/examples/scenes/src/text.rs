@@ -13,6 +13,7 @@ use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::Affine;
+use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_hybrid::Scene;
 
 use crate::ExampleScene;
@@ -36,6 +37,10 @@ const ROBOTO_FONT: &[u8] =
 /// State for the text example.
 pub struct TextScene {
     layout: Layout<ColorBrush>,
+    /// Whether recording functionality is enabled
+    recording_enabled: bool,
+    /// The recording to reuse, if any
+    recording: Option<Recording>,
 }
 
 impl fmt::Debug for TextScene {
@@ -46,8 +51,38 @@ impl fmt::Debug for TextScene {
 
 impl ExampleScene for TextScene {
     fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
-        scene.set_transform(root_transform);
-        render_text(self, scene);
+        if self.recording_enabled {
+            // Try to reuse existing recording if possible
+            if let Some(recording) = &mut self.recording {
+                let render_result = try_reuse_recording(scene, recording, root_transform);
+                if render_result.is_reused {
+                    return;
+                }
+            }
+
+            // If we get here, we need to record fresh
+            record_fresh(self, scene, root_transform);
+        } else {
+            // Direct rendering mode (no recording/caching)
+            let start = std::time::Instant::now();
+            scene.set_transform(root_transform);
+            render_text(self, scene);
+            let elapsed = start.elapsed();
+            println!(
+                "Direct    : {:.3}ms | No caching",
+                elapsed.as_secs_f64() * 1000.0
+            );
+        }
+    }
+
+    fn handle_key(&mut self, key: &str) -> bool {
+        match key {
+            "r" | "R" => {
+                self.toggle_recording();
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -81,13 +116,92 @@ impl TextScene {
         layout.break_all_lines(max_advance);
         layout.align(max_advance, Alignment::Middle, AlignmentOptions::default());
 
-        Self { layout }
+        Self {
+            layout,
+            recording_enabled: true,
+            recording: None,
+        }
     }
 }
 
 impl Default for TextScene {
     fn default() -> Self {
         Self::new("Hello, Vello!")
+    }
+}
+
+struct RenderResult {
+    is_reused: bool,
+}
+
+/// Try to reuse an existing recording, either directly (TODO: or with translation)
+fn try_reuse_recording(
+    scene: &mut Scene,
+    recording: &mut Recording,
+    current_transform: Affine,
+) -> RenderResult {
+    let start = std::time::Instant::now();
+
+    // Case 1: Identical transforms - can reuse directly
+    if transforms_are_identical(recording.transform(), current_transform) {
+        scene.execute_recording(recording);
+        print_render_stats("Identical ", start.elapsed(), recording);
+        return RenderResult { is_reused: true };
+    }
+
+    // TODO: Implement "Case 2: Check if we can use with translation"
+
+    // Case 3: Can't optimize, need to record fresh
+    RenderResult { is_reused: false }
+}
+
+/// Record a fresh scene from scratch
+fn record_fresh(scene_obj: &mut TextScene, scene: &mut Scene, current_transform: Affine) {
+    let start = std::time::Instant::now();
+    let mut recording = Recording::new();
+    scene.record(&mut recording, |recorder| {
+        render_text_record(scene_obj, recorder, current_transform);
+    });
+    recording.set_transform(current_transform);
+    print_render_stats("Fresh     ", start.elapsed(), &recording);
+
+    scene_obj.recording = Some(recording);
+}
+
+/// Print timing and statistics for a render operation
+fn print_render_stats(render_type: &str, elapsed: std::time::Duration, recording: &Recording) {
+    println!(
+        "Text | {}: {:.3}ms | Strips: {} | Alphas: {}",
+        render_type,
+        elapsed.as_secs_f64() * 1000.0,
+        recording.strip_count(),
+        recording.alpha_count()
+    );
+}
+
+/// Check if two transforms are identical (within tolerance)
+fn transforms_are_identical(a: Affine, b: Affine) -> bool {
+    let a_coeffs = a.as_coeffs();
+    let b_coeffs = b.as_coeffs();
+    let tolerance = 1e-6;
+
+    for i in 0..6 {
+        if (a_coeffs[i] - b_coeffs[i]).abs() > tolerance {
+            return false;
+        }
+    }
+    true
+}
+
+impl TextScene {
+    /// Toggle recording functionality on/off
+    /// Returns the new state (true = enabled, false = disabled)
+    pub fn toggle_recording(&mut self) -> bool {
+        self.recording_enabled = !self.recording_enabled;
+        if !self.recording_enabled {
+            self.recording = None;
+        }
+        self.recording_enabled
     }
 }
 
@@ -101,7 +215,52 @@ fn render_text(state: &mut TextScene, ctx: &mut Scene) {
     }
 }
 
+/// Render text to recording
+fn render_text_record(state: &mut TextScene, ctx: &mut Recorder<'_>, transform: Affine) {
+    ctx.set_transform(transform);
+    for line in state.layout.lines() {
+        for item in line.items() {
+            if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                render_glyph_run_record(ctx, &glyph_run, 30);
+            }
+        }
+    }
+}
+
 fn render_glyph_run(ctx: &mut Scene, glyph_run: &GlyphRun<'_, ColorBrush>, padding: u32) {
+    let mut run_x = glyph_run.offset();
+    let run_y = glyph_run.baseline();
+    let glyphs = glyph_run.glyphs().map(|glyph| {
+        let glyph_x = run_x + glyph.x + padding as f32;
+        let glyph_y = run_y - glyph.y + padding as f32;
+        run_x += glyph.advance;
+
+        Glyph {
+            id: glyph.id as u32,
+            x: glyph_x,
+            y: glyph_y,
+        }
+    });
+
+    let run = glyph_run.run();
+    let font = run.font();
+    let font_size = run.font_size();
+    let normalized_coords = bytemuck::cast_slice(run.normalized_coords());
+
+    let style = glyph_run.style();
+    ctx.set_paint(style.brush.color);
+    ctx.glyph_run(font)
+        .font_size(font_size)
+        .normalized_coords(normalized_coords)
+        .hint(true)
+        .fill_glyphs(glyphs);
+}
+
+fn render_glyph_run_record(
+    ctx: &mut Recorder<'_>,
+    glyph_run: &GlyphRun<'_, ColorBrush>,
+    padding: u32,
+) {
     let mut run_x = glyph_run.offset();
     let run_y = glyph_run.baseline();
     let glyphs = glyph_run.glyphs().map(|glyph| {

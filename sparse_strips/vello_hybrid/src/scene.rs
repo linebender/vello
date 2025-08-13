@@ -9,14 +9,16 @@ use vello_common::coarse::Wide;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::flatten::{FlattenCtx, Line};
-use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
+use vello_common::glyph::{self, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
-use vello_common::recording::{Recordable, Recording, RenderCommand};
+use vello_common::recording::{
+    GlyphCommand, PushLayerCommand, Recordable, Recording, RenderCommand,
+};
 use vello_common::strip::Strip;
 use vello_common::tile::Tiles;
 use vello_common::{flatten, strip};
@@ -395,31 +397,14 @@ impl Recordable for Scene {
                 RenderCommand::FillPath(_)
                 | RenderCommand::StrokePath(_)
                 | RenderCommand::FillRect(_)
-                | RenderCommand::StrokeRect(_) => {
-                    assert!(
-                        range_index < strip_start_indices.len(),
-                        "Strip range index out of bounds"
+                | RenderCommand::StrokeRect(_)
+                | RenderCommand::Glyphs(_) => {
+                    self.process_geometry_command(
+                        command,
+                        strip_start_indices,
+                        range_index,
+                        &adjusted_strips,
                     );
-                    let start = strip_start_indices[range_index];
-                    let end = strip_start_indices
-                        .get(range_index + 1)
-                        .copied()
-                        .unwrap_or(adjusted_strips.len());
-                    let count = end - start;
-                    assert!(
-                        start < adjusted_strips.len() && count > 0,
-                        "Invalid strip range"
-                    );
-                    let paint = self.encode_current_paint();
-                    let fill_rule = match command {
-                        RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => self.fill_rule,
-                        RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => {
-                            Fill::NonZero
-                        }
-                        _ => Fill::NonZero,
-                    };
-                    self.wide
-                        .generate(&adjusted_strips[start..end], fill_rule, paint, 0);
                     range_index += 1;
                 }
                 RenderCommand::SetPaint(paint) => {
@@ -440,12 +425,12 @@ impl Recordable for Scene {
                 RenderCommand::SetStroke(stroke) => {
                     self.set_stroke(stroke.clone());
                 }
-                RenderCommand::PushLayer {
+                RenderCommand::PushLayer(PushLayerCommand {
                     clip_path,
                     blend_mode,
                     opacity,
                     mask,
-                } => {
+                }) => {
                     self.push_layer(clip_path.as_ref(), *blend_mode, *opacity, mask.clone());
                 }
                 RenderCommand::PopLayer => {
@@ -507,6 +492,10 @@ impl Scene {
                 RenderCommand::SetStroke(stroke) => {
                     self.stroke = stroke.clone();
                 }
+                RenderCommand::Glyphs(glyph_command) => {
+                    self.generate_glyph_strips(glyph_command, &mut collected_strips);
+                    strip_start_indices.push(start_index);
+                }
                 _ => {}
             }
         }
@@ -515,6 +504,37 @@ impl Scene {
         self.restore_state(saved_state);
 
         (collected_strips, collected_alphas, strip_start_indices)
+    }
+
+    fn process_geometry_command(
+        &mut self,
+        command: &RenderCommand,
+        strip_start_indices: &[usize],
+        range_index: usize,
+        adjusted_strips: &[Strip],
+    ) {
+        assert!(
+            range_index < strip_start_indices.len(),
+            "Strip range index out of bounds"
+        );
+        let start = strip_start_indices[range_index];
+        let end = strip_start_indices
+            .get(range_index + 1)
+            .copied()
+            .unwrap_or(adjusted_strips.len());
+        let count = end - start;
+        assert!(
+            start < adjusted_strips.len() && count > 0,
+            "Invalid strip range"
+        );
+        let paint = self.encode_current_paint();
+        let fill_rule = match command {
+            RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => self.fill_rule,
+            RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => Fill::NonZero,
+            _ => Fill::NonZero,
+        };
+        self.wide
+            .generate(&adjusted_strips[start..end], fill_rule, paint, 0);
     }
 
     /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.
@@ -597,5 +617,78 @@ impl Scene {
         self.blend_mode = state.blend_mode;
         self.strip_buf = state.strip_buf;
         self.alphas = state.alphas;
+    }
+
+    /// Generate strips for glyph rendering.
+    fn generate_glyph_strips(&mut self, glyph_command: &GlyphCommand, strips: &mut Vec<Strip>) {
+        // Use the glyph renderer to generate paths and then process them
+        use glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
+        use vello_common::kurbo::BezPath;
+
+        // Create a simple glyph renderer that captures paths
+        struct PathCapture {
+            paths: Vec<BezPath>,
+            transforms: Vec<Affine>,
+        }
+
+        impl GlyphRenderer for PathCapture {
+            fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
+                if let GlyphType::Outline(glyph) = prepared_glyph.glyph_type {
+                    self.paths.push(glyph.path.clone());
+                    self.transforms.push(prepared_glyph.transform);
+                }
+            }
+
+            fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
+                if let GlyphType::Outline(glyph) = prepared_glyph.glyph_type {
+                    self.paths.push(glyph.path.clone());
+                    self.transforms.push(prepared_glyph.transform);
+                }
+            }
+        }
+
+        let mut path_capture = PathCapture {
+            paths: Vec::new(),
+            transforms: Vec::new(),
+        };
+
+        let mut glyph_run = GlyphRunBuilder::new(
+            glyph_command.font.clone(),
+            self.transform,
+            &mut path_capture,
+        );
+        glyph_run = glyph_run
+            .font_size(glyph_command.font_size)
+            .hint(glyph_command.hint);
+        if let Some(transform) = glyph_command.glyph_transform {
+            glyph_run = glyph_run.glyph_transform(transform);
+        }
+        glyph_run = glyph_run.normalized_coords(&glyph_command.normalized_coords);
+
+        match glyph_command.style {
+            glyph::Style::Fill => {
+                glyph_run.fill_glyphs(glyph_command.glyphs.iter().copied());
+            }
+            glyph::Style::Stroke => {
+                glyph_run.stroke_glyphs(glyph_command.glyphs.iter().copied());
+            }
+        }
+
+        // Process the captured paths
+        for (path, transform) in path_capture
+            .paths
+            .into_iter()
+            .zip(path_capture.transforms.into_iter())
+        {
+            self.transform = transform;
+            match glyph_command.style {
+                glyph::Style::Fill => {
+                    self.generate_fill_strips(&path, strips);
+                }
+                glyph::Style::Stroke => {
+                    self.generate_stroke_strips(&path, strips);
+                }
+            }
+        }
     }
 }

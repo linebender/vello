@@ -51,7 +51,7 @@ impl ExampleScene for SvgScene {
             render_svg(scene, &self.svg.items, current_transform);
             let elapsed = start.elapsed();
             println!(
-                "Direct    : {:.2}ms | No caching",
+                "Direct    : {:.3}ms | No caching",
                 elapsed.as_secs_f64() * 1000.0
             );
         }
@@ -111,7 +111,7 @@ fn record_fresh(scene_obj: &mut SvgScene, scene: &mut Scene, current_transform: 
 /// Print timing and statistics for a render operation
 fn print_render_stats(render_type: &str, elapsed: std::time::Duration, recording: &Recording) {
     println!(
-        "{}: {:.2}ms | Strips: {} | Alphas: {}",
+        "SVG  | {}: {:.3}ms | Strips: {} | Alphas: {}",
         render_type,
         elapsed.as_secs_f64() * 1000.0,
         recording.strip_count(),
