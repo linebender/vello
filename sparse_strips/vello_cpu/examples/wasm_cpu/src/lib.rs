@@ -45,7 +45,7 @@ impl AppState {
             height as u16,
             vello_cpu::RenderSettings {
                 num_threads: 0,
-                level: Level::new(),
+                ..Default::default()
             },
         );
 
@@ -109,7 +109,7 @@ impl AppState {
             height as u16,
             vello_cpu::RenderSettings {
                 num_threads: 0,
-                level: Level::new(),
+                ..Default::default()
             },
         );
 
