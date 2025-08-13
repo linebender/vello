@@ -375,8 +375,9 @@ impl GlyphRenderer for Scene {
 
 impl Recordable for Scene {
     fn prepare_recording(&mut self, recording: &mut Recording) {
+        let buffers = recording.take_cached_strips();
         let (strips, alphas, strip_start_indices) =
-            self.generate_strips_from_commands(recording.commands());
+            self.generate_strips_from_commands(recording.commands(), buffers);
         recording.set_cached_strips(strips, alphas, strip_start_indices);
     }
 
@@ -466,11 +467,14 @@ impl Scene {
     fn generate_strips_from_commands(
         &mut self,
         commands: &[RenderCommand],
+        buffers: (Vec<Strip>, Vec<u8>, Vec<usize>),
     ) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
-        let saved_state = self.take_current_state();
+        let (mut collected_strips, mut cached_alphas, mut strip_start_indices) = buffers;
+        collected_strips.clear();
+        cached_alphas.clear();
+        strip_start_indices.clear();
 
-        let mut collected_strips = Vec::new();
-        let mut strip_start_indices = Vec::new();
+        let saved_state = self.take_current_state(cached_alphas);
 
         for command in commands {
             let start_index = collected_strips.len();
@@ -507,10 +511,10 @@ impl Scene {
             }
         }
 
-        let alphas = core::mem::take(&mut self.alphas);
+        let collected_alphas = core::mem::take(&mut self.alphas);
         self.restore_state(saved_state);
 
-        (collected_strips, alphas, strip_start_indices)
+        (collected_strips, collected_alphas, strip_start_indices)
     }
 
     /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.
@@ -570,7 +574,7 @@ impl Scene {
     }
 
     /// Save current rendering state.
-    fn take_current_state(&mut self) -> RenderState {
+    fn take_current_state(&mut self, cached_alphas: Vec<u8>) -> RenderState {
         RenderState {
             paint: self.paint.clone(),
             paint_transform: self.paint_transform,
@@ -579,7 +583,7 @@ impl Scene {
             blend_mode: self.blend_mode,
             stroke: core::mem::take(&mut self.stroke),
             strip_buf: core::mem::take(&mut self.strip_buf),
-            alphas: core::mem::take(&mut self.alphas),
+            alphas: core::mem::replace(&mut self.alphas, cached_alphas),
         }
     }
 

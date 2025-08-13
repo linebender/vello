@@ -91,6 +91,10 @@ impl StripGenerator {
         core::mem::take(&mut self.alphas)
     }
 
+    pub(crate) fn replace_alpha_buf(&mut self, alphas: Vec<u8>) -> Vec<u8> {
+        core::mem::replace(&mut self.alphas, alphas)
+    }
+
     pub(crate) fn reset(&mut self) {
         self.line_buf.clear();
         self.tiles.reset();

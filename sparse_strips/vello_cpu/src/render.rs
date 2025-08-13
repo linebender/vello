@@ -601,8 +601,9 @@ impl ColrRenderer for RenderContext {
 
 impl Recordable for RenderContext {
     fn prepare_recording(&mut self, recording: &mut Recording) {
+        let buffers = recording.take_cached_strips();
         let (strips, alphas, strip_start_indices) =
-            self.generate_strips_from_commands(recording.commands());
+            self.generate_strips_from_commands(recording.commands(), buffers);
         recording.set_cached_strips(strips, alphas, strip_start_indices);
     }
 
@@ -707,12 +708,15 @@ impl RenderContext {
     fn generate_strips_from_commands(
         &mut self,
         commands: &[RenderCommand],
+        buffers: (Vec<Strip>, Vec<u8>, Vec<usize>),
     ) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
-        let saved_state = self.take_current_state();
+        let (mut collected_strips, mut cached_alphas, mut strip_start_indices) = buffers;
+        collected_strips.clear();
+        cached_alphas.clear();
+        strip_start_indices.clear();
 
+        let saved_state = self.take_current_state(cached_alphas);
         let mut strip_generator = StripGenerator::new(self.width, self.height, self.level);
-        let mut collected_strips = Vec::new();
-        let mut strip_start_indices = Vec::new();
 
         for command in commands {
             let start_index = collected_strips.len();
@@ -813,14 +817,14 @@ impl RenderContext {
     }
 
     /// Save the current rendering state.
-    fn take_current_state(&mut self) -> RenderState {
+    fn take_current_state(&mut self, alphas: Vec<u8>) -> RenderState {
         RenderState {
             paint: self.paint.clone(),
             paint_transform: self.paint_transform,
             transform: self.transform,
             fill_rule: self.fill_rule,
             stroke: core::mem::take(&mut self.stroke),
-            alphas: self.dispatcher.take_alpha_buf(),
+            alphas: self.dispatcher.replace_alpha_buf(alphas),
         }
     }
 

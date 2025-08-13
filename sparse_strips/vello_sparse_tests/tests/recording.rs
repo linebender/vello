@@ -33,14 +33,16 @@ fn recording_basic(ctx: &mut impl Renderer) {
         ctx.fill_rect(&Rect::new(92.0, 12.0, 96.0, 88.0));
     });
 
-    ctx.render_recording(&mut recording1);
+    ctx.prepare_recording(&mut recording1);
+    ctx.execute_recording(&recording1);
 
     ctx.set_paint(DARK_TURQUOISE);
     ctx.fill_rect(&Rect::new(12.0, 4.0, 88.0, 8.0));
     ctx.set_paint(LIGHT_SALMON);
     ctx.fill_rect(&Rect::new(12.0, 92.0, 88.0, 96.0));
 
-    ctx.render_recording(&mut recording2);
+    ctx.prepare_recording(&mut recording2);
+    ctx.execute_recording(&recording2);
 }
 
 #[vello_test(skip_multithreaded)]

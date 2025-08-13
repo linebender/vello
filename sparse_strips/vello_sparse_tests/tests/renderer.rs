@@ -52,7 +52,6 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
     fn prepare_recording(&mut self, recording: &mut Recording);
     fn execute_recording(&mut self, recording: &Recording);
-    fn render_recording(&mut self, recording: &mut Recording);
 }
 
 impl Renderer for RenderContext {
@@ -172,10 +171,6 @@ impl Renderer for RenderContext {
 
     fn execute_recording(&mut self, recording: &Recording) {
         Recordable::execute_recording(self, recording);
-    }
-
-    fn render_recording(&mut self, recording: &mut Recording) {
-        Recordable::render_recording(self, recording);
     }
 }
 
@@ -484,10 +479,6 @@ impl Renderer for HybridRenderer {
     fn execute_recording(&mut self, recording: &Recording) {
         self.scene.execute_recording(recording);
     }
-
-    fn render_recording(&mut self, recording: &mut Recording) {
-        self.scene.render_recording(recording);
-    }
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -684,10 +675,6 @@ impl Renderer for HybridRenderer {
 
     fn execute_recording(&mut self, recording: &Recording) {
         self.scene.execute_recording(recording);
-    }
-
-    fn render_recording(&mut self, recording: &mut Recording) {
-        self.scene.render_recording(recording);
     }
 }
 

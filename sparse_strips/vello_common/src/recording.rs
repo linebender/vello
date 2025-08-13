@@ -67,6 +67,14 @@ impl CachedStrips {
     pub fn strip_start_indices(&self) -> &[usize] {
         &self.strip_start_indices
     }
+
+    /// Takes ownership of all buffers.
+    pub fn take(&mut self) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
+        let strips = core::mem::take(&mut self.strips);
+        let alphas = core::mem::take(&mut self.alphas);
+        let strip_start_indices = core::mem::take(&mut self.strip_start_indices);
+        (strips, alphas, strip_start_indices)
+    }
 }
 
 /// A recording of rendering commands that can cache generated strips.
@@ -168,6 +176,11 @@ impl Recording {
         (self.cached_strips.strips(), self.cached_strips.alphas())
     }
 
+    /// Takes cached strip buffers.
+    pub fn take_cached_strips(&mut self) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
+        self.cached_strips.take()
+    }
+
     /// Get strip start indices.
     pub fn get_strip_start_indices(&self) -> &[usize] {
         self.cached_strips.strip_start_indices()
@@ -206,13 +219,10 @@ impl Default for Recording {
 ///
 /// # State Modification During Replay
 ///
-/// **Important:** When replaying recordings using methods like `render_recording()`,
+/// **Important:** When replaying recordings using methods like `execute_recording()`,
 /// the renderer's state (transform, paint, fill rule, stroke settings, etc.) will be
 /// modified to match the state changes captured in the recording. The renderer will
 /// be left in the final state after all commands have been executed.
-///
-/// If you need to preserve the original renderer state, save it before replaying
-/// recordings and restore it afterward.
 ///
 /// # Multithreading Limitation
 ///
@@ -227,17 +237,18 @@ impl Default for Recording {
 /// ```ignore
 /// let mut recording = Recording::new();
 /// scene.record(&mut recording, |ctx| { ... });
-/// scene.render_recording(&mut recording);
+/// scene.prepare_recording(&mut recording);
+/// scene.execute_recording(&recording);
 /// ```
 ///
-/// And the following to prepare for later rendering:
+/// Or to prepare for later rendering:
 /// ```ignore
 /// let mut recording = Recording::new();
 /// scene.record(&mut recording, |ctx| { ... });
 /// scene.prepare_recording(&mut recording);
 ///
 /// // sometime later
-/// scene.render_recording(&mut recording);
+/// scene.execute_recording(&recording);
 /// ```
 pub trait Recordable {
     /// Record rendering commands into a recording.
@@ -280,21 +291,29 @@ pub trait Recordable {
     /// ```
     fn prepare_recording(&mut self, recording: &mut Recording);
 
-    /// Render using a recording (caches strips on first use).
+    /// Execute a recording directly without preparation.
     ///
-    /// This method executes a previously recorded sequence of operations.
-    /// On first use, it will generate and cache the necessary rendering data.
-    /// Subsequent calls will reuse the cached data for better performance.
-    fn render_recording(&mut self, recording: &mut Recording) {
-        self.prepare_recording(recording);
-        self.execute_recording(recording);
-    }
-
-    /// Execute a recording.
+    /// This method executes the rendering commands from a recording, using any
+    /// cached sparse strips that have been previously generated. If the recording
+    /// has not been prepared (no cached strips), this will result in empty rendering.
     ///
-    /// This method executes a previously recorded sequence of operations.
-    /// It will generate and cache the necessary rendering data if it hasn't been done yet.
-    /// Subsequent calls will reuse the cached data for better performance.
+    /// Use this method when you have a recording that has already been prepared
+    /// via `prepare_recording()`, or when you want to execute commands immediately
+    /// without explicit preparation.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut recording = Recording::new();
+    /// scene.record(&mut recording, |ctx| {
+    ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    /// });
+    ///
+    /// // Prepare strips first
+    /// scene.prepare_recording(&mut recording);
+    ///
+    /// // Then execute with cached strips
+    /// scene.execute_recording(&recording);
+    /// ```
     fn execute_recording(&mut self, recording: &Recording);
 }
 
