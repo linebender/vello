@@ -23,6 +23,23 @@ impl ComposeExt for BlendMode {
         bg_c: f32x16<S>,
         alpha_mask: Option<f32x16<S>>,
     ) -> f32x16<S> {
+        // There some non-obvious subtleties worth highlighting here.
+        // We support two kinds of blending (in this case, we focus on compositing specifically):
+        // - Isolated blending, where layers as a whole are blended together with their backdrop.
+        //   If we are currently performing this kind of blending, `alpha_mask` will always be `None`.
+        //   After all, there is no concrete shape opacity associated with a layer. Instead, we are
+        //   just compositing the RGBA values at _all_ positions of the source layer with the backdrop
+        //   layer. For example, if the backdrop contains a green rectangle and source layer is just
+        //   empty, if we perform blending with `Compose::Clear`, then _everything_ will be cleared,
+        //   because we are compositing the whole source layer with the whole backdrop, and not
+        //   just the parts of the source layer that have actually be drawn on.
+        // - Non-isolated blending, where a single path is blended with the backdrop. In this case,
+        //   `alpha_mask` _might_ be `Some` and contain the alpha values of the strips we are currently
+        //   compositing. Remember that strips always have a fixed height of 4, because of this, the
+        //   strips might cover areas that aren't actually covered by the path (and just have an alpha
+        //   value of 0, or a value between 0-254 for anti-aliased parts). Because of this, for
+        //   non-isolated blending, we need to lerp the result with the backdrop using `alpha_mask`.
+
         let mut res = match self.compose {
             Compose::SrcOver => SrcOver::compose(simd, src_c, bg_c),
             Compose::Clear => Clear::compose(simd, src_c, bg_c),
