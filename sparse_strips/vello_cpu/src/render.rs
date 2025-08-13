@@ -69,7 +69,7 @@ pub struct RenderSettings {
     pub num_threads: u16,
     /// Whether to prioritize speed or quality when rendering.
     ///
-    /// For most cases (especially for real-time rendering), it is highly recommented to set
+    /// For most cases (especially for real-time rendering), it is highly recommended to set
     /// this to `OptimizeSpeed`. If accuracy is a more significant concern (for example for visual
     /// regression testing), then you can set this to `OptimizeQuality`.
     /// 
