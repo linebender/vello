@@ -37,7 +37,7 @@ fn main() {
         level: Level::new(),
         num_threads: args.num_threads as u16,
     };
-    let mut ctx = RenderContext::new_with(width, height, &settings);
+    let mut ctx = RenderContext::new_with(width, height, settings);
     let mut pixmap = Pixmap::new(width, height);
     let mut runtime = Duration::default();
 
