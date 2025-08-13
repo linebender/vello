@@ -11,8 +11,7 @@ pub(crate) trait ComposeExt {
         simd: S,
         src_c: f32x16<S>,
         bg_c: f32x16<S>,
-        is_layer: bool,
-        alpha_mask: f32x16<S>,
+        alpha_mask: Option<f32x16<S>>,
     ) -> f32x16<S>;
 }
 
@@ -20,15 +19,10 @@ impl ComposeExt for BlendMode {
     fn compose<S: Simd>(
         &self,
         simd: S,
-        mut src_c: f32x16<S>,
+        src_c: f32x16<S>,
         bg_c: f32x16<S>,
-        is_layer: bool,
-        alpha_mask: f32x16<S>,
+        alpha_mask: Option<f32x16<S>>,
     ) -> f32x16<S> {
-        if is_layer {
-            src_c = src_c * alpha_mask;
-        }
-        
         let mut res = match self.compose {
             Compose::SrcOver => SrcOver::compose(simd, src_c, bg_c),
             Compose::Clear => Clear::compose(simd, src_c, bg_c),
@@ -47,7 +41,7 @@ impl ComposeExt for BlendMode {
             Compose::PlusLighter => Plus::compose(simd, src_c, bg_c),
         };
 
-        if !is_layer {
+        if let Some(alpha_mask) = alpha_mask {
             let alpha_mask_inv = 1.0 - alpha_mask;
             res = alpha_mask * res + alpha_mask_inv * bg_c;
         }
@@ -61,11 +55,7 @@ macro_rules! compose {
         struct $name;
 
         impl $name {
-            fn compose<S: Simd>(
-                simd: S,
-                src_c: f32x16<S>,
-                bg_c: f32x16<S>,
-            ) -> f32x16<S> {
+            fn compose<S: Simd>(simd: S, src_c: f32x16<S>, bg_c: f32x16<S>) -> f32x16<S> {
                 let al_b = bg_c.splat_4th();
                 let al_s = src_c.splat_4th();
 

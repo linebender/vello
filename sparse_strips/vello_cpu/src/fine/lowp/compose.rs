@@ -12,8 +12,7 @@ pub(crate) trait ComposeExt {
         simd: S,
         src_c: u8x32<S>,
         bg_c: u8x32<S>,
-        is_layer: bool,
-        alpha_mask: u8x32<S>,
+        alpha_mask: Option<u8x32<S>>,
     ) -> u8x32<S>;
 }
 
@@ -21,16 +20,11 @@ impl ComposeExt for BlendMode {
     fn compose<S: Simd>(
         &self,
         simd: S,
-        mut src_c: u8x32<S>,
+        src_c: u8x32<S>,
         bg_c: u8x32<S>,
-        is_layer: bool,
-        alpha_mask: u8x32<S>,
+        alpha_mask: Option<u8x32<S>>,
     ) -> u8x32<S> {
-        if is_layer {
-            src_c = src_c.normalized_mul(alpha_mask);
-        }
-        
-        let mut res =match self.compose {
+        let mut res = match self.compose {
             Compose::SrcOver => SrcOver::compose(simd, src_c, bg_c),
             Compose::Clear => Clear::compose(simd, src_c, bg_c),
             Compose::Copy => Copy::compose(simd, src_c, bg_c),
@@ -47,14 +41,14 @@ impl ComposeExt for BlendMode {
             // Have not been able to find a formula for this, so just fallback to Plus.
             Compose::PlusLighter => Plus::compose(simd, src_c, bg_c),
         };
-        
-        if !is_layer {
+
+        if let Some(alpha_mask) = alpha_mask {
             let alpha_mask_inv = 255 - alpha_mask;
             let p1 = simd.widen_u8x32(alpha_mask) * simd.widen_u8x32(res);
             let p2 = simd.widen_u8x32(alpha_mask_inv) * simd.widen_u8x32(bg_c);
             res = simd.narrow_u16x32((p1 + p2).div_255());
         }
-        
+
         res
     }
 }
@@ -64,11 +58,7 @@ macro_rules! compose {
         struct $name;
 
         impl $name {
-            fn compose<S: Simd>(
-                simd: S,
-                src_c: u8x32<S>,
-                bg_c: u8x32<S>,
-            ) -> u8x32<S> {
+            fn compose<S: Simd>(simd: S, src_c: u8x32<S>, bg_c: u8x32<S>) -> u8x32<S> {
                 let al_b = bg_c.splat_4th();
                 let al_s = src_c.splat_4th();
 
