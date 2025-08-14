@@ -4,11 +4,13 @@
 //! Recording API for caching sparse strips
 
 #[cfg(feature = "text")]
-use crate::glyph::Glyph;
+use crate::glyph::GlyphRenderer;
 #[cfg(feature = "text")]
-use crate::glyph::NormalizedCoord;
+use crate::glyph::GlyphRunBuilder;
 #[cfg(feature = "text")]
-use crate::glyph::Style;
+use crate::glyph::GlyphType;
+#[cfg(feature = "text")]
+use crate::glyph::PreparedGlyph;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::mask::Mask;
 use crate::paint::PaintType;
@@ -109,26 +111,6 @@ pub struct PushLayerCommand {
     pub mask: Option<Mask>,
 }
 
-/// Command for rendering glyphs.
-#[cfg(feature = "text")]
-#[derive(Debug, Clone)]
-pub struct GlyphCommand {
-    /// Font to use for the glyphs.
-    pub font: Font,
-    /// Font size in pixels per em.
-    pub font_size: f32,
-    /// Per-glyph transform.
-    pub glyph_transform: Option<Affine>,
-    /// Whether font hinting is enabled.
-    pub hint: bool,
-    /// Normalized variation coordinates for variable fonts.
-    pub normalized_coords: Vec<NormalizedCoord>,
-    /// The glyphs to render.
-    pub glyphs: Vec<Glyph>,
-    /// The style (fill or stroke) to use for rendering.
-    pub style: Style,
-}
-
 /// Individual rendering commands that can be recorded.
 #[derive(Debug)]
 pub enum RenderCommand {
@@ -156,9 +138,12 @@ pub enum RenderCommand {
     SetPaintTransform(Affine),
     /// Reset the paint transform.
     ResetPaintTransform,
-    /// Render glyphs with current paint.
+    /// Render a fill outline glyph.
     #[cfg(feature = "text")]
-    Glyphs(GlyphCommand),
+    FillOutlineGlyph((BezPath, Affine)),
+    /// Render a stroke outline glyph.
+    #[cfg(feature = "text")]
+    StrokeOutlineGlyph((BezPath, Affine)),
 }
 
 impl Recording {
@@ -451,88 +436,44 @@ impl<'a> Recorder<'a> {
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     #[cfg(feature = "text")]
-    pub fn glyph_run(&mut self, font: &Font) -> RecorderGlyphRunBuilder<'_> {
-        RecorderGlyphRunBuilder::new(font.clone(), self.recording)
+    pub fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
+        GlyphRunBuilder::new(font.clone(), self.recording.transform, self)
     }
 }
 
-/// A glyph run builder specifically for recording.
 #[cfg(feature = "text")]
-#[derive(Debug)]
-pub struct RecorderGlyphRunBuilder<'a> {
-    font: Font,
-    font_size: f32,
-    glyph_transform: Option<Affine>,
-    hint: bool,
-    normalized_coords: Vec<NormalizedCoord>,
-    recorder: &'a mut Recording,
-}
+impl<'a> GlyphRenderer for Recorder<'a> {
+    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
+        match glyph.glyph_type {
+            GlyphType::Outline(outline_glyph) => {
+                if !outline_glyph.path.is_empty() {
+                    self.recording.add_command(RenderCommand::FillOutlineGlyph((
+                        outline_glyph.path.clone(),
+                        glyph.transform,
+                    )));
+                }
+            }
 
-#[cfg(feature = "text")]
-impl<'a> RecorderGlyphRunBuilder<'a> {
-    /// Create a new recorder glyph run builder.
-    pub fn new(font: Font, recording: &'a mut Recording) -> Self {
-        Self {
-            font,
-            font_size: 16.0,
-            glyph_transform: None,
-            hint: true,
-            normalized_coords: Vec::new(),
-            recorder: recording,
+            _ => {
+                unimplemented!("Recording glyphs of type {:?}", glyph.glyph_type);
+            }
         }
     }
 
-    /// Set the font size in pixels per em.
-    pub fn font_size(mut self, size: f32) -> Self {
-        self.font_size = size;
-        self
-    }
-
-    /// Set the per-glyph transform.
-    pub fn glyph_transform(mut self, transform: Affine) -> Self {
-        self.glyph_transform = Some(transform);
-        self
-    }
-
-    /// Set whether font hinting is enabled.
-    pub fn hint(mut self, hint: bool) -> Self {
-        self.hint = hint;
-        self
-    }
-
-    /// Set normalized variation coordinates for variable fonts.
-    pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
-        self.normalized_coords = coords.to_vec();
-        self
-    }
-
-    /// Consumes the builder and fills the glyphs with the current configuration.
-    pub fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph>) {
-        let glyphs: Vec<Glyph> = glyphs.collect();
-        let command = GlyphCommand {
-            font: self.font,
-            font_size: self.font_size,
-            glyph_transform: self.glyph_transform,
-            hint: self.hint,
-            normalized_coords: self.normalized_coords,
-            glyphs,
-            style: Style::Fill,
-        };
-        self.recorder.add_command(RenderCommand::Glyphs(command));
-    }
-
-    /// Consumes the builder and strokes the glyphs with the current configuration.
-    pub fn stroke_glyphs(self, glyphs: impl Iterator<Item = Glyph>) {
-        let glyphs: Vec<Glyph> = glyphs.collect();
-        let command = GlyphCommand {
-            font: self.font,
-            font_size: self.font_size,
-            glyph_transform: self.glyph_transform,
-            hint: self.hint,
-            normalized_coords: self.normalized_coords,
-            glyphs,
-            style: Style::Stroke,
-        };
-        self.recorder.add_command(RenderCommand::Glyphs(command));
+    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
+        match glyph.glyph_type {
+            GlyphType::Outline(outline_glyph) => {
+                if !outline_glyph.path.is_empty() {
+                    self.recording
+                        .add_command(RenderCommand::StrokeOutlineGlyph((
+                            outline_glyph.path.clone(),
+                            glyph.transform,
+                        )));
+                }
+            }
+            _ => {
+                unimplemented!("Recording glyphs of type {:?}", glyph.glyph_type);
+            }
+        }
     }
 }

@@ -78,7 +78,7 @@ fn recording_incremental_build(ctx: &mut impl Renderer) {
 }
 
 #[vello_test(width = 300, height = 70, skip_multithreaded)]
-fn recording_glyphs_basic(ctx: &mut impl Renderer) {
+fn recording_glyphs(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 

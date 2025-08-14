@@ -19,8 +19,6 @@ use alloc::vec::Vec;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
-#[cfg(feature = "text")]
-use vello_common::glyph;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 #[cfg(feature = "text")]
@@ -29,8 +27,6 @@ use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
-#[cfg(feature = "text")]
-use vello_common::recording::GlyphCommand;
 use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
 use vello_common::strip::Strip;
 #[cfg(feature = "text")]
@@ -635,7 +631,7 @@ impl Recordable for RenderContext {
                     range_index += 1;
                 }
                 #[cfg(feature = "text")]
-                RenderCommand::Glyphs(_) => {
+                RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
                     self.process_geometry_command(
                         command,
                         strip_start_indices,
@@ -715,21 +711,63 @@ impl RenderContext {
 
             match command {
                 RenderCommand::FillPath(path) => {
-                    self.generate_fill_strips(path, &mut collected_strips, &mut strip_generator);
+                    self.generate_fill_strips(
+                        path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokePath(path) => {
-                    self.generate_stroke_strips(path, &mut collected_strips, &mut strip_generator);
+                    self.generate_stroke_strips(
+                        path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::FillRect(rect) => {
                     let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_fill_strips(&path, &mut collected_strips, &mut strip_generator);
+                    self.generate_fill_strips(
+                        &path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokeRect(rect) => {
                     let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_stroke_strips(&path, &mut collected_strips, &mut strip_generator);
+                    self.generate_stroke_strips(
+                        &path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
+                    strip_start_indices.push(start_index);
+                }
+                #[cfg(feature = "text")]
+                RenderCommand::FillOutlineGlyph((path, transform)) => {
+                    let glyph_transform = self.transform * *transform;
+                    self.generate_fill_strips(
+                        path,
+                        &mut collected_strips,
+                        glyph_transform,
+                        &mut strip_generator,
+                    );
+                    strip_start_indices.push(start_index);
+                }
+                #[cfg(feature = "text")]
+                RenderCommand::StrokeOutlineGlyph((path, transform)) => {
+                    let glyph_transform = self.transform * *transform;
+                    self.generate_stroke_strips(
+                        path,
+                        &mut collected_strips,
+                        glyph_transform,
+                        &mut strip_generator,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::SetTransform(transform) => {
@@ -741,15 +779,7 @@ impl RenderContext {
                 RenderCommand::SetStroke(stroke) => {
                     self.stroke = stroke.clone();
                 }
-                #[cfg(feature = "text")]
-                RenderCommand::Glyphs(glyph_command) => {
-                    self.generate_glyph_strips(
-                        glyph_command,
-                        &mut collected_strips,
-                        &mut strip_generator,
-                    );
-                    strip_start_indices.push(start_index);
-                }
+
                 _ => {}
             }
         }
@@ -821,12 +851,13 @@ impl RenderContext {
         &mut self,
         path: &BezPath,
         strips: &mut Vec<Strip>,
+        transform: Affine,
         strip_generator: &mut StripGenerator,
     ) {
         strip_generator.generate_filled_path(
             path,
             self.fill_rule,
-            self.transform,
+            transform,
             self.anti_alias,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
@@ -839,12 +870,13 @@ impl RenderContext {
         &mut self,
         path: &BezPath,
         strips: &mut Vec<Strip>,
+        transform: Affine,
         strip_generator: &mut StripGenerator,
     ) {
         strip_generator.generate_stroked_path(
             path,
             &self.stroke,
-            self.transform,
+            transform,
             self.anti_alias,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
@@ -872,85 +904,6 @@ impl RenderContext {
         self.paint = state.paint;
         self.paint_transform = state.paint_transform;
         self.dispatcher.set_alpha_buf(state.alphas);
-    }
-
-    /// Generate strips for glyph rendering.
-    #[cfg(feature = "text")]
-    fn generate_glyph_strips(
-        &mut self,
-        glyph_command: &GlyphCommand,
-        strips: &mut Vec<Strip>,
-        strip_generator: &mut StripGenerator,
-    ) {
-        // Use the glyph renderer to generate paths and then process them with the strip generator
-        use glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
-        use vello_common::kurbo::BezPath;
-
-        // Create a simple glyph renderer that captures paths
-        struct PathCapture {
-            paths: Vec<BezPath>,
-            transforms: Vec<Affine>,
-        }
-
-        impl GlyphRenderer for PathCapture {
-            fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
-                if let GlyphType::Outline(glyph) = prepared_glyph.glyph_type {
-                    self.paths.push(glyph.path.clone());
-                    self.transforms.push(prepared_glyph.transform);
-                }
-            }
-
-            fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
-                if let GlyphType::Outline(glyph) = prepared_glyph.glyph_type {
-                    self.paths.push(glyph.path.clone());
-                    self.transforms.push(prepared_glyph.transform);
-                }
-            }
-        }
-
-        let mut path_capture = PathCapture {
-            paths: Vec::new(),
-            transforms: Vec::new(),
-        };
-
-        let mut glyph_run = GlyphRunBuilder::new(
-            glyph_command.font.clone(),
-            self.transform,
-            &mut path_capture,
-        );
-        glyph_run = glyph_run
-            .font_size(glyph_command.font_size)
-            .hint(glyph_command.hint);
-        if let Some(transform) = glyph_command.glyph_transform {
-            glyph_run = glyph_run.glyph_transform(transform);
-        }
-        glyph_run = glyph_run.normalized_coords(&glyph_command.normalized_coords);
-
-        match glyph_command.style {
-            glyph::Style::Fill => {
-                glyph_run.fill_glyphs(glyph_command.glyphs.iter().copied());
-            }
-            glyph::Style::Stroke => {
-                glyph_run.stroke_glyphs(glyph_command.glyphs.iter().copied());
-            }
-        }
-
-        // Now process the captured paths with the strip generator
-        for (path, transform) in path_capture
-            .paths
-            .into_iter()
-            .zip(path_capture.transforms.into_iter())
-        {
-            self.transform = transform;
-            match glyph_command.style {
-                glyph::Style::Fill => {
-                    self.generate_fill_strips(&path, strips, strip_generator);
-                }
-                glyph::Style::Stroke => {
-                    self.generate_stroke_strips(&path, strips, strip_generator);
-                }
-            }
-        }
     }
 }
 
