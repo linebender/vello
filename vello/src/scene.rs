@@ -23,8 +23,6 @@ use skrifa::{
 use vello_encoding::BumpAllocatorMemory;
 use vello_encoding::{Encoding, Glyph, GlyphRun, NormalizedCoord, Patch, Transform};
 
-use crate::TextureHandle;
-
 // TODO - Document invariants and edge cases (#470)
 // - What happens when we pass a transform matrix with NaN values to the Scene?
 // - What happens if a push_layer isn't matched by a pop_layer?
@@ -310,58 +308,6 @@ impl Scene {
             image,
             None,
             &Rect::new(0.0, 0.0, image.width as f64, image.height as f64),
-        );
-    }
-
-    /// Draws a texture at its natural size with the given transform
-    ///
-    /// To get a [`TextureHandle`] to use with this API, first register the texture with the renderer
-    /// using the [`Renderer::register_texture`](crate::Renderer::register_texture) method.
-    pub fn draw_texture(&mut self, handle: TextureHandle, transform: Affine) {
-        self.fill_texture(
-            Fill::NonZero,
-            transform,
-            1.0,
-            handle,
-            None,
-            &Rect::new(0.0, 0.0, handle.width as f64, handle.height as f64),
-            Extend::Pad,
-            Extend::Pad,
-        );
-    }
-
-    /// Fills a shape using the specified texture
-    ///
-    /// To get a [`TextureHandle`] to use with this API, first register the texture with the renderer
-    /// using the [`Renderer::register_texture`](crate::Renderer::register_texture) method.
-    pub fn fill_texture(
-        &mut self,
-        style: Fill,
-        transform: Affine,
-        alpha: f32,
-        handle: TextureHandle,
-        brush_transform: Option<Affine>,
-        shape: &impl Shape,
-        x_extend: Extend,
-        y_extend: Extend,
-    ) {
-        let dummy_image = Image {
-            data: Blob::from_raw_parts(Arc::new([]), handle.id),
-            width: handle.width,
-            height: handle.height,
-            format: peniko::ImageFormat::Rgba8,
-            quality: peniko::ImageQuality::High,
-            x_extend,
-            y_extend,
-            alpha,
-        };
-
-        self.fill(
-            style,
-            transform,
-            BrushRef::Image(&dummy_image),
-            brush_transform,
-            shape,
         );
     }
 

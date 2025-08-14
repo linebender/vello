@@ -139,6 +139,8 @@ pub use peniko;
 pub use peniko::kurbo;
 
 #[cfg(feature = "wgpu")]
+use peniko::Image;
+#[cfg(feature = "wgpu")]
 pub use wgpu;
 
 pub use scene::{DrawGlyphs, Scene};
@@ -311,15 +313,6 @@ pub enum Error {
     expect(dead_code, reason = "this can be unused when wgpu feature is not used")
 )]
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
-
-/// An opaque handle to a texture registered with [`Renderer::register_texture`] that
-/// can be passed to [`Scene::draw_texture`] to draw the texture.
-#[derive(Copy, Clone, PartialEq, Hash)]
-pub struct TextureHandle {
-    pub(crate) id: u64,
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-}
 
 /// Renders a scene into a texture or surface.
 ///
@@ -534,7 +527,7 @@ impl Renderer {
     #[deprecated = "Use register_texture and unregister_texture methods instead"]
     pub fn override_image(
         &mut self,
-        image: &peniko::Image,
+        image: &Image,
         texture: Option<wgpu::TexelCopyTextureInfoBase<wgpu::Texture>>,
     ) -> Option<wgpu::TexelCopyTextureInfoBase<wgpu::Texture>> {
         match texture {
@@ -547,18 +540,20 @@ impl Renderer {
     /// can be used to draw the registered texture using [`Scene::draw_texture`]
     ///
     /// If the texture is no longer active then it should be unregistered using [`unregister_texture`](Self::unregister_texture)
-    pub fn register_texture(&mut self, texture: wgpu::Texture) -> TextureHandle {
-        // Generate a unique ID using peniko::Blob to guarantee it won't clash
-        // with a user-generated image Blob
-        let id = peniko::Blob::<()>::new(std::sync::Arc::new(&[])).id();
+    pub fn register_texture(&mut self, texture: wgpu::Texture) -> Image {
+        // Create a fake, empty blob which will be used to back the returned image
+        // This image data will never be read by Vello, due to being added to
+        // image_overrides, below.
+        let fake_blob = peniko::Blob::new(std::sync::Arc::new(&[]));
 
-        let handle = TextureHandle {
-            id,
-            width: texture.width(),
-            height: texture.height(),
-        };
+        let image = Image::new(
+            fake_blob,
+            peniko::ImageFormat::Rgba8,
+            texture.width(),
+            texture.height(),
+        );
 
-        // Create a texture base for the texture
+        // For this utility API, we take the full texture and use the base layer and mip level
         let texture_base = wgpu::TexelCopyTextureInfoBase {
             texture,
             mip_level: 0,
@@ -566,15 +561,17 @@ impl Renderer {
             aspect: wgpu::TextureAspect::All,
         };
 
-        // Insert it into the overrides map
-        self.engine.image_overrides.insert(id, texture_base);
+        // We overwrite any attempt to use the fake blob, instead reading from the texture
+        self.engine
+            .image_overrides
+            .insert(image.data.id(), texture_base);
 
-        handle
+        image
     }
 
     /// Unregister a [`wgpu::Texture`] that was registered with [`register_texture`](Self::register_texture)
-    pub fn unregister_texture(&mut self, handle: TextureHandle) {
-        self.engine.image_overrides.remove(&handle.id);
+    pub fn unregister_texture(&mut self, handle: Image) {
+        self.engine.image_overrides.remove(&handle.data.id());
     }
 
     /// Reload the shaders. This should only be used during `vello` development
