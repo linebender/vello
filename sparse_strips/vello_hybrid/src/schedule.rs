@@ -1053,8 +1053,9 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 
 /// Does a single linear scan over the wide tile commands to prepare them for `do_tile`. Notably
 /// this function:
-///  - Removes certain optimizations that `vello_cpu` can leverage.
 ///  - Precomputes the layers that require temporary slots due to blending.
+///
+/// TODO: Can be triggered via a const generic on coarse draw cmd generation.
 fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
     let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Default::default();
     annotated_commands.push(AnnotatedCmd::Generated(Cmd::PushBuf));

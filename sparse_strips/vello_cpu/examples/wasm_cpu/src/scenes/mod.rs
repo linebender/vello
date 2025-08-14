@@ -3,12 +3,12 @@
 
 //! Example scenes for Vello CPU.
 
+pub(crate) mod blend;
 pub(crate) mod clip;
 pub(crate) mod image;
 pub(crate) mod simple;
 pub(crate) mod svg;
 pub(crate) mod text;
-pub(crate) mod blend;
 
 use vello_common::kurbo::Affine;
 use vello_cpu::RenderContext;

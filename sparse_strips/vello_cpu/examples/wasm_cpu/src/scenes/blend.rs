@@ -11,7 +11,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::scenes::ExampleScene;
 use vello_common::color::palette::css::{BLUE, GREEN, PURPLE, RED, YELLOW};
-use vello_common::kurbo::{Affine, Shape, Circle, Point, Rect};
+use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
 use vello_cpu::RenderContext;
 
