@@ -426,12 +426,17 @@ impl Scheduler {
                 });
             }
         }
+
+        // TODO: Eagerly processing tile-by-tile is expensive as a blend requires suspending until a
+        // Round has flushed. Instead of flushing to wait for a blend, we suspend the tile's work,
+        // and continue iterating through the tiles. Slots claimed from the slot textures are a
+        // shared resource, and it's possible for all the tiles to not be able to "resume" from
+        // their "suspended" state due to no slots being available.
         while !self.rounds_queue.is_empty() || !pending_work.is_empty() {
             if !self.rounds_queue.is_empty() {
                 self.flush(renderer);
             }
 
-            // Resume pending tiles after flush
             let pending: Vec<PendingTileWork<'scene>> = mem::take(&mut pending_work);
             for work in pending {
                 let wide_tile_col = work.wide_tile_col;
@@ -445,7 +450,7 @@ impl Scheduler {
                     el.round += round_offset;
                 }
 
-                match self.do_tile(
+                if let Some(next_cmd_idx) = self.do_tile(
                     renderer,
                     scene,
                     wide_tile_x,
@@ -454,21 +459,15 @@ impl Scheduler {
                     &mut tile_state,
                     work.next_cmd_idx,
                 )? {
-                    Some(next_cmd_idx) => {
-                        // More work remains
-                        pending_work.push(PendingTileWork {
-                            wide_tile_col,
-                            wide_tile_row,
-                            next_cmd_idx,
-                            stack: tile_state,
-                            suspended_at_round: self.round,
-                            annotated_cmds: work.annotated_cmds,
-                        });
-                    }
-                    None => {
-                        // Tile completed
-                    }
-                };
+                    pending_work.push(PendingTileWork {
+                        wide_tile_col,
+                        wide_tile_row,
+                        next_cmd_idx,
+                        stack: tile_state,
+                        suspended_at_round: self.round,
+                        annotated_cmds: work.annotated_cmds,
+                    });
+                }
             }
         }
 
@@ -1062,30 +1061,7 @@ fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
     // vello_hybrid cannot support non destructive in-place composites. Expand out to explicit blend
     // layers.
     for cmd in cmds {
-        match cmd {
-            Cmd::AlphaFill(fill) if fill.blend_mode.is_some() => {
-                let blend_mode = fill.blend_mode.unwrap();
-                annotated_commands.push(AnnotatedCmd::Generated(Cmd::PushBuf));
-                let mut fill_without_blend = fill.clone();
-                fill_without_blend.blend_mode = None;
-                annotated_commands
-                    .push(AnnotatedCmd::Generated(Cmd::AlphaFill(fill_without_blend)));
-                annotated_commands.push(AnnotatedCmd::Generated(Cmd::Blend(blend_mode)));
-                annotated_commands.push(AnnotatedCmd::Generated(Cmd::PopBuf));
-            }
-            Cmd::Fill(fill) if fill.blend_mode.is_some() => {
-                let blend_mode = fill.blend_mode.unwrap();
-                annotated_commands.push(AnnotatedCmd::Generated(Cmd::PushBuf));
-                let mut fill_without_blend = fill.clone();
-                fill_without_blend.blend_mode = None;
-                annotated_commands.push(AnnotatedCmd::Generated(Cmd::Fill(fill_without_blend)));
-                annotated_commands.push(AnnotatedCmd::Generated(Cmd::Blend(blend_mode)));
-                annotated_commands.push(AnnotatedCmd::Generated(Cmd::PopBuf));
-            }
-            _ => {
-                annotated_commands.push(AnnotatedCmd::IdentityBorrowed(cmd));
-            }
-        }
+        annotated_commands.push(AnnotatedCmd::IdentityBorrowed(cmd));
     }
 
     annotated_commands.push(AnnotatedCmd::Generated(Cmd::Blend(BlendMode {
