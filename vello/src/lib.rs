@@ -510,6 +510,9 @@ impl Renderer {
 
     /// Overwrite `image` with `texture`.
     ///
+    /// Most users should prefer [`register_texture`](Self::register_texture), which
+    /// ergonomically encapulates these requirements.
+    ///
     /// `texture` must have the [`wgpu::TextureFormat::Rgba8Unorm`] format and
     /// the [`wgpu::TextureUsages::COPY_SRC`] flag set. The `Rgba8UnormSrgb` format
     /// might also be supported, but this is not tested.
@@ -524,7 +527,6 @@ impl Renderer {
     /// dimensions would be rendered.
     ///
     /// [data]: peniko::Image::data
-    #[deprecated = "Use register_texture and unregister_texture methods instead"]
     pub fn override_image(
         &mut self,
         image: &Image,
