@@ -222,8 +222,6 @@ pub(crate) struct Scheduler {
     total_slots: usize,
     /// The slots that are free to use in each slot texture.
     free: [Vec<usize>; 2],
-    /// Slots that require clearing before subsequent draws for each slot texture.
-    clear: [Vec<u32>; 2],
     /// Rounds are enqueued on push clip commands and dequeued on flush.
     rounds_queue: VecDeque<Round>,
 }
@@ -250,6 +248,8 @@ struct Round {
     draws: [Draw; 3],
     /// Slots that will be freed after drawing into the two slot textures [0, 1].
     free: [Vec<usize>; 2],
+    /// Slots that require clearing before subsequent draws for each slot texture.
+    clear: [Vec<u32>; 2],
 }
 
 /// State for a single wide tile.
@@ -362,12 +362,10 @@ impl Scheduler {
         let free0: Vec<_> = (0..total_slots).collect();
         let free1 = free0.clone();
         let free = [free0, free1];
-        let clear = [Vec::new(), Vec::new()];
         Self {
             round: 0,
             total_slots,
             free,
-            clear,
             rounds_queue: Default::default(),
         }
     }
@@ -386,7 +384,6 @@ impl Scheduler {
         }
 
         let slot_ix = self.free[texture].pop().unwrap();
-        self.clear[texture].push(slot_ix as u32);
 
         match texture {
             0 => Ok(ClaimedSlot::Texture0(slot_ix)),
@@ -472,8 +469,6 @@ impl Scheduler {
 
         // Restore state to reuse allocations.
         self.round = 0;
-        debug_assert!(self.clear[0].is_empty(), "clear has not reset");
-        debug_assert!(self.clear[1].is_empty(), "clear has not reset");
         #[cfg(debug_assertions)]
         {
             for i in 0..self.total_slots {
@@ -493,8 +488,24 @@ impl Scheduler {
         let round = self.rounds_queue.pop_front().unwrap();
         #[cfg(debug_assertions)]
         {
-            println!("=== Round {} ===", self.round);
-
+            println!("==== Round {} ====", self.round);
+            for i in 0..2 {
+                if !round.clear[i].is_empty() {
+                    let texture_name = match i {
+                        0 => "Texture 0 (even clip buffer)",
+                        1 => "Texture 1 (odd clip buffer)",
+                        _ => unreachable!(),
+                    };
+                    println!(
+                        "  Slots to be cleared on {}: {:?}",
+                        texture_name, round.clear[i]
+                    );
+                    assert!(!round.clear[i].contains(&u32::MAX), "cannot clear max u32");
+                }
+            }
+            if !round.clear[0].is_empty() || !round.clear[1].is_empty() {
+                println!();
+            }
             for (target_idx, draw) in round.draws.iter().enumerate() {
                 if draw.0.is_empty() {
                     continue;
@@ -645,15 +656,13 @@ impl Scheduler {
                 if i == 2 {
                     // We're rendering to the view, don't clear.
                     LoadOp::Load
-                } else if self.clear[i].len() + self.free[i].len() == self.total_slots {
+                } else if round.clear[i].len() + self.free[i].len() == self.total_slots {
                     // All slots are either unoccupied or need to be cleared.
                     // Simply clear the slots via a load operation.
-                    self.clear[i].clear();
                     LoadOp::Clear
                 } else {
                     // Some slots need to be preserved, so only clear the dirty slots.
-                    renderer.clear_slots(i, self.clear[i].as_slice());
-                    self.clear[i].clear();
+                    renderer.clear_slots(i, round.clear[i].as_slice());
                     LoadOp::Load
                 }
             };
@@ -672,11 +681,16 @@ impl Scheduler {
 
     // Find the appropriate draw call for rendering.
     fn draw_mut(&mut self, el_round: usize, texture_idx: usize) -> &mut Draw {
+        &mut self.get_round(el_round).draws[texture_idx]
+    }
+
+    // Find the appropriate round for rendering.
+    fn get_round(&mut self, el_round: usize) -> &mut Round {
         let rel_round = el_round.saturating_sub(self.round);
         if self.rounds_queue.len() == rel_round {
             self.rounds_queue.push_back(Round::default());
         }
-        &mut self.rounds_queue[rel_round].draws[texture_idx]
+        &mut self.rounds_queue[rel_round]
     }
 
     fn initialize_tile(
@@ -832,24 +846,35 @@ impl Scheduler {
 
                             tos.temporary_slot = TemporarySlot::Valid(temp_slot);
 
-                            // Make sure the destination slot and temporary slot are cleared before next paint.
+                            // Make sure the destination slot and temporary slot are cleared before
+                            // next paint since we are recycling.
                             let dest_slot = tos.dest_slot;
-                            self.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
-                            self.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
+                            let round = self.get_round(tos.round - 1);
+                            round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
+                            if dest_slot.get_idx() as u32 != u32::MAX {
+                                let round = self.get_round(tos.round);
+                                round.clear[dest_slot.get_texture()]
+                                    .push(dest_slot.get_idx() as u32);
+                            }
                         }
                     }
 
                     if self.free[0].is_empty() || self.free[1].is_empty() {
-                        println!("SUSPENDING");
                         return Ok(Some(cmd_idx));
                     }
 
                     // Push a new tile.
                     let ix = clip_depth % 2;
                     let slot = self.claim_free_slot(ix, renderer)?;
+                    {
+                        let round = self.get_round(self.round);
+                        round.clear[slot.get_texture()].push(slot.get_idx() as u32);
+                    }
                     let temporary_slot =
                         if matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot) {
                             let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
+                            let round = self.get_round(self.round);
+                            round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
                             debug_assert_ne!(
                                 slot.get_texture(),
                                 temp_slot.get_texture(),
@@ -1008,12 +1033,9 @@ impl Scheduler {
                         matches!(mode.mix, Mix::Normal),
                         "Only Mix::Normal is supported currently"
                     );
-                    println!("{state:#?}");
 
                     let tos = state.stack.last().unwrap();
                     let nos = &state.stack[state.stack.len() - 2];
-
-                    self.clear[nos.dest_slot.get_texture()].push(nos.dest_slot.get_idx() as u32);
 
                     let next_round: bool = clip_depth % 2 == 0 && clip_depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
