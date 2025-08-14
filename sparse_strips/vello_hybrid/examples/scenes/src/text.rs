@@ -162,6 +162,8 @@ fn record_fresh(scene_obj: &mut TextScene, scene: &mut Scene, current_transform:
     scene.record(&mut recording, |recorder| {
         render_text_record(scene_obj, recorder, current_transform);
     });
+    scene.prepare_recording(&mut recording);
+    scene.execute_recording(&recording);
     recording.set_transform(current_transform);
     print_render_stats("Fresh     ", start.elapsed(), &recording);
 
