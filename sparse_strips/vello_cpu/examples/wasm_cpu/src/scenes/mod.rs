@@ -8,6 +8,7 @@ pub(crate) mod image;
 pub(crate) mod simple;
 pub(crate) mod svg;
 pub(crate) mod text;
+pub(crate) mod blend;
 
 use vello_common::kurbo::Affine;
 use vello_cpu::RenderContext;
@@ -55,6 +56,7 @@ pub(crate) fn get_example_scenes() -> Box<[AnyScene]> {
         AnyScene::new(text::TextScene::new("Hello World from vello_cpu")),
         AnyScene::new(clip::ClipScene::new()),
         AnyScene::new(image::ImageScene::new()),
+        AnyScene::new(blend::BlendScene::new()),
     ]
     .into_boxed_slice()
 }

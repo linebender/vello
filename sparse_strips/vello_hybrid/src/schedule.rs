@@ -209,6 +209,7 @@ pub(crate) trait RendererBackend {
 /// start of a render pass:
 ///  - `LoadOp::Load` is equivalent to `wgpu::LoadOp::Load`
 ///  - `LoadOp::Clear` is equivalent `wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)`
+#[derive(Debug, PartialEq)]
 pub(crate) enum LoadOp {
     Load,
     Clear,
@@ -224,6 +225,8 @@ pub(crate) struct Scheduler {
     free: [Vec<usize>; 2],
     /// Rounds are enqueued on push clip commands and dequeued on flush.
     rounds_queue: VecDeque<Round>,
+    #[cfg(debug_assertions)]
+    clear: [Vec<u32>; 2],
 }
 
 #[derive(Debug)]
@@ -331,6 +334,7 @@ struct TileEl {
     temporary_slot: TemporarySlot,
     round: usize,
     opacity: f32,
+    pristine: bool,
 }
 
 impl TileEl {
@@ -351,8 +355,8 @@ impl TileEl {
 struct Draw(Vec<GpuStrip>);
 
 impl Draw {
+    #[inline(always)]
     fn push(&mut self, gpu_strip: GpuStrip) {
-        println!("{gpu_strip:?}#");
         self.0.push(gpu_strip)
     }
 }
@@ -361,12 +365,14 @@ impl Scheduler {
     pub(crate) fn new(total_slots: usize) -> Self {
         let free0: Vec<_> = (0..total_slots).collect();
         let free1 = free0.clone();
-        let free = [free0, free1];
+        let free: [Vec<usize>; 2] = [free0, free1];
         Self {
             round: 0,
             total_slots,
             free,
             rounds_queue: Default::default(),
+            #[cfg(debug_assertions)]
+            clear: [Vec::new(), Vec::new()],
         }
     }
 
@@ -408,7 +414,7 @@ impl Scheduler {
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
 
-                let tile_state = self.initialize_tile(wide_tile, wide_tile_x, wide_tile_y);
+                let tile_state = self.initialize_tile_state(wide_tile, wide_tile_x, wide_tile_y);
                 let annotated_cmds = prepare_cmds(&wide_tile.cmds);
                 pending_work.push(PendingTileWork {
                     wide_tile_col,
@@ -439,7 +445,6 @@ impl Scheduler {
                     el.round += round_offset;
                 }
 
-                println!("do tile");
                 match self.do_tile(
                     renderer,
                     scene,
@@ -471,6 +476,8 @@ impl Scheduler {
         self.round = 0;
         #[cfg(debug_assertions)]
         {
+            debug_assert!(self.clear[0].is_empty(), "clear has not reset");
+            debug_assert!(self.clear[1].is_empty(), "clear has not reset");
             for i in 0..self.total_slots {
                 debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {i}");
                 debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {i}");
@@ -486,181 +493,39 @@ impl Scheduler {
     /// The rounds queue must not be empty.
     fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
         let round = self.rounds_queue.pop_front().unwrap();
-        #[cfg(debug_assertions)]
-        {
-            println!("==== Round {} ====", self.round);
-            for i in 0..2 {
-                if !round.clear[i].is_empty() {
-                    let texture_name = match i {
-                        0 => "Texture 0 (even clip buffer)",
-                        1 => "Texture 1 (odd clip buffer)",
-                        _ => unreachable!(),
-                    };
-                    println!(
-                        "  Slots to be cleared on {}: {:?}",
-                        texture_name, round.clear[i]
-                    );
-                    assert!(!round.clear[i].contains(&u32::MAX), "cannot clear max u32");
-                }
-            }
-            if !round.clear[0].is_empty() || !round.clear[1].is_empty() {
-                println!();
-            }
-            for (target_idx, draw) in round.draws.iter().enumerate() {
-                if draw.0.is_empty() {
-                    continue;
-                }
-
-                let target = match target_idx {
-                    0 => "Texture 0 (even clip buffer)",
-                    1 => "Texture 1 (odd clip buffer)",
-                    2 => "Final Output",
-                    _ => "Unknown",
-                };
-                let sampling = match target_idx {
-                    0 => "Texture 1 (odd clip buffer)",
-                    1 => "Texture 0 (even clip buffer)",
-                    2 => "Texture 1 (odd clip buffer)",
-                    _ => "Unknown",
-                };
-
-                println!(
-                    "  Rendering to: {} by sampling slots from {}",
-                    target, sampling
-                );
-
-                for (_, strip) in draw.0.iter().enumerate() {
-                    if target_idx < 2 {
-                        let slot_idx = strip.y / Tile::HEIGHT;
-                        println!(
-                            "    S: slot={} x_offset={} width={}",
-                            slot_idx,
-                            strip.x,
-                            if strip.dense_width > 0 {
-                                strip.dense_width
-                            } else {
-                                4
-                            }
-                        );
-                    } else {
-                        // Not a slot texture - final canvas.
-                        println!(
-                            "    S: pos=({}, {}) width={}",
-                            strip.x,
-                            strip.y,
-                            if strip.dense_width > 0 {
-                                strip.dense_width
-                            } else {
-                                4
-                            }
-                        );
-                    }
-
-                    let color_source = (strip.paint >> 30) & 0x3;
-                    match color_source {
-                        COLOR_SOURCE_PAYLOAD => {
-                            let paint_type = (strip.paint >> 28) & 0x3;
-                            match paint_type {
-                                PAINT_TYPE_SOLID => {
-                                    let a = (strip.payload >> 24) & 0xFF;
-                                    let b = (strip.payload >> 16) & 0xFF;
-                                    let g = (strip.payload >> 8) & 0xFF;
-                                    let r = strip.payload & 0xFF;
-                                    println!("      -> Solid color: RGBA({},{},{},{})", r, g, b, a);
-                                }
-                                PAINT_TYPE_IMAGE => {
-                                    let scene_x = strip.payload & 0xFFFF;
-                                    let scene_y = strip.payload >> 16;
-                                    let paint_tex_id = strip.paint & 0x0FFFFFFF;
-                                    println!(
-                                        "      -> Image: scene_pos=({},{}) texture_id={}",
-                                        scene_x, scene_y, paint_tex_id
-                                    );
-                                }
-                                _ => println!("      -> Unknown paint type: {}", paint_type),
-                            }
-                        }
-                        COLOR_SOURCE_SLOT => {
-                            let slot = strip.payload;
-                            let opacity = strip.paint & 0xFF;
-                            let opacity_f = opacity as f32 / 255.0;
-                            println!(
-                                "      -> Sample from slot {} with opacity {:.2}",
-                                slot, opacity_f
-                            );
-                        }
-
-                        COLOR_SOURCE_BLEND => {
-                            // Extract slots from payload
-                            let src_slot = strip.payload & 0xFFFF; // bits 0-15
-                            let dest_slot = (strip.payload >> 16) & 0xFFFF; // bits 16-31
-
-                            // Extract blend parameters from paint
-                            let opacity = (strip.paint >> 16) & 0xFF; // bits 16-23
-                            let opacity_f = opacity as f32 / 255.0;
-                            let mix_mode = (strip.paint >> 8) & 0xFF; // bits 8-15
-                            let compose_mode = strip.paint & 0xFF; // bits 0-7
-
-                            let compose_name = match compose_mode {
-                                0 => "Clear",
-                                1 => "Copy",
-                                2 => "Dest",
-                                3 => "SrcOver",
-                                4 => "DestOver",
-                                5 => "SrcIn",
-                                6 => "DestIn",
-                                7 => "SrcOut",
-                                8 => "DestOut",
-                                9 => "SrcAtop",
-                                10 => "DestAtop",
-                                11 => "Xor",
-                                12 => "Plus",
-                                13 => "PlusLighter",
-                                _ => "Unknown",
-                            };
-
-                            let mix_name = match mix_mode {
-                                0 => "Normal",
-                                _ => "Unknown",
-                            };
-
-                            println!(
-                                "      -> Blend: src_slot={} dest_slot={} opacity={:.2} mix={} compose={}",
-                                src_slot, dest_slot, opacity_f, mix_name, compose_name
-                            );
-                        }
-                        _ => println!("      -> Unknown color source: {}", color_source),
-                    }
-
-                    // If it's a sparse strip (dense_width > 0), show alpha column info
-                    if strip.dense_width > 0 {
-                        println!("      -> Alpha column index: {}", strip.col_idx);
-                    }
-                }
-            }
-
-            if !round.free[0].is_empty() || !round.free[1].is_empty() {
-                println!("  Slots freed after rendering:");
-                if !round.free[0].is_empty() {
-                    println!("    Texture 0: {:?}", round.free[0]);
-                }
-                if !round.free[1].is_empty() {
-                    println!("    Texture 1: {:?}", round.free[1]);
-                }
-            }
-
-            println!();
-        }
         for (i, draw) in round.draws.iter().enumerate() {
             let load = {
                 if i == 2 {
                     // We're rendering to the view, don't clear.
                     LoadOp::Load
                 } else if round.clear[i].len() + self.free[i].len() == self.total_slots {
-                    // All slots are either unoccupied or need to be cleared.
-                    // Simply clear the slots via a load operation.
+                    #[cfg(debug_assertions)]
+                    self.clear[i].clear();
+                    // All slots are either unoccupied or need to be cleared. Simply clear the slots
+                    // via a load operation.
                     LoadOp::Clear
                 } else {
+                    #[cfg(debug_assertions)]
+                    {
+                        // This debug_assertion is expensive, but it enforces that duplicates cannot
+                        // be cleared. This usually signals a bug in the schedule.
+                        for (idx, &slot) in round.clear[i].iter().enumerate() {
+                            debug_assert!(
+                                !round.clear[i][..idx].contains(&slot),
+                                "Duplicate slot {} found in round.clear[{}]",
+                                slot,
+                                i
+                            );
+
+                            // We can't use `retain` because `self.clear` tracks clearing globally
+                            // across rounds. This means that it _can_ contain duplicates if a slot
+                            // is scheduled to be cleared in two rounds simultaneously.
+                            if let Some(pos) = self.clear[i].iter().position(|&x| x == slot) {
+                                self.clear[i].swap_remove(pos);
+                            }
+                        }
+                    }
+
                     // Some slots need to be preserved, so only clear the dirty slots.
                     renderer.clear_slots(i, round.clear[i].as_slice());
                     LoadOp::Load
@@ -668,6 +533,11 @@ impl Scheduler {
             };
 
             if draw.0.is_empty() {
+                if load == LoadOp::Clear {
+                    // There are no strips to render, so the pipeline will not run. We still have
+                    // slots to clear this round so explicitly clear them.
+                    renderer.clear_slots(i, round.clear[i].as_slice());
+                }
                 continue;
             }
 
@@ -693,7 +563,7 @@ impl Scheduler {
         &mut self.rounds_queue[rel_round]
     }
 
-    fn initialize_tile(
+    fn initialize_tile_state(
         &mut self,
         tile: &WideTile,
         wide_tile_x: u16,
@@ -707,6 +577,7 @@ impl Scheduler {
             temporary_slot: TemporarySlot::None,
             round: self.round,
             opacity: 1.,
+            pristine: true,
         });
         {
             // If the background has a non-zero alpha then we need to render it.
@@ -745,11 +616,11 @@ impl Scheduler {
             let cmd_idx = start_cmd_idx + offset_cmd_idx;
             // Note: this starts at 1 (for the final target)
             let clip_depth = state.stack.len();
-            println!("{annotated_cmd:?}");
             let cmd = annotated_cmd.unwrap();
             match cmd {
                 Cmd::Fill(fill) => {
-                    let el = state.stack.last().unwrap();
+                    let el = state.stack.last_mut().unwrap();
+                    el.pristine = false;
                     let draw = self.draw_mut(el.round, el.get_draw_texture(clip_depth));
 
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
@@ -778,7 +649,8 @@ impl Scheduler {
                     });
                 }
                 Cmd::AlphaFill(alpha_fill) => {
-                    let el = state.stack.last().unwrap();
+                    let el = state.stack.last_mut().unwrap();
+                    el.pristine = false;
                     let draw = self.draw_mut(el.round, el.get_draw_texture(clip_depth));
 
                     let col_idx = (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
@@ -814,26 +686,32 @@ impl Scheduler {
                     });
                 }
                 Cmd::PushBuf => {
-                    // When we blend we consume temporary slots, and blend into the destination.
-                    // This works well _once_. Unfortunately to blend to the buffer again we need to
-                    // copy the destination up to a new temporary slot, and we need to clear the
-                    // destination. We pull this off by:
-                    //   1. Claiming a new temporary slot.
-                    //   2. Creating a GpuStrip to copy from destination to temporary.
-                    //   3. Free the stale destination, and claim a new one. Step 3 prevents a blend
-                    // into a stale slot which hasn't been cleared yet.
+                    // `wgpu` does not allow reading/writing from the same slot texture. This means
+                    // that to represent the binary function `Blend(src_tile, dest_tile)` we need
+                    // both slots being blended to be on the same texture. This is accomplished as
+                    // the lower destination tile (`nos`) maintains a proxy slot in the texture
+                    // above. Blending consumes both the top-of-stack (`tos`) slot, the `src_tile`,
+                    // and blends it with `nos.temporary_slot` (`dest_tile`). The results of the
+                    // blend are written to `nos.dest_slot`.
+                    //
+                    // This works well _once_. Unfortunately, to blend to `nos` again we need to
+                    // copy the contents of `dest_slot` back to `temporary_slot` such that it can be
+                    // composited again. Without this, the tile will not accumulate blends, and
+                    // instead will have repeated blends clobber the prior blends. Hence, if a
+                    // buffer is being pushed that will be blended back to `tos`, copy contents from
+                    // `tos.dest_slot` to `tos.temporary_slot` ready for future blending.
                     {
                         let tos: &mut TileEl = state.stack.last_mut().unwrap();
                         if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
                             if has_blended {
-                                // There has been a popped blend in this run of do_tile. Suspend to
-                                // give the blend command a chance to flush.
-                                println!("SUSPENDING 2");
+                                // There has been a popped blend in this run of `do_tile`. Suspend
+                                // to give the blend command a chance to flush.
                                 return Ok(Some(cmd_idx));
                             }
 
                             let draw = self.draw_mut(tos.round - 1, temp_slot.get_texture());
-                            let paint = COLOR_SOURCE_SLOT << 30 | 0xFF; // Full opacity copy
+                            // Generate a full opacity copy.
+                            let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
                             draw.push(GpuStrip {
                                 x: 0,
                                 y: temp_slot.get_idx() as u16 * Tile::HEIGHT,
@@ -846,14 +724,19 @@ impl Scheduler {
 
                             tos.temporary_slot = TemporarySlot::Valid(temp_slot);
 
-                            // Make sure the destination slot and temporary slot are cleared before
-                            // next paint since we are recycling.
+                            // Make sure the destination slot and temporary slot are cleared
+                            // appropriately.
                             let dest_slot = tos.dest_slot;
                             let round = self.get_round(tos.round - 1);
                             round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
+                            #[cfg(debug_assertions)]
+                            self.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
                             if dest_slot.get_idx() as u32 != u32::MAX {
                                 let round = self.get_round(tos.round);
                                 round.clear[dest_slot.get_texture()]
+                                    .push(dest_slot.get_idx() as u32);
+                                #[cfg(debug_assertions)]
+                                self.clear[dest_slot.get_texture()]
                                     .push(dest_slot.get_idx() as u32);
                             }
                         }
@@ -869,12 +752,16 @@ impl Scheduler {
                     {
                         let round = self.get_round(self.round);
                         round.clear[slot.get_texture()].push(slot.get_idx() as u32);
+                        #[cfg(debug_assertions)]
+                        self.clear[slot.get_texture()].push(slot.get_idx() as u32);
                     }
                     let temporary_slot =
                         if matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot) {
                             let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
                             let round = self.get_round(self.round);
                             round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
+                            #[cfg(debug_assertions)]
+                            self.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
                             debug_assert_ne!(
                                 slot.get_texture(),
                                 temp_slot.get_texture(),
@@ -889,6 +776,7 @@ impl Scheduler {
                         temporary_slot,
                         round: self.round,
                         opacity: 1.,
+                        pristine: true,
                     });
                 }
                 Cmd::PopBuf => {

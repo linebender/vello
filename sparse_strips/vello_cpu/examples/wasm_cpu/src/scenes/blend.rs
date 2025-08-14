@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Complex compositing example.
+//! Clip example showing deeply nested clipping.
 
 #![expect(
     clippy::cast_possible_truncation,
@@ -9,25 +9,25 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::ExampleScene;
+use crate::scenes::ExampleScene;
 use vello_common::color::palette::css::{BLUE, GREEN, PURPLE, RED, YELLOW};
-use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
+use vello_common::kurbo::{Affine, Shape, Circle, Point, Rect};
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
-use vello_hybrid::Scene;
+use vello_cpu::RenderContext;
 
 /// Blend scene state
 #[derive(Debug)]
-pub struct BlendScene {}
+pub(crate) struct BlendScene {}
 
 impl ExampleScene for BlendScene {
-    fn render(&mut self, ctx: &mut Scene, root_transform: Affine) {
+    fn render(&mut self, ctx: &mut RenderContext, root_transform: Affine) {
         render(ctx, root_transform);
     }
 }
 
 impl BlendScene {
-    /// Create a new `BlendScene`
-    pub fn new() -> Self {
+    /// Create a new `ClipScene`
+    pub(crate) fn new() -> Self {
         Self {}
     }
 }
@@ -38,8 +38,8 @@ impl Default for BlendScene {
     }
 }
 
-/// Demonstrates a complex compositing scene.
-pub fn render(ctx: &mut Scene, root_transform: Affine) {
+/// Draws a deeply nested clip of circles.
+pub(crate) fn render(ctx: &mut RenderContext, root_transform: Affine) {
     ctx.set_transform(root_transform);
     ctx.push_layer(
         None,
