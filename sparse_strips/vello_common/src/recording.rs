@@ -4,13 +4,7 @@
 //! Recording API for caching sparse strips
 
 #[cfg(feature = "text")]
-use crate::glyph::GlyphRenderer;
-#[cfg(feature = "text")]
-use crate::glyph::GlyphRunBuilder;
-#[cfg(feature = "text")]
-use crate::glyph::GlyphType;
-#[cfg(feature = "text")]
-use crate::glyph::PreparedGlyph;
+use crate::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::mask::Mask;
 use crate::paint::PaintType;

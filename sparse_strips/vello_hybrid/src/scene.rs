@@ -483,19 +483,13 @@ impl Scene {
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::FillOutlineGlyph((path, transform)) => {
-                    self.generate_fill_strips(
-                        path,
-                        &mut collected_strips,
-                        self.transform * *transform,
-                    );
+                    let glyph_transform = self.transform * *transform;
+                    self.generate_fill_strips(path, &mut collected_strips, glyph_transform);
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokeOutlineGlyph((path, transform)) => {
-                    self.generate_stroke_strips(
-                        path,
-                        &mut collected_strips,
-                        self.transform * *transform,
-                    );
+                    let glyph_transform = self.transform * *transform;
+                    self.generate_stroke_strips(path, &mut collected_strips, glyph_transform);
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::SetTransform(transform) => {
