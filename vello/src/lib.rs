@@ -512,7 +512,7 @@ impl Renderer {
     ///
     /// `texture` must have the [`wgpu::TextureFormat::Rgba8Unorm`] format and
     /// the [`wgpu::TextureUsages::COPY_SRC`] flag set. The `Rgba8UnormSrgb` format
-    /// might also be supported.
+    /// might also be supported, but this is not tested.
     ///
     /// The given `Texture`'s data will be copied into the slot in Vello's image
     /// atlas where the image would be placed each frame.
@@ -536,8 +536,18 @@ impl Renderer {
         }
     }
 
-    /// Register a [`wgpu::Texture`] with Vello. You will receive a [`TextureHandle`] which
-    /// can be used to draw the registered texture using [`Scene::draw_texture`]
+    /// Register a [`wgpu::Texture`] with Vello, to allow drawing GPU-resident data.
+    ///
+    /// The returned `Image` can be used in [`Scene`]s (only those rendered with this `Renderer`)
+    /// Rendering Scenes which use this `Image` with other `Renderer`s will panic.
+    ///  
+    /// `texture` must have the [`wgpu::TextureFormat::Rgba8Unorm`] format and
+    /// the [`wgpu::TextureUsages::COPY_SRC`] flag set. This is because the data will
+    /// be copied into Vello's image atlas at the start of each frame.
+    /// The `Rgba8UnormSrgb` format might also be supported, but this is not tested.
+    ///
+    /// This is a utility wrapper around [`override_image`](Self::override_image).
+    /// For greater control, use that method.
     ///
     /// If the texture is no longer active then it should be unregistered using [`unregister_texture`](Self::unregister_texture)
     pub fn register_texture(&mut self, texture: wgpu::Texture) -> Image {
@@ -569,7 +579,7 @@ impl Renderer {
         image
     }
 
-    /// Unregister a [`wgpu::Texture`] that was registered with [`register_texture`](Self::register_texture)
+    /// Unregister a [`wgpu::Texture`] that was registered with [`register_texture`](Self::register_texture).
     pub fn unregister_texture(&mut self, handle: Image) {
         self.engine.image_overrides.remove(&handle.data.id());
     }
