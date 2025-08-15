@@ -128,7 +128,7 @@ impl WebGlRenderer {
 
         let encoded_paints = self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         self.programs
-            .prepare(&self.gl, &scene.alphas, encoded_paints, render_size);
+            .prepare(&self.gl, &scene.strip_generator.alpha_buf(), encoded_paints, render_size);
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
