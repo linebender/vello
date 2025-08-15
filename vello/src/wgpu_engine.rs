@@ -504,6 +504,14 @@ impl WgpuEngine {
                             },
                         );
                     } else {
+                        if image.data.is_empty() && image.width != 0 && image.height != 0 {
+                            panic!(
+                                "Tried to draw an invalid empty image (id: {}). \
+                                Maybe it was registered to a different renderer, or \
+                                unregistered before this render was submitted.",
+                                image.data.id()
+                            );
+                        }
                         queue.write_texture(
                             wgpu::TexelCopyTextureInfo {
                                 texture,

@@ -139,6 +139,8 @@ pub use peniko;
 pub use peniko::kurbo;
 
 #[cfg(feature = "wgpu")]
+use peniko::Image;
+#[cfg(feature = "wgpu")]
 pub use wgpu;
 
 pub use scene::{DrawGlyphs, Scene};
@@ -508,9 +510,12 @@ impl Renderer {
 
     /// Overwrite `image` with `texture`.
     ///
+    /// Most users should prefer [`register_texture`](Self::register_texture), which
+    /// ergonomically encapulates these requirements.
+    ///
     /// `texture` must have the [`wgpu::TextureFormat::Rgba8Unorm`] format and
     /// the [`wgpu::TextureUsages::COPY_SRC`] flag set. The `Rgba8UnormSrgb` format
-    /// might also be supported.
+    /// might also be supported, but this is not tested.
     ///
     /// The given `Texture`'s data will be copied into the slot in Vello's image
     /// atlas where the image would be placed each frame.
@@ -524,13 +529,61 @@ impl Renderer {
     /// [data]: peniko::Image::data
     pub fn override_image(
         &mut self,
-        image: &peniko::Image,
+        image: &Image,
         texture: Option<wgpu::TexelCopyTextureInfoBase<wgpu::Texture>>,
     ) -> Option<wgpu::TexelCopyTextureInfoBase<wgpu::Texture>> {
         match texture {
             Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
             None => self.engine.image_overrides.remove(&image.data.id()),
         }
+    }
+
+    /// Register a [`wgpu::Texture`] with Vello, to allow drawing GPU-resident data.
+    ///
+    /// The returned `Image` can be used in [`Scene`]s (only those rendered with this `Renderer`)
+    /// Rendering Scenes which use this `Image` with other `Renderer`s will panic.
+    ///  
+    /// `texture` must have the [`wgpu::TextureFormat::Rgba8Unorm`] format and
+    /// the [`wgpu::TextureUsages::COPY_SRC`] flag set. This is because the data will
+    /// be copied into Vello's image atlas at the start of each frame.
+    /// The `Rgba8UnormSrgb` format might also be supported, but this is not tested.
+    ///
+    /// This is a utility wrapper around [`override_image`](Self::override_image).
+    /// For greater control, use that method.
+    ///
+    /// If the texture is no longer active then it should be unregistered using [`unregister_texture`](Self::unregister_texture)
+    pub fn register_texture(&mut self, texture: wgpu::Texture) -> Image {
+        // Create a fake, empty blob which will be used to back the returned image
+        // This image data will never be read by Vello, due to being added to
+        // image_overrides, below.
+        let fake_blob = peniko::Blob::new(std::sync::Arc::new(&[]));
+
+        let image = Image::new(
+            fake_blob,
+            peniko::ImageFormat::Rgba8,
+            texture.width(),
+            texture.height(),
+        );
+
+        // For this utility API, we take the full texture and use the base layer and mip level
+        let texture_base = wgpu::TexelCopyTextureInfoBase {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        };
+
+        // We overwrite any attempt to use the fake blob, instead reading from the texture
+        self.engine
+            .image_overrides
+            .insert(image.data.id(), texture_base);
+
+        image
+    }
+
+    /// Unregister a [`wgpu::Texture`] that was registered with [`register_texture`](Self::register_texture).
+    pub fn unregister_texture(&mut self, handle: Image) {
+        self.engine.image_overrides.remove(&handle.data.id());
     }
 
     /// Reload the shaders. This should only be used during `vello` development
