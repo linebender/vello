@@ -3,12 +3,6 @@
 
 //! Example compositing an image using blend layers.
 
-#![expect(
-    clippy::cast_possible_truncation,
-    reason = "We temporarily ignore those because the casts\
-only break in edge cases, and some of them are also only related to conversions from f64 to f32."
-)]
-
 use crate::scenes::ExampleScene;
 use vello_common::color::palette::css::{BLUE, GREEN, PURPLE, RED, YELLOW};
 use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
