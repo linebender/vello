@@ -73,7 +73,7 @@ pub struct RenderSettings {
     /// this to `OptimizeSpeed`. If accuracy is a more significant concern (for example for visual
     /// regression testing), then you can set this to `OptimizeQuality`.
     ///
-    /// Currently, the only difference this makes is that when choosing `OptimizeSpeed`, rendering
+    /// Currently, the only difference this makes is that when choosing `OptimizeSpeed`, rasterization
     /// will happen using u8/u16, while `OptimizeQuality` will use a f32-based pipeline.
     ///
     pub render_mode: RenderMode,
