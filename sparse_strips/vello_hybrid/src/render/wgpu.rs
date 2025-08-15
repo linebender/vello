@@ -96,7 +96,7 @@ impl Renderer {
         self.programs.prepare(
             device,
             queue,
-            &scene.strip_generator.alpha_buf(),
+            scene.strip_generator.alpha_buf(),
             encoded_paints,
             render_size,
         );

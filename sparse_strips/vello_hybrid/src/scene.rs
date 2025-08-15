@@ -590,6 +590,6 @@ impl Scene {
         self.transform = state.transform;
         self.fill_rule = state.fill_rule;
         self.blend_mode = state.blend_mode;
-        self.strip_generator.set_alpha_buf(state.alphas)
+        self.strip_generator.set_alpha_buf(state.alphas);
     }
 }
