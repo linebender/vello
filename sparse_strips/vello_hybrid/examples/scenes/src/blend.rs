@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Complex compositing example.
+//! Example compositing an image using blend layers.
 
 #![expect(
     clippy::cast_possible_truncation,

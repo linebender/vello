@@ -201,7 +201,7 @@ impl Scene {
             None
         };
 
-        // Blend mode, opacity, and mask are not supported yet.
+        // Mask is unsupported. Blend is partially supported.
         if mask.is_some() {
             unimplemented!()
         }

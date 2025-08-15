@@ -1033,7 +1033,7 @@ impl BlendModeExt for BlendMode {
 
 #[cfg(test)]
 mod tests {
-    use crate::coarse::{Cmd, CmdFill, Wide, WideTile};
+    use crate::coarse::{Wide, WideTile};
     use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
     use crate::paint::{Paint, PremulColor};

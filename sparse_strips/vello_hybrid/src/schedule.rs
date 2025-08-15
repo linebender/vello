@@ -189,6 +189,7 @@ use vello_common::{
     tile::Tile,
 };
 
+// Constants used for bit packing, matching `render_strips.wgsl`
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
 const COLOR_SOURCE_SLOT: u32 = 1;
 const COLOR_SOURCE_BLEND: u32 = 2;
@@ -229,29 +230,36 @@ pub(crate) struct Scheduler {
     clear: [Vec<u32>; 2],
 }
 
+/// The information required to resume a wide tile draw operation. Note that the suspended tile owns
+/// global slot resources, so must be resumed to free the owned slots. Tile drawing must suspend to
+/// allow blend layers to be merged.
 #[derive(Debug)]
 struct PendingTileWork<'a> {
-    // Used to reference the wide tile.
+    /// Used to reference the wide tile.
     wide_tile_col: u16,
-    // Used to reference the wide tile.
+    /// Used to reference the wide tile.
     wide_tile_row: u16,
+    /// On resuming the cmd index to start processing draws from.
     next_cmd_idx: usize,
+    /// The suspended tile state stack representing active layers.
     stack: TileState,
+    /// Round at which this work was suspended. Used to calcualte round offsets.
     suspended_at_round: usize,
+    /// The draw commands being iterated to draw the wide tile.
     annotated_cmds: Vec<AnnotatedCmd<'a>>,
 }
 
 /// A "round" is a coarse scheduling quantum.
 ///
-/// It represents draws in up to three render targets; two for intermediate
-/// clip/blend buffers, and the third for the actual render target.
+/// It represents draws in up to three render targets; two for intermediate clip/blend buffers, and
+/// the third for the actual render target.
 #[derive(Debug, Default)]
 struct Round {
     /// Draw calls scheduled into the two slot textures (0, 1) and the final target (2).
     draws: [Draw; 3],
     /// Slots that will be freed after drawing into the two slot textures [0, 1].
     free: [Vec<usize>; 2],
-    /// Slots that require clearing before subsequent draws for each slot texture.
+    /// Slots that will be cleared in the two slot textures (0, 1) before drawing this round.
     clear: [Vec<u32>; 2],
 }
 
@@ -261,6 +269,7 @@ struct TileState {
     stack: Vec<TileEl>,
 }
 
+/// A claimed slot into one of the two slot textures (0, 1).
 #[derive(Debug, Copy, Clone)]
 enum ClaimedSlot {
     Texture0(usize),
@@ -285,10 +294,17 @@ impl ClaimedSlot {
 
 /// Annotated commands lets the scheduler be smarter about what work to do per command by preparing
 /// some work upfront in `O(N)` time, where `N` is the length of the wide tile draw commands.
+///
+/// TODO: In the future these annotations could be optionally enabled in coarse.rs directly avoiding
+/// the need to do a linear scan.
 #[derive(Debug)]
 enum AnnotatedCmd<'a> {
+    /// A wrapped command - no semantic meaning added.
     IdentityBorrowed(&'a Cmd),
+    /// An owned generated command. Allows adding additional commands.
     Generated(Cmd),
+    /// A `Cmd::PushBuf` that will be blended into by the layer above it. Will need a
+    /// `temporary_slot` created for it to enable compositing.
     PushBufWithTemporarySlot,
 }
 
@@ -302,8 +318,9 @@ impl<'a> AnnotatedCmd<'a> {
     }
 }
 
-/// `TemporarySlot` is a container that tracks whether a given tile's temporary slot is live, or
-/// whether the tile never needs the temporary slot.
+/// `TemporarySlot` is a container that tracks whether a tile's temporary slot is live/invalid, or
+/// whether a temporary slot is unnecessary. A temporary slot is an owned slot that resides in the
+/// slot texture for the next layer.
 #[derive(Clone, Copy, Debug)]
 enum TemporarySlot {
     None,
@@ -325,16 +342,16 @@ impl TemporarySlot {
 
 #[derive(Clone, Copy, Debug)]
 struct TileEl {
-    /// `dest_slot` represents the final location of where the contents of this tile will end up. If
-    /// there are layers, then painting happens to `temporary_slot` such that blending can be done
-    /// to the `dest_slot` with another slot.
+    /// `dest_slot` represents the final location of where the contents of this tile will end up.
+    /// This slot will be claimed on the texture at `layer depth % 2`.
     dest_slot: ClaimedSlot,
-    /// Temporary slot only used if we know there is another layer pushed above this tile element.
-    /// INVARIANT: This slot and the `dest_slot` are always on opposite textures.
+    /// Temporary slot that is only required if the layer above this tile will be blended into this
+    /// tile. This slot has the invariant that it must reside on the other slot texture to
+    /// `dest_slot`. Thus when the layers are blended together `temporary_slot` can be read from
+    /// to read the pixel data for the destination. The blend result writes to `dest_slot`.
     temporary_slot: TemporarySlot,
     round: usize,
     opacity: f32,
-    pristine: bool,
 }
 
 impl TileEl {
@@ -471,6 +488,10 @@ impl Scheduler {
             }
         }
 
+        while !self.rounds_queue.is_empty() {
+            self.flush(renderer);
+        }
+
         // Restore state to reuse allocations.
         self.round = 0;
         #[cfg(debug_assertions)]
@@ -507,7 +528,7 @@ impl Scheduler {
                     #[cfg(debug_assertions)]
                     {
                         // This debug_assertion is expensive, but it enforces that duplicates cannot
-                        // be cleared. This usually signals a bug in the schedule.
+                        // be cleared. This usually signals a bug in the scheduler.
                         for (idx, &slot) in round.clear[i].iter().enumerate() {
                             debug_assert!(
                                 !round.clear[i][..idx].contains(&slot),
@@ -533,8 +554,9 @@ impl Scheduler {
 
             if draw.0.is_empty() {
                 if load == LoadOp::Clear {
-                    // There are no strips to render, so the pipeline will not run. We still have
-                    // slots to clear this round so explicitly clear them.
+                    // There are no strips to render, so render_strips will not run and won't clear
+                    // the texture. We still have slots to clear this round so explicitly clear
+                    // them.
                     renderer.clear_slots(i, round.clear[i].as_slice());
                 }
                 continue;
@@ -576,7 +598,6 @@ impl Scheduler {
             temporary_slot: TemporarySlot::None,
             round: self.round,
             opacity: 1.,
-            pristine: true,
         });
         {
             // If the background has a non-zero alpha then we need to render it.
@@ -597,9 +618,10 @@ impl Scheduler {
         state
     }
 
-    /// Iterates over wide tile commands and schedules them for rendering. Returns
-    /// `Some(command_idx)` if there is more work to be done. Returns `None` if the wide tile has
-    /// been fully consumed.
+    /// Iterates over wide tile commands and schedules them for rendering.
+    ///
+    /// Returns `Some(command_idx)` if there is more work to be done. Returns `None` if the wide
+    /// tile has been fully consumed.
     fn do_tile<'a, R: RendererBackend>(
         &mut self,
         renderer: &mut R,
@@ -619,7 +641,6 @@ impl Scheduler {
             match cmd {
                 Cmd::Fill(fill) => {
                     let el = state.stack.last_mut().unwrap();
-                    el.pristine = false;
                     let draw = self.draw_mut(el.round, el.get_draw_texture(clip_depth));
 
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
@@ -649,7 +670,6 @@ impl Scheduler {
                 }
                 Cmd::AlphaFill(alpha_fill) => {
                     let el = state.stack.last_mut().unwrap();
-                    el.pristine = false;
                     let draw = self.draw_mut(el.round, el.get_draw_texture(clip_depth));
 
                     let col_idx = (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
@@ -741,6 +761,7 @@ impl Scheduler {
                         }
                     }
 
+                    // Suspend if there are no free slots.
                     if self.free[0].is_empty() || self.free[1].is_empty() {
                         return Ok(Some(cmd_idx));
                     }
@@ -775,7 +796,6 @@ impl Scheduler {
                         temporary_slot,
                         round: self.round,
                         opacity: 1.,
-                        pristine: true,
                     });
                 }
                 Cmd::PopBuf => {
@@ -795,11 +815,9 @@ impl Scheduler {
                         .push(tos.dest_slot.get_idx());
                     // If a TileEl was not used for blending the temporary slot may still be in use
                     // and needs to be cleared.
-                    if let TemporarySlot::Valid(temp_slot) = tos.temporary_slot {
-                        self.rounds_queue[round - self.round].free[temp_slot.get_texture()]
-                            .push(temp_slot.get_idx());
-                    }
-                    if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
+                    if let TemporarySlot::Valid(temp_slot) | TemporarySlot::Invalid(temp_slot) =
+                        tos.temporary_slot
+                    {
                         self.rounds_queue[round - self.round].free[temp_slot.get_texture()]
                             .push(temp_slot.get_idx());
                     }
@@ -919,6 +937,11 @@ impl Scheduler {
                     assert!(
                         matches!(mode.mix, Mix::Normal),
                         "Only Mix::Normal is supported currently"
+                    );
+                    #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+                    assert!(
+                        matches!(mode.compose, Compose::SrcOver),
+                        "webgl backend does not support blend modes yet."
                     );
 
                     let tos = state.stack.last().unwrap();
@@ -1055,7 +1078,8 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 /// this function:
 ///  - Precomputes the layers that require temporary slots due to blending.
 ///
-/// TODO: Can be triggered via a const generic on coarse draw cmd generation.
+/// TODO: Can be triggered via a const generic on coarse draw cmd generation which will avoid
+/// linear scans.
 fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
     let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Default::default();
     annotated_commands.push(AnnotatedCmd::Generated(Cmd::PushBuf));

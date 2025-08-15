@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Clip example showing deeply nested clipping.
+//! Example compositing an image using blend layers.
 
 #![expect(
     clippy::cast_possible_truncation,
@@ -26,7 +26,7 @@ impl ExampleScene for BlendScene {
 }
 
 impl BlendScene {
-    /// Create a new `ClipScene`
+    /// Create a new `BlendScene`
     pub(crate) fn new() -> Self {
         Self {}
     }
@@ -38,7 +38,7 @@ impl Default for BlendScene {
     }
 }
 
-/// Draws a deeply nested clip of circles.
+/// Demonstrates a complex compositing scene.
 pub(crate) fn render(ctx: &mut RenderContext, root_transform: Affine) {
     ctx.set_transform(root_transform);
     ctx.push_layer(

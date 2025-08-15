@@ -32,7 +32,6 @@ mod glyph;
 mod gradient;
 mod image;
 mod issues;
-mod kitchen_sink;
 mod layer;
 mod mask;
 mod mix;

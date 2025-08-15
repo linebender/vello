@@ -112,7 +112,7 @@ fn composed_layers_nesting(ctx: &mut impl Renderer) {
 }
 
 #[vello_test(height = 8, width = 100)]
-fn repeatedly_blend_to_bottom_layer(ctx: &mut impl Renderer) {
+fn repeatedly_compose_to_bottom_layer(ctx: &mut impl Renderer) {
     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
     {
         ctx.set_paint(BLUE);
@@ -129,7 +129,7 @@ fn repeatedly_blend_to_bottom_layer(ctx: &mut impl Renderer) {
 }
 
 #[vello_test(width = 100, height = 100, transparent)]
-fn complex_compositing_layers(ctx: &mut impl Renderer) {
+fn complex_composed_layers(ctx: &mut impl Renderer) {
     ctx.push_layer(
         None,
         Some(BlendMode {
