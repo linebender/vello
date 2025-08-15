@@ -243,7 +243,7 @@ struct PendingTileWork<'a> {
     next_cmd_idx: usize,
     /// The suspended tile state stack representing active layers.
     stack: TileState,
-    /// Round at which this work was suspended. Used to calcualte round offsets.
+    /// Round at which this work was suspended. Used to calculate round offsets.
     suspended_at_round: usize,
     /// The draw commands being iterated to draw the wide tile.
     annotated_cmds: Vec<AnnotatedCmd<'a>>,
