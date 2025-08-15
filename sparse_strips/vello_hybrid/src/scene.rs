@@ -8,7 +8,6 @@ use alloc::vec::Vec;
 use vello_common::coarse::Wide;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
-use vello_common::flatten::{FlattenCtx, Line};
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
@@ -553,7 +552,12 @@ impl Scene {
     }
 
     /// Generate strips for a stroked path.
-    fn generate_stroke_strips(&mut self, path: &BezPath, strips: &mut Vec<Strip>, transform: Affine) {
+    fn generate_stroke_strips(
+        &mut self,
+        path: &BezPath,
+        strips: &mut Vec<Strip>,
+        transform: Affine,
+    ) {
         self.strip_generator.generate_stroked_path(
             path,
             &self.stroke,
