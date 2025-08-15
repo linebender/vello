@@ -508,7 +508,7 @@ pub(crate) struct HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRenderer = Scene;
 
-    fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
+    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
 
@@ -637,7 +637,7 @@ impl Renderer for HybridRenderer {
     }
 
     // vello_hybrid WebGL renderer backend.
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap, _: RenderMode) {
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         use web_sys::WebGl2RenderingContext;
 
         let width = self.scene.width();
