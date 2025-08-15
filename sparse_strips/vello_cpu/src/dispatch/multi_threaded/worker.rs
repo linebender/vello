@@ -4,9 +4,9 @@
 use crate::Level;
 use crate::dispatch::multi_threaded::{CoarseTask, CoarseTaskSender, Path, RenderTask};
 use crate::peniko::Fill;
-use crate::strip_generator::StripGenerator;
 use std::vec::Vec;
 use vello_common::strip::Strip;
+use vello_common::strip_generator::StripGenerator;
 
 #[derive(Debug)]
 pub(crate) struct Worker {

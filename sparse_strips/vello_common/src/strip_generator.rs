@@ -1,17 +1,20 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Abstraction for generating strips from paths.
+
+use crate::fearless_simd::Level;
+use crate::flatten::{FlattenCtx, Line};
 use crate::kurbo::{Affine, PathEl, Stroke};
 use crate::peniko::Fill;
+use crate::strip::Strip;
+use crate::tile::Tiles;
+use crate::{flatten, strip};
 use alloc::vec::Vec;
-use vello_common::fearless_simd::Level;
-use vello_common::flatten::{FlattenCtx, Line};
-use vello_common::strip::Strip;
-use vello_common::tile::Tiles;
-use vello_common::{flatten, strip};
 
+/// An object for easily generating strips for a filled/stroked path.
 #[derive(Debug)]
-pub(crate) struct StripGenerator {
+pub struct StripGenerator {
     level: Level,
     alphas: Vec<u8>,
     line_buf: Vec<Line>,
@@ -23,7 +26,8 @@ pub(crate) struct StripGenerator {
 }
 
 impl StripGenerator {
-    pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
+    /// Create a new strip generator.
+    pub fn new(width: u16, height: u16, level: Level) -> Self {
         Self {
             alphas: Vec::new(),
             level,
@@ -36,7 +40,8 @@ impl StripGenerator {
         }
     }
 
-    pub(crate) fn generate_filled_path<'a>(
+    /// Generate the strips for a filled path.
+    pub fn generate_filled_path<'a>(
         &'a mut self,
         path: impl IntoIterator<Item = PathEl>,
         fill_rule: Fill,
@@ -55,7 +60,8 @@ impl StripGenerator {
         func(&mut self.strip_buf);
     }
 
-    pub(crate) fn generate_stroked_path<'a>(
+    /// Generate the strips for a stroked path.
+    pub fn generate_stroked_path<'a>(
         &'a mut self,
         path: impl IntoIterator<Item = PathEl>,
         stroke: &Stroke,
@@ -75,27 +81,33 @@ impl StripGenerator {
         func(&mut self.strip_buf);
     }
 
-    pub(crate) fn alpha_buf(&self) -> &[u8] {
+    /// Return a reference to the current alpha buffer of the strip generator.
+    pub fn alpha_buf(&self) -> &[u8] {
         &self.alphas
     }
 
-    pub(crate) fn extend_alpha_buf(&mut self, alphas: &[u8]) {
+    /// Extend the alpha buffer with the given alphas.
+    pub fn extend_alpha_buf(&mut self, alphas: &[u8]) {
         self.alphas.extend_from_slice(alphas);
     }
 
-    pub(crate) fn set_alpha_buf(&mut self, alpha_buf: Vec<u8>) {
+    /// Set the alpha buffer.
+    pub fn set_alpha_buf(&mut self, alpha_buf: Vec<u8>) {
         self.alphas = alpha_buf;
     }
 
-    pub(crate) fn take_alpha_buf(&mut self) -> Vec<u8> {
+    /// Take the alpha buffer and set it to an empty one.
+    pub fn take_alpha_buf(&mut self) -> Vec<u8> {
         core::mem::take(&mut self.alphas)
     }
 
-    pub(crate) fn replace_alpha_buf(&mut self, alphas: Vec<u8>) -> Vec<u8> {
+    /// Swap the alpha buffer with the given one.
+    pub fn replace_alpha_buf(&mut self, alphas: Vec<u8>) -> Vec<u8> {
         core::mem::replace(&mut self.alphas, alphas)
     }
 
-    pub(crate) fn reset(&mut self) {
+    /// Reset the strip generator.
+    pub fn reset(&mut self) {
         self.line_buf.clear();
         self.tiles.reset();
         self.alphas.clear();
@@ -120,10 +132,10 @@ impl StripGenerator {
 
 #[cfg(test)]
 mod tests {
+    use crate::fearless_simd::Level;
     use crate::kurbo::{Affine, Rect, Shape};
+    use crate::peniko::Fill;
     use crate::strip_generator::StripGenerator;
-    use vello_common::fearless_simd::Level;
-    use vello_common::peniko::Fill;
 
     #[test]
     fn reset_strip_generator() {

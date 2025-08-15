@@ -80,6 +80,7 @@ pub mod pixmap;
 pub mod recording;
 pub mod simd;
 pub mod strip;
+pub mod strip_generator;
 pub mod tile;
 pub mod util;
 

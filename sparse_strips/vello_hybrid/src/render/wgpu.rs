@@ -93,8 +93,13 @@ impl Renderer {
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
-        self.programs
-            .prepare(device, queue, &scene.alphas, encoded_paints, render_size);
+        self.programs.prepare(
+            device,
+            queue,
+            scene.strip_generator.alpha_buf(),
+            encoded_paints,
+            render_size,
+        );
         let mut junk = RendererContext {
             programs: &mut self.programs,
             device,

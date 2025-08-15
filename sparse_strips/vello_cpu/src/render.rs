@@ -5,7 +5,6 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
-use crate::strip_generator::StripGenerator;
 
 #[cfg(feature = "multithreading")]
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
@@ -29,6 +28,7 @@ use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
 use vello_common::strip::Strip;
+use vello_common::strip_generator::StripGenerator;
 #[cfg(feature = "text")]
 use vello_common::{
     color::{AlphaColor, Srgb},

@@ -117,7 +117,6 @@ mod dispatch;
 pub mod fine;
 #[doc(hidden)]
 pub mod region;
-mod strip_generator;
 mod util;
 
 pub use render::{RenderContext, RenderSettings};
