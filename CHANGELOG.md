@@ -15,6 +15,10 @@ You can find its changes [documented below](#050---2025-05-08).
 
 This release has an [MSRV][] of 1.85.
 
+## Added
+
+- `register_texture`, a helper for using `wgpu` textures in a Vello `Renderer` ([#1161][] by [@DJMcNab][]).
+
 ## [0.5.0][] - 2025-05-08
 
 This release has an [MSRV][] of 1.85.
@@ -295,6 +299,7 @@ This release has an [MSRV][] of 1.75.
 [#802]: https://github.com/linebender/vello/pull/802
 [#803]: https://github.com/linebender/vello/pull/803
 [#841]: https://github.com/linebender/vello/pull/841
+[#1161]: https://github.com/linebender/vello/pull/1161
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.5.0...HEAD
 <!-- Note that this still comparing against 0.4.0, because 0.4.1 is a cherry-picked patch -->
