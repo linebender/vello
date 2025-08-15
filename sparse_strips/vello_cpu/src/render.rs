@@ -27,7 +27,7 @@ use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
-use vello_common::recording::{Recordable, Recording, RenderCommand};
+use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
 use vello_common::strip::Strip;
 #[cfg(feature = "text")]
 use vello_common::{
@@ -620,33 +620,21 @@ impl Recordable for RenderContext {
                 | RenderCommand::StrokePath(_)
                 | RenderCommand::FillRect(_)
                 | RenderCommand::StrokeRect(_) => {
-                    assert!(
-                        range_index < strip_start_indices.len(),
-                        "Strip range index out of bounds"
+                    self.process_geometry_command(
+                        command,
+                        strip_start_indices,
+                        range_index,
+                        &adjusted_strips,
                     );
-                    let start = strip_start_indices[range_index];
-                    let end = strip_start_indices
-                        .get(range_index + 1)
-                        .copied()
-                        .unwrap_or(adjusted_strips.len());
-                    let count = end - start;
-                    assert!(
-                        start < adjusted_strips.len() && count > 0,
-                        "Invalid strip range"
-                    );
-                    let paint = self.encode_current_paint();
-                    let fill_rule = match command {
-                        RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => self.fill_rule,
-                        RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => {
-                            Fill::NonZero
-                        }
-                        _ => Fill::NonZero,
-                    };
-                    self.dispatcher.wide_mut().generate(
-                        &adjusted_strips[start..end],
-                        fill_rule,
-                        paint,
-                        0,
+                    range_index += 1;
+                }
+                #[cfg(feature = "text")]
+                RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
+                    self.process_geometry_command(
+                        command,
+                        strip_start_indices,
+                        range_index,
+                        &adjusted_strips,
                     );
                     range_index += 1;
                 }
@@ -668,12 +656,12 @@ impl Recordable for RenderContext {
                 RenderCommand::SetStroke(stroke) => {
                     self.set_stroke(stroke.clone());
                 }
-                RenderCommand::PushLayer {
+                RenderCommand::PushLayer(PushLayerCommand {
                     clip_path,
                     blend_mode,
                     opacity,
                     mask,
-                } => {
+                }) => {
                     self.push_layer(clip_path.as_ref(), *blend_mode, *opacity, mask.clone());
                 }
                 RenderCommand::PopLayer => {
@@ -722,21 +710,63 @@ impl RenderContext {
 
             match command {
                 RenderCommand::FillPath(path) => {
-                    self.generate_fill_strips(path, &mut collected_strips, &mut strip_generator);
+                    self.generate_fill_strips(
+                        path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokePath(path) => {
-                    self.generate_stroke_strips(path, &mut collected_strips, &mut strip_generator);
+                    self.generate_stroke_strips(
+                        path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::FillRect(rect) => {
                     let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_fill_strips(&path, &mut collected_strips, &mut strip_generator);
+                    self.generate_fill_strips(
+                        &path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokeRect(rect) => {
                     let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_stroke_strips(&path, &mut collected_strips, &mut strip_generator);
+                    self.generate_stroke_strips(
+                        &path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
+                    strip_start_indices.push(start_index);
+                }
+                #[cfg(feature = "text")]
+                RenderCommand::FillOutlineGlyph((path, transform)) => {
+                    let glyph_transform = self.transform * *transform;
+                    self.generate_fill_strips(
+                        path,
+                        &mut collected_strips,
+                        glyph_transform,
+                        &mut strip_generator,
+                    );
+                    strip_start_indices.push(start_index);
+                }
+                #[cfg(feature = "text")]
+                RenderCommand::StrokeOutlineGlyph((path, transform)) => {
+                    let glyph_transform = self.transform * *transform;
+                    self.generate_stroke_strips(
+                        path,
+                        &mut collected_strips,
+                        glyph_transform,
+                        &mut strip_generator,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::SetTransform(transform) => {
@@ -748,6 +778,7 @@ impl RenderContext {
                 RenderCommand::SetStroke(stroke) => {
                     self.stroke = stroke.clone();
                 }
+
                 _ => {}
             }
         }
@@ -756,6 +787,41 @@ impl RenderContext {
         self.restore_state(saved_state);
 
         (collected_strips, collected_alphas, strip_start_indices)
+    }
+}
+
+/// Recording management implementation.
+impl RenderContext {
+    fn process_geometry_command(
+        &mut self,
+        command: &RenderCommand,
+        strip_start_indices: &[usize],
+        range_index: usize,
+        adjusted_strips: &[Strip],
+    ) {
+        assert!(
+            range_index < strip_start_indices.len(),
+            "Strip range index out of bounds"
+        );
+        let start = strip_start_indices[range_index];
+        let end = strip_start_indices
+            .get(range_index + 1)
+            .copied()
+            .unwrap_or(adjusted_strips.len());
+        let count = end - start;
+        assert!(
+            start < adjusted_strips.len() && count > 0,
+            "Invalid strip range"
+        );
+        let paint = self.encode_current_paint();
+        let fill_rule = match command {
+            RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => self.fill_rule,
+            RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => Fill::NonZero,
+            _ => Fill::NonZero,
+        };
+        self.dispatcher
+            .wide_mut()
+            .generate(&adjusted_strips[start..end], fill_rule, paint, 0);
     }
 
     /// Prepare cached strips for rendering by adjusting indices.
@@ -784,12 +850,13 @@ impl RenderContext {
         &mut self,
         path: &BezPath,
         strips: &mut Vec<Strip>,
+        transform: Affine,
         strip_generator: &mut StripGenerator,
     ) {
         strip_generator.generate_filled_path(
             path,
             self.fill_rule,
-            self.transform,
+            transform,
             self.anti_alias,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
@@ -802,12 +869,13 @@ impl RenderContext {
         &mut self,
         path: &BezPath,
         strips: &mut Vec<Strip>,
+        transform: Affine,
         strip_generator: &mut StripGenerator,
     ) {
         strip_generator.generate_stroked_path(
             path,
             &self.stroke,
-            self.transform,
+            transform,
             self.anti_alias,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);

@@ -3,9 +3,13 @@
 
 //! Recording API for caching sparse strips
 
+#[cfg(feature = "text")]
+use crate::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::mask::Mask;
 use crate::paint::PaintType;
+#[cfg(feature = "text")]
+use crate::peniko::Font;
 use crate::peniko::{BlendMode, Fill};
 use crate::strip::Strip;
 use alloc::vec::Vec;
@@ -88,6 +92,19 @@ pub struct Recording {
     transform: Affine,
 }
 
+/// Command for pushing a new layer.
+#[derive(Debug, Clone)]
+pub struct PushLayerCommand {
+    /// Clip path.
+    pub clip_path: Option<BezPath>,
+    /// Blend mode.
+    pub blend_mode: Option<BlendMode>,
+    /// Opacity.
+    pub opacity: Option<f32>,
+    /// Mask.
+    pub mask: Option<Mask>,
+}
+
 /// Individual rendering commands that can be recorded.
 #[derive(Debug)]
 pub enum RenderCommand {
@@ -106,16 +123,7 @@ pub enum RenderCommand {
     /// Set the stroke parameters.
     SetStroke(Stroke),
     /// Push a new layer with optional clipping and effects.
-    PushLayer {
-        /// Optional clipping path.
-        clip_path: Option<BezPath>,
-        /// Optional blend mode.
-        blend_mode: Option<BlendMode>,
-        /// Optional opacity.
-        opacity: Option<f32>,
-        /// Optional mask.
-        mask: Option<Mask>,
-    },
+    PushLayer(PushLayerCommand),
     /// Pop the current layer.
     PopLayer,
     /// Set the current paint.
@@ -124,6 +132,12 @@ pub enum RenderCommand {
     SetPaintTransform(Affine),
     /// Reset the paint transform.
     ResetPaintTransform,
+    /// Render a fill outline glyph.
+    #[cfg(feature = "text")]
+    FillOutlineGlyph((BezPath, Affine)),
+    /// Render a stroke outline glyph.
+    #[cfg(feature = "text")]
+    StrokeOutlineGlyph((BezPath, Affine)),
 }
 
 impl Recording {
@@ -395,12 +409,13 @@ impl<'a> Recorder<'a> {
         opacity: Option<f32>,
         mask: Option<Mask>,
     ) {
-        self.recording.add_command(RenderCommand::PushLayer {
-            clip_path: clip_path.cloned(),
-            blend_mode,
-            opacity,
-            mask,
-        });
+        self.recording
+            .add_command(RenderCommand::PushLayer(PushLayerCommand {
+                clip_path: clip_path.cloned(),
+                blend_mode,
+                opacity,
+                mask,
+            }));
     }
 
     /// Push a new clip layer.
@@ -411,5 +426,48 @@ impl<'a> Recorder<'a> {
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
         self.recording.add_command(RenderCommand::PopLayer);
+    }
+
+    /// Creates a builder for drawing a run of glyphs that have the same attributes.
+    #[cfg(feature = "text")]
+    pub fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
+        GlyphRunBuilder::new(font.clone(), self.recording.transform, self)
+    }
+}
+
+#[cfg(feature = "text")]
+impl<'a> GlyphRenderer for Recorder<'a> {
+    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
+        match glyph.glyph_type {
+            GlyphType::Outline(outline_glyph) => {
+                if !outline_glyph.path.is_empty() {
+                    self.recording.add_command(RenderCommand::FillOutlineGlyph((
+                        outline_glyph.path.clone(),
+                        glyph.transform,
+                    )));
+                }
+            }
+
+            _ => {
+                unimplemented!("Recording glyphs of type {:?}", glyph.glyph_type);
+            }
+        }
+    }
+
+    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
+        match glyph.glyph_type {
+            GlyphType::Outline(outline_glyph) => {
+                if !outline_glyph.path.is_empty() {
+                    self.recording
+                        .add_command(RenderCommand::StrokeOutlineGlyph((
+                            outline_glyph.path.clone(),
+                            glyph.transform,
+                        )));
+                }
+            }
+            _ => {
+                unimplemented!("Recording glyphs of type {:?}", glyph.glyph_type);
+            }
+        }
     }
 }

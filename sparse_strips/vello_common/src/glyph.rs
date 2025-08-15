@@ -466,8 +466,12 @@ fn prepare_colr_glyph<'a>(
     )
 }
 
-enum Style {
+/// Rendering style for glyphs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Style {
+    /// Fill the glyph.
     Fill,
+    /// Stroke the glyph.
     Stroke,
 }
 
