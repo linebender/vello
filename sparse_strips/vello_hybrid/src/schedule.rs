@@ -374,7 +374,7 @@ struct Draw(Vec<GpuStrip>);
 impl Draw {
     #[inline(always)]
     fn push(&mut self, gpu_strip: GpuStrip) {
-        self.0.push(gpu_strip)
+        self.0.push(gpu_strip);
     }
 }
 
@@ -398,7 +398,6 @@ impl Scheduler {
         texture: usize,
         renderer: &mut R,
     ) -> Result<ClaimedSlot, RenderError> {
-        assert!(matches!(texture, 0 | 1));
         while self.free[texture].is_empty() {
             if self.rounds_queue.is_empty() {
                 return Err(RenderError::SlotsExhausted);
@@ -532,9 +531,7 @@ impl Scheduler {
                         for (idx, &slot) in round.clear[i].iter().enumerate() {
                             debug_assert!(
                                 !round.clear[i][..idx].contains(&slot),
-                                "Duplicate slot {} found in round.clear[{}]",
-                                slot,
-                                i
+                                "Duplicate slot {slot} found in round.clear[{i}]",
                             );
 
                             // We can't use `retain` because `self.clear` tracks clearing globally
@@ -751,8 +748,8 @@ impl Scheduler {
                             #[cfg(debug_assertions)]
                             self.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
                             if dest_slot.get_idx() as u32 != u32::MAX {
-                                let round = self.get_round(tos.round);
-                                round.clear[dest_slot.get_texture()]
+                                let round1 = self.get_round(tos.round);
+                                round1.clear[dest_slot.get_texture()]
                                     .push(dest_slot.get_idx() as u32);
                                 #[cfg(debug_assertions)]
                                 self.clear[dest_slot.get_texture()]
