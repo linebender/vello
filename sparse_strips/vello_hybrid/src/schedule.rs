@@ -1122,12 +1122,11 @@ fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
                 // For blending of two layers to work in vello_hybrid, the two slots being blended
                 // must be on the same texture. Hence, annotate the next-on-stack (nos) tile such
                 // that it uses a temporary slot on the same texture as this blend.
-                assert!(
-                    pointer_to_push_buf_stack.len() >= 2,
-                    "main canvas cannot be blended into"
-                );
-                let push_buf_idx = pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 2];
-                annotated_commands[push_buf_idx] = AnnotatedCmd::PushBufWithTemporarySlot;
+                if pointer_to_push_buf_stack.len() >= 2 {
+                    let push_buf_idx =
+                        pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 2];
+                    annotated_commands[push_buf_idx] = AnnotatedCmd::PushBufWithTemporarySlot;
+                }
             }
             _ => {}
         }
