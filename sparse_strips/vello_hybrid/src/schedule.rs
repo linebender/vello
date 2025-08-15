@@ -1082,18 +1082,30 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 /// linear scans.
 fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
     let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Default::default();
-    annotated_commands.push(AnnotatedCmd::Generated(Cmd::PushBuf));
     // vello_hybrid cannot support non destructive in-place composites. Expand out to explicit blend
     // layers.
+    let mut seen_blend_to_canvas = false;
+    let mut depth = 1;
     for cmd in cmds {
+        depth += match cmd {
+            Cmd::PushBuf => 1,
+            Cmd::PopBuf => -1,
+            _ => 0,
+        };
+        // A blend command is issued directly to the viewport.
+        seen_blend_to_canvas |= matches!(cmd, Cmd::Blend(_)) && depth == 2;
         annotated_commands.push(AnnotatedCmd::IdentityBorrowed(cmd));
     }
-
-    annotated_commands.push(AnnotatedCmd::Generated(Cmd::Blend(BlendMode {
-        mix: Mix::Normal,
-        compose: Compose::SrcOver,
-    })));
-    annotated_commands.push(AnnotatedCmd::Generated(Cmd::PopBuf));
+    if seen_blend_to_canvas {
+        // We need to wrap the draw commands with an extra layer - preventing blending directly into
+        // the canvas. Linear time.
+        annotated_commands.insert(0, AnnotatedCmd::Generated(Cmd::PushBuf));
+        annotated_commands.push(AnnotatedCmd::Generated(Cmd::Blend(BlendMode {
+            mix: Mix::Normal,
+            compose: Compose::SrcOver,
+        })));
+        annotated_commands.push(AnnotatedCmd::Generated(Cmd::PopBuf));
+    }
 
     let mut pointer_to_push_buf_stack: Vec<usize> = Default::default();
 
@@ -1110,11 +1122,12 @@ fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
                 // For blending of two layers to work in vello_hybrid, the two slots being blended
                 // must be on the same texture. Hence, annotate the next-on-stack (nos) tile such
                 // that it uses a temporary slot on the same texture as this blend.
-                if pointer_to_push_buf_stack.len() >= 2 {
-                    let push_buf_idx =
-                        pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 2];
-                    annotated_commands[push_buf_idx] = AnnotatedCmd::PushBufWithTemporarySlot;
-                }
+                assert!(
+                    pointer_to_push_buf_stack.len() >= 2,
+                    "main canvas cannot be blended into"
+                );
+                let push_buf_idx = pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 2];
+                annotated_commands[push_buf_idx] = AnnotatedCmd::PushBufWithTemporarySlot;
             }
             _ => {}
         }
