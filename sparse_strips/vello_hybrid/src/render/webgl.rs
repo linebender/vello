@@ -129,7 +129,7 @@ impl WebGlRenderer {
         let encoded_paints = self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         self.programs.prepare(
             &self.gl,
-            &scene.strip_generator.alpha_buf(),
+            scene.strip_generator.alpha_buf(),
             encoded_paints,
             render_size,
         );
