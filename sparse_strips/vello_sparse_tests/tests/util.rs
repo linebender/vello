@@ -327,12 +327,11 @@ pub(crate) fn check_ref(
     diff_pixels: u16,
     // Must be `false` on `wasm32` as reference image cannot be written to filesystem.
     is_reference: bool,
-    render_mode: RenderMode,
     ref_data: &[u8],
 ) {
     assert!(!is_reference, "WASM cannot create new reference images");
 
-    let pixmap = render_pixmap(ctx, render_mode);
+    let pixmap = render_pixmap(ctx);
     let encoded_image = pixmap.into_png().unwrap();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
