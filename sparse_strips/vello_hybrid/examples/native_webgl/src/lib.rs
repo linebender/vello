@@ -279,7 +279,12 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     // Add canvas to body
     body.append_child(&canvas).unwrap();
 
-    let scenes = vello_hybrid_scenes::get_example_scenes();
+    let scenes = {
+        let mut v = vello_hybrid_scenes::get_example_scenes().into_vec();
+        // Remove the composite scene that currently doesn't work.
+        v.pop();
+        v.into_boxed_slice()
+    };
 
     let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes)));
 
