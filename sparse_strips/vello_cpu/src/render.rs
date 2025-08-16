@@ -75,7 +75,6 @@ pub struct RenderSettings {
     ///
     /// Currently, the only difference this makes is that when choosing `OptimizeSpeed`, rasterization
     /// will happen using u8/u16, while `OptimizeQuality` will use a f32-based pipeline.
-    ///
     pub render_mode: RenderMode,
 }
 
