@@ -176,7 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::render::common::GpuEncodedImage;
+use crate::render::common::{GpuEncodedImage, GpuStripBuilder};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -191,8 +191,6 @@ use vello_common::{
 
 // Constants used for bit packing, matching `render_strips.wgsl`
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
-const COLOR_SOURCE_SLOT: u32 = 1;
-const COLOR_SOURCE_BLEND: u32 = 2;
 
 const PAINT_TYPE_SOLID: u32 = 0;
 const PAINT_TYPE_IMAGE: u32 = 1;
@@ -430,7 +428,8 @@ impl Scheduler {
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
 
-                let tile_state = self.initialize_tile_state(wide_tile, wide_tile_x, wide_tile_y);
+                let tile_state =
+                    self.initialize_tile_state(wide_tile, wide_tile_x, wide_tile_y, scene);
                 let annotated_cmds = prepare_cmds(&wide_tile.cmds);
                 pending_work.push(PendingTileWork {
                     wide_tile_col,
@@ -586,6 +585,7 @@ impl Scheduler {
         tile: &WideTile,
         wide_tile_x: u16,
         wide_tile_y: u16,
+        scene: &Scene,
     ) -> TileState {
         let mut state = TileState::default();
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
@@ -600,16 +600,14 @@ impl Scheduler {
             // If the background has a non-zero alpha then we need to render it.
             let bg = tile.bg.as_premul_rgba8().to_u32();
             if has_non_zero_alpha(bg) {
+                let (payload, paint) =
+                    Self::process_paint(&Paint::Solid(tile.bg), scene, (wide_tile_x, wide_tile_y));
+
                 let draw = self.draw_mut(self.round, 2);
-                draw.push(GpuStrip {
-                    x: wide_tile_x,
-                    y: wide_tile_y,
-                    width: WideTile::WIDTH,
-                    dense_width: 0,
-                    col_idx: 0,
-                    payload: bg,
-                    paint: 0,
-                });
+                draw.push(
+                    GpuStripBuilder::at_canvas(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+                        .paint(payload, paint),
+                );
             }
         }
         state
@@ -644,26 +642,18 @@ impl Scheduler {
                     let (payload, paint) =
                         Self::process_paint(&fill.paint, scene, (scene_strip_x, scene_strip_y));
 
-                    let (x, y) = if clip_depth == 1 {
-                        (scene_strip_x, scene_strip_y)
+                    let gpu_strip_builder = if clip_depth == 1 {
+                        GpuStripBuilder::at_canvas(scene_strip_x, scene_strip_y, fill.width)
                     } else {
                         let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
                             temp_slot.get_idx()
                         } else {
                             el.dest_slot.get_idx()
                         };
-                        (fill.x, slot_idx as u16 * Tile::HEIGHT)
+                        GpuStripBuilder::at_slot(slot_idx, fill.x, fill.width)
                     };
 
-                    draw.push(GpuStrip {
-                        x,
-                        y,
-                        width: fill.width,
-                        dense_width: 0,
-                        col_idx: 0,
-                        payload,
-                        paint,
-                    });
+                    draw.push(gpu_strip_builder.paint(payload, paint));
                 }
                 Cmd::AlphaFill(alpha_fill) => {
                     let el = state.stack.last_mut().unwrap();
@@ -680,26 +670,22 @@ impl Scheduler {
                         (scene_strip_x, scene_strip_y),
                     );
 
-                    let (x, y) = if clip_depth == 1 {
-                        (scene_strip_x, scene_strip_y)
+                    let gpu_strip_builder = if clip_depth == 1 {
+                        GpuStripBuilder::at_canvas(scene_strip_x, scene_strip_y, alpha_fill.width)
                     } else {
                         let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
                             temp_slot.get_idx()
                         } else {
                             el.dest_slot.get_idx()
                         };
-                        (alpha_fill.x, slot_idx as u16 * Tile::HEIGHT)
+                        GpuStripBuilder::at_slot(slot_idx, alpha_fill.x, alpha_fill.width)
                     };
 
-                    draw.push(GpuStrip {
-                        x,
-                        y,
-                        width: alpha_fill.width,
-                        dense_width: alpha_fill.width,
-                        col_idx,
-                        payload,
-                        paint,
-                    });
+                    draw.push(
+                        gpu_strip_builder
+                            .with_sparse(alpha_fill.width, col_idx)
+                            .paint(payload, paint),
+                    );
                 }
                 Cmd::PushBuf => {
                     // `wgpu` does not allow reading/writing from the same slot texture. This means
@@ -726,17 +712,10 @@ impl Scheduler {
                             }
 
                             let draw = self.draw_mut(tos.round - 1, temp_slot.get_texture());
-                            // Generate a full opacity copy.
-                            let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
-                            draw.push(GpuStrip {
-                                x: 0,
-                                y: temp_slot.get_idx() as u16 * Tile::HEIGHT,
-                                width: WideTile::WIDTH,
-                                dense_width: 0,
-                                col_idx: 0,
-                                payload: tos.dest_slot.get_idx() as u32,
-                                paint,
-                            });
+                            draw.push(
+                                GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
+                                    .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
+                            );
 
                             tos.temporary_slot = TemporarySlot::Valid(temp_slot);
 
@@ -829,16 +808,10 @@ impl Scheduler {
                     let round = nos.round.max(tos.round + usize::from(next_round));
                     if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
                         let draw = self.draw_mut(round, nos.dest_slot.get_texture());
-                        let paint: u32 = COLOR_SOURCE_SLOT << 30 | 0xFF; // Full opacity copy
-                        draw.push(GpuStrip {
-                            x: 0,
-                            y: nos.dest_slot.get_idx() as u16 * Tile::HEIGHT,
-                            width: WideTile::WIDTH,
-                            dense_width: 0,
-                            col_idx: 0,
-                            payload: temp_slot.get_idx() as u32,
-                            paint,
-                        });
+                        draw.push(
+                            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+                                .copy_from_slot(temp_slot.get_idx(), 0xFF),
+                        );
                     }
 
                     let draw = self.draw_mut(
@@ -849,25 +822,20 @@ impl Scheduler {
                             nos.dest_slot.get_texture()
                         },
                     );
-                    let (x, y) = if clip_depth <= 2 {
-                        (wide_tile_x + clip_fill.x as u16, wide_tile_y)
+                    let gpu_strip_builder = if clip_depth <= 2 {
+                        GpuStripBuilder::at_canvas(
+                            wide_tile_x + clip_fill.x as u16,
+                            wide_tile_y,
+                            clip_fill.width as u16,
+                        )
                     } else {
-                        (
+                        GpuStripBuilder::at_slot(
+                            nos.dest_slot.get_idx(),
                             clip_fill.x as u16,
-                            nos.dest_slot.get_idx() as u16 * Tile::HEIGHT,
+                            clip_fill.width as u16,
                         )
                     };
-                    // Opacity packed into the first 8 bits – pack full opacity (0xFF).
-                    let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
-                    draw.push(GpuStrip {
-                        x,
-                        y,
-                        width: clip_fill.width as u16,
-                        dense_width: 0,
-                        col_idx: 0,
-                        payload: tos.dest_slot.get_idx() as u32,
-                        paint,
-                    });
+                    draw.push(gpu_strip_builder.copy_from_slot(tos.dest_slot.get_idx(), 0xFF));
 
                     let nos_ptr = state.stack.len() - 2;
                     state.stack[nos_ptr].temporary_slot.invalidate();
@@ -882,16 +850,10 @@ impl Scheduler {
                     // If nos has a temporary slot, copy it to `dest_slot` first
                     if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
                         let draw = self.draw_mut(round, nos.dest_slot.get_texture());
-                        let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
-                        draw.push(GpuStrip {
-                            x: 0,
-                            y: nos.dest_slot.get_idx() as u16 * Tile::HEIGHT,
-                            width: WideTile::WIDTH,
-                            dense_width: 0,
-                            col_idx: 0,
-                            payload: temp_slot.get_idx() as u32,
-                            paint,
-                        });
+                        draw.push(
+                            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+                                .copy_from_slot(temp_slot.get_idx(), 0xFF),
+                        );
                     }
 
                     let draw = self.draw_mut(
@@ -902,28 +864,29 @@ impl Scheduler {
                             nos.dest_slot.get_texture()
                         },
                     );
-                    let (x, y) = if clip_depth <= 2 {
-                        (wide_tile_x + clip_alpha_fill.x as u16, wide_tile_y)
+                    let gpu_strip_builder = if clip_depth <= 2 {
+                        GpuStripBuilder::at_canvas(
+                            wide_tile_x + clip_alpha_fill.x as u16,
+                            wide_tile_y,
+                            clip_alpha_fill.width as u16,
+                        )
                     } else {
-                        (
+                        GpuStripBuilder::at_slot(
+                            nos.dest_slot.get_idx(),
                             clip_alpha_fill.x as u16,
-                            nos.dest_slot.get_idx() as u16 * Tile::HEIGHT,
+                            clip_alpha_fill.width as u16,
                         )
                     };
-                    // Opacity packed into the first 8 bits – pack full opacity (0xFF).
-                    let paint = COLOR_SOURCE_SLOT << 30 | 0xFF;
-                    draw.push(GpuStrip {
-                        x,
-                        y,
-                        width: clip_alpha_fill.width as u16,
-                        dense_width: clip_alpha_fill.width as u16,
-                        col_idx: (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
-                            .try_into()
-                            .expect("Sparse strips are bound to u32 range"),
-                        payload: tos.dest_slot.get_idx() as u32,
-                        paint,
-                    });
 
+                    let col_idx = (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
+                        .try_into()
+                        .expect("Sparse strips are bound to u32 range");
+
+                    draw.push(
+                        gpu_strip_builder
+                            .with_sparse(clip_alpha_fill.width as u16, col_idx)
+                            .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
+                    );
                     let nos_ptr = state.stack.len() - 2;
                     state.stack[nos_ptr].temporary_slot.invalidate();
                 }
@@ -934,11 +897,6 @@ impl Scheduler {
                     assert!(
                         matches!(mode.mix, Mix::Normal),
                         "Only Mix::Normal is supported currently"
-                    );
-                    #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-                    assert!(
-                        matches!(mode.compose, Compose::SrcOver),
-                        "webgl backend does not support blend modes yet."
                     );
 
                     let tos = state.stack.last().unwrap();
@@ -956,67 +914,43 @@ impl Scheduler {
                                 nos.dest_slot.get_texture()
                             },
                         );
-                        let (x, y) = if clip_depth <= 2 {
-                            (wide_tile_x, wide_tile_y)
+                        let opacity_u8 = (tos.opacity * 255.0) as u8;
+                        let mix_mode = mode.mix as u8;
+                        let compose_mode = mode.compose as u8;
+
+                        let gpu_strip_builder = if clip_depth <= 2 {
+                            GpuStripBuilder::at_canvas(wide_tile_x, wide_tile_y, WideTile::WIDTH)
                         } else {
-                            (0, nos.dest_slot.get_idx() as u16 * Tile::HEIGHT)
+                            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
                         };
 
-                        let opacity_u8 = (tos.opacity * 255.0) as u32;
-
-                        // src_slot (bits 0-15) | `dest_slot` (bits 16-31)
-                        let payload =
-                            tos.dest_slot.get_idx() as u32 | ((temp_slot.get_idx() as u32) << 16);
-
-                        // Pack opacity, mix_mode, and compose_mode into paint
-                        // Extract the actual mix and compose values from mode
-                        let mix_mode = mode.mix as u32; // Assuming Mix has repr(u8) like Compose
-                        let compose_mode = mode.compose as u32;
-
-                        let paint = (COLOR_SOURCE_BLEND << 30) | (opacity_u8 << 16)           // opacity (bits 16-23)
-                            | (mix_mode << 8)              // mix_mode (bits 8-15)
-                            | compose_mode; // compose_mode (bits 0-7)
-
-                        draw.push(GpuStrip {
-                            x,
-                            y,
-                            width: WideTile::WIDTH,
-                            dense_width: 0,
-                            col_idx: 0,
-                            payload,
-                            paint,
-                        });
-
+                        draw.push(gpu_strip_builder.blend(
+                            tos.dest_slot.get_idx(),
+                            temp_slot.get_idx(),
+                            opacity_u8,
+                            mix_mode,
+                            compose_mode,
+                        ));
                         // Invalidate the temporary slot after use
                         let nos_ptr = state.stack.len() - 2;
                         state.stack[nos_ptr].temporary_slot.invalidate();
                         // Signal to suspend before pushing a new buffer.
                         has_blended = true;
                     } else {
-                        let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
-                        let (x, y) = if (clip_depth - 1) <= 2 {
-                            (wide_tile_x, wide_tile_y)
-                        } else {
-                            (0, nos.dest_slot.get_idx() as u16 * Tile::HEIGHT)
-                        };
                         assert_eq!(
                             nos.dest_slot.get_idx(),
                             usize::MAX,
                             "code path only for copying to sentinel slot, {mode:?}"
                         );
-                        // The final canvas is write-only, hence we can only copy with opacity.
-                        let opacity_u8 = (tos.opacity * 255.0) as u32;
-                        let paint = (COLOR_SOURCE_SLOT << 30) | opacity_u8;
 
-                        draw.push(GpuStrip {
-                            x,
-                            y,
-                            width: WideTile::WIDTH,
-                            dense_width: 0,
-                            col_idx: 0,
-                            payload: tos.dest_slot.get_idx() as u32,
-                            paint,
-                        });
+                        let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
+                        draw.push(
+                            GpuStripBuilder::at_canvas(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+                                .copy_from_slot(
+                                    tos.dest_slot.get_idx(),
+                                    (tos.opacity * 255.0) as u8,
+                                ),
+                        );
                     }
                 }
                 _ => unimplemented!(),
