@@ -277,7 +277,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
     let has_avx2 = false;
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-    let has_avx2 = std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma");
+    let has_avx2 =
+        std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma");
 
     let wasm_simd_level = quote! {if cfg!(target_feature = "simd128") {
             "wasm_simd128"

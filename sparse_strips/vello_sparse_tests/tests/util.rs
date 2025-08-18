@@ -78,7 +78,9 @@ pub(crate) fn get_ctx<T: Renderer>(
         }
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         "avx2" => {
-            if std::arch::is_x86_feature_detected!("avx2") &&  std::arch::is_x86_feature_detected!("fma") {
+            if std::arch::is_x86_feature_detected!("avx2")
+                && std::arch::is_x86_feature_detected!("fma")
+            {
                 Level::Avx2(unsafe { vello_common::fearless_simd::Avx2::new_unchecked() })
             } else {
                 panic!("avx2 or fma feature not detected");
