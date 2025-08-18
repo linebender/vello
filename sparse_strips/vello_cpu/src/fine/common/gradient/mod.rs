@@ -36,7 +36,7 @@ pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
                 cur_pos += 2.0 * gradient.x_advance;
             }
         },
-    )
+    );
 }
 
 #[derive(Debug)]

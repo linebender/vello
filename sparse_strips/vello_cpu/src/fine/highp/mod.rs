@@ -51,7 +51,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                     }
                 }
             },
-        )
+        );
     }
 
     // Not having this tanks performance for some reason.
@@ -66,7 +66,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                     el.copy_from_slice(&color.val);
                 }
             },
-        )
+        );
     }
 
     fn apply_mask(
@@ -83,7 +83,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                     el.copy_from_slice(&mulled.val);
                 }
             },
-        )
+        );
     }
 
     #[inline(always)]
@@ -164,7 +164,7 @@ mod fill {
                     alpha_composite_inner(s, next_dest, src_c, one_minus_alpha);
                 }
             },
-        )
+        );
     }
 
     #[inline(always)]
@@ -181,7 +181,7 @@ mod fill {
                     alpha_composite_inner(simd, next_dest, next_src, one_minus_alpha);
                 }
             },
-        )
+        );
     }
 
     pub(super) fn blend<S: Simd, T: Iterator<Item = f32x16<S>>>(
@@ -239,7 +239,7 @@ mod alpha_fill {
                     alpha_composite_inner(s, next_dest, next_mask, src_c, src_a, one);
                 }
             },
-        )
+        );
     }
 
     #[inline(always)]
@@ -263,7 +263,7 @@ mod alpha_fill {
                     alpha_composite_inner(simd, next_dest, next_mask, next_src, src_a, one);
                 }
             },
-        )
+        );
     }
 
     pub(super) fn blend<S: Simd, T: Iterator<Item = f32x16<S>>>(
@@ -288,7 +288,7 @@ mod alpha_fill {
                     next_dest.copy_from_slice(&res.val);
                 }
             },
-        )
+        );
     }
 
     #[inline(always)]

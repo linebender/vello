@@ -62,7 +62,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                     el.copy_from_slice(&color.val);
                 }
             },
-        )
+        );
     }
 
     fn gradient_painter<'a>(
@@ -106,7 +106,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                     el.copy_from_slice(&mulled.val);
                 }
             },
-        )
+        );
     }
 
     #[inline(always)]
@@ -188,7 +188,7 @@ mod fill {
                     next_dest.copy_from_slice(&res.val);
                 }
             },
-        )
+        );
     }
 
     pub(super) fn alpha_composite_solid<S: Simd>(s: S, dest: &mut [u8], src: [u8; 4]) {
@@ -209,7 +209,7 @@ mod fill {
                     next_dest.copy_from_slice(&combined.val);
                 }
             },
-        )
+        );
     }
 
     pub(super) fn alpha_composite<S: Simd, T: Iterator<Item = u8x32<S>>>(
@@ -227,7 +227,7 @@ mod fill {
                     next_dest.copy_from_slice(&res.val);
                 }
             },
-        )
+        );
     }
 
     #[inline(always)]
@@ -278,7 +278,7 @@ mod alpha_fill {
                     next_bg.copy_from_slice(&res.val);
                 }
             },
-        )
+        );
     }
 
     #[inline(always)]
@@ -299,7 +299,7 @@ mod alpha_fill {
                     alpha_composite_inner(s, next_bg, next_mask, src_c, src_a, one);
                 }
             },
-        )
+        );
     }
 
     #[inline(always)]
@@ -323,7 +323,7 @@ mod alpha_fill {
                     alpha_composite_inner(simd, next_dest, next_mask, next_src, src_a, one);
                 }
             },
-        )
+        );
     }
 
     #[inline(always)]
@@ -349,7 +349,7 @@ mod alpha_fill {
 
                 dest.copy_from_slice(&res.val);
             },
-        )
+        );
     }
 }
 
