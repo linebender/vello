@@ -41,7 +41,7 @@ impl SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
-        rasterize_with_f32_dispatch(self.level, self, buffer, width, height, encoded_paints)
+        rasterize_with_f32_dispatch(self.level, self, buffer, width, height, encoded_paints);
     }
 
     fn rasterize_u8(
@@ -51,7 +51,7 @@ impl SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
-        rasterize_with_u8_dispatch(self.level, self, buffer, width, height, encoded_paints)
+        rasterize_with_u8_dispatch(self.level, self, buffer, width, height, encoded_paints);
     }
 
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
