@@ -55,8 +55,8 @@ pub(crate) fn get_example_scenes() -> Box<[AnyScene]> {
         AnyScene::new(simple::SimpleScene::new()),
         AnyScene::new(text::TextScene::new("Hello World from vello_cpu")),
         AnyScene::new(clip::ClipScene::new()),
-        AnyScene::new(image::ImageScene::new()),
         AnyScene::new(blend::BlendScene::new()),
+        AnyScene::new(image::ImageScene::new()),
     ]
     .into_boxed_slice()
 }

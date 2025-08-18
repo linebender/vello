@@ -229,10 +229,12 @@ pub(crate) struct Scheduler {
 }
 
 /// The information required to resume a wide tile draw operation. Note that the suspended tile owns
-/// global slot resources, so must be resumed to free the owned slots. Tile drawing must suspend to
-/// allow blend layers to be merged.
+/// global slot resources, so must be resumed to free the owned slots. Tile work suspends where
+/// blends are repeatedly scheduled into the same layer providing time for the blended result to be
+/// copied back to the other texture because we need to ensure the two slots we are blending are in
+/// the same texture.
 #[derive(Debug)]
-struct PendingTileWork<'a> {
+struct PendingWideTileWork<'a> {
     /// Used to reference the wide tile.
     wide_tile_col: u16,
     /// Used to reference the wide tile.
@@ -294,24 +296,32 @@ impl ClaimedSlot {
 /// some work upfront in `O(N)` time, where `N` is the length of the wide tile draw commands.
 ///
 /// TODO: In the future these annotations could be optionally enabled in coarse.rs directly avoiding
-/// the need to do a linear scan.
+/// the need to do linear scans.
 #[derive(Debug)]
 enum AnnotatedCmd<'a> {
     /// A wrapped command - no semantic meaning added.
     IdentityBorrowed(&'a Cmd),
-    /// An owned generated command. Allows adding additional commands.
-    Generated(Cmd),
+    PushBuf,
+    Empty,
+    SrcOverNormalBlend,
+    PopBuf,
     /// A `Cmd::PushBuf` that will be blended into by the layer above it. Will need a
     /// `temporary_slot` created for it to enable compositing.
     PushBufWithTemporarySlot,
 }
 
 impl<'a> AnnotatedCmd<'a> {
-    fn unwrap<'b: 'a>(&'b self) -> &'a Cmd {
+    fn as_cmd<'b: 'a>(&'b self) -> Option<&'a Cmd> {
         match self {
-            AnnotatedCmd::IdentityBorrowed(cmd) => cmd,
-            AnnotatedCmd::Generated(cmd) => cmd,
-            AnnotatedCmd::PushBufWithTemporarySlot => &Cmd::PushBuf,
+            AnnotatedCmd::IdentityBorrowed(cmd) => Some(cmd),
+            AnnotatedCmd::PushBufWithTemporarySlot => Some(&Cmd::PushBuf),
+            AnnotatedCmd::PushBuf => Some(&Cmd::PushBuf),
+            AnnotatedCmd::SrcOverNormalBlend => Some(&Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            })),
+            AnnotatedCmd::PopBuf => Some(&Cmd::PopBuf),
+            AnnotatedCmd::Empty => None,
         }
     }
 }
@@ -329,11 +339,10 @@ enum TemporarySlot {
 impl TemporarySlot {
     fn invalidate(&mut self) {
         match self {
-            Self::Invalid(_) => {}
-            Self::None => {}
             Self::Valid(slot) => {
                 *self = Self::Invalid(*slot);
             }
+            _ => {}
         };
     }
 }
@@ -419,7 +428,7 @@ impl Scheduler {
     ) -> Result<(), RenderError> {
         let wide_tiles_per_row = scene.wide.width_tiles();
         let wide_tiles_per_col = scene.wide.height_tiles();
-        let mut pending_work: Vec<PendingTileWork<'scene>> = Default::default();
+        let mut pending_work: Vec<PendingWideTileWork<'scene>> = Default::default();
 
         // Left to right, top to bottom iteration over wide tiles.
         for wide_tile_row in 0..wide_tiles_per_col {
@@ -431,7 +440,7 @@ impl Scheduler {
                 let tile_state =
                     self.initialize_tile_state(wide_tile, wide_tile_x, wide_tile_y, scene);
                 let annotated_cmds = prepare_cmds(&wide_tile.cmds);
-                pending_work.push(PendingTileWork {
+                pending_work.push(PendingWideTileWork {
                     wide_tile_col,
                     wide_tile_row,
                     next_cmd_idx: 0,
@@ -452,7 +461,7 @@ impl Scheduler {
                 self.flush(renderer);
             }
 
-            let pending: Vec<PendingTileWork<'scene>> = mem::take(&mut pending_work);
+            let pending: Vec<PendingWideTileWork<'scene>> = mem::take(&mut pending_work);
             for work in pending {
                 let wide_tile_col = work.wide_tile_col;
                 let wide_tile_row = work.wide_tile_row;
@@ -474,7 +483,7 @@ impl Scheduler {
                     &mut tile_state,
                     work.next_cmd_idx,
                 )? {
-                    pending_work.push(PendingTileWork {
+                    pending_work.push(PendingWideTileWork {
                         wide_tile_col,
                         wide_tile_row,
                         next_cmd_idx,
@@ -632,8 +641,12 @@ impl Scheduler {
             let cmd_idx = start_cmd_idx + offset_cmd_idx;
             // Note: this starts at 1 (for the final target)
             let clip_depth = state.stack.len();
-            let cmd = annotated_cmd.unwrap();
-            match cmd {
+            let cmd = annotated_cmd.as_cmd();
+            if cmd.is_none() {
+                continue;
+            }
+
+            match cmd.unwrap() {
                 Cmd::Fill(fill) => {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(clip_depth));
@@ -1010,41 +1023,18 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 ///  - Precomputes the layers that require temporary slots due to blending.
 ///
 /// TODO: Can be triggered via a const generic on coarse draw cmd generation which will avoid
-/// linear scans.
+/// a linear scan.
 fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
     let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Default::default();
-    // vello_hybrid cannot support non destructive in-place composites. Expand out to explicit blend
-    // layers.
-    let mut seen_blend_to_canvas = false;
-    let mut depth = 1;
-    for cmd in cmds {
-        depth += match cmd {
-            Cmd::PushBuf => 1,
-            Cmd::PopBuf => -1,
-            _ => 0,
-        };
-        // A blend command is issued directly to the viewport.
-        seen_blend_to_canvas |= matches!(cmd, Cmd::Blend(_)) && depth == 2;
-        annotated_commands.push(AnnotatedCmd::IdentityBorrowed(cmd));
-    }
-    if seen_blend_to_canvas {
-        // We need to wrap the draw commands with an extra layer - preventing blending directly into
-        // the canvas. Linear time.
-        annotated_commands.insert(0, AnnotatedCmd::Generated(Cmd::PushBuf));
-        annotated_commands.push(AnnotatedCmd::Generated(Cmd::Blend(BlendMode {
-            mix: Mix::Normal,
-            compose: Compose::SrcOver,
-        })));
-        annotated_commands.push(AnnotatedCmd::Generated(Cmd::PopBuf));
-    }
-
     let mut pointer_to_push_buf_stack: Vec<usize> = Default::default();
-
-    // Second pass: Precompute which buffers will need temporary slots for blending.
-    for idx in 0..annotated_commands.len() {
-        match &annotated_commands[idx].unwrap() {
+    // We pretend that the surface might be blended into. This will be removed if no blends occur to
+    // the surface.
+    pointer_to_push_buf_stack.push(0);
+    annotated_commands.push(AnnotatedCmd::PushBuf);
+    for cmd in cmds {
+        match cmd {
             Cmd::PushBuf => {
-                pointer_to_push_buf_stack.push(idx);
+                pointer_to_push_buf_stack.push(annotated_commands.len());
             }
             Cmd::PopBuf => {
                 pointer_to_push_buf_stack.pop();
@@ -1060,8 +1050,22 @@ fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
                 }
             }
             _ => {}
-        }
+        };
+
+        annotated_commands.push(AnnotatedCmd::IdentityBorrowed(cmd));
     }
 
+    if matches!(
+        annotated_commands[0],
+        AnnotatedCmd::PushBufWithTemporarySlot
+    ) {
+        // We need to wrap the draw commands with an extra layer - preventing blending directly into
+        // the surface.
+        annotated_commands.push(AnnotatedCmd::SrcOverNormalBlend);
+        annotated_commands.push(AnnotatedCmd::PopBuf);
+    } else {
+        // This extra wrapping can be removed.
+        annotated_commands[0] = AnnotatedCmd::Empty;
+    }
     annotated_commands
 }

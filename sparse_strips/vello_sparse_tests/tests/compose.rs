@@ -270,3 +270,63 @@ fn complex_composed_layers(ctx: &mut impl Renderer) {
 
     ctx.pop_layer();
 }
+
+#[vello_test(
+    width = 100,
+    height = 100,
+    transparent,
+    cpu_u8_tolerance = 2,
+    hybrid_tolerance = 2
+)]
+fn deep_compose(ctx: &mut impl Renderer) {
+    const INITIAL_RADIUS: f64 = 48.0;
+    const RADIUS_DECREMENT: f64 = 4.5;
+    const LAYER_COUNT: usize = 10;
+    const CENTER: Point = Point::new(50.0, 50.0);
+
+    const COLORS: [Color; LAYER_COUNT] = [
+        Color::from_rgba8(120, 0, 0, 50),
+        Color::from_rgba8(120, 60, 0, 50),
+        Color::from_rgba8(120, 120, 0, 50),
+        Color::from_rgba8(60, 120, 0, 50),
+        Color::from_rgba8(0, 120, 0, 50),
+        Color::from_rgba8(0, 120, 60, 50),
+        Color::from_rgba8(0, 120, 120, 50),
+        Color::from_rgba8(0, 60, 120, 50),
+        Color::from_rgba8(0, 0, 120, 50),
+        Color::from_rgba8(60, 0, 120, 50),
+    ];
+
+    // Composition modes are intentionally "additive".
+    const COMPOSE_MODES: [Compose; LAYER_COUNT] = [
+        Compose::SrcOver,
+        Compose::Plus,
+        Compose::SrcOver,
+        Compose::DestOver,
+        Compose::SrcOver,
+        Compose::Plus,
+        Compose::SrcAtop,
+        Compose::Plus,
+        Compose::SrcOver,
+        Compose::SrcOver,
+    ];
+
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
+    ctx.set_paint(Color::BLACK);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+
+    let mut radius = INITIAL_RADIUS;
+
+    for i in 0..LAYER_COUNT {
+        ctx.push_blend_layer(BlendMode::new(Mix::Normal, COMPOSE_MODES[i]));
+
+        ctx.set_paint(COLORS[i]);
+        ctx.fill_path(&Circle::new(CENTER, radius).to_path(0.1));
+
+        radius -= RADIUS_DECREMENT;
+    }
+
+    for _ in 0..=LAYER_COUNT {
+        ctx.pop_layer();
+    }
+}

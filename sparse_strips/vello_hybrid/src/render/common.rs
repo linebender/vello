@@ -138,14 +138,13 @@ impl GpuStripBuilder {
             dense_width: self.dense_width,
             col_idx: self.col_idx,
             payload: (src_slot as u32) | ((dest_slot as u32) << 16),
-            paint: (COLOR_SOURCE_BLEND << 30) 
+            paint: (COLOR_SOURCE_BLEND << 30)
                 | ((opacity as u32) << 16)
                 | ((mix_mode as u32) << 8)
                 | (compose_mode as u32),
         }
     }
 }
-
 
 /// Represents a GPU encoded image data for rendering
 // Align to 16 bytes for RGBA32Uint alignment
