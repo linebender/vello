@@ -5,7 +5,7 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
-use vello_common::coarse::Wide;
+use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::flatten::{FlattenCtx, Line};
@@ -43,7 +43,7 @@ struct RenderState {
 pub struct Scene {
     pub(crate) width: u16,
     pub(crate) height: u16,
-    pub(crate) wide: Wide,
+    pub(crate) wide: Wide<MODE_HYBRID>,
     pub(crate) alphas: Vec<u8>,
     pub(crate) line_buf: Vec<Line>,
     pub(crate) tiles: Tiles,
@@ -68,7 +68,7 @@ impl Scene {
         Self {
             width,
             height,
-            wide: Wide::new(width, height),
+            wide: Wide::<MODE_HYBRID>::new(width, height),
             anti_alias: true,
             alphas: vec![],
             level: Level::fallback(),

@@ -181,6 +181,7 @@ use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::mem;
+use vello_common::coarse::MODE_HYBRID;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, WideTile},
@@ -559,7 +560,7 @@ impl Scheduler {
 
             if draw.0.is_empty() {
                 if load == LoadOp::Clear {
-                    // There are no strips to render, so render_strips will not run and won't clear
+                    // There are no strips to render, so `render_strips` will not run and won't clear
                     // the texture. We still have slots to clear this round so explicitly clear
                     // them.
                     renderer.clear_slots(i, round.clear[i].as_slice());
@@ -591,7 +592,7 @@ impl Scheduler {
 
     fn initialize_tile_state(
         &mut self,
-        tile: &WideTile,
+        tile: &WideTile<MODE_HYBRID>,
         wide_tile_x: u16,
         wide_tile_y: u16,
         scene: &Scene,
