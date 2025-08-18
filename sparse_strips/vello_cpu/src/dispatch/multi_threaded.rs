@@ -520,7 +520,7 @@ fn rasterize_with_f32<S: Simd>(
     height: u16,
     encoded_paints: &[EncodedPaint],
 ) {
-    self_.rasterize_with::<S, F32Kernel>(simd, buffer, width, height, encoded_paints)
+    self_.rasterize_with::<S, F32Kernel>(simd, buffer, width, height, encoded_paints);
 }
 
 fn rasterize_with_u8<S: Simd>(
@@ -531,7 +531,7 @@ fn rasterize_with_u8<S: Simd>(
     height: u16,
     encoded_paints: &[EncodedPaint],
 ) {
-    self_.rasterize_with::<S, U8Kernel>(simd, buffer, width, height, encoded_paints)
+    self_.rasterize_with::<S, U8Kernel>(simd, buffer, width, height, encoded_paints);
 }
 
 impl Debug for MultiThreadedDispatcher {

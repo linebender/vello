@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::data::get_data_items;
-use vello_cpu::Level;
 use criterion::Criterion;
 use vello_common::tile::Tiles;
+use vello_cpu::Level;
 
 pub fn tile(c: &mut Criterion) {
     let mut g = c.benchmark_group("tile");
