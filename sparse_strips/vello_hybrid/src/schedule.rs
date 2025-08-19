@@ -428,7 +428,10 @@ impl Scheduler {
     ) -> Result<(), RenderError> {
         let wide_tiles_per_row = scene.wide.width_tiles();
         let wide_tiles_per_col = scene.wide.height_tiles();
-        let mut pending_work: Vec<PendingWideTileWork<'scene>> = Default::default();
+        let mut pending_work: Vec<PendingWideTileWork<'scene>> =
+            Vec::with_capacity((wide_tiles_per_row as usize) * (wide_tiles_per_col as usize));
+        let mut pending_work_scratch: Vec<PendingWideTileWork<'scene>> =
+            Vec::with_capacity((wide_tiles_per_row as usize) * (wide_tiles_per_col as usize));
 
         // Left to right, top to bottom iteration over wide tiles.
         for wide_tile_row in 0..wide_tiles_per_col {
@@ -451,18 +454,12 @@ impl Scheduler {
             }
         }
 
-        // TODO: Eagerly processing tile-by-tile is expensive as a blend requires suspending until a
-        // Round has flushed. Instead of flushing to wait for a blend, we suspend the tile's work,
-        // and continue iterating through the tiles. Slots claimed from the slot textures are a
-        // shared resource, and it's possible for all the tiles to not be able to "resume" from
-        // their "suspended" state due to no slots being available.
         while !self.rounds_queue.is_empty() || !pending_work.is_empty() {
             if !self.rounds_queue.is_empty() {
                 self.flush(renderer);
             }
 
-            let pending: Vec<PendingWideTileWork<'scene>> = mem::take(&mut pending_work);
-            for work in pending {
+            for work in pending_work.drain(..) {
                 let wide_tile_col = work.wide_tile_col;
                 let wide_tile_row = work.wide_tile_row;
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
@@ -470,6 +467,10 @@ impl Scheduler {
                 let mut tile_state = work.stack;
 
                 let round_offset = self.round - (work.suspended_at_round);
+                debug_assert_ne!(
+                    round_offset, 0,
+                    "suspended work cannot be resumed on the same round"
+                );
                 for el in tile_state.stack.iter_mut() {
                     el.round += round_offset;
                 }
@@ -483,7 +484,7 @@ impl Scheduler {
                     &mut tile_state,
                     work.next_cmd_idx,
                 )? {
-                    pending_work.push(PendingWideTileWork {
+                    pending_work_scratch.push(PendingWideTileWork {
                         wide_tile_col,
                         wide_tile_row,
                         next_cmd_idx,
@@ -493,6 +494,8 @@ impl Scheduler {
                     });
                 }
             }
+
+            mem::swap(&mut pending_work, &mut pending_work_scratch);
 
             if !pending_work.is_empty() {
                 // TODO: This can be tested by arbitrarily limiting the total slots that the
@@ -626,7 +629,7 @@ impl Scheduler {
 
                 let draw = self.draw_mut(self.round, 2);
                 draw.push(
-                    GpuStripBuilder::at_canvas(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+                    GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
                         .paint(payload, paint),
                 );
             }
@@ -668,7 +671,7 @@ impl Scheduler {
                         Self::process_paint(&fill.paint, scene, (scene_strip_x, scene_strip_y));
 
                     let gpu_strip_builder = if clip_depth == 1 {
-                        GpuStripBuilder::at_canvas(scene_strip_x, scene_strip_y, fill.width)
+                        GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, fill.width)
                     } else {
                         let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
                             temp_slot.get_idx()
@@ -696,7 +699,7 @@ impl Scheduler {
                     );
 
                     let gpu_strip_builder = if clip_depth == 1 {
-                        GpuStripBuilder::at_canvas(scene_strip_x, scene_strip_y, alpha_fill.width)
+                        GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, alpha_fill.width)
                     } else {
                         let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
                             temp_slot.get_idx()
@@ -848,7 +851,7 @@ impl Scheduler {
                         },
                     );
                     let gpu_strip_builder = if clip_depth <= 2 {
-                        GpuStripBuilder::at_canvas(
+                        GpuStripBuilder::at_surface(
                             wide_tile_x + clip_fill.x as u16,
                             wide_tile_y,
                             clip_fill.width as u16,
@@ -890,7 +893,7 @@ impl Scheduler {
                         },
                     );
                     let gpu_strip_builder = if clip_depth <= 2 {
-                        GpuStripBuilder::at_canvas(
+                        GpuStripBuilder::at_surface(
                             wide_tile_x + clip_alpha_fill.x as u16,
                             wide_tile_y,
                             clip_alpha_fill.width as u16,
@@ -944,7 +947,7 @@ impl Scheduler {
                         let compose_mode = mode.compose as u8;
 
                         let gpu_strip_builder = if clip_depth <= 2 {
-                            GpuStripBuilder::at_canvas(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
                         } else {
                             GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
                         };
@@ -970,7 +973,7 @@ impl Scheduler {
 
                         let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
                         draw.push(
-                            GpuStripBuilder::at_canvas(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
                                 .copy_from_slot(
                                     tos.dest_slot.get_idx(),
                                     (tos.opacity * 255.0) as u8,
@@ -1035,8 +1038,8 @@ struct GpuStripBuilder {
 }
 
 impl GpuStripBuilder {
-    /// Position at canvas/scene coordinates.
-    fn at_canvas(x: u16, y: u16, width: u16) -> Self {
+    /// Position at surface coordinates.
+    fn at_surface(x: u16, y: u16, width: u16) -> Self {
         Self {
             x,
             y,
@@ -1127,7 +1130,7 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 /// TODO: Can be triggered via a const generic on coarse draw cmd generation which will avoid
 /// a linear scan.
 fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
-    let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Default::default();
+    let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Vec::with_capacity(cmds.len() + 3);
     let mut pointer_to_push_buf_stack: Vec<usize> = Default::default();
     // We pretend that the surface might be blended into. This will be removed if no blends occur to
     // the surface.
