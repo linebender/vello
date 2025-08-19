@@ -494,6 +494,18 @@ impl Scheduler {
                     });
                 }
             }
+
+            if !pending_work.is_empty() {
+                // TODO: This can be tested by arbitrarily limiting the total slots that the
+                // Scheduler is instantiated with. For example, tests deadlock at a value of `20`.
+                // Ideally we improve this system such that it does not deadlock given a situation
+                // where a single tile can always be completed given all resources. This may require
+                // reserving the slots required for a wide tile to complete upfront.
+                assert!(
+                    !self.rounds_queue.is_empty(),
+                    "deadlock in scheduler detected"
+                );
+            }
         }
 
         while !self.rounds_queue.is_empty() {
