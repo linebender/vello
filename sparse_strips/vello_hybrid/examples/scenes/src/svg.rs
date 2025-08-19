@@ -117,6 +117,7 @@ fn record_fresh(scene_obj: &mut SvgScene, scene: &mut Scene, current_transform: 
 }
 
 /// Print timing and statistics for a render operation
+#[cfg(not(target_arch = "wasm32"))]
 fn print_render_stats(render_type: &str, elapsed: std::time::Duration, recording: &Recording) {
     println!(
         "SVG  | {}: {:.3}ms | Strips: {} | Alphas: {}",
