@@ -36,8 +36,9 @@ fn main() {
     let settings = RenderSettings {
         level: Level::new(),
         num_threads: args.num_threads as u16,
+        render_mode: RenderMode::OptimizeSpeed,
     };
-    let mut ctx = RenderContext::new_with(width, height, &settings);
+    let mut ctx = RenderContext::new_with(width, height, settings);
     let mut pixmap = Pixmap::new(width, height);
     let mut runtime = Duration::default();
 
@@ -49,7 +50,7 @@ fn main() {
 
         render_tree(&mut ctx, &mut sctx, &tree);
         ctx.flush();
-        ctx.render_to_pixmap(&mut pixmap, RenderMode::OptimizeSpeed);
+        ctx.render_to_pixmap(&mut pixmap);
 
         runtime += start.elapsed();
         num_iters += 1;

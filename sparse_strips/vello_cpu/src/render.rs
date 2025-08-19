@@ -5,6 +5,8 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
+use crate::strip_generator::StripGenerator;
+
 #[cfg(feature = "multithreading")]
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
@@ -25,7 +27,8 @@ use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
-
+use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
+use vello_common::strip::Strip;
 #[cfg(feature = "text")]
 use vello_common::{
     color::{AlphaColor, Srgb},
@@ -52,7 +55,7 @@ pub struct RenderContext {
         not(feature = "text"),
         allow(dead_code, reason = "used when the `text` feature is enabled")
     )]
-    pub(crate) level: Level,
+    pub(crate) render_settings: RenderSettings,
     dispatcher: Box<dyn Dispatcher>,
 }
 
@@ -64,6 +67,15 @@ pub struct RenderSettings {
     /// The number of worker threads that should be used for rendering. Only has an effect
     /// if the `multithreading` feature is active.
     pub num_threads: u16,
+    /// Whether to prioritize speed or quality when rendering.
+    ///
+    /// For most cases (especially for real-time rendering), it is highly recommended to set
+    /// this to `OptimizeSpeed`. If accuracy is a more significant concern (for example for visual
+    /// regression testing), then you can set this to `OptimizeQuality`.
+    ///
+    /// Currently, the only difference this makes is that when choosing `OptimizeSpeed`, rasterization
+    /// will happen using u8/u16, while `OptimizeQuality` will use a f32-based pipeline.
+    pub render_mode: RenderMode,
 }
 
 impl Default for RenderSettings {
@@ -77,6 +89,7 @@ impl Default for RenderSettings {
                 .saturating_sub(1) as u16,
             #[cfg(not(feature = "multithreading"))]
             num_threads: 0,
+            render_mode: RenderMode::OptimizeSpeed,
         }
     }
 }
@@ -84,33 +97,26 @@ impl Default for RenderSettings {
 impl RenderContext {
     /// Create a new render context with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
-        let settings = RenderSettings::default();
-        Self::new_inner(width, height, settings.num_threads, settings.level)
+        Self::new_with(width, height, RenderSettings::default())
     }
 
     /// Create a new render context with specific settings.
-    pub fn new_with(width: u16, height: u16, settings: &RenderSettings) -> Self {
-        Self::new_inner(width, height, settings.num_threads, settings.level)
-    }
-
-    fn new_inner(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
+    pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         #[cfg(feature = "multithreading")]
-        let dispatcher: Box<dyn Dispatcher> = if num_threads == 0 {
-            Box::new(SingleThreadedDispatcher::new(width, height, level))
+        let dispatcher: Box<dyn Dispatcher> = if settings.num_threads == 0 {
+            Box::new(SingleThreadedDispatcher::new(width, height, settings.level))
         } else {
             Box::new(MultiThreadedDispatcher::new(
                 width,
                 height,
-                num_threads,
-                level,
+                settings.num_threads,
+                settings.level,
             ))
         };
 
         #[cfg(not(feature = "multithreading"))]
-        let dispatcher: Box<dyn Dispatcher> = {
-            let _ = num_threads;
-            Box::new(SingleThreadedDispatcher::new(width, height, level))
-        };
+        let dispatcher: Box<dyn Dispatcher> =
+            { Box::new(SingleThreadedDispatcher::new(width, height, settings.level)) };
 
         let transform = Affine::IDENTITY;
         let fill_rule = Fill::NonZero;
@@ -134,9 +140,9 @@ impl RenderContext {
             transform,
             anti_alias,
             paint,
+            render_settings: settings,
             paint_transform,
             fill_rule,
-            level,
             stroke,
             temp_path,
             encoded_paints,
@@ -423,10 +429,15 @@ impl RenderContext {
     }
 
     /// Render the current context into a pixmap.
-    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap, render_mode: RenderMode) {
+    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         let width = pixmap.width();
         let height = pixmap.height();
-        self.render_to_buffer(pixmap.data_as_u8_slice_mut(), width, height, render_mode);
+        self.render_to_buffer(
+            pixmap.data_as_u8_slice_mut(),
+            width,
+            height,
+            self.render_settings.render_mode,
+        );
     }
 
     /// Return the width of the pixmap.
@@ -437,6 +448,11 @@ impl RenderContext {
     /// Return the height of the pixmap.
     pub fn height(&self) -> u16 {
         self.height
+    }
+
+    /// Return the render settings used by the `RenderContext`.
+    pub fn render_settings(&self) -> &RenderSettings {
+        &self.render_settings
     }
 }
 
@@ -498,11 +514,12 @@ impl GlyphRenderer for RenderContext {
 
                 let glyph_pixmap = {
                     let settings = RenderSettings {
-                        level: self.level,
+                        level: self.render_settings.level,
+                        render_mode: self.render_settings.render_mode,
                         num_threads: 0,
                     };
 
-                    let mut ctx = Self::new_with(glyph.pix_width, glyph.pix_height, &settings);
+                    let mut ctx = Self::new_with(glyph.pix_width, glyph.pix_height, settings);
                     let mut pix = Pixmap::new(glyph.pix_width, glyph.pix_height);
 
                     let mut colr_painter = ColrPainter::new(glyph, context_color, &mut ctx);
@@ -511,7 +528,7 @@ impl GlyphRenderer for RenderContext {
                     // Technically not necessary since we always render single-threaded, but just
                     // to be safe.
                     ctx.flush();
-                    ctx.render_to_pixmap(&mut pix, RenderMode::OptimizeQuality);
+                    ctx.render_to_pixmap(&mut pix);
 
                     pix
                 };
@@ -596,6 +613,315 @@ impl ColrRenderer for RenderContext {
     }
 }
 
+impl Recordable for RenderContext {
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        let buffers = recording.take_cached_strips();
+        let (strips, alphas, strip_start_indices) =
+            self.generate_strips_from_commands(recording.commands(), buffers);
+        recording.set_cached_strips(strips, alphas, strip_start_indices);
+    }
+
+    fn execute_recording(&mut self, recording: &Recording) {
+        let (cached_strips, cached_alphas) = recording.get_cached_strips();
+        let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
+
+        // Use pre-calculated strip start indices from when we generated the cache.
+        let strip_start_indices = recording.get_strip_start_indices();
+        let mut range_index = 0;
+
+        // Replay commands in order, using cached strips for geometry.
+        for command in recording.commands() {
+            match command {
+                RenderCommand::FillPath(_)
+                | RenderCommand::StrokePath(_)
+                | RenderCommand::FillRect(_)
+                | RenderCommand::StrokeRect(_) => {
+                    self.process_geometry_command(
+                        command,
+                        strip_start_indices,
+                        range_index,
+                        &adjusted_strips,
+                    );
+                    range_index += 1;
+                }
+                #[cfg(feature = "text")]
+                RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
+                    self.process_geometry_command(
+                        command,
+                        strip_start_indices,
+                        range_index,
+                        &adjusted_strips,
+                    );
+                    range_index += 1;
+                }
+                RenderCommand::SetPaint(paint) => {
+                    self.set_paint(paint.clone());
+                }
+                RenderCommand::SetPaintTransform(transform) => {
+                    self.set_paint_transform(*transform);
+                }
+                RenderCommand::ResetPaintTransform => {
+                    self.reset_paint_transform();
+                }
+                RenderCommand::SetTransform(transform) => {
+                    self.set_transform(*transform);
+                }
+                RenderCommand::SetFillRule(fill_rule) => {
+                    self.set_fill_rule(*fill_rule);
+                }
+                RenderCommand::SetStroke(stroke) => {
+                    self.set_stroke(stroke.clone());
+                }
+                RenderCommand::PushLayer(PushLayerCommand {
+                    clip_path,
+                    blend_mode,
+                    opacity,
+                    mask,
+                }) => {
+                    self.push_layer(clip_path.as_ref(), *blend_mode, *opacity, mask.clone());
+                }
+                RenderCommand::PopLayer => {
+                    self.pop_layer();
+                }
+            }
+        }
+    }
+}
+
+/// Saved state for recording operations.
+#[derive(Debug)]
+struct RenderState {
+    transform: Affine,
+    fill_rule: Fill,
+    stroke: Stroke,
+    paint: PaintType,
+    paint_transform: Affine,
+    alphas: Vec<u8>,
+}
+
+/// Recording management implementation.
+impl RenderContext {
+    /// Generate strips from strip commands and capture ranges.
+    ///
+    /// Returns:
+    /// - `collected_strips`: The generated strips.
+    /// - `collected_alphas`: The generated alphas.
+    /// - `strip_start_indices`: The start indices of strips for each geometry command.
+    fn generate_strips_from_commands(
+        &mut self,
+        commands: &[RenderCommand],
+        buffers: (Vec<Strip>, Vec<u8>, Vec<usize>),
+    ) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
+        let (mut collected_strips, mut cached_alphas, mut strip_start_indices) = buffers;
+        collected_strips.clear();
+        cached_alphas.clear();
+        strip_start_indices.clear();
+
+        let saved_state = self.take_current_state(cached_alphas);
+        let mut strip_generator =
+            StripGenerator::new(self.width, self.height, self.render_settings.level);
+
+        for command in commands {
+            let start_index = collected_strips.len();
+
+            match command {
+                RenderCommand::FillPath(path) => {
+                    self.generate_fill_strips(
+                        path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
+                    strip_start_indices.push(start_index);
+                }
+                RenderCommand::StrokePath(path) => {
+                    self.generate_stroke_strips(
+                        path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
+                    strip_start_indices.push(start_index);
+                }
+                RenderCommand::FillRect(rect) => {
+                    let path = rect.to_path(DEFAULT_TOLERANCE);
+                    self.generate_fill_strips(
+                        &path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
+                    strip_start_indices.push(start_index);
+                }
+                RenderCommand::StrokeRect(rect) => {
+                    let path = rect.to_path(DEFAULT_TOLERANCE);
+                    self.generate_stroke_strips(
+                        &path,
+                        &mut collected_strips,
+                        self.transform,
+                        &mut strip_generator,
+                    );
+                    strip_start_indices.push(start_index);
+                }
+                #[cfg(feature = "text")]
+                RenderCommand::FillOutlineGlyph((path, transform)) => {
+                    let glyph_transform = self.transform * *transform;
+                    self.generate_fill_strips(
+                        path,
+                        &mut collected_strips,
+                        glyph_transform,
+                        &mut strip_generator,
+                    );
+                    strip_start_indices.push(start_index);
+                }
+                #[cfg(feature = "text")]
+                RenderCommand::StrokeOutlineGlyph((path, transform)) => {
+                    let glyph_transform = self.transform * *transform;
+                    self.generate_stroke_strips(
+                        path,
+                        &mut collected_strips,
+                        glyph_transform,
+                        &mut strip_generator,
+                    );
+                    strip_start_indices.push(start_index);
+                }
+                RenderCommand::SetTransform(transform) => {
+                    self.transform = *transform;
+                }
+                RenderCommand::SetFillRule(fill_rule) => {
+                    self.fill_rule = *fill_rule;
+                }
+                RenderCommand::SetStroke(stroke) => {
+                    self.stroke = stroke.clone();
+                }
+
+                _ => {}
+            }
+        }
+
+        let collected_alphas = strip_generator.take_alpha_buf();
+        self.restore_state(saved_state);
+
+        (collected_strips, collected_alphas, strip_start_indices)
+    }
+}
+
+/// Recording management implementation.
+impl RenderContext {
+    fn process_geometry_command(
+        &mut self,
+        command: &RenderCommand,
+        strip_start_indices: &[usize],
+        range_index: usize,
+        adjusted_strips: &[Strip],
+    ) {
+        assert!(
+            range_index < strip_start_indices.len(),
+            "Strip range index out of bounds"
+        );
+        let start = strip_start_indices[range_index];
+        let end = strip_start_indices
+            .get(range_index + 1)
+            .copied()
+            .unwrap_or(adjusted_strips.len());
+        let count = end - start;
+        assert!(
+            start < adjusted_strips.len() && count > 0,
+            "Invalid strip range"
+        );
+        let paint = self.encode_current_paint();
+        let fill_rule = match command {
+            RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => self.fill_rule,
+            RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => Fill::NonZero,
+            _ => Fill::NonZero,
+        };
+        self.dispatcher
+            .wide_mut()
+            .generate(&adjusted_strips[start..end], fill_rule, paint, 0);
+    }
+
+    /// Prepare cached strips for rendering by adjusting indices.
+    fn prepare_cached_strips(
+        &mut self,
+        cached_strips: &[Strip],
+        cached_alphas: &[u8],
+    ) -> Vec<Strip> {
+        // Calculate offset for alpha indices based on current dispatcher's alpha buffer size.
+        let alpha_offset = self.dispatcher.alpha_buf().len() as u32;
+        // Extend the dispatcher's alpha buffer with cached alphas.
+        self.dispatcher.extend_alpha_buf(cached_alphas);
+        // Create adjusted strips with corrected alpha indices.
+        cached_strips
+            .iter()
+            .map(move |strip| {
+                let mut adjusted_strip = *strip;
+                adjusted_strip.alpha_idx += alpha_offset;
+                adjusted_strip
+            })
+            .collect()
+    }
+
+    /// Generate strips for a filled path.
+    fn generate_fill_strips(
+        &mut self,
+        path: &BezPath,
+        strips: &mut Vec<Strip>,
+        transform: Affine,
+        strip_generator: &mut StripGenerator,
+    ) {
+        strip_generator.generate_filled_path(
+            path,
+            self.fill_rule,
+            transform,
+            self.anti_alias,
+            |generated_strips| {
+                strips.extend_from_slice(generated_strips);
+            },
+        );
+    }
+
+    /// Generate strips for a stroked path.
+    fn generate_stroke_strips(
+        &mut self,
+        path: &BezPath,
+        strips: &mut Vec<Strip>,
+        transform: Affine,
+        strip_generator: &mut StripGenerator,
+    ) {
+        strip_generator.generate_stroked_path(
+            path,
+            &self.stroke,
+            transform,
+            self.anti_alias,
+            |generated_strips| {
+                strips.extend_from_slice(generated_strips);
+            },
+        );
+    }
+
+    /// Save the current rendering state.
+    fn take_current_state(&mut self, alphas: Vec<u8>) -> RenderState {
+        RenderState {
+            paint: self.paint.clone(),
+            paint_transform: self.paint_transform,
+            transform: self.transform,
+            fill_rule: self.fill_rule,
+            stroke: core::mem::take(&mut self.stroke),
+            alphas: self.dispatcher.replace_alpha_buf(alphas),
+        }
+    }
+
+    /// Restore the saved rendering state.
+    fn restore_state(&mut self, state: RenderState) {
+        self.transform = state.transform;
+        self.fill_rule = state.fill_rule;
+        self.stroke = state.stroke;
+        self.paint = state.paint;
+        self.paint_transform = state.paint_transform;
+        self.dispatcher.set_alpha_buf(state.alphas);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::RenderContext;
@@ -625,14 +951,15 @@ mod tests {
         let settings = RenderSettings {
             level: Level::new(),
             num_threads: 1,
+            render_mode: RenderMode::OptimizeQuality,
         };
 
-        let mut ctx = RenderContext::new_with(200, 200, &settings);
+        let mut ctx = RenderContext::new_with(200, 200, settings);
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
         ctx.flush();
-        ctx.render_to_pixmap(&mut pixmap, RenderMode::OptimizeQuality);
+        ctx.render_to_pixmap(&mut pixmap);
         ctx.flush();
-        ctx.render_to_pixmap(&mut pixmap, RenderMode::OptimizeQuality);
+        ctx.render_to_pixmap(&mut pixmap);
     }
 }

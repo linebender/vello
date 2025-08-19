@@ -14,7 +14,6 @@ mod scenes;
 use std::cell::RefCell;
 use std::rc::Rc;
 use vello_common::kurbo::{Affine, Vec2};
-use vello_cpu::Level;
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
@@ -43,9 +42,9 @@ impl AppState {
         let renderer = vello_cpu::RenderContext::new_with(
             width as u16,
             height as u16,
-            &vello_cpu::RenderSettings {
+            vello_cpu::RenderSettings {
                 num_threads: 0,
-                level: Level::new(),
+                ..Default::default()
             },
         );
 
@@ -74,8 +73,7 @@ impl AppState {
         self.scenes[self.current_scene].render(&mut self.renderer, self.transform);
 
         // Render the current scene with transform
-        self.renderer
-            .render_to_pixmap(&mut self.pixmap, vello_cpu::RenderMode::default());
+        self.renderer.render_to_pixmap(&mut self.pixmap);
         let rgba_bytes = self.pixmap.data_as_u8_slice();
         let image_data = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
             wasm_bindgen::Clamped(rgba_bytes),
@@ -107,9 +105,9 @@ impl AppState {
         self.renderer = vello_cpu::RenderContext::new_with(
             width as u16,
             height as u16,
-            &vello_cpu::RenderSettings {
+            vello_cpu::RenderSettings {
                 num_threads: 0,
-                level: Level::new(),
+                ..Default::default()
             },
         );
 

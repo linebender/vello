@@ -157,6 +157,6 @@ impl Worker {
     }
 
     pub(crate) fn finalize(&mut self) -> Vec<u8> {
-        self.strip_generator.take_alpha_buf()
+        self.strip_generator.replace_alpha_buf(Vec::new())
     }
 }

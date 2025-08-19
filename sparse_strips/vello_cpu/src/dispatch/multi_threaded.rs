@@ -327,6 +327,10 @@ impl Dispatcher for MultiThreadedDispatcher {
         &self.wide
     }
 
+    fn wide_mut(&mut self) -> &mut Wide {
+        &mut self.wide
+    }
+
     fn fill_path(
         &mut self,
         path: &BezPath,
@@ -359,6 +363,22 @@ impl Dispatcher for MultiThreadedDispatcher {
             stroke: stroke.clone(),
             anti_alias,
         });
+    }
+
+    fn alpha_buf(&self) -> &[u8] {
+        unimplemented!("alpha_buf is not implemented for multi-threaded dispatcher")
+    }
+
+    fn extend_alpha_buf(&mut self, _alphas: &[u8]) {
+        unimplemented!("extend_alpha_buf is not implemented for multi-threaded dispatcher")
+    }
+
+    fn replace_alpha_buf(&mut self, _alphas: Vec<u8>) -> Vec<u8> {
+        unimplemented!("replace_alpha_buf is not implemented for multi-threaded dispatcher")
+    }
+
+    fn set_alpha_buf(&mut self, _alphas: Vec<u8>) {
+        unimplemented!("set_alpha_buf is not implemented for multi-threaded dispatcher")
     }
 
     fn push_layer(
