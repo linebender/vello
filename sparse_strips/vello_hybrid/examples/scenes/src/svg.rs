@@ -47,13 +47,17 @@ impl ExampleScene for SvgScene {
             record_fresh(self, scene, current_transform);
         } else {
             // Direct rendering mode (no recording/caching)
+            #[cfg(not(target_arch = "wasm32"))]
             let start = std::time::Instant::now();
             render_svg(scene, &self.svg.items, current_transform);
-            let elapsed = start.elapsed();
-            println!(
-                "Direct    : {:.3}ms | No caching",
-                elapsed.as_secs_f64() * 1000.0
-            );
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let elapsed = start.elapsed();
+                println!(
+                    "Direct    : {:.3}ms | No caching",
+                    elapsed.as_secs_f64() * 1000.0
+                );
+            }
         }
     }
 
@@ -78,11 +82,13 @@ fn try_reuse_recording(
     recording: &mut Recording,
     current_transform: Affine,
 ) -> RenderResult {
+    #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
 
     // Case 1: Identical transforms - can reuse directly
     if transforms_are_identical(recording.transform(), current_transform) {
         scene.execute_recording(recording);
+        #[cfg(not(target_arch = "wasm32"))]
         print_render_stats("Identical ", start.elapsed(), recording);
         return RenderResult { is_reused: true };
     }
@@ -95,6 +101,7 @@ fn try_reuse_recording(
 
 /// Record a fresh scene from scratch
 fn record_fresh(scene_obj: &mut SvgScene, scene: &mut Scene, current_transform: Affine) {
+    #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
     let mut new_recording = Recording::new();
     scene.record(&mut new_recording, |recorder| {
@@ -103,6 +110,7 @@ fn record_fresh(scene_obj: &mut SvgScene, scene: &mut Scene, current_transform: 
     scene.prepare_recording(&mut new_recording);
     scene.execute_recording(&new_recording);
     new_recording.set_transform(current_transform);
+    #[cfg(not(target_arch = "wasm32"))]
     print_render_stats("Fresh     ", start.elapsed(), &new_recording);
 
     scene_obj.recording = Some(new_recording);
