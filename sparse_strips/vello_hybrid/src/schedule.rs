@@ -176,7 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::render::common::{GpuEncodedImage, GpuStripBuilder};
+use crate::render::common::GpuEncodedImage;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -192,6 +192,8 @@ use vello_common::{
 
 // Constants used for bit packing, matching `render_strips.wgsl`
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
+const COLOR_SOURCE_SLOT: u32 = 1;
+const COLOR_SOURCE_BLEND: u32 = 2;
 
 const PAINT_TYPE_SOLID: u32 = 0;
 const PAINT_TYPE_IMAGE: u32 = 1;
@@ -339,12 +341,9 @@ enum TemporarySlot {
 
 impl TemporarySlot {
     fn invalidate(&mut self) {
-        match self {
-            Self::Valid(slot) => {
-                *self = Self::Invalid(*slot);
-            }
-            _ => {}
-        };
+        if let Self::Valid(slot) = self {
+            *self = Self::Invalid(*slot);
+        }
     }
 }
 
@@ -1022,6 +1021,96 @@ impl Scheduler {
                     _ => unimplemented!("Unsupported paint type"),
                 }
             }
+        }
+    }
+}
+
+/// Helper for more semantically constructing `GpuStrip`s.
+struct GpuStripBuilder {
+    x: u16,
+    y: u16,
+    width: u16,
+    dense_width: u16,
+    col_idx: u32,
+}
+
+impl GpuStripBuilder {
+    /// Position at canvas/scene coordinates.
+    fn at_canvas(x: u16, y: u16, width: u16) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            dense_width: 0,
+            col_idx: 0,
+        }
+    }
+
+    /// Position within a slot.
+    fn at_slot(slot_idx: usize, x_offset: u16, width: u16) -> Self {
+        Self {
+            x: x_offset,
+            y: u16::try_from(slot_idx).unwrap() * Tile::HEIGHT,
+            width,
+            dense_width: 0,
+            col_idx: 0,
+        }
+    }
+
+    /// Add sparse strip parameters.
+    fn with_sparse(mut self, dense_width: u16, col_idx: u32) -> Self {
+        self.dense_width = dense_width;
+        self.col_idx = col_idx;
+        self
+    }
+
+    /// Paint into strip.
+    fn paint(self, payload: u32, paint: u32) -> GpuStrip {
+        GpuStrip {
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            dense_width: self.dense_width,
+            col_idx: self.col_idx,
+            payload,
+            paint,
+        }
+    }
+
+    /// Copy from slot.
+    fn copy_from_slot(self, from_slot: usize, opacity: u8) -> GpuStrip {
+        GpuStrip {
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            dense_width: self.dense_width,
+            col_idx: self.col_idx,
+            payload: u32::try_from(from_slot).unwrap(),
+            paint: (COLOR_SOURCE_SLOT << 30) | (opacity as u32),
+        }
+    }
+
+    /// Blend two slots.
+    fn blend(
+        self,
+        src_slot: usize,
+        dest_slot: usize,
+        opacity: u8,
+        mix_mode: u8,
+        compose_mode: u8,
+    ) -> GpuStrip {
+        GpuStrip {
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            dense_width: self.dense_width,
+            col_idx: self.col_idx,
+            payload: (u32::try_from(src_slot).unwrap())
+                | ((u32::try_from(dest_slot).unwrap()) << 16),
+            paint: (COLOR_SOURCE_BLEND << 30)
+                | ((opacity as u32) << 16)
+                | ((mix_mode as u32) << 8)
+                | (compose_mode as u32),
         }
     }
 }

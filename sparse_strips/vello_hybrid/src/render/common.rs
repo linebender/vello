@@ -4,7 +4,6 @@
 //! Backend agnostic renderer module.
 
 use bytemuck::{Pod, Zeroable};
-use vello_common::tile::Tile;
 
 /// Dimensions of the rendering target
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -51,99 +50,6 @@ pub struct GpuStrip {
     pub payload: u32,
     /// See `StripInstance::paint` documentation in `render_strips.wgsl`.
     pub paint: u32,
-}
-
-// Constants used for bit packing, matching `render_strips.wgsl`
-const COLOR_SOURCE_SLOT: u32 = 1;
-const COLOR_SOURCE_BLEND: u32 = 2;
-
-/// Helper for more semantically constructing `GpuStrip`s.
-pub(crate) struct GpuStripBuilder {
-    x: u16,
-    y: u16,
-    width: u16,
-    dense_width: u16,
-    col_idx: u32,
-}
-
-impl GpuStripBuilder {
-    /// Position at canvas/scene coordinates.
-    pub(crate) fn at_canvas(x: u16, y: u16, width: u16) -> Self {
-        Self {
-            x,
-            y,
-            width,
-            dense_width: 0,
-            col_idx: 0,
-        }
-    }
-
-    /// Position within a slot.
-    pub(crate) fn at_slot(slot_idx: usize, x_offset: u16, width: u16) -> Self {
-        Self {
-            x: x_offset,
-            y: slot_idx as u16 * Tile::HEIGHT,
-            width,
-            dense_width: 0,
-            col_idx: 0,
-        }
-    }
-
-    /// Add sparse strip parameters.
-    pub(crate) fn with_sparse(mut self, dense_width: u16, col_idx: u32) -> Self {
-        self.dense_width = dense_width;
-        self.col_idx = col_idx;
-        self
-    }
-
-    /// Paint into strip.
-    pub(crate) fn paint(self, payload: u32, paint: u32) -> GpuStrip {
-        GpuStrip {
-            x: self.x,
-            y: self.y,
-            width: self.width,
-            dense_width: self.dense_width,
-            col_idx: self.col_idx,
-            payload,
-            paint,
-        }
-    }
-
-    /// Copy from slot.
-    pub(crate) fn copy_from_slot(self, from_slot: usize, opacity: u8) -> GpuStrip {
-        GpuStrip {
-            x: self.x,
-            y: self.y,
-            width: self.width,
-            dense_width: self.dense_width,
-            col_idx: self.col_idx,
-            payload: from_slot as u32,
-            paint: (COLOR_SOURCE_SLOT << 30) | (opacity as u32),
-        }
-    }
-
-    /// Blend two slots.
-    pub(crate) fn blend(
-        self,
-        src_slot: usize,
-        dest_slot: usize,
-        opacity: u8,
-        mix_mode: u8,
-        compose_mode: u8,
-    ) -> GpuStrip {
-        GpuStrip {
-            x: self.x,
-            y: self.y,
-            width: self.width,
-            dense_width: self.dense_width,
-            col_idx: self.col_idx,
-            payload: (src_slot as u32) | ((dest_slot as u32) << 16),
-            paint: (COLOR_SOURCE_BLEND << 30)
-                | ((opacity as u32) << 16)
-                | ((mix_mode as u32) << 8)
-                | (compose_mode as u32),
-        }
-    }
 }
 
 /// Represents a GPU encoded image data for rendering
