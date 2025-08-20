@@ -198,6 +198,9 @@ const COLOR_SOURCE_BLEND: u32 = 2;
 const PAINT_TYPE_SOLID: u32 = 0;
 const PAINT_TYPE_IMAGE: u32 = 1;
 
+// The sentinal tile index representing the surface.
+const SENTINEL_SLOT_IDX: usize = usize::MAX;
+
 /// Trait for abstracting the renderer backend from the scheduler.
 pub(crate) trait RendererBackend {
     /// Clear specific slots in a texture.
@@ -228,6 +231,7 @@ pub(crate) struct Scheduler {
     /// Rounds are enqueued on push clip commands and dequeued on flush.
     rounds_queue: VecDeque<Round>,
     #[cfg(debug_assertions)]
+    /// Enforce clearing invariants across rounds.
     clear: [Vec<u32>; 2],
 }
 
@@ -611,7 +615,7 @@ impl Scheduler {
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
         // commands to the final target.
         state.stack.push(TileEl {
-            dest_slot: ClaimedSlot::Texture0(usize::MAX),
+            dest_slot: ClaimedSlot::Texture0(SENTINEL_SLOT_IDX),
             temporary_slot: TemporarySlot::None,
             round: self.round,
             opacity: 1.,
@@ -651,7 +655,7 @@ impl Scheduler {
         for (offset_cmd_idx, annotated_cmd) in cmds[start_cmd_idx..].iter().enumerate() {
             let cmd_idx = start_cmd_idx + offset_cmd_idx;
             // Note: this starts at 1 (for the final target)
-            let clip_depth = state.stack.len();
+            let depth = state.stack.len();
             let cmd = annotated_cmd.as_cmd();
             if cmd.is_none() {
                 continue;
@@ -660,13 +664,13 @@ impl Scheduler {
             match cmd.unwrap() {
                 Cmd::Fill(fill) => {
                     let el = state.stack.last_mut().unwrap();
-                    let draw = self.draw_mut(el.round, el.get_draw_texture(clip_depth));
+                    let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
                     let (payload, paint) =
                         Self::process_paint(&fill.paint, scene, (scene_strip_x, scene_strip_y));
 
-                    let gpu_strip_builder = if clip_depth == 1 {
+                    let gpu_strip_builder = if depth == 1 {
                         GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, fill.width)
                     } else {
                         let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
@@ -681,7 +685,7 @@ impl Scheduler {
                 }
                 Cmd::AlphaFill(alpha_fill) => {
                     let el = state.stack.last_mut().unwrap();
-                    let draw = self.draw_mut(el.round, el.get_draw_texture(clip_depth));
+                    let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
                     let col_idx = (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
                         .try_into()
@@ -694,7 +698,7 @@ impl Scheduler {
                         (scene_strip_x, scene_strip_y),
                     );
 
-                    let gpu_strip_builder = if clip_depth == 1 {
+                    let gpu_strip_builder = if depth == 1 {
                         GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, alpha_fill.width)
                     } else {
                         let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
@@ -750,14 +754,15 @@ impl Scheduler {
                             round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
                             #[cfg(debug_assertions)]
                             self.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
-                            if dest_slot.get_idx() as u32 != u32::MAX {
-                                let round1 = self.get_round(tos.round);
-                                round1.clear[dest_slot.get_texture()]
-                                    .push(dest_slot.get_idx() as u32);
-                                #[cfg(debug_assertions)]
-                                self.clear[dest_slot.get_texture()]
-                                    .push(dest_slot.get_idx() as u32);
-                            }
+                            debug_assert_ne!(
+                                dest_slot.get_idx(),
+                                SENTINEL_SLOT_IDX,
+                                "surface cannot be read"
+                            );
+                            let round1 = self.get_round(tos.round);
+                            round1.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
+                            #[cfg(debug_assertions)]
+                            self.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
                         }
                     }
 
@@ -767,7 +772,7 @@ impl Scheduler {
                     }
 
                     // Push a new tile.
-                    let ix = clip_depth % 2;
+                    let ix = depth % 2;
                     let slot = self.claim_free_slot(ix, renderer)?;
                     {
                         let round = self.get_round(self.round);
@@ -801,7 +806,7 @@ impl Scheduler {
                 Cmd::PopBuf => {
                     let tos = state.stack.pop().unwrap();
                     let nos = state.stack.last_mut().unwrap();
-                    let next_round = clip_depth % 2 == 0 && clip_depth > 2;
+                    let next_round = depth % 2 == 0 && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
                     nos.round = round;
                     // free slot after draw
@@ -823,12 +828,12 @@ impl Scheduler {
                     }
                 }
                 Cmd::ClipFill(clip_fill) => {
-                    let tos: &TileEl = &state.stack[clip_depth - 1];
-                    let nos = &state.stack[clip_depth - 2];
+                    let tos: &TileEl = &state.stack[depth - 1];
+                    let nos = &state.stack[depth - 2];
 
                     // Basically if we are writing onto the even texture, we need to go up a round
                     // to target it.
-                    let next_round = clip_depth % 2 == 0 && clip_depth > 2;
+                    let next_round = depth % 2 == 0 && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
                     if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
                         let draw = self.draw_mut(round, nos.dest_slot.get_texture());
@@ -840,13 +845,13 @@ impl Scheduler {
 
                     let draw = self.draw_mut(
                         round,
-                        if (clip_depth - 1) <= 1 {
+                        if (depth - 1) <= 1 {
                             2
                         } else {
                             nos.dest_slot.get_texture()
                         },
                     );
-                    let gpu_strip_builder = if clip_depth <= 2 {
+                    let gpu_strip_builder = if depth <= 2 {
                         GpuStripBuilder::at_surface(
                             wide_tile_x + clip_fill.x as u16,
                             wide_tile_y,
@@ -865,10 +870,10 @@ impl Scheduler {
                     state.stack[nos_ptr].temporary_slot.invalidate();
                 }
                 Cmd::ClipStrip(clip_alpha_fill) => {
-                    let tos = &state.stack[clip_depth - 1];
-                    let nos = &state.stack[clip_depth - 2];
+                    let tos = &state.stack[depth - 1];
+                    let nos = &state.stack[depth - 2];
 
-                    let next_round = clip_depth % 2 == 0 && clip_depth > 2;
+                    let next_round = depth % 2 == 0 && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
                     // If nos has a temporary slot, copy it to `dest_slot` first
@@ -882,13 +887,13 @@ impl Scheduler {
 
                     let draw = self.draw_mut(
                         round,
-                        if (clip_depth - 1) <= 1 {
+                        if (depth - 1) <= 1 {
                             2
                         } else {
                             nos.dest_slot.get_texture()
                         },
                     );
-                    let gpu_strip_builder = if clip_depth <= 2 {
+                    let gpu_strip_builder = if depth <= 2 {
                         GpuStripBuilder::at_surface(
                             wide_tile_x + clip_alpha_fill.x as u16,
                             wide_tile_y,
@@ -926,13 +931,13 @@ impl Scheduler {
                     let tos = state.stack.last().unwrap();
                     let nos = &state.stack[state.stack.len() - 2];
 
-                    let next_round: bool = clip_depth % 2 == 0 && clip_depth > 2;
+                    let next_round: bool = depth % 2 == 0 && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
                     if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
                         let draw = self.draw_mut(
                             round,
-                            if clip_depth <= 2 {
+                            if depth <= 2 {
                                 2
                             } else {
                                 nos.dest_slot.get_texture()
@@ -942,7 +947,7 @@ impl Scheduler {
                         let mix_mode = mode.mix as u8;
                         let compose_mode = mode.compose as u8;
 
-                        let gpu_strip_builder = if clip_depth <= 2 {
+                        let gpu_strip_builder = if depth <= 2 {
                             GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
                         } else {
                             GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
@@ -963,11 +968,11 @@ impl Scheduler {
                     } else {
                         assert_eq!(
                             nos.dest_slot.get_idx(),
-                            usize::MAX,
+                            SENTINEL_SLOT_IDX,
                             "code path only for copying to sentinel slot, {mode:?}"
                         );
 
-                        let draw = self.draw_mut(round, tos.get_draw_texture(clip_depth - 1));
+                        let draw = self.draw_mut(round, tos.get_draw_texture(depth - 1));
                         draw.push(
                             GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
                                 .copy_from_slot(
@@ -1126,6 +1131,7 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 /// TODO: Can be triggered via a const generic on coarse draw cmd generation which will avoid
 /// a linear scan.
 fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
+    // Reserve room for three extra items such that we can prevent repeated blends into the surface.
     let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Vec::with_capacity(cmds.len() + 3);
     let mut pointer_to_push_buf_stack: Vec<usize> = Default::default();
     // We pretend that the surface might be blended into. This will be removed if no blends occur to
