@@ -1,135 +1,40 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::renderer::Renderer;
+//! Example compositing an image using blend layers.
+
+use crate::scenes::ExampleScene;
 use vello_common::color::palette::css::{BLUE, GREEN, PURPLE, RED, YELLOW};
-use vello_common::kurbo::{Circle, Point, Rect, Shape};
+use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
-use vello_dev_macros::vello_test;
+use vello_cpu::RenderContext;
 
-fn compose(ctx: &mut impl Renderer, compose: Compose) {
-    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
+/// Blend scene state
+#[derive(Debug)]
+pub(crate) struct BlendScene {}
 
-    // Draw the destination layer.
-    ctx.set_paint(YELLOW.with_alpha(1.0));
-    ctx.fill_rect(&Rect::new(10.0, 10.0, 70.0, 70.0));
-    // Draw the source layer.
-    ctx.push_blend_layer(BlendMode::new(Mix::Normal, compose));
-    ctx.set_paint(BLUE.with_alpha(1.0));
-    ctx.fill_rect(&Rect::new(30.0, 30.0, 90.0, 90.0));
-    // Compose.
-    ctx.pop_layer();
-    ctx.pop_layer();
-}
-
-#[vello_test]
-fn compose_src_over(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::SrcOver);
-}
-
-#[vello_test]
-fn compose_xor(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::Xor);
-}
-
-#[vello_test]
-fn compose_clear(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::Clear);
-}
-
-#[vello_test]
-fn compose_copy(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::Copy);
-}
-
-#[vello_test]
-fn compose_dest(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::Dest);
-}
-
-#[vello_test]
-fn compose_dest_over(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::DestOver);
-}
-
-#[vello_test]
-fn compose_src_in(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::SrcIn);
-}
-
-#[vello_test]
-fn compose_src_out(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::SrcOut);
-}
-
-#[vello_test]
-fn compose_dest_in(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::DestIn);
-}
-
-#[vello_test]
-fn compose_dest_out(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::DestOut);
-}
-
-#[vello_test]
-fn compose_src_atop(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::SrcAtop);
-}
-
-#[vello_test]
-fn compose_dest_atop(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::DestAtop);
-}
-
-#[vello_test]
-fn compose_plus(ctx: &mut impl Renderer) {
-    compose(ctx, Compose::Plus);
-}
-
-#[vello_test(height = 8, width = 100)]
-fn composed_layers_nesting(ctx: &mut impl Renderer) {
-    ctx.push_blend_layer(BlendMode {
-        mix: Mix::Normal,
-        compose: Compose::SrcOver,
-    });
-    {
-        ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
-        {
-            ctx.set_paint(BLUE);
-            ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 4.0));
-        }
-        ctx.pop_layer();
-
-        ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::DestOut));
-        {
-            ctx.set_paint(RED);
-            ctx.fill_rect(&Rect::new(33.0, 0.0, 66.0, 4.0));
-        }
-        ctx.pop_layer();
+impl ExampleScene for BlendScene {
+    fn render(&mut self, ctx: &mut RenderContext, root_transform: Affine) {
+        render(ctx, root_transform);
     }
-    ctx.pop_layer();
 }
 
-#[vello_test(height = 8, width = 100)]
-fn repeatedly_compose_to_bottom_layer(ctx: &mut impl Renderer) {
-    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
-    {
-        ctx.set_paint(BLUE);
-        ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 4.0));
+impl BlendScene {
+    /// Create a new `BlendScene`
+    pub(crate) fn new() -> Self {
+        Self {}
     }
-    ctx.pop_layer();
-
-    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::DestOut));
-    {
-        ctx.set_paint(RED);
-        ctx.fill_rect(&Rect::new(33.0, 0.0, 66.0, 4.0));
-    }
-    ctx.pop_layer();
 }
 
-#[vello_test(width = 100, height = 100, transparent)]
-fn complex_composed_layers(ctx: &mut impl Renderer) {
+impl Default for BlendScene {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Demonstrates a complex compositing scene.
+pub(crate) fn render(ctx: &mut RenderContext, root_transform: Affine) {
+    ctx.set_transform(root_transform);
     ctx.push_layer(
         None,
         Some(BlendMode {
@@ -269,64 +174,4 @@ fn complex_composed_layers(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 
     ctx.pop_layer();
-}
-
-#[vello_test(
-    width = 100,
-    height = 100,
-    transparent,
-    cpu_u8_tolerance = 2,
-    hybrid_tolerance = 2
-)]
-fn deep_compose(ctx: &mut impl Renderer) {
-    const INITIAL_RADIUS: f64 = 48.0;
-    const RADIUS_DECREMENT: f64 = 4.5;
-    const LAYER_COUNT: usize = 10;
-    const CENTER: Point = Point::new(50.0, 50.0);
-
-    const COLORS: [Color; LAYER_COUNT] = [
-        Color::from_rgba8(120, 0, 0, 50),
-        Color::from_rgba8(120, 60, 0, 50),
-        Color::from_rgba8(120, 120, 0, 50),
-        Color::from_rgba8(60, 120, 0, 50),
-        Color::from_rgba8(0, 120, 0, 50),
-        Color::from_rgba8(0, 120, 60, 50),
-        Color::from_rgba8(0, 120, 120, 50),
-        Color::from_rgba8(0, 60, 120, 50),
-        Color::from_rgba8(0, 0, 120, 50),
-        Color::from_rgba8(60, 0, 120, 50),
-    ];
-
-    // Composition modes are intentionally "additive".
-    const COMPOSE_MODES: [Compose; LAYER_COUNT] = [
-        Compose::SrcOver,
-        Compose::Plus,
-        Compose::SrcOver,
-        Compose::DestOver,
-        Compose::SrcOver,
-        Compose::Plus,
-        Compose::SrcAtop,
-        Compose::Plus,
-        Compose::SrcOver,
-        Compose::SrcOver,
-    ];
-
-    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
-    ctx.set_paint(Color::BLACK);
-    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-
-    let mut radius = INITIAL_RADIUS;
-
-    for i in 0..LAYER_COUNT {
-        ctx.push_blend_layer(BlendMode::new(Mix::Normal, COMPOSE_MODES[i]));
-
-        ctx.set_paint(COLORS[i]);
-        ctx.fill_path(&Circle::new(CENTER, radius).to_path(0.1));
-
-        radius -= RADIUS_DECREMENT;
-    }
-
-    for _ in 0..=LAYER_COUNT {
-        ctx.pop_layer();
-    }
 }

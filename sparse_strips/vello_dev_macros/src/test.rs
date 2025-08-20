@@ -165,8 +165,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
 
     // These tests currently don't work with `vello_hybrid`.
     skip_hybrid |= {
-        input_fn_name_str.contains("compose")
-            || input_fn_name_str.contains("gradient")
+        input_fn_name_str.contains("gradient")
             || input_fn_name_str.contains("layer_multiple_properties")
             || input_fn_name_str.contains("mask")
             || input_fn_name_str.contains("mix")
@@ -174,7 +173,12 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             || input_fn_name_str.contains("clip_clear")
     };
 
-    let skip_hybrid_webgl = skip_hybrid;
+    // These tests currently don't work with `vello_hybrid` running with the webgl backend in the
+    // browser.
+    // TODO: Enable blend in webgl.
+    let skip_hybrid_webgl = skip_hybrid
+        || input_fn_name_str.contains("compose")
+        || input_fn_name_str.contains("clip_composite_opacity_nested_circles");
 
     let empty_snippet = quote! {};
     let ignore_snippet = if let Some(reason) = ignore_reason {
