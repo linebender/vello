@@ -198,7 +198,7 @@ const COLOR_SOURCE_BLEND: u32 = 2;
 const PAINT_TYPE_SOLID: u32 = 0;
 const PAINT_TYPE_IMAGE: u32 = 1;
 
-// The sentinal tile index representing the surface.
+// The sentinel tile index representing the surface.
 const SENTINEL_SLOT_IDX: usize = usize::MAX;
 
 /// Trait for abstracting the renderer backend from the scheduler.
@@ -374,6 +374,7 @@ impl TileEl {
                 self.dest_slot.get_texture()
             }
         } else {
+            // Surface texture identifier
             2
         }
     }
