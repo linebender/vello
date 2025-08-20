@@ -467,10 +467,6 @@ impl Scheduler {
                 let mut tile_state = work.stack;
 
                 let round_offset = self.round - (work.suspended_at_round);
-                debug_assert_ne!(
-                    round_offset, 0,
-                    "suspended work cannot be resumed on the same round"
-                );
                 for el in tile_state.stack.iter_mut() {
                     el.round += round_offset;
                 }
