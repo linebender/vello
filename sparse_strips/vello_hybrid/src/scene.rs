@@ -5,7 +5,7 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
-use vello_common::coarse::Wide;
+use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
@@ -43,7 +43,7 @@ struct RenderState {
 pub struct Scene {
     pub(crate) width: u16,
     pub(crate) height: u16,
-    pub(crate) wide: Wide,
+    pub(crate) wide: Wide<MODE_HYBRID>,
     pub(crate) paint: PaintType,
     pub(crate) paint_transform: Affine,
     pub(crate) anti_alias: bool,
@@ -63,7 +63,7 @@ impl Scene {
         Self {
             width,
             height,
-            wide: Wide::new(width, height),
+            wide: Wide::<MODE_HYBRID>::new(width, height),
             anti_alias: true,
             paint: render_state.paint,
             paint_transform: render_state.paint_transform,
@@ -208,17 +208,14 @@ impl Scene {
             None
         };
 
-        // Blend mode, opacity, and mask are not supported yet.
-        if blend_mode.is_some() {
-            unimplemented!()
-        }
+        // Mask is unsupported. Blend is partially supported.
         if mask.is_some() {
             unimplemented!()
         }
 
         self.wide.push_layer(
             clip,
-            BlendMode::new(Mix::Normal, Compose::SrcOver),
+            blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
             None,
             opacity.unwrap_or(1.),
             0,

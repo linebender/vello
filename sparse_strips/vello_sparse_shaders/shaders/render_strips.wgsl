@@ -29,6 +29,7 @@
 const COLOR_SOURCE_PAYLOAD: u32 = 0u;
 // Sample from clip texture slot
 const COLOR_SOURCE_SLOT: u32 = 1u;
+const COLOR_SOURCE_BLEND: u32 = 2u;
 
 // Paint types
 const PAINT_TYPE_SOLID: u32 = 0u;  
@@ -38,6 +39,22 @@ const PAINT_TYPE_IMAGE: u32 = 1u;
 const IMAGE_QUALITY_LOW = 0u;
 const IMAGE_QUALITY_MEDIUM = 1u;
 const IMAGE_QUALITY_HIGH = 2u;
+
+// Composite modes
+const COMPOSE_CLEAR: u32 = 0u;
+const COMPOSE_COPY: u32 = 1u;
+const COMPOSE_DEST: u32 = 2u;
+const COMPOSE_SRC_OVER: u32 = 3u;
+const COMPOSE_DEST_OVER: u32 = 4u;
+const COMPOSE_SRC_IN: u32 = 5u;
+const COMPOSE_DEST_IN: u32 = 6u;
+const COMPOSE_SRC_OUT: u32 = 7u;
+const COMPOSE_DEST_OUT: u32 = 8u;
+const COMPOSE_SRC_ATOP: u32 = 9u;
+const COMPOSE_DEST_ATOP: u32 = 10u;
+const COMPOSE_XOR: u32 = 11u;
+const COMPOSE_PLUS: u32 = 12u;
+const COMPOSE_PLUS_LIGHTER: u32 = 13u;
 
 struct Config {
     // Width of the rendering target
@@ -53,16 +70,24 @@ struct Config {
     alphas_tex_width_bits: u32,
 }
 
-// Strip instance data
-//
-// The `paint` field is packed with metadata that controls how `payload` is interpreted:
-//
 // `paint` bit layout:
-//   - Bit 31:     `color_source`      0 = use payload, 1 = use slot texture
-//   - Bits 29-30: `paint_type`        0 = solid, 1 = image (only used when color_source = 0)
-//   - Bits 0-28:  Usage depends on color_source:
-//                 - When color_source = 0 and paint_type = 1: `paint_texture_id` (index of `EncodedImage`)
-//                 - When color_source = 1: bits 0-7 contain opacity (0-255)
+//   - Bits 30-31: `color_source`      0 = use payload, 1 = use slot texture, 2 = blend mode
+//   - Bits 0-29:  Usage depends on color_source:
+//
+//     When color_source = 0 (COLOR_SOURCE_PAYLOAD):
+//       - Bits 28-29: `paint_type` (0 = solid, 1 = image)
+//       - Bits 0-27: 
+//         - If paint_type = 0: unused
+//         - If paint_type = 1: `paint_texture_id`
+//
+//     When color_source = 1 (COLOR_SOURCE_SLOT):
+//       - Bits 0-7: opacity (0-255)
+//       - Bits 8-29: unused
+//
+//     When color_source = 2 (COLOR_SOURCE_BLEND):
+//       - Bits 16-29: `dest_slot` (14 bits)
+//       - Bits 8-15: `mix_mode` (8 bits)
+//       - Bits 0-7: `compose_mode` (8 bits)
 //
 // Decision tree for paint/payload interpretation:
 //
@@ -72,11 +97,20 @@ struct Config {
 // │
 // └── paint_type = 1 (PAINT_TYPE_IMAGE) - Image rendering
 //     ├── payload = [x, y] scene coordinates (packed as u16s)
-//     └── bits 0-28 = paint_texture_id
+//     └── bits 0-27 = paint_texture_id
 //
 // color_source = 1 (COLOR_SOURCE_SLOT) - Use slot texture
 // ├── payload = slot_index (u32)
 // └── bits 0-7 = opacity (0-255, where 255 = fully opaque)
+//
+// color_source = 2 (COLOR_SOURCE_BLEND) - Blend two slots
+// ├── payload = [src_slot, dest_slot] slot indices (packed as u16s)
+// │   ├── bits 0-15 = src_slot (source slot to blend)
+// │   └── bits 16-31 = dest_slot (destination slot to blend with)
+// └── paint bits 0-23:
+//     ├── bits 16-23 = opacity (0-255, applied to blend result)
+//     ├── bits 8-15 = mix_mode (blend mixing mode)
+//     └── bits 0-7 = compose_mode (compositing operation)
 struct StripInstance {
     // [x, y] packed as u16's
     // x, y — coordinates of the strip
@@ -145,22 +179,24 @@ fn vs_main(
     // NDC ranges from -1 to 1, with (0,0) at the center of the viewport
     let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
     let ndc_y = 1.0 - pix_y * 2.0 / f32(config.height);
-    let paint_type = (instance.paint >> 29u) & 0x3u;
 
-    if paint_type == PAINT_TYPE_IMAGE {
-        let paint_tex_id = instance.paint & 0x1FFFFFFF;
-        
-        let encoded_image = unpack_encoded_image(paint_tex_id);
-        // Unpack view coordinates for image sampling
-        let scene_strip_x = instance.payload & 0xffffu;
-        let scene_strip_y = instance.payload >> 16u;
-        // Use view coordinates for image sampling (always in global view space)
-        out.sample_xy = encoded_image.translate 
-            + encoded_image.image_offset
-            + encoded_image.transform.xy * f32(scene_strip_x) 
-            + encoded_image.transform.zw * f32(scene_strip_y)
-            + encoded_image.transform.xy * x * f32(width)
-            + encoded_image.transform.zw * y * f32(config.strip_height);
+    let color_source = (instance.paint >> 30u) & 0x3u;
+    if color_source == COLOR_SOURCE_PAYLOAD {
+        let paint_type = (instance.paint >> 28u) & 0x3u;
+        if paint_type == PAINT_TYPE_IMAGE {
+            let paint_tex_id = instance.paint & 0x0FFFFFFF;
+            let encoded_image = unpack_encoded_image(paint_tex_id);
+            // Unpack view coordinates for image sampling
+            let scene_strip_x = instance.payload & 0xffffu;
+            let scene_strip_y = instance.payload >> 16u;
+            // Use view coordinates for image sampling (always in global view space)
+            out.sample_xy = encoded_image.translate 
+                + encoded_image.image_offset
+                + encoded_image.transform.xy * f32(scene_strip_x) 
+                + encoded_image.transform.zw * f32(scene_strip_y)
+                + encoded_image.transform.xy * x * f32(width)
+                + encoded_image.transform.zw * y * f32(config.strip_height);
+        }
     }
 
     // Regular texture coordinates for other render types
@@ -211,17 +247,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
     // Apply the alpha value to the unpacked RGBA color or slot index
-    let color_source = (in.paint >> 31u) & 0x1u;
+    let color_source = (in.paint >> 30u) & 0x3u;
     var final_color: vec4<f32>;
 
     if color_source == COLOR_SOURCE_PAYLOAD {
-        let paint_type = (in.paint >> 29u) & 0x3u;
+        let paint_type = (in.paint >> 28u) & 0x3u;
 
         // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE
         if paint_type == PAINT_TYPE_SOLID {
             final_color = alpha * unpack4x8unorm(in.payload);
         } else if paint_type == PAINT_TYPE_IMAGE {
-            let paint_tex_id = in.paint & 0x1FFFFFFF;
+            let paint_tex_id = in.paint & 0x0FFFFFFF;
             let encoded_image = unpack_encoded_image(paint_tex_id);
             let image_offset = encoded_image.image_offset;
             let image_size = encoded_image.image_size;
@@ -257,7 +293,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 final_color = alpha * textureLoad(atlas_texture, vec2<u32>(final_xy), 0);
             }
         }
-    } else {
+    } else if color_source == COLOR_SOURCE_SLOT {
         // in.payload encodes a slot in the source clip texture
         let clip_x = u32(in.position.x) & 0xFFu;
         let clip_y = (u32(in.position.y) & 3) + in.payload * config.strip_height;
@@ -267,9 +303,118 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let opacity = f32(in.paint & 0xFFu) * (1.0 / 255.0);
 
         final_color = alpha * opacity * clip_in_color;
-    }
+    } else if color_source == COLOR_SOURCE_BLEND {
+        let opacity = f32((in.paint >> 16u) & 0xFFu) * (1.0 / 255.0);
+        // TODO: Use mix modes. Currently Mix::Normal is hardcoded and this value is discarded.
+        let mix_mode = (in.paint >> 8u) & 0xFFu;
+        let compose_mode = in.paint & 0xFFu;
+        
+        // Read source color from slot
+        let src_slot = in.payload & 0xFFFFu;
+        let dest_slot = (in.payload >> 16u) & 0xFFFFu;
+        let clip_x = u32(in.position.x) & 0xFFu;
+        let src_y = (u32(in.position.y) & 3u) + src_slot * config.strip_height;
+        let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0);
+        
+        // Read destination color from slot
+        let dest_y = (u32(in.position.y) & 3u) + dest_slot * config.strip_height;
+        let dest_color = textureLoad(clip_input_texture, vec2(clip_x, dest_y), 0);
 
+        final_color = blend_mix_compose(dest_color, src_color * opacity * alpha, compose_mode);
+    }
     return final_color;
+}
+
+// Apply color mixing and composition. Both input and output colors are
+// premultiplied RGB. Referenced from:
+//   <https://github.com/linebender/vello/blob/b0e2e598ac62c7b3d04d8660e7b1b7659b596970/vello_shaders/shader/shared/blend.wgsl#L288-L310>
+// TODO: Add color mixing support.
+fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, compose_mode: u32) -> vec4<f32> {
+    // Fast path for src_over
+    if compose_mode == COMPOSE_SRC_OVER {
+        return backdrop * (1.0 - src.a) + src;
+    }
+    
+    let EPSILON = 1e-15;
+    let inv_src_a = 1.0 / max(src.a, EPSILON);
+    let cs = src.rgb * inv_src_a;
+    let inv_backdrop_a = 1.0 / max(backdrop.a, EPSILON);
+    let cb = backdrop.rgb * inv_backdrop_a;
+    
+    return blend_compose_unpremul(cb, cs, backdrop.a, src.a, compose_mode);
+}
+
+// Apply general compositing operation. Inputs are separated colors and alpha, output is
+// premultiplied. Referenced from:
+//   <https://github.com/linebender/vello/blob/b0e2e598ac62c7b3d04d8660e7b1b7659b596970/vello_shaders/shader/shared/blend.wgsl#L215>
+fn blend_compose_unpremul(
+    cb: vec3<f32>,
+    cs: vec3<f32>,
+    ab: f32,
+    as_: f32,
+    mode: u32
+) -> vec4<f32> {
+    var fa = 0.0;
+    var fb = 0.0;
+    switch mode {
+        case COMPOSE_COPY: {
+            fa = 1.0;
+            fb = 0.0;
+        }
+        case COMPOSE_DEST: {
+            fa = 0.0;
+            fb = 1.0;
+        }
+        case COMPOSE_SRC_OVER: {
+            fa = 1.0;
+            fb = 1.0 - as_;
+        }
+        case COMPOSE_DEST_OVER: {
+            fa = 1.0 - ab;
+            fb = 1.0;
+        }
+        case COMPOSE_SRC_IN: {
+            fa = ab;
+            fb = 0.0;
+        }
+        case COMPOSE_DEST_IN: {
+            fa = 0.0;
+            fb = as_;
+        }
+        case COMPOSE_SRC_OUT: {
+            fa = 1.0 - ab;
+            fb = 0.0;
+        }
+        case COMPOSE_DEST_OUT: {
+            fa = 0.0;
+            fb = 1.0 - as_;
+        }
+        case COMPOSE_SRC_ATOP: {
+            fa = ab;
+            fb = 1.0 - as_;
+        }
+        case COMPOSE_DEST_ATOP: {
+            fa = 1.0 - ab;
+            fb = as_;
+        }
+        case COMPOSE_XOR: {
+            fa = 1.0 - ab;
+            fb = 1.0 - as_;
+        }
+        case COMPOSE_PLUS: {
+            fa = 1.0;
+            fb = 1.0;
+        }
+        case COMPOSE_PLUS_LIGHTER: {
+            return min(vec4(1.0), vec4(as_ * cs + ab * cb, as_ + ab));
+        }
+        default: {}
+    }
+    let as_fa = as_ * fa;
+    let ab_fb = ab * fb;
+    let co = as_fa * cs + ab_fb * cb;
+    // Modes like COMPOSE_PLUS can generate alpha > 1.0, so clamp.
+    return vec4(co, min(as_fa + ab_fb, 1.0));
 }
 
 

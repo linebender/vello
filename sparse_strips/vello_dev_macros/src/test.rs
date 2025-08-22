@@ -165,8 +165,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
 
     // These tests currently don't work with `vello_hybrid`.
     skip_hybrid |= {
-        input_fn_name_str.contains("compose")
-            || input_fn_name_str.contains("gradient")
+        input_fn_name_str.contains("gradient")
             || input_fn_name_str.contains("layer_multiple_properties")
             || input_fn_name_str.contains("mask")
             || input_fn_name_str.contains("mix")
@@ -174,7 +173,12 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             || input_fn_name_str.contains("clip_clear")
     };
 
-    let skip_hybrid_webgl = skip_hybrid;
+    // These tests currently don't work with `vello_hybrid` running with the webgl backend in the
+    // browser.
+    // TODO: Enable blend in webgl.
+    let skip_hybrid_webgl = skip_hybrid
+        || input_fn_name_str.contains("compose")
+        || input_fn_name_str.contains("clip_composite_opacity_nested_circles");
 
     let empty_snippet = quote! {};
     let ignore_snippet = if let Some(reason) = ignore_reason {
@@ -234,11 +238,11 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 };
                 use vello_cpu::{RenderContext, RenderMode};
 
-                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level);
+                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level, #render_mode);
                 #input_fn_name(&mut ctx);
                 ctx.flush();
                 if !#no_ref {
-                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #render_mode, #reference_image_name);
+                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #reference_image_name);
                 }
             }
         }
@@ -357,11 +361,11 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback");
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
+                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
             }
         }
 
@@ -375,11 +379,11 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback");
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, RenderMode::OptimizeSpeed, #reference_image_name);
+                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
             }
         }
     };

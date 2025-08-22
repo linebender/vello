@@ -57,6 +57,7 @@ pub(crate) fn get_ctx<T: Renderer>(
     transparent: bool,
     num_threads: u16,
     level: &str,
+    render_mode: RenderMode,
 ) -> T {
     let level = match level {
         #[cfg(target_arch = "aarch64")]
@@ -71,7 +72,7 @@ pub(crate) fn get_ctx<T: Renderer>(
         _ => panic!("unknown level: {level}"),
     };
 
-    let mut ctx = T::new(width, height, num_threads, level);
+    let mut ctx = T::new(width, height, num_threads, level, render_mode);
 
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);
@@ -83,9 +84,9 @@ pub(crate) fn get_ctx<T: Renderer>(
     ctx
 }
 
-pub(crate) fn render_pixmap(ctx: &impl Renderer, render_mode: RenderMode) -> Pixmap {
+pub(crate) fn render_pixmap(ctx: &impl Renderer) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.render_to_pixmap(&mut pixmap, render_mode);
+    ctx.render_to_pixmap(&mut pixmap);
     pixmap
 }
 
@@ -265,10 +266,9 @@ pub(crate) fn check_ref(
     // Whether the test instance is the "gold standard" and should be used
     // for creating reference images.
     is_reference: bool,
-    render_mode: RenderMode,
     _: &[u8],
 ) {
-    let pixmap = render_pixmap(ctx, render_mode);
+    let pixmap = render_pixmap(ctx);
 
     let encoded_image = pixmap.into_png().unwrap();
     let ref_path = REFS_PATH.join(format!("{test_name}.png"));
@@ -327,12 +327,11 @@ pub(crate) fn check_ref(
     diff_pixels: u16,
     // Must be `false` on `wasm32` as reference image cannot be written to filesystem.
     is_reference: bool,
-    render_mode: RenderMode,
     ref_data: &[u8],
 ) {
     assert!(!is_reference, "WASM cannot create new reference images");
 
-    let pixmap = render_pixmap(ctx, render_mode);
+    let pixmap = render_pixmap(ctx);
     let encoded_image = pixmap.into_png().unwrap();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
