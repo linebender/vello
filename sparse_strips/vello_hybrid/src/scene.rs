@@ -125,6 +125,7 @@ impl Scene {
         self.fill_path_with(path, self.transform, self.fill_rule, paint, self.anti_alias);
     }
 
+    /// Build strips for a filled path with the given properties.
     fn fill_path_with(
         &mut self,
         path: &BezPath,
@@ -149,6 +150,7 @@ impl Scene {
         self.stroke_path_with(path, self.transform, paint, self.anti_alias);
     }
 
+    /// Build strips for a stroked path with the given properties.
     fn stroke_path_with(
         &mut self,
         path: &BezPath,
