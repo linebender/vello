@@ -14,7 +14,7 @@ use std::path;
 use svg::node::element::path::Data;
 use svg::node::element::{Line as SvgLine, Path, Rectangle};
 use svg::{Document, Node};
-use vello_common::coarse::{Cmd, Wide, WideTile};
+use vello_common::coarse::{Cmd, MODE_CPU, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
 use vello_common::fearless_simd::Level;
 use vello_common::flatten::{FlattenCtx, Line};
@@ -34,7 +34,7 @@ fn main() {
     let mut tiles = Tiles::new(Level::new());
     let mut strip_buf = vec![];
     let mut alpha_buf = vec![];
-    let mut wide = Wide::new(args.width, args.height);
+    let mut wide = Wide::<MODE_CPU>::new(args.width, args.height);
 
     let stages = &args.stages;
 

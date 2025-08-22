@@ -21,7 +21,7 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
-use vello_common::coarse::{Cmd, Wide};
+use vello_common::coarse::{Cmd, MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
 use vello_common::mask::Mask;
@@ -101,7 +101,7 @@ pub(crate) struct MultiThreadedDispatcher {
 
 impl MultiThreadedDispatcher {
     pub(crate) fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
-        let wide = Wide::new(width, height);
+        let wide = Wide::<MODE_CPU>::new(width, height);
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(num_threads as usize)
             .build()

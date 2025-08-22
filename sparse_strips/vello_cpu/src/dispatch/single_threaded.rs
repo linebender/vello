@@ -7,13 +7,13 @@ use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
-use crate::strip_generator::StripGenerator;
 use alloc::vec::Vec;
-use vello_common::coarse::Wide;
+use vello_common::coarse::{MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
+use vello_common::strip_generator::StripGenerator;
 
 #[derive(Debug)]
 pub(crate) struct SingleThreadedDispatcher {
@@ -24,7 +24,7 @@ pub(crate) struct SingleThreadedDispatcher {
 
 impl SingleThreadedDispatcher {
     pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
-        let wide = Wide::new(width, height);
+        let wide = Wide::<MODE_CPU>::new(width, height);
         let strip_generator = StripGenerator::new(width, height, level);
 
         Self {

@@ -38,15 +38,22 @@ impl Layer {
     }
 }
 
+/// `MODE_CPU` allows compile time optimizations to be applied to wide tile draw command generation
+/// specific to `vello_cpu`.
+pub const MODE_CPU: u8 = 0;
+/// `MODE_HYBRID` allows compile time optimizations to be applied to wide tile draw command
+/// generation specific for `vello_hybrid`.
+pub const MODE_HYBRID: u8 = 1;
+
 /// A container for wide tiles.
 #[derive(Debug)]
-pub struct Wide {
+pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// The width of the container.
     pub width: u16,
     /// The height of the container.
     pub height: u16,
     /// The wide tiles in the container.
-    pub tiles: Vec<WideTile>,
+    pub tiles: Vec<WideTile<MODE>>,
     /// The stack of layers.
     layer_stack: Vec<Layer>,
     /// The stack of active clip regions.
@@ -124,16 +131,33 @@ impl Bbox {
     }
 }
 
-impl Wide {
+impl Wide<MODE_CPU> {
     /// Create a new container for wide tiles.
     pub fn new(width: u16, height: u16) -> Self {
+        Self::new_internal(width, height)
+    }
+}
+
+impl Wide<MODE_HYBRID> {
+    /// Create a new container for wide tiles.
+    pub fn new(width: u16, height: u16) -> Self {
+        Self::new_internal(width, height)
+    }
+}
+
+impl<const MODE: u8> Wide<MODE> {
+    /// Create a new container for wide tiles.
+    fn new_internal(width: u16, height: u16) -> Self {
         let width_tiles = width.div_ceil(WideTile::WIDTH);
         let height_tiles = height.div_ceil(Tile::HEIGHT);
         let mut tiles = Vec::with_capacity(usize::from(width_tiles) * usize::from(height_tiles));
 
         for h in 0..height_tiles {
             for w in 0..width_tiles {
-                tiles.push(WideTile::new(w * WideTile::WIDTH, h * Tile::HEIGHT));
+                tiles.push(WideTile::<MODE>::new_internal(
+                    w * WideTile::WIDTH,
+                    h * Tile::HEIGHT,
+                ));
             }
         }
 
@@ -174,7 +198,7 @@ impl Wide {
     /// Get the wide tile at a certain index.
     ///
     /// Panics if the index is out-of-range.
-    pub fn get(&self, x: u16, y: u16) -> &WideTile {
+    pub fn get(&self, x: u16, y: u16) -> &WideTile<MODE> {
         assert!(
             x < self.width_tiles() && y < self.height_tiles(),
             "attempted to access out-of-bounds wide tile"
@@ -186,7 +210,7 @@ impl Wide {
     /// Get mutable access to the wide tile at a certain index.
     ///
     /// Panics if the index is out-of-range.
-    pub fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile {
+    pub fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile<MODE> {
         assert!(
             x < self.width_tiles() && y < self.height_tiles(),
             "attempted to access out-of-bounds wide tile"
@@ -197,7 +221,7 @@ impl Wide {
     }
 
     /// Return a reference to all wide tiles.
-    pub fn tiles(&self) -> &[WideTile] {
+    pub fn tiles(&self) -> &[WideTile<MODE>] {
         self.tiles.as_slice()
     }
 
@@ -758,7 +782,7 @@ impl Wide {
 
 /// A wide tile.
 #[derive(Debug)]
-pub struct WideTile {
+pub struct WideTile<const MODE: u8 = MODE_CPU> {
     /// The x coordinate of the wide tile.
     pub x: u16,
     /// The y coordinate of the wide tile.
@@ -778,9 +802,25 @@ pub struct WideTile {
 impl WideTile {
     /// The width of a wide tile in pixels.
     pub const WIDTH: u16 = 256;
+}
 
+impl WideTile<MODE_CPU> {
     /// Create a new wide tile.
-    pub fn new(x: u16, y: u16) -> Self {
+    pub fn new(width: u16, height: u16) -> Self {
+        Self::new_internal(width, height)
+    }
+}
+
+impl WideTile<MODE_HYBRID> {
+    /// Create a new wide tile.
+    pub fn new(width: u16, height: u16) -> Self {
+        Self::new_internal(width, height)
+    }
+}
+
+impl<const MODE: u8> WideTile<MODE> {
+    /// Create a new wide tile.
+    fn new_internal(x: u16, y: u16) -> Self {
         Self {
             x,
             y,
@@ -794,38 +834,51 @@ impl WideTile {
 
     pub(crate) fn fill(&mut self, x: u16, width: u16, paint: Paint) {
         if !self.is_zero_clip() {
-            let bg = if let Paint::Solid(s) = &paint {
-                // Note that we could be more aggressive in optimizing a whole-tile opaque fill
-                // even with a clip stack. It would be valid to elide all drawing commands from
-                // the enclosing clip push up to the fill. Further, we could extend the clip
-                // push command to include a background color, rather than always starting with
-                // a transparent buffer. Lastly, a sequence of push(bg); strip/fill; pop could
-                // be replaced with strip/fill with the color (the latter is true even with a
-                // non-opaque color).
-                //
-                // However, the extra cost of tracking such optimizations may outweigh the
-                // benefit, especially in hybrid mode with GPU painting.
-                let can_override = x == 0
-                    && width == Self::WIDTH
-                    && s.is_opaque()
-                    && self.n_clip == 0
-                    && self.n_bufs == 0;
-                can_override.then_some(*s)
-            } else {
-                // TODO: Implement for indexed paints.
-                None
-            };
+            match MODE {
+                MODE_CPU => {
+                    let bg = if let Paint::Solid(s) = &paint {
+                        // Note that we could be more aggressive in optimizing a whole-tile opaque fill
+                        // even with a clip stack. It would be valid to elide all drawing commands from
+                        // the enclosing clip push up to the fill. Further, we could extend the clip
+                        // push command to include a background color, rather than always starting with
+                        // a transparent buffer. Lastly, a sequence of push(bg); strip/fill; pop could
+                        // be replaced with strip/fill with the color (the latter is true even with a
+                        // non-opaque color).
+                        //
+                        // However, the extra cost of tracking such optimizations may outweigh the
+                        // benefit, especially in hybrid mode with GPU painting.
+                        let can_override = x == 0
+                            && width == WideTile::WIDTH
+                            && s.is_opaque()
+                            && self.n_clip == 0
+                            && self.n_bufs == 0;
+                        can_override.then_some(*s)
+                    } else {
+                        // TODO: Implement for indexed paints.
+                        None
+                    };
 
-            if let Some(bg) = bg {
-                self.cmds.clear();
-                self.bg = bg;
-            } else {
-                self.cmds.push(Cmd::Fill(CmdFill {
-                    x,
-                    width,
-                    paint,
-                    blend_mode: None,
-                }));
+                    if let Some(bg) = bg {
+                        self.cmds.clear();
+                        self.bg = bg;
+                    } else {
+                        self.cmds.push(Cmd::Fill(CmdFill {
+                            x,
+                            width,
+                            paint,
+                            blend_mode: None,
+                        }));
+                    }
+                }
+                MODE_HYBRID => {
+                    self.cmds.push(Cmd::Fill(CmdFill {
+                        x,
+                        width,
+                        paint,
+                        blend_mode: None,
+                    }));
+                }
+                _ => unreachable!(),
             }
         }
     }
@@ -894,43 +947,6 @@ impl WideTile {
             // we can just pop it instead.
             self.cmds.pop();
         } else {
-            if self.cmds.len() >= 3 {
-                // If we have a non-destructive blend mode with just a single fill/strip,
-                // inline the blend mode instead.
-                let (_, tail) = self.cmds.split_at(self.cmds.len() - 3);
-
-                let updated = match tail {
-                    [Cmd::PushBuf, Cmd::AlphaFill(a), Cmd::Blend(b)] => {
-                        if !b.is_destructive() && a.blend_mode.is_none() {
-                            let mut blended = a.clone();
-                            blended.blend_mode = Some(*b);
-                            Some(Cmd::AlphaFill(blended))
-                        } else {
-                            None
-                        }
-                    }
-                    [Cmd::PushBuf, Cmd::Fill(a), Cmd::Blend(b)] => {
-                        if !b.is_destructive() && a.blend_mode.is_none() {
-                            let mut blended = a.clone();
-                            blended.blend_mode = Some(*b);
-                            Some(Cmd::Fill(blended))
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-
-                if let Some(updated) = updated {
-                    self.cmds.pop();
-                    self.cmds.pop();
-                    self.cmds.pop();
-                    self.cmds.push(updated);
-
-                    return;
-                }
-            }
-
             self.cmds.push(Cmd::PopBuf);
         }
 
@@ -1070,7 +1086,7 @@ impl BlendModeExt for BlendMode {
 
 #[cfg(test)]
 mod tests {
-    use crate::coarse::{Cmd, CmdFill, Wide, WideTile};
+    use crate::coarse::{MODE_CPU, Wide, WideTile};
     use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
     use crate::paint::{Paint, PremulColor};
@@ -1080,7 +1096,7 @@ mod tests {
 
     #[test]
     fn optimize_empty_layers() {
-        let mut wide = WideTile::new(0, 0);
+        let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf();
         wide.pop_buf();
 
@@ -1089,7 +1105,7 @@ mod tests {
 
     #[test]
     fn basic_layer() {
-        let mut wide = WideTile::new(0, 0);
+        let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf();
         wide.fill(
             0,
@@ -1107,38 +1123,13 @@ mod tests {
     }
 
     #[test]
-    fn inline_blend_with_one_fill() {
-        let paint = Paint::Solid(PremulColor::from_alpha_color(AlphaColor::from_rgba8(
-            30, 30, 30, 255,
-        )));
-        let blend_mode = BlendMode::new(Mix::Lighten, Compose::SrcOver);
-
-        let mut wide = WideTile::new(0, 0);
-        wide.push_buf();
-        wide.fill(0, 10, paint.clone());
-        wide.blend(blend_mode);
-        wide.pop_buf();
-
-        assert_eq!(wide.cmds.len(), 1);
-
-        let expected = Cmd::Fill(CmdFill {
-            x: 0,
-            width: 10,
-            paint,
-            blend_mode: Some(blend_mode),
-        });
-
-        assert_eq!(wide.cmds[0], expected);
-    }
-
-    #[test]
     fn dont_inline_blend_with_two_fills() {
         let paint = Paint::Solid(PremulColor::from_alpha_color(AlphaColor::from_rgba8(
             30, 30, 30, 255,
         )));
         let blend_mode = BlendMode::new(Mix::Lighten, Compose::SrcOver);
 
-        let mut wide = WideTile::new(0, 0);
+        let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf();
         wide.fill(0, 10, paint.clone());
         wide.fill(10, 10, paint.clone());
@@ -1155,7 +1146,7 @@ mod tests {
         )));
         let blend_mode = BlendMode::new(Mix::Lighten, Compose::Clear);
 
-        let mut wide = WideTile::new(0, 0);
+        let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf();
         wide.fill(0, 10, paint.clone());
         wide.blend(blend_mode);
@@ -1166,7 +1157,7 @@ mod tests {
 
     #[test]
     fn tile_coordinates() {
-        let wide = Wide::new(1000, 258);
+        let wide = Wide::<MODE_CPU>::new(1000, 258);
 
         let tile_1 = wide.get(1, 3);
         assert_eq!(tile_1.x, 256);
@@ -1181,7 +1172,7 @@ mod tests {
     fn reset_clears_layer_and_clip_stacks() {
         type ClipPath = Option<(Box<[Strip]>, Fill)>;
 
-        let mut wide = Wide::new(1000, 258);
+        let mut wide = Wide::<MODE_CPU>::new(1000, 258);
         let no_clip_path: ClipPath = None;
         wide.push_layer(no_clip_path, BlendMode::default(), None, 0.5, 0);
 
