@@ -443,41 +443,44 @@ pub(crate) fn extend<S: Simd>(
 
 /// Calculate the weights for a single fractional value.
 fn weights<S: Simd>(simd: S, fract: f32x4<S>) -> [f32x4<S>; 4] {
-    simd.vectorize(#[inline(always)] || {
-        let s = fract.simd;
-        const MF: [[f32; 4]; 4] = mf_resampler();
+    simd.vectorize(
+        #[inline(always)]
+        || {
+            let s = fract.simd;
+            const MF: [[f32; 4]; 4] = mf_resampler();
 
-        [
-            single_weight(
-                fract,
-                f32x4::splat(s, MF[0][0]),
-                f32x4::splat(s, MF[0][1]),
-                f32x4::splat(s, MF[0][2]),
-                f32x4::splat(s, MF[0][3]),
-            ),
-            single_weight(
-                fract,
-                f32x4::splat(s, MF[1][0]),
-                f32x4::splat(s, MF[1][1]),
-                f32x4::splat(s, MF[1][2]),
-                f32x4::splat(s, MF[1][3]),
-            ),
-            single_weight(
-                fract,
-                f32x4::splat(s, MF[2][0]),
-                f32x4::splat(s, MF[2][1]),
-                f32x4::splat(s, MF[2][2]),
-                f32x4::splat(s, MF[2][3]),
-            ),
-            single_weight(
-                fract,
-                f32x4::splat(s, MF[3][0]),
-                f32x4::splat(s, MF[3][1]),
-                f32x4::splat(s, MF[3][2]),
-                f32x4::splat(s, MF[3][3]),
-            ),
-        ]
-    })
+            [
+                single_weight(
+                    fract,
+                    f32x4::splat(s, MF[0][0]),
+                    f32x4::splat(s, MF[0][1]),
+                    f32x4::splat(s, MF[0][2]),
+                    f32x4::splat(s, MF[0][3]),
+                ),
+                single_weight(
+                    fract,
+                    f32x4::splat(s, MF[1][0]),
+                    f32x4::splat(s, MF[1][1]),
+                    f32x4::splat(s, MF[1][2]),
+                    f32x4::splat(s, MF[1][3]),
+                ),
+                single_weight(
+                    fract,
+                    f32x4::splat(s, MF[2][0]),
+                    f32x4::splat(s, MF[2][1]),
+                    f32x4::splat(s, MF[2][2]),
+                    f32x4::splat(s, MF[2][3]),
+                ),
+                single_weight(
+                    fract,
+                    f32x4::splat(s, MF[3][0]),
+                    f32x4::splat(s, MF[3][1]),
+                    f32x4::splat(s, MF[3][2]),
+                    f32x4::splat(s, MF[3][3]),
+                ),
+            ]
+        },
+    )
 }
 
 /// Calculate a weight based on the fractional value t and the cubic coefficients.

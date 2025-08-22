@@ -60,14 +60,12 @@ impl Scene {
     /// Create a new render context with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
         let render_state = Self::default_render_state();
-        let level = Level::fallback();
         Self {
             width,
             height,
             wide: Wide::<MODE_HYBRID>::new(width, height),
             anti_alias: true,
             paint: render_state.paint,
-            level,
             paint_transform: render_state.paint_transform,
             encoded_paints: vec![],
             paint_visible: true,
