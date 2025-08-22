@@ -8,12 +8,20 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 # Changelog
 
-The latest published Vello release is [0.5.0](#050---2025-05-08) which was released on 2025-05-08.
-You can find its changes [documented below](#050---2025-05-08).
+The latest published Vello release is [0.5.1](#051---2025-08-22) which was released on 2025-08-22.
+You can find its changes [documented below](#051---2025-08-22).
 
 ## [Unreleased]
 
 This release has an [MSRV][] of 1.85.
+
+## [0.5.1][] - 2025-08-22
+
+This release has an [MSRV][] of 1.85.
+
+## Changed
+
+- Upgrade `skrifa` to `0.35.0` ([#1169][] by [@nicoburns][])
 
 ## [0.5.0][] - 2025-05-08
 
@@ -295,10 +303,13 @@ This release has an [MSRV][] of 1.75.
 [#802]: https://github.com/linebender/vello/pull/802
 [#803]: https://github.com/linebender/vello/pull/803
 [#841]: https://github.com/linebender/vello/pull/841
+[#1169]: https://github.com/linebender/vello/pull/1169
 
+<!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.5.0...HEAD
+[0.5.1]: https://github.com/linebender/vello/compare/v0.5.0...v0.5.1
 <!-- Note that this still comparing against 0.4.0, because 0.4.1 is a cherry-picked patch -->
-[0.5.0]: https://github.com/linebender/vello/compare/v0.4.0...HEAD
+[0.5.0]: https://github.com/linebender/vello/compare/v0.4.0...v0.5.0
 [0.4.1]: https://github.com/linebender/vello/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/linebender/vello/compare/v0.3.0...v0.4.0
 <!-- Note that this still comparing against 0.2.0, because 0.2.1 is a cherry-picked patch -->
