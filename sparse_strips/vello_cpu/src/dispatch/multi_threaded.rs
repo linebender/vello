@@ -23,7 +23,7 @@ use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
-use vello_common::fearless_simd::{Fallback, Level, Simd};
+use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
@@ -145,6 +145,26 @@ impl MultiThreadedDispatcher {
         dispatcher.init();
 
         dispatcher
+    }
+
+    fn rasterize_f32(
+        &self,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
+        rasterize_with_f32_dispatch(self.level, self, buffer, width, height, encoded_paints);
+    }
+
+    fn rasterize_u8(
+        &self,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
+        rasterize_with_u8_dispatch(self.level, self, buffer, width, height, encoded_paints);
     }
 
     fn init(&mut self) {
@@ -462,66 +482,56 @@ impl Dispatcher for MultiThreadedDispatcher {
         assert!(self.flushed, "attempted to rasterize before flushing");
 
         match render_mode {
-            RenderMode::OptimizeSpeed => match self.level {
-                #[cfg(all(feature = "std", target_arch = "aarch64"))]
-                Level::Neon(n) => {
-                    self.rasterize_with::<vello_common::fearless_simd::Neon, U8Kernel>(
-                        n,
-                        buffer,
-                        width,
-                        height,
-                        encoded_paints,
-                    );
-                }
-                #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-                Level::WasmSimd128(w) => {
-                    self.rasterize_with::<vello_common::fearless_simd::WasmSimd128, U8Kernel>(
-                        w,
-                        buffer,
-                        width,
-                        height,
-                        encoded_paints,
-                    );
-                }
-                _ => self.rasterize_with::<Fallback, U8Kernel>(
-                    Fallback::new(),
-                    buffer,
-                    width,
-                    height,
-                    encoded_paints,
-                ),
-            },
-            RenderMode::OptimizeQuality => match self.level {
-                #[cfg(all(feature = "std", target_arch = "aarch64"))]
-                Level::Neon(n) => {
-                    self.rasterize_with::<vello_common::fearless_simd::Neon, F32Kernel>(
-                        n,
-                        buffer,
-                        width,
-                        height,
-                        encoded_paints,
-                    );
-                }
-                #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-                Level::WasmSimd128(w) => {
-                    self.rasterize_with::<vello_common::fearless_simd::WasmSimd128, F32Kernel>(
-                        w,
-                        buffer,
-                        width,
-                        height,
-                        encoded_paints,
-                    );
-                }
-                _ => self.rasterize_with::<Fallback, F32Kernel>(
-                    Fallback::new(),
-                    buffer,
-                    width,
-                    height,
-                    encoded_paints,
-                ),
-            },
+            RenderMode::OptimizeSpeed => self.rasterize_u8(buffer, width, height, encoded_paints),
+            RenderMode::OptimizeQuality => {
+                self.rasterize_f32(buffer, width, height, encoded_paints);
+            }
         }
     }
+}
+
+simd_dispatch!(
+    pub rasterize_with_f32_dispatch(
+        level,
+        self_: &MultiThreadedDispatcher,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint]
+    ) = rasterize_with_f32
+);
+
+simd_dispatch!(
+    pub rasterize_with_u8_dispatch(
+        level,
+        self_: &MultiThreadedDispatcher,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint]
+    ) = rasterize_with_u8
+);
+
+fn rasterize_with_f32<S: Simd>(
+    simd: S,
+    self_: &MultiThreadedDispatcher,
+    buffer: &mut [u8],
+    width: u16,
+    height: u16,
+    encoded_paints: &[EncodedPaint],
+) {
+    self_.rasterize_with::<S, F32Kernel>(simd, buffer, width, height, encoded_paints);
+}
+
+fn rasterize_with_u8<S: Simd>(
+    simd: S,
+    self_: &MultiThreadedDispatcher,
+    buffer: &mut [u8],
+    width: u16,
+    height: u16,
+    encoded_paints: &[EncodedPaint],
+) {
+    self_.rasterize_with::<S, U8Kernel>(simd, buffer, width, height, encoded_paints);
 }
 
 impl Debug for MultiThreadedDispatcher {

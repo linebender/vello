@@ -126,7 +126,7 @@ impl DataItem {
 
     /// Get the unsorted tiles.
     pub fn unsorted_tiles(&self) -> Tiles {
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         let lines = self.lines();
         tiles.make_tiles(&lines, self.width, self.height);
 

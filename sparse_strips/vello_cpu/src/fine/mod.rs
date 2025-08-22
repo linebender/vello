@@ -168,7 +168,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         gradient: &'a EncodedGradient,
         t_vals: &'a [f32],
     ) -> impl Painter + 'a {
-        GradientPainter::new(simd, gradient, false, t_vals)
+        simd.vectorize(
+            #[inline(always)]
+            || GradientPainter::new(simd, gradient, false, t_vals),
+        )
     }
     /// Return the painter used for painting gradients, with support for masking undefined locations.
     fn gradient_painter_with_undefined<'a>(
@@ -176,7 +179,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         gradient: &'a EncodedGradient,
         t_vals: &'a [f32],
     ) -> impl Painter + 'a {
-        GradientPainter::new(simd, gradient, true, t_vals)
+        simd.vectorize(
+            #[inline(always)]
+            || GradientPainter::new(simd, gradient, true, t_vals),
+        )
     }
     /// Return the painter used for painting plain nearest-neighbor images.
     ///
@@ -189,7 +195,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: u16,
         start_y: u16,
     ) -> impl Painter + 'a {
-        PlainNNImagePainter::new(simd, image, pixmap, start_x, start_y)
+        simd.vectorize(
+            #[inline(always)]
+            || PlainNNImagePainter::new(simd, image, pixmap, start_x, start_y),
+        )
     }
     /// Return the painter used for painting plain nearest-neighbor images.
     ///
@@ -201,7 +210,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: u16,
         start_y: u16,
     ) -> impl Painter + 'a {
-        NNImagePainter::new(simd, image, pixmap, start_x, start_y)
+        simd.vectorize(
+            #[inline(always)]
+            || NNImagePainter::new(simd, image, pixmap, start_x, start_y),
+        )
     }
     /// Return the painter used for painting image with `Medium` quality.
     fn medium_quality_image_painter<'a>(
@@ -211,7 +223,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: u16,
         start_y: u16,
     ) -> impl Painter + 'a {
-        FilteredImagePainter::new(simd, image, pixmap, start_x, start_y)
+        simd.vectorize(
+            #[inline(always)]
+            || FilteredImagePainter::new(simd, image, pixmap, start_x, start_y),
+        )
     }
     /// Return the painter used for painting image with `High` quality.
     fn high_quality_image_painter<'a>(
@@ -221,7 +236,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: u16,
         start_y: u16,
     ) -> impl Painter + 'a {
-        FilteredImagePainter::new(simd, image, pixmap, start_x, start_y)
+        simd.vectorize(
+            #[inline(always)]
+            || FilteredImagePainter::new(simd, image, pixmap, start_x, start_y),
+        )
     }
     /// Return the painter used for painting blurred rounded rectangles.
     fn blurred_rounded_rectangle_painter(
@@ -230,7 +248,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         start_x: u16,
         start_y: u16,
     ) -> impl Painter {
-        BlurredRoundedRectFiller::new(simd, rect, start_x, start_y)
+        simd.vectorize(
+            #[inline(always)]
+            || BlurredRoundedRectFiller::new(simd, rect, start_x, start_y),
+        )
     }
     /// Apply the mask to the destination buffer.
     fn apply_mask(simd: S, dest: &mut [Self::Numeric], src: impl Iterator<Item = Self::NumericVec>);
@@ -695,20 +716,22 @@ mod macros {
                     use vello_common::fearless_simd::*;
                     use crate::fine::NumericVec;
 
-                    for chunk in buf.chunks_exact_mut(16) {
-                        let next = self.next().unwrap();
-                        let converted = u8x16::<S>::from_f32(next.simd, next);
-                        chunk.copy_from_slice(&converted.val);
-                    }
+                    self.simd.vectorize(#[inline(always)] || {
+                        for chunk in buf.chunks_exact_mut(16) {
+                            let next = self.next().unwrap();
+                            let converted = u8x16::<S>::from_f32(next.simd, next);
+                            chunk.copy_from_slice(&converted.val);
+                        }
+                    })
                 }
 
                 fn paint_f32(&mut self, buf: &mut [f32]) {
-
-
-                    for chunk in buf.chunks_exact_mut(16) {
-                        let next = self.next().unwrap();
-                        chunk.copy_from_slice(&next.val);
-                    }
+                    self.simd.vectorize(#[inline(always)] || {
+                        for chunk in buf.chunks_exact_mut(16) {
+                            let next = self.next().unwrap();
+                            chunk.copy_from_slice(&next.val);
+                        }
+                    })
                 }
             }
         };
@@ -720,21 +743,25 @@ mod macros {
         ($($type_path:tt)+) => {
             impl<S: Simd> crate::fine::Painter for $($type_path)+ {
                 fn paint_u8(&mut self, buf: &mut [u8]) {
-                    for chunk in buf.chunks_exact_mut(16) {
-                        let next = self.next().unwrap();
-                        chunk.copy_from_slice(&next.val);
-                    }
+                    self.simd.vectorize(#[inline(always)] || {
+                        for chunk in buf.chunks_exact_mut(16) {
+                            let next = self.next().unwrap();
+                            chunk.copy_from_slice(&next.val);
+                        }
+                    })
                 }
 
                 fn paint_f32(&mut self, buf: &mut [f32]) {
                     use vello_common::fearless_simd::*;
                     use crate::fine::NumericVec;
 
-                    for chunk in buf.chunks_exact_mut(16) {
-                        let next = self.next().unwrap();
-                        let converted = f32x16::<S>::from_u8(next.simd, next);
-                        chunk.copy_from_slice(&converted.val);
-                    }
+                    self.simd.vectorize(#[inline(always)] || {
+                        for chunk in buf.chunks_exact_mut(16) {
+                            let next = self.next().unwrap();
+                            let converted = f32x16::<S>::from_u8(next.simd, next);
+                            chunk.copy_from_slice(&converted.val);
+                        }
+                    })
                 }
             }
         };

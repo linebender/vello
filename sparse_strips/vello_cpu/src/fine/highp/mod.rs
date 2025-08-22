@@ -27,35 +27,46 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     }
 
     #[inline(always)]
-    fn pack(_: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]) {
-        for y in 0..Tile::HEIGHT {
-            for (x, pixel) in region
-                .row_mut(y)
-                .chunks_exact_mut(COLOR_COMPONENTS)
-                .enumerate()
-            {
-                let idx = COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
-                let start = &blend_buf[idx..];
-                // TODO: Use SIMD
-                let converted = [
-                    (start[0] * 255.0 + 0.5) as u8,
-                    (start[1] * 255.0 + 0.5) as u8,
-                    (start[2] * 255.0 + 0.5) as u8,
-                    (start[3] * 255.0 + 0.5) as u8,
-                ];
-                pixel.copy_from_slice(&converted);
-            }
-        }
+    fn pack(simd: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]) {
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                for y in 0..Tile::HEIGHT {
+                    for (x, pixel) in region
+                        .row_mut(y)
+                        .chunks_exact_mut(COLOR_COMPONENTS)
+                        .enumerate()
+                    {
+                        let idx =
+                            COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
+                        let start = &blend_buf[idx..];
+                        // TODO: Use explicit SIMD
+                        let converted = [
+                            (start[0] * 255.0 + 0.5) as u8,
+                            (start[1] * 255.0 + 0.5) as u8,
+                            (start[2] * 255.0 + 0.5) as u8,
+                            (start[3] * 255.0 + 0.5) as u8,
+                        ];
+                        pixel.copy_from_slice(&converted);
+                    }
+                }
+            },
+        );
     }
 
     // Not having this tanks performance for some reason.
     #[inline(never)]
     fn copy_solid(simd: S, dest: &mut [Self::Numeric], src: [Self::Numeric; 4]) {
-        let color = f32x16::block_splat(src.simd_into(simd));
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let color = f32x16::block_splat(src.simd_into(simd));
 
-        for el in dest.chunks_exact_mut(16) {
-            el.copy_from_slice(&color.val);
-        }
+                for el in dest.chunks_exact_mut(16) {
+                    el.copy_from_slice(&color.val);
+                }
+            },
+        );
     }
 
     fn apply_mask(
@@ -63,11 +74,16 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         dest: &mut [Self::Numeric],
         mut src: impl Iterator<Item = Self::NumericVec>,
     ) {
-        for el in dest.chunks_exact_mut(16) {
-            let loaded = f32x16::from_slice(simd, el);
-            let mulled = loaded * src.next().unwrap();
-            el.copy_from_slice(&mulled.val);
-        }
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                for el in dest.chunks_exact_mut(16) {
+                    let loaded = f32x16::from_slice(simd, el);
+                    let mulled = loaded * src.next().unwrap();
+                    el.copy_from_slice(&mulled.val);
+                }
+            },
+        );
     }
 
     #[inline(always)]
@@ -138,12 +154,17 @@ mod fill {
 
     #[inline(always)]
     pub(super) fn alpha_composite_solid<S: Simd>(s: S, dest: &mut [f32], src: [f32; 4]) {
-        let one_minus_alpha = f32x16::block_splat(f32x4::splat(s, src[3]));
-        let src_c = f32x16::block_splat(f32x4::simd_from(src, s));
+        s.vectorize(
+            #[inline(always)]
+            || {
+                let one_minus_alpha = f32x16::block_splat(f32x4::splat(s, src[3]));
+                let src_c = f32x16::block_splat(f32x4::simd_from(src, s));
 
-        for next_dest in dest.chunks_exact_mut(16) {
-            alpha_composite_inner(s, next_dest, src_c, one_minus_alpha);
-        }
+                for next_dest in dest.chunks_exact_mut(16) {
+                    alpha_composite_inner(s, next_dest, src_c, one_minus_alpha);
+                }
+            },
+        );
     }
 
     #[inline(always)]
@@ -152,10 +173,15 @@ mod fill {
         dest: &mut [f32],
         src: T,
     ) {
-        for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
-            let one_minus_alpha = 1.0 - next_src.splat_4th();
-            alpha_composite_inner(simd, next_dest, next_src, one_minus_alpha);
-        }
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
+                    let one_minus_alpha = 1.0 - next_src.splat_4th();
+                    alpha_composite_inner(simd, next_dest, next_src, one_minus_alpha);
+                }
+            },
+        );
     }
 
     pub(super) fn blend<S: Simd, T: Iterator<Item = f32x16<S>>>(
@@ -201,13 +227,19 @@ mod alpha_fill {
         src: [f32; 4],
         alphas: &[u8],
     ) {
-        let src_a = f32x16::splat(s, src[3]);
-        let src_c = f32x16::block_splat(src.simd_into(s));
-        let one = f32x16::splat(s, 1.0);
+        s.vectorize(
+            #[inline(always)]
+            || {
+                let src_a = f32x16::splat(s, src[3]);
+                let src_c = f32x16::block_splat(src.simd_into(s));
+                let one = f32x16::splat(s, 1.0);
 
-        for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas.chunks_exact(4)) {
-            alpha_composite_inner(s, next_dest, next_mask, src_c, src_a, one);
-        }
+                for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas.chunks_exact(4))
+                {
+                    alpha_composite_inner(s, next_dest, next_mask, src_c, src_a, one);
+                }
+            },
+        );
     }
 
     #[inline(always)]
@@ -217,16 +249,21 @@ mod alpha_fill {
         src: T,
         alphas: &[u8],
     ) {
-        let one = f32x16::splat(simd, 1.0);
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let one = f32x16::splat(simd, 1.0);
 
-        for ((next_dest, next_mask), next_src) in dest
-            .chunks_exact_mut(16)
-            .zip(alphas.chunks_exact(4))
-            .zip(src)
-        {
-            let src_a = next_src.splat_4th();
-            alpha_composite_inner(simd, next_dest, next_mask, next_src, src_a, one);
-        }
+                for ((next_dest, next_mask), next_src) in dest
+                    .chunks_exact_mut(16)
+                    .zip(alphas.chunks_exact(4))
+                    .zip(src)
+                {
+                    let src_a = next_src.splat_4th();
+                    alpha_composite_inner(simd, next_dest, next_mask, next_src, src_a, one);
+                }
+            },
+        );
     }
 
     pub(super) fn blend<S: Simd, T: Iterator<Item = f32x16<S>>>(
@@ -236,17 +273,22 @@ mod alpha_fill {
         alphas: &[u8],
         blend_mode: BlendMode,
     ) {
-        for ((next_dest, next_mask), next_src) in dest
-            .chunks_exact_mut(16)
-            .zip(alphas.chunks_exact(4))
-            .zip(src)
-        {
-            let masks = extract_masks(simd, next_mask);
-            let bg = f32x16::from_slice(simd, next_dest);
-            let src_c = blend::mix(next_src, bg, blend_mode);
-            let res = blend_mode.compose(simd, src_c, bg, masks);
-            next_dest.copy_from_slice(&res.val);
-        }
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                for ((next_dest, next_mask), next_src) in dest
+                    .chunks_exact_mut(16)
+                    .zip(alphas.chunks_exact(4))
+                    .zip(src)
+                {
+                    let masks = extract_masks(simd, next_mask);
+                    let bg = f32x16::from_slice(simd, next_dest);
+                    let src_c = blend::mix(next_src, bg, blend_mode);
+                    let res = blend_mode.compose(simd, src_c, bg, masks);
+                    next_dest.copy_from_slice(&res.val);
+                }
+            },
+        );
     }
 
     #[inline(always)]
