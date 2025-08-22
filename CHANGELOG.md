@@ -8,7 +8,9 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 # Changelog
 
-The latest published Vello release is [0.5.1](#051---2025-08-22) which was released on 2025-08-22.
+This is the backport branch for Vello 0.5.x.
+For the latest releases, check the [changelog on `main`](https://github.com/linebender/vello/blob/main/CHANGELOG.md).
+The latest published Vello release in the 0.5.x series is [0.5.1](#051---2025-08-22) which was released on 2025-08-22.
 You can find its changes [documented below](#051---2025-08-22).
 
 ## [Unreleased]
