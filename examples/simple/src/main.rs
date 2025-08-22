@@ -4,10 +4,15 @@
 //! Simple example.
 
 use anyhow::Result;
+use parley::{
+    Alignment, AlignmentOptions, FontContext, FontFamily, FontStack, LayoutContext, LineHeight,
+    PositionedLayoutItem, StyleProperty,
+};
+use std::borrow::Cow;
 use std::sync::Arc;
 use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
-use vello::peniko::Color;
 use vello::peniko::color::palette;
+use vello::peniko::{Blob, BrushRef, Color, Fill};
 use vello::util::{RenderContext, RenderSurface};
 use vello::{AaConfig, Renderer, RendererOptions, Scene};
 use winit::application::ApplicationHandler;
@@ -34,6 +39,12 @@ struct SimpleVelloApp<'s> {
     // The vello RenderContext which is a global context that lasts for the
     // lifetime of the application
     context: RenderContext,
+
+    // The FontContext which is used to manage fonts
+    font_context: FontContext,
+
+    // The LayoutContext which is used to manage text layouts
+    layout_context: LayoutContext<ColorBrush>,
 
     // An array of renderers, one per wgpu device
     renderers: Vec<Option<Renderer>>,
@@ -116,7 +127,11 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
                 self.scene.reset();
 
                 // Re-add the objects to draw to the scene.
-                add_shapes_to_scene(&mut self.scene);
+                add_shapes_to_scene(
+                    &mut self.scene,
+                    &mut self.font_context,
+                    &mut self.layout_context,
+                );
 
                 // Get the window size
                 let width = surface.config.width;
@@ -176,9 +191,28 @@ impl ApplicationHandler for SimpleVelloApp<'_> {
 }
 
 fn main() -> Result<()> {
+    // By default the FontContext will be empty
+    let mut font_context = FontContext::new();
+
+    // Register the Roboto font from the assets directory
+    font_context.collection.register_fonts(
+        Blob::new(Arc::new(include_bytes!(
+            "../../assets/roboto/Roboto-Regular.ttf"
+        ))),
+        None,
+    );
+
+    // Check if the font was registered successfully
+    font_context
+        .collection
+        .family_id("roboto")
+        .expect("Failed to register font family");
+
     // Setup a bunch of state:
     let mut app = SimpleVelloApp {
         context: RenderContext::new(),
+        font_context,
+        layout_context: LayoutContext::new(),
         renderers: vec![],
         state: RenderState::Suspended(None),
         scene: Scene::new(),
@@ -212,7 +246,11 @@ fn create_vello_renderer(render_cx: &RenderContext, surface: &RenderSurface<'_>)
 
 /// Add shapes to a vello scene. This does not actually render the shapes, but adds them
 /// to the Scene data structure which represents a set of objects to draw.
-fn add_shapes_to_scene(scene: &mut Scene) {
+fn add_shapes_to_scene(
+    scene: &mut Scene,
+    font_context: &mut FontContext,
+    layout_context: &mut LayoutContext<ColorBrush>,
+) {
     // Draw an outlined rectangle
     let stroke = Stroke::new(6.0);
     let rect = RoundedRect::new(10.0, 10.0, 240.0, 240.0, 20.0);
@@ -245,4 +283,96 @@ fn add_shapes_to_scene(scene: &mut Scene) {
     let line = Line::new((260.0, 20.0), (620.0, 100.0));
     let line_stroke_color = Color::new([0.5373, 0.7059, 0.9804, 1.]);
     scene.stroke(&stroke, Affine::IDENTITY, line_stroke_color, None, &line);
+
+    add_text_to_scene(scene, font_context, layout_context);
+}
+
+// A Simple color brush. There is no default brush in Vello/parley, so we define one here.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ColorBrush {
+    pub(crate) color: Color,
+}
+
+impl ColorBrush {
+    pub(crate) fn new(color: Color) -> Self {
+        let rgba8 = color.to_rgba8();
+        Self {
+            color: Color::from_rgba8(rgba8.r, rgba8.g, rgba8.b, rgba8.a),
+        }
+    }
+}
+
+// This is important, as properties in parley must implement `Default` to be used in styles.
+impl Default for ColorBrush {
+    fn default() -> Self {
+        Self {
+            color: Color::BLACK,
+        }
+    }
+}
+
+fn add_text_to_scene(
+    scene: &mut Scene,
+    font_context: &mut FontContext,
+    layout_context: &mut LayoutContext<ColorBrush>,
+) {
+    let text = "This is a simple example of rendering text with Vello.\n\
+                It supports custom fonts, colors, and styles.\n\
+                Enjoy creating beautiful graphics!";
+
+    // The `text` passed here is just used as a length hint for the layout.
+    let mut builder = layout_context.ranged_builder(font_context, text, 1.0, true);
+
+    builder.push_default(StyleProperty::Brush(ColorBrush::new(palette::css::RED)));
+
+    builder.push_default(StyleProperty::FontStack(FontStack::Single(
+        FontFamily::Named(Cow::Borrowed("Roboto")),
+    )));
+
+    builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.0)));
+
+    // This is where the text is built according to your string
+    let mut layout = builder.build(text);
+    layout.break_all_lines(None);
+    layout.align(None, Alignment::Start, AlignmentOptions::default());
+
+    for line in layout.lines() {
+        for item in line.items() {
+            let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
+                continue;
+            };
+
+            let style = glyph_run.style();
+            let mut x = glyph_run.offset();
+            let y = glyph_run.baseline();
+            let run = glyph_run.run();
+            let font = run.font();
+            let font_size = run.font_size();
+            let synthesis = run.synthesis();
+            let glyph_xform = synthesis
+                .skew()
+                .map(|angle| Affine::skew(angle.to_radians().tan() as f64, 0.0));
+            scene
+                .draw_glyphs(font)
+                .brush(BrushRef::Solid(style.brush.color))
+                .hint(true)
+                .transform(Affine::translate((50.0, 700.0)))
+                .glyph_transform(glyph_xform)
+                .font_size(font_size)
+                .normalized_coords(run.normalized_coords())
+                .draw(
+                    Fill::NonZero,
+                    glyph_run.glyphs().map(|glyph| {
+                        let gx = x + glyph.x;
+                        let gy = y - glyph.y;
+                        x += glyph.advance;
+                        vello::Glyph {
+                            id: glyph.id as _,
+                            x: gx,
+                            y: gy,
+                        }
+                    }),
+                );
+        }
+    }
 }

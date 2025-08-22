@@ -3105,6 +3105,7 @@ name = "simple"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "parley",
  "pollster",
  "vello",
  "winit",
