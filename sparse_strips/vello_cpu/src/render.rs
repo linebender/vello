@@ -77,7 +77,8 @@ impl Default for RenderSettings {
             num_threads: (std::thread::available_parallelism()
                 .unwrap()
                 .get()
-                .saturating_sub(1) as u16).min(8),
+                .saturating_sub(1) as u16)
+                .min(8),
             #[cfg(not(feature = "multithreading"))]
             num_threads: 0,
         }
