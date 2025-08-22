@@ -33,7 +33,7 @@ members = [
 # NOTE: When bumping this, remember to also bump the aforementioned other packages'
 #       version in the dependencies section at the bottom of this file.
 #       Additionally, bump the Vello dependency version in the 'simple' example.
-version = "0.5.0"
+version = "0.5.1"
 
 edition = "2024"
 # Keep in sync with RUST_MIN_VER in .github/workflows/ci.yml, with the relevant README.md files
@@ -91,9 +91,9 @@ clippy.wildcard_dependencies = "warn"
 # END LINEBENDER LINT SET
 
 [workspace.dependencies]
-vello = { version = "0.5.0", path = "vello" }
-vello_encoding = { version = "0.5.0", path = "vello_encoding" }
-vello_shaders = { version = "0.5.0", path = "vello_shaders" }
+vello = { version = "0.5.1", path = "vello" }
+vello_encoding = { version = "0.5.1", path = "vello_encoding" }
+vello_shaders = { version = "0.5.1", path = "vello_shaders" }
 bytemuck = { version = "1.23.0", features = ["derive"] }
 skrifa = "0.35.0"
 # The version of kurbo used below should be kept in sync
