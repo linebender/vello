@@ -180,7 +180,6 @@ use crate::render::common::GpuEncodedImage;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use core::mem;
 use vello_common::coarse::MODE_HYBRID;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
@@ -235,27 +234,6 @@ pub(crate) struct Scheduler {
     clear: [Vec<u32>; 2],
 }
 
-/// The information required to resume a wide tile draw operation. Note that the suspended tile owns
-/// global slot resources, so must be resumed to free the owned slots. Tile work suspends where
-/// blends are repeatedly scheduled into the same layer providing time for the blended result to be
-/// copied back to the other texture because we need to ensure the two slots we are blending are in
-/// the same texture.
-#[derive(Debug)]
-struct PendingWideTileWork<'a> {
-    /// Used to reference the wide tile.
-    wide_tile_col: u16,
-    /// Used to reference the wide tile.
-    wide_tile_row: u16,
-    /// On resuming the cmd index to start processing draws from.
-    next_cmd_idx: usize,
-    /// The suspended tile state stack representing active layers.
-    stack: TileState,
-    /// Round at which this work was suspended. Used to calculate round offsets.
-    suspended_at_round: usize,
-    /// The draw commands being iterated to draw the wide tile.
-    annotated_cmds: Vec<AnnotatedCmd<'a>>,
-}
-
 /// A "round" is a coarse scheduling quantum.
 ///
 /// It represents draws in up to three render targets; two for intermediate clip/blend buffers, and
@@ -304,7 +282,7 @@ impl ClaimedSlot {
 ///
 /// TODO: In the future these annotations could be optionally enabled in coarse.rs directly avoiding
 /// the need to do linear scans.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum AnnotatedCmd<'a> {
     /// A wrapped command - no semantic meaning added.
     IdentityBorrowed(&'a Cmd),
@@ -433,10 +411,6 @@ impl Scheduler {
     ) -> Result<(), RenderError> {
         let wide_tiles_per_row = scene.wide.width_tiles();
         let wide_tiles_per_col = scene.wide.height_tiles();
-        let mut pending_work: Vec<PendingWideTileWork<'scene>> =
-            Vec::with_capacity((wide_tiles_per_row as usize) * (wide_tiles_per_col as usize));
-        let mut pending_work_scratch: Vec<PendingWideTileWork<'scene>> =
-            Vec::with_capacity((wide_tiles_per_row as usize) * (wide_tiles_per_col as usize));
 
         // Left to right, top to bottom iteration over wide tiles.
         for wide_tile_row in 0..wide_tiles_per_col {
@@ -448,66 +422,14 @@ impl Scheduler {
                 let tile_state =
                     self.initialize_tile_state(wide_tile, wide_tile_x, wide_tile_y, scene);
                 let annotated_cmds = prepare_cmds(&wide_tile.cmds);
-                pending_work.push(PendingWideTileWork {
-                    wide_tile_col,
-                    wide_tile_row,
-                    next_cmd_idx: 0,
-                    stack: tile_state,
-                    suspended_at_round: self.round,
-                    annotated_cmds,
-                });
-            }
-        }
-
-        while !self.rounds_queue.is_empty() || !pending_work.is_empty() {
-            if !self.rounds_queue.is_empty() {
-                self.flush(renderer);
-            }
-
-            for work in pending_work.drain(..) {
-                let wide_tile_col = work.wide_tile_col;
-                let wide_tile_row = work.wide_tile_row;
-                let wide_tile_x = wide_tile_col * WideTile::WIDTH;
-                let wide_tile_y = wide_tile_row * Tile::HEIGHT;
-                let mut tile_state = work.stack;
-
-                let round_offset = self.round - (work.suspended_at_round);
-                for el in tile_state.stack.iter_mut() {
-                    el.round += round_offset;
-                }
-
-                if let Some(next_cmd_idx) = self.do_tile(
+                self.do_tile(
                     renderer,
                     scene,
                     wide_tile_x,
                     wide_tile_y,
-                    &work.annotated_cmds,
-                    &mut tile_state,
-                    work.next_cmd_idx,
-                )? {
-                    pending_work_scratch.push(PendingWideTileWork {
-                        wide_tile_col,
-                        wide_tile_row,
-                        next_cmd_idx,
-                        stack: tile_state,
-                        suspended_at_round: self.round,
-                        annotated_cmds: work.annotated_cmds,
-                    });
-                }
-            }
-
-            mem::swap(&mut pending_work, &mut pending_work_scratch);
-
-            if !pending_work.is_empty() {
-                // TODO: This can be tested by arbitrarily limiting the total slots that the
-                // Scheduler is instantiated with. For example, tests deadlock at a value of `20`.
-                // Ideally we improve this system such that it does not deadlock given a situation
-                // where a single tile can always be completed given all resources. This may require
-                // reserving the slots required for a wide tile to complete upfront.
-                assert!(
-                    !self.rounds_queue.is_empty(),
-                    "deadlock in scheduler detected"
-                );
+                    tile_state,
+                    &annotated_cmds,
+                )?;
             }
         }
 
@@ -640,21 +562,18 @@ impl Scheduler {
 
     /// Iterates over wide tile commands and schedules them for rendering.
     ///
-    /// Returns `Some(command_idx)` if there is more work to be done. Returns `None` if the wide
-    /// tile has been fully consumed.
+    /// Returns `Some(work)` if there is more work to be done. Returns `None` if the wide tile has
+    /// been fully consumed.
     fn do_tile<'a, R: RendererBackend>(
         &mut self,
         renderer: &mut R,
         scene: &Scene,
         wide_tile_x: u16,
         wide_tile_y: u16,
+        mut state: TileState,
         cmds: &[AnnotatedCmd<'a>],
-        state: &mut TileState,
-        start_cmd_idx: usize,
-    ) -> Result<Option<usize>, RenderError> {
-        let mut has_blended = false;
-        for (offset_cmd_idx, annotated_cmd) in cmds[start_cmd_idx..].iter().enumerate() {
-            let cmd_idx = start_cmd_idx + offset_cmd_idx;
+    ) -> Result<(), RenderError> {
+        for annotated_cmd in cmds.iter() {
             // Note: this starts at 1 (for the final target)
             let depth = state.stack.len();
             let cmd = annotated_cmd.as_cmd();
@@ -734,24 +653,22 @@ impl Scheduler {
                     {
                         let tos: &mut TileEl = state.stack.last_mut().unwrap();
                         if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
-                            if has_blended {
-                                // There has been a popped blend in this run of `do_tile`. Suspend
-                                // to give the blend command a chance to flush.
-                                return Ok(Some(cmd_idx));
-                            }
+                            let next_round = depth % 2 == 0;
+                            let el_round = tos.round.max(tos.round + usize::from(next_round));
 
-                            let draw = self.draw_mut(tos.round - 1, temp_slot.get_texture());
+                            let draw = self.draw_mut(el_round, temp_slot.get_texture());
                             draw.push(
                                 GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
                                     .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
                             );
 
                             tos.temporary_slot = TemporarySlot::Valid(temp_slot);
+                            tos.round = el_round + 1;
 
                             // Make sure the destination slot and temporary slot are cleared
                             // appropriately.
                             let dest_slot = tos.dest_slot;
-                            let round = self.get_round(tos.round - 1);
+                            let round = self.get_round(el_round);
                             round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
                             #[cfg(debug_assertions)]
                             self.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
@@ -760,16 +677,11 @@ impl Scheduler {
                                 SENTINEL_SLOT_IDX,
                                 "surface cannot be read"
                             );
-                            let round1 = self.get_round(tos.round);
+                            let round1 = self.get_round(el_round + 1);
                             round1.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
                             #[cfg(debug_assertions)]
                             self.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
                         }
-                    }
-
-                    // Suspend if there are no free slots.
-                    if self.free[0].is_empty() || self.free[1].is_empty() {
-                        return Ok(Some(cmd_idx));
                     }
 
                     // Push a new tile.
@@ -800,7 +712,7 @@ impl Scheduler {
                     state.stack.push(TileEl {
                         dest_slot: slot,
                         temporary_slot,
-                        round: self.round,
+                        round: self.round.max(state.stack.last().unwrap().round),
                         opacity: 1.,
                     });
                 }
@@ -964,8 +876,6 @@ impl Scheduler {
                         // Invalidate the temporary slot after use
                         let nos_ptr = state.stack.len() - 2;
                         state.stack[nos_ptr].temporary_slot.invalidate();
-                        // Signal to suspend before pushing a new buffer.
-                        has_blended = true;
                     } else {
                         assert_eq!(
                             nos.dest_slot.get_idx(),
@@ -987,7 +897,7 @@ impl Scheduler {
             }
         }
 
-        Ok(None)
+        Ok(())
     }
 
     /// Process a paint and return (`payload`, `paint`)
@@ -1175,5 +1085,260 @@ fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
         // This extra wrapping can be removed.
         annotated_commands[0] = AnnotatedCmd::Empty;
     }
+
     annotated_commands
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+    use vello_common::{
+        coarse::{Cmd, CmdFill, Wide},
+        color::palette::css::RED,
+        paint::Paint,
+        peniko::{BlendMode, Compose, Mix},
+    };
+
+    struct MockRenderer;
+
+    impl RendererBackend for MockRenderer {
+        fn clear_slots(&mut self, _texture_index: usize, _slots: &[u32]) {}
+        fn render_strips(&mut self, _strips: &[GpuStrip], _target_index: usize, _load_op: LoadOp) {}
+    }
+
+    #[test]
+    fn single_deep_blend_wide_tile_can_exhaust_slots() {
+        // Scheduler has very limited slots to trigger slot exhaustion because there are not enough
+        // for the single wide tile commands to complete.
+        let mut scheduler = Scheduler::new(3);
+        let mut renderer = MockRenderer;
+
+        let mut wide = Wide::<MODE_HYBRID>::new(256, 4);
+        let paint: Paint = RED.into();
+
+        // Build commands for the first wide tile - deeply nested with blending
+        let cmds1 = vec![
+            // Layer 1
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 0,
+                width: 256,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            // Layer 2
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 50,
+                width: 150,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            // Layer 3
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 75,
+                width: 100,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            // Layer 4
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 100,
+                width: 50,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            // Blend layer 4 into layer 3
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+            // Blend layer 3 into layer 2
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+            // Blend layer 2 into layer 1
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+            // Blend layer 1 into surface
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+        ];
+
+        wide.get_mut(0, 0).cmds = cmds1;
+
+        let mut scene = Scene::new(256, 4);
+        scene.wide = wide;
+
+        let result = scheduler.do_scene(&mut renderer, &scene);
+
+        assert!(
+            matches!(result, Err(RenderError::SlotsExhausted)),
+            "expected slot exhaustion"
+        );
+    }
+
+    #[test]
+    fn suspended_jobs_complete_with_limited_slots() {
+        // This test is different from `single_deep_blend_wide_tile_can_exhaust_slots` because the
+        // scheduler has enough slots to complete each of the two wide tiles in isolation. However,
+        // if both wide tiles greedily consume slots before suspending, they deadlock as neither can
+        // make progress due to lack of slots.
+        let mut scheduler = Scheduler::new(6);
+        let mut renderer = MockRenderer;
+
+        let mut wide = Wide::<MODE_HYBRID>::new(512, 4);
+
+        let paint: Paint = RED.into();
+
+        let cmds1 = vec![
+            // Layer 1
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 0,
+                width: 256,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            // Layer 2
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 10,
+                width: 236,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            // Push a layer 3 and immediately blend it into layer 2.
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 0,
+                width: 256,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+            // Pushing layer 3 after a prior blend will cause the tile to suspend (to allow blending
+            // in this Round).
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 20,
+                width: 216,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            // Layer 4
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 30,
+                width: 196,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+        ];
+
+        // Second wide tile requires exactly 5 slots to complete. If the prior wide tile holds even
+        // 2 slots then this wide tile cannot complete.
+        let cmds2 = vec![
+            // Layer 1 - will need temporary slot
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 0,
+                width: 256,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            // Layer 2 - will need temporary slot
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 5,
+                width: 246,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            // Layer 3 - will need temporary slot
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 10,
+                width: 236,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            // Layer 4
+            Cmd::PushBuf,
+            Cmd::Fill(CmdFill {
+                x: 15,
+                width: 226,
+                paint: paint.clone(),
+                blend_mode: None,
+            }),
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+            Cmd::Blend(BlendMode {
+                mix: Mix::Normal,
+                compose: Compose::SrcOver,
+            }),
+            Cmd::PopBuf,
+        ];
+
+        wide.get_mut(0, 0).cmds = cmds1;
+        wide.get_mut(1, 0).cmds = cmds2;
+
+        let mut scene = Scene::new(512, 4);
+        scene.wide = wide;
+
+        let result = scheduler.do_scene(&mut renderer, &scene);
+        assert!(
+            result.is_ok(),
+            "Scheduler should handle limited slots without deadlock"
+        );
+    }
 }
