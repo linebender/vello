@@ -40,7 +40,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                         let idx =
                             COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
                         let start = &blend_buf[idx..];
-                        // TODO: Use SIMD
+                        // TODO: Use explicit SIMD
                         let converted = [
                             (start[0] * 255.0 + 0.5) as u8,
                             (start[1] * 255.0 + 0.5) as u8,
