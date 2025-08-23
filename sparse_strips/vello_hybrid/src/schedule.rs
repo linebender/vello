@@ -452,6 +452,22 @@ impl Scheduler {
     fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
         let round = self.rounds_queue.pop_front().unwrap();
         for (i, draw) in round.draws.iter().enumerate() {
+            #[cfg(debug_assertions)]
+            {
+                // This is an expensive O(n²) debug only check that enforces that there are no
+                // duplicate slots in the clear list. Duplicates signal an inefficiency in
+                // scheduling.
+                if i != 2 {
+                    for (idx, &slot) in round.clear[i].iter().enumerate() {
+                        assert!(
+                            !round.clear[i][..idx].contains(&slot),
+                            "Duplicate slot {} found in round.clear[{}]",
+                            slot,
+                            i
+                        );
+                    }
+                }
+            }
             let load = {
                 if i == 2 {
                     // We're rendering to the view, don't clear.
