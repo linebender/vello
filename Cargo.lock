@@ -2499,8 +2499,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 [[package]]
 name = "peniko"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f9529efd019889b2a205193c14ffb6e2839b54ed9d2720674f10f4b04d87ac9"
+source = "git+https://github.com/sagudev/peniko?branch=bgra2#9d78c700fdc5712756fd964ccec7769b353b6bbf"
 dependencies = [
  "bytemuck",
  "color",

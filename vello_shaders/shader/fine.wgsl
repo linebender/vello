@@ -811,7 +811,8 @@ fn read_image(cmd_ix: u32) -> CmdImage {
     let width_height = info[info_offset + 7u];
     let sample_alpha = info[info_offset + 8u];
     let alpha = f32(sample_alpha & 0xFFu) / 255.0;
-    let quality = sample_alpha >> 12u;
+    let format = sample_alpha >> 13u;
+    let quality = (sample_alpha >> 12u) & 0x1u;
     let x_extend = (sample_alpha >> 10u) & 0x3u;
     let y_extend = (sample_alpha >> 8u) & 0x3u;
     // The following are not intended to be bitcasts
@@ -819,13 +820,26 @@ fn read_image(cmd_ix: u32) -> CmdImage {
     let y = f32(xy & 0xffffu);
     let width = f32(width_height >> 16u);
     let height = f32(width_height & 0xffffu);
-    return CmdImage(matrx, xlat, vec2(x, y), vec2(width, height), x_extend, y_extend, quality, alpha);
+    return CmdImage(matrx, xlat, vec2(x, y), vec2(width, height), format, x_extend, y_extend, quality, alpha);
 }
 
 fn read_end_clip(cmd_ix: u32) -> CmdEndClip {
     let blend = ptcl[cmd_ix + 1u];
     let alpha = bitcast<f32>(ptcl[cmd_ix + 2u]);
     return CmdEndClip(blend, alpha);
+}
+
+const PIXEL_FORMAT_RGBA: u32 = 0u;
+const PIXEL_FORMAT_BGRA: u32 = 1u;
+fn pixel_format(pixel: vec4f, format: u32) -> vec4f {
+    switch format {
+        case PIXEL_FORMAT_BGRA: {
+            return pixel.bgra;
+        }
+        case PIXEL_FORMAT_RGBA, default: {
+            return pixel;
+        }
+    }
 }
 
 const EXTEND_PAD: u32 = 0u;
@@ -1183,7 +1197,7 @@ fn main(
                                 let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
                                 // Nearest neighbor sampling
                                 let fg_rgba = premul_alpha(textureLoad(image_atlas, vec2<i32>(atlas_uv_clamped), 0));
-                                let fg_i = fg_rgba * area[i] * image.alpha;
+                                var fg_i = pixel_format(fg_rgba * area[i] * image.alpha, image.format);
                                 rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                             }
                         }
@@ -1210,7 +1224,7 @@ fn main(
                                 let d = premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), 0));
                                 // Bilinear sampling
                                 let fg_rgba = mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
-                                let fg_i = fg_rgba * area[i] * image.alpha;
+                                let fg_i = pixel_format(fg_rgba * area[i] * image.alpha, image.format);
                                 rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                             }
                         }
