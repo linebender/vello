@@ -399,10 +399,10 @@ impl Scheduler {
         }
     }
 
-    pub(crate) fn do_scene<'scene, R: RendererBackend>(
+    pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
         renderer: &mut R,
-        scene: &'scene Scene,
+        scene: &Scene,
     ) -> Result<(), RenderError> {
         let wide_tiles_per_row = scene.wide.width_tiles();
         let wide_tiles_per_col = scene.wide.height_tiles();
