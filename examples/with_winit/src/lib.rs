@@ -100,8 +100,8 @@ fn default_threads() -> usize {
     return 0;
 }
 
-struct RenderState<'s> {
-    surface: RenderSurface<'s>,
+struct RenderState {
+    surface: RenderSurface<'static>,
     window: Arc<Window>,
 }
 
@@ -114,10 +114,10 @@ const AA_CONFIGS: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Ms
 // Hard code to only one on Android whilst we are working on startup speed
 const AA_CONFIGS: [AaConfig; 1] = [AaConfig::Area];
 
-struct VelloApp<'s> {
+struct VelloApp {
     context: RenderContext,
     renderers: Vec<Option<Renderer>>,
-    state: Option<RenderState<'s>>,
+    state: Option<RenderState>,
     // Whilst suspended, we drop `render_state`, but need to keep the same window.
     #[cfg(not(target_arch = "wasm32"))]
     cached_window: Option<Arc<Window>>,
@@ -176,7 +176,7 @@ struct VelloApp<'s> {
     cache_data: Option<(PathBuf, std::sync::mpsc::Sender<(PipelineCache, PathBuf)>)>,
 }
 
-impl ApplicationHandler<UserEvent> for VelloApp<'_> {
+impl ApplicationHandler<UserEvent> for VelloApp {
     #[cfg(target_arch = "wasm32")]
     fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {}
 
@@ -702,12 +702,12 @@ fn run(
     args: Args,
     scenes: SceneSet,
     render_cx: RenderContext,
-    #[cfg(target_arch = "wasm32")] render_state: RenderState<'_>,
+    #[cfg(target_arch = "wasm32")] render_state: RenderState,
 ) {
     use winit::keyboard::ModifiersState;
 
     #[cfg(not(target_arch = "wasm32"))]
-    let (render_state, renderers) = (None::<RenderState<'_>>, vec![]);
+    let (render_state, renderers) = (None::<RenderState>, vec![]);
 
     let cache_directory = get_cache_directory(&event_loop).unwrap();
     // The design of `RenderContext` forces delayed renderer initialisation to
