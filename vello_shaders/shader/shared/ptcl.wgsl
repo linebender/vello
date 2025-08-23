@@ -49,7 +49,7 @@ struct CmdColor {
 struct CmdBlurRect {
     // Solid fill color.
     rgba_color: u32,
-    
+
     // 2x2 transformation matrix (inverse).
     matrx: vec4<f32>,
     // 2D translation (inverse)
@@ -97,6 +97,7 @@ struct CmdImage {
     xlat: vec2<f32>,
     atlas_offset: vec2<f32>,
     extents: vec2<f32>,
+    format: u32,
     x_extend_mode: u32,
     y_extend_mode: u32,
     quality: u32,
