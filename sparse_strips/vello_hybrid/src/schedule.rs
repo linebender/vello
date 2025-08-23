@@ -461,9 +461,7 @@ impl Scheduler {
                     for (idx, &slot) in round.clear[i].iter().enumerate() {
                         assert!(
                             !round.clear[i][..idx].contains(&slot),
-                            "Duplicate slot {} found in round.clear[{}]",
-                            slot,
-                            i
+                            "Duplicate slot {slot} found in round.clear[{i}]",
                         );
                     }
                 }
