@@ -180,7 +180,6 @@ use crate::render::common::GpuEncodedImage;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use core::mem;
 use vello_common::coarse::MODE_HYBRID;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
@@ -230,30 +229,6 @@ pub(crate) struct Scheduler {
     free: [Vec<usize>; 2],
     /// Rounds are enqueued on push clip commands and dequeued on flush.
     rounds_queue: VecDeque<Round>,
-    #[cfg(debug_assertions)]
-    /// Enforce clearing invariants across rounds.
-    clear: [Vec<u32>; 2],
-}
-
-/// The information required to resume a wide tile draw operation. Note that the suspended tile owns
-/// global slot resources, so must be resumed to free the owned slots. Tile work suspends where
-/// blends are repeatedly scheduled into the same layer providing time for the blended result to be
-/// copied back to the other texture because we need to ensure the two slots we are blending are in
-/// the same texture.
-#[derive(Debug)]
-struct PendingWideTileWork<'a> {
-    /// Used to reference the wide tile.
-    wide_tile_col: u16,
-    /// Used to reference the wide tile.
-    wide_tile_row: u16,
-    /// On resuming the cmd index to start processing draws from.
-    next_cmd_idx: usize,
-    /// The suspended tile state stack representing active layers.
-    stack: TileState,
-    /// Round at which this work was suspended. Used to calculate round offsets.
-    suspended_at_round: usize,
-    /// The draw commands being iterated to draw the wide tile.
-    annotated_cmds: Vec<AnnotatedCmd<'a>>,
 }
 
 /// A "round" is a coarse scheduling quantum.
@@ -400,8 +375,6 @@ impl Scheduler {
             total_slots,
             free,
             rounds_queue: Default::default(),
-            #[cfg(debug_assertions)]
-            clear: [Vec::new(), Vec::new()],
         }
     }
 
@@ -426,17 +399,13 @@ impl Scheduler {
         }
     }
 
-    pub(crate) fn do_scene<'scene, R: RendererBackend>(
+    pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
         renderer: &mut R,
-        scene: &'scene Scene,
+        scene: &Scene,
     ) -> Result<(), RenderError> {
         let wide_tiles_per_row = scene.wide.width_tiles();
         let wide_tiles_per_col = scene.wide.height_tiles();
-        let mut pending_work: Vec<PendingWideTileWork<'scene>> =
-            Vec::with_capacity((wide_tiles_per_row as usize) * (wide_tiles_per_col as usize));
-        let mut pending_work_scratch: Vec<PendingWideTileWork<'scene>> =
-            Vec::with_capacity((wide_tiles_per_row as usize) * (wide_tiles_per_col as usize));
 
         // Left to right, top to bottom iteration over wide tiles.
         for wide_tile_row in 0..wide_tiles_per_col {
@@ -448,66 +417,14 @@ impl Scheduler {
                 let tile_state =
                     self.initialize_tile_state(wide_tile, wide_tile_x, wide_tile_y, scene);
                 let annotated_cmds = prepare_cmds(&wide_tile.cmds);
-                pending_work.push(PendingWideTileWork {
-                    wide_tile_col,
-                    wide_tile_row,
-                    next_cmd_idx: 0,
-                    stack: tile_state,
-                    suspended_at_round: self.round,
-                    annotated_cmds,
-                });
-            }
-        }
-
-        while !self.rounds_queue.is_empty() || !pending_work.is_empty() {
-            if !self.rounds_queue.is_empty() {
-                self.flush(renderer);
-            }
-
-            for work in pending_work.drain(..) {
-                let wide_tile_col = work.wide_tile_col;
-                let wide_tile_row = work.wide_tile_row;
-                let wide_tile_x = wide_tile_col * WideTile::WIDTH;
-                let wide_tile_y = wide_tile_row * Tile::HEIGHT;
-                let mut tile_state = work.stack;
-
-                let round_offset = self.round - (work.suspended_at_round);
-                for el in tile_state.stack.iter_mut() {
-                    el.round += round_offset;
-                }
-
-                if let Some(next_cmd_idx) = self.do_tile(
+                self.do_tile(
                     renderer,
                     scene,
                     wide_tile_x,
                     wide_tile_y,
-                    &work.annotated_cmds,
-                    &mut tile_state,
-                    work.next_cmd_idx,
-                )? {
-                    pending_work_scratch.push(PendingWideTileWork {
-                        wide_tile_col,
-                        wide_tile_row,
-                        next_cmd_idx,
-                        stack: tile_state,
-                        suspended_at_round: self.round,
-                        annotated_cmds: work.annotated_cmds,
-                    });
-                }
-            }
-
-            mem::swap(&mut pending_work, &mut pending_work_scratch);
-
-            if !pending_work.is_empty() {
-                // TODO: This can be tested by arbitrarily limiting the total slots that the
-                // Scheduler is instantiated with. For example, tests deadlock at a value of `20`.
-                // Ideally we improve this system such that it does not deadlock given a situation
-                // where a single tile can always be completed given all resources. This may require
-                // reserving the slots required for a wide tile to complete upfront.
-                assert!(
-                    !self.rounds_queue.is_empty(),
-                    "deadlock in scheduler detected"
-                );
+                    &annotated_cmds,
+                    tile_state,
+                )?;
             }
         }
 
@@ -519,8 +436,6 @@ impl Scheduler {
         self.round = 0;
         #[cfg(debug_assertions)]
         {
-            debug_assert!(self.clear[0].is_empty(), "clear has not reset");
-            debug_assert!(self.clear[1].is_empty(), "clear has not reset");
             for i in 0..self.total_slots {
                 debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {i}");
                 debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {i}");
@@ -537,36 +452,29 @@ impl Scheduler {
     fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
         let round = self.rounds_queue.pop_front().unwrap();
         for (i, draw) in round.draws.iter().enumerate() {
+            #[cfg(debug_assertions)]
+            {
+                // This is an expensive O(n²) debug only check that enforces that there are no
+                // duplicate slots in the clear list. Duplicates signal an inefficiency in
+                // scheduling.
+                if i != 2 {
+                    for (idx, &slot) in round.clear[i].iter().enumerate() {
+                        assert!(
+                            !round.clear[i][..idx].contains(&slot),
+                            "Duplicate slot {slot} found in round.clear[{i}]",
+                        );
+                    }
+                }
+            }
             let load = {
                 if i == 2 {
                     // We're rendering to the view, don't clear.
                     LoadOp::Load
                 } else if round.clear[i].len() + self.free[i].len() == self.total_slots {
-                    #[cfg(debug_assertions)]
-                    self.clear[i].clear();
                     // All slots are either unoccupied or need to be cleared. Simply clear the slots
                     // via a load operation.
                     LoadOp::Clear
                 } else {
-                    #[cfg(debug_assertions)]
-                    {
-                        // This debug_assertion is expensive, but it enforces that duplicates cannot
-                        // be cleared. This usually signals a bug in the scheduler.
-                        for (idx, &slot) in round.clear[i].iter().enumerate() {
-                            debug_assert!(
-                                !round.clear[i][..idx].contains(&slot),
-                                "Duplicate slot {slot} found in round.clear[{i}]",
-                            );
-
-                            // We can't use `retain` because `self.clear` tracks clearing globally
-                            // across rounds. This means that it _can_ contain duplicates if a slot
-                            // is scheduled to be cleared in two rounds simultaneously.
-                            if let Some(pos) = self.clear[i].iter().position(|&x| x == slot) {
-                                self.clear[i].swap_remove(pos);
-                            }
-                        }
-                    }
-
                     // Some slots need to be preserved, so only clear the dirty slots.
                     renderer.clear_slots(i, round.clear[i].as_slice());
                     LoadOp::Load
@@ -648,13 +556,10 @@ impl Scheduler {
         scene: &Scene,
         wide_tile_x: u16,
         wide_tile_y: u16,
-        cmds: &[AnnotatedCmd<'a>],
-        state: &mut TileState,
-        start_cmd_idx: usize,
-    ) -> Result<Option<usize>, RenderError> {
-        let mut has_blended = false;
-        for (offset_cmd_idx, annotated_cmd) in cmds[start_cmd_idx..].iter().enumerate() {
-            let cmd_idx = start_cmd_idx + offset_cmd_idx;
+        cmds: &'a [AnnotatedCmd<'a>],
+        mut state: TileState,
+    ) -> Result<(), RenderError> {
+        for annotated_cmd in cmds {
             // Note: this starts at 1 (for the final target)
             let depth = state.stack.len();
             let cmd = annotated_cmd.as_cmd();
@@ -734,27 +639,24 @@ impl Scheduler {
                     {
                         let tos: &mut TileEl = state.stack.last_mut().unwrap();
                         if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
-                            if has_blended {
-                                // There has been a popped blend in this run of `do_tile`. Suspend
-                                // to give the blend command a chance to flush.
-                                return Ok(Some(cmd_idx));
-                            }
-
-                            let draw = self.draw_mut(tos.round - 1, temp_slot.get_texture());
+                            let next_round = depth % 2 == 0;
+                            let el_round = tos.round + usize::from(next_round);
+                            let draw = self.draw_mut(el_round, temp_slot.get_texture());
                             draw.push(
                                 GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
                                     .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
                             );
 
                             tos.temporary_slot = TemporarySlot::Valid(temp_slot);
+                            // Signal when this tile will be ready to use for future blend/pop/clip
+                            // operations.
+                            tos.round = el_round + 1;
 
                             // Make sure the destination slot and temporary slot are cleared
                             // appropriately.
                             let dest_slot = tos.dest_slot;
-                            let round = self.get_round(tos.round - 1);
+                            let round = self.get_round(el_round);
                             round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
-                            #[cfg(debug_assertions)]
-                            self.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
                             debug_assert_ne!(
                                 dest_slot.get_idx(),
                                 SENTINEL_SLOT_IDX,
@@ -762,14 +664,7 @@ impl Scheduler {
                             );
                             let round1 = self.get_round(tos.round);
                             round1.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
-                            #[cfg(debug_assertions)]
-                            self.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
                         }
-                    }
-
-                    // Suspend if there are no free slots.
-                    if self.free[0].is_empty() || self.free[1].is_empty() {
-                        return Ok(Some(cmd_idx));
                     }
 
                     // Push a new tile.
@@ -778,16 +673,12 @@ impl Scheduler {
                     {
                         let round = self.get_round(self.round);
                         round.clear[slot.get_texture()].push(slot.get_idx() as u32);
-                        #[cfg(debug_assertions)]
-                        self.clear[slot.get_texture()].push(slot.get_idx() as u32);
                     }
                     let temporary_slot =
                         if matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot) {
                             let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
                             let round = self.get_round(self.round);
                             round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
-                            #[cfg(debug_assertions)]
-                            self.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
                             debug_assert_ne!(
                                 slot.get_texture(),
                                 temp_slot.get_texture(),
@@ -964,8 +855,6 @@ impl Scheduler {
                         // Invalidate the temporary slot after use
                         let nos_ptr = state.stack.len() - 2;
                         state.stack[nos_ptr].temporary_slot.invalidate();
-                        // Signal to suspend before pushing a new buffer.
-                        has_blended = true;
                     } else {
                         assert_eq!(
                             nos.dest_slot.get_idx(),
@@ -987,7 +876,7 @@ impl Scheduler {
             }
         }
 
-        Ok(None)
+        Ok(())
     }
 
     /// Process a paint and return (`payload`, `paint`)
