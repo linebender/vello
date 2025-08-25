@@ -648,6 +648,8 @@ impl Scheduler {
                             );
 
                             tos.temporary_slot = TemporarySlot::Valid(temp_slot);
+                            // Signal when this tile will be ready to use for future blend/pop/clip
+                            // operations.
                             tos.round = el_round + 1;
 
                             // Make sure the destination slot and temporary slot are cleared
@@ -660,7 +662,7 @@ impl Scheduler {
                                 SENTINEL_SLOT_IDX,
                                 "surface cannot be read"
                             );
-                            let round1 = self.get_round(el_round + 1);
+                            let round1 = self.get_round(tos.round);
                             round1.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
                         }
                     }
