@@ -640,7 +640,7 @@ impl Scheduler {
                         let tos: &mut TileEl = state.stack.last_mut().unwrap();
                         if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
                             let next_round = depth % 2 == 0;
-                            let el_round = tos.round.max(tos.round + usize::from(next_round));
+                            let el_round = tos.round + usize::from(next_round);
                             let draw = self.draw_mut(el_round, temp_slot.get_texture());
                             draw.push(
                                 GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
