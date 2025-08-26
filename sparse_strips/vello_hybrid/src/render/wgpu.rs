@@ -1070,6 +1070,7 @@ impl RendererContext<'_> {
                 } else {
                     &self.programs.resources.slot_texture_views[ix]
                 },
+                depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load,
@@ -1116,6 +1117,7 @@ impl RendererContext<'_> {
                 label: Some("Clear Slots Render Pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
                     view: &resources.slot_texture_views[ix],
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         // Don't clear the entire texture, just specific slots

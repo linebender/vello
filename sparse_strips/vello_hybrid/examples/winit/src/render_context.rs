@@ -71,10 +71,12 @@ impl RenderContext {
     pub(crate) fn new() -> Self {
         let backends = wgpu::Backends::from_env().unwrap_or_default();
         let flags = wgpu::InstanceFlags::from_build_config().with_env();
+        let memory_budget_thresholds = wgpu::MemoryBudgetThresholds::default();
         let backend_options = wgpu::BackendOptions::from_env_or_default();
         let instance = Instance::new(&wgpu::InstanceDescriptor {
             backends,
             flags,
+            memory_budget_thresholds,
             backend_options,
         });
         Self {
