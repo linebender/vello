@@ -19,18 +19,17 @@ use winit::window::Window;
 use vello::wgpu;
 
 #[derive(Debug)]
-enum RenderState<'s> {
+enum RenderState {
     /// `RenderSurface` and `Window` for active rendering.
     Active {
-        // The `RenderSurface` and the `Window` must be in this order, so that the surface is dropped first.
-        surface: Box<RenderSurface<'s>>,
+        surface: Box<RenderSurface<'static>>,
         window: Arc<Window>,
     },
     /// Cache a window so that it can be reused when the app is resumed after being suspended.
     Suspended(Option<Arc<Window>>),
 }
 
-struct SimpleVelloApp<'s> {
+struct SimpleVelloApp {
     // The vello RenderContext which is a global context that lasts for the
     // lifetime of the application
     context: RenderContext,
@@ -39,7 +38,7 @@ struct SimpleVelloApp<'s> {
     renderers: Vec<Option<Renderer>>,
 
     // State for our example where we store the winit Window and the wgpu Surface
-    state: RenderState<'s>,
+    state: RenderState,
 
     // A vello Scene which is a data structure which allows one to build up a
     // description a scene to be drawn (with paths, fills, images, text, etc)
@@ -47,7 +46,7 @@ struct SimpleVelloApp<'s> {
     scene: Scene,
 }
 
-impl ApplicationHandler for SimpleVelloApp<'_> {
+impl ApplicationHandler for SimpleVelloApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let RenderState::Suspended(cached_window) = &mut self.state else {
             return;
