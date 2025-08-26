@@ -941,7 +941,8 @@ dependencies = [
 [[package]]
 name = "fearless_simd"
 version = "0.2.0"
-source = "git+https://github.com/linebender/fearless_simd?rev=f25206a#f25206a4fe58a8f6daae157d63b1abdafb3a1be2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb8f822f06d1b452a9207f11ce3292f7ee6c23d5d2e7ddfd07990a9107804850"
 dependencies = [
  "bytemuck",
  "libm",
