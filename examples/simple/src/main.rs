@@ -22,7 +22,6 @@ use vello::wgpu;
 enum RenderState {
     /// `RenderSurface` and `Window` for active rendering.
     Active {
-        // The `RenderSurface` and the `Window` must be in this order, so that the surface is dropped first.
         surface: Box<RenderSurface<'static>>,
         window: Arc<Window>,
     },
