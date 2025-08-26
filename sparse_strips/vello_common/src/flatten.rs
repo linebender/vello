@@ -84,7 +84,7 @@ pub fn fill(
     fill_dispatch(level, path, affine, line_buf, ctx);
 }
 
-simd_dispatch!(fill_dispatch(
+simd_dispatch!(fn fill_dispatch(
     level,
     path: impl IntoIterator<Item = PathEl>, 
     affine: Affine,

@@ -491,7 +491,7 @@ impl Dispatcher for MultiThreadedDispatcher {
 }
 
 simd_dispatch!(
-    pub rasterize_with_f32_dispatch(
+    pub fn rasterize_with_f32_dispatch(
         level,
         self_: &MultiThreadedDispatcher,
         buffer: &mut [u8],
@@ -502,7 +502,7 @@ simd_dispatch!(
 );
 
 simd_dispatch!(
-    pub rasterize_with_u8_dispatch(
+    pub fn rasterize_with_u8_dispatch(
         level,
         self_: &MultiThreadedDispatcher,
         buffer: &mut [u8],
