@@ -83,6 +83,22 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         &format!("{input_fn_name}_cpu_f32_neon"),
         input_fn_name.span(),
     );
+    let u8_fn_name_sse42 = Ident::new(
+        &format!("{input_fn_name}_cpu_u8_sse42"),
+        input_fn_name.span(),
+    );
+    let f32_fn_name_sse42 = Ident::new(
+        &format!("{input_fn_name}_cpu_f32_sse42"),
+        input_fn_name.span(),
+    );
+    let u8_fn_name_avx2 = Ident::new(
+        &format!("{input_fn_name}_cpu_u8_avx2"),
+        input_fn_name.span(),
+    );
+    let f32_fn_name_avx2 = Ident::new(
+        &format!("{input_fn_name}_cpu_f32_avx2"),
+        input_fn_name.span(),
+    );
     let u8_fn_name_wasm = Ident::new(
         &format!("{input_fn_name}_cpu_u8_wasm"),
         input_fn_name.span(),
@@ -110,6 +126,10 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let f32_fn_name_str_scalar = f32_fn_name_scalar.to_string();
     let u8_fn_name_str_neon = u8_fn_name_neon.to_string();
     let f32_fn_name_str_neon = f32_fn_name_neon.to_string();
+    let u8_fn_name_str_sse42 = u8_fn_name_sse42.to_string();
+    let f32_fn_name_str_sse42 = f32_fn_name_sse42.to_string();
+    let u8_fn_name_str_avx2 = u8_fn_name_avx2.to_string();
+    let f32_fn_name_str_avx2 = f32_fn_name_avx2.to_string();
     let u8_fn_name_wasm_str = u8_fn_name_wasm.to_string();
     let f32_fn_name_wasm_str = f32_fn_name_wasm.to_string();
     let multithreaded_fn_name_str = multithreaded_fn_name.to_string();
@@ -155,12 +175,12 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     };
 
     let cpu_u8_tolerance_scalar = cpu_u8_tolerance + DEFAULT_CPU_U8_TOLERANCE;
-    let cpu_u8_tolerance_neon =
+    let cpu_u8_tolerance_simd =
         cpu_u8_tolerance + DEFAULT_SIMD_TOLERANCE.max(DEFAULT_CPU_U8_TOLERANCE);
 
     // Since f32 is our gold standard, we always require exact matches for this one.
     let cpu_f32_tolerance_scalar = DEFAULT_CPU_F32_TOLERANCE;
-    let cpu_f32_tolerance_neon = DEFAULT_CPU_F32_TOLERANCE + DEFAULT_SIMD_TOLERANCE;
+    let cpu_f32_tolerance_simd = DEFAULT_CPU_F32_TOLERANCE + DEFAULT_SIMD_TOLERANCE;
     hybrid_tolerance += DEFAULT_HYBRID_TOLERANCE;
 
     // These tests currently don't work with `vello_hybrid`.
@@ -253,6 +273,17 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     #[cfg(not(target_arch = "aarch64"))]
     let has_neon = false;
 
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
+    let has_sse42 = false;
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    let has_sse42 = std::arch::is_x86_feature_detected!("sse4.2");
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
+    let has_avx2 = false;
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    let has_avx2 =
+        std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma");
+
     let wasm_simd_level = quote! {if cfg!(target_feature = "simd128") {
             "wasm_simd128"
         } else {
@@ -314,7 +345,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let neon_u8_snippet = cpu_snippet(
         u8_fn_name_neon,
         u8_fn_name_str_neon,
-        cpu_u8_tolerance_neon,
+        cpu_u8_tolerance_simd,
         false,
         0,
         quote! {"neon"},
@@ -325,11 +356,55 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let neon_f32_snippet = cpu_snippet(
         f32_fn_name_neon,
         f32_fn_name_str_neon,
-        cpu_f32_tolerance_neon,
+        cpu_f32_tolerance_simd,
         false,
         0,
         quote! {"neon"},
         skip_cpu | !has_neon,
+        quote! { RenderMode::OptimizeQuality },
+    );
+
+    let sse42_u8_snippet = cpu_snippet(
+        u8_fn_name_sse42,
+        u8_fn_name_str_sse42,
+        cpu_u8_tolerance_simd,
+        false,
+        0,
+        quote! {"sse42"},
+        skip_cpu | !has_sse42,
+        quote! { RenderMode::OptimizeSpeed },
+    );
+
+    let sse42_f32_snippet = cpu_snippet(
+        f32_fn_name_sse42,
+        f32_fn_name_str_sse42,
+        cpu_f32_tolerance_simd,
+        false,
+        0,
+        quote! {"sse42"},
+        skip_cpu | !has_sse42,
+        quote! { RenderMode::OptimizeQuality },
+    );
+
+    let avx2_u8_snippet = cpu_snippet(
+        u8_fn_name_avx2,
+        u8_fn_name_str_avx2,
+        cpu_u8_tolerance_simd,
+        false,
+        0,
+        quote! {"avx2"},
+        skip_cpu | !has_avx2,
+        quote! { RenderMode::OptimizeSpeed },
+    );
+
+    let avx2_f32_snippet = cpu_snippet(
+        f32_fn_name_avx2,
+        f32_fn_name_str_avx2,
+        cpu_f32_tolerance_simd,
+        false,
+        0,
+        quote! {"avx2"},
+        skip_cpu | !has_avx2,
         quote! { RenderMode::OptimizeQuality },
     );
 
@@ -342,11 +417,19 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
 
         #neon_u8_snippet
 
+        #sse42_u8_snippet
+
+        #avx2_u8_snippet
+
         #u8_snippet_wasm
 
         #f32_snippet
 
         #neon_f32_snippet
+
+        #sse42_f32_snippet
+
+        #avx2_f32_snippet
 
         #f32_snippet_wasm
 

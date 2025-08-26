@@ -4,6 +4,7 @@
 use crate::data::get_data_items;
 use criterion::Criterion;
 use vello_common::tile::Tiles;
+use vello_cpu::Level;
 
 pub fn tile(c: &mut Criterion) {
     let mut g = c.benchmark_group("tile");
@@ -15,7 +16,7 @@ pub fn tile(c: &mut Criterion) {
 
             g.bench_function($item.name.clone(), |b| {
                 b.iter(|| {
-                    let mut tiler = Tiles::new();
+                    let mut tiler = Tiles::new(Level::new());
                     tiler.make_tiles(&lines, $item.width, $item.height);
                 })
             });

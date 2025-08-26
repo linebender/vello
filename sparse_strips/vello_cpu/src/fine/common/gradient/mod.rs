@@ -19,18 +19,24 @@ pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
     start_x: u16,
     start_y: u16,
 ) {
-    let mut cur_pos = gradient.transform * Point::new(f64::from(start_x), f64::from(start_y));
-    let x_advances = (gradient.x_advance.x as f32, gradient.x_advance.y as f32);
-    let y_advances = (gradient.y_advance.x as f32, gradient.y_advance.y as f32);
+    simd.vectorize(
+        #[inline(always)]
+        || {
+            let mut cur_pos =
+                gradient.transform * Point::new(f64::from(start_x), f64::from(start_y));
+            let x_advances = (gradient.x_advance.x as f32, gradient.x_advance.y as f32);
+            let y_advances = (gradient.y_advance.x as f32, gradient.y_advance.y as f32);
 
-    for buf_part in buf.chunks_exact_mut(8) {
-        let x_pos = f32x8::splat_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
-        let y_pos = f32x8::splat_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
-        let pos = kind.cur_pos(x_pos, y_pos);
-        buf_part.copy_from_slice(&pos.val);
+            for buf_part in buf.chunks_exact_mut(8) {
+                let x_pos = f32x8::splat_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
+                let y_pos = f32x8::splat_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
+                let pos = kind.cur_pos(x_pos, y_pos);
+                buf_part.copy_from_slice(&pos.val);
 
-        cur_pos += 2.0 * gradient.x_advance;
-    }
+                cur_pos += 2.0 * gradient.x_advance;
+            }
+        },
+    );
 }
 
 #[derive(Debug)]
@@ -72,7 +78,17 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
         let pad = self.gradient.pad;
         let pos = f32x8::from_slice(self.simd, self.t_vals.next()?);
         let t_vals = extend(pos, pad);
-        let indices = (t_vals * self.scale_factor).cvt_u32();
+
+        let indices = {
+            // Clear NaNs.
+            let cleared_t_vals = self.simd.select_f32x8(
+                t_vals.simd_eq(t_vals),
+                t_vals,
+                f32x8::splat(self.simd, 0.0),
+            );
+
+            (cleared_t_vals * self.scale_factor).cvt_u32()
+        };
 
         let mut r = [0.0_f32; 8];
         let mut g = [0.0_f32; 8];

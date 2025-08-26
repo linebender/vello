@@ -6,7 +6,7 @@
 use crate::flatten::Line;
 use alloc::vec;
 use alloc::vec::Vec;
-
+use fearless_simd::Level;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 
@@ -153,20 +153,16 @@ impl Eq for Tile {}
 #[derive(Clone, Debug)]
 pub struct Tiles {
     tile_buf: Vec<Tile>,
+    level: Level,
     sorted: bool,
-}
-
-impl Default for Tiles {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl Tiles {
     /// Create a new tiles container.
-    pub fn new() -> Self {
+    pub fn new(level: Level) -> Self {
         Self {
             tile_buf: vec![],
+            level,
             sorted: false,
         }
     }
@@ -190,7 +186,8 @@ impl Tiles {
     /// Sort the tiles in the container.
     pub fn sort_tiles(&mut self) {
         self.sorted = true;
-        self.tile_buf.sort_unstable();
+        // To enable auto-vectorization.
+        self.level.dispatch(|_| self.tile_buf.sort_unstable());
     }
 
     /// Get the tile at a certain index.
@@ -346,7 +343,7 @@ mod tests {
             p1: Point { x: 9.0, y: -1.0 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line], 100, 100);
 
         assert!(tiles.is_empty());
@@ -359,7 +356,7 @@ mod tests {
             p1: Point { x: 103.0, y: 20.0 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line], 100, 100);
 
         assert!(tiles.is_empty());
@@ -372,7 +369,7 @@ mod tests {
             p1: Point { x: 35.0, y: 105.0 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line], 100, 100);
 
         assert!(tiles.is_empty());
@@ -385,7 +382,7 @@ mod tests {
             p1: Point { x: 2.0, y: 1.0 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line], 100, 100);
 
         assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, true)]);
@@ -398,7 +395,7 @@ mod tests {
             p1: Point { x: 8.5, y: 1.0 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -419,7 +416,7 @@ mod tests {
             p1: Point { x: 1.0, y: 8.5 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -440,7 +437,7 @@ mod tests {
             p1: Point { x: 11.0, y: 8.5 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -463,7 +460,7 @@ mod tests {
             p1: Point { x: 1.0, y: 1.0 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -486,7 +483,7 @@ mod tests {
             p1: Point { x: 14.0, y: 6.0 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -509,7 +506,7 @@ mod tests {
             p1: Point { x: 2.0, y: 11.0 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -537,7 +534,7 @@ mod tests {
             p1: Point { x: 0.0, y: 1.0 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line_1, line_2], 100, 100);
 
         assert_eq!(
@@ -554,7 +551,7 @@ mod tests {
             p1: Point { x: 224.0, y: 388.0 },
         };
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&[line], 600, 600);
     }
 
@@ -570,7 +567,7 @@ mod tests {
             &mut FlattenCtx::default(),
         );
 
-        let mut tiles = Tiles::new();
+        let mut tiles = Tiles::new(Level::new());
         tiles.make_tiles(&line_buf, 10, 10);
         assert!(tiles.is_empty());
     }
