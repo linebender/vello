@@ -815,11 +815,6 @@ impl Scheduler {
                     state.stack.last_mut().unwrap().opacity = *opacity;
                 }
                 Cmd::Blend(mode) => {
-                    assert!(
-                        matches!(mode.mix, Mix::Normal),
-                        "Only Mix::Normal is supported currently"
-                    );
-
                     let tos = state.stack.last().unwrap();
                     let nos = &state.stack[state.stack.len() - 2];
 
