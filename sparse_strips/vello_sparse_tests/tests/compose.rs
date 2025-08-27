@@ -332,7 +332,7 @@ fn deep_compose(ctx: &mut impl Renderer) {
 }
 
 // Ensure that compose and mix work together in the same blend layer.
-#[vello_test(width = 140, height = 160, cpu_u8_tolerance = 1, hybrid_tolerance = 15)]
+#[vello_test(width = 160, height = 160)]
 fn mix_compose_combined_test_matrix(ctx: &mut impl Renderer) {
     let mix_modes = [
         Mix::Normal,
@@ -353,7 +353,6 @@ fn mix_compose_combined_test_matrix(ctx: &mut impl Renderer) {
         Mix::Luminosity,
     ];
 
-    // Selected compose modes for combination testing
     let compose_modes = [
         Compose::Clear,
         Compose::Copy,
@@ -371,14 +370,11 @@ fn mix_compose_combined_test_matrix(ctx: &mut impl Renderer) {
         Compose::PlusLighter,
     ];
 
-    // Grid configuration
     let cell_size = 10.0;
 
-    // Draw background
     ctx.set_paint(Color::from_rgb8(30, 30, 30));
-    ctx.fill_rect(&Rect::new(0.0, 0.0, 160.0, 140.0));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 160.0, 160.0));
 
-    // Draw the grid: mix modes as rows, compose modes as columns
     for (row, mix_mode) in mix_modes.iter().enumerate() {
         for (col, compose_mode) in compose_modes.iter().enumerate() {
             let x = (col as f64) * cell_size;
@@ -386,14 +382,13 @@ fn mix_compose_combined_test_matrix(ctx: &mut impl Renderer) {
 
             ctx.set_transform(Affine::translate((x, y)));
 
-            // Create an isolated group
             ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
 
-            // Draw destination (magenta rectangle)
+            // Draw magenta rectangle for destination.
             ctx.set_paint(Color::from_rgb8(200, 0, 200).with_alpha(0.7));
             ctx.fill_rect(&Rect::new(0.0, 0.0, cell_size * 0.7, cell_size * 0.7));
 
-            // Apply combined blend mode (mix + compose) and draw source
+            // Push mix + compose blend layer with fill
             ctx.push_blend_layer(BlendMode::new(*mix_mode, *compose_mode));
             ctx.set_paint(Color::from_rgb8(10, 200, 200).with_alpha(0.7)); // Cyan
             ctx.fill_rect(&Rect::new(
@@ -407,40 +402,4 @@ fn mix_compose_combined_test_matrix(ctx: &mut impl Renderer) {
             ctx.pop_layer();
         }
     }
-
-    // Add a second pattern below with different colors
-    for (row, mix_mode) in mix_modes.iter().enumerate() {
-        for (col, compose_mode) in compose_modes.iter().take(6).enumerate() {
-            let x = (col as f64) * cell_size;
-            let y = (row as f64 + 8.0) * cell_size;
-
-            ctx.set_transform(Affine::translate((x, y)));
-
-            ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
-
-            // Draw destination (yellow circle-like pattern using rectangles)
-            ctx.set_paint(YELLOW.with_alpha(0.8));
-            ctx.fill_rect(&Rect::new(
-                cell_size * 0.2,
-                cell_size * 0.1,
-                cell_size * 0.6,
-                cell_size * 0.8,
-            ));
-
-            // Apply combined blend mode and draw source pattern
-            ctx.push_blend_layer(BlendMode::new(*mix_mode, *compose_mode));
-            ctx.set_paint(RED.with_alpha(0.8));
-            ctx.fill_rect(&Rect::new(
-                cell_size * 0.4,
-                cell_size * 0.4,
-                cell_size * 0.6,
-                cell_size * 0.6,
-            ));
-            ctx.pop_layer();
-
-            ctx.pop_layer();
-        }
-    }
-
-    ctx.set_transform(Affine::IDENTITY);
 }

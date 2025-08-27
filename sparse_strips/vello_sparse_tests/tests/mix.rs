@@ -192,9 +192,8 @@ fn mix_saturation_with_solid(ctx: &mut impl Renderer) {
 
 // Currently `vello_hybrid` does not support gradients. This test ensure mix is tested in
 // `vello_hybrid` by using solid colors.
-#[vello_test(width = 80, height = 160, cpu_u8_tolerance = 1)]
+#[vello_test(width = 80, height = 160)]
 fn mix_modes_non_gradient_test_matrix(ctx: &mut impl Renderer) {
-    // All mix modes to test
     let mix_modes = [
         Mix::Normal,
         Mix::Multiply,
@@ -214,26 +213,23 @@ fn mix_modes_non_gradient_test_matrix(ctx: &mut impl Renderer) {
         Mix::Luminosity,
     ];
 
-    // Base colors (destination rectangles)
+    // Base colors for destination.
     let base_colors = [
         RED,
         Color::from_rgb8(10, 230, 10),
         BLUE,
         YELLOW,
         MAGENTA,
-        Color::from_rgb8(10, 230, 230),  // Cyan
-        Color::from_rgb8(128, 128, 128), // Gray
-        Color::from_rgb8(64, 64, 64),    // Dark gray
+        Color::from_rgb8(10, 230, 230),
+        Color::from_rgb8(128, 128, 128),
+        Color::from_rgb8(64, 64, 64),
     ];
 
-    // Grid configuration
     let cell_size = 10.0;
 
-    // Draw background
     ctx.set_paint(Color::from_rgb8(30, 30, 30));
-    ctx.fill_rect(&Rect::new(0.0, 0.0, 800.0, 800.0));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 80.0, 160.0));
 
-    // Draw the grid
     for (row, mix_mode) in mix_modes.iter().enumerate() {
         for (col, base_color) in base_colors.iter().enumerate() {
             let x = (col as f64) * (cell_size);
@@ -248,11 +244,9 @@ fn mix_modes_non_gradient_test_matrix(ctx: &mut impl Renderer) {
             // Apply blend mode and draw overlay (source)
             ctx.push_blend_layer(BlendMode::new(*mix_mode, Compose::SrcOver));
 
-            // Draw overlapping rectangles with semi-transparent orange
             ctx.set_paint(ORANGE.with_alpha(0.7));
             ctx.fill_rect(&Rect::new(0.0, 0.0, cell_size * 0.7, cell_size * 0.7));
 
-            // Draw another rectangle with semi-transparent white
             ctx.set_paint(Color::WHITE.with_alpha(0.5));
             ctx.fill_rect(&Rect::new(
                 cell_size * 0.3,
@@ -264,6 +258,4 @@ fn mix_modes_non_gradient_test_matrix(ctx: &mut impl Renderer) {
             ctx.pop_layer();
         }
     }
-
-    ctx.set_transform(Affine::IDENTITY);
 }
