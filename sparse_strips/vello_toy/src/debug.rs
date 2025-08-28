@@ -31,7 +31,7 @@ fn main() {
         Document::new().set("viewBox", (-10, -10, args.width + 20, args.height + 20));
 
     let mut line_buf = vec![];
-    let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+    let mut tiles = Tiles::new(Level::new());
     let mut strip_buf = vec![];
     let mut alpha_buf = vec![];
     let mut wide = Wide::<MODE_CPU>::new(args.width, args.height);
@@ -43,7 +43,7 @@ fn main() {
     if stages.iter().any(|s| s.requires_flatten()) {
         if !args.stroke {
             flatten::fill(
-                Level::try_detect().unwrap_or(Level::fallback()),
+                Level::new(),
                 &args.path,
                 Affine::IDENTITY,
                 &mut line_buf,
@@ -58,7 +58,7 @@ fn main() {
                 ..Default::default()
             };
             flatten::stroke(
-                Level::try_detect().unwrap_or(Level::fallback()),
+                Level::new(),
                 &args.path,
                 &stroke,
                 Affine::IDENTITY,
@@ -75,7 +75,7 @@ fn main() {
 
     if stages.iter().any(|s| s.requires_strips()) {
         strip::render(
-            Level::try_detect().unwrap_or(Level::fallback()),
+            Level::new(),
             &tiles,
             &mut strip_buf,
             &mut alpha_buf,

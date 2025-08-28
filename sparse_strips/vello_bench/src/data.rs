@@ -81,7 +81,7 @@ impl DataItem {
 
         for path in &self.fills {
             flatten::fill(
-                Level::try_detect().unwrap_or(Level::fallback()),
+                Level::new(),
                 &path.path,
                 path.transform,
                 &mut temp_buf,
@@ -96,7 +96,7 @@ impl DataItem {
                 ..Default::default()
             };
             flatten::stroke(
-                Level::try_detect().unwrap_or(Level::fallback()),
+                Level::new(),
                 &path.path,
                 &stroke,
                 path.transform,
@@ -126,7 +126,7 @@ impl DataItem {
 
     /// Get the unsorted tiles.
     pub fn unsorted_tiles(&self) -> Tiles {
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::new());
         let lines = self.lines();
         tiles.make_tiles(&lines, self.width, self.height);
 

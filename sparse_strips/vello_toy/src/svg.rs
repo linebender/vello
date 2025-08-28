@@ -34,7 +34,7 @@ fn main() {
 
     let mut num_iters = 0;
     let settings = RenderSettings {
-        level: Level::try_detect().unwrap_or(Level::fallback()),
+        level: Level::new(),
         num_threads: args.num_threads as u16,
         render_mode: RenderMode::OptimizeSpeed,
     };

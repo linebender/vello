@@ -53,7 +53,7 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
             // });
 
             #[cfg(target_arch = "aarch64")]
-            if let Some(neon) = Level::try_detect().unwrap_or(Level::fallback()).as_neon() {
+            if let Some(neon) = Level::new().as_neon() {
                 c.bench_function(&get_bench_name(&#input_fn_name_str, "u8_neon"), |b| {
                     run_integer(b, neon);
                 });
@@ -66,7 +66,7 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
 
             // Uncomment this to enable f32_neon benchmarks.
             // #[cfg(target_arch = "aarch64")]
-            // if let Some(neon) = Level::try_detect().unwrap_or(Level::fallback()).as_neon() {
+            // if let Some(neon) = Level::new().as_neon() {
             //     c.bench_function(&get_bench_name(&#input_fn_name_str, "f32_neon"), |b| {
             //         run_float(b, neon);
             //     });

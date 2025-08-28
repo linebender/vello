@@ -23,7 +23,7 @@ pub fn flatten(c: &mut Criterion) {
 
                     for path in &$item.fills {
                         flatten::fill(
-                            Level::try_detect().unwrap_or(Level::fallback()),
+                            Level::new(),
                             &path.path,
                             path.transform,
                             &mut temp_buf,
@@ -34,7 +34,7 @@ pub fn flatten(c: &mut Criterion) {
 
                     for stroke in &expanded_strokes {
                         flatten::fill(
-                            Level::try_detect().unwrap_or(Level::fallback()),
+                            Level::new(),
                             stroke,
                             Affine::IDENTITY,
                             &mut temp_buf,

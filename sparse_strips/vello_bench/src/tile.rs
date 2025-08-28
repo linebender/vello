@@ -16,7 +16,7 @@ pub fn tile(c: &mut Criterion) {
 
             g.bench_function($item.name.clone(), |b| {
                 b.iter(|| {
-                    let mut tiler = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+                    let mut tiler = Tiles::new(Level::new());
                     tiler.make_tiles(&lines, $item.width, $item.height);
                 })
             });
