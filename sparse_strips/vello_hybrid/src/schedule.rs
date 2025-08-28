@@ -815,11 +815,6 @@ impl Scheduler {
                     state.stack.last_mut().unwrap().opacity = *opacity;
                 }
                 Cmd::Blend(mode) => {
-                    assert!(
-                        matches!(mode.mix, Mix::Normal),
-                        "Only Mix::Normal is supported currently"
-                    );
-
                     let tos = state.stack.last().unwrap();
                     let nos = &state.stack[state.stack.len() - 2];
 
@@ -837,6 +832,11 @@ impl Scheduler {
                         );
                         let opacity_u8 = (tos.opacity * 255.0) as u8;
                         let mix_mode = mode.mix as u8;
+                        debug_assert_ne!(
+                            mode.mix,
+                            Mix::Clip,
+                            "Mix::Clip unsupported, instead use Mix::Normal."
+                        );
                         let compose_mode = mode.compose as u8;
 
                         let gpu_strip_builder = if depth <= 2 {

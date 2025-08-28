@@ -3,7 +3,7 @@
 
 use crate::renderer::Renderer;
 use vello_common::color::palette::css::{BLUE, GREEN, PURPLE, RED, YELLOW};
-use vello_common::kurbo::{Circle, Point, Rect, Shape};
+use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
 use vello_dev_macros::vello_test;
 
@@ -328,5 +328,78 @@ fn deep_compose(ctx: &mut impl Renderer) {
 
     for _ in 0..=LAYER_COUNT {
         ctx.pop_layer();
+    }
+}
+
+// Ensure that compose and mix work together in the same blend layer.
+#[vello_test(width = 160, height = 160)]
+fn mix_compose_combined_test_matrix(ctx: &mut impl Renderer) {
+    let mix_modes = [
+        Mix::Normal,
+        Mix::Multiply,
+        Mix::Screen,
+        Mix::Overlay,
+        Mix::Darken,
+        Mix::Lighten,
+        Mix::ColorDodge,
+        Mix::ColorBurn,
+        Mix::HardLight,
+        Mix::SoftLight,
+        Mix::Difference,
+        Mix::Exclusion,
+        Mix::Hue,
+        Mix::Saturation,
+        Mix::Color,
+        Mix::Luminosity,
+    ];
+
+    let compose_modes = [
+        Compose::Clear,
+        Compose::Copy,
+        Compose::Dest,
+        Compose::SrcOver,
+        Compose::DestOver,
+        Compose::SrcIn,
+        Compose::DestIn,
+        Compose::SrcOut,
+        Compose::DestOut,
+        Compose::SrcAtop,
+        Compose::DestAtop,
+        Compose::Xor,
+        Compose::Plus,
+        Compose::PlusLighter,
+    ];
+
+    let cell_size = 10.0;
+
+    ctx.set_paint(Color::from_rgb8(30, 30, 30));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 160.0, 160.0));
+
+    for (row, mix_mode) in mix_modes.iter().enumerate() {
+        for (col, compose_mode) in compose_modes.iter().enumerate() {
+            let x = (col as f64) * cell_size;
+            let y = (row as f64) * cell_size;
+
+            ctx.set_transform(Affine::translate((x, y)));
+
+            ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
+
+            // Draw magenta rectangle for destination.
+            ctx.set_paint(Color::from_rgb8(200, 0, 200).with_alpha(0.7));
+            ctx.fill_rect(&Rect::new(0.0, 0.0, cell_size * 0.7, cell_size * 0.7));
+
+            // Push mix + compose blend layer with fill
+            ctx.push_blend_layer(BlendMode::new(*mix_mode, *compose_mode));
+            ctx.set_paint(Color::from_rgb8(10, 200, 200).with_alpha(0.7)); // Cyan
+            ctx.fill_rect(&Rect::new(
+                cell_size * 0.3,
+                cell_size * 0.3,
+                cell_size,
+                cell_size,
+            ));
+            ctx.pop_layer();
+
+            ctx.pop_layer();
+        }
     }
 }

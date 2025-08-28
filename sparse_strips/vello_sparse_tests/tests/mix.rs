@@ -4,12 +4,13 @@
 use crate::load_image;
 use crate::renderer::Renderer;
 use smallvec::smallvec;
-use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, RED, YELLOW};
+use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, ORANGE, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{
-    BlendMode, ColorStop, ColorStops, Compose, Extend, Gradient, GradientKind, ImageQuality, Mix,
+    BlendMode, Color, ColorStop, ColorStops, Compose, Extend, Gradient, GradientKind, ImageQuality,
+    Mix,
 };
 use vello_dev_macros::vello_test;
 
@@ -187,4 +188,74 @@ fn mix_color_with_solid(ctx: &mut impl Renderer) {
 #[vello_test]
 fn mix_saturation_with_solid(ctx: &mut impl Renderer) {
     mix_solid(ctx, Mix::Saturation);
+}
+
+// Currently `vello_hybrid` does not support gradients. This test ensure mix is tested in
+// `vello_hybrid` by using solid colors.
+#[vello_test(width = 80, height = 160)]
+fn mix_modes_non_gradient_test_matrix(ctx: &mut impl Renderer) {
+    let mix_modes = [
+        Mix::Normal,
+        Mix::Multiply,
+        Mix::Screen,
+        Mix::Overlay,
+        Mix::Darken,
+        Mix::Lighten,
+        Mix::ColorDodge,
+        Mix::ColorBurn,
+        Mix::HardLight,
+        Mix::SoftLight,
+        Mix::Difference,
+        Mix::Exclusion,
+        Mix::Hue,
+        Mix::Saturation,
+        Mix::Color,
+        Mix::Luminosity,
+    ];
+
+    // Base colors for destination.
+    let base_colors = [
+        RED,
+        Color::from_rgb8(10, 230, 10),
+        BLUE,
+        YELLOW,
+        MAGENTA,
+        Color::from_rgb8(10, 230, 230),
+        Color::from_rgb8(128, 128, 128),
+        Color::from_rgb8(64, 64, 64),
+    ];
+
+    let cell_size = 10.0;
+
+    ctx.set_paint(Color::from_rgb8(30, 30, 30));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 80.0, 160.0));
+
+    for (row, mix_mode) in mix_modes.iter().enumerate() {
+        for (col, base_color) in base_colors.iter().enumerate() {
+            let x = (col as f64) * (cell_size);
+            let y = (row as f64) * (cell_size);
+
+            ctx.set_transform(Affine::translate((x, y)));
+
+            // Draw base rectangle (destination)
+            ctx.set_paint(*base_color);
+            ctx.fill_rect(&Rect::new(0.0, 0.0, cell_size, cell_size));
+
+            // Apply blend mode and draw overlay (source)
+            ctx.push_blend_layer(BlendMode::new(*mix_mode, Compose::SrcOver));
+
+            ctx.set_paint(ORANGE.with_alpha(0.7));
+            ctx.fill_rect(&Rect::new(0.0, 0.0, cell_size * 0.7, cell_size * 0.7));
+
+            ctx.set_paint(Color::WHITE.with_alpha(0.5));
+            ctx.fill_rect(&Rect::new(
+                cell_size * 0.3,
+                cell_size * 0.3,
+                cell_size,
+                cell_size,
+            ));
+
+            ctx.pop_layer();
+        }
+    }
 }
