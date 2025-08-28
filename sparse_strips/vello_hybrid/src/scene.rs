@@ -70,7 +70,11 @@ impl Scene {
             encoded_paints: vec![],
             paint_visible: true,
             stroke: render_state.stroke,
-            strip_generator: StripGenerator::new(width, height, Level::new()),
+            strip_generator: StripGenerator::new(
+                width,
+                height,
+                Level::try_detect().unwrap_or(Level::fallback()),
+            ),
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
             blend_mode: render_state.blend_mode,

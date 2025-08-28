@@ -52,7 +52,7 @@ pub fn render(
     );
 }
 
-simd_dispatch!(render_dispatch(
+simd_dispatch!(fn render_dispatch(
     level,
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
