@@ -73,7 +73,6 @@ const MIX_HUE = 12u;
 const MIX_SATURATION = 13u;
 const MIX_COLOR = 14u;
 const MIX_LUMINOSITY = 15u;
-const MIX_CLIP = 128u;
 
 struct Config {
     // Width of the rendering target
