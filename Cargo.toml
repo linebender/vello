@@ -42,7 +42,7 @@ version = "0.5.0"
 edition = "2024"
 # Keep in sync with RUST_MIN_VER in .github/workflows/ci.yml, with the relevant README.md files
 # and with the MSRV in the `Unreleased` section of CHANGELOG.md.
-rust-version = "1.85"
+rust-version = "1.86"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/linebender/vello"
 
