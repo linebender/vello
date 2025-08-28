@@ -134,7 +134,11 @@ pub fn stroke(
     flatten_ctx: &mut FlattenCtx,
 ) {
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
-    let tolerance = TOL / affine.as_coeffs()[0].abs().max(affine.as_coeffs()[3].abs());
+    let tolerance = TOL
+        / affine.as_coeffs()[0]
+            .abs()
+            .max(affine.as_coeffs()[3].abs())
+            .max(1.);
 
     let expanded = expand_stroke(path, style, tolerance);
     fill(level, &expanded, affine, line_buf, flatten_ctx);
