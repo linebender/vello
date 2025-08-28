@@ -414,3 +414,23 @@ fn no_anti_aliasing_clip_path(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
     ctx.pop_layer();
 }
+
+#[vello_test(diff_pixels = 1)]
+fn stroke_scaled(ctx: &mut impl Renderer) {
+    let mut path = BezPath::new();
+    path.move_to((0.0, 0.0));
+    path.curve_to((0.25, 1.0), (0.75, 1.0), (1.0, 0.0));
+
+    // This path should be more or less completely covered.
+    let mut stroke = Stroke::new(10.0);
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.set_stroke(stroke);
+    ctx.set_paint(RED);
+    ctx.stroke_path(&(Affine::scale(100.0) * path.clone()));
+
+    stroke = Stroke::new(0.1);
+    ctx.set_transform(Affine::scale(100.0));
+    ctx.set_stroke(stroke);
+    ctx.set_paint(LIME);
+    ctx.stroke_path(&path);
+}
