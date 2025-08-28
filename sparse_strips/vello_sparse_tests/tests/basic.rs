@@ -422,13 +422,13 @@ fn stroke_scaled(ctx: &mut impl Renderer) {
     path.curve_to((0.25, 1.0), (0.75, 1.0), (1.0, 0.0));
 
     // This path should be more or less completely covered.
-    let stroke = Stroke::new(10.0);
+    let mut stroke = Stroke::new(10.0);
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_stroke(stroke);
     ctx.set_paint(RED);
     ctx.stroke_path(&(Affine::scale(100.0) * path.clone()));
 
-    let stroke = Stroke::new(0.1);
+    stroke = Stroke::new(0.1);
     ctx.set_transform(Affine::scale(100.0));
     ctx.set_stroke(stroke);
     ctx.set_paint(LIME);
