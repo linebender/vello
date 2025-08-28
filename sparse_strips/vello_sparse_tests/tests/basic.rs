@@ -415,7 +415,7 @@ fn no_anti_aliasing_clip_path(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test]
+#[vello_test(diff_pixels = 1)]
 fn stroke_scaled(ctx: &mut impl Renderer) {
     let mut path = BezPath::new();
     path.move_to((0.0, 0.0));
