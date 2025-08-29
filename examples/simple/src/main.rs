@@ -23,6 +23,7 @@ enum RenderState {
     /// `RenderSurface` and `Window` for active rendering.
     Active {
         surface: Box<RenderSurface<'static>>,
+        valid_surface: bool,
         window: Arc<Window>,
     },
     /// Cache a window so that it can be reused when the app is resumed after being suspended.
@@ -30,19 +31,19 @@ enum RenderState {
 }
 
 struct SimpleVelloApp {
-    // The vello RenderContext which is a global context that lasts for the
-    // lifetime of the application
+    /// The Vello `RenderContext` which is a global context that lasts for the
+    /// lifetime of the application
     context: RenderContext,
 
-    // An array of renderers, one per wgpu device
+    /// An array of renderers, one per wgpu device
     renderers: Vec<Option<Renderer>>,
 
-    // State for our example where we store the winit Window and the wgpu Surface
+    /// State for our example where we store the winit Window and the wgpu Surface
     state: RenderState,
 
-    // A vello Scene which is a data structure which allows one to build up a
-    // description a scene to be drawn (with paths, fills, images, text, etc)
-    // which is then passed to a renderer for rendering
+    /// A vello Scene which is a data structure which allows one to build up a
+    /// description a scene to be drawn (with paths, fills, images, text, etc)
+    /// which is then passed to a renderer for rendering
     scene: Scene,
 }
 
@@ -76,6 +77,7 @@ impl ApplicationHandler for SimpleVelloApp {
         // Save the Window and Surface to a state variable
         self.state = RenderState::Active {
             surface: Box::new(surface),
+            valid_surface: true,
             window,
         };
     }
@@ -93,8 +95,12 @@ impl ApplicationHandler for SimpleVelloApp {
         event: WindowEvent,
     ) {
         // Only process events for our window, and only when we have a surface.
-        let surface = match &mut self.state {
-            RenderState::Active { surface, window } if window.id() == window_id => surface,
+        let (surface, valid_surface) = match &mut self.state {
+            RenderState::Active {
+                surface,
+                valid_surface,
+                window,
+            } if window.id() == window_id => (surface, valid_surface),
             _ => return,
         };
 
@@ -104,12 +110,21 @@ impl ApplicationHandler for SimpleVelloApp {
 
             // Resize the surface when the window is resized
             WindowEvent::Resized(size) => {
-                self.context
-                    .resize_surface(surface, size.width, size.height);
+                if size.width != 0 && size.height != 0 {
+                    self.context
+                        .resize_surface(surface, size.width, size.height);
+                    *valid_surface = true;
+                } else {
+                    *valid_surface = false;
+                }
             }
 
             // This is where all the rendering happens
             WindowEvent::RedrawRequested => {
+                if !*valid_surface {
+                    return;
+                }
+
                 // Empty the scene of objects to draw. You could create a new Scene each time, but in this case
                 // the same Scene is reused so that the underlying memory allocation can also be reused.
                 self.scene.reset();

@@ -102,6 +102,7 @@ fn default_threads() -> usize {
 
 struct RenderState {
     surface: RenderSurface<'static>,
+    valid_surface: bool,
     window: Arc<Window>,
 }
 
@@ -201,7 +202,11 @@ impl ApplicationHandler<UserEvent> for VelloApp {
         // We need to block here, in case a Suspended event appeared
         let surface = pollster::block_on(surface_future).expect("Error creating surface");
         self.state = {
-            let render_state = RenderState { window, surface };
+            let render_state = RenderState {
+                window,
+                surface,
+                valid_surface: true,
+            };
             self.renderers
                 .resize_with(self.context.devices.len(), || None);
             let id = render_state.surface.dev_id;
@@ -401,8 +406,15 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                         // in a touch context (i.e. Windows/Linux/MacOS with a touch screen could
                         // also be using mouse/keyboard controls)
                         // Note that winit's rendering is y-down
-                        if let Some(RenderState { surface, .. }) = &self.state {
-                            if touch.location.y > surface.config.height as f64 * 2. / 3. {
+                        if let Some(RenderState {
+                            surface,
+                            valid_surface,
+                            ..
+                        }) = &self.state
+                        {
+                            if *valid_surface
+                                && touch.location.y > surface.config.height as f64 * 2. / 3.
+                            {
                                 self.navigation_fingers.insert(touch.id);
                                 // The left third of the navigation zone navigates backwards
                                 if touch.location.x < surface.config.width as f64 / 3. {
@@ -425,10 +437,20 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                 }
             }
             WindowEvent::Resized(size) => {
-                if let Some(RenderState { surface, window }) = &mut self.state {
-                    self.context
-                        .resize_surface(surface, size.width, size.height);
-                    window.request_redraw();
+                if let Some(RenderState {
+                    surface,
+                    valid_surface,
+                    window,
+                }) = &mut self.state
+                {
+                    if size.width != 0 && size.height != 0 {
+                        self.context
+                            .resize_surface(surface, size.width, size.height);
+                        *valid_surface = true;
+                        window.request_redraw();
+                    } else {
+                        *valid_surface = false;
+                    }
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -476,9 +498,17 @@ impl ApplicationHandler<UserEvent> for VelloApp {
 
                 render_state.window.request_redraw();
 
-                let Some(RenderState { surface, window }) = &self.state else {
+                let Some(RenderState {
+                    surface,
+                    valid_surface,
+                    window,
+                }) = &self.state
+                else {
                     return;
                 };
+                if !valid_surface {
+                    return;
+                }
                 let width = surface.config.width;
                 let height = surface.config.height;
                 let device_handle = &self.context.devices[surface.dev_id];
@@ -957,7 +987,11 @@ pub fn main() -> anyhow::Result<()> {
                     )
                     .await;
                 if let Ok(surface) = surface {
-                    let render_state = RenderState { window, surface };
+                    let render_state = RenderState {
+                        window,
+                        surface,
+                        valid_surface: true,
+                    };
                     // No error handling here; if the event loop has finished, we don't need to send them the surface
                     run(event_loop, args, scenes, render_cx, render_state);
                 } else {
