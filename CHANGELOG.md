@@ -18,6 +18,8 @@ This release has an [MSRV][] of 1.86.
 ## Added
 
 - `register_texture`, a helper for using `wgpu` textures in a Vello `Renderer`. ([#1161][] by [@DJMcNab][])
+- `push_luminance_mask_layer`, content within which is used as a luminance mask. ([#1183][] by [@DJMcNab][]).  
+   This is a breaking change to Vello Encoding.
 
 ## Fixed
 
@@ -316,6 +318,7 @@ This release has an [MSRV][] of 1.75.
 [#1161]: https://github.com/linebender/vello/pull/1161
 [#1169]: https://github.com/linebender/vello/pull/1169
 [#1182]: https://github.com/linebender/vello/pull/1182
+[#1183]: https://github.com/linebender/vello/pull/1183
 [#1187]: https://github.com/linebender/vello/pull/1187
 
 <!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
