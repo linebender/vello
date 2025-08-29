@@ -1956,7 +1956,6 @@ mod impls {
             .from_bytes(FLOWER_IMAGE.as_ptr() as usize, FLOWER_IMAGE)
             .unwrap();
         // HACK: Porter-Duff "over" the base color, restoring full alpha
-        // Note that using `base_color` doesn't work here, because of how it interacts with masks
         scene.push_layer(
             BlendMode::new(Mix::Normal, Compose::SrcOver),
             1.0,
