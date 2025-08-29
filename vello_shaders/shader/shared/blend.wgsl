@@ -75,6 +75,11 @@ fn lum(c: vec3<f32>) -> f32 {
     return dot(c, f);
 }
 
+fn svg_lum(c: vec3<f32>) -> f32 {
+    let f = vec3(0.2125, 0.7154, 0.0721);
+    return dot(c, f);
+}
+
 fn clip_color(c_in: vec3<f32>) -> vec3<f32> {
     var c = c_in;
     let l = lum(c);
