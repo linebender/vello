@@ -108,12 +108,27 @@ impl Scene {
     }
 
     /// Pushes a new layer clipped by the specified shape and treated like a luminance
-    /// mask for layers above it.
+    /// mask for previous layers.
+    ///
+    /// That is, content drawn between this and the next `pop_layer` call will serve
+    /// as a luminance mask
     ///
     /// Every drawing command after this call will be clipped by the shape
     /// until the layer is popped.
     ///
     /// **However, the transforms are *not* saved or modified by the layer stack.**
+    ///
+    /// # Transparency and premultiplication
+    ///
+    /// In the current version of Vello, this can lead to some unexpected behaviour
+    /// when it is used to draw directly onto a render target which disregards transparency
+    /// (which includes surfaces in most cases).
+    /// This happens because the luminance mask only impacts the transparency of the returned value,
+    /// so if the transparency is ignored, it looks like the result had no effect.
+    ///
+    /// This issue only occurs if there are no intermediate opaque layers, so can be worked around
+    /// by drawing something opaque (or having an opaque `base_color`), then putting a layer around your entire scene
+    /// with a [`Compose::SrcOver`].
     pub fn push_luminance_mask_layer(&mut self, alpha: f32, transform: Affine, clip: &impl Shape) {
         self.push_layer_inner(
             DrawBeginClip::luminance_mask(alpha.clamp(0.0, 1.0)),
