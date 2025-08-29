@@ -1020,7 +1020,7 @@ fn main(
                     let bg = unpack4x8unorm(bg_rgba);
                     let fg = rgba[i] * area[i] * end_clip.alpha;
                     if end_clip.blend == LUMINANCE_MASK_LAYER {
-                        let lum = lum(unpremultipy(bg));
+                        let lum = lum(unpremultiply(bg));
                         rgba[i] = fg * lum * bg.a;
                     } else {
                         rgba[i] = blend_mix_compose(bg, fg, end_clip.blend);
