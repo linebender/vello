@@ -29,6 +29,8 @@ const IMAGE_QUALITY_LOW = 0u;
 const IMAGE_QUALITY_MEDIUM = 1u;
 const IMAGE_QUALITY_HIGH = 2u;
 
+const LUMINANCE_MASK_LAYER = 0xffffffffu;
+
 @group(0) @binding(2)
 var<storage> ptcl: array<u32>;
 
@@ -1017,7 +1019,12 @@ fn main(
                     }
                     let bg = unpack4x8unorm(bg_rgba);
                     let fg = rgba[i] * area[i] * end_clip.alpha;
-                    rgba[i] = blend_mix_compose(bg, fg, end_clip.blend);
+                    if end_clip.blend == LUMINANCE_MASK_LAYER {
+                        let lum = lum(unpremultipy(bg));
+                        rgba[i] = fg * lum * bg.a;
+                    } else {
+                        rgba[i] = blend_mix_compose(bg, fg, end_clip.blend);
+                    }
                 }
                 cmd_ix += 3u;
             }

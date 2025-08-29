@@ -19,7 +19,6 @@ const MIX_HUE = 12u;
 const MIX_SATURATION = 13u;
 const MIX_COLOR = 14u;
 const MIX_LUMINOSITY = 15u;
-const MIX_LUMINANCE_CLIP = 64u;
 const MIX_CLIP = 128u;
 
 fn screen(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
@@ -243,9 +242,6 @@ fn blend_compose(
         }
         case COMPOSE_SRC_IN: {
             fa = ab;
-            if mix_mode == MIX_LUMINANCE_CLIP {
-                fa *= lum(cb);
-            }
             fb = 0.0;
         }
         case COMPOSE_DEST_IN: {
@@ -288,20 +284,25 @@ fn blend_compose(
     return vec4(co, min(as_fa + ab_fb, 1.0));
 }
 
+fn unpremultiply(color: vec4<f32>) -> vec3<f32> {
+    let EPSILON = 1e-15;
+    // Max with a small epsilon to avoid NaNs.
+    let inv_alpha = 1.0 / max(color.a, EPSILON);
+    return color.rgb * inv_alpha;
+}
+
 // Apply color mixing and composition. Both input and output colors are
 // premultiplied RGB.
 fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, mode: u32) -> vec4<f32> {
-    let BLEND_DEFAULT = ((MIX_NORMAL << 8u) | COMPOSE_SRC_OVER);
     let EPSILON = 1e-15;
+    let BLEND_DEFAULT = ((MIX_NORMAL << 8u) | COMPOSE_SRC_OVER);
     if (mode & 0x7fffu) == BLEND_DEFAULT {
         // Both normal+src_over blend and clip case
         return backdrop * (1.0 - src.a) + src;
     }
-    // Un-premultiply colors for blending. Max with a small epsilon to avoid NaNs.
-    let inv_src_a = 1.0 / max(src.a, EPSILON);
-    var cs = src.rgb * inv_src_a;
-    let inv_backdrop_a = 1.0 / max(backdrop.a, EPSILON);
-    let cb = backdrop.rgb * inv_backdrop_a;
+    // Un-premultiply colors for blending. 
+    var cs = unpremultiply(src);
+    let cb = unpremultiply(backdrop);
     let mix_mode = mode >> 8u;
     let mixed = blend_mix(cb, cs, mix_mode);
     cs = mix(cs, mixed, backdrop.a);

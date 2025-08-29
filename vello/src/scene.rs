@@ -21,7 +21,7 @@ use skrifa::{
 };
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
-use vello_encoding::{Encoding, Glyph, GlyphRun, NormalizedCoord, Patch, Transform};
+use vello_encoding::{DrawBeginClip, Encoding, Glyph, GlyphRun, NormalizedCoord, Patch, Transform};
 
 // TODO - Document invariants and edge cases (#470)
 // - What happens when we pass a transform matrix with NaN values to the Scene?
@@ -100,6 +100,35 @@ impl Scene {
         if blend.mix == Mix::Clip && alpha != 1.0 {
             log::warn!("Clip mix mode used with semitransparent alpha");
         }
+        self.push_layer_inner(
+            DrawBeginClip::new(blend, alpha.clamp(0.0, 1.0)),
+            transform,
+            clip,
+        );
+    }
+
+    /// Pushes a new layer clipped by the specified shape and treated like a luminance
+    /// mask for layers above it.
+    ///
+    /// Every drawing command after this call will be clipped by the shape
+    /// until the layer is popped.
+    ///
+    /// **However, the transforms are *not* saved or modified by the layer stack.**
+    pub fn push_luminance_mask_layer(&mut self, alpha: f32, transform: Affine, clip: &impl Shape) {
+        self.push_layer_inner(
+            DrawBeginClip::luminance_mask(alpha.clamp(0.0, 1.0)),
+            transform,
+            clip,
+        );
+    }
+
+    /// Helper for logic shared between [`Self::push_layer`] and [`Self::push_luminance_mask_layer`]
+    fn push_layer_inner(
+        &mut self,
+        parameters: DrawBeginClip,
+        transform: Affine,
+        clip: &impl Shape,
+    ) {
         let t = Transform::from_kurbo(&transform);
         self.encoding.encode_transform(t);
         self.encoding.encode_fill_style(Fill::NonZero);
@@ -117,8 +146,7 @@ impl Scene {
             #[cfg(feature = "bump_estimate")]
             self.estimator.count_path(clip.path_elements(0.1), &t, None);
         }
-        self.encoding
-            .encode_begin_clip(blend, alpha.clamp(0.0, 1.0));
+        self.encoding.encode_begin_clip(parameters);
     }
 
     /// Pops the current layer.
