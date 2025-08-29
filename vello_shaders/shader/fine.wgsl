@@ -943,10 +943,6 @@ fn main(
     let xy = vec2(f32(global_id.x * PIXELS_PER_THREAD), f32(global_id.y));
     let local_xy = vec2(f32(local_id.x * PIXELS_PER_THREAD), f32(local_id.y));
     var rgba: array<vec4<f32>, PIXELS_PER_THREAD>;
-    let base_color = unpack4x8unorm(config.base_color);
-    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-        rgba[i] = base_color;
-    }
     var blend_stack: array<array<u32, PIXELS_PER_THREAD>, BLEND_STACK_SPLIT>;
     var clip_depth = 0u;
     var area: array<f32, PIXELS_PER_THREAD>;
@@ -1221,14 +1217,17 @@ fn main(
             default: {}
         }
     }
+    let base_color = unpack4x8unorm(config.base_color);
     let xy_uint = vec2<u32>(xy);
     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
         let coords = xy_uint + vec2(i, 0u);
         if coords.x < config.target_width && coords.y < config.target_height {
             let fg = rgba[i];
+            // The result is "over" the base color
+            let res = base_color * (1.0 - fg.a) + fg;
             // Max with a small epsilon to avoid NaNs
-            let a_inv = 1.0 / max(fg.a, 1e-6);
-            let rgba_sep = vec4(fg.rgb * a_inv, fg.a);
+            let a_inv = 1.0 / max(res.a, 1e-6);
+            let rgba_sep = vec4(res.rgb * a_inv, res.a);
             textureStore(output, vec2<i32>(coords), rgba_sep);
         }
     } 
