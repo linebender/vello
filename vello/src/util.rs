@@ -109,6 +109,10 @@ impl RenderContext {
     }
 
     /// Resizes the surface to the new dimensions.
+    ///
+    /// # Panics
+    ///
+    /// If `width` or `height` is zero.
     pub fn resize_surface(&self, surface: &mut RenderSurface<'_>, width: u32, height: u32) {
         let (texture, view) = create_targets(width, height, &self.devices[surface.dev_id].device);
         // TODO: Use clever resize semantics to avoid thrashing the memory allocator during a resize

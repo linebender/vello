@@ -19,6 +19,10 @@ This release has an [MSRV][] of 1.86.
 
 - `register_texture`, a helper for using `wgpu` textures in a Vello `Renderer` ([#1161][] by [@DJMcNab][]).
 
+## Fixed
+
+- Examples crashing when window is resized to zero. ([#1182][] by [@xStrom][]).
+
 ## [0.5.1][] - 2025-08-22
 
 This release has an [MSRV][] of 1.85.
@@ -231,6 +235,7 @@ This release has an [MSRV][] of 1.75.
 [@tomcur]: https://github.com/tomcur
 [@TrueDoctor]: https://github.com/TrueDoctor
 [@waywardmonkeys]: https://github.com/waywardmonkeys
+[@xStrom]: https://github.com/xStrom
 [@yutannihilation]: https://github.com/yutannihilation
 
 [#416]: https://github.com/linebender/vello/pull/416
@@ -309,6 +314,7 @@ This release has an [MSRV][] of 1.75.
 [#841]: https://github.com/linebender/vello/pull/841
 [#1161]: https://github.com/linebender/vello/pull/1161
 [#1169]: https://github.com/linebender/vello/pull/1169
+[#1182]: https://github.com/linebender/vello/pull/1182
 
 <!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.5.0...HEAD
