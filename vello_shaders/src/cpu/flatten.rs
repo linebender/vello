@@ -223,8 +223,9 @@ fn flatten_euler(
         )
     } else {
         let t = local_to_device.0;
-        let scale = 0.5 * Vec2::new(t[0] + t[3], t[1] - t[2]).length()
-            + Vec2::new(t[0] - t[3], t[1] + t[2]).length();
+        let scale = 0.5
+            * (Vec2::new(t[0] + t[3], t[1] - t[2]).length()
+                + Vec2::new(t[0] - t[3], t[1] + t[2]).length());
         (
             cubic.p0,
             cubic.p1,

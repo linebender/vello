@@ -359,8 +359,12 @@ fn flatten_euler(
 
         transform = local_to_device;
         let mat = transform.mat;
-        scale = 0.5 * length(vec2(mat.x + mat.w, mat.y - mat.z)) +
-                length(vec2(mat.x - mat.w, mat.y + mat.z));
+        // The scale is the semi-major axis of the ellipse given by the unit
+        // circle transformed by `transform`. This is the greater of the two
+        // singular values of the 2x2 `transform` matrix (ignoring
+        // translation).
+        scale = 0.5 * (length(vec2(mat.x + mat.w, mat.y - mat.z)) +
+                length(vec2(mat.x - mat.w, mat.y + mat.z)));
     }
 
     // Drop zero length lines. This is an exact equality test because dropping very short
