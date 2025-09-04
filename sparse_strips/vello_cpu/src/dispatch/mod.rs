@@ -14,10 +14,17 @@ use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
+use vello_common::strip::Strip;
 
 pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn wide(&self) -> &Wide;
-    fn wide_mut(&mut self) -> &mut Wide;
+    fn generate_wide_cmd(
+        &mut self,
+        strip_buf: &[Strip],
+        fill_rule: Fill,
+        paint: Paint,
+        thread_idx: u8,
+    );
     fn fill_path(
         &mut self,
         path: &BezPath,

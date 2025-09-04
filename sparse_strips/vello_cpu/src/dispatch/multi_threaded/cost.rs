@@ -42,6 +42,7 @@ pub(crate) fn estimate_render_task_cost(task: &RenderTask) -> f32 {
                     .unwrap_or(0.0)
         }
         RenderTask::PopLayer => LAYER_COST,
+        RenderTask::WideCommand { .. } => LAYER_COST,
     }
 }
 

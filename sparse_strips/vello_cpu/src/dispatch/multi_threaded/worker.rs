@@ -150,6 +150,21 @@ impl Worker {
                 RenderTask::PopLayer => {
                     task_buf.push(CoarseTask::PopLayer);
                 }
+                RenderTask::WideCommand {
+                    strip_buf,
+                    fill_rule,
+                    thread_idx,
+                    paint,
+                } => {
+                    let coarse_command = CoarseTask::Render {
+                        thread_id: thread_idx,
+                        strips: strip_buf,
+                        fill_rule,
+                        paint,
+                    };
+
+                    task_buf.push(coarse_command);
+                }
             }
         }
 
