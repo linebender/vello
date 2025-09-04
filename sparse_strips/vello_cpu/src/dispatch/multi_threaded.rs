@@ -474,7 +474,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.alpha_storage.with_inner(|alphas| {
             // The main thread stores the alphas that are produced by playing a recording.
             // It is important we reserve the thread id 0 for this as the implementation for
-            // `Recordable` uses this thread ID during coarse rasterization.
+            // `Recordable` uses this thread ID when generating the commands for coarse rasterization.
             alphas[0] = self.strip_generator.replace_alpha_buf(Vec::new());
         });
 
