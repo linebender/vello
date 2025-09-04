@@ -314,6 +314,6 @@ fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, mode: u32) -> vec4<f32
         let co = mix(backdrop.rgb, cs, src.a);
         return vec4(co, src.a + backdrop.a * (1.0 - src.a));
     } else {
-        return blend_compose(cb, cs, backdrop.a, src.a, compose_mode, mix_mode);
+        return blend_compose(cb, cs, backdrop.a, src.a, compose_mode);
     }
 }
