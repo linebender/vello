@@ -48,7 +48,6 @@ pub struct RenderContext {
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
     pub(crate) temp_path: BezPath,
-    // TODO: Consider taking a configurable threshold instead of just a boolean value here.
     pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     #[cfg_attr(
