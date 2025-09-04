@@ -24,7 +24,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         fill_rule: Fill,
         transform: Affine,
         paint: Paint,
-        anti_alias: bool,
+        alias_threshold: Option<u8>,
     );
     fn stroke_path(
         &mut self,
@@ -32,7 +32,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         stroke: &Stroke,
         transform: Affine,
         paint: Paint,
-        anti_alias: bool,
+        alias_threshold: Option<u8>,
     );
     fn push_layer(
         &mut self,
@@ -41,7 +41,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         clip_transform: Affine,
         blend_mode: BlendMode,
         opacity: f32,
-        anti_alias: bool,
+        alias_threshold: Option<u8>,
         mask: Option<Mask>,
     );
     fn pop_layer(&mut self);

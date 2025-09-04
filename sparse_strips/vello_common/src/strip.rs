@@ -38,7 +38,7 @@ pub fn render(
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u8>,
     fill_rule: Fill,
-    anti_aliasing: bool,
+    alias_threshold: Option<u8>,
     lines: &[Line],
 ) {
     render_dispatch(
@@ -47,7 +47,7 @@ pub fn render(
         strip_buf,
         alpha_buf,
         fill_rule,
-        anti_aliasing,
+        alias_threshold,
         lines,
     );
 }
@@ -58,7 +58,7 @@ simd_dispatch!(fn render_dispatch(
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u8>,
     fill_rule: Fill,
-    anti_aliasing: bool,
+    alias_threshold: Option<u8>,
     lines: &[Line],
 ) = render_impl);
 
@@ -68,7 +68,7 @@ fn render_impl<S: Simd>(
     strip_buf: &mut Vec<Strip>,
     alpha_buf: &mut Vec<u8>,
     fill_rule: Fill,
-    anti_aliasing: bool,
+    alias_threshold: Option<u8>,
     lines: &[Line],
 ) {
     strip_buf.clear();
@@ -156,9 +156,9 @@ fn render_impl<S: Simd>(
 
             let mut u8_vals = f32_to_u8(s.combine_f32x8(p1, p2));
 
-            if !anti_aliasing {
+            if let Some(alias_threshold) = alias_threshold {
                 u8_vals = s.select_u8x16(
-                    u8_vals.simd_ge(u8x16::splat(s, 128)),
+                    u8_vals.simd_ge(u8x16::splat(s, alias_threshold)),
                     u8x16::splat(s, 255),
                     u8x16::splat(s, 0),
                 );
