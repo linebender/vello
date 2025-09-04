@@ -49,7 +49,7 @@ pub struct RenderContext {
     pub(crate) fill_rule: Fill,
     pub(crate) temp_path: BezPath,
     // TODO: Consider taking a configurable threshold instead of just a boolean value here.
-    pub(crate) alias_threshold: Option<u8>,
+    pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     #[cfg_attr(
         not(feature = "text"),
@@ -131,14 +131,14 @@ impl RenderContext {
         };
         let encoded_paints = vec![];
         let temp_path = BezPath::new();
-        let alias_threshold = None;
+        let aliasing_threshold = None;
 
         Self {
             width,
             height,
             dispatcher,
             transform,
-            alias_threshold,
+            aliasing_threshold,
             paint,
             render_settings: settings,
             paint_transform,
@@ -174,7 +174,7 @@ impl RenderContext {
             self.fill_rule,
             self.transform,
             paint,
-            self.alias_threshold,
+            self.aliasing_threshold,
         );
     }
 
@@ -186,7 +186,7 @@ impl RenderContext {
             &self.stroke,
             self.transform,
             paint,
-            self.alias_threshold,
+            self.aliasing_threshold,
         );
     }
 
@@ -213,7 +213,7 @@ impl RenderContext {
             self.fill_rule,
             self.transform,
             paint,
-            self.alias_threshold,
+            self.aliasing_threshold,
         );
     }
 
@@ -249,7 +249,7 @@ impl RenderContext {
             Fill::NonZero,
             self.transform,
             paint,
-            self.alias_threshold,
+            self.aliasing_threshold,
         );
     }
 
@@ -293,7 +293,7 @@ impl RenderContext {
             self.transform,
             blend_mode,
             opacity,
-            self.alias_threshold,
+            self.aliasing_threshold,
             mask,
         );
     }
@@ -324,8 +324,8 @@ impl RenderContext {
     ///
     /// Note that there is no performance benefit to disabling anti-aliasing and
     /// this functionality is simply provided for compatibility.
-    pub fn set_aliasing_threshold(&mut self, value: Option<u8>) {
-        self.alias_threshold = value;
+    pub fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
+        self.aliasing_threshold = aliasing_threshold;
     }
 
     /// Push a new mask layer.
@@ -487,7 +487,7 @@ impl GlyphRenderer for RenderContext {
                     Fill::NonZero,
                     prepared_glyph.transform,
                     paint,
-                    self.alias_threshold,
+                    self.aliasing_threshold,
                 );
             }
             GlyphType::Bitmap(glyph) => {
@@ -582,7 +582,7 @@ impl GlyphRenderer for RenderContext {
                     &self.stroke,
                     prepared_glyph.transform,
                     paint,
-                    self.alias_threshold,
+                    self.aliasing_threshold,
                 );
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
@@ -893,7 +893,7 @@ impl RenderContext {
             path,
             self.fill_rule,
             transform,
-            self.alias_threshold,
+            self.aliasing_threshold,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
             },
@@ -912,7 +912,7 @@ impl RenderContext {
             path,
             &self.stroke,
             transform,
-            self.alias_threshold,
+            self.aliasing_threshold,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
             },

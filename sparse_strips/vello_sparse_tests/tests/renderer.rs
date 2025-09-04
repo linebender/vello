@@ -50,7 +50,7 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn set_paint_transform(&mut self, affine: Affine);
     fn set_fill_rule(&mut self, fill_rule: Fill);
     fn set_transform(&mut self, transform: Affine);
-    fn set_aliasing_threshold(&mut self, value: Option<u8>);
+    fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>);
     fn render_to_pixmap(&self, pixmap: &mut Pixmap);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
@@ -157,8 +157,8 @@ impl Renderer for RenderContext {
         Self::set_transform(self, transform);
     }
 
-    fn set_aliasing_threshold(&mut self, value: Option<u8>) {
-        Self::set_aliasing_threshold(self, value);
+    fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
+        Self::set_aliasing_threshold(self, aliasing_threshold);
     }
 
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
@@ -348,8 +348,8 @@ impl Renderer for HybridRenderer {
         self.scene.set_transform(transform);
     }
 
-    fn set_aliasing_threshold(&mut self, value: Option<u8>) {
-        self.scene.set_aliasing_threshold(value);
+    fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
+        self.scene.set_aliasing_threshold(aliasing_threshold);
     }
 
     // This method creates device resources every time it is called. This does not matter much for

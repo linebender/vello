@@ -357,14 +357,14 @@ impl Dispatcher for MultiThreadedDispatcher {
         fill_rule: Fill,
         transform: Affine,
         paint: Paint,
-        alias_threshold: Option<u8>,
+        aliasing_threshold: Option<u8>,
     ) {
         self.register_task(RenderTask::FillPath {
             path: Path::new(path),
             transform,
             paint,
             fill_rule,
-            alias_threshold,
+            aliasing_threshold,
         });
     }
 
@@ -374,14 +374,14 @@ impl Dispatcher for MultiThreadedDispatcher {
         stroke: &Stroke,
         transform: Affine,
         paint: Paint,
-        alias_threshold: Option<u8>,
+        aliasing_threshold: Option<u8>,
     ) {
         self.register_task(RenderTask::StrokePath {
             path: Path::new(path),
             transform,
             paint,
             stroke: stroke.clone(),
-            alias_threshold,
+            aliasing_threshold,
         });
     }
 
@@ -408,7 +408,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         clip_transform: Affine,
         blend_mode: BlendMode,
         opacity: f32,
-        alias_threshold: Option<u8>,
+        aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
     ) {
         self.register_task(RenderTask::PushLayer {
@@ -417,7 +417,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             opacity,
             mask,
             fill_rule,
-            alias_threshold,
+            aliasing_threshold,
         });
     }
 
@@ -547,14 +547,14 @@ pub(crate) enum RenderTask {
         transform: Affine,
         paint: Paint,
         fill_rule: Fill,
-        alias_threshold: Option<u8>,
+        aliasing_threshold: Option<u8>,
     },
     StrokePath {
         path: Path,
         transform: Affine,
         paint: Paint,
         stroke: Stroke,
-        alias_threshold: Option<u8>,
+        aliasing_threshold: Option<u8>,
     },
     PushLayer {
         clip_path: Option<(BezPath, Affine)>,
@@ -562,7 +562,7 @@ pub(crate) enum RenderTask {
         opacity: f32,
         mask: Option<Mask>,
         fill_rule: Fill,
-        alias_threshold: Option<u8>,
+        aliasing_threshold: Option<u8>,
     },
     PopLayer,
 }

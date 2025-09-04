@@ -46,7 +46,7 @@ pub struct Scene {
     pub(crate) wide: Wide<MODE_HYBRID>,
     pub(crate) paint: PaintType,
     pub(crate) paint_transform: Affine,
-    pub(crate) alias_threshold: Option<u8>,
+    pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     paint_visible: bool,
     pub(crate) stroke: Stroke,
@@ -64,7 +64,7 @@ impl Scene {
             width,
             height,
             wide: Wide::<MODE_HYBRID>::new(width, height),
-            alias_threshold: None,
+            aliasing_threshold: None,
             paint: render_state.paint,
             paint_transform: render_state.paint_transform,
             encoded_paints: vec![],
@@ -131,7 +131,7 @@ impl Scene {
             self.transform,
             self.fill_rule,
             paint,
-            self.alias_threshold,
+            self.aliasing_threshold,
         );
     }
 
@@ -142,7 +142,7 @@ impl Scene {
         transform: Affine,
         fill_rule: Fill,
         paint: Paint,
-        alias_threshold: Option<u8>,
+        aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
         let func = |strips| wide.generate(strips, fill_rule, paint, 0);
@@ -150,7 +150,7 @@ impl Scene {
             path,
             fill_rule,
             transform,
-            alias_threshold,
+            aliasing_threshold,
             func,
         );
     }
@@ -162,7 +162,7 @@ impl Scene {
         }
 
         let paint = self.encode_current_paint();
-        self.stroke_path_with(path, self.transform, paint, self.alias_threshold);
+        self.stroke_path_with(path, self.transform, paint, self.aliasing_threshold);
     }
 
     /// Build strips for a stroked path with the given properties.
@@ -171,7 +171,7 @@ impl Scene {
         path: &BezPath,
         transform: Affine,
         paint: Paint,
-        alias_threshold: Option<u8>,
+        aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
         let func = |strips| wide.generate(strips, Fill::NonZero, paint, 0);
@@ -179,7 +179,7 @@ impl Scene {
             path,
             &self.stroke,
             transform,
-            alias_threshold,
+            aliasing_threshold,
             func,
         );
     }
@@ -195,8 +195,8 @@ impl Scene {
     ///
     /// Note that there is no performance benefit to disabling anti-aliasing and
     /// this functionality is simply provided for compatibility.
-    pub fn set_aliasing_threshold(&mut self, value: Option<u8>) {
-        self.alias_threshold = value;
+    pub fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
+        self.aliasing_threshold = aliasing_threshold;
     }
 
     /// Fill a rectangle with the current paint and fill rule.
@@ -231,7 +231,7 @@ impl Scene {
                 c,
                 self.fill_rule,
                 self.transform,
-                self.alias_threshold,
+                self.aliasing_threshold,
                 |strips| strip_buf = strips,
             );
 
@@ -351,7 +351,7 @@ impl GlyphRenderer for Scene {
                     prepared_glyph.transform,
                     Fill::NonZero,
                     paint,
-                    self.alias_threshold,
+                    self.aliasing_threshold,
                 );
             }
             GlyphType::Bitmap(_) => {}
@@ -367,7 +367,7 @@ impl GlyphRenderer for Scene {
                     glyph.path,
                     prepared_glyph.transform,
                     paint,
-                    self.alias_threshold,
+                    self.aliasing_threshold,
                 );
             }
             GlyphType::Bitmap(_) => {}
@@ -578,7 +578,7 @@ impl Scene {
             path,
             self.fill_rule,
             transform,
-            self.alias_threshold,
+            self.aliasing_threshold,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
             },
@@ -596,7 +596,7 @@ impl Scene {
             path,
             &self.stroke,
             transform,
-            self.alias_threshold,
+            self.aliasing_threshold,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
             },

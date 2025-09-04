@@ -51,7 +51,7 @@ impl Worker {
                     transform,
                     paint,
                     fill_rule,
-                    alias_threshold,
+                    aliasing_threshold,
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseTask::Render {
@@ -70,7 +70,7 @@ impl Worker {
                                 &b,
                                 fill_rule,
                                 transform,
-                                alias_threshold,
+                                aliasing_threshold,
                                 func,
                             );
                         }
@@ -79,7 +79,7 @@ impl Worker {
                                 s.elements(),
                                 fill_rule,
                                 transform,
-                                alias_threshold,
+                                aliasing_threshold,
                                 func,
                             );
                         }
@@ -90,7 +90,7 @@ impl Worker {
                     transform,
                     paint,
                     stroke,
-                    alias_threshold,
+                    aliasing_threshold,
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseTask::Render {
@@ -109,7 +109,7 @@ impl Worker {
                                 &b,
                                 &stroke,
                                 transform,
-                                alias_threshold,
+                                aliasing_threshold,
                                 func,
                             );
                         }
@@ -118,7 +118,7 @@ impl Worker {
                                 s.elements(),
                                 &stroke,
                                 transform,
-                                alias_threshold,
+                                aliasing_threshold,
                                 func,
                             );
                         }
@@ -130,7 +130,7 @@ impl Worker {
                     opacity,
                     mask,
                     fill_rule,
-                    alias_threshold,
+                    aliasing_threshold,
                 } => {
                     let clip = if let Some((c, transform)) = clip_path {
                         let mut strip_buf = &[][..];
@@ -138,7 +138,7 @@ impl Worker {
                             c,
                             fill_rule,
                             transform,
-                            alias_threshold,
+                            aliasing_threshold,
                             |strips| strip_buf = strips,
                         );
 
