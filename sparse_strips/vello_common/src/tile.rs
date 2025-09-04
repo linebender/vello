@@ -331,7 +331,7 @@ mod tests {
     use crate::kurbo::{Affine, BezPath};
     use crate::tile::{Tile, Tiles};
     use fearless_simd::Level;
-    use std::vec;
+    use std::{eprintln, vec};
 
     #[test]
     fn cull_line_at_top() {
@@ -566,6 +566,7 @@ mod tests {
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles(&line_buf, 10, 10);
-        assert!(tiles.is_empty());
+        assert_eq!(tiles.tile_buf[0].x, 4);
+        assert_eq!(tiles.tile_buf[1].x, 4);
     }
 }
