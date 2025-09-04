@@ -331,7 +331,7 @@ mod tests {
     use crate::kurbo::{Affine, BezPath};
     use crate::tile::{Tile, Tiles};
     use fearless_simd::Level;
-    use std::{eprintln, vec};
+    use std::vec;
 
     #[test]
     fn cull_line_at_top() {
