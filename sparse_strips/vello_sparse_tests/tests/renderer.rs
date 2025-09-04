@@ -632,8 +632,8 @@ impl Renderer for HybridRenderer {
         self.scene.set_transform(transform);
     }
 
-    fn set_aliasing_threshold(&mut self, value: bool) {
-        self.scene.set_aliasing_threshold(value);
+    fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
+        self.scene.set_aliasing_threshold(aliasing_threshold);
     }
 
     // vello_hybrid WebGL renderer backend.
