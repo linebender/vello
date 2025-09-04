@@ -80,7 +80,7 @@ fn main() {
             &mut strip_buf,
             &mut alpha_buf,
             args.fill_rule,
-            true,
+            None,
             &line_buf,
         );
     }

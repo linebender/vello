@@ -154,7 +154,7 @@ impl DataItem {
             &mut strip_buf,
             &mut alpha_buf,
             Fill::NonZero,
-            true,
+            None,
             &lines,
         );
 
