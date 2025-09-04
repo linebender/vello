@@ -8,7 +8,7 @@ use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 use vello_common::peniko::{Color, ColorStop, Fill, Gradient};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::color::palette::css::RED;
+use vello_cpu::color::palette::css::{BLACK, RED};
 use vello_cpu::peniko::Compose;
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
 use vello_dev_macros::vello_test;
@@ -393,4 +393,15 @@ fn multi_threading_oob_access() {
     ctx.fill_path(&Rect::new(50.0, 50.0, 100.0, 100.0).to_path(0.1));
     ctx.flush();
     ctx.render_to_pixmap(&mut pixmap);
+}
+
+/// See <https://github.com/linebender/vello/issues/1181>.
+#[vello_test(width = 556, height = 8)]
+fn tile_clamped_off_by_one(ctx: &mut impl Renderer) {
+    let rect = Rect::new(0.0, 0.0, 556.0, 8.0);
+
+    ctx.set_paint(BLACK);
+    ctx.push_layer(Some(&rect.to_path(0.1)), None, None, None);
+    ctx.fill_path(&rect.to_path(0.1));
+    ctx.pop_layer();
 }
