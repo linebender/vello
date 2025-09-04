@@ -29,7 +29,7 @@ const IMAGE_QUALITY_LOW = 0u;
 const IMAGE_QUALITY_MEDIUM = 1u;
 const IMAGE_QUALITY_HIGH = 2u;
 
-const LUMINANCE_MASK_LAYER = 0xffffffffu;
+const LUMINANCE_MASK_LAYER = 0x10000u;
 
 @group(0) @binding(2)
 var<storage> ptcl: array<u32>;

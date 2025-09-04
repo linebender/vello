@@ -198,7 +198,10 @@ pub struct DrawBeginClip {
 impl DrawBeginClip {
     /// The `blend_mode` used to indicate that a layer should be
     /// treated as a luminance mask.
-    pub const LUMINANCE_MASK_LAYER: u32 = 0xffffffff;
+    ///
+    /// The least significant 16 bits are reserved for Mix + Compose
+    /// combinations.
+    pub const LUMINANCE_MASK_LAYER: u32 = 0x10000;
 
     /// Creates new clip draw data for a Porter-Duff blend mode.
     pub fn new(blend_mode: BlendMode, alpha: f32) -> Self {
