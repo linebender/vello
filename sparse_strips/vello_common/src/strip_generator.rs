@@ -146,7 +146,7 @@ mod tests {
             rect.to_path(0.1),
             Fill::NonZero,
             Affine::IDENTITY,
-            true,
+            None,
             |_| {},
         );
 
