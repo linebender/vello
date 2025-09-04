@@ -1030,7 +1030,6 @@ fn main(
                         }
                         let luminance = clamp(svg_lum(unpremultiply(fg)) * fg.a, 0.0, 1.0);
                         rgba[i] = bg * luminance;
-                        // rgba[i] = vec4(vec3(bg.rgb * luminance), bg.a * luminance);
                     } else {
                         rgba[i] = blend_mix_compose(bg, fg, end_clip.blend);
                     }
@@ -1242,7 +1241,6 @@ fn main(
         let coords = xy_uint + vec2(i, 0u);
         if coords.x < config.target_width && coords.y < config.target_height {
             let fg = rgba[i];
-            // TODO: Do we want the semantics of base_color to actually be a porter-duff over?
             // let fg = base_color * (1.0 - foreground.a) + foreground;
             // Max with a small epsilon to avoid NaNs
             let a_inv = 1.0 / max(fg.a, 1e-6);

@@ -224,7 +224,6 @@ fn blend_compose(
     ab: f32,
     as_: f32,
     compose_mode: u32,
-    mix_mode: u32
 ) -> vec4<f32> {
     var fa = 0.0;
     var fb = 0.0;
@@ -299,7 +298,6 @@ fn unpremultiply(color: vec4<f32>) -> vec3<f32> {
 // Apply color mixing and composition. Both input and output colors are
 // premultiplied RGB.
 fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, mode: u32) -> vec4<f32> {
-    let EPSILON = 1e-15;
     let BLEND_DEFAULT = ((MIX_NORMAL << 8u) | COMPOSE_SRC_OVER);
     if (mode & 0x7fffu) == BLEND_DEFAULT {
         // Both normal+src_over blend and clip case
