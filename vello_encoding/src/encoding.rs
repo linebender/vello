@@ -1,6 +1,8 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::DrawBeginClip;
+
 use super::{
     DrawBlurRoundedRect, DrawColor, DrawImage, DrawLinearGradient, DrawRadialGradient,
     DrawSweepGradient, DrawTag, Glyph, GlyphRun, NormalizedCoord, Patch, PathEncoder, PathTag,
@@ -9,7 +11,7 @@ use super::{
 
 use peniko::color::{DynamicColor, palette};
 use peniko::kurbo::{Shape, Stroke};
-use peniko::{BlendMode, BrushRef, ColorStop, Extend, Fill, GradientKind, Image};
+use peniko::{BrushRef, ColorStop, Extend, Fill, GradientKind, Image};
 
 /// Encoded data streams for a scene.
 ///
@@ -461,13 +463,10 @@ impl Encoding {
     }
 
     /// Encodes a begin clip command.
-    pub fn encode_begin_clip(&mut self, blend_mode: BlendMode, alpha: f32) {
-        use super::DrawBeginClip;
+    pub fn encode_begin_clip(&mut self, parameters: DrawBeginClip) {
         self.draw_tags.push(DrawTag::BEGIN_CLIP);
         self.draw_data
-            .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(
-                &DrawBeginClip::new(blend_mode, alpha),
-            )));
+            .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(&parameters)));
         self.n_clips += 1;
         self.n_open_clips += 1;
     }

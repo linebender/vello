@@ -85,6 +85,8 @@ export_scenes!(
     image_sampling(image_sampling),
     image_extend_modes_bilinear(impls::image_extend_modes(ImageQuality::Medium), "image_extend_modes (bilinear)", false),
     image_extend_modes_nearest_neighbor(impls::image_extend_modes(ImageQuality::Low), "image_extend_modes (nearest neighbor)", false),
+    luminance_mask(luminance_mask),
+    image_luminance_mask(image_luminance_mask),
 );
 
 /// Implementations for the test scenes.
@@ -1869,5 +1871,138 @@ mod impls {
                 &Rect::new(0., 0., 6., 6.),
             );
         }
+    }
+
+    pub(super) fn luminance_mask(scene: &mut Scene, params: &mut SceneParams<'_>) {
+        params.resolution = Some((55., 55.).into());
+        // Porter-Duff "over" pure white, to match example in https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Attribute/mask-type
+        // Note that using `base_color` doesn't work here, because of how it interacts with masks
+        scene.fill(
+            Fill::EvenOdd,
+            Affine::IDENTITY,
+            Color::WHITE,
+            None,
+            &Rect {
+                x0: 0.,
+                y0: 0.,
+                x1: 60.,
+                y1: 60.,
+            },
+        );
+        scene.push_layer(
+            BlendMode::new(Mix::Normal, Compose::SrcOver),
+            1.0,
+            Affine::IDENTITY,
+            &Rect {
+                x0: 5.,
+                y0: 5.,
+                x1: 50.,
+                y1: 50.,
+            },
+        );
+        scene.fill(
+            Fill::EvenOdd,
+            Affine::IDENTITY,
+            palette::css::RED,
+            None,
+            &Rect {
+                x0: 5.,
+                y0: 5.,
+                x1: 50.,
+                y1: 50.,
+            },
+        );
+        scene.push_luminance_mask_layer(
+            1.0,
+            Affine::IDENTITY,
+            &Rect {
+                x0: 5.,
+                y0: 5.,
+                x1: 50.,
+                y1: 50.,
+            },
+        );
+        scene.fill(
+            Fill::EvenOdd,
+            Affine::IDENTITY,
+            color::parse_color("rgb(10% 10% 10% / 0.4)").unwrap(),
+            None,
+            &Rect {
+                x0: 5.,
+                y0: 5.,
+                x1: 50.,
+                y1: 50.,
+            },
+        );
+        scene.fill(
+            Fill::EvenOdd,
+            Affine::IDENTITY,
+            color::parse_color("rgb(90% 90% 90% / 0.6)").unwrap(),
+            None,
+            &Circle {
+                center: (0., 55.).into(),
+                radius: 35.,
+            },
+        );
+        scene.pop_layer();
+        scene.pop_layer();
+    }
+
+    pub(super) fn image_luminance_mask(scene: &mut Scene, params: &mut SceneParams<'_>) {
+        // Flower image is 640x480
+        params.resolution = Some((700., 500.).into());
+        let flower_image = params
+            .images
+            .from_bytes(FLOWER_IMAGE.as_ptr() as usize, FLOWER_IMAGE)
+            .unwrap();
+        // HACK: Porter-Duff "over" the base color, restoring full alpha
+        scene.push_layer(
+            BlendMode::new(Mix::Normal, Compose::SrcOver),
+            1.0,
+            Affine::IDENTITY,
+            &Rect {
+                x0: 0.,
+                y0: 0.,
+                x1: 700.,
+                y1: 500.,
+            },
+        );
+        scene.fill(
+            Fill::EvenOdd,
+            Affine::IDENTITY,
+            palette::css::BEIGE,
+            None,
+            &Rect {
+                x0: 0.,
+                y0: 0.,
+                x1: 640.,
+                y1: 240.,
+            },
+        );
+        scene.fill(
+            Fill::EvenOdd,
+            Affine::IDENTITY,
+            palette::css::AQUAMARINE,
+            None,
+            &Rect {
+                x0: 0.,
+                y0: 240.,
+                x1: 320.,
+                y1: 480.,
+            },
+        );
+        scene.push_luminance_mask_layer(
+            1.0,
+            Affine::IDENTITY,
+            &Rect {
+                x0: 0.,
+                y0: 0.,
+                x1: 640.,
+                y1: 480.,
+            },
+        );
+        scene.draw_image(&flower_image, Affine::IDENTITY);
+        scene.pop_layer();
+        scene.pop_layer();
     }
 }

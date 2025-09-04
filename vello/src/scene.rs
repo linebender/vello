@@ -21,7 +21,7 @@ use skrifa::{
 };
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
-use vello_encoding::{Encoding, Glyph, GlyphRun, NormalizedCoord, Patch, Transform};
+use vello_encoding::{DrawBeginClip, Encoding, Glyph, GlyphRun, NormalizedCoord, Patch, Transform};
 
 // TODO - Document invariants and edge cases (#470)
 // - What happens when we pass a transform matrix with NaN values to the Scene?
@@ -100,6 +100,50 @@ impl Scene {
         if blend.mix == Mix::Clip && alpha != 1.0 {
             log::warn!("Clip mix mode used with semitransparent alpha");
         }
+        self.push_layer_inner(
+            DrawBeginClip::new(blend, alpha.clamp(0.0, 1.0)),
+            transform,
+            clip,
+        );
+    }
+
+    /// Pushes a new layer clipped by the specified shape and treated like a luminance
+    /// mask for previous layers.
+    ///
+    /// That is, content drawn between this and the next `pop_layer` call will serve
+    /// as a luminance mask
+    ///
+    /// Every drawing command after this call will be clipped by the shape
+    /// until the layer is popped.
+    ///
+    /// **However, the transforms are *not* saved or modified by the layer stack.**
+    ///
+    /// # Transparency and premultiplication
+    ///
+    /// In the current version of Vello, this can lead to some unexpected behaviour
+    /// when it is used to draw directly onto a render target which disregards transparency
+    /// (which includes surfaces in most cases).
+    /// This happens because the luminance mask only impacts the transparency of the returned value,
+    /// so if the transparency is ignored, it looks like the result had no effect.
+    ///
+    /// This issue only occurs if there are no intermediate opaque layers, so can be worked around
+    /// by drawing something opaque (or having an opaque `base_color`), then putting a layer around your entire scene
+    /// with a [`Compose::SrcOver`].
+    pub fn push_luminance_mask_layer(&mut self, alpha: f32, transform: Affine, clip: &impl Shape) {
+        self.push_layer_inner(
+            DrawBeginClip::luminance_mask(alpha.clamp(0.0, 1.0)),
+            transform,
+            clip,
+        );
+    }
+
+    /// Helper for logic shared between [`Self::push_layer`] and [`Self::push_luminance_mask_layer`]
+    fn push_layer_inner(
+        &mut self,
+        parameters: DrawBeginClip,
+        transform: Affine,
+        clip: &impl Shape,
+    ) {
         let t = Transform::from_kurbo(&transform);
         self.encoding.encode_transform(t);
         self.encoding.encode_fill_style(Fill::NonZero);
@@ -117,8 +161,7 @@ impl Scene {
             #[cfg(feature = "bump_estimate")]
             self.estimator.count_path(clip.path_elements(0.1), &t, None);
         }
-        self.encoding
-            .encode_begin_clip(blend, alpha.clamp(0.0, 1.0));
+        self.encoding.encode_begin_clip(parameters);
     }
 
     /// Pops the current layer.

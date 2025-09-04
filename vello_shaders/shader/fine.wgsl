@@ -29,6 +29,8 @@ const IMAGE_QUALITY_LOW = 0u;
 const IMAGE_QUALITY_MEDIUM = 1u;
 const IMAGE_QUALITY_HIGH = 2u;
 
+const LUMINANCE_MASK_LAYER = 0x10000u;
+
 @group(0) @binding(2)
 var<storage> ptcl: array<u32>;
 
@@ -1017,7 +1019,20 @@ fn main(
                     }
                     let bg = unpack4x8unorm(bg_rgba);
                     let fg = rgba[i] * area[i] * end_clip.alpha;
-                    rgba[i] = blend_mix_compose(bg, fg, end_clip.blend);
+                    if end_clip.blend == LUMINANCE_MASK_LAYER {
+                        // TODO: Does this case apply more generally?
+                        // See https://github.com/linebender/vello/issues/1061
+                        // TODO: How do we handle anti-aliased edges here?
+                        // This is really an imaging model question
+                        if area[i] == 0f {
+                            rgba[i] = bg;
+                            continue;
+                        }
+                        let luminance = clamp(svg_lum(unpremultiply(fg)) * fg.a, 0.0, 1.0);
+                        rgba[i] = bg * luminance;
+                    } else {
+                        rgba[i] = blend_mix_compose(bg, fg, end_clip.blend);
+                    }
                 }
                 cmd_ix += 3u;
             }
@@ -1226,6 +1241,7 @@ fn main(
         let coords = xy_uint + vec2(i, 0u);
         if coords.x < config.target_width && coords.y < config.target_height {
             let fg = rgba[i];
+            // let fg = base_color * (1.0 - foreground.a) + foreground;
             // Max with a small epsilon to avoid NaNs
             let a_inv = 1.0 / max(fg.a, 1e-6);
             let rgba_sep = vec4(fg.rgb * a_inv, fg.a);

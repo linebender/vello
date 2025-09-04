@@ -137,3 +137,21 @@ fn snapshot_image_extend_modes_nearest_neighbor() {
     let params = TestParams::new("image_extend_modes_nearest_neighbor", 400, 400);
     snapshot_test_scene(test_scene, params);
 }
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn snapshot_luminance_mask() {
+    let test_scene = test_scenes::luminance_mask();
+    // This has been manually validated to match the example in
+    // https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Attribute/mask-type
+    let params = TestParams::new("luminance_mask", 55, 55);
+    snapshot_test_scene(test_scene, params);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn image_luminance_mask() {
+    let test_scene = test_scenes::image_luminance_mask();
+    let params = TestParams::new("image_luminance_mask", 350, 250);
+    snapshot_test_scene(test_scene, params);
+}
