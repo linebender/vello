@@ -15,6 +15,7 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use log::warn;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
@@ -448,9 +449,19 @@ impl RenderContext {
     }
 
     /// Render the current context into a pixmap.
+    /// 
+    /// Note that the pixmap needs to have the same dimensions as the render context.
     pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         let width = pixmap.width();
         let height = pixmap.height();
+        
+        if width != self.width || height != self.height {
+            warn!("cannot render a pixmap with the dimensions {width}x{height} into \
+            a render context with the dimensions {}x{}", self.width, self.height);
+            
+            return;
+        }
+        
         self.render_to_buffer(
             pixmap.data_as_u8_slice_mut(),
             width,
@@ -945,6 +956,7 @@ impl RenderContext {
 mod tests {
     use crate::RenderContext;
     use vello_common::kurbo::{Rect, Shape};
+    use vello_common::pixmap::Pixmap;
     use vello_common::tile::Tile;
 
     #[test]
@@ -978,6 +990,19 @@ mod tests {
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
         ctx.flush();
         ctx.render_to_pixmap(&mut pixmap);
+        ctx.flush();
+        ctx.render_to_pixmap(&mut pixmap);
+    }
+    
+    #[test]
+    fn mismatched_dimensions() {
+        let mut ctx = RenderContext::new(20, 15);
+        let mut pixmap = Pixmap::new(20, 20);
+        let rect = Rect::new(0.0, 0.0, 20.0, 20.0);
+
+        ctx.push_layer(Some(&rect.to_path(0.1)), None, None, None);
+        ctx.pop_layer();
+
         ctx.flush();
         ctx.render_to_pixmap(&mut pixmap);
     }
