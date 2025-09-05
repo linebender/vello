@@ -268,6 +268,10 @@ impl Tiles {
                 // Clamp all tiles that are strictly on the right of the viewport to the tile x coordinate
                 // right next to the outside of the viewport. If we don't do this, we might end up
                 // with too big tile coordinates, which will cause overflows in strip rendering.
+                // TODO: in principle it is possible to cull right-of-viewport tiles, but it was causing some
+                // issues, and we are choosing to do the less efficient but working thing for now.
+                // See <https://github.com/linebender/vello/pull/1189> and
+                // <https://github.com/linebender/vello/issues/1126>.
                 let x = (line_left_x as u16).min(tile_columns + 1);
 
                 for y_idx in y_top_tiles..y_bottom_tiles {
