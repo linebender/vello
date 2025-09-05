@@ -3744,6 +3744,7 @@ version = "0.0.1"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
+ "log",
  "ordered-channel",
  "rayon",
  "smallvec",

@@ -24,6 +24,7 @@ ordered-channel = { workspace = true, optional = true, features = ["crossbeam-ch
 rayon = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 thread_local = { workspace = true, optional = true }
+log = { workspace = true }
 
 
 [features]
