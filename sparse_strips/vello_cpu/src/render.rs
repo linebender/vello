@@ -47,6 +47,7 @@ pub struct RenderContext {
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
+    pub(crate) blend_mode: BlendMode,
     pub(crate) temp_path: BezPath,
     pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
@@ -138,6 +139,7 @@ impl RenderContext {
             dispatcher,
             transform,
             aliasing_threshold,
+            blend_mode: BlendMode::new(Mix::Normal, Compose::SrcOver),
             paint,
             render_settings: settings,
             paint_transform,
@@ -173,6 +175,7 @@ impl RenderContext {
             self.fill_rule,
             self.transform,
             paint,
+            self.blend_mode,
             self.aliasing_threshold,
         );
     }
@@ -185,6 +188,7 @@ impl RenderContext {
             &self.stroke,
             self.transform,
             paint,
+            self.blend_mode,
             self.aliasing_threshold,
         );
     }
@@ -212,6 +216,7 @@ impl RenderContext {
             self.fill_rule,
             self.transform,
             paint,
+            self.blend_mode,
             self.aliasing_threshold,
         );
     }
@@ -248,6 +253,7 @@ impl RenderContext {
             Fill::NonZero,
             self.transform,
             paint,
+            self.blend_mode,
             self.aliasing_threshold,
         );
     }
@@ -359,6 +365,11 @@ impl RenderContext {
     /// Get the current paint.
     pub fn paint(&self) -> &PaintType {
         &self.paint
+    }
+
+    /// Set the blend mode that should be used when drawing objects.
+    pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        self.blend_mode = blend_mode;
     }
 
     /// Set the current paint transform.
@@ -486,6 +497,7 @@ impl GlyphRenderer for RenderContext {
                     Fill::NonZero,
                     prepared_glyph.transform,
                     paint,
+                    self.blend_mode,
                     self.aliasing_threshold,
                 );
             }
@@ -581,6 +593,7 @@ impl GlyphRenderer for RenderContext {
                     &self.stroke,
                     prepared_glyph.transform,
                     paint,
+                    self.blend_mode,
                     self.aliasing_threshold,
                 );
             }
@@ -854,9 +867,13 @@ impl RenderContext {
             RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => Fill::NonZero,
             _ => Fill::NonZero,
         };
-        self.dispatcher
-            .wide_mut()
-            .generate(&adjusted_strips[start..end], fill_rule, paint, 0);
+        self.dispatcher.wide_mut().generate(
+            &adjusted_strips[start..end],
+            fill_rule,
+            paint,
+            self.blend_mode,
+            0,
+        );
     }
 
     /// Prepare cached strips for rendering by adjusting indices.

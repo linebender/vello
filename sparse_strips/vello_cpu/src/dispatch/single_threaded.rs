@@ -97,11 +97,12 @@ impl Dispatcher for SingleThreadedDispatcher {
         fill_rule: Fill,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
 
-        let func = |strips| wide.generate(strips, fill_rule, paint, 0);
+        let func = |strips| wide.generate(strips, fill_rule, paint, blend_mode, 0);
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
@@ -117,11 +118,12 @@ impl Dispatcher for SingleThreadedDispatcher {
         stroke: &Stroke,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
 
-        let func = |strips| wide.generate(strips, Fill::NonZero, paint, 0);
+        let func = |strips| wide.generate(strips, Fill::NonZero, paint, blend_mode, 0);
         self.strip_generator.generate_stroked_path(
             path,
             stroke,

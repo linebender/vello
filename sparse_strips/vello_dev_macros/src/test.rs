@@ -191,6 +191,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             || input_fn_name_str.contains("mix")
             || input_fn_name_str.contains("blurred_rounded_rect")
             || input_fn_name_str.contains("clip_clear")
+            || input_fn_name_str.contains("compose_non_isolated")
     };
 
     // These tests currently don't work with `vello_hybrid` running with the webgl backend in the
