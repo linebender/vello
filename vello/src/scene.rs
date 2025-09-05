@@ -101,9 +101,6 @@ impl Scene {
         clip: &impl Shape,
     ) {
         let blend = blend.into();
-        if blend.mix == Mix::Clip {
-            panic!();
-        }
         if blend.mix == Mix::Clip && alpha != 1.0 {
             log::warn!("Clip mix mode used with semitransparent alpha");
         }
