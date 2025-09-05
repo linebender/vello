@@ -46,7 +46,7 @@ pub struct Scene {
     pub(crate) wide: Wide<MODE_HYBRID>,
     pub(crate) paint: PaintType,
     pub(crate) paint_transform: Affine,
-    pub(crate) anti_alias: bool,
+    pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     paint_visible: bool,
     pub(crate) stroke: Stroke,
@@ -64,7 +64,7 @@ impl Scene {
             width,
             height,
             wide: Wide::<MODE_HYBRID>::new(width, height),
-            anti_alias: true,
+            aliasing_threshold: None,
             paint: render_state.paint,
             paint_transform: render_state.paint_transform,
             encoded_paints: vec![],
@@ -126,7 +126,13 @@ impl Scene {
         }
 
         let paint = self.encode_current_paint();
-        self.fill_path_with(path, self.transform, self.fill_rule, paint, self.anti_alias);
+        self.fill_path_with(
+            path,
+            self.transform,
+            self.fill_rule,
+            paint,
+            self.aliasing_threshold,
+        );
     }
 
     /// Build strips for a filled path with the given properties.
@@ -136,12 +142,17 @@ impl Scene {
         transform: Affine,
         fill_rule: Fill,
         paint: Paint,
-        anti_alias: bool,
+        aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
         let func = |strips| wide.generate(strips, fill_rule, paint, 0);
-        self.strip_generator
-            .generate_filled_path(path, fill_rule, transform, anti_alias, func);
+        self.strip_generator.generate_filled_path(
+            path,
+            fill_rule,
+            transform,
+            aliasing_threshold,
+            func,
+        );
     }
 
     /// Stroke a path with the current paint and stroke settings.
@@ -151,7 +162,7 @@ impl Scene {
         }
 
         let paint = self.encode_current_paint();
-        self.stroke_path_with(path, self.transform, paint, self.anti_alias);
+        self.stroke_path_with(path, self.transform, paint, self.aliasing_threshold);
     }
 
     /// Build strips for a stroked path with the given properties.
@@ -160,17 +171,32 @@ impl Scene {
         path: &BezPath,
         transform: Affine,
         paint: Paint,
-        anti_alias: bool,
+        aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
         let func = |strips| wide.generate(strips, Fill::NonZero, paint, 0);
-        self.strip_generator
-            .generate_stroked_path(path, &self.stroke, transform, anti_alias, func);
+        self.strip_generator.generate_stroked_path(
+            path,
+            &self.stroke,
+            transform,
+            aliasing_threshold,
+            func,
+        );
     }
 
-    /// Set whether to enable anti-aliasing.
-    pub fn set_anti_aliasing(&mut self, value: bool) {
-        self.anti_alias = value;
+    /// Set the aliasing threshold.
+    ///
+    /// If set to `None` (which is the recommended option in nearly all cases),
+    /// anti-aliasing will be applied.
+    ///
+    /// If instead set to some value, then a pixel will be fully painted if
+    /// the coverage is bigger than the threshold (between 0 and 255), otherwise
+    /// it will not be painted at all.
+    ///
+    /// Note that there is no performance benefit to disabling anti-aliasing and
+    /// this functionality is simply provided for compatibility.
+    pub fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
+        self.aliasing_threshold = aliasing_threshold;
     }
 
     /// Fill a rectangle with the current paint and fill rule.
@@ -205,7 +231,7 @@ impl Scene {
                 c,
                 self.fill_rule,
                 self.transform,
-                self.anti_alias,
+                self.aliasing_threshold,
                 |strips| strip_buf = strips,
             );
 
@@ -325,7 +351,7 @@ impl GlyphRenderer for Scene {
                     prepared_glyph.transform,
                     Fill::NonZero,
                     paint,
-                    self.anti_alias,
+                    self.aliasing_threshold,
                 );
             }
             GlyphType::Bitmap(_) => {}
@@ -337,7 +363,12 @@ impl GlyphRenderer for Scene {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
                 let paint = self.encode_current_paint();
-                self.stroke_path_with(glyph.path, prepared_glyph.transform, paint, self.anti_alias);
+                self.stroke_path_with(
+                    glyph.path,
+                    prepared_glyph.transform,
+                    paint,
+                    self.aliasing_threshold,
+                );
             }
             GlyphType::Bitmap(_) => {}
             GlyphType::Colr(_) => {}
@@ -547,7 +578,7 @@ impl Scene {
             path,
             self.fill_rule,
             transform,
-            self.anti_alias,
+            self.aliasing_threshold,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
             },
@@ -565,7 +596,7 @@ impl Scene {
             path,
             &self.stroke,
             transform,
-            self.anti_alias,
+            self.aliasing_threshold,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
             },

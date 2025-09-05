@@ -51,7 +51,7 @@ impl Worker {
                     transform,
                     paint,
                     fill_rule,
-                    anti_alias,
+                    aliasing_threshold,
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseTask::Render {
@@ -66,15 +66,20 @@ impl Worker {
 
                     match path {
                         Path::Bez(b) => {
-                            self.strip_generator
-                                .generate_filled_path(&b, fill_rule, transform, anti_alias, func);
+                            self.strip_generator.generate_filled_path(
+                                &b,
+                                fill_rule,
+                                transform,
+                                aliasing_threshold,
+                                func,
+                            );
                         }
                         Path::Small(s) => {
                             self.strip_generator.generate_filled_path(
                                 s.elements(),
                                 fill_rule,
                                 transform,
-                                anti_alias,
+                                aliasing_threshold,
                                 func,
                             );
                         }
@@ -85,7 +90,7 @@ impl Worker {
                     transform,
                     paint,
                     stroke,
-                    anti_alias,
+                    aliasing_threshold,
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseTask::Render {
@@ -100,15 +105,20 @@ impl Worker {
 
                     match path {
                         Path::Bez(b) => {
-                            self.strip_generator
-                                .generate_stroked_path(&b, &stroke, transform, anti_alias, func);
+                            self.strip_generator.generate_stroked_path(
+                                &b,
+                                &stroke,
+                                transform,
+                                aliasing_threshold,
+                                func,
+                            );
                         }
                         Path::Small(s) => {
                             self.strip_generator.generate_stroked_path(
                                 s.elements(),
                                 &stroke,
                                 transform,
-                                anti_alias,
+                                aliasing_threshold,
                                 func,
                             );
                         }
@@ -120,7 +130,7 @@ impl Worker {
                     opacity,
                     mask,
                     fill_rule,
-                    anti_alias,
+                    aliasing_threshold,
                 } => {
                     let clip = if let Some((c, transform)) = clip_path {
                         let mut strip_buf = &[][..];
@@ -128,7 +138,7 @@ impl Worker {
                             c,
                             fill_rule,
                             transform,
-                            anti_alias,
+                            aliasing_threshold,
                             |strips| strip_buf = strips,
                         );
 

@@ -46,7 +46,7 @@ impl StripGenerator {
         path: impl IntoIterator<Item = PathEl>,
         fill_rule: Fill,
         transform: Affine,
-        anti_alias: bool,
+        aliasing_threshold: Option<u8>,
         func: impl FnOnce(&'a [Strip]),
     ) {
         flatten::fill(
@@ -56,7 +56,7 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.make_strips(fill_rule, anti_alias);
+        self.make_strips(fill_rule, aliasing_threshold);
         func(&mut self.strip_buf);
     }
 
@@ -66,7 +66,7 @@ impl StripGenerator {
         path: impl IntoIterator<Item = PathEl>,
         stroke: &Stroke,
         transform: Affine,
-        anti_alias: bool,
+        aliasing_threshold: Option<u8>,
         func: impl FnOnce(&'a [Strip]),
     ) {
         flatten::stroke(
@@ -77,7 +77,7 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.make_strips(Fill::NonZero, anti_alias);
+        self.make_strips(Fill::NonZero, aliasing_threshold);
         func(&mut self.strip_buf);
     }
 
@@ -114,7 +114,7 @@ impl StripGenerator {
         self.strip_buf.clear();
     }
 
-    fn make_strips(&mut self, fill_rule: Fill, anti_alias: bool) {
+    fn make_strips(&mut self, fill_rule: Fill, aliasing_threshold: Option<u8>) {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
@@ -124,7 +124,7 @@ impl StripGenerator {
             &mut self.strip_buf,
             &mut self.alphas,
             fill_rule,
-            anti_alias,
+            aliasing_threshold,
             &self.line_buf,
         );
     }
@@ -146,7 +146,7 @@ mod tests {
             rect.to_path(0.1),
             Fill::NonZero,
             Affine::IDENTITY,
-            true,
+            None,
             |_| {},
         );
 

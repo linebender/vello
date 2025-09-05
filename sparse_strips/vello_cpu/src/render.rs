@@ -48,8 +48,7 @@ pub struct RenderContext {
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
     pub(crate) temp_path: BezPath,
-    // TODO: Consider taking a configurable threshold instead of just a boolean value here.
-    pub(crate) anti_alias: bool,
+    pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     #[cfg_attr(
         not(feature = "text"),
@@ -131,14 +130,14 @@ impl RenderContext {
         };
         let encoded_paints = vec![];
         let temp_path = BezPath::new();
-        let anti_alias = true;
+        let aliasing_threshold = None;
 
         Self {
             width,
             height,
             dispatcher,
             transform,
-            anti_alias,
+            aliasing_threshold,
             paint,
             render_settings: settings,
             paint_transform,
@@ -169,15 +168,25 @@ impl RenderContext {
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
         let paint = self.encode_current_paint();
-        self.dispatcher
-            .fill_path(path, self.fill_rule, self.transform, paint, self.anti_alias);
+        self.dispatcher.fill_path(
+            path,
+            self.fill_rule,
+            self.transform,
+            paint,
+            self.aliasing_threshold,
+        );
     }
 
     /// Stroke a path.
     pub fn stroke_path(&mut self, path: &BezPath) {
         let paint = self.encode_current_paint();
-        self.dispatcher
-            .stroke_path(path, &self.stroke, self.transform, paint, self.anti_alias);
+        self.dispatcher.stroke_path(
+            path,
+            &self.stroke,
+            self.transform,
+            paint,
+            self.aliasing_threshold,
+        );
     }
 
     /// Fill a rectangle.
@@ -203,7 +212,7 @@ impl RenderContext {
             self.fill_rule,
             self.transform,
             paint,
-            self.anti_alias,
+            self.aliasing_threshold,
         );
     }
 
@@ -239,7 +248,7 @@ impl RenderContext {
             Fill::NonZero,
             self.transform,
             paint,
-            self.anti_alias,
+            self.aliasing_threshold,
         );
     }
 
@@ -283,7 +292,7 @@ impl RenderContext {
             self.transform,
             blend_mode,
             opacity,
-            self.anti_alias,
+            self.aliasing_threshold,
             mask,
         );
     }
@@ -303,9 +312,19 @@ impl RenderContext {
         self.push_layer(None, None, Some(opacity), None);
     }
 
-    /// Set whether to enable anti-aliasing.
-    pub fn set_anti_aliasing(&mut self, value: bool) {
-        self.anti_alias = value;
+    /// Set the aliasing threshold.
+    ///
+    /// If set to `None` (which is the recommended option in nearly all cases),
+    /// anti-aliasing will be applied.
+    ///
+    /// If instead set to some value, then a pixel will be fully painted if
+    /// the coverage is bigger than the threshold (between 0 and 255), otherwise
+    /// it will not be painted at all.
+    ///
+    /// Note that there is no performance benefit to disabling anti-aliasing and
+    /// this functionality is simply provided for compatibility.
+    pub fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
+        self.aliasing_threshold = aliasing_threshold;
     }
 
     /// Push a new mask layer.
@@ -467,7 +486,7 @@ impl GlyphRenderer for RenderContext {
                     Fill::NonZero,
                     prepared_glyph.transform,
                     paint,
-                    self.anti_alias,
+                    self.aliasing_threshold,
                 );
             }
             GlyphType::Bitmap(glyph) => {
@@ -562,7 +581,7 @@ impl GlyphRenderer for RenderContext {
                     &self.stroke,
                     prepared_glyph.transform,
                     paint,
-                    self.anti_alias,
+                    self.aliasing_threshold,
                 );
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
@@ -873,7 +892,7 @@ impl RenderContext {
             path,
             self.fill_rule,
             transform,
-            self.anti_alias,
+            self.aliasing_threshold,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
             },
@@ -892,7 +911,7 @@ impl RenderContext {
             path,
             &self.stroke,
             transform,
-            self.anti_alias,
+            self.aliasing_threshold,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
             },
