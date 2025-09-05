@@ -422,6 +422,7 @@ impl RenderContext {
         self.encoded_paints.clear();
         self.reset_transform();
         self.reset_paint_transform();
+        self.blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
     }
 
     /// Flush any pending operations.
