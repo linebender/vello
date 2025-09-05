@@ -11,7 +11,7 @@ use vello_dev_macros::vello_test;
 
 use crate::renderer::Renderer;
 
-#[vello_test(skip_multithreaded)]
+#[vello_test]
 fn recording_basic(ctx: &mut impl Renderer) {
     ctx.set_paint(GREEN);
     ctx.fill_rect(&Rect::new(12.0, 12.0, 48.0, 48.0));
@@ -46,7 +46,7 @@ fn recording_basic(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording2);
 }
 
-#[vello_test(skip_multithreaded)]
+#[vello_test]
 fn recording_incremental_build(ctx: &mut impl Renderer) {
     let mut recording = Recording::new();
 
@@ -77,7 +77,7 @@ fn recording_incremental_build(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording);
 }
 
-#[vello_test(width = 300, height = 70, skip_multithreaded)]
+#[vello_test(width = 300, height = 70)]
 fn recording_glyphs(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
