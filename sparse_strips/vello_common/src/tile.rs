@@ -262,17 +262,18 @@ impl Tiles {
 
             // For ease of logic, special-case purely vertical tiles.
             if line_left_x == line_right_x {
-                // Do not emit tiles that are strictly on the right of the viewport. They do not
-                // impact winding, and if we don't do this, we might end up with too big tile
-                // coordinates, which will cause overflows in strip rendering.
-                if line_left_x as u16 >= tile_columns {
-                    continue;
-                }
-
                 let y_top_tiles = (line_top_y as u16).min(tile_rows);
                 let y_bottom_tiles = (line_bottom_y.ceil() as u16).min(tile_rows);
 
-                let x = line_left_x as u16;
+                // Clamp all tiles that are strictly on the right of the viewport to the tile x coordinate
+                // right next to the outside of the viewport. If we don't do this, we might end up
+                // with too big tile coordinates, which will cause overflows in strip rendering.
+                // TODO: in principle it is possible to cull right-of-viewport tiles, but it was causing some
+                // issues, and we are choosing to do the less efficient but working thing for now.
+                // See <https://github.com/linebender/vello/pull/1189> and
+                // <https://github.com/linebender/vello/issues/1126>.
+                let x = (line_left_x as u16).min(tile_columns + 1);
+
                 for y_idx in y_top_tiles..y_bottom_tiles {
                     let y = f32::from(y_idx);
 
@@ -569,6 +570,7 @@ mod tests {
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles(&line_buf, 10, 10);
-        assert!(tiles.is_empty());
+        assert_eq!(tiles.tile_buf[0].x, 4);
+        assert_eq!(tiles.tile_buf[1].x, 4);
     }
 }
