@@ -1152,7 +1152,7 @@ mod impls {
                 const CLIPS_PER_FILL: usize = 3;
                 for _ in 0..CLIPS_PER_FILL {
                     let rot = Affine::rotate(rng.random_range(0.0..PI));
-                    scene.push_layer(Mix::Clip, 1.0, translate * rot, &base_tri);
+                    scene.push_clip_layer(translate * rot, &base_tri);
                 }
                 let rot = Affine::rotate(rng.random_range(0.0..PI));
                 let color = Color::new([rng.random(), rng.random(), rng.random(), 1.]);
@@ -1212,7 +1212,7 @@ mod impls {
                 PathEl::LineTo((X0, Y1).into()),
                 PathEl::ClosePath,
             ];
-            scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &path);
+            scene.push_clip_layer(Affine::IDENTITY, &path);
         }
         let rect = Rect::new(X0, Y0, X1, Y1);
         scene.fill(
@@ -1243,12 +1243,7 @@ mod impls {
             None,
             &make_diamond(1024.0, 125.0),
         );
-        scene.push_layer(
-            Mix::Clip,
-            1.0,
-            Affine::IDENTITY,
-            &make_diamond(1024.0, 150.0),
-        );
+        scene.push_clip_layer(Affine::IDENTITY, &make_diamond(1024.0, 150.0));
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -1584,7 +1579,7 @@ mod impls {
                 PathEl::ClosePath,
             ]
         };
-        scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &clip);
+        scene.push_clip_layer(Affine::IDENTITY, &clip);
         {
             let text_size = 60.0 + 40.0 * (params.time as f32).sin();
             let s = "Some clipped text!";

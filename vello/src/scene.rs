@@ -83,12 +83,16 @@ impl Scene {
     /// previous layers using the specified blend mode.
     ///
     /// Every drawing command after this call will be clipped by the shape
-    /// until the layer is popped.
+    /// until the layer is [popped](Self::pop_layer).
+    /// For layers which are only added for clipping, you should
+    /// use [`push_clip_layer`](Self::push_clip_layer) instead.
     ///
     /// **However, the transforms are *not* saved or modified by the layer stack.**
+    /// That is, the `transform` argument to this function only applies a transform to the `clip` shape.
     ///
     /// Clip layers (`blend` = [`Mix::Clip`]) should have an alpha value of 1.0.
     /// For an opacity group with non-unity alpha, specify [`Mix::Normal`].
+    #[track_caller]
     pub fn push_layer(
         &mut self,
         blend: impl Into<BlendMode>,
@@ -97,6 +101,9 @@ impl Scene {
         clip: &impl Shape,
     ) {
         let blend = blend.into();
+        if blend.mix == Mix::Clip {
+            panic!();
+        }
         if blend.mix == Mix::Clip && alpha != 1.0 {
             log::warn!("Clip mix mode used with semitransparent alpha");
         }
@@ -108,15 +115,16 @@ impl Scene {
     }
 
     /// Pushes a new layer clipped by the specified shape and treated like a luminance
-    /// mask for previous layers.
+    /// mask for the current layer.
     ///
-    /// That is, content drawn between this and the next `pop_layer` call will serve
-    /// as a luminance mask
+    /// That is, content drawn between this and the matching `pop_layer` call will serve
+    /// as a luminance mask for the prior content in this layer.
     ///
     /// Every drawing command after this call will be clipped by the shape
-    /// until the layer is popped.
+    /// until the layer is [popped](Self::pop_layer).
     ///
     /// **However, the transforms are *not* saved or modified by the layer stack.**
+    /// That is, the `transform` argument to this function only applies a transform to the `clip` shape.
     ///
     /// # Transparency and premultiplication
     ///
@@ -135,6 +143,21 @@ impl Scene {
             transform,
             clip,
         );
+    }
+
+    /// Pushes a new layer clipped by the specified `clip` shape.
+    ///
+    /// The pushed layer is intended to not impact the "source" for blending; that is, any blends
+    /// within this layer will still include content from before this method was called in the "source"
+    /// of that blend operation.
+    ///
+    /// Every drawing command after this call will be clipped by the shape
+    /// until the layer is [popped](Self::pop_layer).
+    ///
+    /// **However, the transforms are *not* saved or modified by the layer stack.**
+    /// That is, the `transform` argument to this function only applies a transform to the `clip` shape.
+    pub fn push_clip_layer(&mut self, transform: Affine, clip: &impl Shape) {
+        self.push_layer_inner(DrawBeginClip::clip(), transform, clip);
     }
 
     /// Helper for logic shared between [`Self::push_layer`] and [`Self::push_luminance_mask_layer`]
@@ -872,7 +895,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
         };
         self.clip_depth += 1;
         self.scene
-            .push_layer(Mix::Clip, 1.0, self.last_transform().to_kurbo(), &path.0);
+            .push_clip_layer(self.last_transform().to_kurbo(), &path.0);
     }
 
     fn push_clip_box(&mut self, clip_box: skrifa::raw::types::BoundingBox<f32>) {
@@ -887,7 +910,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
         }
         self.clip_depth += 1;
         self.scene
-            .push_layer(Mix::Clip, 1.0, self.last_transform().to_kurbo(), &clip_box);
+            .push_clip_layer(self.last_transform().to_kurbo(), &clip_box);
     }
 
     fn pop_clip(&mut self) {
