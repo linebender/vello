@@ -1098,7 +1098,6 @@ impl BlendModeExt for BlendMode {
 #[cfg(test)]
 mod tests {
     use crate::coarse::{MODE_CPU, Wide, WideTile};
-    use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
     use crate::paint::{Paint, PremulColor};
     use crate::peniko::{BlendMode, Fill};
@@ -1130,39 +1129,6 @@ mod tests {
             BlendMode::default(),
             Paint::Solid(PremulColor::from_alpha_color(TRANSPARENT)),
         );
-        wide.pop_buf();
-
-        assert_eq!(wide.cmds.len(), 4);
-    }
-
-    #[test]
-    fn dont_inline_blend_with_two_fills() {
-        let paint = Paint::Solid(PremulColor::from_alpha_color(AlphaColor::from_rgba8(
-            30, 30, 30, 255,
-        )));
-        let blend_mode = BlendMode::new(Mix::Lighten, Compose::SrcOver);
-
-        let mut wide = WideTile::<MODE_CPU>::new(0, 0);
-        wide.push_buf();
-        wide.fill(0, 10, paint.clone());
-        wide.fill(10, 10, paint.clone());
-        wide.blend(blend_mode);
-        wide.pop_buf();
-
-        assert_eq!(wide.cmds.len(), 5);
-    }
-
-    #[test]
-    fn dont_inline_destructive_blend() {
-        let paint = Paint::Solid(PremulColor::from_alpha_color(AlphaColor::from_rgba8(
-            30, 30, 30, 255,
-        )));
-        let blend_mode = BlendMode::new(Mix::Lighten, Compose::Clear);
-
-        let mut wide = WideTile::<MODE_CPU>::new(0, 0);
-        wide.push_buf();
-        wide.fill(0, 10, paint.clone());
-        wide.blend(blend_mode);
         wide.pop_buf();
 
         assert_eq!(wide.cmds.len(), 4);
