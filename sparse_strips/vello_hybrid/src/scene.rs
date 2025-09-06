@@ -145,7 +145,7 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
-        let func = |strips| wide.generate(strips, fill_rule, paint, 0);
+        let func = |strips| wide.generate(strips, fill_rule, paint, self.blend_mode, 0);
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
@@ -174,7 +174,7 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
-        let func = |strips| wide.generate(strips, Fill::NonZero, paint, 0);
+        let func = |strips| wide.generate(strips, Fill::NonZero, paint, self.blend_mode, 0);
         self.strip_generator.generate_stroked_path(
             path,
             &self.stroke,
@@ -543,8 +543,13 @@ impl Scene {
             RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => Fill::NonZero,
             _ => Fill::NonZero,
         };
-        self.wide
-            .generate(&adjusted_strips[start..end], fill_rule, paint, 0);
+        self.wide.generate(
+            &adjusted_strips[start..end],
+            fill_rule,
+            paint,
+            self.blend_mode,
+            0,
+        );
     }
 
     /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.
