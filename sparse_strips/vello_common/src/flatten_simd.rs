@@ -10,7 +10,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
-
+use crate::flatten::TOL_2;
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
 
@@ -25,6 +25,7 @@ pub(crate) trait Callback {
 /// <https://docs.rs/kurbo/latest/kurbo/fn.flatten.html>
 ///
 /// This version works using a similar approach but using f32x4/f32x8 SIMD instead.
+#[inline]
 pub(crate) fn flatten<S: Simd>(
     simd: S,
     path: impl IntoIterator<Item = PathEl>,
@@ -50,6 +51,16 @@ pub(crate) fn flatten<S: Simd>(
             PathEl::QuadTo(p1, p2) => {
                 if let Some(p0) = last_pt {
                     let q = QuadBez::new(p0, p1, p2);
+
+                    // If all control points are within the tolerance distance from the
+                    // start and end points, we can just draw a straight line and it's guaranteed
+                    // to be within the given tolerance.
+                    if (p0 - p1).hypot2() <= TOL_2
+                        && (p2 - p1).hypot2() <= TOL_2 {
+                        callback.callback(PathEl::LineTo(p2));
+                        continue;
+                    }
+                    
                     let params = q.estimate_subdiv(sqrt_tol);
                     let n = ((0.5 * params.val / sqrt_tol).ceil() as usize).max(1);
                     let step = 1.0 / (n as f64);
@@ -66,6 +77,18 @@ pub(crate) fn flatten<S: Simd>(
             PathEl::CurveTo(p1, p2, p3) => {
                 if let Some(p0) = last_pt {
                     let c = CubicBez::new(p0, p1, p2, p3);
+                    
+                    // If all control points are within the tolerance distance from the
+                    // start and end points, we can just draw a straight line and it's guaranteed
+                    // to be within the given tolerance.
+                    if (p0 - p1).hypot2() <= TOL_2 
+                        && (p0 - p2).hypot2() <= TOL_2 
+                        && (p3 - p1).hypot2() <= TOL_2 
+                        && (p3 - p2).hypot2() <= TOL_2 {
+                        callback.callback(PathEl::LineTo(p3));
+                        continue;
+                    }
+                    
                     let max = simd.vectorize(
                         #[inline(always)]
                         || {
