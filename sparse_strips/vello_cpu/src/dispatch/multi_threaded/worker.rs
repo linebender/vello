@@ -51,6 +51,7 @@ impl Worker {
                     transform,
                     paint,
                     fill_rule,
+                    blend_mode,
                     aliasing_threshold,
                 } => {
                     let func = |strips: &[Strip]| {
@@ -58,6 +59,7 @@ impl Worker {
                             thread_id: self.thread_id,
                             strips: strips.into(),
                             fill_rule,
+                            blend_mode,
                             paint,
                         };
 
@@ -89,6 +91,7 @@ impl Worker {
                     path,
                     transform,
                     paint,
+                    blend_mode,
                     stroke,
                     aliasing_threshold,
                 } => {
@@ -97,6 +100,7 @@ impl Worker {
                             thread_id: self.thread_id,
                             strips: strips.into(),
                             fill_rule: Fill::NonZero,
+                            blend_mode,
                             paint,
                         };
 

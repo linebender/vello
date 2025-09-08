@@ -266,8 +266,11 @@ impl MultiThreadedDispatcher {
                                 thread_id,
                                 strips,
                                 fill_rule,
+                                blend_mode,
                                 paint,
-                            } => self.wide.generate(&strips, fill_rule, paint, thread_id),
+                            } => self
+                                .wide
+                                .generate(&strips, fill_rule, paint, blend_mode, thread_id),
                             CoarseTask::PushLayer {
                                 thread_id,
                                 clip_path,
@@ -357,6 +360,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         fill_rule: Fill,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     ) {
         self.register_task(RenderTask::FillPath {
@@ -364,6 +368,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             transform,
             paint,
             fill_rule,
+            blend_mode,
             aliasing_threshold,
         });
     }
@@ -374,6 +379,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         stroke: &Stroke,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     ) {
         self.register_task(RenderTask::StrokePath {
@@ -381,6 +387,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             transform,
             paint,
             stroke: stroke.clone(),
+            blend_mode,
             aliasing_threshold,
         });
     }
@@ -547,6 +554,7 @@ pub(crate) enum RenderTask {
         transform: Affine,
         paint: Paint,
         fill_rule: Fill,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     },
     StrokePath {
@@ -554,6 +562,7 @@ pub(crate) enum RenderTask {
         transform: Affine,
         paint: Paint,
         stroke: Stroke,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     },
     PushLayer {
@@ -572,6 +581,7 @@ pub(crate) enum CoarseTask {
         thread_id: u8,
         strips: Box<[Strip]>,
         fill_rule: Fill,
+        blend_mode: BlendMode,
         paint: Paint,
     },
     PushLayer {

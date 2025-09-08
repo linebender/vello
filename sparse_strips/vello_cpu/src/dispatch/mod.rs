@@ -24,6 +24,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         fill_rule: Fill,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     );
     fn stroke_path(
@@ -32,6 +33,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         stroke: &Stroke,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     );
     fn push_layer(
