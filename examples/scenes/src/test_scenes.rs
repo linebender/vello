@@ -101,7 +101,8 @@ mod impls {
     use rand::Rng;
     use rand::{SeedableRng, rngs::StdRng};
     use vello::kurbo::{
-        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Triangle, Vec2
+        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Triangle,
+        Vec2,
     };
     use vello::peniko::color::{AlphaColor, Lch, palette};
     use vello::peniko::*;
@@ -198,7 +199,12 @@ mod impls {
         );
         let layer_shape = Triangle::from_coords((200., 0.), (0., 400.), (400., 400.));
         scene.push_layer(Mix::Clip, 1.0, transform, &layer_shape);
-        scene.push_layer(Mix::Clip, 1.0, transform, &Rect::from_origin_size((200.0, 200.0), (200.0, 200.0)));
+        scene.push_layer(
+            Mix::Clip,
+            1.0,
+            transform,
+            &Rect::from_origin_size((200.0, 200.0), (200.0, 200.0)),
+        );
         scene.push_layer(Mix::Multiply, 1.0, transform, &layer_shape);
         scene.fill(
             Fill::EvenOdd,
