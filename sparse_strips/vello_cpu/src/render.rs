@@ -169,13 +169,13 @@ impl RenderContext {
         }
     }
     
-    pub fn push_clip_path(&mut self, clip_path: &BezPath, fill_rule: Fill) {
+    pub fn push_clip_path(&mut self, clip_path: &BezPath) {
         let last_clip = self.clip_stack.last().map(|c| c.clone());
         let clip_input = last_clip.as_ref().map(|c| c.as_intersect_ref());
         
         self.strip_generator.generate_filled_path(
             clip_path,
-            fill_rule,
+            self.fill_rule,
             self.transform,
             self.aliasing_threshold,
             clip_input,
@@ -183,7 +183,7 @@ impl RenderContext {
                 let rendered_path = IntersectInputOwned {
                     alphas: alphas.into(),
                     strips: strips.into(),
-                    fill: fill_rule,
+                    fill: self.fill_rule,
                 };
                 
                 self.clip_stack.push(Arc::new(rendered_path));
