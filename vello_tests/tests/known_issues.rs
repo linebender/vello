@@ -185,6 +185,7 @@ fn test_gradient_color_alpha() {
 
 /// See <https://github.com/linebender/vello/issues/1198>
 #[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn clip_blends() {
     let mut scene = Scene::new();
 
