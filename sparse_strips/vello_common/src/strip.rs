@@ -708,10 +708,6 @@ impl<'a> Iterator for RowIterator<'a> {
     type Item = Region<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.cur_strip().is_sentinel() || self.cur_strip().strip_y() != self.strip_y {
-            return None;
-        }
-        
         if !self.on_strip {
             self.on_strip = true;
             
@@ -722,6 +718,10 @@ impl<'a> Iterator for RowIterator<'a> {
             }   else {
                 *self.cur_idx += 1;
             }
+        }
+
+        if self.cur_strip().is_sentinel() || self.cur_strip().strip_y() != self.strip_y {
+            return None;
         }
 
         self.on_strip = false;
@@ -782,7 +782,7 @@ mod tests {
     use alloc::vec::Vec;
     use fearless_simd::Level;
     use peniko::Fill;
-    use crate::strip::{intersect, IntersectInputOwned, IntersectOutput, Strip};
+    use crate::strip::{intersect, IntersectInputOwned, IntersectOutput, RowIterator, Strip};
     use crate::tile::Tile;
     
     #[test]
@@ -853,6 +853,20 @@ mod tests {
             .finish();
 
         run_test(expected, path_1, path_2)
+    }
+    
+    #[test]
+    fn row_iterator_abort_next_line() {
+        let path_1 = PathBuilder::new()
+            .add_strip(0, 0, 4, 0)
+            .add_strip(0, 1, 4, 0)
+            .finish();
+        
+        let mut idx = 0;
+        let mut iter = RowIterator::new(path_1.as_intersect_ref(), &mut idx, 0);
+        
+        assert!(iter.next().is_some());
+        assert!(iter.next().is_none());
     }
     
     fn run_test(expected: IntersectInputOwned, path_1: IntersectInputOwned, path_2: IntersectInputOwned) {
