@@ -5,6 +5,7 @@ use crate::peniko::{BlendMode, Compose, ImageQuality, Mix};
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32, u16x16, u16x32};
 use vello_common::math::FloatExt;
+use vello_common::util::Div255Ext;
 
 #[allow(
     dead_code,
@@ -77,33 +78,6 @@ impl<S: Simd> NormalizedMulExt for u8x32<S> {
         let divided = (self.simd.widen_u8x32(self) * other.simd.widen_u8x32(other)).div_255();
         self.simd.narrow_u16x32(divided)
     }
-}
-
-pub(crate) trait Div255Ext {
-    fn div_255(self) -> Self;
-}
-
-impl<S: Simd> Div255Ext for u16x32<S> {
-    #[inline(always)]
-    fn div_255(self) -> Self {
-        let p1 = Self::splat(self.simd, 255);
-        let p2 = self + p1;
-        p2.shr(8)
-    }
-}
-
-impl<S: Simd> Div255Ext for u16x16<S> {
-    #[inline(always)]
-    fn div_255(self) -> Self {
-        let p1 = Self::splat(self.simd, 255);
-        let p2 = self + p1;
-        p2.shr(8)
-    }
-}
-
-#[inline(always)]
-pub(crate) fn normalized_mul<S: Simd>(a: u8x32<S>, b: u8x32<S>) -> u16x32<S> {
-    (S::widen_u8x32(a.simd, a) * S::widen_u8x32(b.simd, b)).div_255()
 }
 
 pub(crate) trait BlendModeExt {
