@@ -84,6 +84,14 @@ fn snapshot_deep_blend() {
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
+fn snapshot_clipped_blend() {
+    let test_scene = test_scenes::clipped_blend();
+    let params = TestParams::new("clipped_blend", 400, 400);
+    snapshot_test_scene(test_scene, params);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn snapshot_gradient_extend() {
     let test_scene = test_scenes::gradient_extend();
     let params = TestParams::new("gradient_extend", 200, 200);
