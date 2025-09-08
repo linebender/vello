@@ -466,11 +466,11 @@ fn intersect_impl<S: Simd>(
     path_2: IntersectInputRef<'_>,
     target: IntersectOutput<'_>,
 )  {
+    target.strips.clear();
+    
     if path_1.strips.is_empty() || path_2.strips.is_empty() {
         return;
     }
-    
-    target.strips.clear();
 
     let mut cur_y = path_1.strips[0].strip_y().min(path_2.strips[0].strip_y());
     let end_y = path_1.strips[path_1.strips.len() - 1].strip_y()

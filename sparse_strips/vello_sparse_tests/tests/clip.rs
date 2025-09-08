@@ -326,3 +326,15 @@ fn clip_completely_in_out_of_bounds_wide_tile(ctx: &mut impl Renderer) {
     ctx.push_clip_layer(&Rect::new(300.0, 8.0, 350.0, 48.0).to_path(0.1));
     ctx.pop_layer();
 }
+
+#[vello_test(skip_hybrid, width = 16, height = 16)]
+fn clip_non_isolated_outside_canvas(ctx: &mut impl Renderer) {
+    // Should be completely clipped.
+    let clip_rect = Rect::new(0.0, 0.0, 16.0, 16.0);
+    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    
+    let rect = Rect::new(16.0, -16.0, 32.0, 0.0);
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&rect);
+    ctx.pop_clip_path();
+}
