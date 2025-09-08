@@ -56,6 +56,7 @@ macro_rules! scene {
 }
 
 export_scenes!(
+    clipped_blend(clipped_blend),
     splash_with_tiger(impls::splash_with_tiger(), "splash_with_tiger", false),
     funky_paths(funky_paths),
     stroke_styles(impls::stroke_styles(Affine::IDENTITY), "stroke_styles", false),
@@ -100,13 +101,123 @@ mod impls {
     use rand::Rng;
     use rand::{SeedableRng, rngs::StdRng};
     use vello::kurbo::{
-        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2,
+        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Triangle, Vec2
     };
     use vello::peniko::color::{AlphaColor, Lch, palette};
     use vello::peniko::*;
     use vello::*;
 
     const FLOWER_IMAGE: &[u8] = include_bytes!("../../assets/splash-flower.jpg");
+
+    pub(super) fn clipped_blend(scene: &mut Scene, params: &mut SceneParams<'_>) {
+        params.resolution = Some(Vec2::new(1000., 1200.));
+        let transform = Affine::translate((10., 100.));
+        params.text.add_run(
+            &mut *scene,
+            None,
+            32.,
+            Color::WHITE,
+            transform.then_translate((10., -30.).into()),
+            None,
+            &Style::Fill(Fill::EvenOdd),
+            "No Clip",
+        );
+
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::BLUE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        scene.push_layer(
+            Mix::Multiply,
+            1.0,
+            transform,
+            &Triangle::from_coords((200., 0.), (0., 400.), (400., 400.)),
+        );
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::AQUAMARINE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        scene.pop_layer();
+
+        let transform = Affine::translate((0., 600.));
+        params.text.add_run(
+            &mut *scene,
+            None,
+            32.,
+            Color::WHITE,
+            transform.then_translate((10., -30.).into()),
+            None,
+            &Style::Fill(Fill::EvenOdd),
+            "Mix::Normal",
+        );
+
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::BLUE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        let layer_shape = Triangle::from_coords((200., 0.), (0., 400.), (400., 400.));
+        scene.push_layer(Mix::Normal, 1.0, transform, &layer_shape);
+        scene.push_layer(Mix::Multiply, 1.0, transform, &layer_shape);
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::AQUAMARINE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        scene.pop_layer();
+        scene.pop_layer();
+
+        let transform = Affine::translate((500., 600.));
+        params.text.add_run(
+            &mut *scene,
+            None,
+            32.,
+            Color::WHITE,
+            transform.then_translate((10., -30.).into()),
+            None,
+            &Style::Fill(Fill::EvenOdd),
+            "Mix::Clip",
+        );
+
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::BLUE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        let layer_shape = Triangle::from_coords((200., 0.), (0., 400.), (400., 400.));
+        scene.push_layer(Mix::Clip, 1.0, transform, &layer_shape);
+        scene.push_layer(Mix::Clip, 1.0, transform, &Rect::from_origin_size((200.0, 200.0), (200.0, 200.0)));
+        scene.push_layer(Mix::Multiply, 1.0, transform, &layer_shape);
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::AQUAMARINE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        scene.pop_layer();
+        scene.pop_layer();
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::RED,
+            None,
+            &Rect::from_origin_size((0.0, 100.0), (400.0, 100.0)),
+        );
+        scene.pop_layer();
+    }
 
     pub(super) fn emoji(scene: &mut Scene, params: &mut SceneParams<'_>) {
         let text_size = 120. + 20. * (params.time * 2.).sin() as f32;

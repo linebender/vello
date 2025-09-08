@@ -131,9 +131,9 @@ fn write_image(info_offset: u32) {
     cmd_offset += 2u;
 }
 
-fn write_begin_clip() {
+fn write_begin_clip(flags: u32) {
     alloc_cmd(1u);
-    ptcl[cmd_offset] = CMD_BEGIN_CLIP;
+    ptcl[cmd_offset] = CMD_BEGIN_CLIP | flags;
     cmd_offset += 1u;
 }
 
@@ -320,7 +320,6 @@ fn main(
             let is_clip = (tag & 1u) != 0u;
             var is_blend = false;
             if is_clip {
-                let BLEND_CLIP = (128u << 8u) | 3u;
                 let scene_offset = draw_monoids[drawobj_ix].scene_offset;
                 let dd = config.drawdata_base + scene_offset;
                 let blend = scene[dd];
@@ -413,7 +412,12 @@ fn main(
                         if tile.segment_count_or_ix == 0u && tile.backdrop == 0 {
                             clip_zero_depth = clip_depth + 1u;
                         } else {
-                            write_begin_clip();
+                            let blend = scene[dd];
+                            if blend == BLEND_CLIP {
+                                write_begin_clip(NON_ISOLATED_BLENDING_FLAG);
+                            } else {
+                                write_begin_clip(0);
+                            }
                             render_blend_depth += 1u;
                             max_blend_depth = max(max_blend_depth, render_blend_depth);
                         }
