@@ -511,7 +511,7 @@ fn intersect_impl<S: Simd>(
                                         start_strip(&mut strip_state, target.alphas, overlap.start, 0);
                                     }
 
-                                    let s_alphas = &s.alphas[(overlap.start - s.start) as usize * 4..overlap.width() as usize * 4];
+                                    let s_alphas = &s.alphas[(overlap.start - s.start) as usize * 4..][..overlap.width() as usize * 4];
                                     target.alphas.extend_from_slice(s_alphas);
                                 }
                                 (Region::Strip(s1), Region::Strip(s2)) => {
@@ -854,6 +854,26 @@ mod tests {
 
         run_test(expected, path_1, path_2)
     }
+
+    #[test]
+    fn alpha_buffer_correct_width() {
+        let path_1 = PathBuilder::new()
+            .add_strip(0, 0, 4, 0)
+            .add_strip(0, 1, 12, 0)
+            .finish();
+
+        let path_2 = PathBuilder::new()
+            .add_strip(4, 0, 8, 0)
+            .add_strip(0, 1, 4, 0)
+            .add_strip(12, 1, 16, 1)
+            .finish();
+        
+        let expected = PathBuilder::new()
+            .add_strip(0, 1, 12, 0)
+            .finish();
+
+        run_test(expected, path_1, path_2)
+    }
     
     #[test]
     fn row_iterator_abort_next_line() {
@@ -898,6 +918,12 @@ mod tests {
         
         fn add_strip(mut self, x: u16, strip_y: u16, end: u16, winding: i32) -> Self {
             let width = end - x;
+            self.add_strip_with(x, strip_y, end, winding, &vec![0; (width * Tile::HEIGHT) as usize])
+        }
+
+        fn add_strip_with(mut self, x: u16, strip_y: u16, end: u16, winding: i32, alphas: &[u8]) -> Self {
+            let width = end - x;
+            assert_eq!(alphas.len(), (width * Tile::HEIGHT) as usize);
             let idx = self.alphas.len();
             self.strips.push(Strip {
                 x,
@@ -905,8 +931,8 @@ mod tests {
                 alpha_idx: idx as u32,
                 winding,
             });
-            self.alphas.extend_from_slice(&vec![0; (width * Tile::HEIGHT) as usize]);
-            
+            self.alphas.extend_from_slice(alphas);
+
             self
         }
         
