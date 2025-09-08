@@ -52,8 +52,9 @@ impl Worker {
                     paint,
                     fill_rule,
                     aliasing_threshold,
+                    clip_path,
                 } => {
-                    let func = |strips: &[Strip]| {
+                    let func = |strips: &[Strip], _| {
                         let coarse_command = CoarseTask::Render {
                             thread_id: self.thread_id,
                             strips: strips.into(),
@@ -71,6 +72,7 @@ impl Worker {
                                 fill_rule,
                                 transform,
                                 aliasing_threshold,
+                                clip_path.as_ref().map(|c| c.as_intersect_ref()),
                                 func,
                             );
                         }
@@ -80,6 +82,7 @@ impl Worker {
                                 fill_rule,
                                 transform,
                                 aliasing_threshold,
+                                clip_path.as_ref().map(|c| c.as_intersect_ref()),
                                 func,
                             );
                         }
@@ -91,6 +94,7 @@ impl Worker {
                     paint,
                     stroke,
                     aliasing_threshold,
+                    clip_path,
                 } => {
                     let func = |strips: &[Strip]| {
                         let coarse_command = CoarseTask::Render {
@@ -110,6 +114,7 @@ impl Worker {
                                 &stroke,
                                 transform,
                                 aliasing_threshold,
+                                clip_path.as_ref().map(|c| c.as_intersect_ref()),
                                 func,
                             );
                         }
@@ -119,6 +124,7 @@ impl Worker {
                                 &stroke,
                                 transform,
                                 aliasing_threshold,
+                                clip_path.as_ref().map(|c| c.as_intersect_ref()),
                                 func,
                             );
                         }
@@ -139,7 +145,8 @@ impl Worker {
                             fill_rule,
                             transform,
                             aliasing_threshold,
-                            |strips| strip_buf = strips,
+                            None,
+                            |strips, _| strip_buf = strips,
                         );
 
                         Some((strip_buf.into(), fill_rule))

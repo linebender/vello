@@ -8,7 +8,6 @@ use crate::peniko::Fill;
 use crate::tile::{Tile, Tiles};
 use crate::util::{f32_to_u8, normalized_mul_u8x16};
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 use std::{iter, vec};
 use fearless_simd::*;
 
@@ -391,40 +390,92 @@ fn render_impl<S: Simd>(
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IntersectInputOwned {
+    pub strips: Vec<Strip>,
+    pub alphas: Vec<u8>,
+    pub fill: Fill
+}
+
+impl IntersectInputOwned {
+    fn new(alphas: impl Into<Vec<u8>>, strips: impl Into<Vec<Strip>>, fill_rule: Fill) -> Self {
+        Self {
+            alphas: alphas.into(),
+            strips: strips.into(),
+            fill: fill_rule,
+        }
+    }
+    
+    pub fn as_intersect_ref(&self) -> IntersectInputRef<'_> {
+        IntersectInputRef {
+            strips: &self.strips,
+            alphas: &self.alphas,
+            fill: self.fill,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct IntersectInputRef<'a> {
+    pub strips: &'a [Strip],
+    pub alphas: &'a [u8],
+    pub fill: Fill
+}
+
+impl IntersectInputRef<'_> {
+    pub fn to_intersect_input(self) -> IntersectInputOwned {
+        IntersectInputOwned {
+            strips: self.strips.into(),
+            alphas: self.alphas.into(),
+            fill: self.fill,
+        }
+    }
+}
+
+pub struct IntersectOutput<'a> {
+    pub strips: &'a mut Vec<Strip>,
+    pub alphas: &'a mut Vec<u8>,
+    pub fill: &'a mut Fill
+}
+
 
 pub fn intersect(
     level: Level,
-    path_1: &RenderedPath,
-    path_2: &RenderedPath,
-) -> RenderedPath {
+    path_1: IntersectInputRef<'_>,
+    path_2: IntersectInputRef<'_>,
+    target: IntersectOutput<'_>,
+) {
     intersect_dispatch(
         level,
         path_1,
-        path_2
+        path_2,
+        target
     )
 }
 
 simd_dispatch!(fn intersect_dispatch(
     level,
-    path_1: &RenderedPath,
-    path_2: &RenderedPath,
-) -> RenderedPath = intersect_impl);
+    path_1: IntersectInputRef<'_>,
+    path_2: IntersectInputRef<'_>,
+    target: IntersectOutput<'_>,
+) = intersect_impl);
 
 fn intersect_impl<S: Simd>(
     simd: S,
-    path_1: &RenderedPath,
-    path_2: &RenderedPath,
-) -> RenderedPath {
+    path_1: IntersectInputRef<'_>,
+    path_2: IntersectInputRef<'_>,
+    target: IntersectOutput<'_>,
+)  {
     if path_1.strips.is_empty() || path_2.strips.is_empty() {
-        return RenderedPath::default();
+        return;
     }
+    
+    target.strips.clear();
 
     let mut cur_y = path_1.strips[0].strip_y().min(path_2.strips[0].strip_y());
     let end_y = path_1.strips[path_1.strips.len() - 1].strip_y()
         .min(path_2.strips[path_2.strips.len() - 1].strip_y());
 
-    let mut alphas = vec![];
-    let mut strips = vec![];
     let mut path_1_idx = 0;
     let mut path_2_idx = 0;
     let mut strip_state = None;
@@ -451,22 +502,22 @@ fn intersect_impl<S: Simd>(
                         OverlapRelationship::Overlap(overlap) => {
                             match (r1, r2) {
                                 (Region::Fill(_), Region::Fill(_)) => {
-                                    flush_strip(&mut strip_state, &mut strips, cur_y);
-                                    start_strip(&mut strip_state, &alphas, overlap.end, 1);
+                                    flush_strip(&mut strip_state, target.strips, cur_y);
+                                    start_strip(&mut strip_state, target.alphas, overlap.end, 1);
                                 }
                                 (Region::Strip(s), Region::Fill(_)) | ( Region::Fill(_), Region::Strip(s)) => {
-                                    if should_create_new_strip(&strip_state, &alphas, overlap.start) {
-                                        flush_strip(&mut strip_state, &mut strips, cur_y);
-                                        start_strip(&mut strip_state, &alphas, overlap.start, 0);
+                                    if should_create_new_strip(&strip_state, target.alphas, overlap.start) {
+                                        flush_strip(&mut strip_state, target.strips, cur_y);
+                                        start_strip(&mut strip_state, target.alphas, overlap.start, 0);
                                     }
 
                                     let s_alphas = &s.alphas[(overlap.start - s.start) as usize * 4..overlap.width() as usize * 4];
-                                    alphas.extend_from_slice(s_alphas);
+                                    target.alphas.extend_from_slice(s_alphas);
                                 }
                                 (Region::Strip(s1), Region::Strip(s2)) => {
-                                    if should_create_new_strip(&strip_state, &alphas, overlap.start) {
-                                        flush_strip(&mut strip_state, &mut strips, cur_y);
-                                        start_strip(&mut strip_state, &alphas, overlap.start, 0);
+                                    if should_create_new_strip(&strip_state, target.alphas, overlap.start) {
+                                        flush_strip(&mut strip_state, target.strips, cur_y);
+                                        start_strip(&mut strip_state, target.alphas, overlap.start, 0);
                                     }
 
                                     let num_blocks = overlap.width() / Tile::HEIGHT;
@@ -485,7 +536,7 @@ fn intersect_impl<S: Simd>(
                                         let s2 = u8x16::from_slice(simd, s2);
 
                                         let res = simd.narrow_u16x16(normalized_mul_u8x16(s1, s2));
-                                        alphas.extend(&res.val);
+                                        target.alphas.extend(&res.val);
                                     }
                                 }
                             }
@@ -501,18 +552,18 @@ fn intersect_impl<S: Simd>(
             }
         }
 
-        flush_strip(&mut strip_state, &mut strips, cur_y);
+        flush_strip(&mut strip_state, target.strips, cur_y);
         cur_y += 1;
     }
 
-    strips.push(Strip {
+    target.strips.push(Strip {
         x: u16::MAX,
         y: end_y * Tile::HEIGHT,
-        alpha_idx: alphas.len() as u32,
+        alpha_idx: target.alphas.len() as u32,
         winding: 0,
     });
-
-    RenderedPath::new(alphas, strips, Fill::NonZero)
+    
+    *target.fill = Fill::NonZero;
 }
 
 struct Overlap {
@@ -596,20 +647,20 @@ impl Region<'_> {
 }
 
 struct RowIterator<'a> {
-    path: &'a RenderedPath,
+    input: IntersectInputRef<'a>,
     strip_y: u16,
     cur_idx: &'a mut usize,
     on_strip: bool,
 }
 
 impl<'a> RowIterator<'a> {
-    fn new(path: &'a RenderedPath, cur_idx: &'a mut usize, strip_y: u16) -> Self {
-        while path.strips[*cur_idx].strip_y() < strip_y {
+    fn new(input: IntersectInputRef<'a>, cur_idx: &'a mut usize, strip_y: u16) -> Self {
+        while input.strips[*cur_idx].strip_y() < strip_y {
             *cur_idx += 1;
         };
         
         Self {
-            path,
+            input,
             cur_idx,
             strip_y,
             on_strip: true,
@@ -617,11 +668,11 @@ impl<'a> RowIterator<'a> {
     }
     
     fn cur_strip(&self) -> &Strip {
-        &self.path.strips[*self.cur_idx]
+        &self.input.strips[*self.cur_idx]
     }
 
     fn next_strip(&self) -> &Strip {
-        &self.path.strips[*self.cur_idx + 1]
+        &self.input.strips[*self.cur_idx + 1]
     }
 
     fn cur_strip_width(&self) -> u16 {
@@ -633,7 +684,7 @@ impl<'a> RowIterator<'a> {
     fn cur_strip_alphas(&self) -> &'a [u8] {
         let cur = self.cur_strip();
         let next = self.next_strip();
-        &self.path.alphas[cur.alpha_idx as usize..next.alpha_idx as usize]
+        &self.input.alphas[cur.alpha_idx as usize..next.alpha_idx as usize]
     }
     
     fn cur_strip_fill_area(&self) -> Option<FillRegion> {
@@ -642,7 +693,7 @@ impl<'a> RowIterator<'a> {
         
         // Note that if the next strip happens to be on the next line, it will always have
         // zero winding so we don't need to special case this.
-        if next.fill_left_area(self.path.fill_rule) {
+        if next.fill_left_area(self.input.fill) {
             let x = cur.x + self.cur_strip_width();
             let width = next.x - x;
             
@@ -691,34 +742,6 @@ impl<'a> Iterator for RowIterator<'a> {
     }
 }
 
-
-#[derive(PartialEq, Debug, Eq)]
-pub struct RenderedPath {
-    pub alphas: Box<[u8]>,
-    pub strips: Box<[Strip]>,
-    pub fill_rule: Fill
-}
-
-impl RenderedPath {
-    fn new(alphas: impl Into<Box<[u8]>>, strips: impl Into<Box<[Strip]>>, fill_rule: Fill) -> Self {
-        Self {
-            alphas: alphas.into(),
-            strips: strips.into(),
-            fill_rule,
-        }
-    }
-}
-
-impl Default for RenderedPath {
-    fn default() -> Self {
-        RenderedPath {
-            alphas: Box::new([]),
-            strips: Box::new([]),
-            fill_rule: Fill::NonZero,
-        }
-    }
-}
-
 struct StripState {
     x: u16,
     alpha_idx: u32,
@@ -759,7 +782,7 @@ mod tests {
     use alloc::vec::Vec;
     use fearless_simd::Level;
     use peniko::Fill;
-    use crate::strip::{intersect, RenderedPath, Strip};
+    use crate::strip::{intersect, IntersectInputOwned, IntersectOutput, Strip};
     use crate::tile::Tile;
     
     #[test]
@@ -832,10 +855,20 @@ mod tests {
         run_test(expected, path_1, path_2)
     }
     
-    fn run_test(expected: RenderedPath, path_1: RenderedPath, path_2: RenderedPath) {
-        assert_eq!(intersect(Level::new(), &path_1, &path_2), expected);
+    fn run_test(expected: IntersectInputOwned, path_1: IntersectInputOwned, path_2: IntersectInputOwned) {
+        let mut write_target = IntersectInputOwned::new(vec![], vec![], Fill::NonZero);
+        
+        let target = IntersectOutput {
+            strips: &mut write_target.strips,
+            alphas: &mut write_target.alphas,
+            fill: &mut write_target.fill,
+        };
+
+        intersect(Level::new(), path_1.as_intersect_ref(), path_2.as_intersect_ref(), target);
+        
+        assert_eq!(write_target, expected);
     }
-    
+
     struct PathBuilder {
         strips: Vec<Strip>,
         alphas: Vec<u8>,
@@ -863,7 +896,7 @@ mod tests {
             self
         }
         
-        fn finish(mut self) -> RenderedPath {
+        fn finish(mut self) -> IntersectInputOwned {
             let last_y = self.strips.last().unwrap().y;
             let idx = self.alphas.len();
             
@@ -873,8 +906,8 @@ mod tests {
                 alpha_idx: idx as u32,
                 winding: 0,
             });
-            
-            RenderedPath::new(self.alphas, self.strips, Fill::NonZero)
+
+            IntersectInputOwned::new(self.alphas, self.strips, Fill::NonZero)
         }
     }
 }
