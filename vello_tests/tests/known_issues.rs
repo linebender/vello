@@ -113,7 +113,7 @@ const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/smoke/data_image_roun
 
 /// Test for <https://github.com/linebender/vello/issues/972>
 #[test]
-#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"]
+#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"] // Uncomment below line when removing this.
 // #[cfg_attr(skip_gpu_tests, ignore)]
 #[should_panic]
 fn test_data_image_roundtrip_extend_reflect() {
@@ -134,7 +134,7 @@ fn test_data_image_roundtrip_extend_reflect() {
 
 /// Test for <https://github.com/linebender/vello/issues/972>
 #[test]
-#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"]
+#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"] // Uncomment below line when removing this.
 // #[cfg_attr(skip_gpu_tests, ignore)]
 #[should_panic]
 fn test_data_image_roundtrip_extend_repeat() {
