@@ -317,10 +317,7 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Determine if the region between this strip and the next should be filled
             // based on the fill rule (NonZero or EvenOdd)
-            let active_fill = match fill_rule {
-                Fill::NonZero => next_strip.winding != 0,
-                Fill::EvenOdd => next_strip.winding % 2 != 0,
-            };
+            let active_fill = next_strip.fill_left_area(fill_rule);
 
             // If region should be filled and both strips are on the same row,
             // generate fill commands for the region between them
@@ -511,10 +508,7 @@ impl<const MODE: u8> Wide<MODE> {
             let wtile_x_clamped = (x / WideTile::WIDTH).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x_clamped {
                 // If winding is zero or doesn't match fill rule, these wide tiles are outside the path
-                let is_inside = match fill_rule {
-                    Fill::NonZero => strip.winding != 0,
-                    Fill::EvenOdd => strip.winding % 2 != 0,
-                };
+                let is_inside = strip.fill_left_area(fill_rule);
                 if !is_inside {
                     for wtile_x in cur_wtile_x..wtile_x_clamped {
                         self.get_mut(wtile_x, cur_wtile_y).push_zero_clip();
@@ -642,10 +636,7 @@ impl<const MODE: u8> Wide<MODE> {
                 // Pop zero clips for tiles that had zero winding or didn't match fill rule
                 // TODO: The winding check is probably not needed; if there was a fill,
                 // the logic below should have advanced wtile_x.
-                let is_inside = match fill_rule {
-                    Fill::NonZero => strip.winding != 0,
-                    Fill::EvenOdd => strip.winding % 2 != 0,
-                };
+                let is_inside = strip.fill_left_area(fill_rule);
                 if !is_inside {
                     for wtile_x in cur_wtile_x..wtile_x_clamped {
                         self.get_mut(wtile_x, cur_wtile_y).pop_zero_clip();
@@ -705,10 +696,7 @@ impl<const MODE: u8> Wide<MODE> {
             }
 
             // Handle fill regions between strips based on fill rule
-            let is_inside = match fill_rule {
-                Fill::NonZero => next_strip.winding != 0,
-                Fill::EvenOdd => next_strip.winding % 2 != 0,
-            };
+            let is_inside = next_strip.fill_left_area(fill_rule);
             if is_inside && strip_y == next_strip.strip_y() {
                 if cur_wtile_x >= clip_bbox.x1() {
                     continue;

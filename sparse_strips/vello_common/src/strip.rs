@@ -28,6 +28,20 @@ impl Strip {
     pub fn strip_y(&self) -> u16 {
         self.y / Tile::HEIGHT
     }
+    
+    /// Return whether the strip is a sentinel strip.
+    pub fn is_sentinel(&self) -> bool {
+        self.x == u16::MAX
+    }
+    
+    /// Return whether the area to the left of this strip should be filled according to the
+    /// fill rule.
+    pub fn fill_left_area(&self, rule: Fill) -> bool {
+        match rule {
+            Fill::NonZero => self.winding != 0,
+            Fill::EvenOdd => self.winding % 2 != 0,
+        }
+    }
 }
 
 /// Render the tiles stored in `tiles` into the strip and alpha buffer.
