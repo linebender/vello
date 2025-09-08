@@ -9,7 +9,7 @@ use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::{FloatExt, compute_erf7};
 use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor};
-use crate::peniko::{ColorStop, Extend, Gradient, GradientKind, ImageQuality};
+use crate::peniko::{ColorStop, ColorStops, Extend, Gradient, GradientKind, ImageQuality};
 use alloc::borrow::Cow;
 use alloc::fmt::Debug;
 use alloc::vec;
@@ -235,6 +235,9 @@ impl EncodeExt for Gradient {
             x_advance,
             y_advance,
             ranges,
+            stops: ColorStops(stops.into_owned()),
+            interpolation_cs: self.interpolation_cs,
+            hue_direction: self.hue_direction,
             pad,
             has_opacities,
             u8_lut: OnceCell::new(),
@@ -709,6 +712,12 @@ pub struct EncodedGradient {
     pub y_advance: Vec2,
     /// The color ranges of the gradient.
     pub ranges: Vec<GradientRange>,
+    /// The original color stops.
+    pub stops: ColorStops,
+    /// The color space used for interpolation.
+    pub interpolation_cs: ColorSpaceTag,
+    /// The hue direction for cylindrical color space interpolation.
+    pub hue_direction: HueDirection,
     /// Whether the gradient should be padded.
     pub pad: bool,
     /// Whether the gradient requires `source_over` compositing.

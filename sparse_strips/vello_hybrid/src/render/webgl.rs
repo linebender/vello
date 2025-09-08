@@ -22,17 +22,32 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::{
     GpuStrip, RenderError, RenderSize,
+    gradient_cache::GradientRampCache,
     image_cache::{ImageCache, ImageResource},
-    render::Config,
+    render::{
+        Config,
+        common::{
+            GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
+            GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
+            GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
+            pack_image_offset, pack_image_size, pack_quality_and_extend_modes,
+            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode,
+        },
+    },
     scene::Scene,
     schedule::{LoadOp, RendererBackend, Scheduler},
 };
+
 use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::{fmt::Debug, mem};
 use vello_common::{
-    coarse::WideTile, encode::EncodedPaint, kurbo::Affine, paint::ImageSource, tile::Tile,
+    coarse::WideTile,
+    encode::{EncodedKind, EncodedPaint, RadialKind},
+    kurbo::Affine,
+    paint::ImageSource,
+    tile::Tile,
 };
 use vello_sparse_shaders::{clear_slots, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
@@ -41,7 +56,12 @@ use web_sys::{
     WebGlUniformLocation, WebGlVertexArrayObject,
 };
 
-use crate::render::common::GpuEncodedImage;
+/// Placeholder value for uninitialized GPU encoded paints.
+const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
+    texture_width_and_extend_mode: 0,
+    gradient_start: 0,
+    transform: [0.0; 6],
+});
 
 /// Query the WebGL context for the max texture size.
 fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> u32 {
@@ -54,10 +74,20 @@ fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> u32 {
 /// Vello Hybrid's WebGL2 Renderer.
 #[derive(Debug)]
 pub struct WebGlRenderer {
+    /// Programs for rendering.
     programs: WebGlPrograms,
+    /// Scheduler for scheduling draws.
     scheduler: Scheduler,
+    /// WebGL context.
     gl: WebGl2RenderingContext,
+    /// Image cache for storing images atlas allocations.
     image_cache: ImageCache,
+    /// Encoded paints for storing encoded paints.
+    encoded_paints: Vec<GpuEncodedPaint>,
+    /// Stores the index (offset) of the encoded paints in the encoded paints texture.
+    paint_idxs: Vec<u32>,
+    /// Gradient cache for storing gradient ramps.
+    gradient_cache: GradientRampCache,
 }
 
 impl WebGlRenderer {
@@ -104,12 +134,16 @@ impl WebGlRenderer {
         let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let image_cache = ImageCache::new(max_texture_dimension_2d, max_texture_dimension_2d);
+        let gradient_cache = GradientRampCache::new();
 
         Self {
             programs: WebGlPrograms::new(gl.clone(), total_slots),
             scheduler: Scheduler::new(total_slots),
             gl,
             image_cache,
+            encoded_paints: Vec::new(),
+            paint_idxs: Vec::new(),
+            gradient_cache,
         }
     }
 
@@ -126,18 +160,23 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
-        let encoded_paints = self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
+        // refinement, we could have a bounded alpha buffer, and break draws when the alpha
+        // buffer fills.
         self.programs.prepare(
             &self.gl,
+            &mut self.gradient_cache,
+            &self.encoded_paints,
             scene.strip_generator.alpha_buf(),
-            encoded_paints,
             render_size,
+            &self.paint_idxs,
         );
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
         };
-        self.scheduler.do_scene(&mut ctx, scene)?;
+        self.scheduler.do_scene(&mut ctx, scene, &self.paint_idxs)?;
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
         // image along the Y axis to complete the WebGPU to WebGL2 coordinate transform.
@@ -277,41 +316,145 @@ impl WebGlRenderer {
             .unwrap();
     }
 
-    fn prepare_gpu_encoded_paints(&self, encoded_paints: &[EncodedPaint]) -> Vec<GpuEncodedImage> {
-        let mut bytes: Vec<GpuEncodedImage> = Vec::new();
-        for paint in encoded_paints {
+    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
+        self.encoded_paints
+            .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
+        self.paint_idxs.resize(encoded_paints.len() + 1, 0);
+
+        self.gradient_cache.maintain();
+
+        let mut current_idx = 0;
+        for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
+            self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
                     if let ImageSource::OpaqueId(image_id) = img.source {
                         let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
                         if let Some(image_resource) = image_resource {
-                            let transform = img.transform * Affine::translate((-0.5, -0.5));
-                            // pack two u16 as u32
-                            let image_size = ((image_resource.width as u32) << 16)
-                                | image_resource.height as u32;
-                            let image_offset = ((image_resource.offset[0] as u32) << 16)
-                                | image_resource.offset[1] as u32;
-                            let quality_and_extend_modes = ((img.extends.1 as u32) << 4)
-                                | ((img.extends.0 as u32) << 2)
-                                | img.quality as u32;
-
-                            bytes.push(GpuEncodedImage {
-                                quality_and_extend_modes,
-                                image_size,
-                                image_offset,
-                                _padding1: 0,
-                                transform: transform.as_coeffs().map(|x| x as f32),
-                                _padding2: [0, 0],
-                            });
+                            let gpu_image = self.encode_image_paint(img, image_resource);
+                            self.encoded_paints[encoded_paint_idx] = gpu_image;
+                            current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                         }
                     }
                 }
-                _ => {
-                    unimplemented!("Gradient and rounded rectangle unsupported")
+                EncodedPaint::Gradient(gradient) => {
+                    let (gradient_start, gradient_width) =
+                        self.gradient_cache.get_or_create_ramp(gradient);
+                    let gpu_gradient =
+                        self.encode_gradient_paint(gradient, gradient_width, gradient_start);
+                    let gradient_size_texels = match &gpu_gradient {
+                        GpuEncodedPaint::LinearGradient(_) => GPU_LINEAR_GRADIENT_SIZE_TEXELS,
+                        GpuEncodedPaint::RadialGradient(_) => GPU_RADIAL_GRADIENT_SIZE_TEXELS,
+                        GpuEncodedPaint::SweepGradient(_) => GPU_SWEEP_GRADIENT_SIZE_TEXELS,
+                        _ => unreachable!("encode_gradient_for_gpu only returns gradient types"),
+                    };
+                    self.encoded_paints[encoded_paint_idx] = gpu_gradient;
+                    current_idx += gradient_size_texels;
+                }
+                EncodedPaint::BlurredRoundedRect(_blurred_rect) => {
+                    // TODO: Blurred rounded rectangles are not yet supported
+                    log::warn!(
+                        "Blurred rounded rectangles are not yet supported in sparse strips hybrid renderer"
+                    );
                 }
             }
         }
-        bytes
+        self.paint_idxs[encoded_paints.len()] = current_idx;
+    }
+
+    fn encode_image_paint(
+        &self,
+        image: &vello_common::encode::EncodedImage,
+        image_resource: &ImageResource,
+    ) -> GpuEncodedPaint {
+        let image_transform = image.transform * Affine::translate((-0.5, -0.5));
+        let transform = image_transform.as_coeffs().map(|x| x as f32);
+        let image_size = pack_image_size(image_resource.width, image_resource.height);
+        let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
+        let quality_and_extend_modes = pack_quality_and_extend_modes(
+            image.extends.0 as u32,
+            image.extends.1 as u32,
+            image.quality as u32,
+        );
+
+        GpuEncodedPaint::Image(GpuEncodedImage {
+            quality_and_extend_modes,
+            image_size,
+            image_offset,
+            transform,
+            _padding: [0, 0, 0],
+        })
+    }
+
+    fn encode_gradient_paint(
+        &self,
+        gradient: &vello_common::encode::EncodedGradient,
+        gradient_width: u32,
+        gradient_start: u32,
+    ) -> GpuEncodedPaint {
+        let gradient_transform = gradient.transform * Affine::translate((-0.5, -0.5));
+        let transform = gradient_transform.as_coeffs().map(|x| x as f32);
+        let extend_mode = match gradient.pad {
+            true => 0,
+            false => 1,
+        };
+        let texture_width_and_extend_mode =
+            pack_texture_width_and_extend_mode(gradient_width, extend_mode);
+
+        match &gradient.kind {
+            EncodedKind::Linear(_) => GpuEncodedPaint::LinearGradient(GpuLinearGradient {
+                texture_width_and_extend_mode,
+                gradient_start,
+                transform,
+            }),
+            EncodedKind::Radial(radial) => {
+                let (kind, bias, scale, fp0, fp1, fr1, f_focal_x, f_is_swapped, scaled_r0_squared) =
+                    match radial {
+                        RadialKind::Radial { bias, scale } => {
+                            (0, *bias, *scale, 0.0, 0.0, 0.0, 0.0, 0, 0.0)
+                        }
+                        RadialKind::Strip { scaled_r0_squared } => {
+                            (1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, *scaled_r0_squared)
+                        }
+                        RadialKind::Focal {
+                            focal_data,
+                            fp0,
+                            fp1,
+                        } => (
+                            2,
+                            *fp0,
+                            *fp1,
+                            *fp0,
+                            *fp1,
+                            focal_data.fr1,
+                            focal_data.f_focal_x,
+                            focal_data.f_is_swapped as u32,
+                            0.0,
+                        ),
+                    };
+                GpuEncodedPaint::RadialGradient(GpuRadialGradient {
+                    texture_width_and_extend_mode,
+                    gradient_start,
+                    transform,
+                    kind_and_f_is_swapped: pack_radial_kind_and_swapped(kind, f_is_swapped),
+                    bias,
+                    scale,
+                    fp0,
+                    fp1,
+                    fr1,
+                    f_focal_x,
+                    scaled_r0_squared,
+                })
+            }
+            EncodedKind::Sweep(sweep) => GpuEncodedPaint::SweepGradient(GpuSweepGradient {
+                texture_width_and_extend_mode,
+                gradient_start,
+                transform,
+                start_angle: sweep.start_angle,
+                inv_angle_delta: sweep.inv_angle_delta,
+                _padding: [0, 0],
+            }),
+        }
     }
 }
 
@@ -334,6 +477,8 @@ struct WebGlPrograms {
     alpha_data: Vec<u8>,
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
+    /// Scratch buffer for staging gradient texture data.
+    gradient_data: Vec<u8>,
 }
 
 /// Uniform locations for `strip_program`.
@@ -353,6 +498,8 @@ struct StripUniforms {
     encoded_paints_texture_fs: WebGlUniformLocation,
     /// Encoded paints texture location for vertex shader.
     encoded_paints_texture_vs: WebGlUniformLocation,
+    /// Gradient texture location.
+    gradient_texture: WebGlUniformLocation,
 }
 
 /// Uniform locations for `clear_program`.
@@ -380,6 +527,10 @@ struct WebGlResources {
     encoded_paints_texture: WebGlTexture,
     /// Height of encoded paints texture.
     encoded_paints_texture_height: u32,
+    /// Gradient texture for gradient ramp data.
+    gradient_texture: WebGlTexture,
+    /// Height of gradient texture.
+    gradient_texture_height: u32,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: WebGlBuffer,
@@ -446,6 +597,7 @@ impl WebGlPrograms {
 
         let alpha_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
         let encoded_paints_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
+        let gradient_data = vec![0; (resources.max_texture_dimension_2d << 2) as usize];
 
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(
@@ -465,6 +617,7 @@ impl WebGlPrograms {
             },
             alpha_data,
             encoded_paints_data,
+            gradient_data,
         }
     }
 
@@ -472,64 +625,121 @@ impl WebGlPrograms {
     fn prepare(
         &mut self,
         gl: &WebGl2RenderingContext,
+        gradient_cache: &mut GradientRampCache,
+        encoded_paints: &[GpuEncodedPaint],
         alphas: &[u8],
-        encoded_paints: Vec<GpuEncodedImage>,
         render_size: &RenderSize,
+        paint_idxs: &[u32],
     ) {
         let max_texture_dimension_2d = self.resources.max_texture_dimension_2d;
-        let alpha_texture_width = max_texture_dimension_2d;
 
-        // Update the alpha texture size if needed.
-        {
-            let required_alpha_height = (alphas.len() as u32)
-                // There are 16 1-byte alpha values per texel.
-                .div_ceil(max_texture_dimension_2d << 4);
+        self.maybe_resize_alphas_tex(max_texture_dimension_2d, alphas);
+        self.maybe_resize_encoded_paints_tex(max_texture_dimension_2d, paint_idxs);
+        self.maybe_update_config_buffer(gl, max_texture_dimension_2d, render_size);
 
-            let current_alpha_height = self.resources.alpha_texture_height;
-            if required_alpha_height > current_alpha_height {
-                // We need to resize the alpha texture to fit the new alpha data.
-                assert!(
-                    required_alpha_height <= max_texture_dimension_2d,
-                    "Alpha texture height exceeds max texture dimensions"
-                );
+        self.upload_alpha_texture(gl, alphas);
+        self.upload_encoded_paints_texture(gl, encoded_paints);
 
-                // Resize the alpha texture staging buffer.
-                let required_alpha_size = (alpha_texture_width * required_alpha_height) << 4;
-                self.alpha_data.resize(required_alpha_size as usize, 0);
-
-                // Track the new height.
-                self.resources.alpha_texture_height = required_alpha_height;
-            }
+        if gradient_cache.has_changed() {
+            self.maybe_resize_gradient_tex(gl, max_texture_dimension_2d, gradient_cache);
+            self.upload_gradient_texture(gl, gradient_cache);
+            gradient_cache.mark_synced();
         }
 
-        // Update the encoded paints texture size if needed.
-        {
-            let encoded_paints_bytes: &[u8] = bytemuck::cast_slice(&encoded_paints);
-            let required_encoded_paints_height =
-                (encoded_paints_bytes.len() as u32).div_ceil(max_texture_dimension_2d << 4);
+        self.clear_view_framebuffer(gl);
+    }
 
-            let current_encoded_paints_height = self.resources.encoded_paints_texture_height;
-            if required_encoded_paints_height > current_encoded_paints_height {
-                assert!(
-                    required_encoded_paints_height <= max_texture_dimension_2d,
-                    "Encoded paints texture height exceeds max texture dimensions"
-                );
+    /// Update the alpha texture size if needed.
+    fn maybe_resize_alphas_tex(&mut self, max_texture_dimension_2d: u32, alphas: &[u8]) {
+        let required_alpha_height = (alphas.len() as u32)
+            // There are 16 1-byte alpha values per texel.
+            .div_ceil(max_texture_dimension_2d << 4);
 
-                let required_encoded_paints_size =
-                    (max_texture_dimension_2d * required_encoded_paints_height) << 4;
-                self.encoded_paints_data
-                    .resize(required_encoded_paints_size as usize, 0);
-                self.resources.encoded_paints_texture_height = required_encoded_paints_height;
-            }
+        let current_alpha_height = self.resources.alpha_texture_height;
+        if required_alpha_height > current_alpha_height {
+            // We need to resize the alpha texture to fit the new alpha data.
+            assert!(
+                required_alpha_height <= max_texture_dimension_2d,
+                "Alpha texture height exceeds max texture dimensions"
+            );
+
+            // Resize the alpha texture staging buffer.
+            let required_alpha_size = (max_texture_dimension_2d * required_alpha_height) << 4;
+            self.alpha_data.resize(required_alpha_size as usize, 0);
+
+            // Track the new height.
+            self.resources.alpha_texture_height = required_alpha_height;
+        }
+    }
+
+    /// Update the encoded paints texture size if needed.
+    fn maybe_resize_encoded_paints_tex(
+        &mut self,
+        max_texture_dimension_2d: u32,
+        paint_idxs: &[u32],
+    ) {
+        let required_texels = paint_idxs.last().unwrap();
+        let required_encoded_paints_height = required_texels.div_ceil(max_texture_dimension_2d);
+        let current_encoded_paints_height = self.resources.encoded_paints_texture_height;
+        if required_encoded_paints_height > current_encoded_paints_height {
+            assert!(
+                required_encoded_paints_height <= max_texture_dimension_2d,
+                "Encoded paints texture height exceeds max texture dimensions"
+            );
+
+            let required_encoded_paints_size =
+                (max_texture_dimension_2d * required_encoded_paints_height) << 4;
+            self.encoded_paints_data
+                .resize(required_encoded_paints_size as usize, 0);
+            self.resources.encoded_paints_texture_height = required_encoded_paints_height;
+        }
+    }
+
+    /// Update the gradient texture size if needed.
+    fn maybe_resize_gradient_tex(
+        &mut self,
+        _gl: &WebGl2RenderingContext,
+        max_texture_dimension_2d: u32,
+        gradient_cache: &GradientRampCache,
+    ) {
+        if gradient_cache.is_empty() {
+            return;
         }
 
-        // Update config buffer if dimensions changed.
-        if self.render_size != *render_size {
+        let gradient_data_size = gradient_cache.size();
+        // Each texel is RGBA8, so 4 bytes per texel
+        let required_gradient_height =
+            (gradient_data_size as u32).div_ceil(max_texture_dimension_2d * 4);
+
+        let current_gradient_height = self.resources.gradient_texture_height;
+        if required_gradient_height > current_gradient_height {
+            assert!(
+                required_gradient_height <= max_texture_dimension_2d,
+                "Gradient texture height exceeds max texture dimensions"
+            );
+
+            // Resize the gradient data buffer
+            let required_gradient_size = max_texture_dimension_2d * required_gradient_height * 4;
+            self.gradient_data
+                .resize(required_gradient_size as usize, 0);
+
+            self.resources.gradient_texture_height = required_gradient_height;
+        }
+    }
+
+    /// Update config buffer if dimensions changed.
+    fn maybe_update_config_buffer(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        max_texture_dimension_2d: u32,
+        new_render_size: &RenderSize,
+    ) {
+        if self.render_size != *new_render_size {
             // Update view config buffer
             {
                 let config = Config {
-                    width: render_size.width,
-                    height: render_size.height,
+                    width: new_render_size.width,
+                    height: new_render_size.height,
                     strip_height: Tile::HEIGHT.into(),
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                 };
@@ -600,8 +810,8 @@ impl WebGlPrograms {
                 WebGl2RenderingContext::TEXTURE_2D,
                 0,
                 WebGl2RenderingContext::RGBA8 as i32,
-                render_size.width as i32,
-                render_size.height as i32,
+                new_render_size.width as i32,
+                new_render_size.height as i32,
                 0,
                 WebGl2RenderingContext::RGBA,
                 WebGl2RenderingContext::UNSIGNED_BYTE,
@@ -609,11 +819,14 @@ impl WebGlPrograms {
             )
             .unwrap();
 
-            self.render_size = render_size.clone();
+            self.render_size = new_render_size.clone();
         }
+    }
 
-        // Process alpha data for texture
+    /// Upload alpha data to the texture.
+    fn upload_alpha_texture(&mut self, gl: &WebGl2RenderingContext, alphas: &[u8]) {
         if !alphas.is_empty() {
+            let alpha_texture_width = self.resources.max_texture_dimension_2d;
             let alpha_texture_height = self.resources.alpha_texture_height;
 
             debug_assert!(
@@ -647,15 +860,19 @@ impl WebGlPrograms {
             )
             .unwrap();
         }
+    }
 
-        // Process encoded paints data for texture
+    /// Upload encoded paints to the texture.
+    fn upload_encoded_paints_texture(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        encoded_paints: &[GpuEncodedPaint],
+    ) {
         if !encoded_paints.is_empty() {
-            let encoded_paints_texture_width = max_texture_dimension_2d;
+            let encoded_paints_texture_width = self.resources.max_texture_dimension_2d;
             let encoded_paints_texture_height = self.resources.encoded_paints_texture_height;
 
-            let encoded_paints_bytes: &[u8] = bytemuck::cast_slice(&encoded_paints);
-            self.encoded_paints_data[0..encoded_paints_bytes.len()]
-                .copy_from_slice(encoded_paints_bytes);
+            GpuEncodedPaint::serialize_to_buffer(encoded_paints, &mut self.encoded_paints_data);
 
             gl.active_texture(WebGl2RenderingContext::TEXTURE0);
             gl.bind_texture(
@@ -681,16 +898,52 @@ impl WebGlPrograms {
             )
             .unwrap();
         }
+    }
 
-        // Clear the view framebuffer.
-        {
-            gl.bind_framebuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                Some(&self.resources.view_framebuffer),
-            );
-            gl.clear_color(0.0, 0.0, 0.0, 0.0);
-            gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+    /// Upload gradient data to the texture.
+    fn upload_gradient_texture(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        gradient_cache: &GradientRampCache,
+    ) {
+        if gradient_cache.is_empty() {
+            return;
         }
+
+        let gradient_texture_width = self.resources.max_texture_dimension_2d;
+        let gradient_texture_height = self.resources.gradient_texture_height;
+        let gradient_luts = gradient_cache.luts();
+
+        self.gradient_data[0..gradient_luts.len()].copy_from_slice(gradient_luts);
+
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.resources.gradient_texture),
+        );
+
+        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+            WebGl2RenderingContext::TEXTURE_2D,
+            0,
+            WebGl2RenderingContext::RGBA8 as i32,
+            gradient_texture_width as i32,
+            gradient_texture_height as i32,
+            0,
+            WebGl2RenderingContext::RGBA,
+            WebGl2RenderingContext::UNSIGNED_BYTE,
+            Some(&self.gradient_data),
+        )
+        .unwrap();
+    }
+
+    /// Clear the view framebuffer.
+    fn clear_view_framebuffer(&mut self, gl: &WebGl2RenderingContext) {
+        gl.bind_framebuffer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            Some(&self.resources.view_framebuffer),
+        );
+        gl.clear_color(0.0, 0.0, 0.0, 0.0);
+        gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
     }
 
     /// Upload strip data to GPU.
@@ -806,6 +1059,7 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
     let atlas_texture_name = render_strips::fragment::ATLAS_TEXTURE;
     let encoded_paints_texture_fs_name = render_strips::fragment::ENCODED_PAINTS_TEXTURE;
     let encoded_paints_texture_vs_name = render_strips::vertex::ENCODED_PAINTS_TEXTURE;
+    let gradient_texture_name = render_strips::fragment::GRADIENT_TEXTURE;
 
     StripUniforms {
         config_vs_block_index,
@@ -824,6 +1078,9 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
             .unwrap(),
         encoded_paints_texture_vs: gl
             .get_uniform_location(program, encoded_paints_texture_vs_name)
+            .unwrap(),
+        gradient_texture: gl
+            .get_uniform_location(program, gradient_texture_name)
             .unwrap(),
     }
 }
@@ -955,6 +1212,33 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> Web
         );
     }
 
+    // Create and configure gradient texture.
+    let gradient_texture = gl.create_texture().unwrap();
+    {
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&gradient_texture));
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+            WebGl2RenderingContext::LINEAR as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+            WebGl2RenderingContext::LINEAR as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_WRAP_S,
+            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_WRAP_T,
+            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+        );
+    }
+
     // Create and configure view texture.
     let view_texture = gl.create_texture().unwrap();
     {
@@ -1005,6 +1289,8 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> Web
         atlas_texture,
         encoded_paints_texture,
         encoded_paints_texture_height: 0,
+        gradient_texture,
+        gradient_texture_height: 0,
         view_config_buffer,
         slot_config_buffer,
         clear_slot_indices_buffer,
@@ -1262,6 +1548,15 @@ impl WebGlRendererContext<'_> {
             Some(&self.programs.strip_uniforms.encoded_paints_texture_vs),
             3,
         );
+
+        // Bind gradient texture for gradient rendering
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE4);
+        self.gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.programs.resources.gradient_texture),
+        );
+        self.gl
+            .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
         // Draw.
         self.gl.draw_arrays_instanced(

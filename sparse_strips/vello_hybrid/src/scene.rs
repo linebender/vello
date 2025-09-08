@@ -109,9 +109,10 @@ impl Scene {
     fn encode_current_paint(&mut self) -> Paint {
         match self.paint.clone() {
             PaintType::Solid(s) => s.into(),
-            PaintType::Gradient(_) => {
-                unimplemented!("Gradient not implemented")
-            }
+            PaintType::Gradient(g) => g.encode_into(
+                &mut self.encoded_paints,
+                self.transform * self.paint_transform,
+            ),
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints,
                 self.transform * self.paint_transform,

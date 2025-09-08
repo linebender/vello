@@ -33,6 +33,7 @@
 
 extern crate alloc;
 
+mod gradient_cache;
 mod image_cache;
 mod render;
 mod scene;
