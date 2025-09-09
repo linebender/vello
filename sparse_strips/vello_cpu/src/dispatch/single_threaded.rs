@@ -192,14 +192,8 @@ impl Dispatcher for SingleThreadedDispatcher {
         }
     }
 
-    fn generate_wide_cmd(
-        &mut self,
-        strip_buf: &[Strip],
-        fill_rule: Fill,
-        paint: Paint,
-        thread_idx: u8,
-    ) {
-        self.wide.generate(strip_buf, fill_rule, paint, thread_idx);
+    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint) {
+        self.wide.generate(strip_buf, fill_rule, paint, 0);
     }
 }
 

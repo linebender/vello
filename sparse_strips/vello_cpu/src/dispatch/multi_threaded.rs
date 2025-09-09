@@ -499,13 +499,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         }
     }
 
-    fn generate_wide_cmd(
-        &mut self,
-        strip_buf: &[Strip],
-        fill_rule: Fill,
-        paint: Paint,
-        thread_idx: u8,
-    ) {
+    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint) {
         // Note that we are essentially round-tripping here: The wide container is inside of the
         // main thread, but we first send a render task to a child thread which basically just
         // forwards it back to the main thread again. We cannot apply the wide command directly
@@ -516,7 +510,9 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.register_task(RenderTask::WideCommand {
             strip_buf: strip_buf.into(),
             fill_rule,
-            thread_idx,
+            // Recordings are currently always built on the main thread and thus have a `thread_idx`
+            // of 0.
+            thread_idx: 0,
             paint,
         });
     }
