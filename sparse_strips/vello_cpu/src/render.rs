@@ -26,7 +26,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
-use vello_common::strip::{PathDataOwned, Strip, intersect};
+use vello_common::strip::{PathDataOwned, Strip};
 use vello_common::strip_generator::StripGenerator;
 #[cfg(feature = "text")]
 use vello_common::{

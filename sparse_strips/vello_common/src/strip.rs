@@ -9,7 +9,6 @@ use crate::tile::{Tile, Tiles};
 use crate::util::{f32_to_u8, normalized_mul_u8x16};
 use alloc::vec::Vec;
 use fearless_simd::*;
-use std::{iter, vec};
 
 /// A strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
