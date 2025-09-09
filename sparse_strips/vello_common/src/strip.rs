@@ -412,7 +412,7 @@ impl PathDataOwned {
 }
 
 /// Borrowed data of a stripped path.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PathDataRef<'a> {
     /// The strips.
     pub strips: &'a [Strip],
@@ -433,6 +433,7 @@ impl PathDataRef<'_> {
     }
 }
 
+#[derive(Debug)]
 /// Mutably borrowed data of a stripped path.
 pub struct PathDataMut<'a> {
     /// The strips.

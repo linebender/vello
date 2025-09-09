@@ -168,6 +168,11 @@ impl RenderContext {
         }
     }
 
+    /// Push a new clip path.
+    ///
+    /// Note that unlike `push_clip_layer`, this does not push a new isolated layer to the
+    /// blend stack, but instead acts as a simple clip path that is applied to each drawn path
+    /// individually before rendering.
     pub fn push_clip_path(&mut self, clip_path: &BezPath) {
         let last_clip = self.clip_stack.last().cloned();
 
@@ -189,6 +194,9 @@ impl RenderContext {
         )
     }
 
+    /// Pop the last clip path that was pushed via `push_clip_path`.
+    ///
+    /// This method has no effect on previously pushed clip layers.
     pub fn pop_clip_path(&mut self) {
         self.clip_stack.pop();
     }

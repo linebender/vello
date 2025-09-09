@@ -15,8 +15,8 @@ use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
-use vello_common::strip::Strip;
 use vello_common::strip::PathDataOwned;
+use vello_common::strip::Strip;
 
 pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn wide(&self) -> &Wide;
