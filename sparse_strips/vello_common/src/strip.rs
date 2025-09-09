@@ -865,7 +865,7 @@ mod tests {
 
         let expected = PathBuilder::new().add_strip(8, 0, 32, 0).finish();
 
-        run_test(expected, path_1, path_2)
+        run_test(expected, path_1, path_2);
     }
 
     #[test]
@@ -892,7 +892,7 @@ mod tests {
             .add_strip(44, 1, 48, 1)
             .finish();
 
-        run_test(expected, path_1, path_2)
+        run_test(expected, path_1, path_2);
     }
 
     #[test]
@@ -918,7 +918,7 @@ mod tests {
             .add_strip(16, 2, 24, 1)
             .finish();
 
-        run_test(expected, path_1, path_2)
+        run_test(expected, path_1, path_2);
     }
 
     #[test]
@@ -936,7 +936,7 @@ mod tests {
 
         let expected = PathBuilder::new().add_strip(0, 1, 12, 0).finish();
 
-        run_test(expected, path_1, path_2)
+        run_test(expected, path_1, path_2);
     }
 
     #[test]
@@ -989,7 +989,7 @@ mod tests {
             }
         }
 
-        fn add_strip(mut self, x: u16, strip_y: u16, end: u16, winding: i32) -> Self {
+        fn add_strip(self, x: u16, strip_y: u16, end: u16, winding: i32) -> Self {
             let width = end - x;
             self.add_strip_with(
                 x,
