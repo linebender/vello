@@ -169,15 +169,14 @@ impl RenderContext {
     }
 
     pub fn push_clip_path(&mut self, clip_path: &BezPath) {
-        let last_clip = self.clip_stack.last().map(|c| c.clone());
-        let clip_input = last_clip.as_ref().map(|c| c.as_path_data_ref());
+        let last_clip = self.clip_stack.last().cloned();
 
         self.strip_generator.generate_filled_path(
             clip_path,
             self.fill_rule,
             self.transform,
             self.aliasing_threshold,
-            clip_input,
+            last_clip,
             |strips, alphas| {
                 let rendered_path = PathDataOwned {
                     alphas: alphas.into(),
@@ -203,7 +202,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
-            self.clip_stack.last().map(|c| c.as_path_data_ref()),
+            self.clip_stack.last().cloned(),
         );
     }
 
@@ -216,7 +215,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
-            self.clip_stack.last().map(|c| c.as_path_data_ref()),
+            self.clip_stack.last().cloned(),
         );
     }
 
@@ -244,7 +243,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
-            self.clip_stack.last().map(|c| c.as_path_data_ref()),
+            self.clip_stack.last().cloned(),
         );
     }
 
@@ -281,7 +280,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
-            self.clip_stack.last().map(|c| c.as_path_data_ref()),
+            self.clip_stack.last().cloned(),
         );
     }
 
@@ -522,7 +521,7 @@ impl GlyphRenderer for RenderContext {
                     prepared_glyph.transform,
                     paint,
                     self.aliasing_threshold,
-                    self.clip_stack.last().map(|c| c.as_path_data_ref()),
+                    self.clip_stack.last().cloned(),
                 );
             }
             GlyphType::Bitmap(glyph) => {
@@ -618,7 +617,7 @@ impl GlyphRenderer for RenderContext {
                     prepared_glyph.transform,
                     paint,
                     self.aliasing_threshold,
-                    self.clip_stack.last().map(|c| c.as_path_data_ref()),
+                    self.clip_stack.last().cloned(),
                 );
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
@@ -929,7 +928,7 @@ impl RenderContext {
             self.fill_rule,
             transform,
             self.aliasing_threshold,
-            self.clip_stack.last().map(|c| c.as_path_data_ref()),
+            self.clip_stack.last().cloned(),
             |generated_strips, _| {
                 strips.extend_from_slice(generated_strips);
             },
@@ -949,7 +948,7 @@ impl RenderContext {
             &self.stroke,
             transform,
             self.aliasing_threshold,
-            self.clip_stack.last().map(|c| c.as_path_data_ref()),
+            self.clip_stack.last().cloned(),
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
             },

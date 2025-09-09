@@ -18,6 +18,7 @@ use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
@@ -26,7 +27,7 @@ use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
-use vello_common::strip::{PathDataOwned, PathDataRef, Strip};
+use vello_common::strip::{PathDataOwned, Strip};
 use vello_common::strip_generator::StripGenerator;
 
 mod cost;
@@ -360,7 +361,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<PathDataRef<'_>>,
+        clip_path: Option<Arc<PathDataOwned>>,
     ) {
         self.register_task(RenderTask::FillPath {
             path: Path::new(path),
@@ -368,8 +369,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             paint,
             fill_rule,
             aliasing_threshold,
-            // TODO: Remove allocation?
-            clip_path: clip_path.map(|p| p.to_path_data_owned()),
+            clip_path,
         });
     }
 
@@ -380,7 +380,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<PathDataRef<'_>>,
+        clip_path: Option<Arc<PathDataOwned>>,
     ) {
         self.register_task(RenderTask::StrokePath {
             path: Path::new(path),
@@ -388,7 +388,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             paint,
             stroke: stroke.clone(),
             aliasing_threshold,
-            clip_path: clip_path.map(|p| p.to_path_data_owned()),
+            clip_path,
         });
     }
 
@@ -581,7 +581,7 @@ pub(crate) enum RenderTask {
         paint: Paint,
         fill_rule: Fill,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<PathDataOwned>,
+        clip_path: Option<Arc<PathDataOwned>>,
     },
     WideCommand {
         strip_buf: Box<[Strip]>,
@@ -595,7 +595,7 @@ pub(crate) enum RenderTask {
         paint: Paint,
         stroke: Stroke,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<PathDataOwned>,
+        clip_path: Option<Arc<PathDataOwned>>,
     },
     PushLayer {
         clip_path: Option<(BezPath, Affine)>,

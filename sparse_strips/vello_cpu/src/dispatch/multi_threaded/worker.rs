@@ -72,7 +72,7 @@ impl Worker {
                                 fill_rule,
                                 transform,
                                 aliasing_threshold,
-                                clip_path.as_ref().map(|c| c.as_path_data_ref()),
+                                clip_path,
                                 func,
                             );
                         }
@@ -82,7 +82,7 @@ impl Worker {
                                 fill_rule,
                                 transform,
                                 aliasing_threshold,
-                                clip_path.as_ref().map(|c| c.as_path_data_ref()),
+                                clip_path,
                                 func,
                             );
                         }
@@ -114,7 +114,7 @@ impl Worker {
                                 &stroke,
                                 transform,
                                 aliasing_threshold,
-                                clip_path.as_ref().map(|c| c.as_path_data_ref()),
+                                clip_path,
                                 func,
                             );
                         }
@@ -124,7 +124,7 @@ impl Worker {
                                 &stroke,
                                 transform,
                                 aliasing_threshold,
-                                clip_path.as_ref().map(|c| c.as_path_data_ref()),
+                                clip_path,
                                 func,
                             );
                         }

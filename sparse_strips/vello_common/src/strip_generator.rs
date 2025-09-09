@@ -10,6 +10,7 @@ use crate::peniko::Fill;
 use crate::strip::{PathDataMut, PathDataOwned, PathDataRef, Strip, intersect};
 use crate::tile::Tiles;
 use crate::{flatten, strip};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 /// An object for easily generating strips for a filled/stroked path.
@@ -55,7 +56,7 @@ impl StripGenerator {
         fill_rule: Fill,
         transform: Affine,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<PathDataRef<'_>>,
+        clip_path: Option<Arc<PathDataOwned>>,
         func: impl FnOnce(&'a [Strip], &'a [u8]),
     ) {
         flatten::fill(
@@ -78,7 +79,7 @@ impl StripGenerator {
         stroke: &Stroke,
         transform: Affine,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<PathDataRef<'_>>,
+        clip_path: Option<Arc<PathDataOwned>>,
         func: impl FnOnce(&'a [Strip]),
     ) {
         let fill_rule = Fill::NonZero;
@@ -101,7 +102,7 @@ impl StripGenerator {
         &mut self,
         mut fill_rule: Fill,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<PathDataRef<'_>>,
+        clip_path: Option<Arc<PathDataOwned>>,
     ) {
         if let Some(clip_path) = clip_path {
             self.make_strips(fill_rule, aliasing_threshold, true);
@@ -118,7 +119,7 @@ impl StripGenerator {
                 fill: &mut fill_rule,
             };
 
-            intersect(self.level, clip_path, input_path, target);
+            intersect(self.level, clip_path.as_path_data_ref(), input_path, target);
         } else {
             self.make_strips(fill_rule, aliasing_threshold, false);
         }
@@ -167,7 +168,7 @@ impl StripGenerator {
         let (alphas, strip_buf) = if temp {
             self.temp_alpha_buf.clear();
             self.temp_strip_buf.clear();
-            
+
             (&mut self.temp_alpha_buf, &mut self.temp_strip_buf)
         } else {
             (&mut self.main_alpha_buf, &mut self.main_strip_buf)
