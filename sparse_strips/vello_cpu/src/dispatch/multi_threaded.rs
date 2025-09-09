@@ -26,7 +26,7 @@ use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
-use vello_common::strip::{IntersectInputOwned, IntersectInputRef, Strip};
+use vello_common::strip::{PathDataOwned, PathDataRef, Strip};
 
 mod cost;
 mod small_path;
@@ -358,7 +358,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<IntersectInputRef<'_>>,
+        clip_path: Option<PathDataRef<'_>>,
     ) {
         self.register_task(RenderTask::FillPath {
             path: Path::new(path),
@@ -367,7 +367,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             fill_rule,
             aliasing_threshold,
             // TODO: Remove allocation?
-            clip_path: clip_path.map(|p| p.to_intersect_input()),
+            clip_path: clip_path.map(|p| p.to_path_data_owned()),
         });
     }
 
@@ -378,7 +378,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<IntersectInputRef<'_>>,
+        clip_path: Option<PathDataRef<'_>>,
     ) {
         self.register_task(RenderTask::StrokePath {
             path: Path::new(path),
@@ -386,7 +386,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             paint,
             stroke: stroke.clone(),
             aliasing_threshold,
-            clip_path: clip_path.map(|p| p.to_intersect_input()),
+            clip_path: clip_path.map(|p| p.to_path_data_owned()),
         });
     }
 
@@ -553,7 +553,7 @@ pub(crate) enum RenderTask {
         paint: Paint,
         fill_rule: Fill,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<IntersectInputOwned>
+        clip_path: Option<PathDataOwned>
     },
     StrokePath {
         path: Path,
@@ -561,7 +561,7 @@ pub(crate) enum RenderTask {
         paint: Paint,
         stroke: Stroke,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<IntersectInputOwned>
+        clip_path: Option<PathDataOwned>
     },
     PushLayer {
         clip_path: Option<(BezPath, Affine)>,

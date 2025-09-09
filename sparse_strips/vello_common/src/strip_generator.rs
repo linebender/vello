@@ -7,7 +7,7 @@ use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::kurbo::{Affine, PathEl, Stroke};
 use crate::peniko::Fill;
-use crate::strip::{intersect, IntersectInputOwned, IntersectInputRef, IntersectOutput, Strip};
+use crate::strip::{intersect, PathDataOwned, PathDataRef, PathDataMut, Strip};
 use crate::tile::Tiles;
 use crate::{flatten, strip};
 use alloc::vec::Vec;
@@ -51,7 +51,7 @@ impl StripGenerator {
         mut fill_rule: Fill,
         transform: Affine,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<IntersectInputRef<'_>>,
+        clip_path: Option<PathDataRef<'_>>,
         func: impl FnOnce(&'a [Strip], &'a [u8]),
     ) {
         flatten::fill(
@@ -65,13 +65,13 @@ impl StripGenerator {
         if let Some(clip_path) = clip_path {
             self.make_strips(fill_rule, aliasing_threshold, true);
             
-            let input_path = IntersectInputRef {
+            let input_path = PathDataRef {
                 strips: &self.strip_buf2,
                 alphas: &self.temp_alphas,
                 fill: fill_rule,
             };
             
-            let target = IntersectOutput {
+            let target = PathDataMut {
                 strips: &mut self.strip_buf1,
                 alphas: &mut self.global_alphas,
                 fill: &mut fill_rule,
@@ -97,7 +97,7 @@ impl StripGenerator {
         stroke: &Stroke,
         transform: Affine,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<IntersectInputRef<'_>>,
+        clip_path: Option<PathDataRef<'_>>,
         func: impl FnOnce(&'a [Strip]),
     ) {
         let mut fill_rule = Fill::NonZero;
@@ -114,13 +114,13 @@ impl StripGenerator {
         if let Some(clip_path) = clip_path {
             self.make_strips(fill_rule, aliasing_threshold, true);
 
-            let input_path = IntersectInputRef {
+            let input_path = PathDataRef {
                 strips: &self.strip_buf2,
                 alphas: &self.temp_alphas,
                 fill: fill_rule,
             };
 
-            let target = IntersectOutput {
+            let target = PathDataMut {
                 strips: &mut self.strip_buf1,
                 alphas: &mut self.global_alphas,
                 fill: &mut fill_rule,
