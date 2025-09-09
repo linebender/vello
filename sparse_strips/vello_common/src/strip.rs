@@ -513,8 +513,8 @@ fn intersect_impl<S: Simd>(
         // additional strips should be generated for that row, even if the other path might
         // still have more strips left. They will all be clipped away. So only consider it
         // if both paths have a region left.
-        while let (Some(r1), Some(r2)) = (p1_region, p2_region) {
-            match r1.overlap_relationship(&r2) {
+        while let (Some(region_1), Some(region_2)) = (p1_region, p2_region) {
+            match region_1.overlap_relationship(&region_2) {
                 // This means there is no overlap between the regions, so we need to advance
                 // the iterator of the region that is further behind.
                 OverlapRelationship::Advance(advance) => {
@@ -527,7 +527,7 @@ fn intersect_impl<S: Simd>(
                 }
                 // We have an overlap!
                 OverlapRelationship::Overlap(overlap) => {
-                    match (r1, r2) {
+                    match (region_1, region_2) {
                         // Both regions are a fill. Flush the current strip and start a new
                         // one at the end of the overlap region setting the winding number to
                         // one, so that the whole area before that will be filled with a sparse
