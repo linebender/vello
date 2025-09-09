@@ -144,7 +144,7 @@ impl Renderer for RenderContext {
     }
 
     fn pop_clip_path(&mut self) {
-        Self::pop_clip_path(self)
+        Self::pop_clip_path(self);
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
@@ -317,8 +317,8 @@ impl Renderer for HybridRenderer {
         self.scene.push_clip_layer(path);
     }
 
-    fn push_clip_path(&mut self, path: &BezPath) {
-        todo!()
+    fn push_clip_path(&mut self, _: &BezPath) {
+        unimplemented!()
     }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
@@ -338,7 +338,7 @@ impl Renderer for HybridRenderer {
     }
 
     fn pop_clip_path(&mut self) {
-        todo!()
+        unimplemented!()
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
@@ -593,8 +593,8 @@ impl Renderer for HybridRenderer {
         self.scene.glyph_run(font)
     }
 
-    fn push_clip_path(&mut self, path: &BezPath) {
-        todo!()
+    fn push_clip_path(&mut self, _: &BezPath) {
+        unimplemented!()
     }
 
     fn push_layer(
@@ -630,7 +630,7 @@ impl Renderer for HybridRenderer {
     }
 
     fn pop_clip_path(&mut self) {
-        todo!()
+        unimplemented!()
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
