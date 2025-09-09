@@ -71,6 +71,7 @@ export_scenes!(
     brush_transform(brush_transform: animated),
     blend_grid(blend_grid),
     deep_blend(deep_blend),
+    clipped_blend(clipped_blend),
     many_clips(many_clips),
     conflation_artifacts(conflation_artifacts),
     labyrinth(labyrinth),
@@ -100,7 +101,8 @@ mod impls {
     use rand::Rng;
     use rand::{SeedableRng, rngs::StdRng};
     use vello::kurbo::{
-        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Vec2,
+        Affine, BezPath, Cap, Circle, Ellipse, Join, PathEl, Point, Rect, Shape, Stroke, Triangle,
+        Vec2,
     };
     use vello::peniko::color::{AlphaColor, Lch, palette};
     use vello::peniko::*;
@@ -1109,6 +1111,107 @@ mod impls {
         for _ in 0..depth {
             scene.pop_layer();
         }
+    }
+
+    pub(super) fn clipped_blend(scene: &mut Scene, params: &mut SceneParams<'_>) {
+        params.resolution = Some(Vec2::new(1000., 1200.));
+        let transform = Affine::translate((10., 100.));
+        params.text.add_run(
+            &mut *scene,
+            None,
+            32.,
+            Color::WHITE,
+            transform.then_translate((10., -30.).into()),
+            None,
+            &Style::Fill(Fill::EvenOdd),
+            "No Clip",
+        );
+
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::BLUE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        scene.push_layer(
+            Mix::Multiply,
+            1.0,
+            transform,
+            &Triangle::from_coords((200., 0.), (0., 400.), (400., 400.)),
+        );
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::AQUAMARINE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        scene.pop_layer();
+
+        let transform = Affine::translate((0., 600.));
+        params.text.add_run(
+            &mut *scene,
+            None,
+            32.,
+            Color::WHITE,
+            transform.then_translate((10., -30.).into()),
+            None,
+            &Style::Fill(Fill::EvenOdd),
+            "Mix::Normal",
+        );
+
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::BLUE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        let layer_shape = Triangle::from_coords((200., 0.), (0., 400.), (400., 400.));
+        scene.push_layer(Mix::Normal, 1.0, transform, &layer_shape);
+        scene.push_layer(Mix::Multiply, 1.0, transform, &layer_shape);
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::AQUAMARINE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        scene.pop_layer();
+        scene.pop_layer();
+
+        let transform = Affine::translate((500., 600.));
+        params.text.add_run(
+            &mut *scene,
+            None,
+            32.,
+            Color::WHITE,
+            transform.then_translate((10., -30.).into()),
+            None,
+            &Style::Fill(Fill::EvenOdd),
+            "Mix::Clip",
+        );
+
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::BLUE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        let layer_shape = Triangle::from_coords((200., 0.), (0., 400.), (400., 400.));
+        scene.push_layer(Mix::Clip, 1.0, transform, &layer_shape);
+        scene.push_layer(Mix::Multiply, 1.0, transform, &layer_shape);
+        scene.fill(
+            Fill::EvenOdd,
+            transform,
+            palette::css::AQUAMARINE,
+            None,
+            &Rect::from_origin_size((0., 0.), (400., 400.)),
+        );
+        scene.pop_layer();
+        scene.pop_layer();
     }
 
     pub(super) fn many_clips(scene: &mut Scene, params: &mut SceneParams<'_>) {
