@@ -166,6 +166,8 @@ impl StripGenerator {
 
         let (alphas, strip_buf) = if temp {
             self.temp_alpha_buf.clear();
+            self.temp_strip_buf.clear();
+            
             (&mut self.temp_alpha_buf, &mut self.temp_strip_buf)
         } else {
             (&mut self.main_alpha_buf, &mut self.main_strip_buf)
