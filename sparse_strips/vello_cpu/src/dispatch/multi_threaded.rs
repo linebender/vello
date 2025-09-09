@@ -581,7 +581,7 @@ pub(crate) enum RenderTask {
         paint: Paint,
         fill_rule: Fill,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<PathDataOwned>
+        clip_path: Option<PathDataOwned>,
     },
     WideCommand {
         strip_buf: Box<[Strip]>,
@@ -595,7 +595,7 @@ pub(crate) enum RenderTask {
         paint: Paint,
         stroke: Stroke,
         aliasing_threshold: Option<u8>,
-        clip_path: Option<PathDataOwned>
+        clip_path: Option<PathDataOwned>,
     },
     PushLayer {
         clip_path: Option<(BezPath, Affine)>,

@@ -332,7 +332,7 @@ fn clip_non_isolated_outside_canvas(ctx: &mut impl Renderer) {
     // Should be completely clipped.
     let clip_rect = Rect::new(0.0, 0.0, 16.0, 16.0);
     ctx.push_clip_path(&clip_rect.to_path(0.1));
-    
+
     let rect = Rect::new(16.0, -16.0, 32.0, 0.0);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&rect);

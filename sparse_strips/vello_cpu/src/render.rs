@@ -26,7 +26,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
-use vello_common::strip::{intersect, PathDataOwned, Strip};
+use vello_common::strip::{PathDataOwned, Strip, intersect};
 use vello_common::strip_generator::StripGenerator;
 #[cfg(feature = "text")]
 use vello_common::{
@@ -167,11 +167,11 @@ impl RenderContext {
             ),
         }
     }
-    
+
     pub fn push_clip_path(&mut self, clip_path: &BezPath) {
         let last_clip = self.clip_stack.last().map(|c| c.clone());
         let clip_input = last_clip.as_ref().map(|c| c.as_path_data_ref());
-        
+
         self.strip_generator.generate_filled_path(
             clip_path,
             self.fill_rule,
@@ -184,16 +184,16 @@ impl RenderContext {
                     strips: strips.into(),
                     fill: self.fill_rule,
                 };
-                
+
                 self.clip_stack.push(Arc::new(rendered_path));
-            }
+            },
         )
     }
 
     pub fn pop_clip_path(&mut self) {
         self.clip_stack.pop();
     }
-    
+
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
         let paint = self.encode_current_paint();

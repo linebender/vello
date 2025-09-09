@@ -8,8 +8,8 @@ use crate::peniko::Fill;
 use crate::tile::{Tile, Tiles};
 use crate::util::{f32_to_u8, normalized_mul_u8x16};
 use alloc::vec::Vec;
-use std::{iter, vec};
 use fearless_simd::*;
+use std::{iter, vec};
 
 /// A strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,12 +29,12 @@ impl Strip {
     pub fn strip_y(&self) -> u16 {
         self.y / Tile::HEIGHT
     }
-    
+
     /// Return whether the strip is a sentinel strip.
     pub fn is_sentinel(&self) -> bool {
         self.x == u16::MAX
     }
-    
+
     /// Return whether the area to the left of this strip should be filled according to the
     /// fill rule.
     pub fn fill_left_area(&self, rule: Fill) -> bool {
@@ -398,7 +398,7 @@ pub struct PathDataOwned {
     /// The alpha buffer.
     pub alphas: Vec<u8>,
     /// The fill rule.
-    pub fill: Fill
+    pub fill: Fill,
 }
 
 impl PathDataOwned {
@@ -420,7 +420,7 @@ pub struct PathDataRef<'a> {
     /// The alpha buffer.
     pub alphas: &'a [u8],
     /// The fill rule.
-    pub fill: Fill
+    pub fill: Fill,
 }
 
 impl PathDataRef<'_> {
@@ -441,9 +441,8 @@ pub struct PathDataMut<'a> {
     /// The alpha buffer.
     pub alphas: &'a mut Vec<u8>,
     /// The fill rule.
-    pub fill: &'a mut Fill
+    pub fill: &'a mut Fill,
 }
-
 
 /// Compute the sparse strips representation of a path that results
 /// from intersecting the two input paths. This can be used to implement
@@ -454,12 +453,7 @@ pub fn intersect(
     path_2: PathDataRef<'_>,
     target: PathDataMut<'_>,
 ) {
-    intersect_dispatch(
-        level,
-        path_1,
-        path_2,
-        target
-    )
+    intersect_dispatch(level, path_1, path_2, target)
 }
 
 simd_dispatch!(fn intersect_dispatch(
@@ -470,14 +464,14 @@ simd_dispatch!(fn intersect_dispatch(
 ) = intersect_impl);
 
 /// The implementation of the clipping algorithm using sparse strips. Conceptually, it is relatively
-/// simple: We iterate over each strip and fill region of the two paths in lock step and determine 
+/// simple: We iterate over each strip and fill region of the two paths in lock step and determine
 /// all overlaps between the two. For each overlap, we proceed depending on what kind of region
-/// we have in the first path and the second one. 
-/// - In case we have two fill regions, the overlap region will also be filled. 
-/// - In case we have one strip and one fill region, the overlap region will copy the alpha mask of the strip region. 
+/// we have in the first path and the second one.
+/// - In case we have two fill regions, the overlap region will also be filled.
+/// - In case we have one strip and one fill region, the overlap region will copy the alpha mask of the strip region.
 /// - Finally, if we have two strip regions, we combine the alpha masks of both.
 /// - All regions that are not filled in either path are simply ignored.
-/// 
+///
 /// This is all that this method does. It just looks more complicated as the logic for iterating
 /// in lock step is a bit tricky.
 fn intersect_impl<S: Simd>(
@@ -485,9 +479,9 @@ fn intersect_impl<S: Simd>(
     path_1: PathDataRef<'_>,
     path_2: PathDataRef<'_>,
     target: PathDataMut<'_>,
-)  {
+) {
     target.strips.clear();
-    
+
     // In case either path is empty, the clip path should be empty.
     if path_1.strips.is_empty() || path_2.strips.is_empty() {
         return;
@@ -496,7 +490,8 @@ fn intersect_impl<S: Simd>(
     // Ignore any y values that are outside the bounding box of either of the two paths, as
     // those are guaranteed to have neither fill nor strip regions.
     let mut cur_y = path_1.strips[0].strip_y().min(path_2.strips[0].strip_y());
-    let end_y = path_1.strips[path_1.strips.len() - 1].strip_y()
+    let end_y = path_1.strips[path_1.strips.len() - 1]
+        .strip_y()
         .min(path_2.strips[path_2.strips.len() - 1].strip_y());
 
     let mut path_1_idx = 0;
@@ -523,7 +518,7 @@ fn intersect_impl<S: Simd>(
                         OverlapRelationship::Advance(advance) => {
                             match advance {
                                 Advance::Left => p1_region = p1_iter.next(),
-                                Advance::Right => p2_region = p2_iter.next()
+                                Advance::Right => p2_region = p2_iter.next(),
                             };
 
                             continue;
@@ -533,40 +528,63 @@ fn intersect_impl<S: Simd>(
                             match (r1, r2) {
                                 // Both regions are a fill. Flush the current strip and start a new
                                 // one at the end of the overlap region setting the winding number to
-                                // one, so that the whole area before that will be filled with a sparse 
+                                // one, so that the whole area before that will be filled with a sparse
                                 // fill.
                                 (Region::Fill(_), Region::Fill(_)) => {
                                     flush_strip(&mut strip_state, target.strips, cur_y);
                                     start_strip(&mut strip_state, target.alphas, overlap.end, 1);
                                 }
                                 // One fill one strip, so we simply use the alpha mask from the strip region.
-                                (Region::Strip(s), Region::Fill(_)) | ( Region::Fill(_), Region::Strip(s)) => {
+                                (Region::Strip(s), Region::Fill(_))
+                                | (Region::Fill(_), Region::Strip(s)) => {
                                     // If possible, don't create a new strip but just extend the current one.
-                                    if should_create_new_strip(&strip_state, target.alphas, overlap.start) {
+                                    if should_create_new_strip(
+                                        &strip_state,
+                                        target.alphas,
+                                        overlap.start,
+                                    ) {
                                         flush_strip(&mut strip_state, target.strips, cur_y);
-                                        start_strip(&mut strip_state, target.alphas, overlap.start, 0);
+                                        start_strip(
+                                            &mut strip_state,
+                                            target.alphas,
+                                            overlap.start,
+                                            0,
+                                        );
                                     }
 
-                                    let s_alphas = &s.alphas[(overlap.start - s.start) as usize * 4..][..overlap.width() as usize * 4];
+                                    let s_alphas = &s.alphas
+                                        [(overlap.start - s.start) as usize * 4..]
+                                        [..overlap.width() as usize * 4];
                                     target.alphas.extend_from_slice(s_alphas);
                                 }
                                 // Two strips, we need to multiply the opacitie masks from both paths.
                                 (Region::Strip(s1), Region::Strip(s2)) => {
                                     // Once again, only create a new strip if we can't extend the current one.
-                                    if should_create_new_strip(&strip_state, target.alphas, overlap.start) {
+                                    if should_create_new_strip(
+                                        &strip_state,
+                                        target.alphas,
+                                        overlap.start,
+                                    ) {
                                         flush_strip(&mut strip_state, target.strips, cur_y);
-                                        start_strip(&mut strip_state, target.alphas, overlap.start, 0);
+                                        start_strip(
+                                            &mut strip_state,
+                                            target.alphas,
+                                            overlap.start,
+                                            0,
+                                        );
                                     }
 
                                     let num_blocks = overlap.width() / Tile::HEIGHT;
 
                                     // Get the right alpha values for the specific position.
-                                    let s1_alphas = s1.alphas[(overlap.start - s1.start) as usize * 4..]
+                                    let s1_alphas = s1.alphas
+                                        [(overlap.start - s1.start) as usize * 4..]
                                         .chunks_exact(16)
                                         .take(num_blocks as usize);
-                                    let s2_alphas = s2.alphas[(overlap.start - s2.start) as usize * 4..]
+                                    let s2_alphas = s2.alphas
+                                        [(overlap.start - s2.start) as usize * 4..]
                                         .chunks_exact(16)
-                                        .take(num_blocks as usize);;
+                                        .take(num_blocks as usize);
 
                                     for (s1, s2) in s1_alphas.zip(s2_alphas) {
                                         let s1 = u8x16::from_slice(simd, s1);
@@ -582,11 +600,11 @@ fn intersect_impl<S: Simd>(
                             // Advance the iterator of the path whose region's end is further behind.
                             match overlap.advance {
                                 Advance::Left => p1_region = p1_iter.next(),
-                                Advance::Right => p2_region = p2_iter.next()
+                                Advance::Right => p2_region = p2_iter.next(),
                             };
                         }
                     }
-                },
+                }
                 // If at least one region is none, it means that we reached the end of the row
                 // for that path, meaning that we exceeded the bounding box of that path and no
                 // additional strips should be generated for that row, even if the other path might
@@ -607,7 +625,7 @@ fn intersect_impl<S: Simd>(
         alpha_idx: target.alphas.len() as u32,
         winding: 0,
     });
-    
+
     // In theory any fill rule is fine since all filled regions are marked with a winding number
     // of 1.
     *target.fill = Fill::NonZero;
@@ -620,7 +638,7 @@ struct Overlap {
     /// The end x coordinate.
     end: u16,
     /// Whether the left or right region iterator should be advanced next.
-    advance: Advance
+    advance: Advance,
 }
 
 impl Overlap {
@@ -631,7 +649,7 @@ impl Overlap {
 
 enum Advance {
     Left,
-    Right
+    Right,
 }
 
 /// The relationship between two regions.
@@ -639,7 +657,7 @@ enum OverlapRelationship {
     /// There is no overlap between the regions, advance the region iterator on the given side.
     Advance(Advance),
     /// There is an overlap between the regions.
-    Overlap(Overlap)
+    Overlap(Overlap),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -652,7 +670,7 @@ struct FillRegion {
 struct StripRegion<'a> {
     start: u16,
     width: u16,
-    alphas: &'a [u8]
+    alphas: &'a [u8],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -668,34 +686,38 @@ impl Region<'_> {
             Region::Strip(strip) => strip.start,
         }
     }
-    
+
     fn width(&self) -> u16 {
         match self {
             Region::Fill(fill) => fill.width,
             Region::Strip(strip) => strip.width,
         }
     }
-    
+
     fn end(&self) -> u16 {
         self.start() + self.width()
     }
-    
+
     fn overlap_relationship(&self, other: &Region<'_>) -> OverlapRelationship {
         if self.end() <= other.start() {
             OverlapRelationship::Advance(Advance::Left)
-        }   else if self.start() >= other.end() {
+        } else if self.start() >= other.end() {
             OverlapRelationship::Advance(Advance::Right)
-        }   else {
+        } else {
             let start = self.start().max(other.start());
             let end = self.end().min(other.end());
-            
+
             let shift = if self.end() <= other.end() {
                 Advance::Left
-            }   else {
+            } else {
                 Advance::Right
             };
-            
-            OverlapRelationship::Overlap(Overlap { advance: shift, start, end })
+
+            OverlapRelationship::Overlap(Overlap {
+                advance: shift,
+                start,
+                end,
+            })
         }
     }
 }
@@ -710,7 +732,7 @@ struct RowIterator<'a> {
     cur_idx: &'a mut usize,
     /// Whether the iterator should yield a strip next or not.
     /// When iterating over a row, we alternate between emitting strips and filled regions (unless
-    /// the region between two strips is not filled), so this flag acts as a toggle to store what 
+    /// the region between two strips is not filled), so this flag acts as a toggle to store what
     /// should be yielded next.
     on_strip: bool,
 }
@@ -720,8 +742,8 @@ impl<'a> RowIterator<'a> {
         // Forward the index until we have found the right strip.
         while input.strips[*cur_idx].strip_y() < strip_y {
             *cur_idx += 1;
-        };
-        
+        }
+
         Self {
             input,
             cur_idx,
@@ -729,7 +751,7 @@ impl<'a> RowIterator<'a> {
             on_strip: true,
         }
     }
-    
+
     fn cur_strip(&self) -> &Strip {
         &self.input.strips[*self.cur_idx]
     }
@@ -749,19 +771,19 @@ impl<'a> RowIterator<'a> {
         let next = self.next_strip();
         &self.input.alphas[cur.alpha_idx as usize..next.alpha_idx as usize]
     }
-    
+
     fn cur_strip_fill_area(&self) -> Option<FillRegion> {
         let cur = self.cur_strip();
         let next = self.next_strip();
-        
+
         // Note that if the next strip happens to be on the next line, it will always have
         // zero winding so we don't need to special case this.
         if next.fill_left_area(self.input.fill) {
             let x = cur.x + self.cur_strip_width();
             let width = next.x - x;
-            
+
             Some(FillRegion { start: x, width })
-        }   else {
+        } else {
             None
         }
     }
@@ -775,15 +797,15 @@ impl<'a> Iterator for RowIterator<'a> {
         if !self.on_strip {
             // Flip boolean flag so we will yield a strip in the next iteration.
             self.on_strip = true;
-            
+
             // if we have a filled area, yield it and return. Otherwise, do nothing and we will
             // instead yield the next strip below. In any case, we need to advance the current index
             // so that we point to the next strip now.
             if let Some(fill_area) = self.cur_strip_fill_area() {
                 *self.cur_idx += 1;
-                
+
                 return Some(Region::Fill(fill_area));
-            }   else {
+            } else {
                 *self.cur_idx += 1;
             }
         }
@@ -793,15 +815,15 @@ impl<'a> Iterator for RowIterator<'a> {
         self.on_strip = false;
 
         // If the current strip is sentinel or not within our target row, terminate.
-        if self.cur_strip().is_sentinel() || self.cur_strip().strip_y() != self.strip_y  {
+        if self.cur_strip().is_sentinel() || self.cur_strip().strip_y() != self.strip_y {
             return None;
         }
-        
+
         // Calculate the dimensions of the strip and yield it.
         let x = self.cur_strip().x;
         let width = self.cur_strip_width();
         let alphas = self.cur_strip_alphas();
-        
+
         Some(Region::Strip(StripRegion {
             start: x,
             width,
@@ -832,11 +854,15 @@ fn start_strip(strip_data: &mut Option<StripState>, alphas: &[u8], x: u16, windi
     *strip_data = Some(StripState {
         x,
         alpha_idx: alphas.len() as u32,
-        winding
+        winding,
     });
 }
 
-fn should_create_new_strip(strip_state: &Option<StripState>, alphas: &[u8], overlap_start: u16) -> bool {
+fn should_create_new_strip(
+    strip_state: &Option<StripState>,
+    alphas: &[u8],
+    overlap_start: u16,
+) -> bool {
     // Returns false in case we can append to the currently built strip.
     strip_state.as_ref().is_none_or(|state| {
         let width = ((alphas.len() as u32 - state.alpha_idx) / Tile::HEIGHT as u32) as u16;
@@ -848,27 +874,21 @@ fn should_create_new_strip(strip_state: &Option<StripState>, alphas: &[u8], over
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
+    use crate::strip::{PathDataMut, PathDataOwned, RowIterator, Strip, intersect};
+    use crate::tile::Tile;
     use alloc::vec::Vec;
     use fearless_simd::Level;
     use peniko::Fill;
-    use crate::strip::{intersect, PathDataOwned, PathDataMut, RowIterator, Strip};
-    use crate::tile::Tile;
-    
+    use std::vec;
+
     #[test]
     fn intersect_partly_overlapping_strips() {
-        let path_1 = PathBuilder::new()
-            .add_strip(0, 0, 32, 0)
-            .finish();
+        let path_1 = PathBuilder::new().add_strip(0, 0, 32, 0).finish();
 
-        let path_2 = PathBuilder::new()
-            .add_strip(8, 0, 44, 0)
-            .finish();
+        let path_2 = PathBuilder::new().add_strip(8, 0, 44, 0).finish();
 
-        let expected = PathBuilder::new()
-            .add_strip(8, 0, 32, 0)
-            .finish();
-        
+        let expected = PathBuilder::new().add_strip(8, 0, 32, 0).finish();
+
         run_test(expected, path_1, path_2)
     }
 
@@ -898,7 +918,7 @@ mod tests {
 
         run_test(expected, path_1, path_2)
     }
-    
+
     #[test]
     fn multiple_rows() {
         let path_1 = PathBuilder::new()
@@ -909,14 +929,14 @@ mod tests {
             .add_strip(4, 2, 8, 0)
             .add_strip(16, 2, 32, 1)
             .finish();
-        
+
         let path_2 = PathBuilder::new()
             .add_strip(0, 2, 4, 0)
             .add_strip(16, 2, 24, 1)
             .add_strip(8, 3, 12, 0)
             .add_strip(16, 3, 28, 1)
             .finish();
-        
+
         let expected = PathBuilder::new()
             .add_strip(4, 2, 8, 0)
             .add_strip(16, 2, 24, 1)
@@ -937,43 +957,46 @@ mod tests {
             .add_strip(0, 1, 4, 0)
             .add_strip(12, 1, 16, 1)
             .finish();
-        
-        let expected = PathBuilder::new()
-            .add_strip(0, 1, 12, 0)
-            .finish();
+
+        let expected = PathBuilder::new().add_strip(0, 1, 12, 0).finish();
 
         run_test(expected, path_1, path_2)
     }
-    
+
     #[test]
     fn row_iterator_abort_next_line() {
         let path_1 = PathBuilder::new()
             .add_strip(0, 0, 4, 0)
             .add_strip(0, 1, 4, 0)
             .finish();
-        
+
         let mut idx = 0;
         let mut iter = RowIterator::new(path_1.as_path_data_ref(), &mut idx, 0);
-        
+
         assert!(iter.next().is_some());
         assert!(iter.next().is_none());
     }
-    
+
     fn run_test(expected: PathDataOwned, path_1: PathDataOwned, path_2: PathDataOwned) {
         let mut write_target = PathDataOwned {
             strips: vec![],
             alphas: vec![],
             fill: Fill::NonZero,
         };
-        
+
         let target = PathDataMut {
             strips: &mut write_target.strips,
             alphas: &mut write_target.alphas,
             fill: &mut write_target.fill,
         };
 
-        intersect(Level::new(), path_1.as_path_data_ref(), path_2.as_path_data_ref(), target);
-        
+        intersect(
+            Level::new(),
+            path_1.as_path_data_ref(),
+            path_2.as_path_data_ref(),
+            target,
+        );
+
         assert_eq!(write_target, expected);
     }
 
@@ -981,7 +1004,7 @@ mod tests {
         strips: Vec<Strip>,
         alphas: Vec<u8>,
     }
-    
+
     impl PathBuilder {
         fn new() -> Self {
             Self {
@@ -989,13 +1012,26 @@ mod tests {
                 alphas: vec![],
             }
         }
-        
+
         fn add_strip(mut self, x: u16, strip_y: u16, end: u16, winding: i32) -> Self {
             let width = end - x;
-            self.add_strip_with(x, strip_y, end, winding, &vec![0; (width * Tile::HEIGHT) as usize])
+            self.add_strip_with(
+                x,
+                strip_y,
+                end,
+                winding,
+                &vec![0; (width * Tile::HEIGHT) as usize],
+            )
         }
 
-        fn add_strip_with(mut self, x: u16, strip_y: u16, end: u16, winding: i32, alphas: &[u8]) -> Self {
+        fn add_strip_with(
+            mut self,
+            x: u16,
+            strip_y: u16,
+            end: u16,
+            winding: i32,
+            alphas: &[u8],
+        ) -> Self {
             let width = end - x;
             assert_eq!(alphas.len(), (width * Tile::HEIGHT) as usize);
             let idx = self.alphas.len();
@@ -1009,11 +1045,11 @@ mod tests {
 
             self
         }
-        
+
         fn finish(mut self) -> PathDataOwned {
             let last_y = self.strips.last().unwrap().y;
             let idx = self.alphas.len();
-            
+
             self.strips.push(Strip {
                 x: u16::MAX,
                 y: last_y,

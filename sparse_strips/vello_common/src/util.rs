@@ -3,7 +3,7 @@
 
 //! Utility functions.
 
-use fearless_simd::{Simd, f32x16, u8x16, u16x32, u16x16, u8x32, SimdBase};
+use fearless_simd::{Simd, SimdBase, f32x16, u8x16, u8x32, u16x16, u16x32};
 
 /// Convert f32x16 to u8x16.
 #[inline(always)]
