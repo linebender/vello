@@ -550,7 +550,7 @@ fn intersect_impl<S: Simd>(
                             target.alphas.extend_from_slice(s_alphas);
                         }
                         // Two strips, we need to multiply the opacitie masks from both paths.
-                        (Region::Strip(s1), Region::Strip(s2)) => {
+                        (Region::Strip(s_region_1), Region::Strip(s_region_2)) => {
                             // Once again, only create a new strip if we can't extend the current one.
                             if should_create_new_strip(&strip_state, target.alphas, overlap.start) {
                                 flush_strip(&mut strip_state, target.strips, cur_y);
@@ -560,10 +560,10 @@ fn intersect_impl<S: Simd>(
                             let num_blocks = overlap.width() / Tile::HEIGHT;
 
                             // Get the right alpha values for the specific position.
-                            let s1_alphas = s1.alphas[(overlap.start - s1.start) as usize * 4..]
+                            let s1_alphas = s_region_1.alphas[(overlap.start - s_region_1.start) as usize * 4..]
                                 .chunks_exact(16)
                                 .take(num_blocks as usize);
-                            let s2_alphas = s2.alphas[(overlap.start - s2.start) as usize * 4..]
+                            let s2_alphas = s_region_2.alphas[(overlap.start - s_region_2.start) as usize * 4..]
                                 .chunks_exact(16)
                                 .take(num_blocks as usize);
 
