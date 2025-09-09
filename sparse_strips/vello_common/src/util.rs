@@ -20,7 +20,9 @@ pub fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
     simd.unzip_low_u8x16(uzp1, uzp2)
 }
 
+/// A trait for implementing a fast approximal division by 255 for integers.
 pub trait Div255Ext {
+    /// Divide by 255.
     fn div_255(self) -> Self;
 }
 
@@ -42,11 +44,13 @@ impl<S: Simd> Div255Ext for u16x16<S> {
     }
 }
 
+/// Perform a normalized multiplication for u8x32.
 #[inline(always)]
 pub fn normalized_mul_u8x32<S: Simd>(a: u8x32<S>, b: u8x32<S>) -> u16x32<S> {
     (S::widen_u8x32(a.simd, a) * S::widen_u8x32(b.simd, b)).div_255()
 }
 
+/// Perform a normalized multiplication for u8x16.
 #[inline(always)]
 pub fn normalized_mul_u8x16<S: Simd>(a: u8x16<S>, b: u8x16<S>) -> u16x16<S> {
     (S::widen_u8x16(a.simd, a) * S::widen_u8x16(b.simd, b)).div_255()
