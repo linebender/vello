@@ -19,11 +19,11 @@ pub struct StripGenerator {
     line_buf: Vec<Line>,
     flatten_ctx: FlattenCtx,
     tiles: Tiles,
-    /// The alphas "normally" used when rendering paths.
+    /// The main global alpha buffer.
     main_alpha_buf: Vec<u8>,
     /// The main strip buffer.
     main_strip_buf: Vec<Strip>,
-    /// A temporary alpha array used for storing intermediate results when clipping.
+    /// A temporary alpha buffer used for storing intermediate results when clipping.
     temp_alpha_buf: Vec<u8>,
     /// A temporary strip buffer used for storing intermediate results when clipping.
     temp_strip_buf: Vec<Strip>,
