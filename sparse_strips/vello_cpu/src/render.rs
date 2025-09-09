@@ -169,7 +169,7 @@ impl RenderContext {
         }
     }
 
-    /// Push a new clip path.
+    /// Push a new clip path to the current clip stack.
     ///
     /// Note that unlike `push_clip_layer`, this does not push a new isolated layer to the
     /// blend stack, but instead acts as a simple clip path that is applied to each drawn path
