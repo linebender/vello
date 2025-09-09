@@ -453,7 +453,7 @@ pub fn intersect(
     path_2: PathDataRef<'_>,
     target: PathDataMut<'_>,
 ) {
-    intersect_dispatch(level, path_1, path_2, target)
+    intersect_dispatch(level, path_1, path_2, target);
 }
 
 simd_dispatch!(fn intersect_dispatch(
@@ -508,108 +508,82 @@ fn intersect_impl<S: Simd>(
         let mut p1_region = p1_iter.next();
         let mut p2_region = p2_iter.next();
 
-        loop {
-            match (p1_region, p2_region) {
-                // Both paths have a region, analyze them.
-                (Some(r1), Some(r2)) => {
-                    match r1.overlap_relationship(&r2) {
-                        // This means there is no overlap between the regions, so we need to advance
-                        // the iterator of the region that is further behind.
-                        OverlapRelationship::Advance(advance) => {
-                            match advance {
-                                Advance::Left => p1_region = p1_iter.next(),
-                                Advance::Right => p2_region = p2_iter.next(),
-                            };
+        // If at least one region is none, it means that we reached the end of the row
+        // for that path, meaning that we exceeded the bounding box of that path and no
+        // additional strips should be generated for that row, even if the other path might
+        // still have more strips left. They will all be clipped away. So only consider it
+        // if both paths have a region left.
+        while let (Some(r1), Some(r2)) = (p1_region, p2_region) {
+            match r1.overlap_relationship(&r2) {
+                // This means there is no overlap between the regions, so we need to advance
+                // the iterator of the region that is further behind.
+                OverlapRelationship::Advance(advance) => {
+                    match advance {
+                        Advance::Left => p1_region = p1_iter.next(),
+                        Advance::Right => p2_region = p2_iter.next(),
+                    };
 
-                            continue;
+                    continue;
+                }
+                // We have an overlap!
+                OverlapRelationship::Overlap(overlap) => {
+                    match (r1, r2) {
+                        // Both regions are a fill. Flush the current strip and start a new
+                        // one at the end of the overlap region setting the winding number to
+                        // one, so that the whole area before that will be filled with a sparse
+                        // fill.
+                        (Region::Fill(_), Region::Fill(_)) => {
+                            flush_strip(&mut strip_state, target.strips, cur_y);
+                            start_strip(&mut strip_state, target.alphas, overlap.end, 1);
                         }
-                        // We have an overlap!
-                        OverlapRelationship::Overlap(overlap) => {
-                            match (r1, r2) {
-                                // Both regions are a fill. Flush the current strip and start a new
-                                // one at the end of the overlap region setting the winding number to
-                                // one, so that the whole area before that will be filled with a sparse
-                                // fill.
-                                (Region::Fill(_), Region::Fill(_)) => {
-                                    flush_strip(&mut strip_state, target.strips, cur_y);
-                                    start_strip(&mut strip_state, target.alphas, overlap.end, 1);
-                                }
-                                // One fill one strip, so we simply use the alpha mask from the strip region.
-                                (Region::Strip(s), Region::Fill(_))
-                                | (Region::Fill(_), Region::Strip(s)) => {
-                                    // If possible, don't create a new strip but just extend the current one.
-                                    if should_create_new_strip(
-                                        &strip_state,
-                                        target.alphas,
-                                        overlap.start,
-                                    ) {
-                                        flush_strip(&mut strip_state, target.strips, cur_y);
-                                        start_strip(
-                                            &mut strip_state,
-                                            target.alphas,
-                                            overlap.start,
-                                            0,
-                                        );
-                                    }
-
-                                    let s_alphas = &s.alphas
-                                        [(overlap.start - s.start) as usize * 4..]
-                                        [..overlap.width() as usize * 4];
-                                    target.alphas.extend_from_slice(s_alphas);
-                                }
-                                // Two strips, we need to multiply the opacitie masks from both paths.
-                                (Region::Strip(s1), Region::Strip(s2)) => {
-                                    // Once again, only create a new strip if we can't extend the current one.
-                                    if should_create_new_strip(
-                                        &strip_state,
-                                        target.alphas,
-                                        overlap.start,
-                                    ) {
-                                        flush_strip(&mut strip_state, target.strips, cur_y);
-                                        start_strip(
-                                            &mut strip_state,
-                                            target.alphas,
-                                            overlap.start,
-                                            0,
-                                        );
-                                    }
-
-                                    let num_blocks = overlap.width() / Tile::HEIGHT;
-
-                                    // Get the right alpha values for the specific position.
-                                    let s1_alphas = s1.alphas
-                                        [(overlap.start - s1.start) as usize * 4..]
-                                        .chunks_exact(16)
-                                        .take(num_blocks as usize);
-                                    let s2_alphas = s2.alphas
-                                        [(overlap.start - s2.start) as usize * 4..]
-                                        .chunks_exact(16)
-                                        .take(num_blocks as usize);
-
-                                    for (s1, s2) in s1_alphas.zip(s2_alphas) {
-                                        let s1 = u8x16::from_slice(simd, s1);
-                                        let s2 = u8x16::from_slice(simd, s2);
-
-                                        // Combine them.
-                                        let res = simd.narrow_u16x16(normalized_mul_u8x16(s1, s2));
-                                        target.alphas.extend(&res.val);
-                                    }
-                                }
+                        // One fill one strip, so we simply use the alpha mask from the strip region.
+                        (Region::Strip(s), Region::Fill(_))
+                        | (Region::Fill(_), Region::Strip(s)) => {
+                            // If possible, don't create a new strip but just extend the current one.
+                            if should_create_new_strip(&strip_state, target.alphas, overlap.start) {
+                                flush_strip(&mut strip_state, target.strips, cur_y);
+                                start_strip(&mut strip_state, target.alphas, overlap.start, 0);
                             }
 
-                            // Advance the iterator of the path whose region's end is further behind.
-                            match overlap.advance {
-                                Advance::Left => p1_region = p1_iter.next(),
-                                Advance::Right => p2_region = p2_iter.next(),
-                            };
+                            let s_alphas = &s.alphas[(overlap.start - s.start) as usize * 4..]
+                                [..overlap.width() as usize * 4];
+                            target.alphas.extend_from_slice(s_alphas);
+                        }
+                        // Two strips, we need to multiply the opacitie masks from both paths.
+                        (Region::Strip(s1), Region::Strip(s2)) => {
+                            // Once again, only create a new strip if we can't extend the current one.
+                            if should_create_new_strip(&strip_state, target.alphas, overlap.start) {
+                                flush_strip(&mut strip_state, target.strips, cur_y);
+                                start_strip(&mut strip_state, target.alphas, overlap.start, 0);
+                            }
+
+                            let num_blocks = overlap.width() / Tile::HEIGHT;
+
+                            // Get the right alpha values for the specific position.
+                            let s1_alphas = s1.alphas[(overlap.start - s1.start) as usize * 4..]
+                                .chunks_exact(16)
+                                .take(num_blocks as usize);
+                            let s2_alphas = s2.alphas[(overlap.start - s2.start) as usize * 4..]
+                                .chunks_exact(16)
+                                .take(num_blocks as usize);
+
+                            for (s1_alpha, s2_alpha) in s1_alphas.zip(s2_alphas) {
+                                let s1 = u8x16::from_slice(simd, s1_alpha);
+                                let s2 = u8x16::from_slice(simd, s2_alpha);
+
+                                // Combine them.
+                                let res = simd.narrow_u16x16(normalized_mul_u8x16(s1, s2));
+                                target.alphas.extend(&res.val);
+                            }
                         }
                     }
+
+                    // Advance the iterator of the path whose region's end is further behind.
+                    match overlap.advance {
+                        Advance::Left => p1_region = p1_iter.next(),
+                        Advance::Right => p2_region = p2_iter.next(),
+                    };
                 }
-                // If at least one region is none, it means that we reached the end of the row
-                // for that path, meaning that we exceeded the bounding box of that path and no
-                // additional strips should be generated for that row, even if the other path might
-                // still have more strips left. They will all be clipped away.
-                _ => break,
             }
         }
 
@@ -846,7 +820,7 @@ fn flush_strip(strip_state: &mut Option<StripState>, strips: &mut Vec<Strip>, cu
             y: cur_y * Tile::HEIGHT,
             alpha_idx: state.alpha_idx,
             winding: state.winding,
-        })
+        });
     }
 }
 
