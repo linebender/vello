@@ -15,10 +15,10 @@
 use scenes::ImageCache;
 use vello::{
     AaConfig, Scene,
-    kurbo::{Affine, Rect},
-    peniko::{Color, ColorStop, Extend, Gradient, ImageFormat, ImageQuality, color::palette},
+    kurbo::{Affine, Rect, Triangle},
+    peniko::{Color, ColorStop, Extend, Gradient, ImageFormat, ImageQuality, Mix, color::palette},
 };
-use vello_tests::{TestParams, smoke_snapshot_test_sync};
+use vello_tests::{TestParams, smoke_snapshot_test_sync, snapshot_test_sync};
 
 /// A reproduction of <https://github.com/linebender/vello/issues/680>
 fn many_bins(use_cpu: bool) {
@@ -179,6 +179,38 @@ fn test_gradient_color_alpha() {
     let mut params = TestParams::new("gradient_color_alpha", 100, 50);
     params.base_color = Some(palette::css::WHITE);
     smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
+}
+
+/// See <https://github.com/linebender/vello/issues/1198>
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn clip_blends() {
+    let mut scene = Scene::new();
+
+    scene.fill(
+        vello::peniko::Fill::EvenOdd,
+        Affine::IDENTITY,
+        palette::css::BLUE,
+        None,
+        &Rect::from_origin_size((0., 0.), (100., 100.)),
+    );
+    let layer_shape = Triangle::from_coords((50., 0.), (0., 100.), (100., 100.));
+    scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &layer_shape);
+    scene.push_layer(Mix::Multiply, 1.0, Affine::IDENTITY, &layer_shape);
+    scene.fill(
+        vello::peniko::Fill::EvenOdd,
+        Affine::IDENTITY,
+        palette::css::AQUAMARINE,
+        None,
+        &Rect::from_origin_size((0., 0.), (100., 100.)),
+    );
+    scene.pop_layer();
+    scene.pop_layer();
+
+    let params = TestParams::new("clip_blends", 100, 100);
+    snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.001);
 }
