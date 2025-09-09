@@ -48,6 +48,7 @@ pub struct RenderContext {
     pub(crate) fill_rule: Fill,
     pub(crate) temp_path: BezPath,
     pub(crate) clip_stack: Vec<Arc<PathDataOwned>>,
+    // Note that this strip generator is only used for building clip paths.
     pub(crate) strip_generator: StripGenerator,
     pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
