@@ -7,13 +7,14 @@ use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use vello_common::coarse::{MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
-use vello_common::strip::Strip;
+use vello_common::strip::{PathDataOwned, Strip};
 use vello_common::strip_generator::StripGenerator;
 
 #[derive(Debug)]
@@ -95,15 +96,17 @@ impl Dispatcher for SingleThreadedDispatcher {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
+        clip_path: Option<Arc<PathDataOwned>>,
     ) {
         let wide = &mut self.wide;
 
-        let func = |strips| wide.generate(strips, fill_rule, paint, 0);
+        let func = |strips, _| wide.generate(strips, fill_rule, paint, 0);
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
             transform,
             aliasing_threshold,
+            clip_path,
             func,
         );
     }
@@ -115,6 +118,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
+        clip_path: Option<Arc<PathDataOwned>>,
     ) {
         let wide = &mut self.wide;
 
@@ -124,6 +128,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             stroke,
             transform,
             aliasing_threshold,
+            clip_path,
             func,
         );
     }
@@ -164,7 +169,8 @@ impl Dispatcher for SingleThreadedDispatcher {
                 fill_rule,
                 clip_transform,
                 aliasing_threshold,
-                |strips| strip_buf = strips,
+                None,
+                |strips, _| strip_buf = strips,
             );
 
             Some((strip_buf, fill_rule))

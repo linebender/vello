@@ -11,7 +11,6 @@ use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
 use alloc::boxed::Box;
-#[cfg(feature = "text")]
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -27,7 +26,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
-use vello_common::strip::Strip;
+use vello_common::strip::{PathDataOwned, Strip};
 use vello_common::strip_generator::StripGenerator;
 #[cfg(feature = "text")]
 use vello_common::{
@@ -48,6 +47,9 @@ pub struct RenderContext {
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
     pub(crate) temp_path: BezPath,
+    pub(crate) clip_stack: Vec<Arc<PathDataOwned>>,
+    // Note that this strip generator is only used for building clip paths.
+    pub(crate) strip_generator: StripGenerator,
     pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     #[cfg_attr(
@@ -140,6 +142,8 @@ impl RenderContext {
             aliasing_threshold,
             paint,
             render_settings: settings,
+            clip_stack: vec![],
+            strip_generator: StripGenerator::new(width, height, settings.level),
             paint_transform,
             fill_rule,
             stroke,
@@ -165,6 +169,39 @@ impl RenderContext {
         }
     }
 
+    /// Push a new clip path to the current clip stack.
+    ///
+    /// Note that unlike `push_clip_layer`, this does not push a new isolated layer to the
+    /// blend stack, but instead acts as a simple clip path that is applied to each drawn path
+    /// individually before rendering.
+    pub fn push_clip_path(&mut self, clip_path: &BezPath) {
+        let last_clip = self.clip_stack.last().cloned();
+
+        self.strip_generator.generate_filled_path(
+            clip_path,
+            self.fill_rule,
+            self.transform,
+            self.aliasing_threshold,
+            last_clip,
+            |strips, alphas| {
+                let rendered_path = PathDataOwned {
+                    alphas: alphas.into(),
+                    strips: strips.into(),
+                    fill: self.fill_rule,
+                };
+
+                self.clip_stack.push(Arc::new(rendered_path));
+            },
+        );
+    }
+
+    /// Pop the last clip path that was pushed via `push_clip_path`.
+    ///
+    /// This method has no effect on previously pushed clip layers.
+    pub fn pop_clip_path(&mut self) {
+        self.clip_stack.pop();
+    }
+
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
         let paint = self.encode_current_paint();
@@ -174,6 +211,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
+            self.clip_stack.last().cloned(),
         );
     }
 
@@ -186,6 +224,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
+            self.clip_stack.last().cloned(),
         );
     }
 
@@ -213,6 +252,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
+            self.clip_stack.last().cloned(),
         );
     }
 
@@ -249,6 +289,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
+            self.clip_stack.last().cloned(),
         );
     }
 
@@ -407,6 +448,8 @@ impl RenderContext {
 
     /// Reset the render context.
     pub fn reset(&mut self) {
+        self.strip_generator.reset();
+        self.clip_stack.clear();
         self.dispatcher.reset();
         self.encoded_paints.clear();
         self.reset_transform();
@@ -487,6 +530,7 @@ impl GlyphRenderer for RenderContext {
                     prepared_glyph.transform,
                     paint,
                     self.aliasing_threshold,
+                    self.clip_stack.last().cloned(),
                 );
             }
             GlyphType::Bitmap(glyph) => {
@@ -582,6 +626,7 @@ impl GlyphRenderer for RenderContext {
                     prepared_glyph.transform,
                     paint,
                     self.aliasing_threshold,
+                    self.clip_stack.last().cloned(),
                 );
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
@@ -892,7 +937,8 @@ impl RenderContext {
             self.fill_rule,
             transform,
             self.aliasing_threshold,
-            |generated_strips| {
+            self.clip_stack.last().cloned(),
+            |generated_strips, _| {
                 strips.extend_from_slice(generated_strips);
             },
         );
@@ -911,6 +957,7 @@ impl RenderContext {
             &self.stroke,
             transform,
             self.aliasing_threshold,
+            self.clip_stack.last().cloned(),
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
             },

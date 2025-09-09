@@ -145,12 +145,13 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
-        let func = |strips| wide.generate(strips, fill_rule, paint, 0);
+        let func = |strips, _| wide.generate(strips, fill_rule, paint, 0);
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
             transform,
             aliasing_threshold,
+            None,
             func,
         );
     }
@@ -180,6 +181,7 @@ impl Scene {
             &self.stroke,
             transform,
             aliasing_threshold,
+            None,
             func,
         );
     }
@@ -232,7 +234,8 @@ impl Scene {
                 self.fill_rule,
                 self.transform,
                 self.aliasing_threshold,
-                |strips| strip_buf = strips,
+                None,
+                |strips, _| strip_buf = strips,
             );
 
             Some((strip_buf, self.fill_rule))
@@ -579,7 +582,8 @@ impl Scene {
             self.fill_rule,
             transform,
             self.aliasing_threshold,
-            |generated_strips| {
+            None,
+            |generated_strips, _| {
                 strips.extend_from_slice(generated_strips);
             },
         );
@@ -597,6 +601,7 @@ impl Scene {
             &self.stroke,
             transform,
             self.aliasing_threshold,
+            None,
             |generated_strips| {
                 strips.extend_from_slice(generated_strips);
             },

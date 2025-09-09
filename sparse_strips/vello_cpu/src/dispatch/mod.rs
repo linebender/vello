@@ -8,12 +8,14 @@ pub(crate) mod single_threaded;
 use crate::RenderMode;
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
+use vello_common::strip::PathDataOwned;
 use vello_common::strip::Strip;
 
 pub(crate) trait Dispatcher: Debug + Send + Sync {
@@ -26,6 +28,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
+        clip_path: Option<Arc<PathDataOwned>>,
     );
     fn stroke_path(
         &mut self,
@@ -34,6 +37,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
+        clip_path: Option<Arc<PathDataOwned>>,
     );
     fn push_layer(
         &mut self,
