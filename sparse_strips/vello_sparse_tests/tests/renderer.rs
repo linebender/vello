@@ -593,6 +593,10 @@ impl Renderer for HybridRenderer {
         self.scene.glyph_run(font)
     }
 
+    fn push_clip_path(&mut self, path: &BezPath) {
+        todo!()
+    }
+
     fn push_layer(
         &mut self,
         clip: Option<&BezPath>,
@@ -623,6 +627,10 @@ impl Renderer for HybridRenderer {
 
     fn pop_layer(&mut self) {
         self.scene.pop_layer();
+    }
+
+    fn pop_clip_path(&mut self) {
+        todo!()
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {

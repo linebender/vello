@@ -840,7 +840,7 @@ struct StripState {
 }
 
 fn flush_strip(strip_state: &mut Option<StripState>, strips: &mut Vec<Strip>, cur_y: u16) {
-    if let Some(state) = std::mem::take(strip_state) {
+    if let Some(state) = core::mem::take(strip_state) {
         strips.push(Strip {
             x: state.x,
             y: cur_y * Tile::HEIGHT,
