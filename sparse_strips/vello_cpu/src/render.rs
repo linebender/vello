@@ -192,7 +192,7 @@ impl RenderContext {
 
                 self.clip_stack.push(Arc::new(rendered_path));
             },
-        )
+        );
     }
 
     /// Pop the last clip path that was pushed via `push_clip_path`.
