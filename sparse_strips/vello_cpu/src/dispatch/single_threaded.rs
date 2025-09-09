@@ -13,7 +13,7 @@ use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
-use vello_common::strip::PathDataRef;
+use vello_common::strip::{PathDataRef, Strip};
 use vello_common::strip_generator::StripGenerator;
 
 #[derive(Debug)]
@@ -86,10 +86,6 @@ impl SingleThreadedDispatcher {
 impl Dispatcher for SingleThreadedDispatcher {
     fn wide(&self) -> &Wide {
         &self.wide
-    }
-
-    fn wide_mut(&mut self) -> &mut Wide {
-        &mut self.wide
     }
 
     fn fill_path(
@@ -209,6 +205,10 @@ impl Dispatcher for SingleThreadedDispatcher {
                 self.rasterize_f32(buffer, width, height, encoded_paints);
             }
         }
+    }
+
+    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint) {
+        self.wide.generate(strip_buf, fill_rule, paint, 0);
     }
 }
 

@@ -79,6 +79,7 @@ fn many_bins_cpu() {
 /// Test for <https://github.com/linebender/vello/issues/1061>
 #[test]
 #[should_panic]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn test_layer_size() {
     let mut scene = Scene::new();
     scene.fill(
@@ -112,7 +113,8 @@ const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/smoke/data_image_roun
 
 /// Test for <https://github.com/linebender/vello/issues/972>
 #[test]
-#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"]
+#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"] // Uncomment below line when removing this.
+// #[cfg_attr(skip_gpu_tests, ignore)]
 #[should_panic]
 fn test_data_image_roundtrip_extend_reflect() {
     let mut scene = Scene::new();
@@ -132,7 +134,8 @@ fn test_data_image_roundtrip_extend_reflect() {
 
 /// Test for <https://github.com/linebender/vello/issues/972>
 #[test]
-#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"]
+#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"] // Uncomment below line when removing this.
+// #[cfg_attr(skip_gpu_tests, ignore)]
 #[should_panic]
 fn test_data_image_roundtrip_extend_repeat() {
     let mut scene = Scene::new();
@@ -153,6 +156,7 @@ fn test_data_image_roundtrip_extend_repeat() {
 /// <https://github.com/web-platform-tests/wpt/blob/18c64a74b1/html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.html>
 /// See <https://github.com/linebender/vello/issues/1056>.
 #[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn test_gradient_color_alpha() {
     let mut scene = Scene::new();
     let viewport = Rect::new(0., 0., 100., 50.);

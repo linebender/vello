@@ -892,8 +892,7 @@ impl RenderContext {
             _ => Fill::NonZero,
         };
         self.dispatcher
-            .wide_mut()
-            .generate(&adjusted_strips[start..end], fill_rule, paint, 0);
+            .generate_wide_cmd(&adjusted_strips[start..end], fill_rule, paint);
     }
 
     /// Prepare cached strips for rendering by adjusting indices.
