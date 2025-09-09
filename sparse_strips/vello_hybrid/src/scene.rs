@@ -3,6 +3,7 @@
 
 //! Basic render operations.
 
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::coarse::{MODE_HYBRID, Wide};
@@ -16,7 +17,7 @@ use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
-use vello_common::strip::Strip;
+use vello_common::strip::{PathDataOwned, Strip};
 use vello_common::strip_generator::StripGenerator;
 
 /// Default tolerance for curve flattening
@@ -53,6 +54,7 @@ pub struct Scene {
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
     pub(crate) blend_mode: BlendMode,
+    pub(crate) clip_stack: Vec<Arc<PathDataOwned>>,
     pub(crate) strip_generator: StripGenerator,
 }
 
@@ -70,6 +72,7 @@ impl Scene {
             encoded_paints: vec![],
             paint_visible: true,
             stroke: render_state.stroke,
+            clip_stack: vec![],
             strip_generator: StripGenerator::new(
                 width,
                 height,
@@ -151,7 +154,7 @@ impl Scene {
             fill_rule,
             transform,
             aliasing_threshold,
-            None,
+            self.clip_stack.last().cloned(),
             func,
         );
     }
@@ -181,7 +184,7 @@ impl Scene {
             &self.stroke,
             transform,
             aliasing_threshold,
-            None,
+            self.clip_stack.last().cloned(),
             func,
         );
     }
@@ -216,6 +219,39 @@ impl Scene {
         GlyphRunBuilder::new(font.clone(), self.transform, self)
     }
 
+    /// Push a new clip path to the current clip stack.
+    ///
+    /// Note that unlike `push_clip_layer`, this does not push a new isolated layer to the
+    /// blend stack, but instead acts as a simple clip path that is applied to each drawn path
+    /// individually before rendering.
+    pub fn push_clip_path(&mut self, clip_path: &BezPath) {
+        let last_clip = self.clip_stack.last().cloned();
+
+        self.strip_generator.generate_filled_path(
+            clip_path,
+            self.fill_rule,
+            self.transform,
+            self.aliasing_threshold,
+            last_clip,
+            |strips, alphas| {
+                let rendered_path = PathDataOwned {
+                    alphas: alphas.into(),
+                    strips: strips.into(),
+                    fill: self.fill_rule,
+                };
+
+                self.clip_stack.push(Arc::new(rendered_path));
+            },
+        );
+    }
+
+    /// Pop the last clip path that was pushed via `push_clip_path`.
+    ///
+    /// This method has no effect on previously pushed clip layers.
+    pub fn pop_clip_path(&mut self) {
+        self.clip_stack.pop();
+    }
+
     /// Push a new layer with the given properties.
     ///
     /// Only `clip_path` is supported for now.
@@ -234,7 +270,7 @@ impl Scene {
                 self.fill_rule,
                 self.transform,
                 self.aliasing_threshold,
-                None,
+                self.clip_stack.last().cloned(),
                 |strips, _| strip_buf = strips,
             );
 
@@ -322,6 +358,7 @@ impl Scene {
     pub fn reset(&mut self) {
         self.wide.reset();
         self.strip_generator.reset();
+        self.clip_stack.clear();
         self.encoded_paints.clear();
 
         let render_state = Self::default_render_state();

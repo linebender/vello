@@ -8,6 +8,7 @@ use render_context::{RenderContext, RenderSurface, create_vello_renderer, create
 #[cfg(not(target_arch = "wasm32"))]
 use std::env;
 use std::sync::Arc;
+use std::time::Instant;
 use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Point};
@@ -45,6 +46,10 @@ struct App<'s> {
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Point>,
+    last_frame_time: Option<Instant>,
+    frame_count: u32,
+    fps_update_time: Instant,
+    accumulated_frame_time: f64,
 }
 
 fn main() {
@@ -77,6 +82,7 @@ fn main() {
     #[cfg(target_arch = "wasm32")]
     let (scenes, start_scene_index) = (get_example_scenes(), 0);
 
+    let now = Instant::now();
     let mut app = App {
         context: RenderContext::new(),
         renderers: vec![],
@@ -87,6 +93,10 @@ fn main() {
         transform: Affine::IDENTITY,
         mouse_down: false,
         last_cursor_position: None,
+        last_frame_time: None,
+        frame_count: 0,
+        fps_update_time: now,
+        accumulated_frame_time: 0.0,
     };
 
     let event_loop = EventLoop::new().unwrap();
@@ -130,7 +140,7 @@ impl ApplicationHandler for App<'_> {
             window.clone(),
             size.width,
             size.height,
-            wgpu::PresentMode::AutoVsync,
+            wgpu::PresentMode::Immediate,  // Unlimited FPS mode
             wgpu::TextureFormat::Bgra8Unorm,
         ));
 
@@ -268,6 +278,33 @@ impl ApplicationHandler for App<'_> {
                 window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                // Measure frame time
+                let now = Instant::now();
+                if let Some(last_time) = self.last_frame_time {
+                    let frame_time = now.duration_since(last_time).as_secs_f64() * 1000.0; // Convert to milliseconds
+                    self.accumulated_frame_time += frame_time;
+                    self.frame_count += 1;
+
+                    // Update window title every second with average FPS
+                    if now.duration_since(self.fps_update_time).as_secs_f64() >= 1.0 {
+                        let avg_frame_time = self.accumulated_frame_time / self.frame_count as f64;
+                        let avg_fps = 1000.0 / avg_frame_time;
+                        println!("Average FPS: {:.1}", avg_fps);
+                        window.set_title(&format!(
+                            "Vello Hybrid - Scene {} - {:.1} FPS ({:.2}ms avg)",
+                            self.current_scene,
+                            avg_fps,
+                            avg_frame_time
+                        ));
+                        
+                        // Reset counters
+                        self.frame_count = 0;
+                        self.accumulated_frame_time = 0.0;
+                        self.fps_update_time = now;
+                    }
+                }
+                self.last_frame_time = Some(now);
+
                 self.scene.reset();
 
                 self.scene.set_transform(self.transform);
@@ -311,6 +348,9 @@ impl ApplicationHandler for App<'_> {
                 surface_texture.present();
 
                 device_handle.device.poll(wgpu::PollType::Poll).unwrap();
+                
+                // Request continuous redraw for FPS measurement
+                window.request_redraw();
             }
             _ => {}
         }
