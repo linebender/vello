@@ -58,6 +58,8 @@ struct Brush {}
 
 struct GlyphBenchRenderer {
     strip_generator: StripGenerator,
+    hint_cache: Option<HintCache>,
+    glyph_cache: Option<GlyphCache>,
 }
 
 impl GlyphBenchRenderer {
@@ -89,6 +91,20 @@ impl GlyphRenderer for GlyphBenchRenderer {
     fn stroke_glyph(&mut self, _glyph: vello_common::glyph::PreparedGlyph<'_>) {
         // We only care about filled glyphs for now.
         unimplemented!()
+    }
+
+    fn take_hinting_cache(&mut self) -> HintCache {
+        self.hint_cache.take().unwrap_or_default()
+    }
+    fn restore_hinting_cache(&mut self, cache: HintCache) {
+        self.hint_cache = Some(cache);
+    }
+
+    fn take_glyph_cache(&mut self) -> GlyphCache {
+        self.glyph_cache.take().unwrap_or_default()
+    }
+    fn restore_glyph_cache(&mut self, cache: GlyphCache) {
+        self.glyph_cache = Some(cache);
     }
 }
 

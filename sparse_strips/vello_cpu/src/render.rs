@@ -477,6 +477,18 @@ impl RenderContext {
 
 #[cfg(feature = "text")]
 impl GlyphRenderer for RenderContext {
+    fn restore_glyph_cache(&mut self, cache: vello_common::glyph::GlyphCache) {}
+
+    fn restore_hinting_cache(&mut self, cache: vello_common::glyph::HintCache) {}
+
+    fn take_glyph_cache(&mut self) -> vello_common::glyph::GlyphCache {
+        Default::default()
+    }
+
+    fn take_hinting_cache(&mut self) -> vello_common::glyph::HintCache {
+        Default::default()
+    }
+
     fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {

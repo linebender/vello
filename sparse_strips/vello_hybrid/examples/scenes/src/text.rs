@@ -51,7 +51,7 @@ impl fmt::Debug for TextScene {
 
 impl ExampleScene for TextScene {
     fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
-        if self.recording_enabled {
+        if false {
             // Try to reuse existing recording if possible
             if let Some(recording) = &mut self.recording {
                 let render_result = try_reuse_recording(scene, recording, root_transform);
@@ -108,7 +108,9 @@ impl TextScene {
             font_cx
         };
 
-        let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, true);
+        let text = text.repeat(10);
+        let text_ = text.clone();
+        let mut builder = layout_cx.ranged_builder(&mut font_cx, text_.as_str(), 1.0, true);
         builder.push_default(FontFamily::parse("Roboto").unwrap());
         builder.push_default(StyleProperty::LineHeight(
             parley::LineHeight::FontSizeRelative(1.3),

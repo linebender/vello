@@ -470,4 +470,16 @@ impl<'a> GlyphRenderer for Recorder<'a> {
             }
         }
     }
+
+    fn restore_hinting_cache(&mut self, cache: crate::glyph::HintCache) {}
+
+    fn take_hinting_cache(&mut self) -> crate::glyph::HintCache {
+        Default::default()
+    }
+
+    fn take_glyph_cache(&mut self) -> crate::glyph::GlyphCache {
+        Default::default()
+    }
+
+    fn restore_glyph_cache(&mut self, cache: crate::glyph::GlyphCache) {}
 }
