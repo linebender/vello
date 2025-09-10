@@ -11,10 +11,10 @@ use crate::strip::Strip;
 use crate::tile::Tiles;
 use crate::{flatten, strip};
 use alloc::vec::Vec;
-use std::vec;
 
 /// A storage for storing strip-related data.
 #[derive(Debug)]
+#[derive(Default)]
 pub struct StripStorage {
     /// The strips in the storage.
     pub strips: Vec<Strip>,
@@ -30,14 +30,6 @@ impl StripStorage {
     }
 }
 
-impl Default for StripStorage {
-    fn default() -> Self {
-        Self {
-            strips: vec![],
-            alphas: vec![],
-        }
-    }
-}
 
 /// An object for easily generating strips for a filled/stroked path.
 #[derive(Debug)]
