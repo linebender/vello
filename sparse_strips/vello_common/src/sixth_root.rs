@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 /*
    Copyright 2024 Radzivon Bartoshyk
    Licensed under the Apache License, Version 2.0 (the "License");
