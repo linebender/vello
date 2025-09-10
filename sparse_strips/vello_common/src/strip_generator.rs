@@ -13,8 +13,7 @@ use crate::{flatten, strip};
 use alloc::vec::Vec;
 
 /// A storage for storing strip-related data.
-#[derive(Debug)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct StripStorage {
     /// The strips in the storage.
     pub strips: Vec<Strip>,
@@ -29,7 +28,6 @@ impl StripStorage {
         self.alphas.clear();
     }
 }
-
 
 /// An object for easily generating strips for a filled/stroked path.
 #[derive(Debug)]
