@@ -224,7 +224,7 @@ impl MultiThreadedDispatcher {
             self.init();
         }
 
-        let cost = estimate_render_task_cost(&task, &self.batch_path.elements());
+        let cost = estimate_render_task_cost(&task, self.batch_path.elements());
         self.task_batch.push(task);
         self.batch_cost += cost;
 
@@ -308,7 +308,7 @@ impl MultiThreadedDispatcher {
                                 });
 
                                 self.wide
-                                    .push_layer(clip_path, blend_mode, mask, opacity, thread_id)
+                                    .push_layer(clip_path, blend_mode, mask, opacity, thread_id);
                             }
                             CoarseTaskType::PopLayer => self.wide.pop_layer(),
                         }
