@@ -499,7 +499,13 @@ fn estimate_num_quads(c: CubicBez, accuracy: f32) -> usize {
     let p1x2 = c.p1.to_vec2() * 3.0 - c.p0.to_vec2();
     let p2x2 = c.p2.to_vec2() * 3.0 - c.p3.to_vec2();
     let err = (p2x2 - p1x2).hypot2();
-    let n_quads = (sixth_root((err / max_hypot2) as f32).ceil() as usize).max(1);
+    let err_div = err / max_hypot2;
+
+    let n_quads = if err_div <= 1.0 {
+        1
+    } else {
+        (sixth_root(err_div as f32).ceil() as usize).max(1)
+    };
 
     n_quads.min(MAX_QUADS)
 }
