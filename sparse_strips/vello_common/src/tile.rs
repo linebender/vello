@@ -260,18 +260,21 @@ impl Tiles {
             } else {
                 (p1_y, p1_x, p0_y, p0_x)
             };
-            
+
             let p0_x_floored = p0_x.floor();
             let p0_y_floored = p0_y.floor();
-            
+
             // Fast path if the line just covers 1 tile area.
-            if p0_x_floored == p1_x.floor() && p0_y_floored == p1_y.floor() && p0_y_floored.is_sign_positive() {
+            if p0_x_floored == p1_x.floor()
+                && p0_y_floored == p1_y.floor()
+                && p0_y_floored.is_sign_positive()
+            {
                 // Keep in sync with the code in the second branch.
                 let x = (line_left_x as u16).min(tile_columns_plus_1);
-                
+
                 let tile = Tile::new(x, p0_y_floored as u16, line_idx, line_top_y.fract() == 0.0);
                 self.tile_buf.push(tile);
-            }  else if line_left_x == line_right_x {
+            } else if line_left_x == line_right_x {
                 // For ease of logic, special-case purely vertical tiles.
                 let y_top_tiles = (line_top_y as u16).min(tile_rows);
                 let y_bottom_tiles = (line_bottom_y.ceil() as u16).min(tile_rows);
