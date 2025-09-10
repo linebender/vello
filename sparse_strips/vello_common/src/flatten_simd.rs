@@ -13,6 +13,7 @@ use fearless_simd::*;
 
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
+use crate::sixth_root::sixth_root;
 
 // Unlike kurbo, which takes a closure with a callback for outputting the lines, we use a trait
 // instead. The reason is that this way the callback can be inlined, which is not possible with
@@ -498,7 +499,7 @@ fn estimate_num_quads(c: CubicBez, accuracy: f32) -> usize {
     let p1x2 = c.p1.to_vec2() * 3.0 - c.p0.to_vec2();
     let p2x2 = c.p2.to_vec2() * 3.0 - c.p3.to_vec2();
     let err = (p2x2 - p1x2).hypot2();
-    let n_quads = ((err / max_hypot2).powf(1. / 6.0).ceil() as usize).max(1);
+    let n_quads = (sixth_root((err / max_hypot2) as f32).ceil() as usize).max(1);
 
     n_quads.min(MAX_QUADS)
 }

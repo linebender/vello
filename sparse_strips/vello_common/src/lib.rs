@@ -83,6 +83,7 @@ pub mod strip;
 pub mod strip_generator;
 pub mod tile;
 pub mod util;
+mod sixth_root;
 
 pub use fearless_simd;
 pub use peniko;
