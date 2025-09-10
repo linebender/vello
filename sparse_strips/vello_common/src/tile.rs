@@ -269,11 +269,15 @@ impl Tiles {
                 && p0_y_floored == p1_y.floor()
                 && p0_y_floored.is_sign_positive()
             {
-                // Keep in sync with the code in the second branch.
-                let x = (line_left_x as u16).min(tile_columns_plus_1);
+                let y = p0_y_floored as u16;
 
-                let tile = Tile::new(x, p0_y_floored as u16, line_idx, line_top_y.fract() == 0.0);
-                self.tile_buf.push(tile);
+                if y < tile_rows {
+                    // Keep in sync with the code in the second branch.
+                    let x = (line_left_x as u16).min(tile_columns_plus_1);
+
+                    let tile = Tile::new(x, y, line_idx, line_top_y.fract() == 0.0);
+                    self.tile_buf.push(tile);
+                }
             } else if line_left_x == line_right_x {
                 // For ease of logic, special-case purely vertical tiles.
                 let y_top_tiles = (line_top_y as u16).min(tile_rows);
