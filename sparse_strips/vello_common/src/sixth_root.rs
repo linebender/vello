@@ -58,7 +58,7 @@ pub(crate) fn sixth_root(x: f32) -> f32 {
     let ix = x.to_bits();
 
     // filter out exceptional cases
-    if ix >= 0xffu32 << 23 || ix == 0 {
+    if ix >= 0xff_u32 << 23 || ix == 0 {
         if ix.wrapping_shl(1) == 0 {
             return 0.;
         }
@@ -73,13 +73,13 @@ pub(crate) fn sixth_root(x: f32) -> f32 {
 
     let exp = ((ix >> 23) & 0xff) as i32;
     let mut e = exp;
-    let mut mant = ix & ((1u32 << 23) - 1);
+    let mut mant = ix & ((1_u32 << 23) - 1);
 
     // Normalize subnormal
     if exp == 0 {
         let norm = x * f32::from_bits(0x4b800000); // * 2^24
         let norm_bits = norm.to_bits();
-        mant = norm_bits & ((1u32 << 23) - 1);
+        mant = norm_bits & ((1_u32 << 23) - 1);
         e = ((norm_bits >> 23) & 0x7ff) as i32 - 24;
     }
 
@@ -118,7 +118,7 @@ pub(crate) fn sixth_root(x: f32) -> f32 {
 
     // 1; 2^{1/6}; 2^{2/6}; 2^{3/6}; 2^{4/6}; 2^{5/6}
     static ESCALE: [u64; 6] = [
-        1.0f64.to_bits(),
+        1.0_f64.to_bits(),
         0x3ff1f59ac3c7d6c0,
         0x3ff428a2f98d728b,
         0x3ff6a09e667f3bcd,
