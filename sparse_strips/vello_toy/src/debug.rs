@@ -86,7 +86,7 @@ fn main() {
     }
 
     if stages.iter().any(|s| s.requires_wide_tiles()) {
-        wide.generate(&strip_buf, args.fill_rule, BLACK.into(), 0);
+        wide.generate(&strip_buf, BLACK.into(), 0);
     }
 
     draw_grid(&mut document, args.width, args.height);
@@ -230,11 +230,7 @@ fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
         let width = end - strip.alpha_idx / u32::from(Tile::HEIGHT);
 
         // TODO: Account for even-odd?
-        let color = if strip.winding != 0 {
-            "red"
-        } else {
-            "limegreen"
-        };
+        let color = if strip.fill_gap { "red" } else { "limegreen" };
 
         let rect = Rectangle::new()
             .set("x", x)
@@ -263,11 +259,7 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
         let width = u16::try_from(end - strip.alpha_idx / u32::from(Tile::HEIGHT)).unwrap();
 
         // TODO: Account for even-odd?
-        let color = if strip.winding != 0 {
-            "red"
-        } else {
-            "limegreen"
-        };
+        let color = if strip.fill_gap { "red" } else { "limegreen" };
 
         for x in 0..width {
             for y in 0..Tile::HEIGHT {
