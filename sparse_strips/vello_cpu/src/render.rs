@@ -656,7 +656,6 @@ impl Recordable for RenderContext {
                 | RenderCommand::FillRect(_)
                 | RenderCommand::StrokeRect(_) => {
                     self.process_geometry_command(
-                        command,
                         strip_start_indices,
                         range_index,
                         &adjusted_strips,
@@ -666,7 +665,6 @@ impl Recordable for RenderContext {
                 #[cfg(feature = "text")]
                 RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
                     self.process_geometry_command(
-                        command,
                         strip_start_indices,
                         range_index,
                         &adjusted_strips,
@@ -829,7 +827,6 @@ impl RenderContext {
 impl RenderContext {
     fn process_geometry_command(
         &mut self,
-        command: &RenderCommand,
         strip_start_indices: &[usize],
         range_index: usize,
         adjusted_strips: &[Strip],
@@ -849,13 +846,8 @@ impl RenderContext {
             "Invalid strip range"
         );
         let paint = self.encode_current_paint();
-        let fill_rule = match command {
-            RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => self.fill_rule,
-            RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => Fill::NonZero,
-            _ => Fill::NonZero,
-        };
         self.dispatcher
-            .generate_wide_cmd(&adjusted_strips[start..end], fill_rule, paint);
+            .generate_wide_cmd(&adjusted_strips[start..end], paint);
     }
 
     /// Prepare cached strips for rendering by adjusting indices.

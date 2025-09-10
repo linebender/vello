@@ -18,7 +18,7 @@ use vello_common::strip::Strip;
 
 pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn wide(&self) -> &Wide;
-    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint);
+    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint);
     fn fill_path(
         &mut self,
         path: &BezPath,

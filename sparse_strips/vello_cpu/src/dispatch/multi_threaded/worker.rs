@@ -3,7 +3,6 @@
 
 use crate::Level;
 use crate::dispatch::multi_threaded::{CoarseTask, CoarseTaskSender, Path, RenderTask};
-use crate::peniko::Fill;
 use std::vec::Vec;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::StripGenerator;
@@ -57,7 +56,6 @@ impl Worker {
                         let coarse_command = CoarseTask::Render {
                             thread_id: self.thread_id,
                             strips: strips.into(),
-                            fill_rule,
                             paint,
                         };
 
@@ -96,7 +94,6 @@ impl Worker {
                         let coarse_command = CoarseTask::Render {
                             thread_id: self.thread_id,
                             strips: strips.into(),
-                            fill_rule: Fill::NonZero,
                             paint,
                         };
 
@@ -142,7 +139,7 @@ impl Worker {
                             |strips| strip_buf = strips,
                         );
 
-                        Some((strip_buf.into(), fill_rule))
+                        Some(strip_buf.into())
                     } else {
                         None
                     };
@@ -162,14 +159,12 @@ impl Worker {
                 }
                 RenderTask::WideCommand {
                     strip_buf,
-                    fill_rule,
                     thread_idx,
                     paint,
                 } => {
                     let coarse_command = CoarseTask::Render {
                         thread_id: thread_idx,
                         strips: strip_buf,
-                        fill_rule,
                         paint,
                     };
 

@@ -271,9 +271,8 @@ impl MultiThreadedDispatcher {
                             CoarseTask::Render {
                                 thread_id,
                                 strips,
-                                fill_rule,
                                 paint,
-                            } => self.wide.generate(&strips, fill_rule, paint, thread_id),
+                            } => self.wide.generate(&strips, paint, thread_id),
                             CoarseTask::PushLayer {
                                 thread_id,
                                 clip_path,
@@ -499,7 +498,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         }
     }
 
-    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint) {
+    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint) {
         // Note that we are essentially round-tripping here: The wide container is inside of the
         // main thread, but we first send a render task to a child thread which basically just
         // forwards it back to the main thread again. We cannot apply the wide command directly
@@ -509,7 +508,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         // to ensure that they are executed in order.
         self.register_task(RenderTask::WideCommand {
             strip_buf: strip_buf.into(),
-            fill_rule,
             // Recordings are currently always built on the main thread and thus have a `thread_idx`
             // of 0.
             thread_idx: 0,
@@ -579,7 +577,6 @@ pub(crate) enum RenderTask {
     },
     WideCommand {
         strip_buf: Box<[Strip]>,
-        fill_rule: Fill,
         thread_idx: u8,
         paint: Paint,
     },
@@ -605,12 +602,11 @@ pub(crate) enum CoarseTask {
     Render {
         thread_id: u8,
         strips: Box<[Strip]>,
-        fill_rule: Fill,
         paint: Paint,
     },
     PushLayer {
         thread_id: u8,
-        clip_path: Option<(Box<[Strip]>, Fill)>,
+        clip_path: Option<Box<[Strip]>>,
         blend_mode: BlendMode,
         mask: Option<Mask>,
         opacity: f32,
