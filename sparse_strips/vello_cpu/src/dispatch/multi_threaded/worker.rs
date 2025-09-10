@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::Level;
-use crate::dispatch::multi_threaded::{CoarseTask, CoarseTaskSender, Path, RenderTask};
+use crate::dispatch::multi_threaded::{
+    CoarseTask, CoarseTaskSender, CoarseTaskType, RenderTask, RenderTaskType,
+};
 use std::vec::Vec;
-use vello_common::strip::Strip;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
 
 #[derive(Debug)]
@@ -38,97 +39,76 @@ impl Worker {
         self.strip_generator.reset();
     }
 
-    pub(crate) fn run_render_tasks(
+    pub(crate) fn run_render_task(
         &mut self,
-        task_idx: u32,
-        tasks: Vec<RenderTask>,
+        render_task: RenderTask,
         result_sender: &mut CoarseTaskSender,
     ) {
-        let mut task_buf = Vec::with_capacity(tasks.len());
+        self.strip_storage.strips.clear();
+        let mut task_buf = Vec::with_capacity(render_task.tasks.len());
+        let task_idx = render_task.idx;
 
-        for task in tasks {
+        for task in render_task.tasks {
             match task {
-                RenderTask::FillPath {
-                    path,
+                RenderTaskType::FillPath {
+                    path_range,
                     transform,
                     paint,
                     fill_rule,
                     aliasing_threshold,
                 } => {
-                    match path {
-                        Path::Bez(b) => {
-                            self.strip_generator.generate_filled_path(
-                                &b,
-                                fill_rule,
-                                transform,
-                                aliasing_threshold,
-                                &mut self.strip_storage,
-                                true,
-                            );
-                        }
-                        Path::Small(s) => {
-                            self.strip_generator.generate_filled_path(
-                                s.elements(),
-                                fill_rule,
-                                transform,
-                                aliasing_threshold,
-                                &mut self.strip_storage,
-                                true,
-                            );
-                        }
-                    }
+                    let start = self.strip_storage.strips.len() as u32;
+                    let path =
+                        &render_task.path[path_range.start as usize..path_range.end as usize];
 
-                    let strips: &[Strip] = &self.strip_storage.strips;
+                    self.strip_generator.generate_filled_path(
+                        path.iter().copied(),
+                        fill_rule,
+                        transform,
+                        aliasing_threshold,
+                        &mut self.strip_storage,
+                        false,
+                    );
+                    let end = self.strip_storage.strips.len() as u32;
 
-                    let coarse_command = CoarseTask::Render {
+                    let coarse_command = CoarseTaskType::RenderPath {
                         thread_id: self.thread_id,
-                        strips: strips.into(),
+                        strips: start..end,
                         paint,
                     };
 
                     task_buf.push(coarse_command);
                 }
-                RenderTask::StrokePath {
-                    path,
+                RenderTaskType::StrokePath {
+                    path_range,
                     transform,
                     paint,
                     stroke,
                     aliasing_threshold,
                 } => {
-                    match path {
-                        Path::Bez(b) => {
-                            self.strip_generator.generate_stroked_path(
-                                &b,
-                                &stroke,
-                                transform,
-                                aliasing_threshold,
-                                &mut self.strip_storage,
-                                true,
-                            );
-                        }
-                        Path::Small(s) => {
-                            self.strip_generator.generate_stroked_path(
-                                s.elements(),
-                                &stroke,
-                                transform,
-                                aliasing_threshold,
-                                &mut self.strip_storage,
-                                true,
-                            );
-                        }
-                    }
+                    let start = self.strip_storage.strips.len() as u32;
+                    let path =
+                        &render_task.path[path_range.start as usize..path_range.end as usize];
 
-                    let strips: &[Strip] = &self.strip_storage.strips;
+                    self.strip_generator.generate_stroked_path(
+                        path.iter().copied(),
+                        &stroke,
+                        transform,
+                        aliasing_threshold,
+                        &mut self.strip_storage,
+                        false,
+                    );
+                    let end = self.strip_storage.strips.len() as u32;
 
-                    let coarse_command = CoarseTask::Render {
+                    let coarse_command = CoarseTaskType::RenderPath {
                         thread_id: self.thread_id,
-                        strips: strips.into(),
+                        strips: start..end,
                         paint,
                     };
 
                     task_buf.push(coarse_command);
                 }
-                RenderTask::PushLayer {
+                RenderTaskType::PushLayer {
                     clip_path,
                     blend_mode,
                     opacity,
@@ -136,24 +116,28 @@ impl Worker {
                     fill_rule,
                     aliasing_threshold,
                 } => {
-                    let clip = if let Some((c, transform)) = clip_path {
+                    let clip = if let Some((path_range, transform)) = clip_path {
+                        let start = self.strip_storage.strips.len() as u32;
+                        let path =
+                            &render_task.path[path_range.start as usize..path_range.end as usize];
+
                         self.strip_generator.generate_filled_path(
-                            c,
+                            path.iter().copied(),
                             fill_rule,
                             transform,
                             aliasing_threshold,
                             &mut self.strip_storage,
-                            true,
+                            false,
                         );
 
-                        let strips: &[Strip] = &self.strip_storage.strips;
+                        let end = self.strip_storage.strips.len() as u32;
 
-                        Some(strips.into())
+                        Some(start..end)
                     } else {
                         None
                     };
 
-                    let coarse_command = CoarseTask::PushLayer {
+                    let coarse_command = CoarseTaskType::PushLayer {
                         thread_id: self.thread_id,
                         clip_path: clip,
                         blend_mode,
@@ -163,15 +147,15 @@ impl Worker {
 
                     task_buf.push(coarse_command);
                 }
-                RenderTask::PopLayer => {
-                    task_buf.push(CoarseTask::PopLayer);
+                RenderTaskType::PopLayer => {
+                    task_buf.push(CoarseTaskType::PopLayer);
                 }
-                RenderTask::WideCommand {
+                RenderTaskType::WideCommand {
                     strip_buf,
-                    thread_idx,
                     paint,
+                    thread_idx,
                 } => {
-                    let coarse_command = CoarseTask::Render {
+                    let coarse_command = CoarseTaskType::RenderWideCommand {
                         thread_id: thread_idx,
                         strips: strip_buf,
                         paint,
@@ -182,7 +166,14 @@ impl Worker {
             }
         }
 
-        result_sender.send(task_idx as usize, task_buf).unwrap();
+        let strips_slice = self.strip_storage.strips.as_slice();
+
+        let task = CoarseTask {
+            strips: strips_slice.into(),
+            tasks: task_buf,
+        };
+
+        result_sender.send(task_idx as usize, task).unwrap();
     }
 
     pub(crate) fn finalize(&mut self) -> Vec<u8> {
