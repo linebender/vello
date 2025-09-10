@@ -23,7 +23,7 @@ use alloc::vec::Vec;
 use core::{fmt::Debug, mem, num::NonZeroU64};
 
 use crate::{
-    GpuStrip, RenderError, RenderSize,
+    GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
     image_cache::{ImageCache, ImageResource},
     render::{
@@ -42,7 +42,7 @@ use crate::{
 use bytemuck::{Pod, Zeroable};
 use vello_common::{
     coarse::WideTile,
-    encode::{EncodedKind, EncodedPaint, RadialKind},
+    encode::{EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
     kurbo::Affine,
     paint::ImageSource,
     pixmap::Pixmap,
@@ -92,12 +92,25 @@ pub struct Renderer {
 impl Renderer {
     /// Creates a new renderer.
     pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
+        Self::new_with(device, render_target_config, RenderSettings::default())
+    }
+
+    /// Creates a new renderer with specific settings.
+    pub fn new_with(
+        device: &Device,
+        render_target_config: &RenderTargetConfig,
+        settings: RenderSettings,
+    ) -> Self {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let image_cache = ImageCache::new(max_texture_dimension_2d, max_texture_dimension_2d);
-        let gradient_cache = GradientRampCache::new();
+        // Estimate the maximum number of gradient cache entries based on the max texture dimension
+        // and the maximum gradient LUT size - worst case scenario.
+        let max_gradient_cache_size =
+            max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
+        let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
 
         Self {
             programs: Programs::new(device, render_target_config, total_slots),
@@ -250,8 +263,6 @@ impl Renderer {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
-
-        self.gradient_cache.maintain();
 
         let mut current_idx = 0;
         for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
@@ -411,8 +422,6 @@ struct Programs {
     alpha_data: Vec<u8>,
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
-    /// Scratch buffer for staging gradient texture data.
-    gradient_data: Vec<u8>,
 }
 
 /// Contains all GPU resources needed for rendering
@@ -779,8 +788,6 @@ impl Programs {
             &encoded_paints_texture.create_view(&Default::default()),
         );
         const INITIAL_GRADIENT_TEXTURE_HEIGHT: u32 = 1;
-        let gradient_data =
-            vec![0; ((max_texture_dimension_2d * INITIAL_GRADIENT_TEXTURE_HEIGHT) << 2) as usize];
         let gradient_texture = Self::make_gradient_texture(
             device,
             max_texture_dimension_2d,
@@ -825,7 +832,6 @@ impl Programs {
             resources,
             alpha_data,
             encoded_paints_data,
-            gradient_data,
             render_size: RenderSize {
                 width: render_target_config.width,
                 height: render_target_config.height,
@@ -1172,7 +1178,7 @@ impl Programs {
         max_texture_dimension_2d: u32,
         gradient_cache: &GradientRampCache,
     ) {
-        let gradient_pixels = (gradient_cache.size() / 4) as u32; // 4 bytes per RGBA8 pixel
+        let gradient_pixels = (gradient_cache.luts_size() / 4) as u32; // 4 bytes per RGBA8 pixel
         let required_gradient_height = gradient_pixels.div_ceil(max_texture_dimension_2d);
         debug_assert!(
             self.resources.gradient_texture.width() == max_texture_dimension_2d,
@@ -1184,9 +1190,6 @@ impl Programs {
                 required_gradient_height <= max_texture_dimension_2d,
                 "Gradient texture height exceeds max texture dimensions"
             );
-            let required_gradient_size = (max_texture_dimension_2d * required_gradient_height) << 2; // 4 bytes per RGBA8 pixel
-            self.gradient_data
-                .resize(required_gradient_size as usize, 0);
             let gradient_texture = Self::make_gradient_texture(
                 device,
                 max_texture_dimension_2d,
@@ -1240,6 +1243,9 @@ impl Programs {
 
         // After this copy to `self.alpha_data`, there may be stale trailing alpha values. These
         // are not sampled, so can be left as-is.
+        // TODO: Apply the same optimization as gradient texture upload - use alphas directly
+        // instead of copying to staging buffer, by taking alphas from strip generator as a vec,
+        // resizing appropriately, truncating, and restoring back to the generator.
         self.alpha_data[0..alphas.len()].copy_from_slice(alphas);
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -1294,20 +1300,19 @@ impl Programs {
     }
 
     /// Upload gradient data to the texture.
-    fn upload_gradient_texture(&mut self, queue: &Queue, gradient_cache: &GradientRampCache) {
+    fn upload_gradient_texture(&mut self, queue: &Queue, gradient_cache: &mut GradientRampCache) {
         let gradient_texture = &self.resources.gradient_texture;
         let gradient_texture_width = gradient_texture.width();
         let gradient_texture_height = gradient_texture.height();
 
-        // Copy the flat gradient LUT data
+        // Upload the gradient LUT data
         if !gradient_cache.is_empty() {
             let total_capacity = (gradient_texture_width * gradient_texture_height * 4) as usize;
 
-            self.gradient_data.clear();
-            self.gradient_data.resize(total_capacity, 0);
-
-            let copy_len = gradient_cache.size().min(self.gradient_data.len());
-            self.gradient_data[0..copy_len].copy_from_slice(&gradient_cache.luts()[0..copy_len]);
+            // Take ownership of the luts to avoid copying, then resize for texture padding
+            let mut luts = gradient_cache.take_luts();
+            let old_luts_len = luts.len();
+            luts.resize(total_capacity, 0);
 
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
@@ -1316,7 +1321,7 @@ impl Programs {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                &self.gradient_data,
+                &luts,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     // 4 bytes per RGBA8 pixel
@@ -1329,6 +1334,10 @@ impl Programs {
                     depth_or_array_layers: 1,
                 },
             );
+
+            // Restore the luts back to the cache
+            luts.truncate(old_luts_len);
+            gradient_cache.restore_luts(luts);
         }
     }
 

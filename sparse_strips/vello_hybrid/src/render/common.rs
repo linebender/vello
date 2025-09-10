@@ -93,7 +93,7 @@ impl GpuEncodedPaint {
     }
 
     /// Serialize paint enums directly into the provided buffer. Returns the number of bytes written.
-    pub(crate) fn serialize_to_buffer(paints: &[Self], buffer: &mut [u8]) -> usize {
+    pub(crate) fn serialize_to_buffer(paints: &[Self], buffer: &mut [u8]) {
         let mut offset = 0;
         for paint in paints {
             let paint_bytes = paint.as_bytes();
@@ -101,7 +101,6 @@ impl GpuEncodedPaint {
             buffer[offset..end_offset].copy_from_slice(paint_bytes);
             offset = end_offset;
         }
-        offset
     }
 }
 

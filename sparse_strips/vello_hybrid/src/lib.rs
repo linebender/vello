@@ -29,7 +29,7 @@
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
-#![no_std]
+// #![no_std]
 
 extern crate alloc;
 
@@ -45,7 +45,7 @@ pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
-pub use scene::Scene;
+pub use scene::{RenderSettings, Scene};
 pub use util::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;
 

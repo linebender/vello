@@ -21,7 +21,7 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::{
-    GpuStrip, RenderError, RenderSize,
+    GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
     image_cache::{ImageCache, ImageResource},
     render::{
@@ -44,7 +44,7 @@ use bytemuck::{Pod, Zeroable};
 use core::{fmt::Debug, mem};
 use vello_common::{
     coarse::WideTile,
-    encode::{EncodedKind, EncodedPaint, RadialKind},
+    encode::{EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
     kurbo::Affine,
     paint::ImageSource,
     tile::Tile,
@@ -93,6 +93,11 @@ pub struct WebGlRenderer {
 impl WebGlRenderer {
     /// Creates a new WebGL2 renderer
     pub fn new(canvas: &web_sys::HtmlCanvasElement) -> Self {
+        Self::new_with(canvas, RenderSettings::default())
+    }
+
+    /// Creates a new WebGL2 renderer with specific settings.
+    pub fn new_with(canvas: &web_sys::HtmlCanvasElement, settings: RenderSettings) -> Self {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         // The WebGL context must be created with anti-aliasing disabled such that we can blit the
@@ -134,7 +139,11 @@ impl WebGlRenderer {
         let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let image_cache = ImageCache::new(max_texture_dimension_2d, max_texture_dimension_2d);
-        let gradient_cache = GradientRampCache::new();
+        // Estimate the maximum number of gradient cache entries based on the max texture dimension
+        // and the maximum gradient LUT size - worst case scenario.
+        let max_gradient_cache_size =
+            max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
+        let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
 
         Self {
             programs: WebGlPrograms::new(gl.clone(), total_slots),
@@ -321,8 +330,6 @@ impl WebGlRenderer {
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
 
-        self.gradient_cache.maintain();
-
         let mut current_idx = 0;
         for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
             self.paint_idxs[encoded_paint_idx] = current_idx;
@@ -477,8 +484,6 @@ struct WebGlPrograms {
     alpha_data: Vec<u8>,
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
-    /// Scratch buffer for staging gradient texture data.
-    gradient_data: Vec<u8>,
 }
 
 /// Uniform locations for `strip_program`.
@@ -597,7 +602,6 @@ impl WebGlPrograms {
 
         let alpha_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
         let encoded_paints_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
-        let gradient_data = vec![0; (resources.max_texture_dimension_2d << 2) as usize];
 
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(
@@ -617,7 +621,6 @@ impl WebGlPrograms {
             },
             alpha_data,
             encoded_paints_data,
-            gradient_data,
         }
     }
 
@@ -706,7 +709,7 @@ impl WebGlPrograms {
             return;
         }
 
-        let gradient_data_size = gradient_cache.size();
+        let gradient_data_size = gradient_cache.luts_size();
         // Each texel is RGBA8, so 4 bytes per texel
         let required_gradient_height =
             (gradient_data_size as u32).div_ceil(max_texture_dimension_2d * 4);
@@ -717,11 +720,6 @@ impl WebGlPrograms {
                 required_gradient_height <= max_texture_dimension_2d,
                 "Gradient texture height exceeds max texture dimensions"
             );
-
-            // Resize the gradient data buffer
-            let required_gradient_size = max_texture_dimension_2d * required_gradient_height * 4;
-            self.gradient_data
-                .resize(required_gradient_size as usize, 0);
 
             self.resources.gradient_texture_height = required_gradient_height;
         }
@@ -836,6 +834,9 @@ impl WebGlPrograms {
 
             // After this copy to `self.alpha_data`, there may be stale trailing alpha values. These
             // are not sampled, so can be left as-is.
+            // TODO: Apply the same optimization as gradient texture upload - use alphas directly
+            // instead of copying to staging buffer, by taking alphas from strip generator as a vec,
+            // resizing appropriately, truncating, and restoring back to the generator.
             self.alpha_data[0..alphas.len()].copy_from_slice(alphas);
             gl.active_texture(WebGl2RenderingContext::TEXTURE0);
             gl.bind_texture(
@@ -904,7 +905,7 @@ impl WebGlPrograms {
     fn upload_gradient_texture(
         &mut self,
         gl: &WebGl2RenderingContext,
-        gradient_cache: &GradientRampCache,
+        gradient_cache: &mut GradientRampCache,
     ) {
         if gradient_cache.is_empty() {
             return;
@@ -912,9 +913,11 @@ impl WebGlPrograms {
 
         let gradient_texture_width = self.resources.max_texture_dimension_2d;
         let gradient_texture_height = self.resources.gradient_texture_height;
-        let gradient_luts = gradient_cache.luts();
+        let total_capacity = (gradient_texture_width * gradient_texture_height * 4) as usize;
 
-        self.gradient_data[0..gradient_luts.len()].copy_from_slice(gradient_luts);
+        // Take ownership of the luts to avoid copying, then resize for texture padding.
+        let mut luts = gradient_cache.take_luts();
+        luts.resize(total_capacity, 0);
 
         gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         gl.bind_texture(
@@ -931,9 +934,12 @@ impl WebGlPrograms {
             0,
             WebGl2RenderingContext::RGBA,
             WebGl2RenderingContext::UNSIGNED_BYTE,
-            Some(&self.gradient_data),
+            Some(&luts),
         )
         .unwrap();
+
+        // Restore the luts back to the cache.
+        gradient_cache.restore_luts(luts);
     }
 
     /// Clear the view framebuffer.

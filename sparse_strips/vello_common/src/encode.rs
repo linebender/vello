@@ -16,7 +16,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
+use core::hash::{Hash, Hasher};
 use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
+use peniko::color::cache_key::{BitEq, BitHash, CacheKey};
 use smallvec::{SmallVec, ToSmallVec};
 // So we can just use `OnceCell` regardless of which feature is activated.
 #[cfg(feature = "multithreading")]
@@ -229,15 +231,19 @@ impl EncodeExt for Gradient {
         // step delta for a step in the x/y direction.
         let (x_advance, y_advance) = x_y_advances(&transform);
 
+        let cache_key = CacheKey(GradientCacheKey {
+            stops: self.stops.clone(),
+            interpolation_cs: self.interpolation_cs,
+            hue_direction: self.hue_direction,
+        });
+
         let encoded = EncodedGradient {
+            cache_key,
             kind,
             transform,
             x_advance,
             y_advance,
             ranges,
-            stops: ColorStops(stops.into_owned()),
-            interpolation_cs: self.interpolation_cs,
-            hue_direction: self.hue_direction,
             pad,
             has_opacities,
             u8_lut: OnceCell::new(),
@@ -702,6 +708,8 @@ pub enum EncodedKind {
 /// An encoded gradient.
 #[derive(Debug)]
 pub struct EncodedGradient {
+    /// The cache key for the gradient.
+    pub cache_key: CacheKey<GradientCacheKey>,
     /// The underlying kind of gradient.
     pub kind: EncodedKind,
     /// A transform that needs to be applied to the position of the first processed pixel.
@@ -712,12 +720,6 @@ pub struct EncodedGradient {
     pub y_advance: Vec2,
     /// The color ranges of the gradient.
     pub ranges: Vec<GradientRange>,
-    /// The original color stops.
-    pub stops: ColorStops,
-    /// The color space used for interpolation.
-    pub interpolation_cs: ColorSpaceTag,
-    /// The hue direction for cylindrical color space interpolation.
-    pub hue_direction: HueDirection,
     /// Whether the gradient should be padded.
     pub pad: bool,
     /// Whether the gradient requires `source_over` compositing.
@@ -737,6 +739,33 @@ impl EncodedGradient {
     pub fn f32_lut<S: Simd>(&self, simd: S) -> &GradientLut<f32> {
         self.f32_lut
             .get_or_init(|| GradientLut::new(simd, &self.ranges))
+    }
+}
+
+/// Cache key for gradient color ramps based on color-affecting properties.
+#[derive(Debug, Clone)]
+pub struct GradientCacheKey {
+    /// The color stops (offsets + colors).
+    pub stops: ColorStops,
+    /// Color space used for interpolation.
+    pub interpolation_cs: ColorSpaceTag,
+    /// Hue direction used for interpolation.
+    pub hue_direction: HueDirection,
+}
+
+impl BitHash for GradientCacheKey {
+    fn bit_hash<H: Hasher>(&self, state: &mut H) {
+        self.stops.bit_hash(state);
+        core::mem::discriminant(&self.interpolation_cs).hash(state);
+        core::mem::discriminant(&self.hue_direction).hash(state);
+    }
+}
+
+impl BitEq for GradientCacheKey {
+    fn bit_eq(&self, other: &Self) -> bool {
+        self.stops.bit_eq(&other.stops)
+            && self.interpolation_cs == other.interpolation_cs
+            && self.hue_direction == other.hue_direction
     }
 }
 
@@ -1012,12 +1041,13 @@ impl<T: FromF32Color> GradientLut<T> {
     }
 }
 
-fn determine_lut_size(ranges: &[GradientRange]) -> usize {
-    // Of course in theory we could still have a stop at 0.0001 in which case this resolution
-    // wouldn't be enough, but for all intents and purposes this should be more than sufficient
-    // for most real cases.
-    const MAX_LEN: usize = 4096;
+/// The maximum size of the gradient LUT.
+// Of course in theory we could still have a stop at 0.0001 in which case this resolution
+// wouldn't be enough, but for all intents and purposes this should be more than sufficient
+// for most real cases.
+pub const MAX_GRADIENT_LUT_SIZE: usize = 4096;
 
+fn determine_lut_size(ranges: &[GradientRange]) -> usize {
     // Inspired by Blend2D.
     // By default:
     // 256 for 2 stops.
@@ -1038,7 +1068,7 @@ fn determine_lut_size(ranges: &[GradientRange]) -> usize {
         // For example, if the first stop is at 0.001, then we need a resolution of at least 1000
         // so that we can still safely capture the first stop.
         let res = ((1.0 / (x1 - last_x1)).ceil() as usize)
-            .min(MAX_LEN)
+            .min(MAX_GRADIENT_LUT_SIZE)
             .next_power_of_two();
         min_size = min_size.max(res);
         last_x1 = x1;
