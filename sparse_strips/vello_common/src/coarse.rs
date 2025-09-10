@@ -1073,7 +1073,7 @@ mod tests {
     use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
     use crate::paint::{Paint, PremulColor};
-    use crate::peniko::{BlendMode, Compose, Fill, Mix};
+    use crate::peniko::{BlendMode, Compose, Mix};
     use crate::strip::Strip;
     use alloc::{boxed::Box, vec};
 
