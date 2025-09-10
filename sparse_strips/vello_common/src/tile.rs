@@ -275,7 +275,7 @@ impl Tiles {
                     // Keep in sync with the code in the second branch.
                     let x = (line_left_x as u16).min(tile_columns_plus_1);
 
-                    let tile = Tile::new(x, y, line_idx, line_top_y.fract() == 0.0);
+                    let tile = Tile::new(x, y, line_idx, (line_top_y.floor() - line_top_y) == 0.0);
                     self.tile_buf.push(tile);
                 }
             } else if line_left_x == line_right_x {
