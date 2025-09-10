@@ -3746,7 +3746,6 @@ dependencies = [
  "crossbeam-channel",
  "ordered-channel",
  "rayon",
- "smallvec",
  "thread_local",
  "vello_common",
 ]

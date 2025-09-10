@@ -6,43 +6,42 @@
 /// big batch sizes
 pub(crate) const COST_THRESHOLD: f32 = 250.0;
 
-use crate::dispatch::multi_threaded::RenderTask;
-use crate::kurbo::{Affine, PathSeg, Point};
+use crate::dispatch::multi_threaded::RenderTaskType;
+use crate::kurbo::{Affine, PathEl, PathSeg, Point, segments};
 
 /// Try to estimate the cost of the render task.
-pub(crate) fn estimate_render_task_cost(task: &RenderTask) -> f32 {
+pub(crate) fn estimate_render_task_cost(task: &RenderTaskType, paths: &[PathEl]) -> f32 {
     const LAYER_COST: f32 = 10.0;
 
     match task {
-        RenderTask::FillPath {
-            path, transform, ..
-        } => match path {
-            crate::dispatch::multi_threaded::Path::Bez(b) => {
-                estimate_path_cost(b.segments(), *transform, false)
-            }
-            crate::dispatch::multi_threaded::Path::Small(s) => {
-                estimate_path_cost(s.segments(), *transform, false)
-            }
-        },
-        RenderTask::StrokePath {
-            path, transform, ..
-        } => match path {
-            crate::dispatch::multi_threaded::Path::Bez(b) => {
-                estimate_path_cost(b.segments(), *transform, true)
-            }
-            crate::dispatch::multi_threaded::Path::Small(s) => {
-                estimate_path_cost(s.segments(), *transform, true)
-            }
-        },
-        RenderTask::PushLayer { clip_path, .. } => {
+        RenderTaskType::FillPath {
+            path_range,
+            transform,
+            ..
+        } => {
+            let path = &paths[path_range.start as usize..path_range.end as usize];
+            estimate_path_cost(segments(path.iter().copied()), *transform, false)
+        }
+        RenderTaskType::StrokePath {
+            path_range,
+            transform,
+            ..
+        } => {
+            let path = &paths[path_range.start as usize..path_range.end as usize];
+            estimate_path_cost(segments(path.iter().copied()), *transform, true)
+        }
+        RenderTaskType::PushLayer { clip_path, .. } => {
             LAYER_COST
                 + clip_path
                     .as_ref()
-                    .map(|c| estimate_path_cost(c.0.segments(), c.1, false))
+                    .map(|(path_range, transform)| {
+                        let path = &paths[path_range.start as usize..path_range.end as usize];
+                        estimate_path_cost(segments(path.iter().copied()), *transform, false)
+                    })
                     .unwrap_or(0.0)
         }
-        RenderTask::PopLayer => LAYER_COST,
-        RenderTask::WideCommand { .. } => LAYER_COST,
+        RenderTaskType::PopLayer => LAYER_COST,
+        RenderTaskType::WideCommand { .. } => LAYER_COST,
     }
 }
 

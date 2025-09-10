@@ -4,10 +4,9 @@
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
-use crate::dispatch::multi_threaded::small_path::Path;
 use crate::dispatch::multi_threaded::worker::Worker;
 use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
-use crate::kurbo::{Affine, BezPath, Stroke};
+use crate::kurbo::{Affine, BezPath, PathEl, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
 use alloc::boxed::Box;
@@ -18,6 +17,7 @@ use core::fmt::{Debug, Formatter};
 use crossbeam_channel::TryRecvError;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::cell::RefCell;
+use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
@@ -30,12 +30,11 @@ use vello_common::strip::Strip;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
 
 mod cost;
-mod small_path;
 mod worker;
 
-type RenderTaskSender = crossbeam_channel::Sender<(u32, Vec<RenderTask>)>;
-type CoarseTaskSender = ordered_channel::Sender<Vec<CoarseTask>>;
-type CoarseTaskReceiver = ordered_channel::Receiver<Vec<CoarseTask>>;
+type RenderTaskSender = crossbeam_channel::Sender<RenderTask>;
+type CoarseTaskSender = ordered_channel::Sender<CoarseTask>;
+type CoarseTaskReceiver = ordered_channel::Receiver<CoarseTask>;
 
 /// A dispatcher for multi-threaded rendering.
 ///
@@ -53,7 +52,9 @@ pub(crate) struct MultiThreadedDispatcher {
     /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
     /// The current batch of paths we want to render.
-    task_batch: Vec<RenderTask>,
+    task_batch: Vec<RenderTaskType>,
+    /// The path containing all elements of the current batch.
+    batch_path: BezPath,
     /// The cost of the current batch.
     batch_cost: f32,
     /// The sender used to dispatch new rendering tasks from the main thread.
@@ -137,6 +138,7 @@ impl MultiThreadedDispatcher {
             wide,
             thread_pool,
             task_batch,
+            batch_path: Default::default(),
             batch_cost,
             task_idx,
             flushed,
@@ -196,8 +198,8 @@ impl MultiThreadedDispatcher {
             alpha_storage
                 .with_inner(|alphas| worker.init(std::mem::take(&mut alphas[thread_id as usize])));
 
-            while let Ok(tasks) = render_task_receiver.recv() {
-                worker.run_render_tasks(tasks.0, tasks.1, &mut coarse_task_sender);
+            while let Ok(task) = render_task_receiver.recv() {
+                worker.run_render_task(task, &mut coarse_task_sender);
             }
 
             // If we reach this point, it means the `task_sender` has been dropped by the main thread
@@ -216,25 +218,27 @@ impl MultiThreadedDispatcher {
         });
     }
 
-    fn register_task(&mut self, task: RenderTask) {
+    fn register_task(&mut self, task: RenderTaskType) {
         self.flushed = false;
         if self.task_sender.is_none() {
             self.init();
         }
 
-        let cost = estimate_render_task_cost(&task);
+        let cost = estimate_render_task_cost(&task, &self.batch_path.elements());
         self.task_batch.push(task);
         self.batch_cost += cost;
 
         if self.batch_cost > COST_THRESHOLD {
             self.flush_tasks();
-            self.batch_cost = 0.0;
         }
     }
 
     fn flush_tasks(&mut self) {
-        let tasks = std::mem::replace(&mut self.task_batch, Vec::with_capacity(1));
-        self.send_pending_tasks(tasks);
+        self.send_pending_tasks();
+
+        self.batch_cost = 0.0;
+        self.task_batch.clear();
+        self.batch_path.truncate(0);
     }
 
     fn bump_task_idx(&mut self) -> u32 {
@@ -243,10 +247,17 @@ impl MultiThreadedDispatcher {
         idx
     }
 
-    fn send_pending_tasks(&mut self, tasks: Vec<RenderTask>) {
+    fn send_pending_tasks(&mut self) {
         let task_idx = self.bump_task_idx();
+        let tasks = self.task_batch.as_slice();
+        let path = self.batch_path.elements();
         let task_sender = self.task_sender.as_mut().unwrap();
-        task_sender.send((task_idx, tasks)).unwrap();
+        let task = RenderTask {
+            idx: task_idx,
+            path: path.into(),
+            tasks: tasks.into(),
+        };
+        task_sender.send(task).unwrap();
         self.run_coarse(true);
     }
 
@@ -267,24 +278,39 @@ impl MultiThreadedDispatcher {
 
         loop {
             match result_receiver.try_recv() {
-                Ok(cmds) => {
-                    for cmd in cmds {
+                Ok(task) => {
+                    for cmd in task.tasks {
                         match cmd {
-                            CoarseTask::Render {
+                            CoarseTaskType::RenderPath {
+                                strips: strip_range,
+                                paint,
                                 thread_id,
+                            } => self.wide.generate(
+                                &task.strips[strip_range.start as usize..strip_range.end as usize],
+                                paint,
+                                thread_id,
+                            ),
+                            CoarseTaskType::RenderWideCommand {
                                 strips,
                                 paint,
+                                thread_id,
                             } => self.wide.generate(&strips, paint, thread_id),
-                            CoarseTask::PushLayer {
+                            CoarseTaskType::PushLayer {
                                 thread_id,
                                 clip_path,
                                 blend_mode,
                                 mask,
                                 opacity,
-                            } => self
-                                .wide
-                                .push_layer(clip_path, blend_mode, mask, opacity, thread_id),
-                            CoarseTask::PopLayer => self.wide.pop_layer(),
+                            } => {
+                                let clip_path = clip_path.map(|strip_range| {
+                                    &task.strips
+                                        [strip_range.start as usize..strip_range.end as usize]
+                                });
+
+                                self.wide
+                                    .push_layer(clip_path, blend_mode, mask, opacity, thread_id)
+                            }
+                            CoarseTaskType::PopLayer => self.wide.pop_layer(),
                         }
                     }
                 }
@@ -362,8 +388,11 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        self.register_task(RenderTask::FillPath {
-            path: Path::new(path),
+        let start = self.batch_path.elements().len() as u32;
+        self.batch_path.extend(path);
+        let end = self.batch_path.elements().len() as u32;
+        self.register_task(RenderTaskType::FillPath {
+            path_range: start..end,
             transform,
             paint,
             fill_rule,
@@ -379,8 +408,11 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        self.register_task(RenderTask::StrokePath {
-            path: Path::new(path),
+        let start = self.batch_path.elements().len() as u32;
+        self.batch_path.extend(path);
+        let end = self.batch_path.elements().len() as u32;
+        self.register_task(RenderTaskType::StrokePath {
+            path_range: start..end,
             transform,
             paint,
             stroke: stroke.clone(),
@@ -398,8 +430,15 @@ impl Dispatcher for MultiThreadedDispatcher {
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
     ) {
-        self.register_task(RenderTask::PushLayer {
-            clip_path: clip_path.cloned().map(|c| (c, clip_transform)),
+        let mapped_clip = clip_path.map(|c| {
+            let start = self.batch_path.elements().len() as u32;
+            self.batch_path.extend(c);
+            let end = self.batch_path.elements().len() as u32;
+            (start..end, clip_transform)
+        });
+
+        self.register_task(RenderTaskType::PushLayer {
+            clip_path: mapped_clip,
             blend_mode,
             opacity,
             mask,
@@ -409,13 +448,14 @@ impl Dispatcher for MultiThreadedDispatcher {
     }
 
     fn pop_layer(&mut self) {
-        self.register_task(RenderTask::PopLayer);
+        self.register_task(RenderTaskType::PopLayer);
     }
 
     fn reset(&mut self) {
         self.wide.reset();
         self.task_batch.clear();
         self.batch_cost = 0.0;
+        self.batch_path.truncate(0);
         self.task_idx = 0;
         self.flushed = false;
         self.task_sender = None;
@@ -493,7 +533,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         // thread that should be rendered _before_ this wide command. Therefore, we treat it like
         // any other render task so that we can utilize the same mechanism of assigning a task ID
         // to ensure that they are executed in order.
-        self.register_task(RenderTask::WideCommand {
+        self.register_task(RenderTaskType::WideCommand {
             strip_buf: strip_buf.into(),
             // Recordings are currently always built on the main thread and thus have a `thread_idx`
             // of 0.
@@ -558,9 +598,16 @@ impl Debug for MultiThreadedDispatcher {
 }
 
 #[derive(Debug)]
-pub(crate) enum RenderTask {
+pub(crate) struct RenderTask {
+    pub(crate) idx: u32,
+    pub(crate) path: Box<[PathEl]>,
+    pub(crate) tasks: Box<[RenderTaskType]>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum RenderTaskType {
     FillPath {
-        path: Path,
+        path_range: Range<u32>,
         transform: Affine,
         paint: Paint,
         fill_rule: Fill,
@@ -572,14 +619,14 @@ pub(crate) enum RenderTask {
         paint: Paint,
     },
     StrokePath {
-        path: Path,
+        path_range: Range<u32>,
         transform: Affine,
         paint: Paint,
         stroke: Stroke,
         aliasing_threshold: Option<u8>,
     },
     PushLayer {
-        clip_path: Option<(BezPath, Affine)>,
+        clip_path: Option<(Range<u32>, Affine)>,
         blend_mode: BlendMode,
         opacity: f32,
         mask: Option<Mask>,
@@ -589,15 +636,25 @@ pub(crate) enum RenderTask {
     PopLayer,
 }
 
-pub(crate) enum CoarseTask {
-    Render {
+pub(crate) struct CoarseTask {
+    pub(crate) strips: Box<[Strip]>,
+    pub(crate) tasks: Vec<CoarseTaskType>,
+}
+
+pub(crate) enum CoarseTaskType {
+    RenderPath {
+        thread_id: u8,
+        strips: Range<u32>,
+        paint: Paint,
+    },
+    RenderWideCommand {
         thread_id: u8,
         strips: Box<[Strip]>,
         paint: Paint,
     },
     PushLayer {
         thread_id: u8,
-        clip_path: Option<Box<[Strip]>>,
+        clip_path: Option<Range<u32>>,
         blend_mode: BlendMode,
         mask: Option<Mask>,
         opacity: f32,
