@@ -56,6 +56,11 @@ pub struct RenderContext {
     )]
     pub(crate) render_settings: RenderSettings,
     dispatcher: Box<dyn Dispatcher>,
+
+    #[cfg(feature = "text")]
+    pub(crate) glyph_cache: Option<vello_common::glyph::GlyphCache>,
+    #[cfg(feature = "text")]
+    pub(crate) hinting_cache: Option<vello_common::glyph::HintCache>,
 }
 
 /// Settings to apply to the render context.
@@ -425,7 +430,7 @@ impl RenderContext {
     /// Render the current context into a buffer.
     /// The buffer is expected to be in premultiplied RGBA8 format with length `width * height * 4`
     pub fn render_to_buffer(
-        &self,
+        &mut self,
         buffer: &mut [u8],
         width: u16,
         height: u16,
@@ -445,10 +450,14 @@ impl RenderContext {
 
         self.dispatcher
             .rasterize(buffer, render_mode, width, height, &self.encoded_paints);
+
+        if let Some(glyph_cache) = self.glyph_cache.as_mut() {
+            glyph_cache.maintain();
+        }
     }
 
     /// Render the current context into a pixmap.
-    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+    pub fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
         let width = pixmap.width();
         let height = pixmap.height();
         self.render_to_buffer(
@@ -457,6 +466,10 @@ impl RenderContext {
             height,
             self.render_settings.render_mode,
         );
+
+        if let Some(glyph_cache) = self.glyph_cache.as_mut() {
+            glyph_cache.maintain();
+        }
     }
 
     /// Return the width of the pixmap.
@@ -477,18 +490,6 @@ impl RenderContext {
 
 #[cfg(feature = "text")]
 impl GlyphRenderer for RenderContext {
-    fn restore_glyph_cache(&mut self, cache: vello_common::glyph::GlyphCache) {}
-
-    fn restore_hinting_cache(&mut self, cache: vello_common::glyph::HintCache) {}
-
-    fn take_glyph_cache(&mut self) -> vello_common::glyph::GlyphCache {
-        Default::default()
-    }
-
-    fn take_hinting_cache(&mut self) -> vello_common::glyph::HintCache {
-        Default::default()
-    }
-
     fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
         match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
@@ -602,6 +603,22 @@ impl GlyphRenderer for RenderContext {
                 self.fill_glyph(prepared_glyph);
             }
         }
+    }
+
+    fn take_glyph_cache(&mut self) -> vello_common::glyph::GlyphCache {
+        self.glyph_cache.take().unwrap_or_default()
+    }
+
+    fn restore_glyph_cache(&mut self, cache: vello_common::glyph::GlyphCache) {
+        self.glyph_cache = Some(cache);
+    }
+
+    fn take_hinting_cache(&mut self) -> vello_common::glyph::HintCache {
+        self.hinting_cache.take().unwrap_or_default()
+    }
+
+    fn restore_hinting_cache(&mut self, cache: vello_common::glyph::HintCache) {
+        self.hinting_cache = Some(cache);
     }
 }
 

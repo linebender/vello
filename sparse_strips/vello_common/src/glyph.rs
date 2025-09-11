@@ -8,7 +8,7 @@ use crate::peniko::Font;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
-use hashbrown::HashMap;
+use hashbrown::{Equivalent, HashMap};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{DrawSettings, OutlineGlyphFormat};
 use skrifa::raw::TableProvider;
@@ -296,8 +296,7 @@ fn prepare_outline_glyph<'a>(
             size_bits: size.ppem().unwrap().to_bits(),
             hint: hinting_instance.is_some(),
         };
-        let coords_vec = normalized_coords.to_vec();
-        glyph_cache.get(&key, size, &coords_vec, outline_glyph, hinting_instance)
+        glyph_cache.get(&key, size, VarLookupKey(normalized_coords), outline_glyph, hinting_instance)
     };
 
     // Calculate the global glyph translation based on the glyph's local position within
@@ -664,11 +663,32 @@ struct GlyphKey {
     hint: bool,
 }
 
+struct GlyphEntry {
+    path: OutlinePath,
+    serial: u32,
+}
+
+impl GlyphEntry {
+    const fn new(path: OutlinePath) -> Self {
+        Self { path, serial: 0 }
+    }
+}
+
+
 #[derive(Default)]
 pub struct GlyphCache {
     free_list: Vec<OutlinePath>,
-    static_map: HashMap<GlyphKey, OutlinePath>,
-    variable_map: HashMap<VarKey, HashMap<GlyphKey, OutlinePath>>,
+    static_map: HashMap<GlyphKey, GlyphEntry>,
+    variable_map: HashMap<VarKey, HashMap<GlyphKey, GlyphEntry>>,
+    cached_count: usize,
+    serial: u32,
+    last_prune_serial: u32,
+}
+
+impl Debug for GlyphCache {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "GlyphCache")
+    }
 }
 
 impl GlyphCache {
@@ -676,23 +696,28 @@ impl GlyphCache {
         &mut self,
         key: &GlyphKey,
         size: Size,
-        var_key: &VarKey,
+        var_key: VarLookupKey<'_>,
         outline_glyph: &skrifa::outline::OutlineGlyph<'_>,
         hinting_instance: Option<&HintingInstance>,
     ) -> &OutlinePath {
-        if var_key.is_empty() {
+        if var_key.0.is_empty() {
+            // TODO: Prevent double lookup
             if self.static_map.contains_key(key) {
-                return self.static_map.get(key).unwrap();
+                let entry = self.static_map.get_mut(key).unwrap();
+                entry.serial = self.serial;
+                return &entry.path;
             }
         } else {
-            if self.variable_map.contains_key(var_key)
-                && self.variable_map.get(var_key).unwrap().contains_key(key)
+            if self.variable_map.contains_key(&var_key)
+                && self.variable_map.get(&var_key).unwrap().contains_key(key)
             {
-                return self
+                let entry = self
                     .variable_map
-                    .get(var_key)
-                    .and_then(|m| m.get(key))
+                    .get_mut(&var_key)
+                    .and_then(|m| m.get_mut(key))
                     .unwrap();
+                entry.serial = self.serial;
+                return &entry.path;
             }
         }
 
@@ -701,41 +726,103 @@ impl GlyphCache {
         let draw_settings = if let Some(hinting_instance) = hinting_instance {
             DrawSettings::hinted(hinting_instance, false)
         } else {
-            DrawSettings::unhinted(size, &**var_key)
+            DrawSettings::unhinted(size, var_key.0)
         };
 
         path.0.truncate(0);
         outline_glyph.draw(draw_settings, &mut path).unwrap();
 
-        self.insert(*key, var_key.clone(), path.clone());
+        self.insert(*key, var_key.into(), path.clone());
 
-        if var_key.is_empty() {
-            self.static_map.get(key).unwrap()
+        if var_key.0.is_empty() {
+            &self.static_map.get(key).unwrap().path
         } else {
             self.variable_map
-                .get(var_key)
-                .and_then(|m| m.get(key))
+                .get(&var_key)
+                .and_then(|m| m.get(key).map(|e| &e.path))
                 .unwrap()
         }
     }
 
     fn insert(&mut self, key: GlyphKey, var_key: VarKey, entry: OutlinePath) {
         if var_key.is_empty() {
-            self.static_map.insert(key, entry);
+            self.static_map.insert(key, GlyphEntry::new(entry));
         } else {
             self.variable_map
                 .entry(var_key)
                 .or_default()
-                .insert(key, entry);
+                .insert(key, GlyphEntry::new(entry));
         }
+        self.cached_count += 1;
     }
 
     fn take_path(&mut self) -> OutlinePath {
         self.free_list.pop().unwrap_or_default()
     }
+
+    pub fn maintain(&mut self) {
+        // Maximum number of full renders where we'll retain an unused glyph
+        const MAX_ENTRY_AGE: u32 = 64;
+        // Maximum number of full renders before we force a prune
+        const PRUNE_FREQUENCY: u32 = 64;
+        // Always prune if the cached count is greater than this value
+        const CACHED_COUNT_THRESHOLD: usize = 512;
+        // Number of encoding buffers we'll keep on the free list
+        const MAX_FREE_LIST_SIZE: usize = 128;
+
+        let free_list = &mut self.free_list;
+        let serial = self.serial;
+        self.serial += 1;
+        // Don't iterate over the whole cache every frame
+        if serial - self.last_prune_serial < PRUNE_FREQUENCY
+            && self.cached_count < CACHED_COUNT_THRESHOLD
+        {
+            return;
+        }
+        self.last_prune_serial = serial;
+        self.static_map.retain(|_, entry| {
+            if serial - entry.serial > MAX_ENTRY_AGE {
+                if free_list.len() < MAX_FREE_LIST_SIZE {
+                    free_list.push(core::mem::take(&mut entry.path));
+                }
+                self.cached_count -= 1;
+                false
+            } else {
+                true
+            }
+        });
+        self.variable_map.retain(|_, map| {
+            map.retain(|_, entry| {
+                if serial - entry.serial > MAX_ENTRY_AGE {
+                    if free_list.len() < MAX_FREE_LIST_SIZE {
+                        free_list.push(core::mem::take(&mut entry.path));
+                    }
+                    self.cached_count -= 1;
+                    false
+                } else {
+                    true
+                }
+            });
+            !map.is_empty()
+        });
+    }
 }
 
-// TODO: Use smallvec
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+struct VarLookupKey<'a>(&'a [skrifa::instance::NormalizedCoord]);
+
+impl Equivalent<VarKey> for VarLookupKey<'_> {
+    fn equivalent(&self, other: &VarKey) -> bool {
+        self.0 == *other
+    }
+}
+
+impl Into<VarKey> for VarLookupKey<'_> {
+    fn into(self) -> VarKey {
+        self.0.to_vec()
+    }
+}
+
 type VarKey = Vec<skrifa::instance::NormalizedCoord>;
 
 /// We keep this small to enable a simple LRU cache with a linear
@@ -764,6 +851,12 @@ pub struct HintCache {
     glyf_entries: Vec<HintEntry>,
     cff_entries: Vec<HintEntry>,
     serial: u64,
+}
+
+impl Debug for HintCache {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "HintCache")
+    }
 }
 
 impl HintCache {

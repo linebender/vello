@@ -108,6 +108,9 @@ impl Renderer {
             view,
         };
 
+        scene.glyph_cache.maintain();
+        scene.hinting_cache.maintain();
+
         self.scheduler.do_scene(&mut junk, scene)
     }
 

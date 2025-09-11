@@ -108,7 +108,7 @@ impl TextScene {
             font_cx
         };
 
-        let text = text.repeat(10);
+        let text = text.repeat(50);
         let text_ = text.clone();
         let mut builder = layout_cx.ranged_builder(&mut font_cx, text_.as_str(), 1.0, true);
         builder.push_default(FontFamily::parse("Roboto").unwrap());
@@ -118,7 +118,7 @@ impl TextScene {
         builder.push_default(StyleProperty::FontSize(32.0));
 
         let mut layout: Layout<ColorBrush> = builder.build(text);
-        let max_advance = Some(400.0);
+        let max_advance = Some(800.0);
         layout.break_all_lines(max_advance);
         layout.align(max_advance, Alignment::Middle, AlignmentOptions::default());
 
