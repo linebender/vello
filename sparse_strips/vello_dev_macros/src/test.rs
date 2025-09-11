@@ -198,11 +198,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         || input_fn_name_str.contains("compose")
         || input_fn_name_str.contains("clip_composite_opacity_nested_circles");
 
-    // Make an exception for mix tests that don't use gradients.
-    skip_hybrid = skip_hybrid
-        && !(input_fn_name_str == "mix_modes_non_gradient_test_matrix"
-            || input_fn_name_str == "mix_compose_combined_test_matrix");
-
     let empty_snippet = quote! {};
     let ignore_snippet = if let Some(reason) = ignore_reason {
         quote! {#[ignore = #reason]}
