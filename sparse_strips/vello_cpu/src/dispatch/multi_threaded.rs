@@ -27,6 +27,7 @@ use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
+use vello_common::strip_generator::StripGenerator;
 
 mod cost;
 mod small_path;
@@ -95,6 +96,8 @@ pub(crate) struct MultiThreadedDispatcher {
     task_idx: u32,
     /// The number of threads active in the thread pool.
     num_threads: u16,
+    /// The strip generator for the main thread, only used for recordings.
+    strip_generator: StripGenerator,
     level: Level,
     flushed: bool,
 }
@@ -106,12 +109,14 @@ impl MultiThreadedDispatcher {
             .num_threads(num_threads as usize)
             .build()
             .unwrap();
-        let alpha_storage = MaybePresent::new(vec![vec![]; usize::from(num_threads)]);
+        // + 1 because the main thread also stores an alpha buffer, used for recordings.
+        let alpha_storage = MaybePresent::new(vec![vec![]; usize::from(num_threads + 1)]);
         let workers = Arc::new(ThreadLocal::new());
         let task_batch = vec![];
 
         {
-            let thread_ids = Arc::new(AtomicU8::new(0));
+            // Start counting from 1, as thread_idx 0 is reserved for the main thread.
+            let thread_ids = Arc::new(AtomicU8::new(1));
             let workers = workers.clone();
 
             // Create all workers once in `new`, so that later on we can just call`.get().unwrap()`.
@@ -137,6 +142,7 @@ impl MultiThreadedDispatcher {
             workers,
             task_sender: None,
             coarse_task_receiver: None,
+            strip_generator: StripGenerator::new(width, height, level),
             level,
             alpha_storage,
             num_threads,
@@ -347,10 +353,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         &self.wide
     }
 
-    fn wide_mut(&mut self) -> &mut Wide {
-        &mut self.wide
-    }
-
     fn fill_path(
         &mut self,
         path: &BezPath,
@@ -386,19 +388,19 @@ impl Dispatcher for MultiThreadedDispatcher {
     }
 
     fn alpha_buf(&self) -> &[u8] {
-        unimplemented!("alpha_buf is not implemented for multi-threaded dispatcher")
+        self.strip_generator.alpha_buf()
     }
 
-    fn extend_alpha_buf(&mut self, _alphas: &[u8]) {
-        unimplemented!("extend_alpha_buf is not implemented for multi-threaded dispatcher")
+    fn extend_alpha_buf(&mut self, alphas: &[u8]) {
+        self.strip_generator.extend_alpha_buf(alphas);
     }
 
-    fn replace_alpha_buf(&mut self, _alphas: Vec<u8>) -> Vec<u8> {
-        unimplemented!("replace_alpha_buf is not implemented for multi-threaded dispatcher")
+    fn replace_alpha_buf(&mut self, alphas: Vec<u8>) -> Vec<u8> {
+        self.strip_generator.replace_alpha_buf(alphas)
     }
 
-    fn set_alpha_buf(&mut self, _alphas: Vec<u8>) {
-        unimplemented!("set_alpha_buf is not implemented for multi-threaded dispatcher")
+    fn set_alpha_buf(&mut self, alphas: Vec<u8>) {
+        self.strip_generator.set_alpha_buf(alphas);
     }
 
     fn push_layer(
@@ -433,6 +435,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.flushed = false;
         self.task_sender = None;
         self.coarse_task_receiver = None;
+        self.strip_generator.reset();
         self.alpha_storage.with_inner(|alphas| {
             for alpha in alphas {
                 alpha.clear();
@@ -468,6 +471,13 @@ impl Dispatcher for MultiThreadedDispatcher {
         drop(sender);
         self.run_coarse(false);
 
+        self.alpha_storage.with_inner(|alphas| {
+            // The main thread stores the alphas that are produced by playing a recording.
+            // It is important we reserve the thread id 0 for this as the implementation for
+            // `Recordable` uses this thread ID when generating the commands for coarse rasterization.
+            alphas[0] = self.strip_generator.replace_alpha_buf(Vec::new());
+        });
+
         self.flushed = true;
     }
 
@@ -487,6 +497,24 @@ impl Dispatcher for MultiThreadedDispatcher {
                 self.rasterize_f32(buffer, width, height, encoded_paints);
             }
         }
+    }
+
+    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint) {
+        // Note that we are essentially round-tripping here: The wide container is inside of the
+        // main thread, but we first send a render task to a child thread which basically just
+        // forwards it back to the main thread again. We cannot apply the wide command directly
+        // here because there might be other paths that are currently being processed in a child
+        // thread that should be rendered _before_ this wide command. Therefore, we treat it like
+        // any other render task so that we can utilize the same mechanism of assigning a task ID
+        // to ensure that they are executed in order.
+        self.register_task(RenderTask::WideCommand {
+            strip_buf: strip_buf.into(),
+            fill_rule,
+            // Recordings are currently always built on the main thread and thus have a `thread_idx`
+            // of 0.
+            thread_idx: 0,
+            paint,
+        });
     }
 }
 
@@ -548,6 +576,12 @@ pub(crate) enum RenderTask {
         paint: Paint,
         fill_rule: Fill,
         aliasing_threshold: Option<u8>,
+    },
+    WideCommand {
+        strip_buf: Box<[Strip]>,
+        fill_rule: Fill,
+        thread_idx: u8,
+        paint: Paint,
     },
     StrokePath {
         path: Path,

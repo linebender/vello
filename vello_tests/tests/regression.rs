@@ -31,6 +31,7 @@ const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/smoke/data_image_roun
 
 /// Test for <https://github.com/linebender/vello/issues/972>
 #[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn test_data_image_roundtrip_extend_pad() {
     let mut scene = Scene::new();
     let mut images = ImageCache::new();
