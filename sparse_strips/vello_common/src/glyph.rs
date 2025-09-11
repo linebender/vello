@@ -701,13 +701,17 @@ impl GlyphCache {
         hinting_instance: Option<&HintingInstance>,
     ) -> &OutlinePath {
         if var_key.0.is_empty() {
-            // TODO: Prevent double lookup
             if self.static_map.contains_key(key) {
                 let entry = self.static_map.get_mut(key).unwrap();
                 entry.serial = self.serial;
                 return &entry.path;
             }
         } else {
+            // This is still ugly in rust. Choices are:
+            // 1. multiple lookups in the hashmap (implemented here)
+            // 2. always allocate and copy the key
+            // 3. use unsafe
+            // Pick 1 bad option :(
             if self.variable_map.contains_key(&var_key)
                 && self.variable_map.get(&var_key).unwrap().contains_key(key)
             {
