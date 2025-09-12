@@ -654,6 +654,7 @@ mod tests {
         assert!(size_of::<skrifa::instance::NormalizedCoord>() == size_of::<NormalizedCoord>());
 }
 
+/// Caches used for glyph rendering.
 #[derive(Debug, Default)]
 pub struct GlyphCaches {
     glyph_cache: GlyphCache,
@@ -661,10 +662,14 @@ pub struct GlyphCaches {
 }
 
 impl GlyphCaches {
+    /// Creates a new `GlyphCaches` instance.
     pub fn new() -> Self {
         Default::default()
     }
 
+    /// Maintains the glyph caches by evicting unused cache entries.
+    /// 
+    /// Should be called once per scene rendering.
     pub fn maintain(&mut self) {
         self.glyph_cache.maintain();
     }
@@ -692,6 +697,8 @@ impl GlyphEntry {
     }
 }
 
+/// Caches glyph outlines for reuse.
+/// Heavily inspired by `vello_encoding::glyph_cache`.
 #[derive(Default)]
 struct GlyphCache {
     free_list: Vec<OutlinePath>,
@@ -707,6 +714,56 @@ impl Debug for GlyphCache {
         write!(f, "GlyphCache")
     }
 }
+
+impl GlyphCache {
+    fn maintain(&mut self) {
+        // Maximum number of full renders where we'll retain an unused glyph
+        const MAX_ENTRY_AGE: u32 = 64;
+        // Maximum number of full renders before we force a prune
+        const PRUNE_FREQUENCY: u32 = 64;
+        // Always prune if the cached count is greater than this value
+        const CACHED_COUNT_THRESHOLD: usize = 512;
+        // Number of encoding buffers we'll keep on the free list
+        const MAX_FREE_LIST_SIZE: usize = 128;
+
+        let free_list = &mut self.free_list;
+        let serial = self.serial;
+        self.serial += 1;
+        // Don't iterate over the whole cache every frame
+        if serial - self.last_prune_serial < PRUNE_FREQUENCY
+            && self.cached_count < CACHED_COUNT_THRESHOLD
+        {
+            return;
+        }
+        self.last_prune_serial = serial;
+        self.static_map.retain(|_, entry| {
+            if serial - entry.serial > MAX_ENTRY_AGE {
+                if free_list.len() < MAX_FREE_LIST_SIZE {
+                    free_list.push(core::mem::take(&mut entry.path));
+                }
+                self.cached_count -= 1;
+                false
+            } else {
+                true
+            }
+        });
+        self.variable_map.retain(|_, map| {
+            map.retain(|_, entry| {
+                if serial - entry.serial > MAX_ENTRY_AGE {
+                    if free_list.len() < MAX_FREE_LIST_SIZE {
+                        free_list.push(core::mem::take(&mut entry.path));
+                    }
+                    self.cached_count -= 1;
+                    false
+                } else {
+                    true
+                }
+            });
+            !map.is_empty()
+        });
+    }
+}
+
 
 struct GlyphCacheSession<'a> {
     map: &'a mut HashMap<GlyphKey, GlyphEntry>,
@@ -772,55 +829,6 @@ impl<'a> GlyphCacheSession<'a> {
         self.map.insert(key, GlyphEntry::new(path, self.serial));
         *self.cached_count += 1;
         &self.map.get(&key).unwrap().path
-    }
-}
-
-impl GlyphCache {
-    fn maintain(&mut self) {
-        // Maximum number of full renders where we'll retain an unused glyph
-        const MAX_ENTRY_AGE: u32 = 64;
-        // Maximum number of full renders before we force a prune
-        const PRUNE_FREQUENCY: u32 = 64;
-        // Always prune if the cached count is greater than this value
-        const CACHED_COUNT_THRESHOLD: usize = 512;
-        // Number of encoding buffers we'll keep on the free list
-        const MAX_FREE_LIST_SIZE: usize = 128;
-
-        let free_list = &mut self.free_list;
-        let serial = self.serial;
-        self.serial += 1;
-        // Don't iterate over the whole cache every frame
-        if serial - self.last_prune_serial < PRUNE_FREQUENCY
-            && self.cached_count < CACHED_COUNT_THRESHOLD
-        {
-            return;
-        }
-        self.last_prune_serial = serial;
-        self.static_map.retain(|_, entry| {
-            if serial - entry.serial > MAX_ENTRY_AGE {
-                if free_list.len() < MAX_FREE_LIST_SIZE {
-                    free_list.push(core::mem::take(&mut entry.path));
-                }
-                self.cached_count -= 1;
-                false
-            } else {
-                true
-            }
-        });
-        self.variable_map.retain(|_, map| {
-            map.retain(|_, entry| {
-                if serial - entry.serial > MAX_ENTRY_AGE {
-                    if free_list.len() < MAX_FREE_LIST_SIZE {
-                        free_list.push(core::mem::take(&mut entry.path));
-                    }
-                    self.cached_count -= 1;
-                    false
-                } else {
-                    true
-                }
-            });
-            !map.is_empty()
-        });
     }
 }
 
