@@ -19,8 +19,9 @@ pub struct Strip {
     pub y: u16,
     /// The index into the alpha buffer.
     pub alpha_idx: u32,
-    /// The winding number at the start of the strip.
-    pub winding: i32,
+    /// Whether the gap that lies between this strip and the previous in the _same_
+    /// row should be filled.
+    pub fill_gap: bool,
 }
 
 impl Strip {
@@ -77,6 +78,11 @@ fn render_impl<S: Simd>(
         return;
     }
 
+    let should_fill = |winding: i32| match fill_rule {
+        Fill::NonZero => winding != 0,
+        Fill::EvenOdd => winding % 2 != 0,
+    };
+
     // The accumulated tile winding delta. A line that crosses the top edge of a tile
     // increments the delta if the line is directed upwards, and decrements it if goes
     // downwards. Horizontal lines leave it unchanged.
@@ -101,7 +107,7 @@ fn render_impl<S: Simd>(
         x: prev_tile.x * Tile::WIDTH,
         y: prev_tile.y * Tile::HEIGHT,
         alpha_idx: alpha_buf.len() as u32,
-        winding: 0,
+        fill_gap: false,
     };
 
     for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
@@ -191,7 +197,7 @@ fn render_impl<S: Simd>(
                         x: u16::MAX,
                         y: prev_tile.y * Tile::HEIGHT,
                         alpha_idx: alpha_buf.len() as u32,
-                        winding: winding_delta,
+                        fill_gap: should_fill(winding_delta),
                     });
                 }
 
@@ -212,7 +218,7 @@ fn render_impl<S: Simd>(
                 x: tile.x * Tile::WIDTH,
                 y: tile.y * Tile::HEIGHT,
                 alpha_idx: alpha_buf.len() as u32,
-                winding: winding_delta,
+                fill_gap: should_fill(winding_delta),
             };
             // Note: this fill is mathematically not necessary. It provides a way to reduce
             // accumulation of float rounding errors.

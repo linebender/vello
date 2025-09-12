@@ -98,7 +98,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         let wide = &mut self.wide;
 
-        let func = |strips| wide.generate(strips, fill_rule, paint, 0);
+        let func = |strips| wide.generate(strips, paint, 0);
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
@@ -118,7 +118,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         let wide = &mut self.wide;
 
-        let func = |strips| wide.generate(strips, Fill::NonZero, paint, 0);
+        let func = |strips| wide.generate(strips, paint, 0);
         self.strip_generator.generate_stroked_path(
             path,
             stroke,
@@ -167,7 +167,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 |strips| strip_buf = strips,
             );
 
-            Some((strip_buf, fill_rule))
+            Some(strip_buf)
         } else {
             None
         };
@@ -202,8 +202,8 @@ impl Dispatcher for SingleThreadedDispatcher {
         }
     }
 
-    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint) {
-        self.wide.generate(strip_buf, fill_rule, paint, 0);
+    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint) {
+        self.wide.generate(strip_buf, paint, 0);
     }
 }
 

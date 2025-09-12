@@ -145,7 +145,7 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
-        let func = |strips| wide.generate(strips, fill_rule, paint, 0);
+        let func = |strips| wide.generate(strips, paint, 0);
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
@@ -174,7 +174,7 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
-        let func = |strips| wide.generate(strips, Fill::NonZero, paint, 0);
+        let func = |strips| wide.generate(strips, paint, 0);
         self.strip_generator.generate_stroked_path(
             path,
             &self.stroke,
@@ -235,7 +235,7 @@ impl Scene {
                 |strips| strip_buf = strips,
             );
 
-            Some((strip_buf, self.fill_rule))
+            Some(strip_buf)
         } else {
             None
         };
@@ -402,7 +402,6 @@ impl Recordable for Scene {
                 | RenderCommand::FillOutlineGlyph(_)
                 | RenderCommand::StrokeOutlineGlyph(_) => {
                     self.process_geometry_command(
-                        command,
                         strip_start_indices,
                         range_index,
                         &adjusted_strips,
@@ -516,7 +515,6 @@ impl Scene {
 
     fn process_geometry_command(
         &mut self,
-        command: &RenderCommand,
         strip_start_indices: &[usize],
         range_index: usize,
         adjusted_strips: &[Strip],
@@ -538,13 +536,7 @@ impl Scene {
             "Invalid strip range: start={start}, end={end}, count={count}"
         );
         let paint = self.encode_current_paint();
-        let fill_rule = match command {
-            RenderCommand::FillPath(_) | RenderCommand::FillRect(_) => self.fill_rule,
-            RenderCommand::StrokePath(_) | RenderCommand::StrokeRect(_) => Fill::NonZero,
-            _ => Fill::NonZero,
-        };
-        self.wide
-            .generate(&adjusted_strips[start..end], fill_rule, paint, 0);
+        self.wide.generate(&adjusted_strips[start..end], paint, 0);
     }
 
     /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.
