@@ -290,15 +290,10 @@ fn prepare_outline_glyph<'a>(
     normalized_coords: &[skrifa::instance::NormalizedCoord],
 ) -> (GlyphType<'a>, Affine) {
     let path: &OutlinePath = {
-        let key = GlyphKey {
-            glyph_id: glyph.id,
+        glyph_cache.get(
+            glyph.id,
             font_id,
             font_index,
-            size_bits: size.ppem().unwrap().to_bits(),
-            hint: hinting_instance.is_some(),
-        };
-        glyph_cache.get(
-            &key,
             size,
             VarLookupKey(normalized_coords),
             outline_glyph,
@@ -740,14 +735,24 @@ impl<'a> GlyphCacheSession<'a> {
 
     fn get(
         &mut self,
-        key: &GlyphKey,
+        glyph_id: u32,
+        font_id: u64,
+        font_index: u32,
         size: Size,
         var_key: VarLookupKey<'_>,
         outline_glyph: &skrifa::outline::OutlineGlyph<'_>,
         hinting_instance: Option<&HintingInstance>,
     ) -> &OutlinePath {
-        if self.map.contains_key(key) {
-            return self.map.get_mut(key).map(|entry| {
+        let key = GlyphKey {
+            glyph_id,
+            font_id,
+            font_index,
+            size_bits: size.ppem().unwrap().to_bits(),
+            hint: hinting_instance.is_some(),
+        };
+
+        if self.map.contains_key(&key) {
+            return self.map.get_mut(&key).map(|entry| {
                 entry.serial = self.serial;
                 &entry.path
             }).unwrap();
@@ -764,9 +769,9 @@ impl<'a> GlyphCacheSession<'a> {
         path.0.truncate(0);
         outline_glyph.draw(draw_settings, &mut path).unwrap();
 
-        self.map.insert(*key, GlyphEntry::new(path, self.serial));
+        self.map.insert(key, GlyphEntry::new(path, self.serial));
         *self.cached_count += 1;
-        &self.map.get(key).unwrap().path
+        &self.map.get(&key).unwrap().path
     }
 }
 
