@@ -7,7 +7,7 @@ use parley::{
     PositionedLayoutItem,
 };
 use vello_common::fearless_simd::Level;
-use vello_common::glyph::{Glyph, GlyphCache, GlyphRunBuilder, HintCache};
+use vello_common::glyph::{Glyph, GlyphCaches, GlyphRunBuilder};
 use vello_common::glyph::{GlyphRenderer, GlyphType};
 use vello_common::kurbo::Affine;
 use vello_common::peniko::Fill;
@@ -25,8 +25,7 @@ pub fn glyph(c: &mut Criterion) {
             HEIGHT,
             Level::try_detect().unwrap_or(Level::fallback()),
         ),
-        hint_cache: Some(Default::default()),
-        glyph_cache: Some(Default::default()),
+        glyph_caches: Default::default(),
     };
 
     const LATIN: &str = "The quick brown fox jumps over the lazy dog 0123456789";
@@ -58,8 +57,7 @@ struct Brush {}
 
 struct GlyphBenchRenderer {
     strip_generator: StripGenerator,
-    hint_cache: Option<HintCache>,
-    glyph_cache: Option<GlyphCache>,
+    glyph_caches: Option<GlyphCaches>,
 }
 
 impl GlyphBenchRenderer {
@@ -93,18 +91,11 @@ impl GlyphRenderer for GlyphBenchRenderer {
         unimplemented!()
     }
 
-    fn take_hinting_cache(&mut self) -> HintCache {
-        self.hint_cache.take().unwrap_or_default()
+    fn take_glyph_caches(&mut self) -> GlyphCaches {
+        self.glyph_caches.take().unwrap_or_default()
     }
-    fn restore_hinting_cache(&mut self, cache: HintCache) {
-        self.hint_cache = Some(cache);
-    }
-
-    fn take_glyph_cache(&mut self) -> GlyphCache {
-        self.glyph_cache.take().unwrap_or_default()
-    }
-    fn restore_glyph_cache(&mut self, cache: GlyphCache) {
-        self.glyph_cache = Some(cache);
+    fn restore_glyph_caches(&mut self, cache: GlyphCaches) {
+        self.glyph_caches = Some(cache);
     }
 }
 
