@@ -281,11 +281,7 @@ pub trait Recordable {
     /// ```
     fn record<F>(&mut self, recording: &mut Recording, f: F)
     where
-        F: FnOnce(&mut Recorder<'_>),
-    {
-        let mut recorder = Recorder::new(recording);
-        f(&mut recorder);
-    }
+        F: FnOnce(&mut Recorder<'_>);
 
     /// Generate sparse strips for a recording.
     ///
@@ -336,12 +332,22 @@ pub trait Recordable {
 pub struct Recorder<'a> {
     /// The recording to capture commands into.
     recording: &'a mut Recording,
+
+    #[cfg(feature = "text")]
+    glyph_caches: Option<crate::glyph::GlyphCaches>,
 }
 
 impl<'a> Recorder<'a> {
     /// Create a new recorder for the given recording.
-    pub fn new(recording: &'a mut Recording) -> Self {
-        Self { recording }
+    pub fn new(recording: &'a mut Recording,
+    #[cfg(feature = "text")]
+    glyph_caches: crate::glyph::GlyphCaches,
+) -> Self {
+        Self { 
+            recording, 
+            #[cfg(feature = "text")]
+            glyph_caches: Some(glyph_caches),
+        }
     }
 
     /// Fill a path with current paint and fill rule.
@@ -471,16 +477,10 @@ impl<'a> GlyphRenderer for Recorder<'a> {
         }
     }
 
-    fn restore_hinting_cache(&mut self, cache: crate::glyph::HintCache) {
-        unreachable!()
+    fn restore_glyph_caches(&mut self, caches: crate::glyph::GlyphCaches) {
+        self.glyph_caches = Some(caches);
     }
-    fn take_hinting_cache(&mut self) -> crate::glyph::HintCache {
-        unreachable!()
-    }
-    fn take_glyph_cache(&mut self) -> crate::glyph::GlyphCache {
-        unreachable!()
-    }
-    fn restore_glyph_cache(&mut self, cache: crate::glyph::GlyphCache) {
-        unreachable!()
+    fn take_glyph_caches(&mut self) -> crate::glyph::GlyphCaches {
+        self.glyph_caches.take().unwrap_or_default()
     }
 }

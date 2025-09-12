@@ -110,11 +110,8 @@ pub trait GlyphRenderer {
     /// Stroke glyphs with the current paint and stroke settings.
     fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>);
 
-    fn take_hinting_cache(&mut self) -> HintCache;
-    fn restore_hinting_cache(&mut self, cache: HintCache);
-
-    fn take_glyph_cache(&mut self) -> GlyphCache;
-    fn restore_glyph_cache(&mut self, cache: GlyphCache);
+    fn take_glyph_caches(&mut self) -> GlyphCaches;
+    fn restore_glyph_caches(&mut self, caches: GlyphCaches);
 }
 
 /// A builder for configuring and drawing glyphs.
@@ -192,7 +189,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         let initial_transform =
             self.run.transform * self.run.glyph_transform.unwrap_or(Affine::IDENTITY);
 
-        let mut hinting_cache = self.renderer.take_hinting_cache();
+        let GlyphCaches {mut  hinting_cache, mut glyph_cache } = self.renderer.take_glyph_caches();
         let PreparedGlyphRun {
             transform: initial_transform,
             size,
@@ -204,8 +201,6 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             Style::Fill => GlyphRenderer::fill_glyph,
             Style::Stroke => GlyphRenderer::stroke_glyph,
         };
-
-        let mut glyph_cache = self.renderer.take_glyph_cache();
 
         for glyph in glyphs {
             let bitmap_data = bitmaps
@@ -269,8 +264,10 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             render_glyph(self.renderer, prepared_glyph);
         }
 
-        self.renderer.restore_hinting_cache(hinting_cache);
-        self.renderer.restore_glyph_cache(glyph_cache);
+        self.renderer.restore_glyph_caches(GlyphCaches {
+            glyph_cache,
+            hinting_cache,
+        });
     }
 }
 
@@ -652,6 +649,22 @@ mod tests {
         assert!(size_of::<skrifa::instance::NormalizedCoord>() == size_of::<NormalizedCoord>());
 }
 
+#[derive(Debug, Default)]
+pub struct GlyphCaches {
+    glyph_cache: GlyphCache,
+    hinting_cache: HintCache,
+}
+
+impl GlyphCaches {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn maintain(&mut self) {
+        self.glyph_cache.maintain();
+    }
+}
+
 // Dependencies on glyph outline:
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
@@ -676,7 +689,7 @@ impl GlyphEntry {
 
 
 #[derive(Default)]
-pub struct GlyphCache {
+struct GlyphCache {
     free_list: Vec<OutlinePath>,
     static_map: HashMap<GlyphKey, GlyphEntry>,
     variable_map: HashMap<VarKey, HashMap<GlyphKey, GlyphEntry>>,
@@ -764,7 +777,7 @@ impl GlyphCache {
         self.free_list.pop().unwrap_or_default()
     }
 
-    pub fn maintain(&mut self) {
+    fn maintain(&mut self) {
         // Maximum number of full renders where we'll retain an unused glyph
         const MAX_ENTRY_AGE: u32 = 64;
         // Maximum number of full renders before we force a prune
@@ -834,7 +847,7 @@ type VarKey = Vec<skrifa::instance::NormalizedCoord>;
 /// to redo it occasionally.
 const MAX_CACHED_HINT_INSTANCES: usize = 16;
 
-pub(crate) struct HintKey<'a> {
+struct HintKey<'a> {
     font_id: u64,
     font_index: u32,
     outlines: &'a OutlineGlyphCollection<'a>,
@@ -849,7 +862,7 @@ impl HintKey<'_> {
 }
 
 #[derive(Default)]
-pub struct HintCache {
+struct HintCache {
     // Split caches for glyf/cff because the instance type can reuse
     // internal memory when reconfigured for the same format.
     glyf_entries: Vec<HintEntry>,
