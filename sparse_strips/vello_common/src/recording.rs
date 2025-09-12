@@ -339,12 +339,12 @@ pub struct Recorder<'a> {
 
 impl<'a> Recorder<'a> {
     /// Create a new recorder for the given recording.
-    pub fn new(recording: &'a mut Recording,
-    #[cfg(feature = "text")]
-    glyph_caches: crate::glyph::GlyphCaches,
-) -> Self {
-        Self { 
-            recording, 
+    pub fn new(
+        recording: &'a mut Recording,
+        #[cfg(feature = "text")] glyph_caches: crate::glyph::GlyphCaches,
+    ) -> Self {
+        Self {
+            recording,
             #[cfg(feature = "text")]
             glyph_caches: Some(glyph_caches),
         }

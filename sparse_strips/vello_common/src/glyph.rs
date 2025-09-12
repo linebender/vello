@@ -189,7 +189,11 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         let initial_transform =
             self.run.transform * self.run.glyph_transform.unwrap_or(Affine::IDENTITY);
 
-        let GlyphCaches {mut  hinting_cache, mut glyph_cache } = self.renderer.take_glyph_caches();
+        let GlyphCaches {
+            mut hinting_cache,
+            mut glyph_cache,
+        } = self.renderer.take_glyph_caches();
+        let mut glyph_cache_session = GlyphCacheSession::new(&mut glyph_cache, VarLookupKey(&[]));
         let PreparedGlyphRun {
             transform: initial_transform,
             size,
@@ -246,7 +250,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                         glyph,
                         self.run.font.data.id(),
                         self.run.font.index,
-                        &mut glyph_cache,
+                        &mut glyph_cache_session,
                         size,
                         initial_transform,
                         self.run.transform,
@@ -275,7 +279,7 @@ fn prepare_outline_glyph<'a>(
     glyph: Glyph,
     font_id: u64,
     font_index: u32,
-    glyph_cache: &'a mut GlyphCache,
+    glyph_cache: &'a mut GlyphCacheSession<'_>,
     size: Size,
     // The transform of the run + the per-glyph transform.
     initial_transform: Affine,
@@ -293,7 +297,13 @@ fn prepare_outline_glyph<'a>(
             size_bits: size.ppem().unwrap().to_bits(),
             hint: hinting_instance.is_some(),
         };
-        glyph_cache.get(&key, size, VarLookupKey(normalized_coords), outline_glyph, hinting_instance)
+        glyph_cache.get(
+            &key,
+            size,
+            VarLookupKey(normalized_coords),
+            outline_glyph,
+            hinting_instance,
+        )
     };
 
     // Calculate the global glyph translation based on the glyph's local position within
@@ -682,11 +692,10 @@ struct GlyphEntry {
 }
 
 impl GlyphEntry {
-    const fn new(path: OutlinePath) -> Self {
-        Self { path, serial: 0 }
+    const fn new(path: OutlinePath, serial: u32) -> Self {
+        Self { path, serial }
     }
 }
-
 
 #[derive(Default)]
 struct GlyphCache {
@@ -704,7 +713,31 @@ impl Debug for GlyphCache {
     }
 }
 
-impl GlyphCache {
+struct GlyphCacheSession<'a> {
+    map: &'a mut HashMap<GlyphKey, GlyphEntry>,
+    free_list: &'a mut Vec<OutlinePath>,
+    serial: u32,
+    cached_count: &'a mut usize,
+}
+
+impl<'a> GlyphCacheSession<'a> {
+    fn new(glyph_cache: &'a mut GlyphCache, var_key: VarLookupKey<'_>) -> Self {
+        let map = if var_key.0.is_empty() {
+            &mut glyph_cache.static_map
+        } else {
+            glyph_cache
+                .variable_map
+                .entry(var_key.0.into())
+                .or_default()
+        };
+        Self {
+            map,
+            free_list: &mut glyph_cache.free_list,
+            serial: glyph_cache.serial,
+            cached_count: &mut glyph_cache.cached_count,
+        }
+    }
+
     fn get(
         &mut self,
         key: &GlyphKey,
@@ -713,32 +746,14 @@ impl GlyphCache {
         outline_glyph: &skrifa::outline::OutlineGlyph<'_>,
         hinting_instance: Option<&HintingInstance>,
     ) -> &OutlinePath {
-        if var_key.0.is_empty() {
-            if self.static_map.contains_key(key) {
-                let entry = self.static_map.get_mut(key).unwrap();
+        if self.map.contains_key(key) {
+            return self.map.get_mut(key).map(|entry| {
                 entry.serial = self.serial;
-                return &entry.path;
-            }
-        } else {
-            // This is still ugly in rust. Choices are:
-            // 1. multiple lookups in the hashmap (implemented here)
-            // 2. always allocate and copy the key
-            // 3. use unsafe
-            // Pick 1 bad option :(
-            if self.variable_map.contains_key(&var_key)
-                && self.variable_map.get(&var_key).unwrap().contains_key(key)
-            {
-                let entry = self
-                    .variable_map
-                    .get_mut(&var_key)
-                    .and_then(|m| m.get_mut(key))
-                    .unwrap();
-                entry.serial = self.serial;
-                return &entry.path;
-            }
+                &entry.path
+            }).unwrap();
         }
 
-        let mut path = self.take_path();
+        let mut path = self.free_list.pop().unwrap_or_default();
 
         let draw_settings = if let Some(hinting_instance) = hinting_instance {
             DrawSettings::hinted(hinting_instance, false)
@@ -749,34 +764,13 @@ impl GlyphCache {
         path.0.truncate(0);
         outline_glyph.draw(draw_settings, &mut path).unwrap();
 
-        self.insert(*key, var_key.into(), path.clone());
-
-        if var_key.0.is_empty() {
-            &self.static_map.get(key).unwrap().path
-        } else {
-            self.variable_map
-                .get(&var_key)
-                .and_then(|m| m.get(key).map(|e| &e.path))
-                .unwrap()
-        }
+        self.map.insert(*key, GlyphEntry::new(path, self.serial));
+        *self.cached_count += 1;
+        &self.map.get(key).unwrap().path
     }
+}
 
-    fn insert(&mut self, key: GlyphKey, var_key: VarKey, entry: OutlinePath) {
-        if var_key.is_empty() {
-            self.static_map.insert(key, GlyphEntry::new(entry));
-        } else {
-            self.variable_map
-                .entry(var_key)
-                .or_default()
-                .insert(key, GlyphEntry::new(entry));
-        }
-        self.cached_count += 1;
-    }
-
-    fn take_path(&mut self) -> OutlinePath {
-        self.free_list.pop().unwrap_or_default()
-    }
-
+impl GlyphCache {
     fn maintain(&mut self) {
         // Maximum number of full renders where we'll retain an unused glyph
         const MAX_ENTRY_AGE: u32 = 64;
