@@ -111,3 +111,26 @@ fn fast_ldexp(d: f32, i: i32) -> f32 {
     u = u.wrapping_add((i as u32).wrapping_shl(23));
     f32::from_bits(u)
 }
+
+// #[cfg(test)]
+// mod tests {
+//     // This test can be run to verify that the method implementation is correct.
+//     // You need to add the `float-cmp` crate to the dependencies before running it.
+//     // We don't include it by default because it takes so long to run.
+//     
+//     use float_cmp::ApproxEqUlps;
+//     use super::*;
+//     
+//     #[test]
+//     fn accuracy() {
+//         const ULPS: i32 = 10;
+//     
+//         for i in 0..u32::MAX {
+//             let num = f32::from_bits(i);
+//     
+//             if num.is_finite() && num >= 0.0 {
+//                 assert!(num.powf(1.0 / 6.0).approx_eq_ulps(&sixth_root(num), ULPS));
+//             }
+//         }
+//     }
+// }
