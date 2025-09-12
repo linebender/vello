@@ -42,7 +42,7 @@ use crate::{
 use bytemuck::{Pod, Zeroable};
 use vello_common::{
     coarse::WideTile,
-    encode::{EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
+    encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
     kurbo::Affine,
     paint::ImageSource,
     pixmap::Pixmap,
@@ -264,6 +264,8 @@ impl Renderer {
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
 
+        self.gradient_cache.maintain();
+
         let mut current_idx = 0;
         for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
             self.paint_idxs[encoded_paint_idx] = current_idx;
@@ -329,7 +331,7 @@ impl Renderer {
 
     fn encode_gradient_paint(
         &self,
-        gradient: &vello_common::encode::EncodedGradient,
+        gradient: &EncodedGradient,
         gradient_width: u32,
         gradient_start: u32,
     ) -> GpuEncodedPaint {
