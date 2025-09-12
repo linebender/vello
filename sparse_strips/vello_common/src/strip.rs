@@ -32,7 +32,6 @@ impl Strip {
 }
 
 /// Render the tiles stored in `tiles` into the strip and alpha buffer.
-/// The strip buffer will be cleared in the beginning.
 pub fn render(
     level: Level,
     tiles: &Tiles,
@@ -72,8 +71,6 @@ fn render_impl<S: Simd>(
     aliasing_threshold: Option<u8>,
     lines: &[Line],
 ) {
-    strip_buf.clear();
-
     if tiles.is_empty() {
         return;
     }
