@@ -492,15 +492,65 @@ fn flatten_cubic_simd<S: Simd>(
     n + 1
 }
 
+#[inline(always)]
 fn estimate_num_quads(c: CubicBez, accuracy: f32) -> usize {
     let q_accuracy = (accuracy * TO_QUAD_TOL) as f64;
     let max_hypot2 = 432.0 * q_accuracy * q_accuracy;
     let p1x2 = c.p1.to_vec2() * 3.0 - c.p0.to_vec2();
     let p2x2 = c.p2.to_vec2() * 3.0 - c.p3.to_vec2();
     let err = (p2x2 - p1x2).hypot2();
-    let n_quads = ((err / max_hypot2).powf(1. / 6.0).ceil() as usize).max(1);
+    let err_div = err / max_hypot2;
 
-    n_quads.min(MAX_QUADS)
+    estimate(err_div)
 }
 
 const TO_QUAD_TOL: f32 = 0.1;
+
+#[inline(always)]
+fn estimate(err_div: f64) -> usize {
+    // The original version of this method was:
+    // let n_quads = (err_div.powf(1. / 6.0).ceil() as usize).max(1);
+    // n_quads.min(MAX_QUADS)
+    //
+    // Note how we always round up and clamp to the range [1, max_quads]. Since we don't
+    // care about the actual fractional value resulting from the powf call we can simply
+    // compute this using a precomputed lookup table evaluating 1^6, 2^6, 3^6, etc. and simply
+    // comparing if the value is less than or equal to each threshold.
+
+    const LUT: [f64; MAX_QUADS] = [
+        1.0, 64.0, 729.0, 4096.0, 15625.0, 46656.0, 117649.0, 262144.0, 531441.0, 1000000.0,
+        1771561.0, 2985984.0, 4826809.0, 7529536.0, 11390625.0, 16777216.0,
+    ];
+
+    #[expect(clippy::needless_range_loop, reason = "better clarity")]
+    for i in 0..MAX_QUADS {
+        if err_div <= LUT[i] {
+            return i + 1;
+        }
+    }
+
+    MAX_QUADS
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::flatten_simd::{MAX_QUADS, estimate};
+
+    fn old_estimate(err_div: f64) -> usize {
+        let n_quads = (err_div.powf(1. / 6.0).ceil() as usize).max(1);
+        n_quads.min(MAX_QUADS)
+    }
+
+    // Test is disabled by default since it takes 10-20 seconds to run, even in release mode.
+    #[test]
+    #[ignore]
+    fn accuracy() {
+        for i in 0..u32::MAX {
+            let num = f32::from_bits(i);
+
+            if num.is_finite() {
+                assert_eq!(old_estimate(num as f64), estimate(num as f64), "{num}");
+            }
+        }
+    }
+}
