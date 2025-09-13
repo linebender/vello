@@ -185,7 +185,7 @@ struct FlattenParams {
 /// This limit was chosen based on the pre-existing GitHub gist.
 /// This limit should not be hit in normal operation, but _might_ be hit for very large
 /// transforms.
-pub(crate) const MAX_QUADS: usize = 16;
+const MAX_QUADS: usize = 16;
 
 /// The context needed for flattening curves.
 #[derive(Default, Debug)]
