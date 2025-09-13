@@ -79,7 +79,6 @@ pub mod pico_svg;
 pub mod pixmap;
 pub mod recording;
 pub mod simd;
-mod sixth_root;
 pub mod strip;
 pub mod strip_generator;
 pub mod tile;
