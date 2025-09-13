@@ -82,7 +82,7 @@ impl Renderer {
     /// render passes.
     pub fn render(
         &mut self,
-        scene: &mut Scene,
+        scene: &Scene,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
@@ -107,10 +107,6 @@ impl Renderer {
             encoder,
             view,
         };
-
-        if let Some(glyph_caches) = scene.glyph_caches.as_mut() {
-            glyph_caches.maintain();
-        }
 
         self.scheduler.do_scene(&mut junk, scene)
     }

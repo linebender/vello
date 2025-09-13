@@ -341,6 +341,10 @@ impl Scene {
     pub fn height(&self) -> u16 {
         self.height
     }
+
+    pub fn flush(&mut self) {
+        self.glyph_caches.as_mut().unwrap().maintain();
+    }
 }
 
 impl GlyphRenderer for Scene {
@@ -395,7 +399,6 @@ impl Recordable for Scene {
         f(&mut recorder);
         self.glyph_caches = Some(recorder.take_glyph_caches());
     }
-
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
         let buffers = recording.take_cached_strips();

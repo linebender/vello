@@ -301,7 +301,9 @@ impl Renderer for HybridRenderer {
         self.scene.push_layer(clip, blend_mode, opacity, mask);
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self) {
+        self.scene.flush();
+    }
 
     fn push_clip_layer(&mut self, path: &BezPath) {
         self.scene.push_clip_layer(path);
