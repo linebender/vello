@@ -958,10 +958,11 @@ fn main(
     // main interpretation loop
     while true {
         let tag = ptcl[cmd_ix];
-        if tag == CMD_END {
+        let cmd = tag & 0xFFu;
+        if cmd == CMD_END {
             break;
         }
-        switch tag {
+        switch cmd {
             case CMD_FILL: {
                 let fill = read_fill(cmd_ix);
 #ifdef msaa
@@ -987,18 +988,23 @@ fn main(
                 cmd_ix += 2u;
             }
             case CMD_BEGIN_CLIP: {
+                let is_non_isolated = (tag & NON_ISOLATED_BLENDING_FLAG) != 0;
+                var rgba_mul = vec4(0.0);
+                if is_non_isolated {
+                    rgba_mul = vec4(1.0);
+                } 
                 if clip_depth < BLEND_STACK_SPLIT {
                     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                         blend_stack[clip_depth][i] = pack4x8unorm(rgba[i]);
-                        rgba[i] = vec4(0.0);
-                    }
+                        rgba[i] *= rgba_mul;
+                    }                        
                 } else {
                     let blend_in_scratch = clip_depth - BLEND_STACK_SPLIT;
                     let local_tile_ix = local_id.x * PIXELS_PER_THREAD + local_id.y * TILE_WIDTH;
                     let local_blend_start = blend_offset + blend_in_scratch * TILE_WIDTH * TILE_HEIGHT + local_tile_ix;
                     for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                         blend_spill[local_blend_start + i] = pack4x8unorm(rgba[i]);
-                        rgba[i] = vec4(0.0);
+                        rgba[i] *= rgba_mul;
                     }
                 }
                 clip_depth += 1u;
