@@ -18,6 +18,8 @@ pub fn compute_erf7(x: f32) -> f32 {
 }
 
 // From <https://github.com/linebender/tiny-skia/blob/68b198a7210a6bbf752b43d6bc4db62445730313/path/src/scalar.rs#L12>
+// Note: If this value changes, also update NEARLY_ZERO_TOLERANCE in render_strips.wgsl
+// @see {@link https://github.com/linebender/vello/blob/58b80d660e2fc5aef3bd32b24af3f95e973aab95/sparse_strips/vello_sparse_shaders/shaders/render_strips.wgsl#L63}
 const SCALAR_NEARLY_ZERO: f32 = 1.0 / (1 << 12) as f32;
 
 /// A number of useful methods for f32 numbers.

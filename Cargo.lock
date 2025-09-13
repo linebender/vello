@@ -3781,6 +3781,7 @@ version = "0.5.0"
 dependencies = [
  "bytemuck",
  "guillotiere",
+ "hashbrown 0.15.3",
  "js-sys",
  "log",
  "png",
@@ -3800,6 +3801,7 @@ dependencies = [
  "bytemuck",
  "image",
  "parley",
+ "smallvec",
  "vello_common",
  "vello_hybrid",
 ]

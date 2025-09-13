@@ -298,7 +298,11 @@ mod linear {
         ctx.fill_path(&path);
     }
 
-    #[vello_test]
+    // vello_hybrid:
+    // - diff_pixels = 2: It’s likely that the issue comes from accumulated rounding errors.
+    // When the gradient’s t-value falls right on the edge of the texture ramp, it may yield
+    // a different result than in vello_cpu.
+    #[vello_test(diff_pixels = 2)]
     fn gradient_linear_with_y_repeat(ctx: &mut impl Renderer) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
@@ -887,7 +891,8 @@ mod sweep {
         basic(ctx, stops_green_blue(), Point::new(30.0, 30.0));
     }
 
-    #[vello_test]
+    // A single pixel deviates from the reference image by at most 2 units per color channel.
+    #[vello_test(diff_pixels = 1)]
     fn gradient_sweep_complex_shape(ctx: &mut impl Renderer) {
         let path = crossed_line_star();
 
