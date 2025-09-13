@@ -522,6 +522,7 @@ fn estimate(err_div: f64) -> usize {
         1771561.0, 2985984.0, 4826809.0, 7529536.0, 11390625.0, 16777216.0,
     ];
 
+    #[expect(clippy::needless_range_loop, reason = "better clarity")]
     for i in 0..MAX_QUADS {
         if err_div <= LUT[i] {
             return i + 1;
