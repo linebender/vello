@@ -342,6 +342,7 @@ impl Scene {
         self.height
     }
 
+    /// Flush any pending operations. Must be called before rasterizing.
     pub fn flush(&mut self) {
         self.glyph_caches.as_mut().unwrap().maintain();
     }

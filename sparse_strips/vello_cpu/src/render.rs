@@ -418,11 +418,7 @@ impl RenderContext {
         self.reset_paint_transform();
     }
 
-    /// Flush any pending operations.
-    ///
-    /// This is a no-op when using the single-threaded render mode, and can be ignored.
-    /// For multi-threaded rendering, you _have_ to call this before rasterizing, otherwise
-    /// the program will panic.
+    /// Flush any pending operations. Must be called before rasterizing.
     pub fn flush(&mut self) {
         self.dispatcher.flush();
         #[cfg(feature = "text")]
