@@ -294,7 +294,7 @@ fn prepare_outline_glyph<'a>(
     hinting_instance: Option<&HintingInstance>,
     normalized_coords: &[skrifa::instance::NormalizedCoord],
 ) -> (GlyphType<'a>, Affine) {
-    let path = glyph_cache.get(
+    let path = glyph_cache.get_or_insert(
         glyph.id,
         font_id,
         font_index,
@@ -777,10 +777,16 @@ impl<'a> GlyphCacheSession<'a> {
         let map = if var_key.0.is_empty() {
             &mut glyph_cache.static_map
         } else {
-            glyph_cache
-                .variable_map
-                .entry(var_key.0.into())
-                .or_default()
+            // This is still ugly in rust. Choices are:
+            // 1. multiple lookups in the hashmap (implemented here)
+            // 2. always allocate and copy the key
+            // 3. use unsafe
+            // Pick 1 bad option :(
+            if glyph_cache.variable_map.contains_key(&var_key) {
+                glyph_cache.variable_map.get_mut(&var_key).unwrap()
+            } else {
+                glyph_cache.variable_map.entry(var_key.into()).or_default()
+            }
         };
         Self {
             map,
@@ -790,7 +796,7 @@ impl<'a> GlyphCacheSession<'a> {
         }
     }
 
-    fn get(
+    fn get_or_insert(
         &mut self,
         glyph_id: u32,
         font_id: u64,
@@ -830,12 +836,19 @@ impl<'a> GlyphCacheSession<'a> {
         path.0.truncate(0);
         outline_glyph.draw(draw_settings, &mut path).unwrap();
 
-        self.map.insert(key, GlyphEntry::new(path, self.serial));
+        let entry = self
+            .map
+            .entry(key)
+            .or_insert(GlyphEntry::new(path, self.serial));
         *self.cached_count += 1;
-        &self.map.get(&key).unwrap().path
+        &entry.path
     }
 }
 
+/// Key for variable font caches.
+type VarKey = Vec<skrifa::instance::NormalizedCoord>;
+
+/// Lookup key for variable font caches.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 struct VarLookupKey<'a>(&'a [skrifa::instance::NormalizedCoord]);
 
@@ -850,8 +863,6 @@ impl Into<VarKey> for VarLookupKey<'_> {
         self.0.to_vec()
     }
 }
-
-type VarKey = Vec<skrifa::instance::NormalizedCoord>;
 
 /// We keep this small to enable a simple LRU cache with a linear
 /// search. Regenerating hinting data is low to medium cost so it's fine
