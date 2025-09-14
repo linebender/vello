@@ -78,7 +78,8 @@ pub fn glyph(c: &mut Criterion) {
         b.iter_custom(|iters| {
             let mut total_time = Duration::from_nanos(0);
             for _ in 0..iters {
-                // Prepopulate cache with many glyphs.
+                // Prepopulate cache with enough glyphs to overflow cache bounds.
+                // Don't include prepopulate time in the benchmark.
                 for layout in layouts.iter() {
                     render_layout(&mut renderer, layout);
                 }
