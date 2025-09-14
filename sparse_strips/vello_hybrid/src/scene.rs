@@ -342,7 +342,10 @@ impl Scene {
         self.height
     }
 
-    /// Flush any pending operations. Must be called before rasterizing.
+    /// Flush any pending work.
+    ///
+    /// Although this can be called at any time after issuing all mutations to the scene,
+    /// it's recommended to be called before rasterizing.
     pub fn flush(&mut self) {
         self.glyph_caches.as_mut().unwrap().maintain();
     }
