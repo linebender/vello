@@ -670,6 +670,12 @@ impl GlyphCaches {
         Default::default()
     }
 
+    /// Clears the glyph caches.
+    pub fn clear(&mut self) {
+        self.outline_cache.clear();
+        self.hinting_cache.clear();
+    }
+
     /// Maintains the glyph caches by evicting unused cache entries.
     ///
     /// Should be called once per scene rendering.
@@ -762,6 +768,15 @@ impl OutlineCache {
             });
             !map.is_empty()
         });
+    }
+
+    fn clear(&mut self) {
+        self.free_list.clear();
+        self.static_map.clear();
+        self.variable_map.clear();
+        self.cached_count = 0;
+        self.serial = 0;
+        self.last_prune_serial = 0;
     }
 }
 
@@ -920,6 +935,12 @@ impl HintCache {
                 .ok()?;
         }
         Some(&entry.instance)
+    }
+
+    fn clear(&mut self) {
+        self.glyf_entries.clear();
+        self.cff_entries.clear();
+        self.serial = 0;
     }
 }
 

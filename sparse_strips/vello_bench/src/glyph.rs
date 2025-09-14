@@ -1,6 +1,8 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use std::time::{Duration, Instant};
+
 use criterion::{Criterion, black_box};
 use parley::{
     Alignment, AlignmentOptions, Font, FontContext, FontFamily, GlyphRun, Layout, LayoutContext,
@@ -28,26 +30,64 @@ pub fn glyph(c: &mut Criterion) {
         glyph_caches: Default::default(),
     };
 
-    const LATIN: &str = "The quick brown fox jumps over the lazy dog 0123456789";
+    const TEXT: &str = "The quick brown fox jumps over the lazy dog 0123456789";
 
-    let mut layout_cx = LayoutContext::new();
-    let mut font_cx = FontContext::new();
-    let mut builder = layout_cx.ranged_builder(&mut font_cx, LATIN, 1.0, true);
-    builder.push_default(FontFamily::parse("Roboto").unwrap());
-    let mut layout: Layout<Brush> = builder.build(LATIN);
-    let max_advance = Some(WIDTH as f32);
-    layout.break_all_lines(max_advance);
-    layout.align(max_advance, Alignment::Start, AlignmentOptions::default());
+    let layout_for = |text: &str, scale: f32| {
+        let mut layout_cx = LayoutContext::new();
+        let mut font_cx = FontContext::new();
+        let mut builder = layout_cx.ranged_builder(&mut font_cx, text, scale, true);
+        builder.push_default(FontFamily::parse("Roboto").unwrap());
+        let mut layout: Layout<Brush> = builder.build(text);
+        let max_advance = Some(WIDTH as f32);
+        layout.break_all_lines(max_advance);
+        layout.align(max_advance, Alignment::Start, AlignmentOptions::default());
+        layout
+    };
 
-    g.bench_function("latin", |b| {
+    g.bench_function("cached", |b| {
+        let layout = layout_for(TEXT, 1.0);
+        render_layout(&mut renderer, &layout);
+
         b.iter(|| {
-            for line in layout.lines() {
-                for item in line.items() {
-                    if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
-                        render_glyph_run(&mut renderer, &glyph_run);
-                    }
-                }
+            render_layout(&mut renderer, &layout);
+        })
+    });
+
+    g.bench_function("uncached", |b| {
+        let layout = layout_for(TEXT, 1.0);
+
+        b.iter_custom(|iters| {
+            let mut total_time = Duration::from_nanos(0);
+            for _ in 0..iters {
+                // Don't include `clear` time in the benchmark.
+                renderer.glyph_caches.as_mut().unwrap().clear();
+
+                let start = Instant::now();
+                render_layout(&mut renderer, &layout);
+                total_time += start.elapsed();
             }
+            total_time
+        })
+    });
+
+    g.bench_function("maintain", |b| {
+        let layouts = (0..10)
+            .map(|i| layout_for(TEXT, 1.0 + i as f32 * 0.1))
+            .collect::<Vec<_>>();
+
+        b.iter_custom(|iters| {
+            let mut total_time = Duration::from_nanos(0);
+            for _ in 0..iters {
+                // Prepopulate cache with many glyphs.
+                for layout in layouts.iter() {
+                    render_layout(&mut renderer, layout);
+                }
+
+                let start = Instant::now();
+                renderer.glyph_caches.as_mut().unwrap().maintain();
+                total_time += start.elapsed();
+            }
+            total_time
         })
     });
 }
@@ -96,6 +136,16 @@ impl GlyphRenderer for GlyphBenchRenderer {
     }
     fn restore_glyph_caches(&mut self, cache: GlyphCaches) {
         self.glyph_caches = Some(cache);
+    }
+}
+
+fn render_layout(renderer: &mut GlyphBenchRenderer, layout: &Layout<Brush>) {
+    for line in layout.lines() {
+        for item in line.items() {
+            if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                render_glyph_run(renderer, &glyph_run);
+            }
+        }
     }
 }
 
