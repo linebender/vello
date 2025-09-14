@@ -668,14 +668,12 @@ impl GlyphCaches {
     }
 
     /// Maintains the glyph caches by evicting unused cache entries.
-    /// 
+    ///
     /// Should be called once per scene rendering.
     pub fn maintain(&mut self) {
         self.glyph_cache.maintain();
     }
 }
-
-// Dependencies on glyph outline:
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
 struct GlyphKey {
@@ -722,7 +720,7 @@ impl GlyphCache {
         // Maximum number of full renders before we force a prune
         const PRUNE_FREQUENCY: u32 = 64;
         // Always prune if the cached count is greater than this value
-        const CACHED_COUNT_THRESHOLD: usize = 512;
+        const CACHED_COUNT_THRESHOLD: usize = 256;
         // Number of encoding buffers we'll keep on the free list
         const MAX_FREE_LIST_SIZE: usize = 128;
 
@@ -763,7 +761,6 @@ impl GlyphCache {
         });
     }
 }
-
 
 struct GlyphCacheSession<'a> {
     map: &'a mut HashMap<GlyphKey, GlyphEntry>,
@@ -809,10 +806,14 @@ impl<'a> GlyphCacheSession<'a> {
         };
 
         if self.map.contains_key(&key) {
-            return self.map.get_mut(&key).map(|entry| {
-                entry.serial = self.serial;
-                &entry.path
-            }).unwrap();
+            return self
+                .map
+                .get_mut(&key)
+                .map(|entry| {
+                    entry.serial = self.serial;
+                    &entry.path
+                })
+                .unwrap();
         }
 
         let mut path = self.free_list.pop().unwrap_or_default();
