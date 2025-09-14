@@ -8,7 +8,7 @@
 use crate::flatten::TOL_2;
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
-use crate::kurbo::{CubicBez, ParamCurve, PathEl, Point, QuadBez};
+use crate::kurbo::{CubicBez, Line, ParamCurve, PathEl, Point, QuadBez};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
@@ -55,6 +55,24 @@ pub(crate) fn flatten<S: Simd>(
     let mut start_pt = Point::ZERO;
     let mut last_pt = Point::ZERO;
 
+    fn dist2(line: crate::kurbo::Line, point: crate::kurbo::Point) -> f64 {
+        let d = line.p1 - line.p0;
+        let v = point - line.p0;
+
+        // Calculate projection parameter `t` of the point onto s(t), with s(t) the line segment
+        // such that s(t) = (1-t) * p0 + t * p1.
+        //
+        // Note this will be inf when the segment has 0 length; see the clamping below.
+        let t = d.dot(v) / d.hypot2();
+
+        // Clamp the parameter to be on the line segment. This results in `t==0` if `t==inf` above.
+        let t = t.max(0.).min(1.);
+
+        // Calculate ||p - s(t)||^2.
+        let distance_sq = (v - t * d).hypot2();
+        distance_sq
+    }
+
     for el in path {
         match el {
             PathEl::MoveTo(p) => {
@@ -88,11 +106,10 @@ pub(crate) fn flatten<S: Simd>(
                 // The maximum occurs at t=1/2, hence
                 // max(dist(q(t), [p0, p1] <= 1/2 dist(p1, [p0, p1])).
                 //
-                // A cheap upper bound for dist(p1, [p0, p1]) is max(dist(p1, p0), dist(p1, p2)).
-                //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
-                if f64::max((p1 - p0).hypot2(), (p1 - p2).hypot2()) <= 4. * TOL_2 {
+                let line = Line::new(p0, p2);
+                if dist2(line, p1) <= 4. * TOL_2 {
                     callback.callback(LinePathEl::LineTo(p2));
                 } else {
                     let q = QuadBez::new(p0, p1, p2);
@@ -132,7 +149,8 @@ pub(crate) fn flatten<S: Simd>(
                 //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
-                if f64::max((p0 - p1).hypot2(), (p3 - p2).hypot2()) <= 16. / 9. * TOL_2 {
+                let line = Line::new(p0, p3);
+                if f64::max(dist2(line, p1), dist2(line, p2)) <= 16. / 9. * TOL_2 {
                     callback.callback(LinePathEl::LineTo(p3));
                 } else {
                     let c = CubicBez::new(p0, p1, p2, p3);
