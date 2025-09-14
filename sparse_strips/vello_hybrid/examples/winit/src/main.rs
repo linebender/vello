@@ -272,7 +272,6 @@ impl ApplicationHandler for App<'_> {
 
                 self.scene.set_transform(self.transform);
                 self.scenes[self.current_scene].render(&mut self.scene, self.transform);
-                self.scene.flush();
 
                 let device_handle = &self.context.devices[surface.dev_id];
                 let render_size = RenderSize {

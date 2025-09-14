@@ -330,6 +330,8 @@ impl Scene {
         self.paint = render_state.paint;
         self.stroke = render_state.stroke;
         self.blend_mode = render_state.blend_mode;
+
+        self.glyph_caches.as_mut().unwrap().maintain();
     }
 
     /// Get the width of the render context.
@@ -340,14 +342,6 @@ impl Scene {
     /// Get the height of the render context.
     pub fn height(&self) -> u16 {
         self.height
-    }
-
-    /// Flush any pending work.
-    ///
-    /// Although this can be called at any time after issuing all mutations to the scene,
-    /// it's recommended to be called before rasterizing.
-    pub fn flush(&mut self) {
-        self.glyph_caches.as_mut().unwrap().maintain();
     }
 }
 

@@ -155,7 +155,6 @@ impl AppState {
 
         // Render the current scene with transform
         self.scenes[self.current_scene].render(&mut self.scene, self.transform);
-        self.scene.flush();
 
         let render_size = vello_hybrid::RenderSize {
             width: self.width,
