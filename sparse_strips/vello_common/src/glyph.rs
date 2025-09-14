@@ -901,6 +901,9 @@ impl HintKey<'_> {
     }
 }
 
+/// LRU cache for hinting instances.
+///
+/// Heavily inspired by `vello_encoding::glyph_cache`.
 #[derive(Default)]
 struct HintCache {
     // Split caches for glyf/cff because the instance type can reuse
