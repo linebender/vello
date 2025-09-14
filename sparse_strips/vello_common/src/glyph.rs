@@ -110,7 +110,14 @@ pub trait GlyphRenderer {
     /// Stroke glyphs with the current paint and stroke settings.
     fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>);
 
+    /// Takes the glyph caches from the renderer for use in a glyph run.
+    ///
+    /// NOTE: The caller must restore the caches after the glyph run is done.
     fn take_glyph_caches(&mut self) -> GlyphCaches;
+
+    /// Restores the glyph caches after a glyph run.
+    ///
+    /// The caches must have been previously taken with `take_glyph_caches`.
     fn restore_glyph_caches(&mut self, caches: GlyphCaches);
 }
 
