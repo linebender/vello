@@ -13,6 +13,7 @@ pub use crate::flatten_simd::FlattenCtx;
 
 /// The flattening tolerance.
 const TOL: f64 = 0.25;
+pub(crate) const TOL_2: f64 = TOL * TOL;
 
 /// A point.
 #[derive(Clone, Copy, Debug, PartialEq)]
