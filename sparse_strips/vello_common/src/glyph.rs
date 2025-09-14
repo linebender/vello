@@ -193,20 +193,18 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         let color_glyphs = font_ref.color_glyphs();
         let bitmaps = font_ref.bitmap_strikes();
 
-        let initial_transform =
-            self.run.transform * self.run.glyph_transform.unwrap_or(Affine::IDENTITY);
-
         let GlyphCaches {
             mut hinting_cache,
             mut glyph_cache,
         } = self.renderer.take_glyph_caches();
-        let mut glyph_cache_session = GlyphCacheSession::new(&mut glyph_cache, VarLookupKey(&[]));
+        let mut glyph_cache_session =
+            GlyphCacheSession::new(&mut glyph_cache, VarLookupKey(&self.run.normalized_coords));
         let PreparedGlyphRun {
             transform: initial_transform,
             size,
             normalized_coords,
             hinting_instance,
-        } = prepare_glyph_run(&self.run, initial_transform, &outlines, &mut hinting_cache);
+        } = prepare_glyph_run(&self.run, &outlines, &mut hinting_cache);
 
         let render_glyph = match style {
             Style::Fill => GlyphRenderer::fill_glyph,
@@ -296,17 +294,15 @@ fn prepare_outline_glyph<'a>(
     hinting_instance: Option<&HintingInstance>,
     normalized_coords: &[skrifa::instance::NormalizedCoord],
 ) -> (GlyphType<'a>, Affine) {
-    let path: &OutlinePath = {
-        glyph_cache.get(
-            glyph.id,
-            font_id,
-            font_index,
-            size,
-            VarLookupKey(normalized_coords),
-            outline_glyph,
-            hinting_instance,
-        )
-    };
+    let path = glyph_cache.get(
+        glyph.id,
+        font_id,
+        font_index,
+        size,
+        VarLookupKey(normalized_coords),
+        outline_glyph,
+        hinting_instance,
+    );
 
     // Calculate the global glyph translation based on the glyph's local position within
     // the run and the run's global transform.
@@ -538,13 +534,12 @@ struct PreparedGlyphRun<'a> {
 /// for proper font hinting when enabled and possible.
 fn prepare_glyph_run<'a>(
     run: &GlyphRun<'a>,
-    transform: Affine,
     outlines: &OutlineGlyphCollection<'_>,
     hint_cache: &'a mut HintCache,
 ) -> PreparedGlyphRun<'a> {
     if !run.hint {
         return PreparedGlyphRun {
-            transform,
+            transform: run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY),
             size: Size::new(run.font_size),
             normalized_coords: run.normalized_coords,
             hinting_instance: None,
@@ -561,7 +556,8 @@ fn prepare_glyph_run<'a>(
     //
     // As the hinting is vertical-only, we can handle horizontal skew, but not vertical skew or
     // rotations.
-    let [t_a, t_b, t_c, t_d, t_e, t_f] = transform.as_coeffs();
+    let total_transform = run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY);
+    let [t_a, t_b, t_c, t_d, t_e, t_f] = total_transform.as_coeffs();
 
     let uniform_scale = t_a == t_d;
     let vertically_uniform = t_b == 0.;
@@ -586,7 +582,7 @@ fn prepare_glyph_run<'a>(
         }
     } else {
         PreparedGlyphRun {
-            transform,
+            transform: total_transform,
             size: Size::new(run.font_size),
             normalized_coords: run.normalized_coords,
             hinting_instance: None,
