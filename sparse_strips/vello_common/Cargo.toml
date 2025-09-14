@@ -20,7 +20,7 @@ targets = []
 bytemuck = { workspace = true, features = [] }
 peniko = { workspace = true, features = ["bytemuck"] }
 fearless_simd = { workspace = true }
-hashbrown = { version = "0.16", optional = true }
+hashbrown = { version = "0.15", optional = true }
 png = { workspace = true, optional = true }
 roxmltree = { version = "0.20.0", optional = true }
 skrifa = { workspace = true, optional = true }
