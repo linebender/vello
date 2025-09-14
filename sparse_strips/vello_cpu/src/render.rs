@@ -659,7 +659,9 @@ impl Recordable for RenderContext {
         );
         f(&mut recorder);
         #[cfg(feature = "text")]
-        self.glyph_caches = Some(recorder.take_glyph_caches());
+        {
+            self.glyph_caches = Some(recorder.take_glyph_caches());
+        }
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
