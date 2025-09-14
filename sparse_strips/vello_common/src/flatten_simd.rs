@@ -49,10 +49,25 @@ pub(crate) fn flatten<S: Simd>(
             }
             PathEl::QuadTo(p1, p2) => {
                 if let Some(p0) = last_pt {
-                    // If all control points are within the tolerance distance from the
-                    // start and end points, we can just draw a straight line and it's guaranteed
-                    // to be within the given tolerance.
-                    if (p0 - p1).hypot2() <= TOL_2 && (p2 - p1).hypot2() <= TOL_2 {
+                    // An upper bound on the shortest distance of any point on the quadratic Bezier
+                    // curve to the line segment [p0, p2] is 1/2 of the maximum of the
+                    // endpoint-to-control-point distances.
+                    //
+                    // The derivation is similar to that for the cubic Bezier (see below). In
+                    // short:
+                    //
+                    // q(t) = B0(t) p0 + B1(t) p1 + B2(t) p2
+                    // dist(q(t), [p0, p1]) <= B1(t) dist(p1, [p0, p1])
+                    //                       = 2 (1-t)t dist(p1, [p0, p1]).
+                    //
+                    // The maximum occurs at t=1/2, hence
+                    // max(dist(q(t), [p0, p1] <= 1/2 dist(p1, [p0, p1])).
+                    //
+                    // A cheap upper bound for dist(p1, [p0, p1]) is max(dist(p1, p0), dist(p1, p2)).
+                    //
+                    // The following takes the square to elide the square root of the Euclidean
+                    // distance.
+                    if f64::max((p1 - p0).hypot2(), (p1 - p2).hypot2()) <= 4. * TOL_2 {
                         callback.callback(PathEl::LineTo(p2));
                     } else {
                         let q = QuadBez::new(p0, p1, p2);
@@ -72,14 +87,27 @@ pub(crate) fn flatten<S: Simd>(
             }
             PathEl::CurveTo(p1, p2, p3) => {
                 if let Some(p0) = last_pt {
-                    // If all control points are within the tolerance distance from the
-                    // start and end points, we can just draw a straight line and it's guaranteed
-                    // to be within the given tolerance.
-                    if (p0 - p1).hypot2() <= TOL_2
-                        && (p0 - p2).hypot2() <= TOL_2
-                        && (p3 - p1).hypot2() <= TOL_2
-                        && (p3 - p2).hypot2() <= TOL_2
-                    {
+                    // An upper bound on the shortest distance of any point on the cubic Bezier
+                    // curve to the line segment [p0, p3] is 3/4 of the maximum of the
+                    // endpoint-to-control-point distances.
+                    //
+                    // With Bernstein weights Bi(t), we have
+                    // c(t) = B0(t) p0 + B1(t) p1 + B2(t) p2 + B3(t) p3
+                    // with t from 0 to 1 (inclusive).
+                    //
+                    // Through convexivity of the Euclidean distance function and the line segment,
+                    // we have
+                    // dist(c(t), [p0, p3]) <= B1(t) dist(p1, [p0, p3]) + B2(t) dist(p2, [p0, p3])
+                    //                      <= B1(t) ||p1-p0|| + B2(t) ||p2-p3||
+                    //                      <= (B1(t) + B2(t)) max(||p1-p0||, ||p2-p3|||)
+                    //                       = 3 ((1-t)t^2 + (1-t)^2t) max(||p1-p0||, ||p2-p3||).
+                    //
+                    // The inner polynomial has its maximum of 1/4 at t=1/2, hence
+                    // max(dist(c(t), [p0, p3])) <= 3/4 max(||p1-p0||, ||p2-p3||).
+                    //
+                    // The following takes the square to elide the square root of the Euclidean
+                    // distance.
+                    if f64::max((p0 - p1).hypot2(), (p3 - p2).hypot2()) <= 16. / 9. * TOL_2 {
                         callback.callback(PathEl::LineTo(p3));
                     } else {
                         let c = CubicBez::new(p0, p1, p2, p3);
