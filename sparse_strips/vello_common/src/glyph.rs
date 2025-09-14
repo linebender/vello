@@ -195,10 +195,12 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
         let GlyphCaches {
             mut hinting_cache,
-            mut glyph_cache,
+            mut outline_cache,
         } = self.renderer.take_glyph_caches();
-        let mut glyph_cache_session =
-            GlyphCacheSession::new(&mut glyph_cache, VarLookupKey(&self.run.normalized_coords));
+        let mut outline_cache_session = OutlineCacheSession::new(
+            &mut outline_cache,
+            VarLookupKey(&self.run.normalized_coords),
+        );
         let PreparedGlyphRun {
             transform: initial_transform,
             size,
@@ -255,7 +257,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                         glyph,
                         self.run.font.data.id(),
                         self.run.font.index,
-                        &mut glyph_cache_session,
+                        &mut outline_cache_session,
                         size,
                         initial_transform,
                         self.run.transform,
@@ -274,7 +276,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         }
 
         self.renderer.restore_glyph_caches(GlyphCaches {
-            glyph_cache,
+            outline_cache,
             hinting_cache,
         });
     }
@@ -284,7 +286,7 @@ fn prepare_outline_glyph<'a>(
     glyph: Glyph,
     font_id: u64,
     font_index: u32,
-    glyph_cache: &'a mut GlyphCacheSession<'_>,
+    outline_cache: &'a mut OutlineCacheSession<'_>,
     size: Size,
     // The transform of the run + the per-glyph transform.
     initial_transform: Affine,
@@ -294,7 +296,7 @@ fn prepare_outline_glyph<'a>(
     hinting_instance: Option<&HintingInstance>,
     normalized_coords: &[skrifa::instance::NormalizedCoord],
 ) -> (GlyphType<'a>, Affine) {
-    let path = glyph_cache.get_or_insert(
+    let path = outline_cache.get_or_insert(
         glyph.id,
         font_id,
         font_index,
@@ -660,7 +662,7 @@ mod tests {
 /// Caches used for glyph rendering.
 #[derive(Debug, Default)]
 pub struct GlyphCaches {
-    glyph_cache: GlyphCache,
+    outline_cache: OutlineCache,
     hinting_cache: HintCache,
 }
 
@@ -674,7 +676,7 @@ impl GlyphCaches {
     ///
     /// Should be called once per scene rendering.
     pub fn maintain(&mut self) {
-        self.glyph_cache.maintain();
+        self.outline_cache.maintain();
     }
 }
 
@@ -701,7 +703,7 @@ impl GlyphEntry {
 /// Caches glyph outlines for reuse.
 /// Heavily inspired by `vello_encoding::glyph_cache`.
 #[derive(Default)]
-struct GlyphCache {
+struct OutlineCache {
     free_list: Vec<OutlinePath>,
     static_map: HashMap<GlyphKey, GlyphEntry>,
     variable_map: HashMap<VarKey, HashMap<GlyphKey, GlyphEntry>>,
@@ -710,13 +712,13 @@ struct GlyphCache {
     last_prune_serial: u32,
 }
 
-impl Debug for GlyphCache {
+impl Debug for OutlineCache {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "GlyphCache")
     }
 }
 
-impl GlyphCache {
+impl OutlineCache {
     fn maintain(&mut self) {
         // Maximum number of full renders where we'll retain an unused glyph
         const MAX_ENTRY_AGE: u32 = 64;
@@ -765,34 +767,37 @@ impl GlyphCache {
     }
 }
 
-struct GlyphCacheSession<'a> {
+struct OutlineCacheSession<'a> {
     map: &'a mut HashMap<GlyphKey, GlyphEntry>,
     free_list: &'a mut Vec<OutlinePath>,
     serial: u32,
     cached_count: &'a mut usize,
 }
 
-impl<'a> GlyphCacheSession<'a> {
-    fn new(glyph_cache: &'a mut GlyphCache, var_key: VarLookupKey<'_>) -> Self {
+impl<'a> OutlineCacheSession<'a> {
+    fn new(outline_cache: &'a mut OutlineCache, var_key: VarLookupKey<'_>) -> Self {
         let map = if var_key.0.is_empty() {
-            &mut glyph_cache.static_map
+            &mut outline_cache.static_map
         } else {
             // This is still ugly in rust. Choices are:
             // 1. multiple lookups in the hashmap (implemented here)
             // 2. always allocate and copy the key
             // 3. use unsafe
             // Pick 1 bad option :(
-            if glyph_cache.variable_map.contains_key(&var_key) {
-                glyph_cache.variable_map.get_mut(&var_key).unwrap()
+            if outline_cache.variable_map.contains_key(&var_key) {
+                outline_cache.variable_map.get_mut(&var_key).unwrap()
             } else {
-                glyph_cache.variable_map.entry(var_key.into()).or_default()
+                outline_cache
+                    .variable_map
+                    .entry(var_key.into())
+                    .or_default()
             }
         };
         Self {
             map,
-            free_list: &mut glyph_cache.free_list,
-            serial: glyph_cache.serial,
-            cached_count: &mut glyph_cache.cached_count,
+            free_list: &mut outline_cache.free_list,
+            serial: outline_cache.serial,
+            cached_count: &mut outline_cache.cached_count,
         }
     }
 
