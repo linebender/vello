@@ -681,7 +681,7 @@ impl GlyphCaches {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
-struct GlyphKey {
+struct OutlineKey {
     font_id: u64,
     font_index: u32,
     glyph_id: u32,
@@ -689,12 +689,12 @@ struct GlyphKey {
     hint: bool,
 }
 
-struct GlyphEntry {
+struct OutlineEntry {
     path: OutlinePath,
     serial: u32,
 }
 
-impl GlyphEntry {
+impl OutlineEntry {
     const fn new(path: OutlinePath, serial: u32) -> Self {
         Self { path, serial }
     }
@@ -705,8 +705,8 @@ impl GlyphEntry {
 #[derive(Default)]
 struct OutlineCache {
     free_list: Vec<OutlinePath>,
-    static_map: HashMap<GlyphKey, GlyphEntry>,
-    variable_map: HashMap<VarKey, HashMap<GlyphKey, GlyphEntry>>,
+    static_map: HashMap<OutlineKey, OutlineEntry>,
+    variable_map: HashMap<VarKey, HashMap<OutlineKey, OutlineEntry>>,
     cached_count: usize,
     serial: u32,
     last_prune_serial: u32,
@@ -768,7 +768,7 @@ impl OutlineCache {
 }
 
 struct OutlineCacheSession<'a> {
-    map: &'a mut HashMap<GlyphKey, GlyphEntry>,
+    map: &'a mut HashMap<OutlineKey, OutlineEntry>,
     free_list: &'a mut Vec<OutlinePath>,
     serial: u32,
     cached_count: &'a mut usize,
@@ -811,7 +811,7 @@ impl<'a> OutlineCacheSession<'a> {
         outline_glyph: &skrifa::outline::OutlineGlyph<'_>,
         hinting_instance: Option<&HintingInstance>,
     ) -> &OutlinePath {
-        let key = GlyphKey {
+        let key = OutlineKey {
             glyph_id,
             font_id,
             font_index,
@@ -844,7 +844,7 @@ impl<'a> OutlineCacheSession<'a> {
         let entry = self
             .map
             .entry(key)
-            .or_insert(GlyphEntry::new(path, self.serial));
+            .or_insert(OutlineEntry::new(path, self.serial));
         *self.cached_count += 1;
         &entry.path
     }
