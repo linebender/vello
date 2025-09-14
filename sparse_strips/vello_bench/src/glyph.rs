@@ -50,7 +50,7 @@ pub fn glyph(c: &mut Criterion) {
 
         b.iter(|| {
             render_layout(&mut renderer, &layout);
-        })
+        });
     });
 
     g.bench_function("uncached", |b| {
@@ -67,7 +67,7 @@ pub fn glyph(c: &mut Criterion) {
                 total_time += start.elapsed();
             }
             total_time
-        })
+        });
     });
 
     g.bench_function("maintain", |b| {
@@ -89,7 +89,7 @@ pub fn glyph(c: &mut Criterion) {
                 total_time += start.elapsed();
             }
             total_time
-        })
+        });
     });
 }
 
