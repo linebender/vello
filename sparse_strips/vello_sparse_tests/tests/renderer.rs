@@ -51,7 +51,7 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn set_fill_rule(&mut self, fill_rule: Fill);
     fn set_transform(&mut self, transform: Affine);
     fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>);
-    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap);
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
@@ -161,7 +161,7 @@ impl Renderer for RenderContext {
         Self::set_aliasing_threshold(self, aliasing_threshold);
     }
 
-    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         Self::render_to_pixmap(self, pixmap);
     }
 
@@ -357,7 +357,7 @@ impl Renderer for HybridRenderer {
     // This method creates device resources every time it is called. This does not matter much for
     // testing, but should not be used as a basis for implementing something real. This would be a
     // very bad example for that.
-    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
+    fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
         // requested simultaneously). This is "fixed" by putting a mutex around this method,
@@ -391,7 +391,7 @@ impl Renderer for HybridRenderer {
         self.renderer
             .borrow_mut()
             .render(
-                &mut self.scene,
+                &self.scene,
                 &self.device,
                 &self.queue,
                 &mut encoder,

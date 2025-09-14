@@ -425,9 +425,8 @@ impl RenderContext {
     /// the program will panic.
     pub fn flush(&mut self) {
         self.dispatcher.flush();
-        if let Some(glyph_caches) = self.glyph_caches.as_mut() {
-            glyph_caches.maintain();
-        }
+        #[cfg(feature = "text")]
+        self.glyph_caches.as_mut().unwrap().maintain();
     }
 
     /// Render the current context into a buffer.
@@ -660,9 +659,7 @@ impl Recordable for RenderContext {
         );
         f(&mut recorder);
         #[cfg(feature = "text")]
-        {
-            self.glyph_caches = Some(recorder.take_glyph_caches());
-        }
+        self.glyph_caches = Some(recorder.take_glyph_caches());
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
