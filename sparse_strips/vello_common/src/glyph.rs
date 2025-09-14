@@ -197,10 +197,8 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
             mut hinting_cache,
             mut outline_cache,
         } = self.renderer.take_glyph_caches();
-        let mut outline_cache_session = OutlineCacheSession::new(
-            &mut outline_cache,
-            VarLookupKey(&self.run.normalized_coords),
-        );
+        let mut outline_cache_session =
+            OutlineCacheSession::new(&mut outline_cache, VarLookupKey(self.run.normalized_coords));
         let PreparedGlyphRun {
             transform: initial_transform,
             size,
@@ -863,9 +861,9 @@ impl Equivalent<VarKey> for VarLookupKey<'_> {
     }
 }
 
-impl Into<VarKey> for VarLookupKey<'_> {
-    fn into(self) -> VarKey {
-        self.0.to_vec()
+impl From<VarLookupKey<'_>> for VarKey {
+    fn from(key: VarLookupKey<'_>) -> Self {
+        key.0.to_vec()
     }
 }
 
