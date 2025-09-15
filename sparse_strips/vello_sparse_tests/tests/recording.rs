@@ -121,7 +121,7 @@ fn glyph_recording_outside_transform(ctx: &mut impl Renderer) {
 fn recording_without_identical_transform_crashes(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::translate((0., 1.)));
     let mut recording = Recording::new();
-    ctx.record(&mut recording, |ctx| {});
+    ctx.record(&mut recording, |_| {});
 
     ctx.prepare_recording(&mut recording);
 
