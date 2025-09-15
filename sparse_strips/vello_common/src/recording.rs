@@ -158,6 +158,11 @@ impl Recording {
         }
     }
 
+    /// Return the initial transform of the recording.
+    pub fn relative_transform(&self) -> Option<&Affine> {
+        self.relative_transform.as_ref()
+    }
+
     /// Set the transform.
     pub(crate) fn set_transform(&mut self, transform: Affine) {
         if self.relative_transform.is_none() {
@@ -171,7 +176,15 @@ impl Recording {
     /// can be relatively transformed.
     pub fn enforce_matching_transform(&self, transform: &Affine) {
         let relative_transform = self.relative_transform.unwrap();
-        assert!(relative_transform.eq(transform), "renderer must set_transform to match recording before executing recording")
+        let a_coeffs = relative_transform.as_coeffs();
+        let b_coeffs = transform.as_coeffs();
+        let tolerance = 1e-6;
+
+        for i in 0..6 {
+            if (a_coeffs[i] - b_coeffs[i]).abs() > tolerance {
+                panic!("renderer must set_transform to match recording before executing recording")
+            }
+        }
     }
 
     /// Get commands as a slice.

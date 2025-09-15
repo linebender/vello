@@ -148,11 +148,14 @@ fn try_reuse_recording(
     let start = std::time::Instant::now();
 
     // Case 1: Identical transforms - can reuse directly
-    if transforms_are_identical(recording.transform(), current_transform) {
-        scene.execute_recording(recording);
-        #[cfg(not(target_arch = "wasm32"))]
-        print_render_stats("Identical ", start.elapsed(), recording);
-        return RenderResult { is_reused: true };
+    if let Some(transform) = recording.relative_transform() {
+        if *transform == current_transform {
+            scene.set_transform(*transform);
+            scene.execute_recording(recording);
+            #[cfg(not(target_arch = "wasm32"))]
+            print_render_stats("Identical ", start.elapsed(), recording);
+            return RenderResult { is_reused: true };
+        }
     }
 
     // TODO: Implement "Case 2: Check if we can use with translation"
@@ -166,12 +169,12 @@ fn record_fresh(scene_obj: &mut TextScene, scene: &mut Scene, current_transform:
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
     let mut recording = Recording::new();
+    scene.set_transform(current_transform);
     scene.record(&mut recording, |recorder| {
-        render_text_record(scene_obj, recorder, current_transform);
+        render_text_record(scene_obj, recorder);
     });
     scene.prepare_recording(&mut recording);
     scene.execute_recording(&recording);
-    recording.set_transform(current_transform);
     #[cfg(not(target_arch = "wasm32"))]
     print_render_stats("Fresh     ", start.elapsed(), &recording);
 
@@ -188,20 +191,6 @@ fn print_render_stats(render_type: &str, elapsed: std::time::Duration, recording
         recording.strip_count(),
         recording.alpha_count()
     );
-}
-
-/// Check if two transforms are identical (within tolerance)
-fn transforms_are_identical(a: Affine, b: Affine) -> bool {
-    let a_coeffs = a.as_coeffs();
-    let b_coeffs = b.as_coeffs();
-    let tolerance = 1e-6;
-
-    for i in 0..6 {
-        if (a_coeffs[i] - b_coeffs[i]).abs() > tolerance {
-            return false;
-        }
-    }
-    true
 }
 
 impl TextScene {
@@ -227,8 +216,7 @@ fn render_text(state: &mut TextScene, ctx: &mut Scene) {
 }
 
 /// Render text to recording
-fn render_text_record(state: &mut TextScene, ctx: &mut Recorder<'_>, transform: Affine) {
-    ctx.set_transform(transform);
+fn render_text_record(state: &mut TextScene, ctx: &mut Recorder<'_>) {
     for line in state.layout.lines() {
         for item in line.items() {
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {

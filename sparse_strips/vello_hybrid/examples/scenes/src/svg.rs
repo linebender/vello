@@ -84,13 +84,15 @@ fn try_reuse_recording(
 ) -> RenderResult {
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
-
     // Case 1: Identical transforms - can reuse directly
-    if transforms_are_identical(recording.transform(), current_transform) {
-        scene.execute_recording(recording);
-        #[cfg(not(target_arch = "wasm32"))]
-        print_render_stats("Identical ", start.elapsed(), recording);
-        return RenderResult { is_reused: true };
+    if let Some(transform) = recording.relative_transform() {
+        if transforms_are_identical(*transform, current_transform) {
+            scene.set_transform(*transform);
+            scene.execute_recording(recording);
+            #[cfg(not(target_arch = "wasm32"))]
+            print_render_stats("Identical ", start.elapsed(), recording);
+            return RenderResult { is_reused: true };
+        }
     }
 
     // TODO: Implement "Case 2: Check if we can use with translation"
@@ -104,12 +106,13 @@ fn record_fresh(scene_obj: &mut SvgScene, scene: &mut Scene, current_transform: 
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
     let mut new_recording = Recording::new();
+    // Setting the initial transform outside creates the "relative transform" for the recording.
+    scene.set_transform(current_transform);
     scene.record(&mut new_recording, |recorder| {
         render_svg_record(recorder, &scene_obj.svg.items, current_transform);
     });
     scene.prepare_recording(&mut new_recording);
     scene.execute_recording(&new_recording);
-    new_recording.set_transform(current_transform);
     #[cfg(not(target_arch = "wasm32"))]
     print_render_stats("Fresh     ", start.elapsed(), &new_recording);
 
@@ -196,7 +199,6 @@ impl SvgScene {
 
 /// Render SVG to recording
 fn render_svg_record(ctx: &mut Recorder<'_>, items: &[Item], transform: Affine) {
-    ctx.set_transform(transform);
     for item in items {
         match item {
             Item::Fill(fill_item) => {
@@ -210,7 +212,9 @@ fn render_svg_record(ctx: &mut Recorder<'_>, items: &[Item], transform: Affine) 
                 ctx.stroke_path(&stroke_item.path);
             }
             Item::Group(group_item) => {
-                render_svg_record(ctx, &group_item.children, transform * group_item.affine);
+                let group_transform = transform * group_item.affine;
+                ctx.set_transform(group_transform);
+                render_svg_record(ctx, &group_item.children, group_transform);
                 ctx.set_transform(transform);
             }
         }
