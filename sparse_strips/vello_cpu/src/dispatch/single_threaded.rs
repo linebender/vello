@@ -106,7 +106,6 @@ impl Dispatcher for SingleThreadedDispatcher {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
-            true,
         );
 
         wide.generate(&self.strip_storage.strips, paint, 0);
@@ -128,7 +127,6 @@ impl Dispatcher for SingleThreadedDispatcher {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
-            true,
         );
 
         wide.generate(&self.strip_storage.strips, paint, 0);
@@ -151,7 +149,6 @@ impl Dispatcher for SingleThreadedDispatcher {
                 clip_transform,
                 aliasing_threshold,
                 &mut self.strip_storage,
-                true,
             );
 
             Some(self.strip_storage.strips.as_slice())

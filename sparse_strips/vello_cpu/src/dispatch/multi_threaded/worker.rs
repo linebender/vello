@@ -63,7 +63,6 @@ impl Worker {
                                 transform,
                                 aliasing_threshold,
                                 &mut self.strip_storage,
-                                true,
                             );
                         }
                         Path::Small(s) => {
@@ -73,7 +72,6 @@ impl Worker {
                                 transform,
                                 aliasing_threshold,
                                 &mut self.strip_storage,
-                                true,
                             );
                         }
                     }
@@ -103,7 +101,6 @@ impl Worker {
                                 transform,
                                 aliasing_threshold,
                                 &mut self.strip_storage,
-                                true,
                             );
                         }
                         Path::Small(s) => {
@@ -113,7 +110,6 @@ impl Worker {
                                 transform,
                                 aliasing_threshold,
                                 &mut self.strip_storage,
-                                true,
                             );
                         }
                     }
@@ -143,7 +139,6 @@ impl Worker {
                             transform,
                             aliasing_threshold,
                             &mut self.strip_storage,
-                            true,
                         );
 
                         let strips: &[Strip] = &self.strip_storage.strips;

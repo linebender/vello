@@ -28,7 +28,7 @@ use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
 use vello_common::strip::Strip;
-use vello_common::strip_generator::{StripGenerator, StripStorage};
+use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 #[cfg(feature = "text")]
 use vello_common::{
     color::{AlphaColor, Srgb},
@@ -738,6 +738,7 @@ impl RenderContext {
     ) -> (StripStorage, Vec<usize>) {
         let (mut strip_storage, mut strip_start_indices) = buffers;
         strip_storage.clear();
+        strip_storage.set_generation_mode(GenerationMode::Append);
         strip_start_indices.clear();
 
         let saved_state = self.take_current_state();
@@ -755,7 +756,6 @@ impl RenderContext {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -766,7 +766,6 @@ impl RenderContext {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -778,7 +777,6 @@ impl RenderContext {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -790,7 +788,6 @@ impl RenderContext {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -803,7 +800,6 @@ impl RenderContext {
                         glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -816,7 +812,6 @@ impl RenderContext {
                         glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }

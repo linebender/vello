@@ -17,7 +17,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
 use vello_common::strip::Strip;
-use vello_common::strip_generator::{StripGenerator, StripStorage};
+use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -151,7 +151,6 @@ impl Scene {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
-            true,
         );
         wide.generate(&self.strip_storage.strips, paint, 0);
     }
@@ -182,7 +181,6 @@ impl Scene {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
-            true,
         );
 
         wide.generate(&self.strip_storage.strips, paint, 0);
@@ -235,7 +233,6 @@ impl Scene {
                 self.transform,
                 self.aliasing_threshold,
                 &mut self.strip_storage,
-                true,
             );
 
             Some(self.strip_storage.strips.as_slice())
@@ -461,6 +458,7 @@ impl Scene {
     ) -> (StripStorage, Vec<usize>) {
         let (mut strip_storage, mut strip_start_indices) = buffers;
         strip_storage.clear();
+        strip_storage.set_generation_mode(GenerationMode::Append);
         strip_start_indices.clear();
 
         let saved_state = self.take_current_state();
@@ -476,7 +474,6 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -487,7 +484,6 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -498,7 +494,6 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -509,7 +504,6 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -521,7 +515,6 @@ impl Scene {
                         glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -533,7 +526,6 @@ impl Scene {
                         glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
