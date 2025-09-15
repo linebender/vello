@@ -27,6 +27,11 @@ impl StripStorage {
         self.strips.clear();
         self.alphas.clear();
     }
+
+    /// Whether the strip storage is empty.
+    pub fn is_empty(&self) -> bool {
+        self.strips.is_empty() && self.alphas.is_empty()
+    }
 }
 
 /// An object for easily generating strips for a filled/stroked path.
@@ -155,14 +160,12 @@ mod tests {
         );
 
         assert!(!generator.line_buf.is_empty());
-        assert!(!storage.strips.is_empty());
-        assert!(!storage.alphas.is_empty());
+        assert!(!storage.is_empty());
 
         generator.reset();
         storage.clear();
 
         assert!(generator.line_buf.is_empty());
-        assert!(storage.strips.is_empty());
-        assert!(storage.alphas.is_empty());
+        assert!(storage.is_empty());
     }
 }

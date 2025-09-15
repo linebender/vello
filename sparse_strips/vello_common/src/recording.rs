@@ -41,9 +41,7 @@ impl CachedStrips {
 
     /// Check if this cached strips is empty.
     pub fn is_empty(&self) -> bool {
-        self.strip_storage.strips.is_empty()
-            && self.strip_storage.alphas.is_empty()
-            && self.strip_start_indices.is_empty()
+        self.strip_storage.is_empty() && self.strip_start_indices.is_empty()
     }
 
     /// Get the number of strips.
