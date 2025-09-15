@@ -485,15 +485,15 @@ impl Renderer for HybridRenderer {
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        self.scene.record(recording, f);
+        Recordable::record(&mut self.scene, recording, f);
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
-        self.scene.prepare_recording(recording);
+        Recordable::prepare_recording(&mut self.scene, recording);
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        self.scene.execute_recording(recording);
+        Recordable::execute_recording(&mut self.scene, recording);
     }
 }
 

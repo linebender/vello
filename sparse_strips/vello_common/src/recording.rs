@@ -88,8 +88,15 @@ pub struct Recording {
     commands: Vec<RenderCommand>,
     /// Cached sparse strips.
     cached_strips: CachedStrips,
-    /// Last recorded transform.
+    /// Track the transform of the underlying context.
     transform: Affine,
+    /// The transform which the recording is relative to.
+    /// This is the initial transform of the renderer when the recording was initialized.
+    ///
+    /// TODO: Changing the transform on the renderer and executing the recording should execute the
+    /// recording relative to the new transform. Allowing you to "stamp" the recording multiple
+    /// times at different transforms.
+    relative_transform: Option<Affine>,
 }
 
 /// Command for pushing a new layer.
@@ -147,17 +154,24 @@ impl Recording {
             commands: Vec::new(),
             cached_strips: CachedStrips::default(),
             transform: Affine::IDENTITY,
+            relative_transform: None,
         }
     }
 
     /// Set the transform.
-    pub fn set_transform(&mut self, transform: Affine) {
+    pub(crate) fn set_transform(&mut self, transform: Affine) {
+        if self.relative_transform.is_none() {
+            self.relative_transform = Some(transform);
+        }
         self.transform = transform;
     }
 
-    /// Get the current transform.
-    pub fn transform(&self) -> Affine {
-        self.transform
+    /// Until recording can be relatively positioned, enforce that renderer set_transform matches
+    /// the recording's initial conditions. This will make forward migration easier once recording
+    /// can be relatively transformed.
+    pub fn enforce_matching_transform(&self, transform: &Affine) {
+        let relative_transform = self.relative_transform.unwrap();
+        assert!(relative_transform.eq(transform), "renderer must set_transform to match recording before executing recording")
     }
 
     /// Get commands as a slice.
@@ -205,6 +219,7 @@ impl Recording {
         self.commands.clear();
         self.cached_strips.clear();
         self.transform = Affine::IDENTITY;
+        self.relative_transform = None;
     }
 
     /// Add a command to the recording.
@@ -281,11 +296,7 @@ pub trait Recordable {
     /// ```
     fn record<F>(&mut self, recording: &mut Recording, f: F)
     where
-        F: FnOnce(&mut Recorder<'_>),
-    {
-        let mut recorder = Recorder::new(recording);
-        f(&mut recorder);
-    }
+        F: FnOnce(&mut Recorder<'_>);
 
     /// Generate sparse strips for a recording.
     ///
@@ -315,6 +326,9 @@ pub trait Recordable {
     /// via `prepare_recording()`, or when you want to execute commands immediately
     /// without explicit preparation.
     ///
+    /// Note: Currently if the renderer transform does not match the recording being executed the
+    /// method will panic.
+    ///
     /// # Example
     /// ```ignore
     /// let mut recording = Recording::new();
@@ -340,8 +354,11 @@ pub struct Recorder<'a> {
 
 impl<'a> Recorder<'a> {
     /// Create a new recorder for the given recording.
-    pub fn new(recording: &'a mut Recording) -> Self {
-        Self { recording }
+    pub fn new(recording: &'a mut Recording, transform: Affine) -> Self {
+        let mut s = Self { recording };
+        // Ensure that the initial transform is saved on the recording.
+        s.set_transform(transform);
+        s
     }
 
     /// Fill a path with current paint and fill rule.
@@ -368,6 +385,7 @@ impl<'a> Recorder<'a> {
 
     /// Set the transform for subsequent operations.
     pub fn set_transform(&mut self, transform: Affine) {
+        self.recording.set_transform(transform);
         self.recording
             .add_command(RenderCommand::SetTransform(transform));
     }

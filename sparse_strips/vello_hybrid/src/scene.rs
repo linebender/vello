@@ -15,7 +15,7 @@ use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::Font;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
-use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
+use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::StripGenerator;
 
@@ -394,6 +394,13 @@ impl GlyphRenderer for Scene {
 }
 
 impl Recordable for Scene {
+    fn record<F>(&mut self, recording: &mut Recording, f: F)
+    where
+        F: FnOnce(&mut Recorder<'_>),
+    {
+        let mut recorder = Recorder::new(recording, self.transform);
+        f(&mut recorder);
+    }
     fn prepare_recording(&mut self, recording: &mut Recording) {
         let buffers = recording.take_cached_strips();
         let (strips, alphas, strip_start_indices) =
@@ -402,6 +409,7 @@ impl Recordable for Scene {
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
+        recording.enforce_matching_transform(&self.transform);
         let (cached_strips, cached_alphas) = recording.get_cached_strips();
         let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
 
@@ -501,14 +509,12 @@ impl Scene {
                     self.generate_stroke_strips(&path, &mut collected_strips, self.transform);
                     strip_start_indices.push(start_index);
                 }
-                RenderCommand::FillOutlineGlyph((path, transform)) => {
-                    let glyph_transform = self.transform * *transform;
-                    self.generate_fill_strips(path, &mut collected_strips, glyph_transform);
+                RenderCommand::FillOutlineGlyph((path, glyph_transform)) => {
+                    self.generate_fill_strips(path, &mut collected_strips, *glyph_transform);
                     strip_start_indices.push(start_index);
                 }
-                RenderCommand::StrokeOutlineGlyph((path, transform)) => {
-                    let glyph_transform = self.transform * *transform;
-                    self.generate_stroke_strips(path, &mut collected_strips, glyph_transform);
+                RenderCommand::StrokeOutlineGlyph((path, glyph_transform)) => {
+                    self.generate_stroke_strips(path, &mut collected_strips, *glyph_transform);
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::SetTransform(transform) => {

@@ -95,3 +95,79 @@ fn recording_glyphs(ctx: &mut impl Renderer) {
     ctx.prepare_recording(&mut recording);
     ctx.execute_recording(&recording);
 }
+
+#[vello_test(width = 300, height = 70)]
+fn glyph_recording_outside_transform(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
+
+    // Test differs from `recording_glyphs` as transform is set outside the recording context.
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+
+    let mut recording = Recording::new();
+    ctx.record(&mut recording, |ctx| {
+        ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
+        ctx.glyph_run(&font)
+            .font_size(font_size)
+            .hint(true)
+            .fill_glyphs(glyphs.into_iter());
+    });
+
+    ctx.prepare_recording(&mut recording);
+    ctx.execute_recording(&recording);
+}
+
+#[vello_test(width = 1, height = 1, no_ref)]
+fn executing_recording_with_different_transform_crashes(ctx: &mut impl Renderer) {
+    ctx.set_transform(Affine::translate((0., 1.)));
+    let mut recording = Recording::new();
+    ctx.record(&mut recording, |ctx| {});
+
+    ctx.prepare_recording(&mut recording);
+
+    ctx.set_transform(Affine::translate((0., 0.)));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ctx.execute_recording(&recording);
+    }));
+    assert!(
+        result.is_err(),
+        "Expected panic as renderer transform does not match recording"
+    );
+}
+
+#[vello_test(width = 300, height = 100)]
+fn recording_mixed_with_direct_drawing(ctx: &mut impl Renderer) {
+    let mut recording = Recording::new();
+    // Record a rectangle on the left.
+    ctx.record(&mut recording, |ctx| {
+        ctx.set_transform(Affine::translate((20.0, 30.0)));
+        ctx.set_paint(FUCHSIA);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 60.0, 40.0));
+    });
+
+    // Do not record central rectangle.
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.set_paint(LIGHT_SALMON);
+    ctx.fill_rect(&Rect::new(120.0, 30.0, 180.0, 70.0));
+
+    // Record a glyph on the right.
+    let font_size: f32 = 40_f32;
+    let (font, glyphs) = layout_glyphs_roboto("A", font_size);
+    ctx.set_transform(Affine::translate((220.0, 60.0)));
+    ctx.record(&mut recording, |ctx| {
+        ctx.set_paint(ORANGE);
+        ctx.glyph_run(&font)
+            .font_size(font_size)
+            .hint(true)
+            .fill_glyphs(glyphs.into_iter());
+    });
+
+    ctx.prepare_recording(&mut recording);
+
+    // Change transform and clear the canvas.
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.set_paint(GREEN);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 300.0, 100.0));
+
+    ctx.execute_recording(&recording);
+}
