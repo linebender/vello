@@ -45,7 +45,8 @@ impl Worker {
         result_sender: &mut CoarseTaskSender,
     ) {
         self.strip_storage.strips.clear();
-        self.strip_storage.set_generation_mode(GenerationMode::Append);
+        self.strip_storage
+            .set_generation_mode(GenerationMode::Append);
         let mut task_buf = Vec::with_capacity(render_task.tasks.len());
         let task_idx = render_task.idx;
 
