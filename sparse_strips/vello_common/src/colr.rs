@@ -325,7 +325,7 @@ impl ColorPainter for ColrPainter<'_> {
                     extend,
                     ..Default::default()
                 };
-                
+
                 let paint_transform = self.cur_transform() * Affine::scale_non_uniform(1.0, -1.0);
 
                 self.painter.set_paint_transform(paint_transform);
