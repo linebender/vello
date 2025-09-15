@@ -171,3 +171,20 @@ fn recording_mixed_with_direct_drawing(ctx: &mut impl Renderer) {
 
     ctx.execute_recording(&recording);
 }
+
+#[vello_test(width = 100, height = 100)]
+fn recording_can_be_repeatedly_executed_in_layers(ctx: &mut impl Renderer) {
+    let mut recording = Recording::new();
+    ctx.set_paint(DARK_TURQUOISE);
+    ctx.record(&mut recording, |ctx| {
+        ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+    });
+    ctx.prepare_recording(&mut recording);
+
+    for _ in 0..10 {
+        ctx.push_opacity_layer(0.02);
+        ctx.set_paint(FUCHSIA);
+        ctx.execute_recording(&recording);
+        ctx.pop_layer();
+    }
+}
