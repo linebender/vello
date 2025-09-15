@@ -167,7 +167,7 @@ impl Recording {
         self.transform = transform;
     }
 
-    /// Until recording can be relatively positioned, enforce that renderer set_transform matches
+    /// Until recording can be relatively positioned, enforce that renderer `set_transform` matches
     /// the recording's initial conditions. This will make forward migration easier once recording
     /// can be relatively transformed.
     ///
