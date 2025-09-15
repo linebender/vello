@@ -5,26 +5,29 @@ use crate::Level;
 use crate::dispatch::multi_threaded::{CoarseTask, CoarseTaskSender, Path, RenderTask};
 use std::vec::Vec;
 use vello_common::strip::Strip;
-use vello_common::strip_generator::StripGenerator;
+use vello_common::strip_generator::{StripGenerator, StripStorage};
 
 #[derive(Debug)]
 pub(crate) struct Worker {
     strip_generator: StripGenerator,
+    strip_storage: StripStorage,
     thread_id: u8,
 }
 
 impl Worker {
     pub(crate) fn new(width: u16, height: u16, thread_id: u8, level: Level) -> Self {
         let strip_generator = StripGenerator::new(width, height, level);
+        let strip_storage = StripStorage::default();
 
         Self {
             strip_generator,
+            strip_storage,
             thread_id,
         }
     }
 
     pub(crate) fn init(&mut self, alphas: Vec<u8>) {
-        self.strip_generator.set_alpha_buf(alphas);
+        self.strip_storage.alphas = alphas;
     }
 
     pub(crate) fn thread_id(&self) -> u8 {
@@ -52,16 +55,6 @@ impl Worker {
                     fill_rule,
                     aliasing_threshold,
                 } => {
-                    let func = |strips: &[Strip]| {
-                        let coarse_command = CoarseTask::Render {
-                            thread_id: self.thread_id,
-                            strips: strips.into(),
-                            paint,
-                        };
-
-                        task_buf.push(coarse_command);
-                    };
-
                     match path {
                         Path::Bez(b) => {
                             self.strip_generator.generate_filled_path(
@@ -69,7 +62,7 @@ impl Worker {
                                 fill_rule,
                                 transform,
                                 aliasing_threshold,
-                                func,
+                                &mut self.strip_storage,
                             );
                         }
                         Path::Small(s) => {
@@ -78,10 +71,20 @@ impl Worker {
                                 fill_rule,
                                 transform,
                                 aliasing_threshold,
-                                func,
+                                &mut self.strip_storage,
                             );
                         }
                     }
+
+                    let strips: &[Strip] = &self.strip_storage.strips;
+
+                    let coarse_command = CoarseTask::Render {
+                        thread_id: self.thread_id,
+                        strips: strips.into(),
+                        paint,
+                    };
+
+                    task_buf.push(coarse_command);
                 }
                 RenderTask::StrokePath {
                     path,
@@ -90,16 +93,6 @@ impl Worker {
                     stroke,
                     aliasing_threshold,
                 } => {
-                    let func = |strips: &[Strip]| {
-                        let coarse_command = CoarseTask::Render {
-                            thread_id: self.thread_id,
-                            strips: strips.into(),
-                            paint,
-                        };
-
-                        task_buf.push(coarse_command);
-                    };
-
                     match path {
                         Path::Bez(b) => {
                             self.strip_generator.generate_stroked_path(
@@ -107,7 +100,7 @@ impl Worker {
                                 &stroke,
                                 transform,
                                 aliasing_threshold,
-                                func,
+                                &mut self.strip_storage,
                             );
                         }
                         Path::Small(s) => {
@@ -116,10 +109,20 @@ impl Worker {
                                 &stroke,
                                 transform,
                                 aliasing_threshold,
-                                func,
+                                &mut self.strip_storage,
                             );
                         }
                     }
+
+                    let strips: &[Strip] = &self.strip_storage.strips;
+
+                    let coarse_command = CoarseTask::Render {
+                        thread_id: self.thread_id,
+                        strips: strips.into(),
+                        paint,
+                    };
+
+                    task_buf.push(coarse_command);
                 }
                 RenderTask::PushLayer {
                     clip_path,
@@ -130,16 +133,17 @@ impl Worker {
                     aliasing_threshold,
                 } => {
                     let clip = if let Some((c, transform)) = clip_path {
-                        let mut strip_buf = &[][..];
                         self.strip_generator.generate_filled_path(
                             c,
                             fill_rule,
                             transform,
                             aliasing_threshold,
-                            |strips| strip_buf = strips,
+                            &mut self.strip_storage,
                         );
 
-                        Some(strip_buf.into())
+                        let strips: &[Strip] = &self.strip_storage.strips;
+
+                        Some(strips.into())
                     } else {
                         None
                     };
@@ -177,6 +181,6 @@ impl Worker {
     }
 
     pub(crate) fn finalize(&mut self) -> Vec<u8> {
-        self.strip_generator.replace_alpha_buf(Vec::new())
+        std::mem::take(&mut self.strip_storage.alphas)
     }
 }

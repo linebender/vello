@@ -8,13 +8,13 @@ pub(crate) mod single_threaded;
 use crate::RenderMode;
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use alloc::vec::Vec;
 use core::fmt::Debug;
 use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
+use vello_common::strip_generator::StripStorage;
 
 pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn wide(&self) -> &Wide;
@@ -56,8 +56,5 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         height: u16,
         encoded_paints: &[EncodedPaint],
     );
-    fn alpha_buf(&self) -> &[u8];
-    fn extend_alpha_buf(&mut self, alphas: &[u8]);
-    fn replace_alpha_buf(&mut self, alphas: Vec<u8>) -> Vec<u8>;
-    fn set_alpha_buf(&mut self, alphas: Vec<u8>);
+    fn strip_storage_mut(&mut self) -> &mut StripStorage;
 }

@@ -144,7 +144,7 @@ impl Renderer {
             queue,
             &mut self.gradient_cache,
             &self.encoded_paints,
-            scene.strip_generator.alpha_buf(),
+            &scene.strip_storage.alphas,
             render_size,
             &self.paint_idxs,
         );

@@ -7,19 +7,19 @@ use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
-use alloc::vec::Vec;
 use vello_common::coarse::{MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
-use vello_common::strip_generator::StripGenerator;
+use vello_common::strip_generator::{StripGenerator, StripStorage};
 
 #[derive(Debug)]
 pub(crate) struct SingleThreadedDispatcher {
     wide: Wide,
     strip_generator: StripGenerator,
+    strip_storage: StripStorage,
     level: Level,
 }
 
@@ -27,10 +27,12 @@ impl SingleThreadedDispatcher {
     pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
         let wide = Wide::<MODE_CPU>::new(width, height);
         let strip_generator = StripGenerator::new(width, height, level);
+        let strip_storage = StripStorage::default();
 
         Self {
             wide,
             strip_generator,
+            strip_storage,
             level,
         }
     }
@@ -75,7 +77,7 @@ impl SingleThreadedDispatcher {
 
             fine.clear(wtile.bg);
             for cmd in &wtile.cmds {
-                fine.run_cmd(cmd, self.strip_generator.alpha_buf(), encoded_paints);
+                fine.run_cmd(cmd, &self.strip_storage.alphas, encoded_paints);
             }
 
             fine.pack(region);
@@ -98,14 +100,15 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         let wide = &mut self.wide;
 
-        let func = |strips| wide.generate(strips, paint, 0);
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
             transform,
             aliasing_threshold,
-            func,
+            &mut self.strip_storage,
         );
+
+        wide.generate(&self.strip_storage.strips, paint, 0);
     }
 
     fn stroke_path(
@@ -118,30 +121,15 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         let wide = &mut self.wide;
 
-        let func = |strips| wide.generate(strips, paint, 0);
         self.strip_generator.generate_stroked_path(
             path,
             stroke,
             transform,
             aliasing_threshold,
-            func,
+            &mut self.strip_storage,
         );
-    }
 
-    fn alpha_buf(&self) -> &[u8] {
-        self.strip_generator.alpha_buf()
-    }
-
-    fn extend_alpha_buf(&mut self, alphas: &[u8]) {
-        self.strip_generator.extend_alpha_buf(alphas);
-    }
-
-    fn replace_alpha_buf(&mut self, alphas: Vec<u8>) -> Vec<u8> {
-        self.strip_generator.replace_alpha_buf(alphas)
-    }
-
-    fn set_alpha_buf(&mut self, alphas: Vec<u8>) {
-        self.strip_generator.set_alpha_buf(alphas);
+        wide.generate(&self.strip_storage.strips, paint, 0);
     }
 
     fn push_layer(
@@ -155,19 +143,15 @@ impl Dispatcher for SingleThreadedDispatcher {
         mask: Option<Mask>,
     ) {
         let clip = if let Some(c) = clip_path {
-            // This variable will always be assigned to in the closure, but the compiler can't recognize that.
-            // So just assign a dummy value here.
-            let mut strip_buf = &[][..];
-
             self.strip_generator.generate_filled_path(
                 c,
                 fill_rule,
                 clip_transform,
                 aliasing_threshold,
-                |strips| strip_buf = strips,
+                &mut self.strip_storage,
             );
 
-            Some(strip_buf)
+            Some(self.strip_storage.strips.as_slice())
         } else {
             None
         };
@@ -204,6 +188,10 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint) {
         self.wide.generate(strip_buf, paint, 0);
+    }
+
+    fn strip_storage_mut(&mut self) -> &mut StripStorage {
+        &mut self.strip_storage
     }
 }
 

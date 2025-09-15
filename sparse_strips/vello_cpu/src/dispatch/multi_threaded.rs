@@ -27,7 +27,7 @@ use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
-use vello_common::strip_generator::StripGenerator;
+use vello_common::strip_generator::{StripGenerator, StripStorage};
 
 mod cost;
 mod small_path;
@@ -98,6 +98,7 @@ pub(crate) struct MultiThreadedDispatcher {
     num_threads: u16,
     /// The strip generator for the main thread, only used for recordings.
     strip_generator: StripGenerator,
+    strip_storage: StripStorage,
     level: Level,
     flushed: bool,
 }
@@ -143,6 +144,7 @@ impl MultiThreadedDispatcher {
             task_sender: None,
             coarse_task_receiver: None,
             strip_generator: StripGenerator::new(width, height, level),
+            strip_storage: StripStorage::default(),
             level,
             alpha_storage,
             num_threads,
@@ -386,22 +388,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         });
     }
 
-    fn alpha_buf(&self) -> &[u8] {
-        self.strip_generator.alpha_buf()
-    }
-
-    fn extend_alpha_buf(&mut self, alphas: &[u8]) {
-        self.strip_generator.extend_alpha_buf(alphas);
-    }
-
-    fn replace_alpha_buf(&mut self, alphas: Vec<u8>) -> Vec<u8> {
-        self.strip_generator.replace_alpha_buf(alphas)
-    }
-
-    fn set_alpha_buf(&mut self, alphas: Vec<u8>) {
-        self.strip_generator.set_alpha_buf(alphas);
-    }
-
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -435,6 +421,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.task_sender = None;
         self.coarse_task_receiver = None;
         self.strip_generator.reset();
+        self.strip_storage.clear();
         self.alpha_storage.with_inner(|alphas| {
             for alpha in alphas {
                 alpha.clear();
@@ -474,7 +461,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             // The main thread stores the alphas that are produced by playing a recording.
             // It is important we reserve the thread id 0 for this as the implementation for
             // `Recordable` uses this thread ID when generating the commands for coarse rasterization.
-            alphas[0] = self.strip_generator.replace_alpha_buf(Vec::new());
+            alphas[0] = std::mem::take(&mut self.strip_storage.alphas);
         });
 
         self.flushed = true;
@@ -513,6 +500,10 @@ impl Dispatcher for MultiThreadedDispatcher {
             thread_idx: 0,
             paint,
         });
+    }
+
+    fn strip_storage_mut(&mut self) -> &mut StripStorage {
+        &mut self.strip_storage
     }
 }
 

@@ -701,8 +701,10 @@ impl<const MODE: u8> Wide<MODE> {
                 let clipped_x2 = x2.min((cur_wtile_x + 1) * WideTile::WIDTH);
                 let width = clipped_x2.saturating_sub(clipped_x1);
 
-                // If there's a gap, fill it
-                if width > 0 {
+                // If there's a gap, fill it. Only do this if the fill wouldn't cover the
+                // whole tile, as such clips are skipped by the `push_clip` function. See
+                // <https://github.com/linebender/vello/blob/de0659e4df9842c8857153841a2b4ba6f1020bb0/sparse_strips/vello_common/src/coarse.rs#L504-L516>
+                if width > 0 && width < WideTile::WIDTH {
                     let x_rel = u32::from(clipped_x1 % WideTile::WIDTH);
                     self.get_mut(cur_wtile_x, cur_wtile_y)
                         .clip_fill(x_rel, u32::from(width));
