@@ -35,7 +35,7 @@ impl CachedStrips {
 
     /// Clear the contents.
     pub fn clear(&mut self) {
-        self.strip_storage.reset();
+        self.strip_storage.clear();
         self.strip_start_indices.clear();
     }
 

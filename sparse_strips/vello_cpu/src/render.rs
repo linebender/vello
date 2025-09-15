@@ -737,7 +737,7 @@ impl RenderContext {
         buffers: (StripStorage, Vec<usize>),
     ) -> (StripStorage, Vec<usize>) {
         let (mut strip_storage, mut strip_start_indices) = buffers;
-        strip_storage.reset();
+        strip_storage.clear();
         strip_start_indices.clear();
 
         let saved_state = self.take_current_state();

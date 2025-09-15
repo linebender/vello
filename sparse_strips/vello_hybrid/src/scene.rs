@@ -322,7 +322,7 @@ impl Scene {
     pub fn reset(&mut self) {
         self.wide.reset();
         self.strip_generator.reset();
-        self.strip_storage.reset();
+        self.strip_storage.clear();
         self.encoded_paints.clear();
 
         let render_state = Self::default_render_state();
@@ -460,7 +460,7 @@ impl Scene {
         buffers: (StripStorage, Vec<usize>),
     ) -> (StripStorage, Vec<usize>) {
         let (mut strip_storage, mut strip_start_indices) = buffers;
-        strip_storage.reset();
+        strip_storage.clear();
         strip_start_indices.clear();
 
         let saved_state = self.take_current_state();

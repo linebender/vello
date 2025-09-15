@@ -23,7 +23,7 @@ pub struct StripStorage {
 
 impl StripStorage {
     /// Reset the storage.
-    pub fn reset(&mut self) {
+    pub fn clear(&mut self) {
         self.strips.clear();
         self.alphas.clear();
     }
@@ -159,7 +159,7 @@ mod tests {
         assert!(!storage.alphas.is_empty());
 
         generator.reset();
-        storage.reset();
+        storage.clear();
 
         assert!(generator.line_buf.is_empty());
         assert!(storage.strips.is_empty());
