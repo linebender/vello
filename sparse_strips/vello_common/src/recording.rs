@@ -174,11 +174,14 @@ impl Recording {
     /// Until recording can be relatively positioned, enforce that renderer set_transform matches
     /// the recording's initial conditions. This will make forward migration easier once recording
     /// can be relatively transformed.
-    /// 
+    ///
     /// TODO: This can be removed when relative transform of recording is implemented.
     pub fn enforce_matching_transform(&self, transform: &Affine) {
         let relative_transform = self.relative_transform.unwrap();
-        assert_eq!(relative_transform, *transform, "renderer must set_transform to match recording before executing recording");
+        assert_eq!(
+            relative_transform, *transform,
+            "renderer must set_transform to match recording before executing recording"
+        );
     }
 
     /// Get commands as a slice.
