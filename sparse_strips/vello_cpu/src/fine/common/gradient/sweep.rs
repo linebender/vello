@@ -58,5 +58,5 @@ fn x_y_to_unit_angle<S: Simd>(simd: S, x: f32x8<S>, y: f32x8<S>) -> f32x8<S> {
     // Clears all NaNs, using the property that NaN != NaN.
     phi = simd.select_f32x8(phi.simd_eq(phi), phi, c0);
 
-    phi
+    1.0 - phi
 }

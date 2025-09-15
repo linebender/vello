@@ -964,7 +964,7 @@ fn xy_to_unit_angle(x: f32, y: f32) -> f32 {
     phi = select(phi, 1.0 - phi, y < 0.0);
     // Handle NaN cases (using property that NaN != NaN)
     phi = select(phi, 0.0, phi != phi);
-    return phi;
+    return 1.0 - phi;
 }
 
 // Sample from the gradient texture at calculated position.
