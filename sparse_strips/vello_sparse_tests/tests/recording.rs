@@ -192,7 +192,7 @@ fn recording_can_be_repeatedly_executed_in_layers(ctx: &mut impl Renderer) {
 #[vello_test(width = 100, height = 100)]
 fn recording_can_be_cleared(ctx: &mut impl Renderer) {
     let mut recording = Recording::new();
-    ctx.set_transform(Affine::translate((1.,1.)));
+    ctx.set_transform(Affine::translate((1., 1.)));
     ctx.record(&mut recording, |ctx| {
         ctx.set_paint(ORANGE);
         ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
