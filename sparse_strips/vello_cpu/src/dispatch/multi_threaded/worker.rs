@@ -6,8 +6,7 @@ use crate::dispatch::multi_threaded::{
     CoarseTask, CoarseTaskSender, CoarseTaskType, RenderTask, RenderTaskType,
 };
 use std::vec::Vec;
-use vello_common::strip::Strip;
-use vello_common::strip_generator::{StripGenerator, StripStorage};
+use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
 #[derive(Debug)]
 pub(crate) struct Worker {
@@ -46,6 +45,7 @@ impl Worker {
         result_sender: &mut CoarseTaskSender,
     ) {
         self.strip_storage.strips.clear();
+        self.strip_storage.set_generation_mode(GenerationMode::Append);
         let mut task_buf = Vec::with_capacity(render_task.tasks.len());
         let task_idx = render_task.idx;
 
