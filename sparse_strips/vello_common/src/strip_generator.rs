@@ -19,13 +19,34 @@ pub struct StripStorage {
     pub strips: Vec<Strip>,
     /// The alphas in the storage.
     pub alphas: Vec<u8>,
+    generation_mode: GenerationMode,
+}
+
+/// The generation mode of the strip storage.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub enum GenerationMode {
+    #[default]
+    /// Clear strips before generating the new ones.
+    Replace,
+    /// Don't clear strips, append to the existing buffer.
+    Append,
 }
 
 impl StripStorage {
     /// Reset the storage.
-    pub fn reset(&mut self) {
+    pub fn clear(&mut self) {
         self.strips.clear();
         self.alphas.clear();
+    }
+
+    /// Set the generation mode of the storage.
+    pub fn set_generation_mode(&mut self, mode: GenerationMode) {
+        self.generation_mode = mode;
+    }
+
+    /// Whether the strip storage is empty.
+    pub fn is_empty(&self) -> bool {
+        self.strips.is_empty() && self.alphas.is_empty()
     }
 }
 
@@ -61,7 +82,6 @@ impl StripGenerator {
         transform: Affine,
         aliasing_threshold: Option<u8>,
         strip_storage: &mut StripStorage,
-        clear_strips: bool,
     ) {
         flatten::fill(
             self.level,
@@ -70,7 +90,7 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.make_strips(strip_storage, fill_rule, aliasing_threshold, clear_strips);
+        self.make_strips(strip_storage, fill_rule, aliasing_threshold);
     }
 
     /// Generate the strips for a stroked path.
@@ -81,7 +101,6 @@ impl StripGenerator {
         transform: Affine,
         aliasing_threshold: Option<u8>,
         strip_storage: &mut StripStorage,
-        clear_strips: bool,
     ) {
         flatten::stroke(
             self.level,
@@ -91,12 +110,7 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.make_strips(
-            strip_storage,
-            Fill::NonZero,
-            aliasing_threshold,
-            clear_strips,
-        );
+        self.make_strips(strip_storage, Fill::NonZero, aliasing_threshold);
     }
 
     /// Reset the strip generator.
@@ -110,13 +124,12 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         fill_rule: Fill,
         aliasing_threshold: Option<u8>,
-        clear_strips: bool,
     ) {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
 
-        if clear_strips {
+        if strip_storage.generation_mode == GenerationMode::Replace {
             strip_storage.strips.clear();
         }
 
@@ -151,18 +164,15 @@ mod tests {
             Affine::IDENTITY,
             None,
             &mut storage,
-            true,
         );
 
         assert!(!generator.line_buf.is_empty());
-        assert!(!storage.strips.is_empty());
-        assert!(!storage.alphas.is_empty());
+        assert!(!storage.is_empty());
 
         generator.reset();
-        storage.reset();
+        storage.clear();
 
         assert!(generator.line_buf.is_empty());
-        assert!(storage.strips.is_empty());
-        assert!(storage.alphas.is_empty());
+        assert!(storage.is_empty());
     }
 }

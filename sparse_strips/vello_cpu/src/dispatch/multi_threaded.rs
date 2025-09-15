@@ -461,7 +461,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.task_sender = None;
         self.coarse_task_receiver = None;
         self.strip_generator.reset();
-        self.strip_storage.reset();
+        self.strip_storage.clear();
         self.alpha_storage.with_inner(|alphas| {
             for alpha in alphas {
                 alpha.clear();

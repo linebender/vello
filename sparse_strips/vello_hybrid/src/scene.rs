@@ -17,10 +17,25 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
 use vello_common::strip::Strip;
-use vello_common::strip_generator::{StripGenerator, StripStorage};
+use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
+
+/// Settings to apply to the render context.
+#[derive(Copy, Clone, Debug)]
+pub struct RenderSettings {
+    /// The SIMD level that should be used for rendering operations.
+    pub level: Level,
+}
+
+impl Default for RenderSettings {
+    fn default() -> Self {
+        Self {
+            level: Level::try_detect().unwrap_or(Level::fallback()),
+        }
+    }
+}
 
 /// A render state which contains the style properties for path rendering and
 /// the current transform.
@@ -59,6 +74,11 @@ pub struct Scene {
 impl Scene {
     /// Create a new render context with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
+        Self::new_with(width, height, RenderSettings::default())
+    }
+
+    /// Create a new render context with specific settings.
+    pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         let render_state = Self::default_render_state();
         Self {
             width,
@@ -70,11 +90,7 @@ impl Scene {
             encoded_paints: vec![],
             paint_visible: true,
             stroke: render_state.stroke,
-            strip_generator: StripGenerator::new(
-                width,
-                height,
-                Level::try_detect().unwrap_or(Level::fallback()),
-            ),
+            strip_generator: StripGenerator::new(width, height, settings.level),
             strip_storage: StripStorage::default(),
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
@@ -109,9 +125,10 @@ impl Scene {
     fn encode_current_paint(&mut self) -> Paint {
         match self.paint.clone() {
             PaintType::Solid(s) => s.into(),
-            PaintType::Gradient(_) => {
-                unimplemented!("Gradient not implemented")
-            }
+            PaintType::Gradient(g) => g.encode_into(
+                &mut self.encoded_paints,
+                self.transform * self.paint_transform,
+            ),
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints,
                 self.transform * self.paint_transform,
@@ -151,7 +168,6 @@ impl Scene {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
-            true,
         );
         wide.generate(&self.strip_storage.strips, paint, 0);
     }
@@ -182,7 +198,6 @@ impl Scene {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
-            true,
         );
 
         wide.generate(&self.strip_storage.strips, paint, 0);
@@ -235,7 +250,6 @@ impl Scene {
                 self.transform,
                 self.aliasing_threshold,
                 &mut self.strip_storage,
-                true,
             );
 
             Some(self.strip_storage.strips.as_slice())
@@ -322,7 +336,7 @@ impl Scene {
     pub fn reset(&mut self) {
         self.wide.reset();
         self.strip_generator.reset();
-        self.strip_storage.reset();
+        self.strip_storage.clear();
         self.encoded_paints.clear();
 
         let render_state = Self::default_render_state();
@@ -460,7 +474,8 @@ impl Scene {
         buffers: (StripStorage, Vec<usize>),
     ) -> (StripStorage, Vec<usize>) {
         let (mut strip_storage, mut strip_start_indices) = buffers;
-        strip_storage.reset();
+        strip_storage.clear();
+        strip_storage.set_generation_mode(GenerationMode::Append);
         strip_start_indices.clear();
 
         let saved_state = self.take_current_state();
@@ -476,7 +491,6 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -487,7 +501,6 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -498,7 +511,6 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -509,7 +521,6 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -521,7 +532,6 @@ impl Scene {
                         glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -533,7 +543,6 @@ impl Scene {
                         glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        false,
                     );
                     strip_start_indices.push(start_index);
                 }

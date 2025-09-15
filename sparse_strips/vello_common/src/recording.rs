@@ -35,15 +35,13 @@ impl CachedStrips {
 
     /// Clear the contents.
     pub fn clear(&mut self) {
-        self.strip_storage.reset();
+        self.strip_storage.clear();
         self.strip_start_indices.clear();
     }
 
     /// Check if this cached strips is empty.
     pub fn is_empty(&self) -> bool {
-        self.strip_storage.strips.is_empty()
-            && self.strip_storage.alphas.is_empty()
-            && self.strip_start_indices.is_empty()
+        self.strip_storage.is_empty() && self.strip_start_indices.is_empty()
     }
 
     /// Get the number of strips.

@@ -6,6 +6,7 @@ use crate::dispatch::multi_threaded::{
     CoarseTask, CoarseTaskSender, CoarseTaskType, RenderTask, RenderTaskType,
 };
 use std::vec::Vec;
+use vello_common::strip::Strip;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
 
 #[derive(Debug)]
@@ -67,7 +68,6 @@ impl Worker {
                         transform,
                         aliasing_threshold,
                         &mut self.strip_storage,
-                        false,
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
@@ -96,7 +96,6 @@ impl Worker {
                         transform,
                         aliasing_threshold,
                         &mut self.strip_storage,
-                        false,
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
@@ -127,7 +126,6 @@ impl Worker {
                             transform,
                             aliasing_threshold,
                             &mut self.strip_storage,
-                            false,
                         );
 
                         let end = self.strip_storage.strips.len() as u32;
