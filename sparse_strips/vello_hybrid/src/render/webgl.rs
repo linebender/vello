@@ -186,6 +186,7 @@ impl WebGlRenderer {
             gl: &self.gl,
         };
         self.scheduler.do_scene(&mut ctx, scene, &self.paint_idxs)?;
+        self.gradient_cache.maintain();
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
         // image along the Y axis to complete the WebGPU to WebGL2 coordinate transform.
@@ -329,8 +330,6 @@ impl WebGlRenderer {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
-
-        self.gradient_cache.maintain();
 
         let mut current_idx = 0;
         for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
