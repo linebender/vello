@@ -5,6 +5,7 @@
 
 pub mod blend;
 pub mod clip;
+pub mod gradient;
 pub mod image;
 pub mod simple;
 pub mod svg;
@@ -91,6 +92,8 @@ pub fn get_example_scenes(svg_paths: Option<Vec<&str>>) -> Box<[AnyScene]> {
     scenes.push(AnyScene::new(clip::ClipScene::new()));
     scenes.push(AnyScene::new(blend::BlendScene::new()));
     scenes.push(AnyScene::new(image::ImageScene::new()));
+    scenes.push(AnyScene::new(gradient::GradientExtendScene::new()));
+    scenes.push(AnyScene::new(gradient::RadialScene::new()));
 
     scenes.into_boxed_slice()
 }
@@ -104,7 +107,9 @@ pub fn get_example_scenes() -> Box<[AnyScene]> {
         AnyScene::new(simple::SimpleScene::new()),
         AnyScene::new(clip::ClipScene::new()),
         AnyScene::new(blend::BlendScene::new()),
-        AnyScene::new(image::ImageScene {}),
+        AnyScene::new(image::ImageScene::new()),
+        AnyScene::new(gradient::GradientExtendScene::new()),
+        AnyScene::new(gradient::RadialScene::new()),
     ]
     .into_boxed_slice()
 }

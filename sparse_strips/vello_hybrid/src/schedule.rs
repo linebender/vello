@@ -176,7 +176,6 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::render::common::GpuEncodedImage;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -196,6 +195,9 @@ const COLOR_SOURCE_BLEND: u32 = 2;
 
 const PAINT_TYPE_SOLID: u32 = 0;
 const PAINT_TYPE_IMAGE: u32 = 1;
+const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2;
+const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3;
+const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
 
 // The sentinel tile index representing the surface.
 const SENTINEL_SLOT_IDX: usize = usize::MAX;
@@ -403,6 +405,7 @@ impl Scheduler {
         &mut self,
         renderer: &mut R,
         scene: &Scene,
+        paint_idxs: &[u32],
     ) -> Result<(), RenderError> {
         let wide_tiles_per_row = scene.wide.width_tiles();
         let wide_tiles_per_col = scene.wide.height_tiles();
@@ -414,8 +417,13 @@ impl Scheduler {
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
 
-                let tile_state =
-                    self.initialize_tile_state(wide_tile, wide_tile_x, wide_tile_y, scene);
+                let tile_state = self.initialize_tile_state(
+                    wide_tile,
+                    wide_tile_x,
+                    wide_tile_y,
+                    scene,
+                    paint_idxs,
+                );
                 let annotated_cmds = prepare_cmds(&wide_tile.cmds);
                 self.do_tile(
                     renderer,
@@ -424,6 +432,7 @@ impl Scheduler {
                     wide_tile_y,
                     &annotated_cmds,
                     tile_state,
+                    paint_idxs,
                 )?;
             }
         }
@@ -519,6 +528,7 @@ impl Scheduler {
         wide_tile_x: u16,
         wide_tile_y: u16,
         scene: &Scene,
+        idxs: &[u32],
     ) -> TileState {
         let mut state = TileState::default();
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
@@ -533,8 +543,12 @@ impl Scheduler {
             // If the background has a non-zero alpha then we need to render it.
             let bg = tile.bg.as_premul_rgba8().to_u32();
             if has_non_zero_alpha(bg) {
-                let (payload, paint) =
-                    Self::process_paint(&Paint::Solid(tile.bg), scene, (wide_tile_x, wide_tile_y));
+                let (payload, paint) = Self::process_paint(
+                    &Paint::Solid(tile.bg),
+                    scene,
+                    (wide_tile_x, wide_tile_y),
+                    idxs,
+                );
 
                 let draw = self.draw_mut(self.round, 2);
                 draw.push(
@@ -558,6 +572,7 @@ impl Scheduler {
         wide_tile_y: u16,
         cmds: &'a [AnnotatedCmd<'a>],
         mut state: TileState,
+        paint_idxs: &[u32],
     ) -> Result<(), RenderError> {
         for annotated_cmd in cmds {
             // Note: this starts at 1 (for the final target)
@@ -573,8 +588,12 @@ impl Scheduler {
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
-                    let (payload, paint) =
-                        Self::process_paint(&fill.paint, scene, (scene_strip_x, scene_strip_y));
+                    let (payload, paint) = Self::process_paint(
+                        &fill.paint,
+                        scene,
+                        (scene_strip_x, scene_strip_y),
+                        paint_idxs,
+                    );
 
                     let gpu_strip_builder = if depth == 1 {
                         GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, fill.width)
@@ -602,6 +621,7 @@ impl Scheduler {
                         &alpha_fill.paint,
                         scene,
                         (scene_strip_x, scene_strip_y),
+                        paint_idxs,
                     );
 
                     let gpu_strip_builder = if depth == 1 {
@@ -884,6 +904,7 @@ impl Scheduler {
         paint: &Paint,
         scene: &Scene,
         (scene_strip_x, scene_strip_y): (u16, u16),
+        paint_idxs: &[u32],
     ) -> (u32, u32) {
         match paint {
             Paint::Solid(color) => {
@@ -892,26 +913,40 @@ impl Scheduler {
                     has_non_zero_alpha(rgba),
                     "Color fields with 0 alpha are reserved for clipping"
                 );
-                let paint_packed = (COLOR_SOURCE_PAYLOAD << 30) | (PAINT_TYPE_SOLID << 29);
+                let paint_packed = (COLOR_SOURCE_PAYLOAD << 30) | (PAINT_TYPE_SOLID << 27);
                 (rgba, paint_packed)
             }
             Paint::Indexed(indexed_paint) => {
                 let paint_id = indexed_paint.index();
-                // 16 bytes per texel: Rgba32Uint (4 bytes) * 4 (4 texels)
-                let paint_tex_id = (paint_id * size_of::<GpuEncodedImage>() / 16) as u32;
+                let paint_idx = paint_idxs.get(paint_id).copied().unwrap();
 
                 match scene.encoded_paints.get(paint_id) {
                     Some(EncodedPaint::Image(encoded_image)) => match &encoded_image.source {
                         ImageSource::OpaqueId(_) => {
                             let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
-                                | (PAINT_TYPE_IMAGE << 28)
-                                | (paint_tex_id & 0x0FFFFFFF);
+                                | (PAINT_TYPE_IMAGE << 27)
+                                | (paint_idx & 0x07FFFFFF);
                             let scene_strip_xy =
                                 ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
                             (scene_strip_xy, paint_packed)
                         }
                         _ => unimplemented!("Unsupported image source"),
                     },
+                    Some(EncodedPaint::Gradient(gradient)) => {
+                        use vello_common::encode::EncodedKind;
+                        let gradient_paint_type = match &gradient.kind {
+                            EncodedKind::Linear(_) => PAINT_TYPE_LINEAR_GRADIENT,
+                            EncodedKind::Radial(_) => PAINT_TYPE_RADIAL_GRADIENT,
+                            EncodedKind::Sweep(_) => PAINT_TYPE_SWEEP_GRADIENT,
+                        };
+                        let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
+                            | (gradient_paint_type << 27)
+                            | (paint_idx & 0x07FFFFFF);
+                        let scene_strip_xy =
+                            ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                        (scene_strip_xy, paint_packed)
+                    }
+
                     _ => unimplemented!("Unsupported paint type"),
                 }
             }
