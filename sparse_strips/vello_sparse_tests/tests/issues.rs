@@ -418,3 +418,12 @@ fn clip_wrong_command(ctx: &mut impl Renderer) {
     ctx.pop_layer();
     ctx.flush();
 }
+
+/// See <https://github.com/linebender/vello/issues/1219>
+#[vello_test]
+fn basic_alpha_compositing(ctx: &mut impl Renderer) {
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 70.0, 70.0));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.9));
+    ctx.fill_rect(&Rect::new(30.0, 30.0, 90.0, 90.0));
+}
