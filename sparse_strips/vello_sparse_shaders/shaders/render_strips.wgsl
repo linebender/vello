@@ -411,8 +411,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
             
             // For sweep gradient, calculate angle from center using fast polynomial approximation
-            // Flip Y coordinate for screen coordinate system (Y increases downward)
-            let unit_angle = xy_to_unit_angle(grad_pos.x, -grad_pos.y);
+            let unit_angle = xy_to_unit_angle(grad_pos.x, grad_pos.y);
             // Convert unit angle [0, 1) to radians [0, 2π)
             let angle = unit_angle * TWO_PI;
             let t_value = (angle - sweep_gradient.start_angle) * sweep_gradient.inv_angle_delta;

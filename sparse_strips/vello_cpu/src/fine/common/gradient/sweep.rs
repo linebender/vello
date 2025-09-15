@@ -26,8 +26,7 @@ impl<S: Simd> SimdSweepKind<S> {
 impl<S: Simd> SimdGradientKind<S> for SimdSweepKind<S> {
     #[inline(always)]
     fn cur_pos(&self, x_pos: f32x8<S>, y_pos: f32x8<S>) -> f32x8<S> {
-        let angle = x_y_to_unit_angle(self.simd, x_pos, y_pos * f32x8::splat(self.simd, -1.0))
-            * f32x8::splat(self.simd, 2.0 * PI);
+        let angle = x_y_to_unit_angle(self.simd, x_pos, y_pos) * f32x8::splat(self.simd, 2.0 * PI);
 
         (angle - self.start_angle) * self.inv_angle_delta
     }

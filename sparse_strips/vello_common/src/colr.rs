@@ -313,9 +313,11 @@ impl ColorPainter for ColrPainter<'_> {
                     }
                 }
 
+                // We need to invert the direction of the gradient to bridge the gap between
+                // peniko and COLR.
                 let grad = Gradient {
                     kind: GradientKind::Sweep {
-                        center: p0,
+                        center: Point::new(p0.x, -p0.y),
                         start_angle,
                         end_angle,
                     },
@@ -324,7 +326,9 @@ impl ColorPainter for ColrPainter<'_> {
                     ..Default::default()
                 };
 
-                self.painter.set_paint_transform(self.cur_transform());
+                let paint_transform = self.cur_transform() * Affine::scale_non_uniform(1.0, -1.0);
+
+                self.painter.set_paint_transform(paint_transform);
                 self.painter.fill_gradient(grad);
             }
         };
