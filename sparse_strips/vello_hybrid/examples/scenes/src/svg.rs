@@ -86,7 +86,7 @@ fn try_reuse_recording(
     let start = std::time::Instant::now();
     // Case 1: Identical transforms - can reuse directly
     if let Some(transform) = recording.relative_transform() {
-        if *transform == current_transform {
+        if transforms_are_identical(*transform, current_transform) {
             scene.set_transform(*transform);
             scene.execute_recording(recording);
             #[cfg(not(target_arch = "wasm32"))]
@@ -129,6 +129,20 @@ fn print_render_stats(render_type: &str, elapsed: std::time::Duration, recording
         recording.strip_count(),
         recording.alpha_count()
     );
+}
+
+/// Check if two transforms are identical (within tolerance)
+fn transforms_are_identical(a: Affine, b: Affine) -> bool {
+    let a_coeffs = a.as_coeffs();
+    let b_coeffs = b.as_coeffs();
+    let tolerance = 1e-6;
+
+    for i in 0..6 {
+        if (a_coeffs[i] - b_coeffs[i]).abs() > tolerance {
+            return false;
+        }
+    }
+    true
 }
 
 impl SvgScene {
