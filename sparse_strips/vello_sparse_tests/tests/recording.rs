@@ -118,7 +118,7 @@ fn glyph_recording_outside_transform(ctx: &mut impl Renderer) {
 }
 
 #[vello_test(width = 1, height = 1, no_ref)]
-fn executing_recording_with_different_transform_crashes(ctx: &mut impl Renderer) {
+fn recording_without_identical_transform_crashes(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::translate((0., 1.)));
     let mut recording = Recording::new();
     ctx.record(&mut recording, |ctx| {});
@@ -187,4 +187,25 @@ fn recording_can_be_repeatedly_executed_in_layers(ctx: &mut impl Renderer) {
         ctx.execute_recording(&recording);
         ctx.pop_layer();
     }
+}
+
+#[vello_test(width = 100, height = 100)]
+fn recording_can_be_cleared(ctx: &mut impl Renderer) {
+    let mut recording = Recording::new();
+    ctx.set_transform(Affine::translate((1.,1.)));
+    ctx.record(&mut recording, |ctx| {
+        ctx.set_paint(ORANGE);
+        ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+    });
+    ctx.prepare_recording(&mut recording);
+
+    recording.clear();
+
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.record(&mut recording, |ctx| {
+        ctx.set_paint(GREEN);
+        ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+    });
+    ctx.prepare_recording(&mut recording);
+    ctx.execute_recording(&recording);
 }
