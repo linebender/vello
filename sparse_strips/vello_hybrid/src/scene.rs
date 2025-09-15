@@ -17,7 +17,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
 use vello_common::strip::Strip;
-use vello_common::strip_generator::StripGenerator;
+use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -47,7 +47,6 @@ struct RenderState {
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
     pub(crate) blend_mode: BlendMode,
-    pub(crate) alphas: Vec<u8>,
 }
 
 /// A render context for hybrid CPU/GPU rendering.
@@ -69,6 +68,7 @@ pub struct Scene {
     pub(crate) fill_rule: Fill,
     pub(crate) blend_mode: BlendMode,
     pub(crate) strip_generator: StripGenerator,
+    pub(crate) strip_storage: StripStorage,
 }
 
 impl Scene {
@@ -91,6 +91,7 @@ impl Scene {
             paint_visible: true,
             stroke: render_state.stroke,
             strip_generator: StripGenerator::new(width, height, settings.level),
+            strip_storage: StripStorage::default(),
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
             blend_mode: render_state.blend_mode,
@@ -118,7 +119,6 @@ impl Scene {
             paint_transform,
             stroke,
             blend_mode,
-            alphas: vec![],
         }
     }
 
@@ -162,14 +162,14 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
-        let func = |strips| wide.generate(strips, paint, 0);
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
             transform,
             aliasing_threshold,
-            func,
+            &mut self.strip_storage,
         );
+        wide.generate(&self.strip_storage.strips, paint, 0);
     }
 
     /// Stroke a path with the current paint and stroke settings.
@@ -191,14 +191,16 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
-        let func = |strips| wide.generate(strips, paint, 0);
+
         self.strip_generator.generate_stroked_path(
             path,
             &self.stroke,
             transform,
             aliasing_threshold,
-            func,
+            &mut self.strip_storage,
         );
+
+        wide.generate(&self.strip_storage.strips, paint, 0);
     }
 
     /// Set the aliasing threshold.
@@ -242,17 +244,15 @@ impl Scene {
         mask: Option<Mask>,
     ) {
         let clip = if let Some(c) = clip_path {
-            let mut strip_buf = &[][..];
-
             self.strip_generator.generate_filled_path(
                 c,
                 self.fill_rule,
                 self.transform,
                 self.aliasing_threshold,
-                |strips| strip_buf = strips,
+                &mut self.strip_storage,
             );
 
-            Some(strip_buf)
+            Some(self.strip_storage.strips.as_slice())
         } else {
             None
         };
@@ -336,6 +336,7 @@ impl Scene {
     pub fn reset(&mut self) {
         self.wide.reset();
         self.strip_generator.reset();
+        self.strip_storage.clear();
         self.encoded_paints.clear();
 
         let render_state = Self::default_render_state();
@@ -396,9 +397,9 @@ impl GlyphRenderer for Scene {
 impl Recordable for Scene {
     fn prepare_recording(&mut self, recording: &mut Recording) {
         let buffers = recording.take_cached_strips();
-        let (strips, alphas, strip_start_indices) =
+        let (strip_storage, strip_start_indices) =
             self.generate_strips_from_commands(recording.commands(), buffers);
-        recording.set_cached_strips(strips, alphas, strip_start_indices);
+        recording.set_cached_strips(strip_storage, strip_start_indices);
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
@@ -470,45 +471,79 @@ impl Scene {
     fn generate_strips_from_commands(
         &mut self,
         commands: &[RenderCommand],
-        buffers: (Vec<Strip>, Vec<u8>, Vec<usize>),
-    ) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
-        let (mut collected_strips, mut cached_alphas, mut strip_start_indices) = buffers;
-        collected_strips.clear();
-        cached_alphas.clear();
+        buffers: (StripStorage, Vec<usize>),
+    ) -> (StripStorage, Vec<usize>) {
+        let (mut strip_storage, mut strip_start_indices) = buffers;
+        strip_storage.clear();
+        strip_storage.set_generation_mode(GenerationMode::Append);
         strip_start_indices.clear();
 
-        let saved_state = self.take_current_state(cached_alphas);
+        let saved_state = self.take_current_state();
 
         for command in commands {
-            let start_index = collected_strips.len();
+            let start_index = strip_storage.strips.len();
 
             match command {
                 RenderCommand::FillPath(path) => {
-                    self.generate_fill_strips(path, &mut collected_strips, self.transform);
+                    self.strip_generator.generate_filled_path(
+                        path,
+                        self.fill_rule,
+                        self.transform,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokePath(path) => {
-                    self.generate_stroke_strips(path, &mut collected_strips, self.transform);
+                    self.strip_generator.generate_stroked_path(
+                        path,
+                        &self.stroke,
+                        self.transform,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::FillRect(rect) => {
-                    let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_fill_strips(&path, &mut collected_strips, self.transform);
+                    self.strip_generator.generate_filled_path(
+                        rect.to_path(DEFAULT_TOLERANCE),
+                        self.fill_rule,
+                        self.transform,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokeRect(rect) => {
-                    let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_stroke_strips(&path, &mut collected_strips, self.transform);
+                    self.strip_generator.generate_stroked_path(
+                        rect.to_path(DEFAULT_TOLERANCE),
+                        &self.stroke,
+                        self.transform,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::FillOutlineGlyph((path, transform)) => {
                     let glyph_transform = self.transform * *transform;
-                    self.generate_fill_strips(path, &mut collected_strips, glyph_transform);
+                    self.strip_generator.generate_filled_path(
+                        path,
+                        self.fill_rule,
+                        glyph_transform,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokeOutlineGlyph((path, transform)) => {
                     let glyph_transform = self.transform * *transform;
-                    self.generate_stroke_strips(path, &mut collected_strips, glyph_transform);
+                    self.strip_generator.generate_stroked_path(
+                        path,
+                        &self.stroke,
+                        glyph_transform,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
+                    );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::SetTransform(transform) => {
@@ -520,14 +555,14 @@ impl Scene {
                 RenderCommand::SetStroke(stroke) => {
                     self.stroke = stroke.clone();
                 }
+
                 _ => {}
             }
         }
 
-        let collected_alphas = self.strip_generator.take_alpha_buf();
         self.restore_state(saved_state);
 
-        (collected_strips, collected_alphas, strip_start_indices)
+        (strip_storage, strip_start_indices)
     }
 
     fn process_geometry_command(
@@ -567,9 +602,9 @@ impl Scene {
         cached_alphas: &[u8],
     ) -> Vec<Strip> {
         // Calculate offset for alpha indices based on current buffer size.
-        let alpha_offset = self.strip_generator.alpha_buf().len() as u32;
+        let alpha_offset = self.strip_storage.alphas.len() as u32;
         // Extend current alpha buffer with cached alphas.
-        self.strip_generator.extend_alpha_buf(cached_alphas);
+        self.strip_storage.alphas.extend(cached_alphas);
         // Create adjusted strips with corrected alpha indices
         cached_strips
             .iter()
@@ -581,39 +616,8 @@ impl Scene {
             .collect()
     }
 
-    /// Generate strips for a filled path.
-    fn generate_fill_strips(&mut self, path: &BezPath, strips: &mut Vec<Strip>, transform: Affine) {
-        self.strip_generator.generate_filled_path(
-            path,
-            self.fill_rule,
-            transform,
-            self.aliasing_threshold,
-            |generated_strips| {
-                strips.extend_from_slice(generated_strips);
-            },
-        );
-    }
-
-    /// Generate strips for a stroked path.
-    fn generate_stroke_strips(
-        &mut self,
-        path: &BezPath,
-        strips: &mut Vec<Strip>,
-        transform: Affine,
-    ) {
-        self.strip_generator.generate_stroked_path(
-            path,
-            &self.stroke,
-            transform,
-            self.aliasing_threshold,
-            |generated_strips| {
-                strips.extend_from_slice(generated_strips);
-            },
-        );
-    }
-
     /// Save current rendering state.
-    fn take_current_state(&mut self, cached_alphas: Vec<u8>) -> RenderState {
+    fn take_current_state(&mut self) -> RenderState {
         RenderState {
             paint: self.paint.clone(),
             paint_transform: self.paint_transform,
@@ -621,7 +625,6 @@ impl Scene {
             fill_rule: self.fill_rule,
             blend_mode: self.blend_mode,
             stroke: core::mem::take(&mut self.stroke),
-            alphas: self.strip_generator.replace_alpha_buf(cached_alphas),
         }
     }
 
@@ -633,6 +636,5 @@ impl Scene {
         self.transform = state.transform;
         self.fill_rule = state.fill_rule;
         self.blend_mode = state.blend_mode;
-        self.strip_generator.set_alpha_buf(state.alphas);
     }
 }

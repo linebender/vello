@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
-use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
+use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use vello_common::mask::Mask;
 #[cfg(feature = "text")]
 use vello_common::paint::ImageSource;
@@ -28,7 +28,7 @@ use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
 use vello_common::strip::Strip;
-use vello_common::strip_generator::StripGenerator;
+use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 #[cfg(feature = "text")]
 use vello_common::{
     color::{AlphaColor, Srgb},
@@ -36,7 +36,6 @@ use vello_common::{
     glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph},
 };
 
-pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// A render context.
 #[derive(Debug)]
 pub struct RenderContext {
@@ -191,10 +190,18 @@ impl RenderContext {
 
     /// Fill a rectangle.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        // Don't use `rect.to_path` here, because it will perform a new allocation, which
-        // profiling showed can become a bottleneck for many small rectangles.
-        // TODO: Generalize this so that for example `blurred_rectangle` and other places
-        // can also profit from this.
+        self.rect_to_temp_path(rect);
+        let paint = self.encode_current_paint();
+        self.dispatcher.fill_path(
+            &self.temp_path,
+            self.fill_rule,
+            self.transform,
+            paint,
+            self.aliasing_threshold,
+        );
+    }
+
+    fn rect_to_temp_path(&mut self, rect: &Rect) {
         self.temp_path.truncate(0);
         self.temp_path
             .push(PathEl::MoveTo(Point::new(rect.x0, rect.y0)));
@@ -205,15 +212,6 @@ impl RenderContext {
         self.temp_path
             .push(PathEl::LineTo(Point::new(rect.x0, rect.y1)));
         self.temp_path.push(PathEl::ClosePath);
-
-        let paint = self.encode_current_paint();
-        self.dispatcher.fill_path(
-            &self.temp_path,
-            self.fill_rule,
-            self.transform,
-            paint,
-            self.aliasing_threshold,
-        );
     }
 
     /// Fill a blurred rectangle with the given radius and standard deviation.
@@ -242,9 +240,11 @@ impl RenderContext {
         let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
         let transform = self.transform * self.paint_transform;
 
+        self.rect_to_temp_path(&inflated_rect);
+
         let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform);
         self.dispatcher.fill_path(
-            &inflated_rect.to_path(0.1),
+            &self.temp_path,
             Fill::NonZero,
             self.transform,
             paint,
@@ -254,7 +254,15 @@ impl RenderContext {
 
     /// Stroke a rectangle.
     pub fn stroke_rect(&mut self, rect: &Rect) {
-        self.stroke_path(&rect.to_path(DEFAULT_TOLERANCE));
+        self.rect_to_temp_path(rect);
+        let paint = self.encode_current_paint();
+        self.dispatcher.stroke_path(
+            &self.temp_path,
+            &self.stroke,
+            self.transform,
+            paint,
+            self.aliasing_threshold,
+        );
     }
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
@@ -635,9 +643,9 @@ impl ColrRenderer for RenderContext {
 impl Recordable for RenderContext {
     fn prepare_recording(&mut self, recording: &mut Recording) {
         let buffers = recording.take_cached_strips();
-        let (strips, alphas, strip_start_indices) =
+        let (strip_storage, strip_start_indices) =
             self.generate_strips_from_commands(recording.commands(), buffers);
-        recording.set_cached_strips(strips, alphas, strip_start_indices);
+        recording.set_cached_strips(strip_storage, strip_start_indices);
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
@@ -713,7 +721,6 @@ struct RenderState {
     stroke: Stroke,
     paint: PaintType,
     paint_transform: Affine,
-    alphas: Vec<u8>,
 }
 
 /// Recording management implementation.
@@ -727,78 +734,84 @@ impl RenderContext {
     fn generate_strips_from_commands(
         &mut self,
         commands: &[RenderCommand],
-        buffers: (Vec<Strip>, Vec<u8>, Vec<usize>),
-    ) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
-        let (mut collected_strips, mut cached_alphas, mut strip_start_indices) = buffers;
-        collected_strips.clear();
-        cached_alphas.clear();
+        buffers: (StripStorage, Vec<usize>),
+    ) -> (StripStorage, Vec<usize>) {
+        let (mut strip_storage, mut strip_start_indices) = buffers;
+        strip_storage.clear();
+        strip_storage.set_generation_mode(GenerationMode::Append);
         strip_start_indices.clear();
 
-        let saved_state = self.take_current_state(cached_alphas);
+        let saved_state = self.take_current_state();
         let mut strip_generator =
             StripGenerator::new(self.width, self.height, self.render_settings.level);
 
         for command in commands {
-            let start_index = collected_strips.len();
+            let start_index = strip_storage.strips.len();
 
             match command {
                 RenderCommand::FillPath(path) => {
-                    self.generate_fill_strips(
+                    strip_generator.generate_filled_path(
                         path,
-                        &mut collected_strips,
+                        self.fill_rule,
                         self.transform,
-                        &mut strip_generator,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
                     );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokePath(path) => {
-                    self.generate_stroke_strips(
+                    strip_generator.generate_stroked_path(
                         path,
-                        &mut collected_strips,
+                        &self.stroke,
                         self.transform,
-                        &mut strip_generator,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
                     );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::FillRect(rect) => {
-                    let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_fill_strips(
-                        &path,
-                        &mut collected_strips,
+                    self.rect_to_temp_path(rect);
+                    strip_generator.generate_filled_path(
+                        &self.temp_path,
+                        self.fill_rule,
                         self.transform,
-                        &mut strip_generator,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
                     );
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::StrokeRect(rect) => {
-                    let path = rect.to_path(DEFAULT_TOLERANCE);
-                    self.generate_stroke_strips(
-                        &path,
-                        &mut collected_strips,
+                    self.rect_to_temp_path(rect);
+                    strip_generator.generate_stroked_path(
+                        &self.temp_path,
+                        &self.stroke,
                         self.transform,
-                        &mut strip_generator,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
                     );
                     strip_start_indices.push(start_index);
                 }
                 #[cfg(feature = "text")]
                 RenderCommand::FillOutlineGlyph((path, transform)) => {
                     let glyph_transform = self.transform * *transform;
-                    self.generate_fill_strips(
+                    strip_generator.generate_filled_path(
                         path,
-                        &mut collected_strips,
+                        self.fill_rule,
                         glyph_transform,
-                        &mut strip_generator,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
                     );
                     strip_start_indices.push(start_index);
                 }
                 #[cfg(feature = "text")]
                 RenderCommand::StrokeOutlineGlyph((path, transform)) => {
                     let glyph_transform = self.transform * *transform;
-                    self.generate_stroke_strips(
+                    strip_generator.generate_stroked_path(
                         path,
-                        &mut collected_strips,
+                        &self.stroke,
                         glyph_transform,
-                        &mut strip_generator,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -816,10 +829,9 @@ impl RenderContext {
             }
         }
 
-        let collected_alphas = strip_generator.take_alpha_buf();
         self.restore_state(saved_state);
 
-        (collected_strips, collected_alphas, strip_start_indices)
+        (strip_storage, strip_start_indices)
     }
 }
 
@@ -857,9 +869,14 @@ impl RenderContext {
         cached_alphas: &[u8],
     ) -> Vec<Strip> {
         // Calculate offset for alpha indices based on current dispatcher's alpha buffer size.
-        let alpha_offset = self.dispatcher.alpha_buf().len() as u32;
-        // Extend the dispatcher's alpha buffer with cached alphas.
-        self.dispatcher.extend_alpha_buf(cached_alphas);
+        let alpha_offset = {
+            let storage = self.dispatcher.strip_storage_mut();
+            let offset = storage.alphas.len() as u32;
+            // Extend the dispatcher's alpha buffer with cached alphas.
+            storage.alphas.extend(cached_alphas);
+
+            offset
+        };
         // Create adjusted strips with corrected alpha indices.
         cached_strips
             .iter()
@@ -871,53 +888,14 @@ impl RenderContext {
             .collect()
     }
 
-    /// Generate strips for a filled path.
-    fn generate_fill_strips(
-        &mut self,
-        path: &BezPath,
-        strips: &mut Vec<Strip>,
-        transform: Affine,
-        strip_generator: &mut StripGenerator,
-    ) {
-        strip_generator.generate_filled_path(
-            path,
-            self.fill_rule,
-            transform,
-            self.aliasing_threshold,
-            |generated_strips| {
-                strips.extend_from_slice(generated_strips);
-            },
-        );
-    }
-
-    /// Generate strips for a stroked path.
-    fn generate_stroke_strips(
-        &mut self,
-        path: &BezPath,
-        strips: &mut Vec<Strip>,
-        transform: Affine,
-        strip_generator: &mut StripGenerator,
-    ) {
-        strip_generator.generate_stroked_path(
-            path,
-            &self.stroke,
-            transform,
-            self.aliasing_threshold,
-            |generated_strips| {
-                strips.extend_from_slice(generated_strips);
-            },
-        );
-    }
-
     /// Save the current rendering state.
-    fn take_current_state(&mut self, alphas: Vec<u8>) -> RenderState {
+    fn take_current_state(&mut self) -> RenderState {
         RenderState {
             paint: self.paint.clone(),
             paint_transform: self.paint_transform,
             transform: self.transform,
             fill_rule: self.fill_rule,
             stroke: core::mem::take(&mut self.stroke),
-            alphas: self.dispatcher.replace_alpha_buf(alphas),
         }
     }
 
@@ -928,7 +906,6 @@ impl RenderContext {
         self.stroke = state.stroke;
         self.paint = state.paint;
         self.paint_transform = state.paint_transform;
-        self.dispatcher.set_alpha_buf(state.alphas);
     }
 }
 
