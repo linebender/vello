@@ -204,9 +204,10 @@ impl ApplicationHandler for App<'_> {
                 }
                 Key::Character(ch) => {
                     if let Some(scene) = self.scenes.get_mut(self.current_scene)
-                        && scene.handle_key(ch.as_str()) {
-                            window.request_redraw();
-                        }
+                        && scene.handle_key(ch.as_str())
+                    {
+                        window.request_redraw();
+                    }
                 }
                 _ => {}
             },

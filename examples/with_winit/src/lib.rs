@@ -412,16 +412,16 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                             ..
                         }) = &self.state
                             && *valid_surface
-                                && touch.location.y > surface.config.height as f64 * 2. / 3.
-                            {
-                                self.navigation_fingers.insert(touch.id);
-                                // The left third of the navigation zone navigates backwards
-                                if touch.location.x < surface.config.width as f64 / 3. {
-                                    self.scene_ix = self.scene_ix.saturating_sub(1);
-                                } else if touch.location.x > 2. * surface.config.width as f64 / 3. {
-                                    self.scene_ix = self.scene_ix.saturating_add(1);
-                                }
+                            && touch.location.y > surface.config.height as f64 * 2. / 3.
+                        {
+                            self.navigation_fingers.insert(touch.id);
+                            // The left third of the navigation zone navigates backwards
+                            if touch.location.x < surface.config.width as f64 / 3. {
+                                self.scene_ix = self.scene_ix.saturating_sub(1);
+                            } else if touch.location.x > 2. * surface.config.width as f64 / 3. {
+                                self.scene_ix = self.scene_ix.saturating_add(1);
                             }
+                        }
                     }
                     TouchPhase::Ended | TouchPhase::Cancelled => {
                         // We intentionally ignore the result here
@@ -484,9 +484,10 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                     y: position.y,
                 };
                 if self.mouse_down
-                    && let Some(prior) = self.prior_position {
-                        self.transform = self.transform.then_translate(position - prior);
-                    }
+                    && let Some(prior) = self.prior_position
+                {
+                    self.transform = self.transform.then_translate(position - prior);
+                }
                 self.prior_position = Some(position);
             }
             WindowEvent::RedrawRequested => {
@@ -577,10 +578,10 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                         .and_then(|renderer| renderer.profile_result.take())
                         && (self.profile_stored.is_none()
                             || self.profile_taken.elapsed() > Duration::from_secs(1))
-                        {
-                            self.profile_stored = Some(profiling_result);
-                            self.profile_taken = Instant::now();
-                        }
+                    {
+                        self.profile_stored = Some(profiling_result);
+                        self.profile_taken = Instant::now();
+                    }
                     #[cfg(feature = "wgpu-profiler")]
                     if let Some(profiling_result) = self.profile_stored.as_ref() {
                         stats::draw_gpu_profiling(

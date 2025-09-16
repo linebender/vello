@@ -218,24 +218,16 @@ fn intersect_impl<S: Simd>(
                         // fill.
                         (Region::Fill(_), Region::Fill(_)) => {
                             flush_strip(&mut strip_state, &mut target.strips, cur_y);
-                            start_strip(&mut strip_state, &mut target.alphas, overlap.end, true);
+                            start_strip(&mut strip_state, &target.alphas, overlap.end, true);
                         }
                         // One fill one strip, so we simply use the alpha mask from the strip region.
                         (Region::Strip(s), Region::Fill(_))
                         | (Region::Fill(_), Region::Strip(s)) => {
                             // If possible, don't create a new strip but just extend the current one.
-                            if should_create_new_strip(
-                                &strip_state,
-                                &mut target.alphas,
-                                overlap.start,
-                            ) {
+                            if should_create_new_strip(&strip_state, &target.alphas, overlap.start)
+                            {
                                 flush_strip(&mut strip_state, &mut target.strips, cur_y);
-                                start_strip(
-                                    &mut strip_state,
-                                    &mut target.alphas,
-                                    overlap.start,
-                                    false,
-                                );
+                                start_strip(&mut strip_state, &target.alphas, overlap.start, false);
                             }
 
                             let s_alphas = &s.alphas[(overlap.start - s.start) as usize * 4..]
@@ -245,18 +237,10 @@ fn intersect_impl<S: Simd>(
                         // Two strips, we need to multiply the opacitie masks from both paths.
                         (Region::Strip(s_region_1), Region::Strip(s_region_2)) => {
                             // Once again, only create a new strip if we can't extend the current one.
-                            if should_create_new_strip(
-                                &strip_state,
-                                &mut target.alphas,
-                                overlap.start,
-                            ) {
+                            if should_create_new_strip(&strip_state, &target.alphas, overlap.start)
+                            {
                                 flush_strip(&mut strip_state, &mut target.strips, cur_y);
-                                start_strip(
-                                    &mut strip_state,
-                                    &mut target.alphas,
-                                    overlap.start,
-                                    false,
-                                );
+                                start_strip(&mut strip_state, &target.alphas, overlap.start, false);
                             }
 
                             let num_blocks = overlap.width() / Tile::HEIGHT;
