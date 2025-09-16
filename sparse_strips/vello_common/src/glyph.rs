@@ -658,6 +658,7 @@ mod tests {
 }
 
 /// Caches used for glyph rendering.
+// TODO: Consider capturing cache performance metrics like hit rate, etc.
 #[derive(Debug, Default)]
 pub struct GlyphCaches {
     outline_cache: OutlineCache,
