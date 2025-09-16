@@ -13,7 +13,7 @@ use crate::{flatten, strip};
 use alloc::vec::Vec;
 
 /// A storage for storing strip-related data.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct StripStorage {
     /// The strips in the storage.
     pub strips: Vec<Strip>,
@@ -48,12 +48,18 @@ impl StripStorage {
     pub fn is_empty(&self) -> bool {
         self.strips.is_empty() && self.alphas.is_empty()
     }
+
+    /// Extend the current strip storage with the data from another storage.
+    pub fn extend(&mut self, other: &StripStorage) {
+        self.strips.extend(&other.strips);
+        self.alphas.extend(&other.alphas);
+    }
 }
 
 /// An object for easily generating strips for a filled/stroked path.
 #[derive(Debug)]
 pub struct StripGenerator {
-    level: Level,
+    pub(crate) level: Level,
     line_buf: Vec<Line>,
     flatten_ctx: FlattenCtx,
     tiles: Tiles,
