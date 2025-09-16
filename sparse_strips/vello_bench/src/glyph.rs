@@ -13,7 +13,7 @@ use vello_common::glyph::{Glyph, GlyphCaches, GlyphRunBuilder};
 use vello_common::glyph::{GlyphRenderer, GlyphType};
 use vello_common::kurbo::Affine;
 use vello_common::peniko::Fill;
-use vello_common::strip_generator::StripGenerator;
+use vello_common::strip_generator::{StripGenerator, StripStorage};
 
 pub fn glyph(c: &mut Criterion) {
     let mut g = c.benchmark_group("glyph");
@@ -27,6 +27,7 @@ pub fn glyph(c: &mut Criterion) {
             HEIGHT,
             Level::try_detect().unwrap_or(Level::fallback()),
         ),
+        strip_storage: StripStorage::default(),
         glyph_caches: Default::default(),
     };
 
@@ -49,8 +50,17 @@ pub fn glyph(c: &mut Criterion) {
             let layout = layout_for(TEXT, 1.0);
             render_layout(&mut renderer, &layout, hint);
 
-            b.iter(|| {
-                render_layout(&mut renderer, &layout, hint);
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::from_nanos(0);
+                for _ in 0..iters {
+                    // Don't include `clear` time in the benchmark.
+                    renderer.strip_storage.clear();
+
+                    let start = Instant::now();
+                    render_layout(&mut renderer, &layout, hint);
+                    total_time += start.elapsed();
+                }
+                total_time
             });
         });
 
@@ -62,6 +72,7 @@ pub fn glyph(c: &mut Criterion) {
                 for _ in 0..iters {
                     // Don't include `clear` time in the benchmark.
                     renderer.glyph_caches.as_mut().unwrap().clear();
+                    renderer.strip_storage.clear();
 
                     let start = Instant::now();
                     render_layout(&mut renderer, &layout, hint);
@@ -100,6 +111,7 @@ struct Brush {}
 
 struct GlyphBenchRenderer {
     strip_generator: StripGenerator,
+    strip_storage: StripStorage,
     glyph_caches: Option<GlyphCaches>,
 }
 
@@ -119,9 +131,7 @@ impl GlyphRenderer for GlyphBenchRenderer {
                     Fill::NonZero,
                     glyph.transform,
                     Some(128),
-                    |strips| {
-                        black_box(strips);
-                    },
+                    &mut self.strip_storage,
                 );
             }
             GlyphType::Bitmap(_) => {}

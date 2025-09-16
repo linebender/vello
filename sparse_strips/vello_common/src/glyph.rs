@@ -194,6 +194,7 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         let color_glyphs = font_ref.color_glyphs();
         let bitmaps = font_ref.bitmap_strikes();
 
+        // TODO: Consider using a drop guard so that panics return the caches to the renderer.
         let GlyphCaches {
             mut hinting_cache,
             mut outline_cache,
