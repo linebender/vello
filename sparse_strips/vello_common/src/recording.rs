@@ -84,7 +84,7 @@ pub struct Recording {
     commands: Vec<RenderCommand>,
     /// Cached sparse strips.
     cached_strips: CachedStrips,
-    /// Last recorded transform.
+    /// Track the transform of the underlying rasterization context.
     transform: Affine,
 }
 
@@ -147,13 +147,8 @@ impl Recording {
     }
 
     /// Set the transform.
-    pub fn set_transform(&mut self, transform: Affine) {
+    pub(crate) fn set_transform(&mut self, transform: Affine) {
         self.transform = transform;
-    }
-
-    /// Get the current transform.
-    pub fn transform(&self) -> Affine {
-        self.transform
     }
 
     /// Get commands as a slice.
@@ -276,11 +271,7 @@ pub trait Recordable {
     /// ```
     fn record<F>(&mut self, recording: &mut Recording, f: F)
     where
-        F: FnOnce(&mut Recorder<'_>),
-    {
-        let mut recorder = Recorder::new(recording);
-        f(&mut recorder);
-    }
+        F: FnOnce(&mut Recorder<'_>);
 
     /// Generate sparse strips for a recording.
     ///
@@ -335,8 +326,11 @@ pub struct Recorder<'a> {
 
 impl<'a> Recorder<'a> {
     /// Create a new recorder for the given recording.
-    pub fn new(recording: &'a mut Recording) -> Self {
-        Self { recording }
+    pub fn new(recording: &'a mut Recording, transform: Affine) -> Self {
+        let mut s = Self { recording };
+        // Ensure that the initial transform is saved on the recording.
+        s.set_transform(transform);
+        s
     }
 
     /// Fill a path with current paint and fill rule.
@@ -363,6 +357,7 @@ impl<'a> Recorder<'a> {
 
     /// Set the transform for subsequent operations.
     pub fn set_transform(&mut self, transform: Affine) {
+        self.recording.set_transform(transform);
         self.recording
             .add_command(RenderCommand::SetTransform(transform));
     }

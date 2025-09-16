@@ -26,7 +26,7 @@ use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
-use vello_common::recording::{PushLayerCommand, Recordable, Recording, RenderCommand};
+use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 #[cfg(feature = "text")]
@@ -641,6 +641,14 @@ impl ColrRenderer for RenderContext {
 }
 
 impl Recordable for RenderContext {
+    fn record<F>(&mut self, recording: &mut Recording, f: F)
+    where
+        F: FnOnce(&mut Recorder<'_>),
+    {
+        let mut recorder = Recorder::new(recording, self.transform);
+        f(&mut recorder);
+    }
+
     fn prepare_recording(&mut self, recording: &mut Recording) {
         let buffers = recording.take_cached_strips();
         let (strip_storage, strip_start_indices) =
@@ -792,24 +800,22 @@ impl RenderContext {
                     strip_start_indices.push(start_index);
                 }
                 #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph((path, transform)) => {
-                    let glyph_transform = self.transform * *transform;
+                RenderCommand::FillOutlineGlyph((path, glyph_transform)) => {
                     strip_generator.generate_filled_path(
                         path,
                         self.fill_rule,
-                        glyph_transform,
+                        *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
                     );
                     strip_start_indices.push(start_index);
                 }
                 #[cfg(feature = "text")]
-                RenderCommand::StrokeOutlineGlyph((path, transform)) => {
-                    let glyph_transform = self.transform * *transform;
+                RenderCommand::StrokeOutlineGlyph((path, glyph_transform)) => {
                     strip_generator.generate_stroked_path(
                         path,
                         &self.stroke,
-                        glyph_transform,
+                        *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
                     );
@@ -853,6 +859,10 @@ impl RenderContext {
             .copied()
             .unwrap_or(adjusted_strips.len());
         let count = end - start;
+        if count == 0 {
+            // There are no strips to generate.
+            return;
+        }
         assert!(
             start < adjusted_strips.len() && count > 0,
             "Invalid strip range"
