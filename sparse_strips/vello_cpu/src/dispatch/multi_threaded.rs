@@ -254,6 +254,9 @@ impl MultiThreadedDispatcher {
         let task_sender = self.task_sender.as_mut().unwrap();
         let task = RenderTask {
             idx: task_idx,
+            // TODO: Explore whether the main thread can hold a store of previous allocations so
+            // we can reuse them. Same for the strips that are returned from
+            // a child thread.
             path: path.into(),
             tasks: tasks.into(),
         };
