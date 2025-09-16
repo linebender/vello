@@ -55,7 +55,6 @@ pub struct RenderContext {
     )]
     pub(crate) render_settings: RenderSettings,
     dispatcher: Box<dyn Dispatcher>,
-
     #[cfg(feature = "text")]
     pub(crate) glyph_caches: Option<vello_common::glyph::GlyphCaches>,
 }
