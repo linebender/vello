@@ -588,6 +588,10 @@ impl Scene {
             .copied()
             .unwrap_or(adjusted_strips.len());
         let count = end - start;
+        if count == 0 {
+            // There are no strips to generate.
+            return;
+        }
         assert!(
             start < adjusted_strips.len() && count > 0,
             "Invalid strip range: start={start}, end={end}, count={count}"
