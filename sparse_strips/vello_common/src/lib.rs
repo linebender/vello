@@ -62,6 +62,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod blurred_rounded_rect;
+pub mod clip;
 pub mod coarse;
 #[cfg(feature = "text")]
 pub mod colr;

@@ -6,6 +6,7 @@ use crate::dispatch::multi_threaded::{
     CoarseTask, CoarseTaskSender, CoarseTaskType, RenderTask, RenderTaskType,
 };
 use std::vec::Vec;
+use vello_common::clip::PathDataRef;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
 #[derive(Debug)]
@@ -49,6 +50,10 @@ impl Worker {
         self.strip_storage
             .set_generation_mode(GenerationMode::Append);
         let task_idx = render_task.idx;
+        let path_clip = render_task.clip_path.as_ref().map(|c| PathDataRef {
+            strips: c.strips.as_ref(),
+            alphas: c.alphas.as_ref(),
+        });
 
         for task in render_task
             .allocation_group
@@ -74,6 +79,7 @@ impl Worker {
                         transform,
                         aliasing_threshold,
                         &mut self.strip_storage,
+                        path_clip,
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
@@ -107,6 +113,7 @@ impl Worker {
                         transform,
                         aliasing_threshold,
                         &mut self.strip_storage,
+                        path_clip,
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
@@ -141,6 +148,7 @@ impl Worker {
                             transform,
                             aliasing_threshold,
                             &mut self.strip_storage,
+                            path_clip,
                         );
 
                         let end = self.strip_storage.strips.len() as u32;

@@ -21,6 +21,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
+use vello_common::clip::ClipContext;
 use vello_common::coarse::{Cmd, MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
@@ -49,6 +50,7 @@ type CoarseTaskReceiver = ordered_channel::Receiver<CoarseTask>;
 pub(crate) struct MultiThreadedDispatcher {
     /// The wide tile container.
     wide: Wide,
+    clip_context: ClipContext,
     /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
     allocation_group: AllocationGroup,
@@ -141,6 +143,7 @@ impl MultiThreadedDispatcher {
             task_idx,
             flushed,
             workers,
+            clip_context: ClipContext::new(),
             task_sender: None,
             coarse_task_receiver: None,
             strip_generator: StripGenerator::new(width, height, level),
@@ -248,8 +251,13 @@ impl MultiThreadedDispatcher {
         let allocation_group =
             std::mem::replace(&mut self.allocation_group, self.allocations.get());
         let task_sender = self.task_sender.as_mut().unwrap();
+        let clip_path = self.clip_context.get().map(|c| OwnedClip {
+            strips: c.strips.into(),
+            alphas: c.alphas.into(),
+        });
         let task = RenderTask {
             idx: task_idx,
+            clip_path,
             allocation_group,
         };
         task_sender.send(task).unwrap();
@@ -462,6 +470,7 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn reset(&mut self) {
         self.wide.reset();
+        self.clip_context.reset();
         self.allocation_group.clear();
         self.batch_cost = 0.0;
         self.task_idx = 0;
@@ -554,12 +563,40 @@ impl Dispatcher for MultiThreadedDispatcher {
     fn strip_storage_mut(&mut self) -> &mut StripStorage {
         &mut self.strip_storage
     }
+
+    fn push_clip_path(
+        &mut self,
+        path: &BezPath,
+        fill_rule: Fill,
+        transform: Affine,
+        aliasing_threshold: Option<u8>,
+    ) {
+        self.flush_tasks();
+        self.clip_context.push_clip(
+            path,
+            &mut self.strip_generator,
+            fill_rule,
+            transform,
+            aliasing_threshold,
+        );
+    }
+
+    fn pop_clip_path(&mut self) {
+        self.flush_tasks();
+        self.clip_context.pop_clip();
+    }
 }
 
 impl Debug for MultiThreadedDispatcher {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.write_str("MultiThreadedDispatcher { .. }")
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct OwnedClip {
+    strips: Box<[Strip]>,
+    alphas: Box<[u8]>,
 }
 
 /// A structure that allows storing and fetching existing allocations.
@@ -651,6 +688,7 @@ impl AllocationGroup {
 #[derive(Debug)]
 pub(crate) struct RenderTask {
     pub(crate) idx: u32,
+    pub(crate) clip_path: Option<OwnedClip>,
     pub(crate) allocation_group: AllocationGroup,
 }
 
