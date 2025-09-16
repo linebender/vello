@@ -10,7 +10,6 @@ use crate::{AaConfig, RenderParams};
 #[cfg(feature = "wgpu")]
 use crate::Scene;
 
-use peniko::ImageAlphaType;
 use vello_encoding::{Encoding, Resolver, WorkgroupSize, make_mask_lut, make_mask_lut_16};
 
 /// State for a render in progress.
@@ -156,7 +155,7 @@ impl Render {
             if image.0.format != peniko::ImageFormat::Rgba8 {
                 unimplemented!("Unsupported image format: {:?}", image.0.format);
             }
-            if image.0.alpha_type != peniko::ImageAlphaType::AlphaPremultiplied {
+            if image.0.alpha_type != peniko::ImageAlphaType::Alpha {
                 unimplemented!("Unsupported image alpha type: {:?}", image.0.alpha_type);
             }
             recording.write_image(image_atlas, image.1, image.2, image.0.clone());

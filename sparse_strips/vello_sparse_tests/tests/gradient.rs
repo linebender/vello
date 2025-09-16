@@ -864,8 +864,8 @@ mod sweep {
         let gradient = Gradient {
             kind: GradientKind::Sweep(SweepGradientPosition {
                 center,
-                start_angle: 0.0_f32,
-                end_angle: 360.0_f32,
+                start_angle: 0.0_f32.to_radians(),
+                end_angle: 360.0_f32.to_radians(),
             }),
             stops,
             ..Default::default()

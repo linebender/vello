@@ -428,7 +428,7 @@ impl Encoding {
         if brush.image.format != peniko::ImageFormat::Rgba8 {
             unimplemented!("Unsupported image format: {:?}", brush.image.format);
         }
-        if brush.image.alpha_type != peniko::ImageAlphaType::AlphaPremultiplied {
+        if brush.image.alpha_type != peniko::ImageAlphaType::Alpha {
             unimplemented!("Unsupported image alpha type: {:?}", brush.image.alpha_type);
         }
         let ImageSampler {

@@ -319,8 +319,8 @@ impl ColorPainter for ColrPainter<'_> {
                 let grad = Gradient {
                     kind: GradientKind::Sweep(SweepGradientPosition {
                         center: Point::new(p0.x, -p0.y),
-                        start_angle,
-                        end_angle,
+                        start_angle: start_angle.to_radians(),
+                        end_angle: end_angle.to_radians(),
                     }),
                     stops,
                     extend,
