@@ -5,6 +5,7 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
+use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
@@ -73,6 +74,7 @@ pub struct Scene {
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) wide: Wide<MODE_HYBRID>,
+    clip_context: ClipContext,
     pub(crate) paint: PaintType,
     pub(crate) paint_transform: Affine,
     pub(crate) aliasing_threshold: Option<u8>,
@@ -100,6 +102,7 @@ impl Scene {
             width,
             height,
             wide: Wide::<MODE_HYBRID>::new(width, height),
+            clip_context: ClipContext::new(),
             aliasing_threshold: None,
             paint: render_state.paint,
             paint_transform: render_state.paint_transform,
@@ -185,8 +188,25 @@ impl Scene {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
+            self.clip_context.get(),
         );
         wide.generate(&self.strip_storage.strips, paint, 0);
+    }
+
+    /// Push a new clip path to the clip stack.
+    pub fn push_clip_path(&mut self, path: &BezPath) {
+        self.clip_context.push_clip(
+            path,
+            &mut self.strip_generator,
+            self.fill_rule,
+            self.transform,
+            self.aliasing_threshold,
+        );
+    }
+
+    /// Pop a clip path from the clip stack.
+    pub fn pop_clip_path(&mut self) {
+        self.clip_context.pop_clip();
     }
 
     /// Stroke a path with the current paint and stroke settings.
@@ -215,6 +235,7 @@ impl Scene {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
+            self.clip_context.get(),
         );
 
         wide.generate(&self.strip_storage.strips, paint, 0);
@@ -267,6 +288,7 @@ impl Scene {
                 self.transform,
                 self.aliasing_threshold,
                 &mut self.strip_storage,
+                self.clip_context.get(),
             );
 
             Some(self.strip_storage.strips.as_slice())
@@ -353,6 +375,7 @@ impl Scene {
     pub fn reset(&mut self) {
         self.wide.reset();
         self.strip_generator.reset();
+        self.clip_context.reset();
         self.strip_storage.clear();
         self.encoded_paints.clear();
 
@@ -527,6 +550,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -537,6 +561,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -547,6 +572,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -557,6 +583,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -567,6 +594,7 @@ impl Scene {
                         *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -577,6 +605,7 @@ impl Scene {
                         *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
