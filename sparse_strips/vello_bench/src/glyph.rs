@@ -44,31 +44,33 @@ pub fn glyph(c: &mut Criterion) {
         layout
     };
 
-    g.bench_function("cached", |b| {
-        let layout = layout_for(TEXT, 1.0);
-        render_layout(&mut renderer, &layout);
+    for (hint_name, hint) in [("hinted", true), ("unhinted", false)] {
+        g.bench_function(&format!("cached_{}", hint_name), |b| {
+            let layout = layout_for(TEXT, 1.0);
+            render_layout(&mut renderer, &layout, hint);
 
-        b.iter(|| {
-            render_layout(&mut renderer, &layout);
+            b.iter(|| {
+                render_layout(&mut renderer, &layout, hint);
+            });
         });
-    });
 
-    g.bench_function("uncached", |b| {
-        let layout = layout_for(TEXT, 1.0);
+        g.bench_function(&format!("uncached_{}", hint_name), |b| {
+            let layout = layout_for(TEXT, 1.0);
 
-        b.iter_custom(|iters| {
-            let mut total_time = Duration::from_nanos(0);
-            for _ in 0..iters {
-                // Don't include `clear` time in the benchmark.
-                renderer.glyph_caches.as_mut().unwrap().clear();
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::from_nanos(0);
+                for _ in 0..iters {
+                    // Don't include `clear` time in the benchmark.
+                    renderer.glyph_caches.as_mut().unwrap().clear();
 
-                let start = Instant::now();
-                render_layout(&mut renderer, &layout);
-                total_time += start.elapsed();
-            }
-            total_time
+                    let start = Instant::now();
+                    render_layout(&mut renderer, &layout, hint);
+                    total_time += start.elapsed();
+                }
+                total_time
+            });
         });
-    });
+    }
 
     g.bench_function("maintain", |b| {
         let layouts = (0..10)
@@ -81,7 +83,7 @@ pub fn glyph(c: &mut Criterion) {
                 // Prepopulate cache with enough glyphs to overflow cache bounds.
                 // Don't include prepopulate time in the benchmark.
                 for layout in layouts.iter() {
-                    render_layout(&mut renderer, layout);
+                    render_layout(&mut renderer, layout, true);
                 }
 
                 let start = Instant::now();
@@ -140,17 +142,21 @@ impl GlyphRenderer for GlyphBenchRenderer {
     }
 }
 
-fn render_layout(renderer: &mut GlyphBenchRenderer, layout: &Layout<Brush>) {
+fn render_layout(renderer: &mut GlyphBenchRenderer, layout: &Layout<Brush>, hint: bool) {
     for line in layout.lines() {
         for item in line.items() {
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
-                render_glyph_run(renderer, &glyph_run);
+                render_glyph_run(renderer, &glyph_run, hint);
             }
         }
     }
 }
 
-fn render_glyph_run(renderer: &mut GlyphBenchRenderer, glyph_run: &GlyphRun<'_, Brush>) {
+fn render_glyph_run(
+    renderer: &mut GlyphBenchRenderer,
+    glyph_run: &GlyphRun<'_, Brush>,
+    hint: bool,
+) {
     let mut run_x = glyph_run.offset();
     let run_y = glyph_run.baseline();
     let glyphs = glyph_run.glyphs().map(|glyph| {
@@ -169,6 +175,6 @@ fn render_glyph_run(renderer: &mut GlyphBenchRenderer, glyph_run: &GlyphRun<'_, 
     renderer
         .glyph_run(run.font())
         .font_size(run.font_size())
-        .hint(true)
+        .hint(hint)
         .fill_glyphs(glyphs);
 }
