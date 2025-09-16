@@ -1055,9 +1055,15 @@ fn conv_brush(
             color_stops,
             extend,
         } => Brush::Gradient(
-            Gradient::new_sweep(conv_point(c0), start_angle, end_angle)
-                .with_extend(conv_extend(extend))
-                .with_stops(ColorStopsConverter(color_stops, cpal, foreground_brush)),
+            // TODO: This is upside-down, see
+            // https://github.com/linebender/vello/pull/1221
+            Gradient::new_sweep(
+                conv_point(c0),
+                start_angle.to_radians(),
+                end_angle.to_radians(),
+            )
+            .with_extend(conv_extend(extend))
+            .with_stops(ColorStopsConverter(color_stops, cpal, foreground_brush)),
         ),
     }
 }
