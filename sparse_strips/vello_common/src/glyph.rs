@@ -718,7 +718,14 @@ struct OutlineCache {
 
 impl Debug for OutlineCache {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f, "GlyphCache")
+        f.debug_struct("OutlineCache")
+            .field("free_list", &self.free_list.len())
+            .field("static_map", &self.static_map.len())
+            .field("variable_map", &self.variable_map.len())
+            .field("cached_count", &self.cached_count)
+            .field("serial", &self.serial)
+            .field("last_prune_serial", &self.last_prune_serial)
+            .finish()
     }
 }
 
@@ -915,7 +922,11 @@ struct HintCache {
 
 impl Debug for HintCache {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f, "HintCache")
+        f.debug_struct("HintCache")
+            .field("glyf_entries", &self.glyf_entries.len())
+            .field("cff_entries", &self.cff_entries.len())
+            .field("serial", &self.serial)
+            .finish()
     }
 }
 
