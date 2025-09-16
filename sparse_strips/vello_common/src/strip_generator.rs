@@ -3,6 +3,7 @@
 
 //! Abstraction for generating strips from paths.
 
+use crate::clip::{PathDataRef, intersect};
 use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::kurbo::{Affine, PathEl, Stroke};
@@ -11,7 +12,6 @@ use crate::strip::Strip;
 use crate::tile::Tiles;
 use crate::{flatten, strip};
 use alloc::vec::Vec;
-use crate::clip::{intersect, PathDataRef};
 
 /// A storage for storing strip-related data.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -91,7 +91,7 @@ impl StripGenerator {
         transform: Affine,
         aliasing_threshold: Option<u8>,
         strip_storage: &mut StripStorage,
-        clip_path: Option<PathDataRef<'_>>
+        clip_path: Option<PathDataRef<'_>>,
     ) {
         flatten::fill(
             self.level,
@@ -101,12 +101,7 @@ impl StripGenerator {
             &mut self.flatten_ctx,
         );
 
-        self.generate_with_clip(
-            aliasing_threshold,
-            strip_storage,
-            fill_rule,
-            clip_path,
-        )
+        self.generate_with_clip(aliasing_threshold, strip_storage, fill_rule, clip_path)
     }
 
     /// Generate the strips for a stroked path.
@@ -127,14 +122,9 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.generate_with_clip(
-            aliasing_threshold,
-            strip_storage,
-            Fill::NonZero,
-            clip_path,
-        )
+        self.generate_with_clip(aliasing_threshold, strip_storage, Fill::NonZero, clip_path)
     }
-    
+
     fn generate_with_clip(
         &mut self,
         aliasing_threshold: Option<u8>,
@@ -142,15 +132,19 @@ impl StripGenerator {
         fill_rule: Fill,
         clip_path: Option<PathDataRef<'_>>,
     ) {
+        if strip_storage.generation_mode == GenerationMode::Replace {
+            strip_storage.strips.clear();
+        }
+
         if let Some(clip_path) = clip_path {
             self.make_strips(strip_storage, fill_rule, aliasing_threshold, true);
             let path_data = PathDataRef {
                 strips: &self.temp_storage.strips,
                 alphas: &self.temp_storage.alphas,
             };
-            
+
             intersect(self.level, clip_path, path_data, strip_storage);
-        }   else {
+        } else {
             self.make_strips(strip_storage, fill_rule, aliasing_threshold, false);
         }
     }
@@ -173,16 +167,14 @@ impl StripGenerator {
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
 
-        if strip_storage.generation_mode == GenerationMode::Replace {
-            strip_storage.strips.clear();
-        }
-        
         let storage = if temp {
+            self.temp_storage.clear();
+
             &mut self.temp_storage
-        }   else {
+        } else {
             strip_storage
         };
-        
+
         strip::render(
             self.level,
             &self.tiles,
@@ -214,7 +206,7 @@ mod tests {
             Affine::IDENTITY,
             None,
             &mut storage,
-            None
+            None,
         );
 
         assert!(!generator.line_buf.is_empty());

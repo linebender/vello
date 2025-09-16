@@ -327,7 +327,7 @@ fn clip_completely_in_out_of_bounds_wide_tile(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_hybrid, width = 16, height = 16)]
+#[vello_test(width = 16, height = 16)]
 fn clip_non_isolated_outside_canvas(ctx: &mut impl Renderer) {
     // Should be completely clipped.
     let clip_rect = Rect::new(0.0, 0.0, 16.0, 16.0);
@@ -339,7 +339,7 @@ fn clip_non_isolated_outside_canvas(ctx: &mut impl Renderer) {
     ctx.pop_clip_path();
 }
 
-#[vello_test(skip_hybrid)]
+#[vello_test]
 fn clip_non_isolated_rectangle_with_star_evenodd(ctx: &mut impl Renderer) {
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
     let star_path = crossed_line_star();
@@ -351,7 +351,7 @@ fn clip_non_isolated_rectangle_with_star_evenodd(ctx: &mut impl Renderer) {
     ctx.pop_clip_path();
 }
 
-#[vello_test(skip_hybrid, cpu_u8_tolerance = 1)]
+#[vello_test(cpu_u8_tolerance = 1)]
 fn clip_non_isolated_deeply_nested_circles(ctx: &mut impl Renderer) {
     const INITIAL_RADIUS: f64 = 48.0;
     const RADIUS_DECREMENT: f64 = 2.5;

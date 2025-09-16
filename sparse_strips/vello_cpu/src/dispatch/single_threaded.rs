@@ -1,13 +1,13 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_common::clip::ClipContext;
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
+use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
@@ -202,9 +202,19 @@ impl Dispatcher for SingleThreadedDispatcher {
         &mut self.strip_storage
     }
 
-    fn push_clip_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, aliasing_threshold: Option<u8>) {
+    fn push_clip_path(
+        &mut self,
+        path: &BezPath,
+        fill_rule: Fill,
+        transform: Affine,
+        aliasing_threshold: Option<u8>,
+    ) {
         self.clip_context.push_clip(
-            path, &mut self.strip_generator, fill_rule, transform, aliasing_threshold,
+            path,
+            &mut self.strip_generator,
+            fill_rule,
+            transform,
+            aliasing_threshold,
         )
     }
 

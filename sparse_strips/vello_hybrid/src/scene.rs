@@ -171,9 +171,25 @@ impl Scene {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
-            self.clip_context.get()
+            self.clip_context.get(),
         );
         wide.generate(&self.strip_storage.strips, paint, 0);
+    }
+
+    /// Push a new clip path to the clip stack.
+    pub fn push_clip_path(&mut self, path: &BezPath) {
+        self.clip_context.push_clip(
+            path,
+            &mut self.strip_generator,
+            self.fill_rule,
+            self.transform,
+            self.aliasing_threshold,
+        );
+    }
+
+    /// Pop a clip path from the clip stack.
+    pub fn pop_clip_path(&mut self) {
+        self.clip_context.pop_clip();
     }
 
     /// Stroke a path with the current paint and stroke settings.
@@ -202,7 +218,7 @@ impl Scene {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
-            self.clip_context.get()
+            self.clip_context.get(),
         );
 
         wide.generate(&self.strip_storage.strips, paint, 0);
@@ -255,7 +271,7 @@ impl Scene {
                 self.transform,
                 self.aliasing_threshold,
                 &mut self.strip_storage,
-                self.clip_context.get()
+                self.clip_context.get(),
             );
 
             Some(self.strip_storage.strips.as_slice())
@@ -498,7 +514,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -509,7 +525,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -520,7 +536,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -531,7 +547,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -543,7 +559,7 @@ impl Scene {
                         glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -555,7 +571,7 @@ impl Scene {
                         glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }

@@ -74,7 +74,7 @@ impl Worker {
                         transform,
                         aliasing_threshold,
                         &mut self.strip_storage,
-                        path_clip
+                        path_clip,
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
@@ -103,7 +103,7 @@ impl Worker {
                         transform,
                         aliasing_threshold,
                         &mut self.strip_storage,
-                        path_clip
+                        path_clip,
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
@@ -134,7 +134,7 @@ impl Worker {
                             transform,
                             aliasing_threshold,
                             &mut self.strip_storage,
-                            path_clip
+                            path_clip,
                         );
 
                         let end = self.strip_storage.strips.len() as u32;

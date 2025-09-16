@@ -255,7 +255,10 @@ impl MultiThreadedDispatcher {
         let tasks = self.task_batch.as_slice();
         let path = self.batch_path.elements();
         let task_sender = self.task_sender.as_mut().unwrap();
-        let clip_path = self.clip_context.get().map(|c| (c.strips.into(), c.alphas.into()));
+        let clip_path = self
+            .clip_context
+            .get()
+            .map(|c| (c.strips.into(), c.alphas.into()));
         let task = RenderTask {
             idx: task_idx,
             clip_path,
@@ -555,9 +558,21 @@ impl Dispatcher for MultiThreadedDispatcher {
         &mut self.strip_storage
     }
 
-    fn push_clip_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, aliasing_threshold: Option<u8>) {
+    fn push_clip_path(
+        &mut self,
+        path: &BezPath,
+        fill_rule: Fill,
+        transform: Affine,
+        aliasing_threshold: Option<u8>,
+    ) {
         self.flush_tasks();
-        self.clip_context.push_clip(path, &mut self.strip_generator, fill_rule, transform, aliasing_threshold);
+        self.clip_context.push_clip(
+            path,
+            &mut self.strip_generator,
+            fill_rule,
+            transform,
+            aliasing_threshold,
+        );
     }
 
     fn pop_clip_path(&mut self) {

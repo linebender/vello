@@ -317,8 +317,8 @@ impl Renderer for HybridRenderer {
         self.scene.push_clip_layer(path);
     }
 
-    fn push_clip_path(&mut self, _: &BezPath) {
-        unimplemented!()
+    fn push_clip_path(&mut self, path: &BezPath) {
+        self.scene.push_clip_path(path);
     }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
@@ -338,7 +338,7 @@ impl Renderer for HybridRenderer {
     }
 
     fn pop_clip_path(&mut self) {
-        unimplemented!()
+        self.scene.pop_clip_path();
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {

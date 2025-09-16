@@ -87,8 +87,10 @@ impl ClipContext {
             alpha_start,
             strip_start,
         };
-        
-        let existing_clip = self.clip_stack.last()
+
+        let existing_clip = self
+            .clip_stack
+            .last()
             .map(|c| c.to_path_data_ref(&self.storage));
 
         strip_generator.generate_filled_path(
@@ -158,8 +160,6 @@ fn intersect_impl<S: Simd>(
     path_2: PathDataRef<'_>,
     target: &mut StripStorage,
 ) {
-    target.strips.clear();
-
     // In case either path is empty, the clip path should be empty.
     if path_1.strips.is_empty() || path_2.strips.is_empty() {
         return;

@@ -17,7 +17,7 @@ use vello_common::fearless_simd::*;
 use vello_common::paint::PremulColor;
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
-use vello_common::util::{f32_to_u8, Div255Ext};
+use vello_common::util::{Div255Ext, f32_to_u8};
 
 /// The kernel for doing rendering using u8/u16.
 #[derive(Clone, Copy, Debug)]
@@ -246,7 +246,7 @@ mod alpha_fill {
     use crate::fine::lowp::{extract_masks, mix};
     use crate::peniko::{BlendMode, Mix};
     use vello_common::fearless_simd::*;
-    use vello_common::util::{normalized_mul_u8x32, Div255Ext};
+    use vello_common::util::{Div255Ext, normalized_mul_u8x32};
 
     pub(super) fn blend<S: Simd, T: Iterator<Item = u8x32<S>>>(
         simd: S,
