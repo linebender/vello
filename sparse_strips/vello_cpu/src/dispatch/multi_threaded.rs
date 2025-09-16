@@ -258,7 +258,10 @@ impl MultiThreadedDispatcher {
         let clip_path = self
             .clip_context
             .get()
-            .map(|c| (c.strips.into(), c.alphas.into()));
+            .map(|c| OwnedClip {
+                strips: c.strips.into(),
+                alphas: c.alphas.into(),
+            });
         let task = RenderTask {
             idx: task_idx,
             clip_path,
@@ -632,9 +635,15 @@ impl Debug for MultiThreadedDispatcher {
 }
 
 #[derive(Debug)]
+struct OwnedClip {
+    strips: Box<[Strip]>,
+    alphas: Box<[u8]>
+}
+
+#[derive(Debug)]
 pub(crate) struct RenderTask {
     pub(crate) idx: u32,
-    pub(crate) clip_path: Option<(Box<[Strip]>, Box<[u8]>)>,
+    pub(crate) clip_path: Option<OwnedClip>,
     pub(crate) path: Box<[PathEl]>,
     pub(crate) tasks: Box<[RenderTaskType]>,
 }

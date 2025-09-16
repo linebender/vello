@@ -51,8 +51,8 @@ impl Worker {
         let mut task_buf = Vec::with_capacity(render_task.tasks.len());
         let task_idx = render_task.idx;
         let path_clip = render_task.clip_path.as_ref().map(|c| PathDataRef {
-            strips: c.0.as_ref(),
-            alphas: c.1.as_ref(),
+            strips: c.strips.as_ref(),
+            alphas: c.alphas.as_ref(),
         });
 
         for task in render_task.tasks {
