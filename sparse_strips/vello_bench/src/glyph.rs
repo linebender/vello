@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use criterion::{Criterion, black_box};
+use criterion::Criterion;
 use parley::{
     Alignment, AlignmentOptions, Font, FontContext, FontFamily, GlyphRun, Layout, LayoutContext,
     PositionedLayoutItem,
@@ -46,7 +46,7 @@ pub fn glyph(c: &mut Criterion) {
     };
 
     for (hint_name, hint) in [("hinted", true), ("unhinted", false)] {
-        g.bench_function(&format!("cached_{}", hint_name), |b| {
+        g.bench_function(format!("cached_{hint_name}"), |b| {
             let layout = layout_for(TEXT, 1.0);
             render_layout(&mut renderer, &layout, hint);
 
@@ -64,7 +64,7 @@ pub fn glyph(c: &mut Criterion) {
             });
         });
 
-        g.bench_function(&format!("uncached_{}", hint_name), |b| {
+        g.bench_function(format!("uncached_{hint_name}"), |b| {
             let layout = layout_for(TEXT, 1.0);
 
             b.iter_custom(|iters| {
