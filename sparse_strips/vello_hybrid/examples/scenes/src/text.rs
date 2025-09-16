@@ -146,7 +146,7 @@ struct CachedRecording {
 
 impl CachedRecording {
     fn new() -> Self {
-        CachedRecording {
+        Self {
             transform_key: None,
             recording: Recording::new(),
         }
@@ -193,7 +193,7 @@ fn record_fresh(scene_obj: &mut TextScene, scene: &mut Scene, current_transform:
     scene.prepare_recording(recording);
     scene.execute_recording(recording);
     #[cfg(not(target_arch = "wasm32"))]
-    print_render_stats("Fresh     ", start.elapsed(), &recording);
+    print_render_stats("Fresh     ", start.elapsed(), recording);
 }
 
 /// Print timing and statistics for a render operation
