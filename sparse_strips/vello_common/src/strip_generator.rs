@@ -12,15 +12,51 @@ use crate::tile::Tiles;
 use crate::{flatten, strip};
 use alloc::vec::Vec;
 
+/// A storage for storing strip-related data.
+#[derive(Debug, Default)]
+pub struct StripStorage {
+    /// The strips in the storage.
+    pub strips: Vec<Strip>,
+    /// The alphas in the storage.
+    pub alphas: Vec<u8>,
+    generation_mode: GenerationMode,
+}
+
+/// The generation mode of the strip storage.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub enum GenerationMode {
+    #[default]
+    /// Clear strips before generating the new ones.
+    Replace,
+    /// Don't clear strips, append to the existing buffer.
+    Append,
+}
+
+impl StripStorage {
+    /// Reset the storage.
+    pub fn clear(&mut self) {
+        self.strips.clear();
+        self.alphas.clear();
+    }
+
+    /// Set the generation mode of the storage.
+    pub fn set_generation_mode(&mut self, mode: GenerationMode) {
+        self.generation_mode = mode;
+    }
+
+    /// Whether the strip storage is empty.
+    pub fn is_empty(&self) -> bool {
+        self.strips.is_empty() && self.alphas.is_empty()
+    }
+}
+
 /// An object for easily generating strips for a filled/stroked path.
 #[derive(Debug)]
 pub struct StripGenerator {
     level: Level,
-    alphas: Vec<u8>,
     line_buf: Vec<Line>,
     flatten_ctx: FlattenCtx,
     tiles: Tiles,
-    strip_buf: Vec<Strip>,
     width: u16,
     height: u16,
 }
@@ -29,11 +65,9 @@ impl StripGenerator {
     /// Create a new strip generator.
     pub fn new(width: u16, height: u16, level: Level) -> Self {
         Self {
-            alphas: Vec::new(),
             level,
             line_buf: Vec::new(),
             tiles: Tiles::new(level),
-            strip_buf: Vec::new(),
             flatten_ctx: FlattenCtx::default(),
             width,
             height,
@@ -41,13 +75,13 @@ impl StripGenerator {
     }
 
     /// Generate the strips for a filled path.
-    pub fn generate_filled_path<'a>(
-        &'a mut self,
+    pub fn generate_filled_path(
+        &mut self,
         path: impl IntoIterator<Item = PathEl>,
         fill_rule: Fill,
         transform: Affine,
         aliasing_threshold: Option<u8>,
-        func: impl FnOnce(&'a [Strip]),
+        strip_storage: &mut StripStorage,
     ) {
         flatten::fill(
             self.level,
@@ -56,18 +90,17 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.make_strips(fill_rule, aliasing_threshold);
-        func(&mut self.strip_buf);
+        self.make_strips(strip_storage, fill_rule, aliasing_threshold);
     }
 
     /// Generate the strips for a stroked path.
-    pub fn generate_stroked_path<'a>(
-        &'a mut self,
+    pub fn generate_stroked_path(
+        &mut self,
         path: impl IntoIterator<Item = PathEl>,
         stroke: &Stroke,
         transform: Affine,
         aliasing_threshold: Option<u8>,
-        func: impl FnOnce(&'a [Strip]),
+        strip_storage: &mut StripStorage,
     ) {
         flatten::stroke(
             self.level,
@@ -77,52 +110,34 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.make_strips(Fill::NonZero, aliasing_threshold);
-        func(&mut self.strip_buf);
-    }
-
-    /// Return a reference to the current alpha buffer of the strip generator.
-    pub fn alpha_buf(&self) -> &[u8] {
-        &self.alphas
-    }
-
-    /// Extend the alpha buffer with the given alphas.
-    pub fn extend_alpha_buf(&mut self, alphas: &[u8]) {
-        self.alphas.extend_from_slice(alphas);
-    }
-
-    /// Set the alpha buffer.
-    pub fn set_alpha_buf(&mut self, alpha_buf: Vec<u8>) {
-        self.alphas = alpha_buf;
-    }
-
-    /// Take the alpha buffer and set it to an empty one.
-    pub fn take_alpha_buf(&mut self) -> Vec<u8> {
-        core::mem::take(&mut self.alphas)
-    }
-
-    /// Swap the alpha buffer with the given one.
-    pub fn replace_alpha_buf(&mut self, alphas: Vec<u8>) -> Vec<u8> {
-        core::mem::replace(&mut self.alphas, alphas)
+        self.make_strips(strip_storage, Fill::NonZero, aliasing_threshold);
     }
 
     /// Reset the strip generator.
     pub fn reset(&mut self) {
         self.line_buf.clear();
         self.tiles.reset();
-        self.alphas.clear();
-        self.strip_buf.clear();
     }
 
-    fn make_strips(&mut self, fill_rule: Fill, aliasing_threshold: Option<u8>) {
+    fn make_strips(
+        &mut self,
+        strip_storage: &mut StripStorage,
+        fill_rule: Fill,
+        aliasing_threshold: Option<u8>,
+    ) {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
+
+        if strip_storage.generation_mode == GenerationMode::Replace {
+            strip_storage.strips.clear();
+        }
+
         strip::render(
             self.level,
             &self.tiles,
-            &mut self.strip_buf,
-            &mut self.alphas,
+            &mut strip_storage.strips,
+            &mut strip_storage.alphas,
             fill_rule,
             aliasing_threshold,
             &self.line_buf,
@@ -135,11 +150,12 @@ mod tests {
     use crate::fearless_simd::Level;
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::peniko::Fill;
-    use crate::strip_generator::StripGenerator;
+    use crate::strip_generator::{StripGenerator, StripStorage};
 
     #[test]
-    fn reset_strip_generator() {
+    fn reset() {
         let mut generator = StripGenerator::new(100, 100, Level::fallback());
+        let mut storage = StripStorage::default();
         let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
 
         generator.generate_filled_path(
@@ -147,17 +163,16 @@ mod tests {
             Fill::NonZero,
             Affine::IDENTITY,
             None,
-            |_| {},
+            &mut storage,
         );
 
         assert!(!generator.line_buf.is_empty());
-        assert!(!generator.strip_buf.is_empty());
-        assert!(!generator.alphas.is_empty());
+        assert!(!storage.is_empty());
 
         generator.reset();
+        storage.clear();
 
         assert!(generator.line_buf.is_empty());
-        assert!(generator.strip_buf.is_empty());
-        assert!(generator.alphas.is_empty());
+        assert!(storage.is_empty());
     }
 }

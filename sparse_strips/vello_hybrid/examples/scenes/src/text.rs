@@ -39,8 +39,8 @@ pub struct TextScene {
     layout: Layout<ColorBrush>,
     /// Whether recording functionality is enabled
     recording_enabled: bool,
-    /// The recording to reuse, if any
-    recording: Option<Recording>,
+    /// The recording to reuse
+    recording: CachedRecording,
 }
 
 impl fmt::Debug for TextScene {
@@ -53,11 +53,9 @@ impl ExampleScene for TextScene {
     fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
         if self.recording_enabled {
             // Try to reuse existing recording if possible
-            if let Some(recording) = &mut self.recording {
-                let render_result = try_reuse_recording(scene, recording, root_transform);
-                if render_result.is_reused {
-                    return;
-                }
+            let render_result = try_reuse_recording(scene, &mut self.recording, root_transform);
+            if render_result.is_reused {
+                return;
             }
 
             // If we get here, we need to record fresh
@@ -123,7 +121,7 @@ impl TextScene {
         Self {
             layout,
             recording_enabled: true,
-            recording: None,
+            recording: CachedRecording::new(),
         }
     }
 }
@@ -138,20 +136,41 @@ struct RenderResult {
     is_reused: bool,
 }
 
+struct CachedRecording {
+    // The transform the recording was taken at. Informs if recording can be re-used or if it needs
+    // to be re-recorded.
+    pub(crate) transform_key: Option<Affine>,
+    // The recording absolutely positioned from the `transform_key`.
+    recording: Recording,
+}
+
+impl CachedRecording {
+    fn new() -> Self {
+        Self {
+            transform_key: None,
+            recording: Recording::new(),
+        }
+    }
+}
+
 /// Try to reuse an existing recording, either directly (TODO: or with translation)
 fn try_reuse_recording(
     scene: &mut Scene,
-    recording: &mut Recording,
+    recording: &mut CachedRecording,
     current_transform: Affine,
 ) -> RenderResult {
+    // There is no `transform_key` meaning there is no valid recording to execute.
+    let Some(recording_transform) = recording.transform_key else {
+        return RenderResult { is_reused: false };
+    };
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
 
     // Case 1: Identical transforms - can reuse directly
-    if transforms_are_identical(recording.transform(), current_transform) {
-        scene.execute_recording(recording);
+    if transforms_are_identical(recording_transform, current_transform) {
+        scene.execute_recording(&recording.recording);
         #[cfg(not(target_arch = "wasm32"))]
-        print_render_stats("Identical ", start.elapsed(), recording);
+        print_render_stats("Identical ", start.elapsed(), &recording.recording);
         return RenderResult { is_reused: true };
     }
 
@@ -165,17 +184,16 @@ fn try_reuse_recording(
 fn record_fresh(scene_obj: &mut TextScene, scene: &mut Scene, current_transform: Affine) {
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
-    let mut recording = Recording::new();
-    scene.record(&mut recording, |recorder| {
-        render_text_record(scene_obj, recorder, current_transform);
+    scene_obj.recording.transform_key = Some(current_transform);
+    let recording = &mut scene_obj.recording.recording;
+    recording.clear();
+    scene.record(recording, |recorder| {
+        render_text_record(&mut scene_obj.layout, recorder, current_transform);
     });
-    scene.prepare_recording(&mut recording);
-    scene.execute_recording(&recording);
-    recording.set_transform(current_transform);
+    scene.prepare_recording(recording);
+    scene.execute_recording(recording);
     #[cfg(not(target_arch = "wasm32"))]
-    print_render_stats("Fresh     ", start.elapsed(), &recording);
-
-    scene_obj.recording = Some(recording);
+    print_render_stats("Fresh     ", start.elapsed(), recording);
 }
 
 /// Print timing and statistics for a render operation
@@ -209,9 +227,6 @@ impl TextScene {
     /// Returns the new state (true = enabled, false = disabled)
     pub fn toggle_recording(&mut self) -> bool {
         self.recording_enabled = !self.recording_enabled;
-        if !self.recording_enabled {
-            self.recording = None;
-        }
         self.recording_enabled
     }
 }
@@ -227,9 +242,9 @@ fn render_text(state: &mut TextScene, ctx: &mut Scene) {
 }
 
 /// Render text to recording
-fn render_text_record(state: &mut TextScene, ctx: &mut Recorder<'_>, transform: Affine) {
+fn render_text_record(layout: &mut Layout<ColorBrush>, ctx: &mut Recorder<'_>, transform: Affine) {
     ctx.set_transform(transform);
-    for line in state.layout.lines() {
+    for line in layout.lines() {
         for item in line.items() {
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
                 render_glyph_run_record(ctx, &glyph_run, 30);

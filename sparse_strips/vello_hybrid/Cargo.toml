@@ -22,6 +22,7 @@ wgpu = { workspace = true, optional = true }
 vello_sparse_shaders = { workspace = true, optional = true }
 log = { workspace = true }
 guillotiere = "0.6.2"
+hashbrown = "0.15"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -51,5 +52,6 @@ roxmltree = "0.20.0"
 
 [features]
 default = ["wgpu"]
+std = ["wgpu", "vello_common/std"]
 wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
 webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_sparse_shaders", "vello_sparse_shaders/glsl"]

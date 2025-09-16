@@ -22,9 +22,30 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::{fmt::Debug, mem, num::NonZeroU64};
 
+use crate::{
+    GpuStrip, RenderError, RenderSettings, RenderSize,
+    gradient_cache::GradientRampCache,
+    image_cache::{ImageCache, ImageResource},
+    render::{
+        Config,
+        common::{
+            GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
+            GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
+            GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
+            pack_image_offset, pack_image_size, pack_quality_and_extend_modes,
+            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode,
+        },
+    },
+    scene::Scene,
+    schedule::{LoadOp, RendererBackend, Scheduler},
+};
 use bytemuck::{Pod, Zeroable};
 use vello_common::{
-    coarse::WideTile, encode::EncodedPaint, kurbo::Affine, paint::ImageSource, pixmap::Pixmap,
+    coarse::WideTile,
+    encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
+    kurbo::Affine,
+    paint::ImageSource,
+    pixmap::Pixmap,
     tile::Tile,
 };
 use wgpu::{
@@ -33,13 +54,12 @@ use wgpu::{
     RenderPipeline, Texture, TextureView, util::DeviceExt,
 };
 
-use crate::{
-    GpuStrip, RenderError, RenderSize,
-    image_cache::{ImageCache, ImageResource},
-    render::{Config, common::GpuEncodedImage},
-    scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler},
-};
+/// Placeholder value for uninitialized GPU encoded paints.
+const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
+    texture_width_and_extend_mode: 0,
+    gradient_start: 0,
+    transform: [0.0; 6],
+});
 
 /// Options for the renderer
 #[derive(Debug)]
@@ -55,24 +75,50 @@ pub struct RenderTargetConfig {
 /// Vello Hybrid's Renderer.
 #[derive(Debug)]
 pub struct Renderer {
+    /// Programs for rendering.
     programs: Programs,
+    /// Scheduler for scheduling draws.
     scheduler: Scheduler,
+    /// Image cache for storing images atlas allocations.
     image_cache: ImageCache,
+    /// Encoded paints for storing encoded paints.
+    encoded_paints: Vec<GpuEncodedPaint>,
+    /// Stores the index (offset) of the encoded paints in the encoded paints texture.
+    paint_idxs: Vec<u32>,
+    /// Gradient cache for storing gradient ramps.
+    gradient_cache: GradientRampCache,
 }
 
 impl Renderer {
     /// Creates a new renderer.
     pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
+        Self::new_with(device, render_target_config, RenderSettings::default())
+    }
+
+    /// Creates a new renderer with specific settings.
+    pub fn new_with(
+        device: &Device,
+        render_target_config: &RenderTargetConfig,
+        settings: RenderSettings,
+    ) -> Self {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let image_cache = ImageCache::new(max_texture_dimension_2d, max_texture_dimension_2d);
+        // Estimate the maximum number of gradient cache entries based on the max texture dimension
+        // and the maximum gradient LUT size - worst case scenario.
+        let max_gradient_cache_size =
+            max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
+        let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
 
         Self {
             programs: Programs::new(device, render_target_config, total_slots),
             scheduler: Scheduler::new(total_slots),
             image_cache,
+            gradient_cache,
+            encoded_paints: Vec::new(),
+            paint_idxs: Vec::new(),
         }
     }
 
@@ -89,16 +135,18 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
-        let encoded_paints = self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
         self.programs.prepare(
             device,
             queue,
-            scene.strip_generator.alpha_buf(),
-            encoded_paints,
+            &mut self.gradient_cache,
+            &self.encoded_paints,
+            &scene.strip_storage.alphas,
             render_size,
+            &self.paint_idxs,
         );
         let mut junk = RendererContext {
             programs: &mut self.programs,
@@ -108,7 +156,10 @@ impl Renderer {
             view,
         };
 
-        self.scheduler.do_scene(&mut junk, scene)
+        let result = self.scheduler.do_scene(&mut junk, scene, &self.paint_idxs);
+        self.gradient_cache.maintain();
+
+        result
     }
 
     /// Upload image to cache and atlas in one step. Returns the `ImageId`.
@@ -211,41 +262,143 @@ impl Renderer {
         );
     }
 
-    fn prepare_gpu_encoded_paints(&self, encoded_paints: &[EncodedPaint]) -> Vec<GpuEncodedImage> {
-        let mut bytes: Vec<GpuEncodedImage> = Vec::new();
-        for paint in encoded_paints {
+    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
+        self.encoded_paints
+            .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
+        self.paint_idxs.resize(encoded_paints.len() + 1, 0);
+
+        let mut current_idx = 0;
+        for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
+            self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
                     if let ImageSource::OpaqueId(image_id) = img.source {
                         let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
                         if let Some(image_resource) = image_resource {
-                            let transform = img.transform * Affine::translate((-0.5, -0.5));
-                            // pack two u16 as u32
-                            let image_size = ((image_resource.width as u32) << 16)
-                                | image_resource.height as u32;
-                            let image_offset = ((image_resource.offset[0] as u32) << 16)
-                                | image_resource.offset[1] as u32;
-                            let quality_and_extend_modes = ((img.extends.1 as u32) << 4)
-                                | ((img.extends.0 as u32) << 2)
-                                | img.quality as u32;
-
-                            bytes.push(GpuEncodedImage {
-                                quality_and_extend_modes,
-                                image_size,
-                                image_offset,
-                                _padding1: 0,
-                                transform: transform.as_coeffs().map(|x| x as f32),
-                                _padding2: [0, 0],
-                            });
+                            let image_paint = self.encode_image_paint(img, image_resource);
+                            self.encoded_paints[encoded_paint_idx] = image_paint;
+                            current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                         }
                     }
                 }
-                _ => {
-                    unimplemented!("Gradient and rounded rectangle unsupported")
+                EncodedPaint::Gradient(gradient) => {
+                    let (gradient_start, gradient_width) =
+                        self.gradient_cache.get_or_create_ramp(gradient);
+                    let gradient_paint: GpuEncodedPaint =
+                        self.encode_gradient_paint(gradient, gradient_width, gradient_start);
+                    let gradient_size_texels = match &gradient_paint {
+                        GpuEncodedPaint::LinearGradient(_) => GPU_LINEAR_GRADIENT_SIZE_TEXELS,
+                        GpuEncodedPaint::RadialGradient(_) => GPU_RADIAL_GRADIENT_SIZE_TEXELS,
+                        GpuEncodedPaint::SweepGradient(_) => GPU_SWEEP_GRADIENT_SIZE_TEXELS,
+                        _ => unreachable!("encode_gradient_for_gpu only returns gradient types"),
+                    };
+                    self.encoded_paints[encoded_paint_idx] = gradient_paint;
+                    current_idx += gradient_size_texels;
+                }
+                EncodedPaint::BlurredRoundedRect(_blurred_rect) => {
+                    // TODO: Blurred rounded rectangles are not yet supported
+                    log::warn!(
+                        "Blurred rounded rectangles are not yet supported in sparse strips hybrid renderer"
+                    );
                 }
             }
         }
-        bytes
+        self.paint_idxs[encoded_paints.len()] = current_idx;
+    }
+
+    fn encode_image_paint(
+        &self,
+        image: &vello_common::encode::EncodedImage,
+        image_resource: &ImageResource,
+    ) -> GpuEncodedPaint {
+        let image_transform = image.transform * Affine::translate((-0.5, -0.5));
+        let transform = image_transform.as_coeffs().map(|x| x as f32);
+        let image_size = pack_image_size(image_resource.width, image_resource.height);
+        let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
+        let quality_and_extend_modes = pack_quality_and_extend_modes(
+            image.extends.0 as u32,
+            image.extends.1 as u32,
+            image.quality as u32,
+        );
+
+        GpuEncodedPaint::Image(GpuEncodedImage {
+            quality_and_extend_modes,
+            image_size,
+            image_offset,
+            transform,
+            _padding: [0, 0, 0],
+        })
+    }
+
+    fn encode_gradient_paint(
+        &self,
+        gradient: &EncodedGradient,
+        gradient_width: u32,
+        gradient_start: u32,
+    ) -> GpuEncodedPaint {
+        let gradient_transform = gradient.transform * Affine::translate((-0.5, -0.5));
+        let transform = gradient_transform.as_coeffs().map(|x| x as f32);
+        let extend_mode = match gradient.pad {
+            true => 0,
+            false => 1,
+        };
+        let texture_width_and_extend_mode =
+            pack_texture_width_and_extend_mode(gradient_width, extend_mode);
+
+        match &gradient.kind {
+            EncodedKind::Linear(_) => GpuEncodedPaint::LinearGradient(GpuLinearGradient {
+                texture_width_and_extend_mode,
+                gradient_start,
+                transform,
+            }),
+            EncodedKind::Radial(radial) => {
+                let (kind, bias, scale, fp0, fp1, fr1, f_focal_x, f_is_swapped, scaled_r0_squared) =
+                    match radial {
+                        RadialKind::Radial { bias, scale } => {
+                            (0, *bias, *scale, 0.0, 0.0, 0.0, 0.0, 0, 0.0)
+                        }
+                        RadialKind::Strip { scaled_r0_squared } => {
+                            (1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, *scaled_r0_squared)
+                        }
+                        RadialKind::Focal {
+                            focal_data,
+                            fp0,
+                            fp1,
+                        } => (
+                            2,
+                            *fp0,
+                            *fp1,
+                            *fp0,
+                            *fp1,
+                            focal_data.fr1,
+                            focal_data.f_focal_x,
+                            focal_data.f_is_swapped as u32,
+                            0.0,
+                        ),
+                    };
+                GpuEncodedPaint::RadialGradient(GpuRadialGradient {
+                    texture_width_and_extend_mode,
+                    gradient_start,
+                    transform,
+                    kind_and_f_is_swapped: pack_radial_kind_and_swapped(kind, f_is_swapped),
+                    bias,
+                    scale,
+                    fp0,
+                    fp1,
+                    fr1,
+                    f_focal_x,
+                    scaled_r0_squared,
+                })
+            }
+            EncodedKind::Sweep(sweep) => GpuEncodedPaint::SweepGradient(GpuSweepGradient {
+                texture_width_and_extend_mode,
+                gradient_start,
+                transform,
+                start_angle: sweep.start_angle,
+                inv_angle_delta: sweep.inv_angle_delta,
+                _padding: [0, 0],
+            }),
+        }
     }
 }
 
@@ -258,6 +411,8 @@ struct Programs {
     strip_bind_group_layout: BindGroupLayout,
     /// Bind group layout for encoded paints
     encoded_paints_bind_group_layout: BindGroupLayout,
+    /// Bind group layout for gradient texture
+    gradient_bind_group_layout: BindGroupLayout,
 
     /// Pipeline for clearing slots in slot textures.
     clear_pipeline: RenderPipeline,
@@ -288,6 +443,10 @@ struct GpuResources {
     encoded_paints_texture: Texture,
     /// Bind group for encoded paints
     encoded_paints_bind_group: BindGroup,
+    /// Texture for gradient lookup table
+    gradient_texture: Texture,
+    /// Bind group for gradient texture
+    gradient_bind_group: BindGroup,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
@@ -403,6 +562,21 @@ impl Programs {
                 }],
             });
 
+        let gradient_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Gradient Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+
         // Create bind group layout for clearing slots
         let clear_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -436,6 +610,7 @@ impl Programs {
                     &strip_bind_group_layout,
                     &atlas_bind_group_layout,
                     &encoded_paints_bind_group_layout,
+                    &gradient_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -615,6 +790,17 @@ impl Programs {
             &encoded_paints_bind_group_layout,
             &encoded_paints_texture.create_view(&Default::default()),
         );
+        const INITIAL_GRADIENT_TEXTURE_HEIGHT: u32 = 1;
+        let gradient_texture = Self::make_gradient_texture(
+            device,
+            max_texture_dimension_2d,
+            INITIAL_GRADIENT_TEXTURE_HEIGHT,
+        );
+        let gradient_bind_group = Self::make_gradient_bind_group(
+            device,
+            &gradient_bind_group_layout,
+            &gradient_texture.create_view(&Default::default()),
+        );
         let slot_bind_groups = Self::make_strip_bind_groups(
             device,
             &strip_bind_group_layout,
@@ -636,6 +822,8 @@ impl Programs {
             atlas_bind_group,
             encoded_paints_texture,
             encoded_paints_bind_group,
+            gradient_texture,
+            gradient_bind_group,
             view_config_buffer,
         };
 
@@ -643,6 +831,7 @@ impl Programs {
             strip_pipeline,
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
+            gradient_bind_group_layout,
             resources,
             alpha_data,
             encoded_paints_data,
@@ -776,6 +965,38 @@ impl Programs {
         })
     }
 
+    fn make_gradient_texture(device: &Device, width: u32, height: u32) -> Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Gradient Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        })
+    }
+
+    fn make_gradient_bind_group(
+        device: &Device,
+        gradient_bind_group_layout: &BindGroupLayout,
+        gradient_texture_view: &TextureView,
+    ) -> BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Gradient Bind Group"),
+            layout: gradient_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(gradient_texture_view),
+            }],
+        })
+    }
+
     fn make_strip_bind_groups(
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
@@ -844,100 +1065,33 @@ impl Programs {
         &mut self,
         device: &Device,
         queue: &Queue,
+        gradient_cache: &mut GradientRampCache,
+        encoded_paints: &[GpuEncodedPaint],
         alphas: &[u8],
-        encoded_paints: Vec<GpuEncodedImage>,
         new_render_size: &RenderSize,
+        paint_idxs: &[u32],
     ) {
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        // Update the alpha texture size if needed
-        self.maybe_resize_alphas_tex(device, alphas, max_texture_dimension_2d);
-        // Update the encoded paints texture size if needed
-        self.maybe_resize_encoded_paints_tex(device, &encoded_paints, max_texture_dimension_2d);
+        self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas);
+        self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
+        self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
 
-        // Update config buffer if dimensions changed.
-        if self.render_size != *new_render_size {
-            let config = Config {
-                width: new_render_size.width,
-                height: new_render_size.height,
-                strip_height: Tile::HEIGHT.into(),
-                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-            };
-            let mut buffer = queue
-                .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
-                .expect("Buffer only ever holds `Config`");
-            buffer.copy_from_slice(bytemuck::bytes_of(&config));
+        self.upload_alpha_texture(queue, alphas);
+        self.upload_encoded_paints_texture(queue, encoded_paints);
 
-            self.render_size = new_render_size.clone();
+        if gradient_cache.has_changed() {
+            self.maybe_resize_gradient_tex(device, max_texture_dimension_2d, gradient_cache);
+            self.upload_gradient_texture(queue, gradient_cache);
+            gradient_cache.mark_synced();
         }
-
-        // Prepare alpha data for the texture with 16 1-byte alpha values per texel (4 per channel)
-        let texture_width = self.resources.alphas_texture.width();
-        let texture_height = self.resources.alphas_texture.height();
-        debug_assert!(
-            alphas.len() <= (texture_width * texture_height * 16) as usize,
-            "Alpha texture dimensions are too small to fit the alpha data"
-        );
-
-        // After this copy to `self.alpha_data`, there may be stale trailing alpha values. These
-        // are not sampled, so can be left as-is.
-        self.alpha_data[0..alphas.len()].copy_from_slice(alphas);
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.resources.alphas_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &self.alpha_data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), which is equivalent to
-                // a bit shift of 4.
-                bytes_per_row: Some(texture_width << 4),
-                rows_per_image: Some(texture_height),
-            },
-            wgpu::Extent3d {
-                width: texture_width,
-                height: texture_height,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        // Upload encoded paints to the texture
-        let encoded_paints_texture = &self.resources.encoded_paints_texture;
-        let encoded_paints_texture_width = encoded_paints_texture.width();
-        let encoded_paints_texture_height = encoded_paints_texture.height();
-
-        let encoded_paints_bytes = bytemuck::cast_slice(&encoded_paints);
-        self.encoded_paints_data[0..encoded_paints_bytes.len()]
-            .copy_from_slice(encoded_paints_bytes);
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: encoded_paints_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &self.encoded_paints_data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), equivalent to bit shift of 4
-                bytes_per_row: Some(encoded_paints_texture_width << 4),
-                rows_per_image: Some(encoded_paints_texture_height),
-            },
-            wgpu::Extent3d {
-                width: encoded_paints_texture_width,
-                height: encoded_paints_texture_height,
-                depth_or_array_layers: 1,
-            },
-        );
     }
 
+    /// Update the alpha texture size if needed.
     fn maybe_resize_alphas_tex(
         &mut self,
         device: &Device,
-        alphas: &[u8],
         max_texture_dimension_2d: u32,
+        alphas: &[u8],
     ) {
         let required_alpha_height = u32::try_from(alphas.len())
             .unwrap()
@@ -978,15 +1132,15 @@ impl Programs {
         }
     }
 
+    /// Update the encoded paints texture size if needed.
     fn maybe_resize_encoded_paints_tex(
         &mut self,
         device: &Device,
-        encoded_paints: &[GpuEncodedImage],
         max_texture_dimension_2d: u32,
+        paint_idxs: &[u32],
     ) {
-        let required_encoded_paints_height = u32::try_from(size_of_val(encoded_paints))
-            .unwrap()
-            .div_ceil(max_texture_dimension_2d << 4);
+        let required_texels = paint_idxs.last().unwrap();
+        let required_encoded_paints_height = required_texels.div_ceil(max_texture_dimension_2d);
         debug_assert!(
             self.resources.encoded_paints_texture.width() == max_texture_dimension_2d,
             "Encoded paints texture width must match max texture dimensions"
@@ -1017,6 +1171,176 @@ impl Programs {
                     .encoded_paints_texture
                     .create_view(&Default::default()),
             );
+        }
+    }
+
+    /// Update the gradient texture size if needed.
+    fn maybe_resize_gradient_tex(
+        &mut self,
+        device: &Device,
+        max_texture_dimension_2d: u32,
+        gradient_cache: &GradientRampCache,
+    ) {
+        let gradient_pixels = (gradient_cache.luts_size() / 4) as u32; // 4 bytes per RGBA8 pixel
+        let required_gradient_height = gradient_pixels.div_ceil(max_texture_dimension_2d);
+        debug_assert!(
+            self.resources.gradient_texture.width() == max_texture_dimension_2d,
+            "Gradient texture width must match max texture dimensions"
+        );
+        let current_gradient_height = self.resources.gradient_texture.height();
+        if required_gradient_height > current_gradient_height {
+            assert!(
+                required_gradient_height <= max_texture_dimension_2d,
+                "Gradient texture height exceeds max texture dimensions"
+            );
+            let gradient_texture = Self::make_gradient_texture(
+                device,
+                max_texture_dimension_2d,
+                required_gradient_height,
+            );
+            self.resources.gradient_texture = gradient_texture;
+
+            // Since the gradient texture has changed, we need to update the gradient bind group.
+            self.resources.gradient_bind_group = Self::make_gradient_bind_group(
+                device,
+                &self.gradient_bind_group_layout,
+                &self
+                    .resources
+                    .gradient_texture
+                    .create_view(&Default::default()),
+            );
+        }
+    }
+
+    /// Update config buffer if dimensions changed.
+    fn maybe_update_config_buffer(
+        &mut self,
+        queue: &Queue,
+        max_texture_dimension_2d: u32,
+        new_render_size: &RenderSize,
+    ) {
+        if self.render_size != *new_render_size {
+            let config = Config {
+                width: new_render_size.width,
+                height: new_render_size.height,
+                strip_height: Tile::HEIGHT.into(),
+                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+            };
+            let mut buffer = queue
+                .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
+                .expect("Buffer only ever holds `Config`");
+            buffer.copy_from_slice(bytemuck::bytes_of(&config));
+
+            self.render_size = new_render_size.clone();
+        }
+    }
+
+    /// Upload alpha data to the texture.
+    fn upload_alpha_texture(&mut self, queue: &Queue, alphas: &[u8]) {
+        let texture_width = self.resources.alphas_texture.width();
+        let texture_height = self.resources.alphas_texture.height();
+        debug_assert!(
+            alphas.len() <= (texture_width * texture_height * 16) as usize,
+            "Alpha texture dimensions are too small to fit the alpha data"
+        );
+
+        // After this copy to `self.alpha_data`, there may be stale trailing alpha values. These
+        // are not sampled, so can be left as-is.
+        // TODO: Apply the same optimization as gradient texture upload - use alphas directly
+        // instead of copying to staging buffer, by taking alphas from strip generator as a vec,
+        // resizing appropriately, truncating, and restoring back to the generator.
+        self.alpha_data[0..alphas.len()].copy_from_slice(alphas);
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.resources.alphas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &self.alpha_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), which is equivalent to
+                // a bit shift of 4.
+                bytes_per_row: Some(texture_width << 4),
+                rows_per_image: Some(texture_height),
+            },
+            wgpu::Extent3d {
+                width: texture_width,
+                height: texture_height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    /// Upload encoded paints to the texture.
+    fn upload_encoded_paints_texture(&mut self, queue: &Queue, encoded_paints: &[GpuEncodedPaint]) {
+        let encoded_paints_texture = &self.resources.encoded_paints_texture;
+        let encoded_paints_texture_width = encoded_paints_texture.width();
+        let encoded_paints_texture_height = encoded_paints_texture.height();
+
+        GpuEncodedPaint::serialize_to_buffer(encoded_paints, &mut self.encoded_paints_data);
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: encoded_paints_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &self.encoded_paints_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), equivalent to bit shift of 4
+                bytes_per_row: Some(encoded_paints_texture_width << 4),
+                rows_per_image: Some(encoded_paints_texture_height),
+            },
+            wgpu::Extent3d {
+                width: encoded_paints_texture_width,
+                height: encoded_paints_texture_height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    /// Upload gradient data to the texture.
+    fn upload_gradient_texture(&mut self, queue: &Queue, gradient_cache: &mut GradientRampCache) {
+        let gradient_texture = &self.resources.gradient_texture;
+        let gradient_texture_width = gradient_texture.width();
+        let gradient_texture_height = gradient_texture.height();
+
+        // Upload the gradient LUT data
+        if !gradient_cache.is_empty() {
+            let total_capacity = (gradient_texture_width * gradient_texture_height * 4) as usize;
+
+            // Take ownership of the luts to avoid copying, then resize for texture padding
+            let mut luts = gradient_cache.take_luts();
+            let old_luts_len = luts.len();
+            luts.resize(total_capacity, 0);
+
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: gradient_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &luts,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    // 4 bytes per RGBA8 pixel
+                    bytes_per_row: Some(gradient_texture_width << 2),
+                    rows_per_image: Some(gradient_texture_height),
+                },
+                wgpu::Extent3d {
+                    width: gradient_texture_width,
+                    height: gradient_texture_height,
+                    depth_or_array_layers: 1,
+                },
+            );
+
+            // Restore the luts back to the cache
+            luts.truncate(old_luts_len);
+            gradient_cache.restore_luts(luts);
         }
     }
 
@@ -1085,6 +1409,7 @@ impl RendererContext<'_> {
         render_pass.set_bind_group(0, &self.programs.resources.slot_bind_groups[ix], &[]);
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
+        render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
         render_pass.draw(0..4, 0..u32::try_from(strips.len()).unwrap());
     }

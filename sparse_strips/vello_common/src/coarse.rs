@@ -6,7 +6,7 @@
 use crate::color::palette::css::TRANSPARENT;
 use crate::mask::Mask;
 use crate::paint::{Paint, PremulColor};
-use crate::peniko::{BlendMode, Compose, Fill, Mix};
+use crate::peniko::{BlendMode, Compose, Mix};
 use crate::{strip::Strip, tile::Tile};
 use alloc::vec;
 use alloc::{boxed::Box, vec::Vec};
@@ -69,8 +69,6 @@ struct Clip {
     pub strips: Box<[Strip]>,
     #[cfg(feature = "multithreading")]
     pub thread_idx: u8,
-    /// The fill rule used for this clip
-    pub fill_rule: Fill,
 }
 
 /// A bounding box
@@ -237,7 +235,7 @@ impl<const MODE: u8> Wide<MODE> {
     ///    - Generate alpha fill commands for the intersected wide tiles
     /// 2. For active fill regions (determined by fill rule):
     ///    - Generate solid fill commands for the regions between strips
-    pub fn generate(&mut self, strip_buf: &[Strip], fill_rule: Fill, paint: Paint, thread_idx: u8) {
+    pub fn generate(&mut self, strip_buf: &[Strip], paint: Paint, thread_idx: u8) {
         if strip_buf.is_empty() {
             return;
         }
@@ -315,12 +313,8 @@ impl<const MODE: u8> Wide<MODE> {
                 self.get_mut(wtile_x, strip_y).strip(cmd);
             }
 
-            // Determine if the region between this strip and the next should be filled
-            // based on the fill rule (NonZero or EvenOdd)
-            let active_fill = match fill_rule {
-                Fill::NonZero => next_strip.winding != 0,
-                Fill::EvenOdd => next_strip.winding % 2 != 0,
-            };
+            // Determine if the region between this strip and the next should be filled.
+            let active_fill = next_strip.fill_gap;
 
             // If region should be filled and both strips are on the same row,
             // generate fill commands for the region between them
@@ -348,7 +342,7 @@ impl<const MODE: u8> Wide<MODE> {
     /// Push a new layer with the given properties.
     pub fn push_layer(
         &mut self,
-        clip_path: Option<(impl Into<Box<[Strip]>>, Fill)>,
+        clip_path: Option<impl Into<Box<[Strip]>>>,
         blend_mode: BlendMode,
         mask: Option<Mask>,
         opacity: f32,
@@ -396,8 +390,8 @@ impl<const MODE: u8> Wide<MODE> {
         // Note that it is important that we FIRST push the buffer for blending etc. and
         // only then for clipping, otherwise we will use the empty clip buffer as the backdrop
         // for blending!
-        if let Some((clip, fill)) = clip_path {
-            self.push_clip(clip, fill, thread_idx);
+        if let Some(clip) = clip_path {
+            self.push_clip(clip, thread_idx);
         }
 
         self.layer_stack.push(layer);
@@ -443,7 +437,7 @@ impl<const MODE: u8> Wide<MODE> {
     ///    - If covered by zero winding: `push_zero_clip`
     ///    - If fully covered by non-zero winding: do nothing (clip is a no-op)
     ///    - If partially covered: `push_clip`
-    pub fn push_clip(&mut self, strips: impl Into<Box<[Strip]>>, fill_rule: Fill, thread_idx: u8) {
+    pub fn push_clip(&mut self, strips: impl Into<Box<[Strip]>>, thread_idx: u8) {
         let strips = strips.into();
         let n_strips = strips.len();
 
@@ -511,10 +505,7 @@ impl<const MODE: u8> Wide<MODE> {
             let wtile_x_clamped = (x / WideTile::WIDTH).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x_clamped {
                 // If winding is zero or doesn't match fill rule, these wide tiles are outside the path
-                let is_inside = match fill_rule {
-                    Fill::NonZero => strip.winding != 0,
-                    Fill::EvenOdd => strip.winding % 2 != 0,
-                };
+                let is_inside = strip.fill_gap;
                 if !is_inside {
                     for wtile_x in cur_wtile_x..wtile_x_clamped {
                         self.get_mut(wtile_x, cur_wtile_y).push_zero_clip();
@@ -552,7 +543,6 @@ impl<const MODE: u8> Wide<MODE> {
         self.clip_stack.push(Clip {
             clip_bbox,
             strips,
-            fill_rule,
             #[cfg(feature = "multithreading")]
             thread_idx,
         });
@@ -585,7 +575,6 @@ impl<const MODE: u8> Wide<MODE> {
         let Clip {
             clip_bbox,
             strips,
-            fill_rule,
             #[cfg(feature = "multithreading")]
             thread_idx,
         } = self.clip_stack.pop().unwrap();
@@ -642,10 +631,7 @@ impl<const MODE: u8> Wide<MODE> {
                 // Pop zero clips for tiles that had zero winding or didn't match fill rule
                 // TODO: The winding check is probably not needed; if there was a fill,
                 // the logic below should have advanced wtile_x.
-                let is_inside = match fill_rule {
-                    Fill::NonZero => strip.winding != 0,
-                    Fill::EvenOdd => strip.winding % 2 != 0,
-                };
+                let is_inside = strip.fill_gap;
                 if !is_inside {
                     for wtile_x in cur_wtile_x..wtile_x_clamped {
                         self.get_mut(wtile_x, cur_wtile_y).pop_zero_clip();
@@ -705,10 +691,7 @@ impl<const MODE: u8> Wide<MODE> {
             }
 
             // Handle fill regions between strips based on fill rule
-            let is_inside = match fill_rule {
-                Fill::NonZero => next_strip.winding != 0,
-                Fill::EvenOdd => next_strip.winding % 2 != 0,
-            };
+            let is_inside = next_strip.fill_gap;
             if is_inside && strip_y == next_strip.strip_y() {
                 if cur_wtile_x >= clip_bbox.x1() {
                     continue;
@@ -718,8 +701,10 @@ impl<const MODE: u8> Wide<MODE> {
                 let clipped_x2 = x2.min((cur_wtile_x + 1) * WideTile::WIDTH);
                 let width = clipped_x2.saturating_sub(clipped_x1);
 
-                // If there's a gap, fill it
-                if width > 0 {
+                // If there's a gap, fill it. Only do this if the fill wouldn't cover the
+                // whole tile, as such clips are skipped by the `push_clip` function. See
+                // <https://github.com/linebender/vello/blob/de0659e4df9842c8857153841a2b4ba6f1020bb0/sparse_strips/vello_common/src/coarse.rs#L504-L516>
+                if width > 0 && width < WideTile::WIDTH {
                     let x_rel = u32::from(clipped_x1 % WideTile::WIDTH);
                     self.get_mut(cur_wtile_x, cur_wtile_y)
                         .clip_fill(x_rel, u32::from(width));
@@ -1090,7 +1075,7 @@ mod tests {
     use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
     use crate::paint::{Paint, PremulColor};
-    use crate::peniko::{BlendMode, Compose, Fill, Mix};
+    use crate::peniko::{BlendMode, Compose, Mix};
     use crate::strip::Strip;
     use alloc::{boxed::Box, vec};
 
@@ -1170,7 +1155,7 @@ mod tests {
 
     #[test]
     fn reset_clears_layer_and_clip_stacks() {
-        type ClipPath = Option<(Box<[Strip]>, Fill)>;
+        type ClipPath = Option<Box<[Strip]>>;
 
         let mut wide = Wide::<MODE_CPU>::new(1000, 258);
         let no_clip_path: ClipPath = None;
@@ -1183,9 +1168,9 @@ mod tests {
             x: 2,
             y: 2,
             alpha_idx: 0,
-            winding: 1,
+            fill_gap: true,
         };
-        let clip_path = Some((vec![strip].into_boxed_slice(), Fill::NonZero));
+        let clip_path = Some(vec![strip].into_boxed_slice());
         wide.push_layer(clip_path, BlendMode::default(), None, 0.09, 0);
 
         assert_eq!(wide.layer_stack.len(), 2);

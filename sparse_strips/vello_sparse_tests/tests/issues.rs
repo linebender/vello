@@ -5,7 +5,7 @@
 
 use crate::renderer::Renderer;
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
-use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
+use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::peniko::{Color, ColorStop, Fill, Gradient};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::color::palette::css::{BLACK, RED};
@@ -404,4 +404,26 @@ fn tile_clamped_off_by_one(ctx: &mut impl Renderer) {
     ctx.push_layer(Some(&rect.to_path(0.1)), None, None, None);
     ctx.fill_path(&rect.to_path(0.1));
     ctx.pop_layer();
+}
+
+/// See <https://github.com/linebender/vello/issues/1186>.
+#[vello_test(width = 595, height = 20)]
+fn clip_wrong_command(ctx: &mut impl Renderer) {
+    ctx.set_paint(BLACK);
+    ctx.set_transform(Affine::translate((0.0, -700.0)));
+    ctx.push_clip_layer(&BezPath::from_svg("M551.704,721.115 C465.024,716.424 375.466,706.552 289.699,688.737 C290.316,688.60205 290.935,688.466 291.55,688.33 C377.059,705.978 466.259,715.75 552.629,720.39 C552.32,720.632 552.013,720.87305 551.704,721.115").unwrap());
+    ctx.push_clip_layer(&BezPath::from_svg("M-133.795,680.40704 C390.292,801.45905 763.166,503.67102 666.575,258.86005 C1031.16,797.18604 -452.803,1197.37 -133.795,680.40704").unwrap());
+    ctx.fill_path(&Rect::new(0.0, 0.0, 595.0, 808.0).to_path(0.1));
+    ctx.pop_layer();
+    ctx.pop_layer();
+    ctx.flush();
+}
+
+/// See <https://github.com/linebender/vello/issues/1219>
+#[vello_test]
+fn basic_alpha_compositing(ctx: &mut impl Renderer) {
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 70.0, 70.0));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.9));
+    ctx.fill_rect(&Rect::new(30.0, 30.0, 90.0, 90.0));
 }

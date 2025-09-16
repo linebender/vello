@@ -22,7 +22,6 @@ vello_common = { workspace = true }
 crossbeam-channel = { workspace = true, optional = true }
 ordered-channel = { workspace = true, optional = true, features = ["crossbeam-channel"] }
 rayon = { workspace = true, optional = true }
-smallvec = { workspace = true, optional = true }
 thread_local = { workspace = true, optional = true }
 
 
@@ -41,7 +40,6 @@ multithreading = [
     "dep:thread_local",
     "dep:ordered-channel",
     "dep:crossbeam-channel",
-    "dep:smallvec",
     "vello_common/multithreading",
 ]
 # Add support for text rendering

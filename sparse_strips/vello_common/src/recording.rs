@@ -12,59 +12,56 @@ use crate::paint::PaintType;
 use crate::peniko::Font;
 use crate::peniko::{BlendMode, Fill};
 use crate::strip::Strip;
+use crate::strip_generator::StripStorage;
 use alloc::vec::Vec;
 
 /// Cached sparse strip data.
 #[derive(Debug, Default)]
 pub struct CachedStrips {
-    /// The cached sparse strips.
-    strips: Vec<Strip>,
-    /// The alpha buffer data.
-    alphas: Vec<u8>,
+    /// The strip storage.
+    strip_storage: StripStorage,
     /// Strip start indices for each geometry command.
     strip_start_indices: Vec<usize>,
 }
 
 impl CachedStrips {
     /// Create a new cached strips instance.
-    pub fn new(strips: Vec<Strip>, alphas: Vec<u8>, strip_start_indices: Vec<usize>) -> Self {
+    pub fn new(strip_storage: StripStorage, strip_start_indices: Vec<usize>) -> Self {
         Self {
-            strips,
-            alphas,
+            strip_storage,
             strip_start_indices,
         }
     }
 
     /// Clear the contents.
     pub fn clear(&mut self) {
-        self.strips.clear();
-        self.alphas.clear();
+        self.strip_storage.clear();
         self.strip_start_indices.clear();
     }
 
     /// Check if this cached strips is empty.
     pub fn is_empty(&self) -> bool {
-        self.strips.is_empty() && self.alphas.is_empty() && self.strip_start_indices.is_empty()
+        self.strip_storage.is_empty() && self.strip_start_indices.is_empty()
     }
 
     /// Get the number of strips.
     pub fn strip_count(&self) -> usize {
-        self.strips.len()
+        self.strip_storage.strips.len()
     }
 
     /// Get the number of alpha bytes.
     pub fn alpha_count(&self) -> usize {
-        self.alphas.len()
+        self.strip_storage.alphas.len()
     }
 
     /// Get strips as slice.
     pub fn strips(&self) -> &[Strip] {
-        &self.strips
+        &self.strip_storage.strips
     }
 
     /// Get alphas as slice
     pub fn alphas(&self) -> &[u8] {
-        &self.alphas
+        &self.strip_storage.alphas
     }
 
     /// Get strip start indices.
@@ -73,11 +70,10 @@ impl CachedStrips {
     }
 
     /// Takes ownership of all buffers.
-    pub fn take(&mut self) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
-        let strips = core::mem::take(&mut self.strips);
-        let alphas = core::mem::take(&mut self.alphas);
+    pub fn take(&mut self) -> (StripStorage, Vec<usize>) {
+        let strip_storage = core::mem::take(&mut self.strip_storage);
         let strip_start_indices = core::mem::take(&mut self.strip_start_indices);
-        (strips, alphas, strip_start_indices)
+        (strip_storage, strip_start_indices)
     }
 }
 
@@ -88,7 +84,7 @@ pub struct Recording {
     commands: Vec<RenderCommand>,
     /// Cached sparse strips.
     cached_strips: CachedStrips,
-    /// Last recorded transform.
+    /// Track the transform of the underlying rasterization context.
     transform: Affine,
 }
 
@@ -151,13 +147,8 @@ impl Recording {
     }
 
     /// Set the transform.
-    pub fn set_transform(&mut self, transform: Affine) {
+    pub(crate) fn set_transform(&mut self, transform: Affine) {
         self.transform = transform;
-    }
-
-    /// Get the current transform.
-    pub fn transform(&self) -> Affine {
-        self.transform
     }
 
     /// Get commands as a slice.
@@ -191,7 +182,7 @@ impl Recording {
     }
 
     /// Takes cached strip buffers.
-    pub fn take_cached_strips(&mut self) -> (Vec<Strip>, Vec<u8>, Vec<usize>) {
+    pub fn take_cached_strips(&mut self) -> (StripStorage, Vec<usize>) {
         self.cached_strips.take()
     }
 
@@ -215,11 +206,10 @@ impl Recording {
     /// Set cached strips.
     pub fn set_cached_strips(
         &mut self,
-        strips: Vec<Strip>,
-        alphas: Vec<u8>,
+        strip_storage: StripStorage,
         strip_start_indices: Vec<usize>,
     ) {
-        self.cached_strips = CachedStrips::new(strips, alphas, strip_start_indices);
+        self.cached_strips = CachedStrips::new(strip_storage, strip_start_indices);
     }
 }
 
@@ -341,13 +331,17 @@ impl<'a> Recorder<'a> {
     /// Create a new recorder for the given recording.
     pub fn new(
         recording: &'a mut Recording,
+        transform: Affine,
         #[cfg(feature = "text")] glyph_caches: crate::glyph::GlyphCaches,
     ) -> Self {
-        Self {
+        let mut s = Self {
             recording,
             #[cfg(feature = "text")]
             glyph_caches: Some(glyph_caches),
-        }
+        };
+        // Ensure that the initial transform is saved on the recording.
+        s.set_transform(transform);
+        s
     }
 
     /// Fill a path with current paint and fill rule.
@@ -374,6 +368,7 @@ impl<'a> Recorder<'a> {
 
     /// Set the transform for subsequent operations.
     pub fn set_transform(&mut self, transform: Affine) {
+        self.recording.set_transform(transform);
         self.recording
             .add_command(RenderCommand::SetTransform(transform));
     }
