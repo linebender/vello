@@ -84,15 +84,8 @@ pub struct Recording {
     commands: Vec<RenderCommand>,
     /// Cached sparse strips.
     cached_strips: CachedStrips,
-    /// Track the transform of the underlying context.
+    /// Track the transform of the underlying rasterization context.
     transform: Affine,
-    /// The transform which the recording is relative to.
-    /// This is the initial transform of the renderer when the recording was initialized.
-    ///
-    /// TODO: Changing the transform on the renderer and executing the recording should execute the
-    /// recording relative to the new transform. Allowing you to "stamp" the recording multiple
-    /// times at different transforms.
-    relative_transform: Option<Affine>,
 }
 
 /// Command for pushing a new layer.
@@ -150,40 +143,12 @@ impl Recording {
             commands: Vec::new(),
             cached_strips: CachedStrips::default(),
             transform: Affine::IDENTITY,
-            relative_transform: None,
         }
-    }
-
-    /// Return the initial transform of the recording.
-    pub fn relative_transform(&self) -> Option<&Affine> {
-        self.relative_transform.as_ref()
     }
 
     /// Set the transform.
     pub(crate) fn set_transform(&mut self, transform: Affine) {
-        if self.relative_transform.is_none() {
-            self.relative_transform = Some(transform);
-        }
         self.transform = transform;
-    }
-
-    /// Until recording can be relatively positioned, enforce that renderer `set_transform` matches
-    /// the recording's initial conditions. This will make forward migration easier once recording
-    /// can be relatively transformed.
-    ///
-    /// TODO: This can be removed when relative transform of recording is implemented.
-    pub fn enforce_matching_transform(&self, transform: &Affine) {
-        let relative_transform = self.relative_transform.unwrap();
-        // Although Affine implements `eq`, WASM tests require this more flexible check.
-        let a_coeffs = relative_transform.as_coeffs();
-        let b_coeffs = transform.as_coeffs();
-        let tolerance = 1e-6;
-
-        for i in 0..6 {
-            if (a_coeffs[i] - b_coeffs[i]).abs() > tolerance {
-                panic!("renderer must set_transform to match recording before executing recording")
-            }
-        }
     }
 
     /// Get commands as a slice.
@@ -231,7 +196,6 @@ impl Recording {
         self.commands.clear();
         self.cached_strips.clear();
         self.transform = Affine::IDENTITY;
-        self.relative_transform = None;
     }
 
     /// Add a command to the recording.

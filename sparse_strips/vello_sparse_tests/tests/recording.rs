@@ -117,30 +117,28 @@ fn glyph_recording_outside_transform(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording);
 }
 
-#[vello_test(width = 1, height = 1, no_ref)]
-fn recording_without_identical_transform_crashes(ctx: &mut impl Renderer) {
-    ctx.set_transform(Affine::translate((0., 1.)));
+#[vello_test(width = 50, height = 50)]
+fn recording_is_executed_at_recorded_transform(ctx: &mut impl Renderer) {
+    ctx.set_transform(Affine::translate((10., 10.)));
+
     let mut recording = Recording::new();
-    ctx.record(&mut recording, |_| {});
+    ctx.record(&mut recording, |ctx| {
+        ctx.set_paint(FUCHSIA);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 30.0, 30.0));
+    });
 
     ctx.prepare_recording(&mut recording);
 
-    ctx.set_transform(Affine::translate((0., 0.)));
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ctx.execute_recording(&recording);
-    }));
-    assert!(
-        result.is_err(),
-        "Expected panic as renderer transform does not match recording"
-    );
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.execute_recording(&recording);
 }
 
 #[vello_test(width = 300, height = 100)]
 fn recording_mixed_with_direct_drawing(ctx: &mut impl Renderer) {
     let mut recording = Recording::new();
     // Record a rectangle on the left.
+    ctx.set_transform(Affine::translate((20.0, 30.0)));
     ctx.record(&mut recording, |ctx| {
-        ctx.set_transform(Affine::translate((20.0, 30.0)));
         ctx.set_paint(FUCHSIA);
         ctx.fill_rect(&Rect::new(0.0, 0.0, 60.0, 40.0));
     });
@@ -164,7 +162,7 @@ fn recording_mixed_with_direct_drawing(ctx: &mut impl Renderer) {
 
     ctx.prepare_recording(&mut recording);
 
-    // Change transform and clear the canvas.
+    // Clear the canvas.
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(GREEN);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 300.0, 100.0));
@@ -192,7 +190,7 @@ fn recording_can_be_repeatedly_executed_in_layers(ctx: &mut impl Renderer) {
 #[vello_test(width = 100, height = 100)]
 fn recording_can_be_cleared(ctx: &mut impl Renderer) {
     let mut recording = Recording::new();
-    ctx.set_transform(Affine::translate((1., 1.)));
+    ctx.set_transform(Affine::translate((10., 10.)));
     ctx.record(&mut recording, |ctx| {
         ctx.set_paint(ORANGE);
         ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));

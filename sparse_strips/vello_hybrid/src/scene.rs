@@ -410,7 +410,6 @@ impl Recordable for Scene {
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        recording.enforce_matching_transform(&self.transform);
         let (cached_strips, cached_alphas) = recording.get_cached_strips();
         let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
 
