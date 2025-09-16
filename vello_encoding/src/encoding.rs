@@ -328,7 +328,6 @@ impl Encoding {
                         DrawSweepGradient {
                             index: 0,
                             p0: point_to_f32(center),
-                            // TODO: This seems like it should have been suspect?
                             t0: start_angle / TAU,
                             t1: end_angle / TAU,
                         },
