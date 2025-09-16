@@ -989,6 +989,7 @@ fn find_hint_entry(entries: &mut Vec<HintEntry>, key: &HintKey<'_>) -> Option<(u
             font_id: key.font_id,
             font_index: key.font_index,
             instance,
+            // This should be updated by the caller.
             serial: 0,
         });
         Some((ix, true))
