@@ -91,7 +91,7 @@ pub struct Image {
 }
 
 impl Image {
-    /// Convert a [`peniko::Image`] to an [`Image`].
+    /// Convert a [`peniko::ImageBrush`] to an [`Image`].
     ///
     /// This is a somewhat lossy conversion, as the image data data is transformed to
     /// [premultiplied RGBA8](`PremulRgba8`).

@@ -523,10 +523,10 @@ impl Renderer {
     /// through [`Scene::draw_image`]), the data from the texture will be used instead.
     ///
     /// Correct behaviour is not guaranteed if the texture does not have the same
-    /// dimensions as the image, nor if an image which uses the same [data] but different
+    /// dimensions as the image, nor if an image which uses the same [blob] but different
     /// dimensions would be rendered.
     ///
-    /// [data]: peniko::Image::data
+    /// [blob]: peniko::ImageData::data
     pub fn override_image(
         &mut self,
         image: &ImageData,
