@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::util::layout_glyphs_roboto;
+use vello_common::color::palette::css::{
+    DARK_TURQUOISE, FUCHSIA, GOLD, GREEN, LIGHT_SALMON, ORANGE, ORCHID, PALE_VIOLET_RED, PURPLE,
+    REBECCA_PURPLE,
+};
+use vello_common::kurbo::BezPath;
 use vello_common::kurbo::{Affine, Rect};
 use vello_common::recording::Recording;
-use vello_cpu::color::palette::css::{
-    DARK_TURQUOISE, FUCHSIA, GREEN, LIGHT_SALMON, ORANGE, ORCHID, PALE_VIOLET_RED, REBECCA_PURPLE,
-};
 use vello_dev_macros::vello_test;
 
 use crate::renderer::Renderer;
@@ -162,10 +164,10 @@ fn recording_mixed_with_direct_drawing(ctx: &mut impl Renderer) {
 
     ctx.prepare_recording(&mut recording);
 
-    // Clear the canvas.
+    // Paint half the canvas and half of the salmon rectangle.
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(GREEN);
-    ctx.fill_rect(&Rect::new(0.0, 0.0, 300.0, 100.0));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 150.0, 100.0));
 
     ctx.execute_recording(&recording);
 }
@@ -202,9 +204,50 @@ fn recording_can_be_cleared(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::IDENTITY);
     ctx.record(&mut recording, |ctx| {
         ctx.set_paint(GREEN);
-        ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+        let mut triangle_path = BezPath::new();
+        triangle_path.move_to((50.0, 10.0));
+        triangle_path.line_to((10.0, 90.0));
+        triangle_path.line_to((90.0, 90.0));
+        triangle_path.close_path();
+        ctx.fill_path(&triangle_path);
     });
     ctx.prepare_recording(&mut recording);
+    ctx.execute_recording(&recording);
+}
+
+#[vello_test(width = 50, height = 50)]
+fn recording_is_executed_with_multiple_transforms(ctx: &mut impl Renderer) {
+    ctx.set_transform(Affine::translate((15., 15.)));
+
+    let font_size: f32 = 10_f32;
+    let (font, glyphs) = layout_glyphs_roboto("A", font_size);
+    let mut recording = Recording::new();
+    ctx.record(&mut recording, |ctx| {
+        ctx.set_paint(GOLD);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 5.0, 5.0));
+        ctx.set_paint(FUCHSIA);
+        ctx.set_transform(Affine::translate((20., 20.)));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 5.0, 5.0));
+        ctx.set_paint(GREEN);
+        ctx.set_transform(Affine::translate((25., 25.)));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 5.0, 5.0));
+
+        ctx.set_transform(Affine::translate((5.0, 15.0)));
+        ctx.set_paint(ORANGE);
+        ctx.glyph_run(&font)
+            .font_size(font_size)
+            .hint(true)
+            .fill_glyphs(glyphs.into_iter());
+    });
+
+    ctx.set_transform(Affine::translate((30., 30.)));
+    ctx.set_paint(PALE_VIOLET_RED);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 5.0, 5.0));
+    ctx.prepare_recording(&mut recording);
+
+    ctx.set_transform(Affine::translate((35., 35.)));
+    ctx.set_paint(PURPLE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 5.0, 5.0));
     ctx.execute_recording(&recording);
 }
 
