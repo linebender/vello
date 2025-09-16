@@ -10,7 +10,6 @@ use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
 use crate::fine::{FineKernel, highp, u8_to_f32};
 use crate::peniko::BlendMode;
 use crate::region::Region;
-use crate::util::Div255Ext;
 use bytemuck::cast_slice;
 use vello_common::coarse::WideTile;
 use vello_common::encode::{EncodedGradient, EncodedImage};
@@ -18,7 +17,7 @@ use vello_common::fearless_simd::*;
 use vello_common::paint::PremulColor;
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
-use vello_common::util::f32_to_u8;
+use vello_common::util::{f32_to_u8, Div255Ext};
 
 /// The kernel for doing rendering using u8/u16.
 #[derive(Clone, Copy, Debug)]
@@ -163,8 +162,8 @@ mod fill {
     use crate::fine::lowp::compose::ComposeExt;
     use crate::fine::lowp::mix;
     use crate::peniko::{BlendMode, Mix};
-    use crate::util::normalized_mul;
     use vello_common::fearless_simd::*;
+    use vello_common::util::normalized_mul_u8x32;
 
     pub(super) fn blend<S: Simd, T: Iterator<Item = u8x32<S>>>(
         simd: S,
@@ -237,7 +236,7 @@ mod fill {
         src: u8x32<S>,
         one_minus_alpha: u8x32<S>,
     ) -> u8x32<S> {
-        s.narrow_u16x32(normalized_mul(bg, one_minus_alpha)) + src
+        s.narrow_u16x32(normalized_mul_u8x32(bg, one_minus_alpha)) + src
     }
 }
 
@@ -246,8 +245,8 @@ mod alpha_fill {
     use crate::fine::lowp::compose::ComposeExt;
     use crate::fine::lowp::{extract_masks, mix};
     use crate::peniko::{BlendMode, Mix};
-    use crate::util::{Div255Ext, normalized_mul};
     use vello_common::fearless_simd::*;
+    use vello_common::util::{normalized_mul_u8x32, Div255Ext};
 
     pub(super) fn blend<S: Simd, T: Iterator<Item = u8x32<S>>>(
         simd: S,
@@ -341,7 +340,7 @@ mod alpha_fill {
                 let bg_v = u8x32::from_slice(s, dest);
 
                 let mask_v = extract_masks(s, masks);
-                let inv_src_a_mask_a = one - s.narrow_u16x32(normalized_mul(src_a, mask_v));
+                let inv_src_a_mask_a = one - s.narrow_u16x32(normalized_mul_u8x32(src_a, mask_v));
 
                 let p1 = s.widen_u8x32(bg_v) * s.widen_u8x32(inv_src_a_mask_a);
                 let p2 = s.widen_u8x32(src_c) * s.widen_u8x32(mask_v);
