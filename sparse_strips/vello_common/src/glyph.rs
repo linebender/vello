@@ -8,7 +8,7 @@ use crate::peniko::Font;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
-use hashbrown::hash_map::RawEntryMut;
+use hashbrown::hash_map::{Entry, RawEntryMut};
 use hashbrown::{Equivalent, HashMap};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{DrawSettings, OutlineGlyphFormat};
@@ -836,34 +836,28 @@ impl<'a> OutlineCacheSession<'a> {
             hint: hinting_instance.is_some(),
         };
 
-        if self.map.contains_key(&key) {
-            return self
-                .map
-                .get_mut(&key)
-                .map(|entry| {
-                    entry.serial = self.serial;
-                    &entry.path
-                })
-                .unwrap();
+        match self.map.entry(key) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().serial = self.serial;
+                &entry.into_mut().path
+            }
+            Entry::Vacant(entry) => {
+                let mut path = self.free_list.pop().unwrap_or_default();
+
+                let draw_settings = if let Some(hinting_instance) = hinting_instance {
+                    DrawSettings::hinted(hinting_instance, false)
+                } else {
+                    DrawSettings::unhinted(size, var_key.0)
+                };
+
+                path.0.truncate(0);
+                outline_glyph.draw(draw_settings, &mut path).unwrap();
+
+                let entry = entry.insert(OutlineEntry::new(path, self.serial));
+                *self.cached_count += 1;
+                &entry.path
+            }
         }
-
-        let mut path = self.free_list.pop().unwrap_or_default();
-
-        let draw_settings = if let Some(hinting_instance) = hinting_instance {
-            DrawSettings::hinted(hinting_instance, false)
-        } else {
-            DrawSettings::unhinted(size, var_key.0)
-        };
-
-        path.0.truncate(0);
-        outline_glyph.draw(draw_settings, &mut path).unwrap();
-
-        let entry = self
-            .map
-            .entry(key)
-            .or_insert(OutlineEntry::new(path, self.serial));
-        *self.cached_count += 1;
-        &entry.path
     }
 }
 
