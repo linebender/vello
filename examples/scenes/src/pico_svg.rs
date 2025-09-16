@@ -172,8 +172,8 @@ impl Parser {
                             path: path.clone(),
                         }));
                     }
-                    if let Some(stroke_color) = node.attribute("stroke") {
-                        if stroke_color != "none" {
+                    if let Some(stroke_color) = node.attribute("stroke")
+                        && stroke_color != "none" {
                             let width = node
                                 .attribute("stroke-width")
                                 .map(|a| f64::from_str(a).unwrap_or(1.0))
@@ -185,7 +185,6 @@ impl Parser {
                             let color = modify_opacity(color, "opacity", node);
                             items.push(Item::Stroke(StrokeItem { width, color, path }));
                         }
-                    }
                 }
                 other => eprintln!("Unhandled node type {other}"),
             }

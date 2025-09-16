@@ -51,7 +51,7 @@ impl StripStorage {
     }
 
     /// Extend the current strip storage with the data from another storage.
-    pub fn extend(&mut self, other: &StripStorage) {
+    pub fn extend(&mut self, other: &Self) {
         self.strips.extend(&other.strips);
         self.alphas.extend(&other.alphas);
     }
@@ -101,7 +101,7 @@ impl StripGenerator {
             &mut self.flatten_ctx,
         );
 
-        self.generate_with_clip(aliasing_threshold, strip_storage, fill_rule, clip_path)
+        self.generate_with_clip(aliasing_threshold, strip_storage, fill_rule, clip_path);
     }
 
     /// Generate the strips for a stroked path.
@@ -122,7 +122,7 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.generate_with_clip(aliasing_threshold, strip_storage, Fill::NonZero, clip_path)
+        self.generate_with_clip(aliasing_threshold, strip_storage, Fill::NonZero, clip_path);
     }
 
     fn generate_with_clip(

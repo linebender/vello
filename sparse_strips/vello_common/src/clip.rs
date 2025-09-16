@@ -19,11 +19,11 @@ struct ClipData {
 impl ClipData {
     fn to_path_data_ref<'a>(&self, storage: &'a StripStorage) -> PathDataRef<'a> {
         PathDataRef {
-            strips: &storage
+            strips: storage
                 .strips
                 .get(self.strip_start as usize..)
                 .unwrap_or(&[]),
-            alphas: &storage
+            alphas: storage
                 .alphas
                 .get(self.alpha_start as usize..)
                 .unwrap_or(&[]),
@@ -37,6 +37,12 @@ pub struct ClipContext {
     storage: StripStorage,
     temp_storage: StripStorage,
     clip_stack: Vec<ClipData>,
+}
+
+impl Default for ClipContext {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ClipContext {

@@ -428,7 +428,7 @@ impl RenderContext {
             self.fill_rule,
             self.transform,
             self.aliasing_threshold,
-        )
+        );
     }
 
     /// Pop a clip path from the clip stack.

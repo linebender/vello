@@ -215,7 +215,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             fill_rule,
             transform,
             aliasing_threshold,
-        )
+        );
     }
 
     fn pop_clip_path(&mut self) {
