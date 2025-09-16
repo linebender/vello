@@ -271,7 +271,7 @@ impl RenderContext {
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     #[cfg(feature = "text")]
-    pub fn glyph_run(&mut self, font: &crate::peniko::Font) -> GlyphRunBuilder<'_, Self> {
+    pub fn glyph_run(&mut self, font: &crate::peniko::FontData) -> GlyphRunBuilder<'_, Self> {
         GlyphRunBuilder::new(font.clone(), self.transform, self)
     }
 

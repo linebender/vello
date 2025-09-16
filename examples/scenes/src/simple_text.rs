@@ -12,7 +12,7 @@ use skrifa::{
     raw::{FileRef, FontRef},
 };
 use vello::kurbo::Affine;
-use vello::peniko::{Blob, Brush, BrushRef, Fill, Font, StyleRef, color::palette};
+use vello::peniko::{Blob, Brush, BrushRef, Fill, FontData, StyleRef, color::palette};
 use vello::{Glyph, Scene};
 
 // This is very much a hack to get things working.
@@ -25,10 +25,10 @@ const NOTO_EMOJI_COLR_SUBSET: &[u8] =
     include_bytes!("../../assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
 
 pub struct SimpleText {
-    roboto: Font,
-    inconsolata: Font,
-    noto_emoji_colr_subset: Font,
-    noto_emoji_cbtf_subset: Font,
+    roboto: FontData,
+    inconsolata: FontData,
+    noto_emoji_colr_subset: FontData,
+    noto_emoji_cbtf_subset: FontData,
 }
 
 #[expect(
@@ -38,10 +38,10 @@ pub struct SimpleText {
 impl SimpleText {
     pub fn new() -> Self {
         Self {
-            roboto: Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0),
-            inconsolata: Font::new(Blob::new(Arc::new(INCONSOLATA_FONT)), 0),
-            noto_emoji_colr_subset: Font::new(Blob::new(Arc::new(NOTO_EMOJI_COLR_SUBSET)), 0),
-            noto_emoji_cbtf_subset: Font::new(Blob::new(Arc::new(NOTO_EMOJI_CBTF_SUBSET)), 0),
+            roboto: FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0),
+            inconsolata: FontData::new(Blob::new(Arc::new(INCONSOLATA_FONT)), 0),
+            noto_emoji_colr_subset: FontData::new(Blob::new(Arc::new(NOTO_EMOJI_COLR_SUBSET)), 0),
+            noto_emoji_cbtf_subset: FontData::new(Blob::new(Arc::new(NOTO_EMOJI_CBTF_SUBSET)), 0),
         }
     }
 
@@ -113,7 +113,7 @@ impl SimpleText {
     pub fn add_run<'a>(
         &mut self,
         scene: &mut Scene,
-        font: Option<&Font>,
+        font: Option<&FontData>,
         size: f32,
         brush: impl Into<BrushRef<'a>>,
         transform: Affine,
@@ -142,7 +142,7 @@ impl SimpleText {
     pub fn add_var_run<'a>(
         &mut self,
         scene: &mut Scene,
-        font: Option<&Font>,
+        font: Option<&FontData>,
         size: f32,
         variations: &[(&str, f32)],
         brush: impl Into<BrushRef<'a>>,
@@ -202,7 +202,7 @@ impl SimpleText {
     pub fn add(
         &mut self,
         scene: &mut Scene,
-        font: Option<&Font>,
+        font: Option<&FontData>,
         size: f32,
         brush: Option<&Brush>,
         transform: Affine,
@@ -228,7 +228,7 @@ impl Default for SimpleText {
     }
 }
 
-fn to_font_ref(font: &Font) -> Option<FontRef<'_>> {
+fn to_font_ref(font: &FontData) -> Option<FontRef<'_>> {
     let file_ref = FileRef::new(font.data.as_ref()).ok()?;
     match file_ref {
         FileRef::Font(font) => Some(font),

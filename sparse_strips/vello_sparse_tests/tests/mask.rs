@@ -8,6 +8,7 @@ use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
 use vello_common::kurbo::{Point, Rect};
 use vello_common::mask::Mask;
 use vello_common::peniko::{ColorStop, ColorStops, Gradient, GradientKind};
+use vello_cpu::peniko::LinearGradientPosition;
 use vello_cpu::{Level, RenderMode, RenderSettings};
 use vello_cpu::{Pixmap, RenderContext};
 use vello_dev_macros::vello_test;
@@ -23,10 +24,10 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     let mut mask_ctx = RenderContext::new_with(100, 100, settings);
 
     let grad = Gradient {
-        kind: GradientKind::Linear {
+        kind: GradientKind::Linear(LinearGradientPosition {
             start: Point::new(10.0, 0.0),
             end: Point::new(90.0, 0.0),
-        },
+        }),
         stops: ColorStops(smallvec![
             ColorStop {
                 offset: 0.0,

@@ -292,7 +292,9 @@ mod tests {
     use vello_common::color::{ColorSpaceTag, DynamicColor, HueDirection};
     use vello_common::encode::{EncodeExt, EncodedPaint};
     use vello_common::kurbo::{Affine, Point};
-    use vello_common::peniko::{Color, ColorStop, ColorStops, Gradient, GradientKind};
+    use vello_common::peniko::{
+        Color, ColorStop, ColorStops, Gradient, GradientKind, LinearGradientPosition,
+    };
 
     fn insert_entries(cache: &mut GradientRampCache, count: usize) {
         for i in 0..count {
@@ -319,10 +321,10 @@ mod tests {
 
     fn create_gradient(offset: f32) -> Gradient {
         Gradient {
-            kind: GradientKind::Linear {
+            kind: GradientKind::Linear(LinearGradientPosition {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(100.0, 0.0),
-            },
+            }),
             stops: ColorStops(
                 vec![
                     ColorStop {

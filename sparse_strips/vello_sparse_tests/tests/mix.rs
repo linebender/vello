@@ -12,6 +12,7 @@ use vello_common::peniko::{
     BlendMode, Color, ColorStop, ColorStops, Compose, Extend, Gradient, GradientKind, ImageQuality,
     Mix,
 };
+use vello_cpu::peniko::LinearGradientPosition;
 use vello_dev_macros::vello_test;
 
 fn cowboy_img(ctx: &mut impl Renderer) -> ImageSource {
@@ -24,10 +25,10 @@ fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
     let rect = Rect::new(0.0, 0.0, 80.0, 80.0);
 
     let gradient = Gradient {
-        kind: GradientKind::Linear {
+        kind: GradientKind::Linear(LinearGradientPosition {
             start: Point::new(0.0, 0.0),
             end: Point::new(80.0, 0.0),
-        },
+        }),
         stops: ColorStops(smallvec![
             ColorStop {
                 offset: 0.0,

@@ -12,7 +12,7 @@ use image::{DynamicImage, ImageError};
 use nv_flip::FlipPool;
 use vello::{
     Scene,
-    peniko::{Image, ImageFormat},
+    peniko::{ImageData, ImageFormat},
 };
 
 use crate::{TestParams, env_var_relates_to, render_then_debug, write_png_to_file};
@@ -43,7 +43,7 @@ pub struct Snapshot<'a> {
     pub statistics: Option<FlipPool>,
     pub reference_path: PathBuf,
     pub update_path: PathBuf,
-    pub raw_rendered: Image,
+    pub raw_rendered: ImageData,
     pub params: &'a TestParams,
     pub directory: SnapshotDirectory,
 }
@@ -182,7 +182,7 @@ pub async fn snapshot_test(
 /// This is useful if a post-processing step needs to happen
 /// in-between running Vello and the image.
 pub fn snapshot_test_image(
-    raw_rendered: Image,
+    raw_rendered: ImageData,
     params: &TestParams,
     directory: SnapshotDirectory,
 ) -> Result<Snapshot<'_>> {

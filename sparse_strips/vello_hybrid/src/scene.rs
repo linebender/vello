@@ -12,7 +12,7 @@ use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGly
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{Paint, PaintType};
-use vello_common::peniko::Font;
+use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
@@ -231,7 +231,7 @@ impl Scene {
     }
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
-    pub fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
+    pub fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
         GlyphRunBuilder::new(font.clone(), self.transform, self)
     }
 

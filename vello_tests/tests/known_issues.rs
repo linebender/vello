@@ -125,7 +125,11 @@ fn test_data_image_roundtrip_extend_reflect() {
         .with_quality(ImageQuality::Low)
         .with_extend(Extend::Reflect);
     scene.draw_image(&image, Affine::IDENTITY);
-    let mut params = TestParams::new("data_image_roundtrip", image.width, image.height);
+    let mut params = TestParams::new(
+        "data_image_roundtrip",
+        image.image.width,
+        image.image.height,
+    );
     params.anti_aliasing = AaConfig::Area;
     smoke_snapshot_test_sync(scene, &params)
         .unwrap()
@@ -146,7 +150,11 @@ fn test_data_image_roundtrip_extend_repeat() {
         .with_quality(ImageQuality::Low)
         .with_extend(Extend::Repeat);
     scene.draw_image(&image, Affine::IDENTITY);
-    let mut params = TestParams::new("data_image_roundtrip", image.width, image.height);
+    let mut params = TestParams::new(
+        "data_image_roundtrip",
+        image.image.width,
+        image.image.height,
+    );
     params.anti_aliasing = AaConfig::Area;
     smoke_snapshot_test_sync(scene, &params)
         .unwrap()

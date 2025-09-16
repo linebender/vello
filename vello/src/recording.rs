@@ -4,7 +4,7 @@
 use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use peniko::Image;
+use peniko::ImageData;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ShaderId(pub usize);
@@ -68,7 +68,7 @@ pub enum Command {
     UploadUniform(BufferProxy, Vec<u8>),
     /// Commands the data to be uploaded to the given image.
     UploadImage(ImageProxy, Vec<u8>),
-    WriteImage(ImageProxy, [u32; 2], Image),
+    WriteImage(ImageProxy, [u32; 2], ImageData),
     Download(BufferProxy),
     /// Commands to clear the buffer from an offset on for a length of the given size.
     /// If the size is [None], it clears until the end.
@@ -152,7 +152,7 @@ impl Recording {
         image_proxy
     }
 
-    pub fn write_image(&mut self, proxy: ImageProxy, x: u32, y: u32, image: Image) {
+    pub fn write_image(&mut self, proxy: ImageProxy, x: u32, y: u32, image: ImageData) {
         self.push(Command::WriteImage(proxy, [x, y], image));
     }
 

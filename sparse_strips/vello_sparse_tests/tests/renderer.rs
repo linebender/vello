@@ -8,7 +8,7 @@ use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageSource, PaintType};
-use vello_common::peniko::{BlendMode, Fill, Font};
+use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
@@ -31,7 +31,7 @@ pub(crate) trait Renderer: Sized + GlyphRenderer {
     fn fill_rect(&mut self, rect: &Rect);
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
     fn stroke_rect(&mut self, rect: &Rect);
-    fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
+    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -99,7 +99,7 @@ impl Renderer for RenderContext {
         Self::stroke_rect(self, rect);
     }
 
-    fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
+    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
         Self::glyph_run(self, font)
     }
 
@@ -287,7 +287,7 @@ impl Renderer for HybridRenderer {
         self.scene.stroke_rect(rect);
     }
 
-    fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
+    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
         self.scene.glyph_run(font)
     }
 

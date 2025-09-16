@@ -19,6 +19,7 @@ use core::cell::OnceCell;
 use core::hash::{Hash, Hasher};
 use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
 use peniko::color::cache_key::{BitEq, BitHash, CacheKey};
+use peniko::{LinearGradientPosition, RadialGradientPosition, SweepGradientPosition};
 use smallvec::{SmallVec, ToSmallVec};
 // So we can just use `OnceCell` regardless of which feature is activated.
 #[cfg(feature = "multithreading")]
@@ -89,10 +90,10 @@ impl EncodeExt for Gradient {
         }
 
         let kind = match self.kind {
-            GradientKind::Linear {
+            GradientKind::Linear(LinearGradientPosition {
                 start: p0,
                 end: mut p1,
-            } => {
+            }) => {
                 // Double the length of the iterator, and append stops in reverse order in case
                 // we have the extend `Reflect`.
                 // Then we can treat it the same as a repeated gradient.
@@ -109,12 +110,12 @@ impl EncodeExt for Gradient {
 
                 EncodedKind::Linear(LinearKind)
             }
-            GradientKind::Radial {
+            GradientKind::Radial(RadialGradientPosition {
                 start_center: c0,
                 start_radius: r0,
                 end_center: mut c1,
                 end_radius: mut r1,
-            } => {
+            }) => {
                 // The implementation of radial gradients is translated from Skia.
                 // See:
                 // - <https://skia.org/docs/dev/design/conical/>
@@ -174,16 +175,11 @@ impl EncodeExt for Gradient {
 
                 EncodedKind::Radial(radial_kind)
             }
-            GradientKind::Sweep {
+            GradientKind::Sweep(SweepGradientPosition {
                 center,
                 start_angle,
-                end_angle,
-            } => {
-                // For sweep gradients, the position on the "color line" is defined by the
-                // angle towards the gradient center.
-                let start_angle = start_angle.to_radians();
-                let mut end_angle = end_angle.to_radians();
-
+                mut end_angle,
+            }) => {
                 // Same as before, reduce `Reflect` to `Repeat`.
                 if self.extend == Extend::Reflect {
                     end_angle += end_angle - start_angle;
@@ -297,18 +293,18 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
     let degenerate_val = |v1: f32, v2: f32| (v2 - v1).abs() <= DEGENERATE_THRESHOLD;
 
     match &gradient.kind {
-        GradientKind::Linear { start, end } => {
+        GradientKind::Linear(LinearGradientPosition { start, end }) => {
             // Start and end points must not be too close together.
             if degenerate_point(start, end) {
                 return first;
             }
         }
-        GradientKind::Radial {
+        GradientKind::Radial(RadialGradientPosition {
             start_center,
             start_radius,
             end_center,
             end_radius,
-        } => {
+        }) => {
             // Radii must not be negative.
             if *start_radius < 0.0 || *end_radius < 0.0 {
                 return first;
@@ -321,11 +317,11 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
                 return first;
             }
         }
-        GradientKind::Sweep {
+        GradientKind::Sweep(SweepGradientPosition {
             start_angle,
             end_angle,
             ..
-        } => {
+        }) => {
             // The end angle must be larger than the start angle.
             if degenerate_val(*start_angle, *end_angle) {
                 return first;
@@ -1093,6 +1089,7 @@ mod tests {
     use crate::kurbo::{Affine, Point};
     use crate::peniko::{ColorStop, ColorStops, GradientKind};
     use alloc::vec;
+    use peniko::{LinearGradientPosition, RadialGradientPosition};
     use smallvec::smallvec;
 
     #[test]
@@ -1100,10 +1097,10 @@ mod tests {
         let mut buf = vec![];
 
         let gradient = Gradient {
-            kind: GradientKind::Linear {
+            kind: GradientKind::Linear(LinearGradientPosition {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
-            },
+            }),
             ..Default::default()
         };
 
@@ -1118,10 +1115,10 @@ mod tests {
         let mut buf = vec![];
 
         let gradient = Gradient {
-            kind: GradientKind::Linear {
+            kind: GradientKind::Linear(LinearGradientPosition {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
-            },
+            }),
             stops: ColorStops(smallvec![ColorStop {
                 offset: 0.0,
                 color: DynamicColor::from_alpha_color(GREEN),
@@ -1141,10 +1138,10 @@ mod tests {
         let mut buf = vec![];
 
         let gradient = Gradient {
-            kind: GradientKind::Linear {
+            kind: GradientKind::Linear(LinearGradientPosition {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
-            },
+            }),
             stops: ColorStops(smallvec![
                 ColorStop {
                     offset: 1.0,
@@ -1169,10 +1166,10 @@ mod tests {
         let mut buf = vec![];
 
         let gradient = Gradient {
-            kind: GradientKind::Linear {
+            kind: GradientKind::Linear(LinearGradientPosition {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(0.0, 0.0),
-            },
+            }),
             stops: ColorStops(smallvec![
                 ColorStop {
                     offset: 0.0,
@@ -1197,12 +1194,7 @@ mod tests {
         let mut buf = vec![];
 
         let gradient = Gradient {
-            kind: GradientKind::Radial {
-                start_center: Point::new(0.0, 0.0),
-                start_radius: 20.0,
-                end_center: Point::new(0.0, 0.0),
-                end_radius: 20.0,
-            },
+            kind: GradientKind::Radial(RadialGradientPosition { start_center: Point::new(0.0, 0.0), start_radius: 20.0, end_center: Point::new(0.0, 0.0), end_radius: 20.0 }),
             stops: ColorStops(smallvec![
                 ColorStop {
                     offset: 0.0,

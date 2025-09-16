@@ -14,7 +14,7 @@ use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
-use vello_common::peniko::{Blob, ColorStop, ColorStops, Font};
+use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RenderMode};
 
@@ -147,33 +147,36 @@ pub(crate) fn circular_star(center: Point, n: usize, inner: f64, outer: f64) -> 
     path
 }
 
-pub(crate) fn layout_glyphs_roboto(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
+pub(crate) fn layout_glyphs_roboto(text: &str, font_size: f32) -> (FontData, Vec<Glyph>) {
     const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
-    let font = Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+    let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
 
     layout_glyphs(text, font_size, font)
 }
 
-pub(crate) fn layout_glyphs_noto_cbtf(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
+pub(crate) fn layout_glyphs_noto_cbtf(text: &str, font_size: f32) -> (FontData, Vec<Glyph>) {
     const NOTO_FONT: &[u8] =
         include_bytes!("../../../examples/assets/noto_color_emoji/NotoColorEmoji-CBTF-Subset.ttf");
-    let font = Font::new(Blob::new(Arc::new(NOTO_FONT)), 0);
+    let font = FontData::new(Blob::new(Arc::new(NOTO_FONT)), 0);
 
     layout_glyphs(text, font_size, font)
 }
 
-pub(crate) fn layout_glyphs_noto_colr(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
+pub(crate) fn layout_glyphs_noto_colr(text: &str, font_size: f32) -> (FontData, Vec<Glyph>) {
     const NOTO_FONT: &[u8] =
         include_bytes!("../../../examples/assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
-    let font = Font::new(Blob::new(Arc::new(NOTO_FONT)), 0);
+    let font = FontData::new(Blob::new(Arc::new(NOTO_FONT)), 0);
 
     layout_glyphs(text, font_size, font)
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn layout_glyphs_apple_color_emoji(text: &str, font_size: f32) -> (Font, Vec<Glyph>) {
+pub(crate) fn layout_glyphs_apple_color_emoji(
+    text: &str,
+    font_size: f32,
+) -> (FontData, Vec<Glyph>) {
     let apple_font: Vec<u8> = std::fs::read("/System/Library/Fonts/Apple Color Emoji.ttc").unwrap();
-    let font = Font::new(Blob::new(Arc::new(apple_font)), 0);
+    let font = FontData::new(Blob::new(Arc::new(apple_font)), 0);
 
     layout_glyphs(text, font_size, font)
 }
@@ -186,7 +189,7 @@ pub(crate) fn layout_glyphs_apple_color_emoji(text: &str, font_size: f32) -> (Fo
 /// We use this function as a convenience for testing; to get some glyphs shaped and laid
 /// out in a small amount of code without having to go through the trouble of setting up a
 /// full text layout pipeline, which you absolutely should do in application code.
-fn layout_glyphs(text: &str, font_size: f32, font: Font) -> (Font, Vec<Glyph>) {
+fn layout_glyphs(text: &str, font_size: f32, font: FontData) -> (FontData, Vec<Glyph>) {
     let font_ref = {
         let file_ref = FileRef::new(font.data.as_ref()).unwrap();
         match file_ref {

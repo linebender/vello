@@ -9,7 +9,7 @@ use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::mask::Mask;
 use crate::paint::PaintType;
 #[cfg(feature = "text")]
-use crate::peniko::Font;
+use crate::peniko::FontData;
 use crate::peniko::{BlendMode, Fill};
 use crate::strip::Strip;
 use crate::strip_generator::StripStorage;
@@ -431,7 +431,7 @@ impl<'a> Recorder<'a> {
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     #[cfg(feature = "text")]
-    pub fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
+    pub fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
         GlyphRunBuilder::new(font.clone(), self.recording.transform, self)
     }
 }
