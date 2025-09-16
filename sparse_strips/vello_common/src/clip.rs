@@ -216,7 +216,7 @@ fn intersect_impl<S: Simd>(
                 OverlapRelationship::Overlap(overlap) => {
                     match (region_1, region_2) {
                         // Both regions are a fill. Flush the current strip and start a new
-                        // one at the end of the overlap region setting `fill_gap` to true, 
+                        // one at the end of the overlap region setting `fill_gap` to true,
                         // so that the whole area before that will be filled with a sparse
                         // fill.
                         (Region::Fill(_), Region::Fill(_)) => {
