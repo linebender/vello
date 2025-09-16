@@ -207,3 +207,20 @@ fn recording_can_be_cleared(ctx: &mut impl Renderer) {
     ctx.prepare_recording(&mut recording);
     ctx.execute_recording(&recording);
 }
+
+#[vello_test(width = 20, height = 20, no_ref)]
+fn recording_handles_completely_offscreen_content(ctx: &mut impl Renderer) {
+    let mut recording = Recording::new();
+    ctx.record(&mut recording, |ctx| {
+        ctx.set_paint(ORCHID);
+        // A rectangle completely outside the viewport in then negative x and y direction.
+        ctx.set_transform(Affine::translate((-200., -200.)));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
+        // A rectangle completely outside the viewport in then positive x and y direction.
+        ctx.set_transform(Affine::translate((200., 200.)));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
+    });
+
+    ctx.prepare_recording(&mut recording);
+    ctx.execute_recording(&recording);
+}
