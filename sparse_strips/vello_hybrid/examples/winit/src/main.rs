@@ -289,7 +289,7 @@ impl ApplicationHandler for App<'_> {
                     if now.duration_since(self.fps_update_time).as_secs_f64() >= 1.0 {
                         let avg_frame_time = self.accumulated_frame_time / self.frame_count as f64;
                         let avg_fps = 1000.0 / avg_frame_time;
-                        println!("Average FPS: {:.1}", avg_fps);
+                        println!("Average FPS: {avg_fps:.1}");
                         window.set_title(&format!(
                             "Vello Hybrid - Scene {} - {:.1} FPS ({:.2}ms avg)",
                             self.current_scene, avg_fps, avg_frame_time
