@@ -6,9 +6,12 @@
 use crate::kurbo::{Affine, BezPath, Vec2};
 use crate::peniko::Font;
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
+use hashbrown::hash_map::{Entry, RawEntryMut};
+use hashbrown::{Equivalent, HashMap};
 use skrifa::instance::{LocationRef, Size};
-use skrifa::outline::DrawSettings;
+use skrifa::outline::{DrawSettings, OutlineGlyphFormat};
 use skrifa::raw::TableProvider;
 use skrifa::{FontRef, OutlineGlyphCollection};
 use skrifa::{
@@ -107,6 +110,16 @@ pub trait GlyphRenderer {
 
     /// Stroke glyphs with the current paint and stroke settings.
     fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>);
+
+    /// Takes the glyph caches from the renderer for use in a glyph run.
+    ///
+    /// NOTE: The caller must restore the caches after the glyph run is done.
+    fn take_glyph_caches(&mut self) -> GlyphCaches;
+
+    /// Restores the glyph caches after a glyph run.
+    ///
+    /// The caches must have been previously taken with `take_glyph_caches`.
+    fn restore_glyph_caches(&mut self, caches: GlyphCaches);
 }
 
 /// A builder for configuring and drawing glyphs.
@@ -181,20 +194,24 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
         let color_glyphs = font_ref.color_glyphs();
         let bitmaps = font_ref.bitmap_strikes();
 
+        // TODO: Consider using a drop guard so that panics return the caches to the renderer.
+        let GlyphCaches {
+            mut hinting_cache,
+            mut outline_cache,
+        } = self.renderer.take_glyph_caches();
+        let mut outline_cache_session =
+            OutlineCacheSession::new(&mut outline_cache, VarLookupKey(self.run.normalized_coords));
         let PreparedGlyphRun {
             transform: initial_transform,
             size,
             normalized_coords,
             hinting_instance,
-        } = prepare_glyph_run(&self.run, &outlines);
+        } = prepare_glyph_run(&self.run, &outlines, &mut hinting_cache);
 
         let render_glyph = match style {
             Style::Fill => GlyphRenderer::fill_glyph,
             Style::Stroke => GlyphRenderer::stroke_glyph,
         };
-
-        // Reuse the same `path` allocation for each glyph.
-        let mut outline_path = OutlinePath::new();
 
         for glyph in glyphs {
             let bitmap_data = bitmaps
@@ -238,12 +255,14 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
                     prepare_outline_glyph(
                         glyph,
+                        self.run.font.data.id(),
+                        self.run.font.index,
+                        &mut outline_cache_session,
                         size,
                         initial_transform,
                         self.run.transform,
-                        &mut outline_path,
                         &outline,
-                        hinting_instance.as_ref(),
+                        hinting_instance,
                         normalized_coords,
                     )
                 };
@@ -255,29 +274,37 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
 
             render_glyph(self.renderer, prepared_glyph);
         }
+
+        self.renderer.restore_glyph_caches(GlyphCaches {
+            outline_cache,
+            hinting_cache,
+        });
     }
 }
 
 fn prepare_outline_glyph<'a>(
     glyph: Glyph,
+    font_id: u64,
+    font_index: u32,
+    outline_cache: &'a mut OutlineCacheSession<'_>,
     size: Size,
     // The transform of the run + the per-glyph transform.
     initial_transform: Affine,
     // The transform of the run, without the per-glyph transform.
     run_transform: Affine,
-    path: &'a mut OutlinePath,
     outline_glyph: &skrifa::outline::OutlineGlyph<'a>,
     hinting_instance: Option<&HintingInstance>,
     normalized_coords: &[skrifa::instance::NormalizedCoord],
 ) -> (GlyphType<'a>, Affine) {
-    let draw_settings = if let Some(hinting_instance) = hinting_instance {
-        DrawSettings::hinted(hinting_instance, false)
-    } else {
-        DrawSettings::unhinted(size, normalized_coords)
-    };
-
-    path.0.truncate(0);
-    let _ = outline_glyph.draw(draw_settings, path);
+    let path = outline_cache.get_or_insert(
+        glyph.id,
+        font_id,
+        font_index,
+        size,
+        VarLookupKey(normalized_coords),
+        outline_glyph,
+        hinting_instance,
+    );
 
     // Calculate the global glyph translation based on the glyph's local position within
     // the run and the run's global transform.
@@ -500,7 +527,7 @@ struct PreparedGlyphRun<'a> {
     /// The font size to generate glyph outlines for.
     size: Size,
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
-    hinting_instance: Option<HintingInstance>,
+    hinting_instance: Option<&'a HintingInstance>,
 }
 
 /// Prepare a glyph run for rendering.
@@ -510,6 +537,7 @@ struct PreparedGlyphRun<'a> {
 fn prepare_glyph_run<'a>(
     run: &GlyphRun<'a>,
     outlines: &OutlineGlyphCollection<'_>,
+    hint_cache: &'a mut HintCache,
 ) -> PreparedGlyphRun<'a> {
     if !run.hint {
         return PreparedGlyphRun {
@@ -530,7 +558,6 @@ fn prepare_glyph_run<'a>(
     //
     // As the hinting is vertical-only, we can handle horizontal skew, but not vertical skew or
     // rotations.
-
     let total_transform = run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY);
     let [t_a, t_b, t_c, t_d, t_e, t_f] = total_transform.as_coeffs();
 
@@ -540,8 +567,15 @@ fn prepare_glyph_run<'a>(
     if uniform_scale && vertically_uniform {
         let vertical_font_size = run.font_size * t_d as f32;
         let size = Size::new(vertical_font_size);
-        let hinting_instance =
-            HintingInstance::new(outlines, size, run.normalized_coords, HINTING_OPTIONS).ok();
+
+        let hinting_instance = hint_cache.get(&HintKey {
+            font_id: run.font.data.id(),
+            font_index: run.font.index,
+            outlines,
+            size,
+            coords: run.normalized_coords,
+        });
+
         PreparedGlyphRun {
             transform: Affine::new([1., 0., t_c, 1., t_e, t_f]),
             size,
@@ -550,7 +584,7 @@ fn prepare_glyph_run<'a>(
         }
     } else {
         PreparedGlyphRun {
-            transform: run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY),
+            transform: total_transform,
             size: Size::new(run.font_size),
             normalized_coords: run.normalized_coords,
             hinting_instance: None,
@@ -569,6 +603,7 @@ const HINTING_OPTIONS: HintingOptions = HintingOptions {
     },
 };
 
+#[derive(Clone, Default)]
 pub(crate) struct OutlinePath(pub(crate) BezPath);
 
 impl OutlinePath {
@@ -622,4 +657,334 @@ mod tests {
 
     const _NORMALISED_COORD_SIZE_MATCHES: () =
         assert!(size_of::<skrifa::instance::NormalizedCoord>() == size_of::<NormalizedCoord>());
+}
+
+/// Caches used for glyph rendering.
+// TODO: Consider capturing cache performance metrics like hit rate, etc.
+#[derive(Debug, Default)]
+pub struct GlyphCaches {
+    outline_cache: OutlineCache,
+    hinting_cache: HintCache,
+}
+
+impl GlyphCaches {
+    /// Creates a new `GlyphCaches` instance.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Clears the glyph caches.
+    pub fn clear(&mut self) {
+        self.outline_cache.clear();
+        self.hinting_cache.clear();
+    }
+
+    /// Maintains the glyph caches by evicting unused cache entries.
+    ///
+    /// Should be called once per scene rendering.
+    pub fn maintain(&mut self) {
+        self.outline_cache.maintain();
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Default, Debug)]
+struct OutlineKey {
+    font_id: u64,
+    font_index: u32,
+    glyph_id: u32,
+    size_bits: u32,
+    hint: bool,
+}
+
+struct OutlineEntry {
+    path: OutlinePath,
+    serial: u32,
+}
+
+impl OutlineEntry {
+    const fn new(path: OutlinePath, serial: u32) -> Self {
+        Self { path, serial }
+    }
+}
+
+/// Caches glyph outlines for reuse.
+/// Heavily inspired by `vello_encoding::glyph_cache`.
+#[derive(Default)]
+struct OutlineCache {
+    free_list: Vec<OutlinePath>,
+    static_map: HashMap<OutlineKey, OutlineEntry>,
+    variable_map: HashMap<VarKey, HashMap<OutlineKey, OutlineEntry>>,
+    cached_count: usize,
+    serial: u32,
+    last_prune_serial: u32,
+}
+
+impl Debug for OutlineCache {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("OutlineCache")
+            .field("free_list", &self.free_list.len())
+            .field("static_map", &self.static_map.len())
+            .field("variable_map", &self.variable_map.len())
+            .field("cached_count", &self.cached_count)
+            .field("serial", &self.serial)
+            .field("last_prune_serial", &self.last_prune_serial)
+            .finish()
+    }
+}
+
+impl OutlineCache {
+    fn maintain(&mut self) {
+        // Maximum number of full renders where we'll retain an unused glyph
+        const MAX_ENTRY_AGE: u32 = 64;
+        // Maximum number of full renders before we force a prune
+        const PRUNE_FREQUENCY: u32 = 64;
+        // Always prune if the cached count is greater than this value
+        const CACHED_COUNT_THRESHOLD: usize = 256;
+        // Number of encoding buffers we'll keep on the free list
+        const MAX_FREE_LIST_SIZE: usize = 128;
+
+        let free_list = &mut self.free_list;
+        let serial = self.serial;
+        self.serial += 1;
+        // Don't iterate over the whole cache every frame
+        if serial - self.last_prune_serial < PRUNE_FREQUENCY
+            && self.cached_count < CACHED_COUNT_THRESHOLD
+        {
+            return;
+        }
+        self.last_prune_serial = serial;
+        self.static_map.retain(|_, entry| {
+            if serial - entry.serial > MAX_ENTRY_AGE {
+                if free_list.len() < MAX_FREE_LIST_SIZE {
+                    free_list.push(core::mem::take(&mut entry.path));
+                }
+                self.cached_count -= 1;
+                false
+            } else {
+                true
+            }
+        });
+        self.variable_map.retain(|_, map| {
+            map.retain(|_, entry| {
+                if serial - entry.serial > MAX_ENTRY_AGE {
+                    if free_list.len() < MAX_FREE_LIST_SIZE {
+                        free_list.push(core::mem::take(&mut entry.path));
+                    }
+                    self.cached_count -= 1;
+                    false
+                } else {
+                    true
+                }
+            });
+            !map.is_empty()
+        });
+    }
+
+    fn clear(&mut self) {
+        self.free_list.clear();
+        self.static_map.clear();
+        self.variable_map.clear();
+        self.cached_count = 0;
+        self.serial = 0;
+        self.last_prune_serial = 0;
+    }
+}
+
+struct OutlineCacheSession<'a> {
+    map: &'a mut HashMap<OutlineKey, OutlineEntry>,
+    free_list: &'a mut Vec<OutlinePath>,
+    serial: u32,
+    cached_count: &'a mut usize,
+}
+
+impl<'a> OutlineCacheSession<'a> {
+    fn new(outline_cache: &'a mut OutlineCache, var_key: VarLookupKey<'_>) -> Self {
+        let map = if var_key.0.is_empty() {
+            &mut outline_cache.static_map
+        } else {
+            match outline_cache
+                .variable_map
+                .raw_entry_mut()
+                .from_key(&var_key)
+            {
+                RawEntryMut::Occupied(entry) => entry.into_mut(),
+                RawEntryMut::Vacant(entry) => entry.insert(var_key.into(), HashMap::new()).1,
+            }
+        };
+        Self {
+            map,
+            free_list: &mut outline_cache.free_list,
+            serial: outline_cache.serial,
+            cached_count: &mut outline_cache.cached_count,
+        }
+    }
+
+    fn get_or_insert(
+        &mut self,
+        glyph_id: u32,
+        font_id: u64,
+        font_index: u32,
+        size: Size,
+        var_key: VarLookupKey<'_>,
+        outline_glyph: &skrifa::outline::OutlineGlyph<'_>,
+        hinting_instance: Option<&HintingInstance>,
+    ) -> &OutlinePath {
+        let key = OutlineKey {
+            glyph_id,
+            font_id,
+            font_index,
+            size_bits: size.ppem().unwrap().to_bits(),
+            hint: hinting_instance.is_some(),
+        };
+
+        match self.map.entry(key) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().serial = self.serial;
+                &entry.into_mut().path
+            }
+            Entry::Vacant(entry) => {
+                let mut path = self.free_list.pop().unwrap_or_default();
+
+                let draw_settings = if let Some(hinting_instance) = hinting_instance {
+                    DrawSettings::hinted(hinting_instance, false)
+                } else {
+                    DrawSettings::unhinted(size, var_key.0)
+                };
+
+                path.0.truncate(0);
+                outline_glyph.draw(draw_settings, &mut path).unwrap();
+
+                let entry = entry.insert(OutlineEntry::new(path, self.serial));
+                *self.cached_count += 1;
+                &entry.path
+            }
+        }
+    }
+}
+
+/// Key for variable font caches.
+type VarKey = Vec<skrifa::instance::NormalizedCoord>;
+
+/// Lookup key for variable font caches.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+struct VarLookupKey<'a>(&'a [skrifa::instance::NormalizedCoord]);
+
+impl Equivalent<VarKey> for VarLookupKey<'_> {
+    fn equivalent(&self, other: &VarKey) -> bool {
+        self.0 == *other
+    }
+}
+
+impl From<VarLookupKey<'_>> for VarKey {
+    fn from(key: VarLookupKey<'_>) -> Self {
+        key.0.to_vec()
+    }
+}
+
+/// We keep this small to enable a simple LRU cache with a linear
+/// search. Regenerating hinting data is low to medium cost so it's fine
+/// to redo it occasionally.
+const MAX_CACHED_HINT_INSTANCES: usize = 16;
+
+struct HintKey<'a> {
+    font_id: u64,
+    font_index: u32,
+    outlines: &'a OutlineGlyphCollection<'a>,
+    size: Size,
+    coords: &'a [skrifa::instance::NormalizedCoord],
+}
+
+impl HintKey<'_> {
+    fn instance(&self) -> Option<HintingInstance> {
+        HintingInstance::new(self.outlines, self.size, self.coords, HINTING_OPTIONS).ok()
+    }
+}
+
+/// LRU cache for hinting instances.
+///
+/// Heavily inspired by `vello_encoding::glyph_cache`.
+#[derive(Default)]
+struct HintCache {
+    // Split caches for glyf/cff because the instance type can reuse
+    // internal memory when reconfigured for the same format.
+    glyf_entries: Vec<HintEntry>,
+    cff_entries: Vec<HintEntry>,
+    serial: u64,
+}
+
+impl Debug for HintCache {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HintCache")
+            .field("glyf_entries", &self.glyf_entries.len())
+            .field("cff_entries", &self.cff_entries.len())
+            .field("serial", &self.serial)
+            .finish()
+    }
+}
+
+impl HintCache {
+    fn get(&mut self, key: &HintKey<'_>) -> Option<&HintingInstance> {
+        let entries = match key.outlines.format()? {
+            OutlineGlyphFormat::Glyf => &mut self.glyf_entries,
+            OutlineGlyphFormat::Cff | OutlineGlyphFormat::Cff2 => &mut self.cff_entries,
+        };
+        let (entry_ix, is_current) = find_hint_entry(entries, key)?;
+        let entry = entries.get_mut(entry_ix)?;
+        self.serial += 1;
+        entry.serial = self.serial;
+        if !is_current {
+            entry.font_id = key.font_id;
+            entry.font_index = key.font_index;
+            entry
+                .instance
+                .reconfigure(key.outlines, key.size, key.coords, HINTING_OPTIONS)
+                .ok()?;
+        }
+        Some(&entry.instance)
+    }
+
+    fn clear(&mut self) {
+        self.glyf_entries.clear();
+        self.cff_entries.clear();
+        self.serial = 0;
+    }
+}
+
+struct HintEntry {
+    font_id: u64,
+    font_index: u32,
+    instance: HintingInstance,
+    serial: u64,
+}
+
+fn find_hint_entry(entries: &mut Vec<HintEntry>, key: &HintKey<'_>) -> Option<(usize, bool)> {
+    let mut found_serial = u64::MAX;
+    let mut found_index = 0;
+    for (ix, entry) in entries.iter().enumerate() {
+        if entry.font_id == key.font_id
+            && entry.font_index == key.font_index
+            && entry.instance.size() == key.size
+            && entry.instance.location().coords() == key.coords
+        {
+            return Some((ix, true));
+        }
+        if entry.serial < found_serial {
+            found_serial = entry.serial;
+            found_index = ix;
+        }
+    }
+    if entries.len() < MAX_CACHED_HINT_INSTANCES {
+        let instance = key.instance()?;
+        let ix = entries.len();
+        entries.push(HintEntry {
+            font_id: key.font_id,
+            font_index: key.font_index,
+            instance,
+            // This should be updated by the caller.
+            serial: 0,
+        });
+        Some((ix, true))
+    } else {
+        Some((found_index, false))
+    }
 }

@@ -69,6 +69,7 @@ pub struct Scene {
     pub(crate) blend_mode: BlendMode,
     pub(crate) strip_generator: StripGenerator,
     pub(crate) strip_storage: StripStorage,
+    pub(crate) glyph_caches: Option<vello_common::glyph::GlyphCaches>,
 }
 
 impl Scene {
@@ -95,6 +96,7 @@ impl Scene {
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
             blend_mode: render_state.blend_mode,
+            glyph_caches: Some(Default::default()),
         }
     }
 
@@ -346,6 +348,8 @@ impl Scene {
         self.paint = render_state.paint;
         self.stroke = render_state.stroke;
         self.blend_mode = render_state.blend_mode;
+
+        self.glyph_caches.as_mut().unwrap().maintain();
     }
 
     /// Get the width of the render context.
@@ -392,6 +396,14 @@ impl GlyphRenderer for Scene {
             GlyphType::Colr(_) => {}
         }
     }
+
+    fn take_glyph_caches(&mut self) -> vello_common::glyph::GlyphCaches {
+        self.glyph_caches.take().unwrap_or_default()
+    }
+
+    fn restore_glyph_caches(&mut self, cache: vello_common::glyph::GlyphCaches) {
+        self.glyph_caches = Some(cache);
+    }
 }
 
 impl Recordable for Scene {
@@ -399,9 +411,11 @@ impl Recordable for Scene {
     where
         F: FnOnce(&mut Recorder<'_>),
     {
-        let mut recorder = Recorder::new(recording, self.transform);
+        let mut recorder = Recorder::new(recording, self.transform, self.take_glyph_caches());
         f(&mut recorder);
+        self.glyph_caches = Some(recorder.take_glyph_caches());
     }
+
     fn prepare_recording(&mut self, recording: &mut Recording) {
         let buffers = recording.take_cached_strips();
         let (strip_storage, strip_start_indices) =

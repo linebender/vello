@@ -702,4 +702,12 @@ impl GlyphRenderer for HybridRenderer {
     fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
         self.scene.stroke_glyph(glyph);
     }
+
+    fn take_glyph_caches(&mut self) -> vello_common::glyph::GlyphCaches {
+        self.scene.take_glyph_caches()
+    }
+
+    fn restore_glyph_caches(&mut self, caches: vello_common::glyph::GlyphCaches) {
+        self.scene.restore_glyph_caches(caches);
+    }
 }

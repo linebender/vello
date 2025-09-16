@@ -14,6 +14,7 @@ vello_common = { workspace = true }
 vello_cpu = { workspace = true }
 vello_dev_macros = { workspace = true }
 criterion = { workspace = true }
+parley = { version = "0.5.0", default-features = true }
 rand = { workspace = true }
 smallvec = { workspace = true }
 usvg = { workspace = true }

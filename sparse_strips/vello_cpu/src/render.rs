@@ -55,6 +55,8 @@ pub struct RenderContext {
     )]
     pub(crate) render_settings: RenderSettings,
     dispatcher: Box<dyn Dispatcher>,
+    #[cfg(feature = "text")]
+    pub(crate) glyph_caches: Option<vello_common::glyph::GlyphCaches>,
 }
 
 /// Settings to apply to the render context.
@@ -144,6 +146,8 @@ impl RenderContext {
             stroke,
             temp_path,
             encoded_paints,
+            #[cfg(feature = "text")]
+            glyph_caches: Some(Default::default()),
         }
     }
 
@@ -419,6 +423,8 @@ impl RenderContext {
         self.encoded_paints.clear();
         self.reset_transform();
         self.reset_paint_transform();
+        #[cfg(feature = "text")]
+        self.glyph_caches.as_mut().unwrap().maintain();
     }
 
     /// Flush any pending operations.
@@ -599,6 +605,14 @@ impl GlyphRenderer for RenderContext {
             }
         }
     }
+
+    fn take_glyph_caches(&mut self) -> vello_common::glyph::GlyphCaches {
+        self.glyph_caches.take().unwrap()
+    }
+
+    fn restore_glyph_caches(&mut self, cache: vello_common::glyph::GlyphCaches) {
+        self.glyph_caches = Some(cache);
+    }
 }
 
 #[cfg(feature = "text")]
@@ -645,8 +659,17 @@ impl Recordable for RenderContext {
     where
         F: FnOnce(&mut Recorder<'_>),
     {
-        let mut recorder = Recorder::new(recording, self.transform);
+        let mut recorder = Recorder::new(
+            recording,
+            self.transform,
+            #[cfg(feature = "text")]
+            self.take_glyph_caches(),
+        );
         f(&mut recorder);
+        #[cfg(feature = "text")]
+        {
+            self.glyph_caches = Some(recorder.take_glyph_caches());
+        }
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {

@@ -3715,6 +3715,7 @@ name = "vello_bench"
 version = "0.0.0"
 dependencies = [
  "criterion",
+ "parley",
  "rand",
  "smallvec",
  "usvg",
@@ -3729,6 +3730,7 @@ version = "0.0.1"
 dependencies = [
  "bytemuck",
  "fearless_simd",
+ "hashbrown 0.15.3",
  "libm",
  "log",
  "peniko",

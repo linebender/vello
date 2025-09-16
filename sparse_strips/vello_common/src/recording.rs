@@ -322,12 +322,23 @@ pub trait Recordable {
 pub struct Recorder<'a> {
     /// The recording to capture commands into.
     recording: &'a mut Recording,
+
+    #[cfg(feature = "text")]
+    glyph_caches: Option<crate::glyph::GlyphCaches>,
 }
 
 impl<'a> Recorder<'a> {
     /// Create a new recorder for the given recording.
-    pub fn new(recording: &'a mut Recording, transform: Affine) -> Self {
-        let mut s = Self { recording };
+    pub fn new(
+        recording: &'a mut Recording,
+        transform: Affine,
+        #[cfg(feature = "text")] glyph_caches: crate::glyph::GlyphCaches,
+    ) -> Self {
+        let mut s = Self {
+            recording,
+            #[cfg(feature = "text")]
+            glyph_caches: Some(glyph_caches),
+        };
         // Ensure that the initial transform is saved on the recording.
         s.set_transform(transform);
         s
@@ -459,5 +470,12 @@ impl<'a> GlyphRenderer for Recorder<'a> {
                 unimplemented!("Recording glyphs of type {:?}", glyph.glyph_type);
             }
         }
+    }
+
+    fn restore_glyph_caches(&mut self, caches: crate::glyph::GlyphCaches) {
+        self.glyph_caches = Some(caches);
+    }
+    fn take_glyph_caches(&mut self) -> crate::glyph::GlyphCaches {
+        self.glyph_caches.take().unwrap_or_default()
     }
 }
