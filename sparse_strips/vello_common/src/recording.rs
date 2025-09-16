@@ -301,9 +301,6 @@ pub trait Recordable {
     /// via `prepare_recording()`, or when you want to execute commands immediately
     /// without explicit preparation.
     ///
-    /// Note: Currently if the renderer transform does not match the recording being executed the
-    /// method will panic.
-    ///
     /// # Example
     /// ```ignore
     /// let mut recording = Recording::new();
