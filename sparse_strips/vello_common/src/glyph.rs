@@ -8,6 +8,7 @@ use crate::peniko::Font;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
+use hashbrown::hash_map::RawEntryMut;
 use hashbrown::{Equivalent, HashMap};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{DrawSettings, OutlineGlyphFormat};
@@ -800,18 +801,13 @@ impl<'a> OutlineCacheSession<'a> {
         let map = if var_key.0.is_empty() {
             &mut outline_cache.static_map
         } else {
-            // This is still ugly in rust. Choices are:
-            // 1. multiple lookups in the hashmap (implemented here)
-            // 2. always allocate and copy the key
-            // 3. use unsafe
-            // Pick 1 bad option :(
-            if outline_cache.variable_map.contains_key(&var_key) {
-                outline_cache.variable_map.get_mut(&var_key).unwrap()
-            } else {
-                outline_cache
-                    .variable_map
-                    .entry(var_key.into())
-                    .or_default()
+            match outline_cache
+                .variable_map
+                .raw_entry_mut()
+                .from_key(&var_key)
+            {
+                RawEntryMut::Occupied(entry) => entry.into_mut(),
+                RawEntryMut::Vacant(entry) => entry.insert(var_key.into(), HashMap::new()).1,
             }
         };
         Self {
