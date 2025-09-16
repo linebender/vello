@@ -571,7 +571,7 @@ impl Renderer for HybridRenderer {
         self.scene.stroke_rect(rect);
     }
 
-    fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
+    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
         self.scene.glyph_run(font)
     }
 
