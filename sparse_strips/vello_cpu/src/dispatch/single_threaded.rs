@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use vello_common::clip::ClipContext;
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
@@ -18,6 +19,7 @@ use vello_common::strip_generator::{StripGenerator, StripStorage};
 #[derive(Debug)]
 pub(crate) struct SingleThreadedDispatcher {
     wide: Wide,
+    clip_context: ClipContext,
     strip_generator: StripGenerator,
     strip_storage: StripStorage,
     level: Level,
@@ -27,10 +29,12 @@ impl SingleThreadedDispatcher {
     pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
         let wide = Wide::<MODE_CPU>::new(width, height);
         let strip_generator = StripGenerator::new(width, height, level);
+        let clip_context = ClipContext::new();
         let strip_storage = StripStorage::default();
 
         Self {
             wide,
+            clip_context,
             strip_generator,
             strip_storage,
             level,
@@ -106,6 +110,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
+            self.clip_context.get(),
         );
 
         wide.generate(&self.strip_storage.strips, paint, 0);
@@ -127,6 +132,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
+            self.clip_context.get(),
         );
 
         wide.generate(&self.strip_storage.strips, paint, 0);
@@ -149,6 +155,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 clip_transform,
                 aliasing_threshold,
                 &mut self.strip_storage,
+                self.clip_context.get(),
             );
 
             Some(self.strip_storage.strips.as_slice())
@@ -165,6 +172,7 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn reset(&mut self) {
         self.wide.reset();
+        self.clip_context.reset();
         self.strip_generator.reset();
     }
 
@@ -192,6 +200,16 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn strip_storage_mut(&mut self) -> &mut StripStorage {
         &mut self.strip_storage
+    }
+
+    fn push_clip_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, aliasing_threshold: Option<u8>) {
+        self.clip_context.push_clip(
+            path, &mut self.strip_generator, fill_rule, transform, aliasing_threshold,
+        )
+    }
+
+    fn pop_clip_path(&mut self) {
+        self.clip_context.pop_clip();
     }
 }
 

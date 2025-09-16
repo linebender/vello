@@ -21,6 +21,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
+use vello_common::clip::ClipContext;
 use vello_common::coarse::{Cmd, MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
@@ -49,6 +50,7 @@ type CoarseTaskReceiver = ordered_channel::Receiver<CoarseTask>;
 pub(crate) struct MultiThreadedDispatcher {
     /// The wide tile container.
     wide: Wide,
+    clip_context: ClipContext,
     /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
     /// The current batch of paths we want to render.
@@ -143,6 +145,7 @@ impl MultiThreadedDispatcher {
             task_idx,
             flushed,
             workers,
+            clip_context: ClipContext::new(),
             task_sender: None,
             coarse_task_receiver: None,
             strip_generator: StripGenerator::new(width, height, level),
@@ -252,8 +255,10 @@ impl MultiThreadedDispatcher {
         let tasks = self.task_batch.as_slice();
         let path = self.batch_path.elements();
         let task_sender = self.task_sender.as_mut().unwrap();
+        let clip_path = self.clip_context.get().map(|c| (c.strips.into(), c.alphas.into()));
         let task = RenderTask {
             idx: task_idx,
+            clip_path,
             // TODO: Explore whether the main thread can hold a store of previous allocations so
             // we can reuse them. Same for the strips that are returned from
             // a child thread.
@@ -456,6 +461,7 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn reset(&mut self) {
         self.wide.reset();
+        self.clip_context.reset();
         self.task_batch.clear();
         self.batch_cost = 0.0;
         self.batch_path.truncate(0);
@@ -548,6 +554,16 @@ impl Dispatcher for MultiThreadedDispatcher {
     fn strip_storage_mut(&mut self) -> &mut StripStorage {
         &mut self.strip_storage
     }
+
+    fn push_clip_path(&mut self, path: &BezPath, fill_rule: Fill, transform: Affine, aliasing_threshold: Option<u8>) {
+        self.flush_tasks();
+        self.clip_context.push_clip(path, &mut self.strip_generator, fill_rule, transform, aliasing_threshold);
+    }
+
+    fn pop_clip_path(&mut self) {
+        self.flush_tasks();
+        self.clip_context.pop_clip();
+    }
 }
 
 simd_dispatch!(
@@ -603,6 +619,7 @@ impl Debug for MultiThreadedDispatcher {
 #[derive(Debug)]
 pub(crate) struct RenderTask {
     pub(crate) idx: u32,
+    pub(crate) clip_path: Option<(Box<[Strip]>, Box<[u8]>)>,
     pub(crate) path: Box<[PathEl]>,
     pub(crate) tasks: Box<[RenderTaskType]>,
 }

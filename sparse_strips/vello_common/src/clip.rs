@@ -35,8 +35,7 @@ impl ClipData {
 #[derive(Debug)]
 pub struct ClipContext {
     storage: StripStorage,
-    temp_storage1: StripStorage,
-    temp_storage2: StripStorage,
+    temp_storage: StripStorage,
     clip_stack: Vec<ClipData>,
 }
 
@@ -48,8 +47,7 @@ impl ClipContext {
         main_storage.set_generation_mode(GenerationMode::Append);
         Self {
             storage: main_storage,
-            temp_storage1: Default::default(),
-            temp_storage2: Default::default(),
+            temp_storage: Default::default(),
             clip_stack: vec![],
         }
     }
@@ -59,8 +57,7 @@ impl ClipContext {
     pub fn reset(&mut self) {
         self.clip_stack.clear();
         self.storage.clear();
-        self.temp_storage1.clear();
-        self.temp_storage2.clear();
+        self.temp_storage.clear();
     }
 
     /// Get the data of the current clip path.
@@ -81,8 +78,7 @@ impl ClipContext {
         transform: Affine,
         aliasing_threshold: Option<u8>,
     ) {
-        self.temp_storage1.clear();
-        self.temp_storage2.clear();
+        self.temp_storage.clear();
 
         let alpha_start = self.storage.alphas.len() as u32;
         let strip_start = self.storage.strips.len() as u32;
@@ -91,31 +87,20 @@ impl ClipContext {
             alpha_start,
             strip_start,
         };
+        
+        let existing_clip = self.clip_stack.last()
+            .map(|c| c.to_path_data_ref(&self.storage));
 
         strip_generator.generate_filled_path(
             clip_path,
             fill_rule,
             transform,
             aliasing_threshold,
-            &mut self.temp_storage1,
+            &mut self.temp_storage,
+            existing_clip,
         );
 
-        if let Some(clip1) = self
-            .clip_stack
-            .last()
-            .map(|c| c.to_path_data_ref(&self.storage))
-        {
-            let clip2 = PathDataRef {
-                strips: &self.temp_storage1.strips,
-                alphas: &self.temp_storage1.alphas,
-            };
-
-            intersect(strip_generator.level, clip1, clip2, &mut self.temp_storage2);
-            self.storage.extend(&self.temp_storage2);
-        } else {
-            self.storage.extend(&self.temp_storage1);
-        }
-
+        self.storage.extend(&self.temp_storage);
         self.clip_stack.push(clip_data);
     }
 
