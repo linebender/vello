@@ -425,6 +425,12 @@ impl Encoding {
     /// Encodes an image brush.
     pub fn encode_image<'b>(&mut self, brush: impl Into<ImageBrushRef<'b>>, alpha: f32) {
         let brush = brush.into();
+        if brush.image.format != peniko::ImageFormat::Rgba8 {
+            unimplemented!("Unsupported image format: {:?}", brush.image.format);
+        }
+        if brush.image.alpha_type != peniko::ImageAlphaType::AlphaPremultiplied {
+            unimplemented!("Unsupported image alpha type: {:?}", brush.image.alpha_type);
+        }
         let ImageSampler {
             x_extend,
             y_extend,

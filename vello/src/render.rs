@@ -154,10 +154,10 @@ impl Render {
         };
         for image in images.images {
             if image.0.format != peniko::ImageFormat::Rgba8 {
-                unimplemented!()
+                unimplemented!("Unsupported image format: {:?}", image.0.format);
             }
-            if image.0.alpha_type != ImageAlphaType::Alpha {
-                unimplemented!()
+            if image.0.alpha_type != peniko::ImageAlphaType::AlphaPremultiplied {
+                unimplemented!("Unsupported image alpha type: {:?}", image.0.alpha_type);
             }
             recording.write_image(image_atlas, image.1, image.2, image.0.clone());
         }

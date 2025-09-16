@@ -2555,7 +2555,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 [[package]]
 name = "peniko"
 version = "0.4.0"
-source = "git+https://github.com/linebender/peniko?rev=f2e19733c82a79a4d942290dd5d0ea7c10ebd395#f2e19733c82a79a4d942290dd5d0ea7c10ebd395"
+source = "git+https://github.com/linebender/peniko?rev=dde968cf406be54d3211fe422bdd066f891ab632#dde968cf406be54d3211fe422bdd066f891ab632"
 dependencies = [
  "bytemuck",
  "color",
