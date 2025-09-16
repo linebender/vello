@@ -1194,7 +1194,12 @@ mod tests {
         let mut buf = vec![];
 
         let gradient = Gradient {
-            kind: GradientKind::Radial(RadialGradientPosition { start_center: Point::new(0.0, 0.0), start_radius: 20.0, end_center: Point::new(0.0, 0.0), end_radius: 20.0 }),
+            kind: GradientKind::Radial(RadialGradientPosition {
+                start_center: Point::new(0.0, 0.0),
+                start_radius: 20.0,
+                end_center: Point::new(0.0, 0.0),
+                end_radius: 20.0,
+            }),
             stops: ColorStops(smallvec![
                 ColorStop {
                     offset: 0.0,

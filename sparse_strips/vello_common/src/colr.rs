@@ -268,7 +268,12 @@ impl ColorPainter for ColrPainter<'_> {
                 }
 
                 let grad = Gradient {
-                    kind: GradientKind::Radial(RadialGradientPosition { start_center: p0, start_radius: r0, end_center: p1, end_radius: r1 }),
+                    kind: GradientKind::Radial(RadialGradientPosition {
+                        start_center: p0,
+                        start_radius: r0,
+                        end_center: p1,
+                        end_radius: r1,
+                    }),
                     stops,
                     extend,
                     ..Default::default()
