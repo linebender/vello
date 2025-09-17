@@ -19,7 +19,9 @@ use core::cell::OnceCell;
 use core::hash::{Hash, Hasher};
 use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
 use peniko::color::cache_key::{BitEq, BitHash, CacheKey};
-use peniko::{LinearGradientPosition, RadialGradientPosition, SweepGradientPosition};
+use peniko::{
+    InterpolationAlphaSpace, LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
+};
 use smallvec::ToSmallVec;
 // So we can just use `OnceCell` regardless of which feature is activated.
 #[cfg(feature = "multithreading")]
@@ -59,6 +61,12 @@ impl EncodeExt for Gradient {
         // First make sure that the gradient is valid and not degenerate.
         if let Err(paint) = validate(self) {
             return paint;
+        }
+        if self.interpolation_alpha_space != InterpolationAlphaSpace::Premultiplied {
+            unimplemented!(
+                "We don't yet support gradient interpolation which isn't premultiplied, found {:?}.",
+                self.interpolation_alpha_space
+            )
         }
 
         let mut has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
