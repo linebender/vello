@@ -113,13 +113,13 @@ impl DataItem {
     /// Get the expanded strokes.
     pub fn expanded_strokes(&self) -> Vec<BezPath> {
         let mut paths = vec![];
+        let mut stroke_ctx = StrokeCtx::default();
 
         for path in &self.strokes {
             let stroke = Stroke {
                 width: path.stroke_width as f64,
                 ..Default::default()
             };
-            let mut stroke_ctx = StrokeCtx::default();
             flatten::expand_stroke(path.path.iter(), &stroke, 0.25, &mut stroke_ctx);
             paths.push(stroke_ctx.output().clone());
         }

@@ -61,6 +61,8 @@ pub fn strokes(c: &mut Criterion) {
     macro_rules! expand_single {
         ($item:expr) => {
             g.bench_function($item.name.clone(), |b| {
+                let mut stroke_ctx = StrokeCtx::default();
+
                 b.iter(|| {
                     let mut paths = vec![];
 
@@ -69,7 +71,6 @@ pub fn strokes(c: &mut Criterion) {
                             width: path.stroke_width as f64,
                             ..Default::default()
                         };
-                        let mut stroke_ctx = StrokeCtx::default();
                         flatten::expand_stroke(path.path.iter(), &stroke, 0.25, &mut stroke_ctx);
                         paths.push(stroke_ctx.output().clone());
                     }
