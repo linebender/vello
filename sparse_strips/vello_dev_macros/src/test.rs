@@ -191,13 +191,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             || input_fn_name_str.contains("clip_clear")
     };
 
-    // These tests currently don't work with `vello_hybrid` running with the webgl backend in the
-    // browser.
-    // TODO: Enable blend in webgl.
-    let skip_hybrid_webgl = skip_hybrid
-        || input_fn_name_str.contains("compose")
-        || input_fn_name_str.contains("clip_composite_opacity_nested_circles");
-
     let empty_snippet = quote! {};
     let ignore_snippet = if let Some(reason) = ignore_reason {
         quote! {#[ignore = #reason]}
@@ -210,7 +203,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     } else {
         empty_snippet.clone()
     };
-    let ignore_hybrid_webgl = if skip_hybrid_webgl {
+    let ignore_hybrid_webgl = if skip_hybrid {
         ignore_snippet.clone()
     } else {
         empty_snippet.clone()
