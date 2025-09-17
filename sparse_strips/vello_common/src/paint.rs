@@ -6,7 +6,7 @@
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
 use peniko::{
-    Gradient, ImageQuality,
+    Gradient, ImageQuality, ImageSampler,
     color::{AlphaColor, PremulRgba8, Srgb},
 };
 
@@ -91,7 +91,7 @@ pub struct Image {
 }
 
 impl Image {
-    /// Convert a [`peniko::Image`] to an [`Image`].
+    /// Convert a [`peniko::ImageBrush`] to an [`Image`].
     ///
     /// This is a somewhat lossy conversion, as the image data data is transformed to
     /// [premultiplied RGBA8](`PremulRgba8`).
@@ -99,26 +99,37 @@ impl Image {
     /// # Panics
     ///
     /// This panics if `image` has a `width` or `height` greater than `u16::MAX`.
-    pub fn from_peniko_image(image: &peniko::Image) -> Self {
+    pub fn from_peniko_image(brush: &peniko::ImageBrush) -> Self {
         // TODO: how do we deal with `peniko::ImageFormat` growing? See also
         // <https://github.com/linebender/vello/pull/996#discussion_r2080510863>.
-        if image.format != peniko::ImageFormat::Rgba8 {
-            unimplemented!("Unsupported image format: {:?}", image.format);
+        if brush.image.format != peniko::ImageFormat::Rgba8 {
+            unimplemented!("Unsupported image format: {:?}", brush.image.format);
+        }
+        if brush.image.alpha_type != peniko::ImageAlphaType::Alpha {
+            unimplemented!("Unsupported image alpha type: {:?}", brush.image.alpha_type);
         }
 
         assert!(
-            image.width <= u16::MAX as u32 && image.height <= u16::MAX as u32,
+            brush.image.width <= u16::MAX as u32 && brush.image.height <= u16::MAX as u32,
             "The image is too big. Its width and height can be no larger than {} pixels.",
             u16::MAX,
         );
-        let width = image.width.try_into().unwrap();
-        let height = image.height.try_into().unwrap();
+        let width = brush.image.width.try_into().unwrap();
+        let height = brush.image.height.try_into().unwrap();
+        let ImageSampler {
+            x_extend,
+            y_extend,
+            quality,
+            alpha: global_alpha,
+        } = brush.sampler;
 
         #[expect(clippy::cast_possible_truncation, reason = "deliberate quantization")]
-        let global_alpha = u16::from((image.alpha * 255. + 0.5) as u8);
+        let global_alpha = u16::from((global_alpha * 255. + 0.5) as u8);
 
+        // TODO: SIMD
         #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow.")]
-        let pixels = image
+        let pixels = brush
+            .image
             .data
             .data()
             .chunks_exact(4)
@@ -137,9 +148,9 @@ impl Image {
 
         Self {
             source: ImageSource::Pixmap(Arc::new(pixmap)),
-            x_extend: image.x_extend,
-            y_extend: image.y_extend,
-            quality: image.quality,
+            x_extend,
+            y_extend,
+            quality,
         }
     }
 }

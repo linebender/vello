@@ -11,7 +11,7 @@ use image::DynamicImage;
 use nv_flip::FlipPool;
 use vello::{
     Scene,
-    peniko::{Image, ImageFormat},
+    peniko::{ImageData, ImageFormat},
 };
 
 use crate::{TestParams, render_then_debug, write_png_to_file};
@@ -28,8 +28,8 @@ pub struct GpuCpuComparison {
     pub statistics: Option<FlipPool>,
     pub cpu_path: PathBuf,
     pub gpu_path: PathBuf,
-    pub cpu_rendered: Image,
-    pub gpu_rendered: Image,
+    pub cpu_rendered: ImageData,
+    pub gpu_rendered: ImageData,
     pub params: TestParams,
 }
 

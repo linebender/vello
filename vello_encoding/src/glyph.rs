@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use peniko::{Font, Style};
+use peniko::{FontData, Style};
 
 use super::{StreamOffsets, Transform};
 
@@ -22,7 +22,7 @@ pub struct Glyph {
 #[derive(Clone)]
 pub struct GlyphRun {
     /// Font for all glyphs in the run.
-    pub font: Font,
+    pub font: FontData,
     /// Global run transform.
     pub transform: Transform,
     /// Per-glyph transform.

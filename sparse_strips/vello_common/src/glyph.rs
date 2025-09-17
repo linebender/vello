@@ -4,7 +4,7 @@
 //! Processing and drawing glyphs.
 
 use crate::kurbo::{Affine, BezPath, Vec2};
-use crate::peniko::Font;
+use crate::peniko::FontData;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
@@ -132,7 +132,7 @@ pub struct GlyphRunBuilder<'a, T: GlyphRenderer + 'a> {
 
 impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
     /// Creates a new builder for drawing glyphs.
-    pub fn new(font: Font, transform: Affine, renderer: &'a mut T) -> Self {
+    pub fn new(font: FontData, transform: Affine, renderer: &'a mut T) -> Self {
         Self {
             run: GlyphRun {
                 font,
@@ -506,7 +506,7 @@ pub enum Style {
 #[derive(Clone, Debug)]
 struct GlyphRun<'a> {
     /// Font for all glyphs in the run.
-    font: Font,
+    font: FontData,
     /// Size of the font in pixels per em.
     font_size: f32,
     /// Global transform.

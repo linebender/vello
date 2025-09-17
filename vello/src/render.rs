@@ -152,6 +152,12 @@ impl Render {
             ImageProxy::new(images.width, images.height, ImageFormat::Rgba8)
         };
         for image in images.images {
+            if image.0.format != peniko::ImageFormat::Rgba8 {
+                unimplemented!("Unsupported image format: {:?}", image.0.format);
+            }
+            if image.0.alpha_type != peniko::ImageAlphaType::Alpha {
+                unimplemented!("Unsupported image alpha type: {:?}", image.0.alpha_type);
+            }
             recording.write_image(image_atlas, image.1, image.2, image.0.clone());
         }
         let cpu_config =

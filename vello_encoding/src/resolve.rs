@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
-use peniko::{Extend, Image};
+use peniko::{Extend, ImageData};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -535,14 +535,14 @@ pub enum Patch {
         /// Offset to the atlas coordinates in the draw data stream.
         draw_data_offset: usize,
         /// Underlying image data.
-        image: Image,
+        image: ImageData,
     },
 }
 
 /// Image to be allocated in the atlas.
 #[derive(Clone, Debug)]
 struct PendingImage {
-    image: Image,
+    image: ImageData,
     xy: Option<(u32, u32)>,
 }
 

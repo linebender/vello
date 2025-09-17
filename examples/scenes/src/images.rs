@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use vello::peniko::{Blob, Image, ImageFormat};
+use vello::peniko::{Blob, ImageBrush, ImageData, ImageFormat};
 
 /// Simple hack to support loading images for examples.
 #[derive(Default)]
 pub struct ImageCache {
-    files: HashMap<PathBuf, Image>,
-    bytes: HashMap<usize, Image>,
+    files: HashMap<PathBuf, ImageData>,
+    bytes: HashMap<usize, ImageData>,
 }
 
 impl ImageCache {
@@ -19,30 +19,30 @@ impl ImageCache {
         Self::default()
     }
 
-    pub fn from_file(&mut self, path: impl AsRef<Path>) -> anyhow::Result<Image> {
+    pub fn from_file(&mut self, path: impl AsRef<Path>) -> anyhow::Result<ImageBrush> {
         let path = path.as_ref();
         if let Some(image) = self.files.get(path) {
-            Ok(image.clone())
+            Ok(ImageBrush::new(image.clone()))
         } else {
             let data = std::fs::read(path)?;
             let image = decode_image(&data)?;
             self.files.insert(path.to_owned(), image.clone());
-            Ok(image)
+            Ok(ImageBrush::new(image))
         }
     }
 
-    pub fn from_bytes(&mut self, key: usize, bytes: &[u8]) -> anyhow::Result<Image> {
+    pub fn from_bytes(&mut self, key: usize, bytes: &[u8]) -> anyhow::Result<ImageBrush> {
         if let Some(image) = self.bytes.get(&key) {
-            Ok(image.clone())
+            Ok(ImageBrush::new(image.clone()))
         } else {
             let image = decode_image(bytes)?;
             self.bytes.insert(key, image.clone());
-            Ok(image)
+            Ok(ImageBrush::new(image))
         }
     }
 }
 
-fn decode_image(data: &[u8]) -> anyhow::Result<Image> {
+fn decode_image(data: &[u8]) -> anyhow::Result<ImageData> {
     let image = image::ImageReader::new(std::io::Cursor::new(data))
         .with_guessed_format()?
         .decode()?;
@@ -50,5 +50,11 @@ fn decode_image(data: &[u8]) -> anyhow::Result<Image> {
     let height = image.height();
     let data = Arc::new(image.into_rgba8().into_vec());
     let blob = Blob::new(data);
-    Ok(Image::new(blob, ImageFormat::Rgba8, width, height))
+    Ok(ImageData {
+        data: blob,
+        format: ImageFormat::Rgba8,
+        width,
+        height,
+        alpha_type: vello::peniko::ImageAlphaType::Alpha,
+    })
 }

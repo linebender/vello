@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::{Encoding, StreamOffsets};
 
-use peniko::{Font, Style};
+use peniko::{FontData, Style};
 use skrifa::instance::{NormalizedCoord, Size};
 use skrifa::outline::{HintingInstance, HintingOptions, OutlineGlyphFormat};
 use skrifa::{GlyphId, MetadataProvider, OutlineGlyphCollection};
@@ -25,7 +25,7 @@ pub(crate) struct GlyphCache {
 impl GlyphCache {
     pub(crate) fn session<'a>(
         &'a mut self,
-        font: &'a Font,
+        font: &'a FontData,
         coords: &'a [NormalizedCoord],
         size: f32,
         hint: bool,

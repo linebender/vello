@@ -1784,10 +1784,16 @@ mod impls {
         ]
         .iter()
         .for_each(|c| {
-            blob.extend(c.premultiply().to_rgba8().to_u8_array());
+            blob.extend(c.to_rgba8().to_u8_array());
         });
         let data = Blob::new(Arc::new(blob));
-        let image = Image::new(data, ImageFormat::Rgba8, 2, 2);
+        let image = ImageBrush::new(ImageData {
+            data,
+            format: ImageFormat::Rgba8,
+            width: 2,
+            height: 2,
+            alpha_type: ImageAlphaType::Alpha,
+        });
 
         scene.draw_image(
             &image,
@@ -1830,10 +1836,17 @@ mod impls {
             ]
             .iter()
             .for_each(|c| {
-                blob.extend(c.premultiply().to_rgba8().to_u8_array());
+                blob.extend(c.to_rgba8().to_u8_array());
             });
             let data = Blob::new(Arc::new(blob));
-            let image = Image::new(data, ImageFormat::Rgba8, 2, 2).with_quality(quality);
+            let image = ImageBrush::new(ImageData {
+                data,
+                format: ImageFormat::Rgba8,
+                width: 2,
+                height: 2,
+                alpha_type: ImageAlphaType::Alpha,
+            })
+            .with_quality(quality);
             let brush_offset = Some(Affine::translate((2., 2.)));
             // Pad extend mode
             let image = image.with_extend(Extend::Pad);

@@ -16,6 +16,7 @@ use vello_common::kurbo::{Affine, Point};
 use vello_common::peniko;
 use vello_common::peniko::{ColorStop, ColorStops, Gradient, GradientKind};
 use vello_cpu::fine::{Fine, FineKernel};
+use vello_cpu::peniko::LinearGradientPosition;
 use vello_dev_macros::vello_bench;
 
 pub fn gradient(c: &mut Criterion) {
@@ -34,20 +35,20 @@ pub fn gradient(c: &mut Criterion) {
 
 #[vello_bench]
 fn many_stops<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
-    let kind = GradientKind::Linear {
+    let kind = GradientKind::Linear(LinearGradientPosition {
         start: Point::new(128.0, 128.0),
         end: Point::new(134.0, 134.0),
-    };
+    });
 
     gradient_base(b, fine, peniko::Extend::Repeat, kind, get_many_stops());
 }
 
 #[vello_bench]
 fn transparent<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
-    let kind = GradientKind::Linear {
+    let kind = GradientKind::Linear(LinearGradientPosition {
         start: Point::new(128.0, 128.0),
         end: Point::new(134.0, 134.0),
-    };
+    });
 
     gradient_base(
         b,
@@ -65,7 +66,10 @@ mod extend {
     use vello_common::kurbo::Point;
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
-    use vello_cpu::fine::{Fine, FineKernel};
+    use vello_cpu::{
+        fine::{Fine, FineKernel},
+        peniko::LinearGradientPosition,
+    };
     use vello_dev_macros::vello_bench;
 
     fn extend<S: Simd, N: FineKernel<S>>(
@@ -73,10 +77,10 @@ mod extend {
         fine: &mut Fine<S, N>,
         extend: peniko::Extend,
     ) {
-        let kind = GradientKind::Linear {
+        let kind = GradientKind::Linear(LinearGradientPosition {
             start: Point::new(128.0, 128.0),
             end: Point::new(134.0, 134.0),
-        };
+        });
 
         gradient_base(b, fine, extend, kind, stops_blue_green_red_yellow_opaque());
     }
@@ -105,15 +109,18 @@ mod linear {
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
 
-    use vello_cpu::fine::{Fine, FineKernel};
+    use vello_cpu::{
+        fine::{Fine, FineKernel},
+        peniko::LinearGradientPosition,
+    };
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
     pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
-        let kind = GradientKind::Linear {
+        let kind = GradientKind::Linear(LinearGradientPosition {
             start: Point::new(128.0, 128.0),
             end: Point::new(134.0, 134.0),
-        };
+        });
 
         gradient_base(
             b,
@@ -135,17 +142,20 @@ mod radial {
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
     use vello_common::tile::Tile;
-    use vello_cpu::fine::{Fine, FineKernel};
+    use vello_cpu::{
+        fine::{Fine, FineKernel},
+        peniko::RadialGradientPosition,
+    };
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
     pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
-        let kind = GradientKind::Radial {
+        let kind = GradientKind::Radial(RadialGradientPosition {
             start_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
             start_radius: 25.0,
             end_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
             end_radius: 75.0,
-        };
+        });
 
         gradient_base(
             b,
@@ -161,7 +171,7 @@ mod radial {
         b: &mut Bencher<'_>,
         fine: &mut Fine<S, N>,
     ) {
-        let kind = GradientKind::Radial {
+        let kind = GradientKind::Radial(RadialGradientPosition {
             start_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
             start_radius: 25.0,
             end_center: Point::new(
@@ -169,7 +179,7 @@ mod radial {
                 (Tile::HEIGHT / 2) as f64 + 5.0,
             ),
             end_radius: 75.0,
-        };
+        });
 
         gradient_base(
             b,
@@ -191,16 +201,19 @@ mod sweep {
     use vello_common::peniko;
     use vello_common::peniko::GradientKind;
     use vello_common::tile::Tile;
-    use vello_cpu::fine::{Fine, FineKernel};
+    use vello_cpu::{
+        fine::{Fine, FineKernel},
+        peniko::SweepGradientPosition,
+    };
     use vello_dev_macros::vello_bench;
 
     #[vello_bench]
     pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
-        let kind = GradientKind::Sweep {
+        let kind = GradientKind::Sweep(SweepGradientPosition {
             center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
-            start_angle: 70.0,
-            end_angle: 250.0,
-        };
+            start_angle: 70.0_f32.to_radians(),
+            end_angle: 250.0_f32.to_radians(),
+        });
 
         gradient_base(
             b,

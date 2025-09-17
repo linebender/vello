@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use peniko::{
     BlendMode, Blob, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose,
-    Extend, Fill, Font, Gradient, Image, Mix, StyleRef,
+    Extend, Fill, FontData, Gradient, ImageBrush, ImageBrushRef, ImageData, Mix, StyleRef,
     color::{AlphaColor, DynamicColor, Srgb, palette},
     kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
 };
@@ -344,18 +344,19 @@ impl Scene {
     }
 
     /// Draws an image at its natural size with the given transform.
-    pub fn draw_image(&mut self, image: &Image, transform: Affine) {
-        self.fill(
-            Fill::NonZero,
-            transform,
-            image,
-            None,
-            &Rect::new(0.0, 0.0, image.width as f64, image.height as f64),
+    pub fn draw_image<'b>(&mut self, image: impl Into<ImageBrushRef<'b>>, transform: Affine) {
+        let brush = image.into();
+        let rect = Rect::new(
+            0.0,
+            0.0,
+            brush.image.width as f64,
+            brush.image.height as f64,
         );
+        self.fill(Fill::NonZero, transform, brush, None, &rect);
     }
 
     /// Returns a builder for encoding a glyph run.
-    pub fn draw_glyphs(&mut self, font: &Font) -> DrawGlyphs<'_> {
+    pub fn draw_glyphs(&mut self, font: &FontData) -> DrawGlyphs<'_> {
         // TODO: Integrate `BumpEstimator` with the glyph cache.
         DrawGlyphs::new(self, font)
     }
@@ -397,7 +398,7 @@ pub struct DrawGlyphs<'a> {
 impl<'a> DrawGlyphs<'a> {
     /// Creates a new builder for encoding a glyph run for the specified
     /// encoding with the given font.
-    pub fn new(scene: &'a mut Scene, font: &Font) -> Self {
+    pub fn new(scene: &'a mut Scene, font: &FontData) -> Self {
         let coords_start = scene.encoding.resources.normalized_coords.len();
         let glyphs_start = scene.encoding.resources.glyphs.len();
         let stream_offsets = scene.encoding.stream_offsets();
@@ -613,13 +614,16 @@ impl<'a> DrawGlyphs<'a> {
                                     [r, g, b, a]
                                 })
                                 .collect();
-                            Image::new(
+                            ImageBrush::new(ImageData {
                                 // TODO: The design of the Blob type forces the double boxing
-                                Blob::new(Arc::new(data)),
-                                peniko::ImageFormat::Rgba8,
-                                bitmap.width,
-                                bitmap.height,
-                            )
+                                data: Blob::new(Arc::new(data)),
+                                // TODO: Use bgra8 to not transpose once it's supported.
+                                format: peniko::ImageFormat::Rgba8,
+                                // TODO: Use AlphaPremultiplied once it's supported
+                                alpha_type: peniko::ImageAlphaType::Alpha,
+                                width: bitmap.width,
+                                height: bitmap.height,
+                            })
                         }
                         bitmap::BitmapData::Png(data) => {
                             let mut decoder = png::Decoder::new(data);
@@ -642,13 +646,14 @@ impl<'a> DrawGlyphs<'a> {
                                 log::error!("Unexpected width and height");
                                 continue;
                             }
-                            Image::new(
+                            ImageBrush::new(ImageData {
                                 // TODO: The design of the Blob type forces the double boxing
-                                Blob::new(Arc::new(buf)),
-                                peniko::ImageFormat::Rgba8,
-                                bitmap.width,
-                                bitmap.height,
-                            )
+                                data: Blob::new(Arc::new(buf)),
+                                format: peniko::ImageFormat::Rgba8,
+                                alpha_type: peniko::ImageAlphaType::Alpha,
+                                width: bitmap.width,
+                                height: bitmap.height,
+                            })
                         }
                         bitmap::BitmapData::Mask(mask) => {
                             // TODO: Is this code worth having?
@@ -673,13 +678,14 @@ impl<'a> DrawGlyphs<'a> {
                                 .flat_map(|alpha| [u8::MAX, u8::MAX, u8::MAX, alpha])
                                 .collect();
 
-                            Image::new(
+                            ImageBrush::new(ImageData {
                                 // TODO: The design of the Blob type forces the double boxing
-                                Blob::new(Arc::new(data)),
-                                peniko::ImageFormat::Rgba8,
-                                bitmap.width,
-                                bitmap.height,
-                            )
+                                data: Blob::new(Arc::new(data)),
+                                format: peniko::ImageFormat::Rgba8,
+                                alpha_type: peniko::ImageAlphaType::Alpha,
+                                width: bitmap.width,
+                                height: bitmap.height,
+                            })
                         }
                     };
                     let image = image.multiply_alpha(self.brush_alpha);
@@ -721,13 +727,13 @@ impl<'a> DrawGlyphs<'a> {
                         bitmap::Origin::TopLeft => transform,
                         bitmap::Origin::BottomLeft => transform.pre_translate(Vec2 {
                             x: 0.,
-                            y: -f64::from(image.height),
+                            y: -f64::from(image.image.height),
                         }),
                     };
                     if let Some(glyph_transform) = self.run.glyph_transform {
                         transform *= glyph_transform.to_kurbo();
                     }
-                    self.scene.draw_image(&image, transform);
+                    self.scene.draw_image(image.as_ref(), transform);
                 }
                 EmojiLikeGlyph::Colr(colr) => {
                     let transform = run_transform
@@ -1049,9 +1055,15 @@ fn conv_brush(
             color_stops,
             extend,
         } => Brush::Gradient(
-            Gradient::new_sweep(conv_point(c0), start_angle, end_angle)
-                .with_extend(conv_extend(extend))
-                .with_stops(ColorStopsConverter(color_stops, cpal, foreground_brush)),
+            // TODO: This is upside-down, see
+            // https://github.com/linebender/vello/pull/1221
+            Gradient::new_sweep(
+                conv_point(c0),
+                start_angle.to_radians(),
+                end_angle.to_radians(),
+            )
+            .with_extend(conv_extend(extend))
+            .with_stops(ColorStopsConverter(color_stops, cpal, foreground_brush)),
         ),
     }
 }

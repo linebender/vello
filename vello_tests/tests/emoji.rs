@@ -17,7 +17,7 @@ use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use vello::peniko::color::palette;
 #[cfg(target_os = "macos")]
-use vello::peniko::{Blob, Brush, Font};
+use vello::peniko::{Blob, Brush, FontData};
 use vello::{Scene, kurbo::Affine, peniko::Fill};
 use vello_tests::{TestParams, snapshot_test_sync};
 
@@ -51,7 +51,7 @@ fn encode_noto_bitmap(text: &str, font_size: f32) -> Scene {
 
 #[cfg(target_os = "macos")]
 fn encode_apple_bitmap(text: &str, font_size: f32) -> Scene {
-    let font = Font::new(
+    let font = FontData::new(
         Blob::new(Arc::new(
             std::fs::read("/System/Library/Fonts/Apple Color Emoji.ttc").unwrap(),
         )),

@@ -36,7 +36,8 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow, bail};
 use scenes::{ExampleScene, ImageCache, SceneParams, SimpleText};
 use vello::kurbo::{Affine, Vec2};
-use vello::peniko::{Blob, Color, Image, ImageFormat, color::palette};
+use vello::peniko::{Blob, Color, ImageFormat, color::palette};
+use vello::peniko::{ImageAlphaType, ImageData};
 use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, TexelCopyBufferInfo,
     TextureDescriptor, TextureFormat, TextureUsages,
@@ -73,11 +74,11 @@ impl TestParams {
     }
 }
 
-pub fn render_then_debug_sync(scene: &Scene, params: &TestParams) -> Result<Image> {
+pub fn render_then_debug_sync(scene: &Scene, params: &TestParams) -> Result<ImageData> {
     pollster::block_on(render_then_debug(scene, params))
 }
 
-pub async fn render_then_debug(scene: &Scene, params: &TestParams) -> Result<Image> {
+pub async fn render_then_debug(scene: &Scene, params: &TestParams) -> Result<ImageData> {
     let image = get_scene_image(params, scene).await?;
     let suffix = if params.use_cpu { "cpu" } else { "gpu" };
     let name = format!("{}_{suffix}", &params.name);
@@ -99,7 +100,10 @@ pub async fn render_then_debug(scene: &Scene, params: &TestParams) -> Result<Ima
     Ok(image)
 }
 
-pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image, anyhow::Error> {
+pub async fn get_scene_image(
+    params: &TestParams,
+    scene: &Scene,
+) -> Result<ImageData, anyhow::Error> {
     let mut context = RenderContext::new();
     let device_id = context
         .device(None)
@@ -184,17 +188,30 @@ pub async fn get_scene_image(params: &TestParams, scene: &Scene) -> Result<Image
         result_unpadded.extend(&data[start..start + (width * 4) as usize]);
     }
     let data = Blob::new(Arc::new(result_unpadded));
-    let image = Image::new(data, ImageFormat::Rgba8, width, height);
+    let image = ImageData {
+        data,
+        format: ImageFormat::Rgba8,
+        width,
+        height,
+        // TODO: Confirm
+        alpha_type: vello::peniko::ImageAlphaType::Alpha,
+    };
     Ok(image)
 }
 
 pub fn write_png_to_file(
     params: &TestParams,
     out_path: &Path,
-    image: &Image,
+    image: &ImageData,
     max_size_in_bytes: Option<u64>,
     optimise: bool,
 ) -> Result<(), anyhow::Error> {
+    if image.format != ImageFormat::Rgba8 {
+        unimplemented!();
+    }
+    if image.alpha_type != ImageAlphaType::Alpha {
+        unimplemented!()
+    }
     let width = params.width;
     let height = params.height;
     let mut data = Vec::new();

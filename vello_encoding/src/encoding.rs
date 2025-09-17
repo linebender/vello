@@ -11,7 +11,10 @@ use super::{
 
 use peniko::color::{DynamicColor, palette};
 use peniko::kurbo::{Shape, Stroke};
-use peniko::{BrushRef, ColorStop, Extend, Fill, GradientKind, Image};
+use peniko::{
+    BrushRef, ColorStop, Extend, Fill, GradientKind, ImageBrushRef, ImageSampler,
+    LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
+};
 
 /// Encoded data streams for a scene.
 ///
@@ -284,7 +287,7 @@ impl Encoding {
                 self.encode_color(color);
             }
             BrushRef::Gradient(gradient) => match gradient.kind {
-                GradientKind::Linear { start, end } => {
+                GradientKind::Linear(LinearGradientPosition { start, end }) => {
                     self.encode_linear_gradient(
                         DrawLinearGradient {
                             index: 0,
@@ -296,12 +299,12 @@ impl Encoding {
                         gradient.extend,
                     );
                 }
-                GradientKind::Radial {
+                GradientKind::Radial(RadialGradientPosition {
                     start_center,
                     start_radius,
                     end_center,
                     end_radius,
-                } => {
+                }) => {
                     self.encode_radial_gradient(
                         DrawRadialGradient {
                             index: 0,
@@ -315,11 +318,11 @@ impl Encoding {
                         gradient.extend,
                     );
                 }
-                GradientKind::Sweep {
+                GradientKind::Sweep(SweepGradientPosition {
                     center,
                     start_angle,
                     end_angle,
-                } => {
+                }) => {
                     use core::f32::consts::TAU;
                     self.encode_sweep_gradient(
                         DrawSweepGradient {
@@ -419,23 +422,36 @@ impl Encoding {
     }
 
     /// Encodes an image brush.
-    pub fn encode_image(&mut self, image: &Image, alpha: f32) {
-        let alpha = (alpha * image.alpha * 255.0).round() as u8;
+    pub fn encode_image<'b>(&mut self, brush: impl Into<ImageBrushRef<'b>>, alpha: f32) {
+        let brush = brush.into();
+        if brush.image.format != peniko::ImageFormat::Rgba8 {
+            unimplemented!("Unsupported image format: {:?}", brush.image.format);
+        }
+        if brush.image.alpha_type != peniko::ImageAlphaType::Alpha {
+            unimplemented!("Unsupported image alpha type: {:?}", brush.image.alpha_type);
+        }
+        let ImageSampler {
+            x_extend,
+            y_extend,
+            quality,
+            alpha: global_alpha,
+        } = brush.sampler;
+        let alpha = (global_alpha * alpha * 255.0).round() as u8;
         // TODO: feed the alpha multiplier through the full pipeline for consistency
         // with other brushes?
         // Tracked in https://github.com/linebender/vello/issues/692
         self.resources.patches.push(Patch::Image {
-            image: image.clone(),
+            image: brush.image.clone(),
             draw_data_offset: self.draw_data.len(),
         });
         self.draw_tags.push(DrawTag::IMAGE);
         self.draw_data
             .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(&DrawImage {
                 xy: 0,
-                width_height: (image.width << 16) | (image.height & 0xFFFF),
-                sample_alpha: ((image.quality as u32) << 12)
-                    | ((image.x_extend as u32) << 10)
-                    | ((image.y_extend as u32) << 8)
+                width_height: (brush.image.width << 16) | (brush.image.height & 0xFFFF),
+                sample_alpha: ((quality as u32) << 12)
+                    | ((x_extend as u32) << 10)
+                    | ((y_extend as u32) << 8)
                     | alpha as u32,
             })));
     }

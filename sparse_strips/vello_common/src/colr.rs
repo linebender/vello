@@ -13,6 +13,7 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
+use peniko::{LinearGradientPosition, RadialGradientPosition, SweepGradientPosition};
 use skrifa::color::{Brush, ColorPainter, ColorStop, CompositeMode, Transform};
 use skrifa::outline::DrawSettings;
 use skrifa::raw::TableProvider;
@@ -236,7 +237,7 @@ impl ColorPainter for ColrPainter<'_> {
                     self.painter.fill_solid(stops[0].color.to_alpha_color());
                 } else {
                     let grad = Gradient {
-                        kind: GradientKind::Linear { start: p0, end: p1 },
+                        kind: GradientKind::Linear(LinearGradientPosition { start: p0, end: p1 }),
                         stops,
                         extend,
                         ..Default::default()
@@ -267,12 +268,12 @@ impl ColorPainter for ColrPainter<'_> {
                 }
 
                 let grad = Gradient {
-                    kind: GradientKind::Radial {
+                    kind: GradientKind::Radial(RadialGradientPosition {
                         start_center: p0,
                         start_radius: r0,
                         end_center: p1,
                         end_radius: r1,
-                    },
+                    }),
                     stops,
                     extend,
                     ..Default::default()
@@ -316,11 +317,11 @@ impl ColorPainter for ColrPainter<'_> {
                 // We need to invert the direction of the gradient to bridge the gap between
                 // peniko and COLR.
                 let grad = Gradient {
-                    kind: GradientKind::Sweep {
+                    kind: GradientKind::Sweep(SweepGradientPosition {
                         center: Point::new(p0.x, -p0.y),
-                        start_angle,
-                        end_angle,
-                    },
+                        start_angle: start_angle.to_radians(),
+                        end_angle: end_angle.to_radians(),
+                    }),
                     stops,
                     extend,
                     ..Default::default()

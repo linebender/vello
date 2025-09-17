@@ -12,7 +12,7 @@ use std::sync::Arc;
 use vello_common::color::palette::css::{BLACK, BLUE, GREEN, REBECCA_PURPLE};
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::Affine;
-use vello_common::peniko::{Blob, Font};
+use vello_common::peniko::{Blob, FontData};
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 300, height = 70)]
@@ -281,7 +281,7 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer) {
 fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
     const TEST_FONT: &[u8] =
         include_bytes!("../../../examples/assets/colr_test_glyphs/test_glyphs-glyf_colr_1.ttf");
-    let font = Font::new(Blob::new(Arc::new(TEST_FONT)), 0);
+    let font = FontData::new(Blob::new(Arc::new(TEST_FONT)), 0);
     let num_glyphs = 221;
 
     let font_size = 40_f64;

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use guillotiere::{AtlasAllocator, size2};
-use peniko::Image;
+use peniko::ImageData;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -13,7 +13,7 @@ const MAX_ATLAS_SIZE: i32 = 8192;
 pub struct Images<'a> {
     pub width: u32,
     pub height: u32,
-    pub images: &'a [(Image, u32, u32)],
+    pub images: &'a [(ImageData, u32, u32)],
 }
 
 pub(crate) struct ImageCache {
@@ -21,7 +21,7 @@ pub(crate) struct ImageCache {
     /// Map from image blob id to atlas location.
     map: HashMap<u64, (u32, u32)>,
     /// List of all allocated images with associated atlas location.
-    images: Vec<(Image, u32, u32)>,
+    images: Vec<(ImageData, u32, u32)>,
 }
 
 impl Default for ImageCache {
@@ -64,7 +64,7 @@ impl ImageCache {
         self.images.clear();
     }
 
-    pub(crate) fn get_or_insert(&mut self, image: &Image) -> Option<(u32, u32)> {
+    pub(crate) fn get_or_insert(&mut self, image: &ImageData) -> Option<(u32, u32)> {
         match self.map.entry(image.data.id()) {
             Entry::Occupied(occupied) => Some(*occupied.get()),
             Entry::Vacant(vacant) => {

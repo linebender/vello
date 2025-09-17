@@ -139,7 +139,7 @@ pub use peniko;
 pub use peniko::kurbo;
 
 #[cfg(feature = "wgpu")]
-use peniko::Image;
+use peniko::ImageData;
 #[cfg(feature = "wgpu")]
 pub use wgpu;
 
@@ -523,13 +523,13 @@ impl Renderer {
     /// through [`Scene::draw_image`]), the data from the texture will be used instead.
     ///
     /// Correct behaviour is not guaranteed if the texture does not have the same
-    /// dimensions as the image, nor if an image which uses the same [data] but different
+    /// dimensions as the image, nor if an image which uses the same [blob] but different
     /// dimensions would be rendered.
     ///
-    /// [data]: peniko::Image::data
+    /// [blob]: peniko::ImageData::data
     pub fn override_image(
         &mut self,
-        image: &Image,
+        image: &ImageData,
         texture: Option<wgpu::TexelCopyTextureInfoBase<wgpu::Texture>>,
     ) -> Option<wgpu::TexelCopyTextureInfoBase<wgpu::Texture>> {
         match texture {
@@ -547,23 +547,25 @@ impl Renderer {
     /// the [`wgpu::TextureUsages::COPY_SRC`] flag set. This is because the data will
     /// be copied into Vello's image atlas at the start of each frame.
     /// The `Rgba8UnormSrgb` format might also be supported, but this is not tested.
+    /// The texture is assumed to have unpremultiplied alpha.
     ///
     /// This is a utility wrapper around [`override_image`](Self::override_image).
     /// For greater control, use that method.
     ///
     /// If the texture is no longer active then it should be unregistered using [`unregister_texture`](Self::unregister_texture)
-    pub fn register_texture(&mut self, texture: wgpu::Texture) -> Image {
+    pub fn register_texture(&mut self, texture: wgpu::Texture) -> ImageData {
         // Create a fake, empty blob which will be used to back the returned image
         // This image data will never be read by Vello, due to being added to
         // image_overrides, below.
         let fake_blob = peniko::Blob::new(std::sync::Arc::new(&[]));
 
-        let image = Image::new(
-            fake_blob,
-            peniko::ImageFormat::Rgba8,
-            texture.width(),
-            texture.height(),
-        );
+        let image = ImageData {
+            data: fake_blob,
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type: peniko::ImageAlphaType::Alpha,
+            width: texture.width(),
+            height: texture.height(),
+        };
 
         // For this utility API, we take the full texture and use the base layer and mip level
         let texture_base = wgpu::TexelCopyTextureInfoBase {
@@ -582,7 +584,7 @@ impl Renderer {
     }
 
     /// Unregister a [`wgpu::Texture`] that was registered with [`register_texture`](Self::register_texture).
-    pub fn unregister_texture(&mut self, handle: Image) {
+    pub fn unregister_texture(&mut self, handle: ImageData) {
         self.engine.image_overrides.remove(&handle.data.id());
     }
 
