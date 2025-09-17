@@ -16,7 +16,7 @@ use vello_common::kurbo::{Affine, Ellipse, Point, Rect, Shape, Stroke};
 use vello_common::peniko::{
     Color, ColorStop, ColorStops, Extend, Gradient, GradientKind, color::DynamicColor,
 };
-use vello_common::peniko::{LinearGradientPosition, RadialGradientPosition};
+use vello_common::peniko::{LinearGradientPosition, RadialGradientPosition, SweepGradientPosition};
 use vello_hybrid::Scene;
 
 /// Gradient scene state
@@ -105,7 +105,7 @@ impl ExampleScene for GradientExtendScene {
                     let center_y = height * 0.5;
 
                     Gradient {
-                        kind: GradientKind::Sweep(vello_common::peniko::SweepGradientPosition {
+                        kind: GradientKind::Sweep(SweepGradientPosition {
                             center: Point::new(center_x, center_y),
                             start_angle: 30.0_f32.to_radians(),
                             end_angle: 150.0_f32.to_radians(),

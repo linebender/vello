@@ -901,7 +901,7 @@ mod sweep {
         let path = crossed_line_star();
 
         let gradient = Gradient {
-            kind: GradientKind::Sweep(peniko::SweepGradientPosition {
+            kind: GradientKind::Sweep(SweepGradientPosition {
                 center: Point::new(50.0, 50.0),
                 start_angle: 0.0_f32.to_radians(),
                 end_angle: 360.0_f32.to_radians(),
@@ -918,7 +918,7 @@ mod sweep {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
         let gradient = Gradient {
-            kind: GradientKind::Sweep(peniko::SweepGradientPosition {
+            kind: GradientKind::Sweep(SweepGradientPosition {
                 center: Point::new(50.0, 50.0),
                 start_angle: 150.0_f32.to_radians(),
                 end_angle: 210.0_f32.to_radians(),
@@ -958,7 +958,7 @@ mod sweep {
         let rect = Rect::new(l, t, r, b);
 
         let gradient = Gradient {
-            kind: GradientKind::Sweep(peniko::SweepGradientPosition {
+            kind: GradientKind::Sweep(SweepGradientPosition {
                 center: Point::new((l + r) / 2.0, (t + b) / 2.0),
                 start_angle: 150.0_f32.to_radians(),
                 end_angle: 210.0_f32.to_radians(),
