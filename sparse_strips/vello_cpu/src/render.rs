@@ -83,10 +83,11 @@ impl Default for RenderSettings {
         Self {
             level: Level::try_detect().unwrap_or(Level::fallback()),
             #[cfg(feature = "multithreading")]
-            num_threads: std::thread::available_parallelism()
+            num_threads: (std::thread::available_parallelism()
                 .unwrap()
                 .get()
-                .saturating_sub(1) as u16,
+                .saturating_sub(1) as u16)
+                .min(8),
             #[cfg(not(feature = "multithreading"))]
             num_threads: 0,
             render_mode: RenderMode::OptimizeSpeed,
