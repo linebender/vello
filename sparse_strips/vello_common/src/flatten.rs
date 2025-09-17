@@ -153,7 +153,7 @@ pub fn expand_stroke(
     tolerance: f64,
     stroke_ctx: &mut StrokeCtx,
 ) {
-    kurbo::stroke_with(path, style, &StrokeOpts::default(), tolerance, stroke_ctx)
+    kurbo::stroke_with(path, style, &StrokeOpts::default(), tolerance, stroke_ctx);
 }
 
 struct FlattenerCallback<'a> {
