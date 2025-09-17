@@ -3,6 +3,7 @@
 
 //! Abstraction for generating strips from paths.
 
+use crate::clip::{PathDataRef, intersect};
 use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::kurbo::{Affine, PathEl, Stroke};
@@ -13,7 +14,7 @@ use crate::{flatten, strip};
 use alloc::vec::Vec;
 
 /// A storage for storing strip-related data.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct StripStorage {
     /// The strips in the storage.
     pub strips: Vec<Strip>,
@@ -48,14 +49,21 @@ impl StripStorage {
     pub fn is_empty(&self) -> bool {
         self.strips.is_empty() && self.alphas.is_empty()
     }
+
+    /// Extend the current strip storage with the data from another storage.
+    pub fn extend(&mut self, other: &Self) {
+        self.strips.extend(&other.strips);
+        self.alphas.extend(&other.alphas);
+    }
 }
 
 /// An object for easily generating strips for a filled/stroked path.
 #[derive(Debug)]
 pub struct StripGenerator {
-    level: Level,
+    pub(crate) level: Level,
     line_buf: Vec<Line>,
     flatten_ctx: FlattenCtx,
+    temp_storage: StripStorage,
     tiles: Tiles,
     width: u16,
     height: u16,
@@ -69,6 +77,7 @@ impl StripGenerator {
             line_buf: Vec::new(),
             tiles: Tiles::new(level),
             flatten_ctx: FlattenCtx::default(),
+            temp_storage: StripStorage::default(),
             width,
             height,
         }
@@ -82,6 +91,7 @@ impl StripGenerator {
         transform: Affine,
         aliasing_threshold: Option<u8>,
         strip_storage: &mut StripStorage,
+        clip_path: Option<PathDataRef<'_>>,
     ) {
         flatten::fill(
             self.level,
@@ -90,7 +100,8 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.make_strips(strip_storage, fill_rule, aliasing_threshold);
+
+        self.generate_with_clip(aliasing_threshold, strip_storage, fill_rule, clip_path);
     }
 
     /// Generate the strips for a stroked path.
@@ -101,6 +112,7 @@ impl StripGenerator {
         transform: Affine,
         aliasing_threshold: Option<u8>,
         strip_storage: &mut StripStorage,
+        clip_path: Option<PathDataRef<'_>>,
     ) {
         flatten::stroke(
             self.level,
@@ -110,13 +122,38 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
         );
-        self.make_strips(strip_storage, Fill::NonZero, aliasing_threshold);
+        self.generate_with_clip(aliasing_threshold, strip_storage, Fill::NonZero, clip_path);
+    }
+
+    fn generate_with_clip(
+        &mut self,
+        aliasing_threshold: Option<u8>,
+        strip_storage: &mut StripStorage,
+        fill_rule: Fill,
+        clip_path: Option<PathDataRef<'_>>,
+    ) {
+        if strip_storage.generation_mode == GenerationMode::Replace {
+            strip_storage.strips.clear();
+        }
+
+        if let Some(clip_path) = clip_path {
+            self.make_strips(strip_storage, fill_rule, aliasing_threshold, true);
+            let path_data = PathDataRef {
+                strips: &self.temp_storage.strips,
+                alphas: &self.temp_storage.alphas,
+            };
+
+            intersect(self.level, clip_path, path_data, strip_storage);
+        } else {
+            self.make_strips(strip_storage, fill_rule, aliasing_threshold, false);
+        }
     }
 
     /// Reset the strip generator.
     pub fn reset(&mut self) {
         self.line_buf.clear();
         self.tiles.reset();
+        self.temp_storage.clear();
     }
 
     fn make_strips(
@@ -124,20 +161,25 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         fill_rule: Fill,
         aliasing_threshold: Option<u8>,
+        temp: bool,
     ) {
         self.tiles
             .make_tiles(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
 
-        if strip_storage.generation_mode == GenerationMode::Replace {
-            strip_storage.strips.clear();
-        }
+        let storage = if temp {
+            self.temp_storage.clear();
+
+            &mut self.temp_storage
+        } else {
+            strip_storage
+        };
 
         strip::render(
             self.level,
             &self.tiles,
-            &mut strip_storage.strips,
-            &mut strip_storage.alphas,
+            &mut storage.strips,
+            &mut storage.alphas,
             fill_rule,
             aliasing_threshold,
             &self.line_buf,
@@ -164,6 +206,7 @@ mod tests {
             Affine::IDENTITY,
             None,
             &mut storage,
+            None,
         );
 
         assert!(!generator.line_buf.is_empty());
