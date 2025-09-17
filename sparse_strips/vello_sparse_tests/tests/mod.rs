@@ -20,22 +20,23 @@
 
 #![allow(missing_docs, reason = "we don't need docs for testing")]
 #![allow(clippy::cast_possible_truncation, reason = "not critical for testing")]
+#![allow(
+    clippy::large_stack_arrays,
+    reason = "after some experimentation, this lint seems to be\
+triggered from `vello_dev_macros` by some mechanism in quote after adding more SIMD variants to the
+tests, so there isn't much we can do to prevent it."
+)]
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-mod basic;
-mod blurred_rounded_rect;
-mod clip;
-mod compose;
-mod glyph;
-mod gradient;
-mod image;
-mod issues;
 mod layer;
 mod mask;
 mod mix;
 mod opacity;
+mod recording;
 mod renderer;
 mod scenes;
+#[macro_use]
 mod util;
+#[cfg(target_arch = "wasm32")]
+mod wasm_binary_invariants;
