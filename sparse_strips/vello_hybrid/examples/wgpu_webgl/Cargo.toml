@@ -35,7 +35,7 @@ web-sys = { version = "0.3.77", features = [
     "WheelEvent",
     "KeyboardEvent",
 ] }
-wgpu = { workspace = true, features = ["webgl"] }
+wgpu = { workspace = true, default-features = true, features = ["webgl"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.50"
