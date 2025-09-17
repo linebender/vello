@@ -15,18 +15,38 @@ You can find its changes [documented below](#051---2025-08-22).
 
 This release has an [MSRV][] of 1.86.
 
-## Added
+### Added
 
 - `register_texture`, a helper for using `wgpu` textures in a Vello `Renderer`. ([#1161][] by [@DJMcNab][])
 - `push_luminance_mask_layer`, content within which is used as a luminance mask. ([#1183][] by [@DJMcNab][]).  
    This is a breaking change to Vello Encoding.
 
-## Changed
+### Changed
 
-- Breaking: Put `wgpu`'s default features behind a `wgpu_default` feature flag. ([#1229][] by [@StT191][])  
+- Breaking change: Put `wgpu`'s default features behind a `wgpu_default` feature flag. ([#1229][] by [@StT191][])  
   If you're using Vello with default features enabled, then no change is needed.
+- Breaking change: Updated Peniko to [v0.5.0](https://github.com/linebender/peniko/releases/tag/v0.5.0)
+ (This release hasn't happened yet, so that link isn't yet live; see [Peniko's CHANGELOG](https://github.com/linebender/peniko/blob/main/CHANGELOG.md)). ([#1224][] by [@DJMcNab][])  
+<!-- https://github.com/linebender/peniko/blob/main/CHANGELOG.md -->
+  This brings several important changes which allow Vello to be used in more use cases:
 
-## Fixed
+  - Breaking change: Gradients must have their alpha interpolation space specified. For this, you should use `InterpolationAlphaSpace::Premultiplied`, unless you are implementing a specification which indicates otherwise.
+    Currently, only `InterpolationAlphaSpace::Premultiplied` is supported.
+  - Breaking change: `Gradient` kinds now have a corresponding struct. For example, `GradientKind::Linear {...}` is now `GradientKind::Linear(LinearGradientPosition {...})`.
+    This makes it possible to talk about gradient kinds in code individually.
+  - `GradientKind::Sweep`'s defined semantics now match those which Vello previously implemented.
+  - Breaking change: `Image` has been renamed to `ImageBrush`, consisting of an `ImageData` and an `ImageSampler`.
+    The equivalent to the old `Image::new($data, $format, $width, $height)` is `ImageBrush::new(ImageData { data: $data, format: $format, width: $width, height: $height, alpha_type: ImageAlphaType::Alpha })`.
+    Only `ImageAlphaType::Alpha` is currently supported in Vello.
+
+### Linebender Resource Handle
+
+The `vello::peniko::Font` type used in Vello used to be provided by the Peniko crate, and this was used as vocabulary types for font resources between crates.
+However, this means that when Peniko made semver-incompatible releases, crates which used this type could no longer (easily) interoperate
+To resolve this, `vello::peniko::FontData` (which is the same type but renamed) is now a re-export from a new crate called [Linebender Resource Handle](https://crates.io/crates/linebender_resource_handle).
+These types have identical API as in previous releases, but will now be the same type across Peniko versions.
+
+### Fixed
 
 - Examples crashing when window is resized to zero. ([#1182][] by [@xStrom][])
 - Correct flattening tolerance calculation from 2D affine transforms. ([#1187][] by [@tomcur][])
@@ -35,7 +55,7 @@ This release has an [MSRV][] of 1.86.
 
 This release has an [MSRV][] of 1.85.
 
-## Changed
+### Changed
 
 - Upgrade `skrifa` to `0.35.0` ([#1169][] by [@nicoburns][])
 
@@ -43,7 +63,7 @@ This release has an [MSRV][] of 1.85.
 
 This release has an [MSRV][] of 1.85.
 
-## Added
+### Added
 
 - Breaking: Support for pipeline caches. ([#524][] by [@DJMcNab][])
 - Implement `Default` for `RendererOptions`. ([#524][] by [@DJMcNab][])
@@ -326,6 +346,7 @@ This release has an [MSRV][] of 1.75.
 [#1182]: https://github.com/linebender/vello/pull/1182
 [#1183]: https://github.com/linebender/vello/pull/1183
 [#1187]: https://github.com/linebender/vello/pull/1187
+[#1224]: https://github.com/linebender/vello/pull/1224
 [#1229]: https://github.com/linebender/vello/pull/1229
 
 <!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
