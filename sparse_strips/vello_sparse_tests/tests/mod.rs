@@ -27,6 +27,9 @@ triggered from `vello_dev_macros` by some mechanism in quote after adding more S
 tests, so there isn't much we can do to prevent it."
 )]
 
+#[cfg(target_arch = "wasm32")]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
 mod basic;
 mod blurred_rounded_rect;
 mod clip;
@@ -35,8 +38,6 @@ mod glyph;
 mod gradient;
 mod image;
 mod issues;
-#[cfg(target_arch = "wasm32")]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 mod layer;
 mod mask;
 mod mix;
