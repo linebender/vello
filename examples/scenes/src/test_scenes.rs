@@ -1,21 +1,21 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! A set of test scenes used to
+//! A set of test scenes used to validate features in Vello.
 //!
 //! To run these manually, use:
 //! `cargo run -p with_winit -- --test-scenes`
 //! Or `cargo run -p with_winit --release -- --test-scenes`
 //!
 //! Many of these are also tested automatically in `vello_tests/tests/snapshot_test_scenes.rs`.
-//! If you're adding a new test scene, also add a corresponding test.
+//! If you're adding a new test scene, also add a corresponding test in that file.
 //!
 //! Architecturally, this module consists of:
 //! 1) The main [`test_scenes`] function, used by example drivers which want to show all scenes.
-//! 2) An exported function for each test scene, which is created by [`export_scenes!`] (which also adds it to `test_scenes`).
-//! 3) The implementations of each test scenes, which are mostly in the [`impls`] module.
+//! 2) An exported function for each test scene, which is created by `export_scenes!` (which also adds it to `test_scenes`).
+//! 3) The implementations of each test scenes, which are mostly in the `impls` module.
 //!
-//! Therefore, if you're adding a new test scene, you need to implement it in the [`impls`] module, and add it to the call to
+//! Therefore, if you're adding a new test scene, you need to implement it in the `impls` module, and add it to the call to
 //! `export_scenes`.
 
 use crate::{ExampleScene, SceneConfig, SceneSet};
@@ -34,7 +34,7 @@ pub fn test_scenes() -> SceneSet {
 /// This is used to avoid having to repetetively define both a function for
 /// each test scene, and adding them to an enumeration.
 /// Format is `fn $scene_name([arguments to scene!])`.
-/// See the branches of [`scene!`] for full details.
+/// See the branches of `scene!` for full details.
 macro_rules! export_scenes {
     ($(fn $scene_name: ident($($scene: tt)+))*) => {
         pub fn test_scenes_inner() -> SceneSet {
