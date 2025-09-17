@@ -1,6 +1,23 @@
 // Copyright 2022 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! A set of test scenes used to
+//!
+//! To run these manually, use:
+//! `cargo run -p with_winit -- --test-scenes`
+//! Or `cargo run -p with_winit --release -- --test-scenes`
+//!
+//! Many of these are also tested automatically in `vello_tests/tests/snapshot_test_scenes.rs`.
+//! If you're adding a new test scene, also add a corresponding test.
+//!
+//! Architecturally, this module consists of:
+//! 1) The main [`test_scenes`] function, used by example drivers which want to show all scenes.
+//! 2) An exported function for each test scene, which is created by [`export_scenes!`] (which also adds it to `test_scenes`).
+//! 3) The implementations of each test scenes, which are mostly in the [`impls`] module.
+//!
+//! Therefore, if you're adding a new test scene, you need to implement it in the [`impls`] module, and add it to the call to
+//! `export_scenes`.
+
 use crate::{ExampleScene, SceneConfig, SceneSet};
 use vello::{
     kurbo::{Affine, Cap},
@@ -14,9 +31,12 @@ pub fn test_scenes() -> SceneSet {
 
 /// A macro which exports each passed scene indivudally
 ///
-/// This is used to avoid having to repeatedly define a
+/// This is used to avoid having to repetetively define both a function for
+/// each test scene, and adding them to an enumeration.
+/// Format is `fn $scene_name([arguments to scene!])`.
+/// See the branches of [`scene!`] for full details.
 macro_rules! export_scenes {
-    ($($scene_name: ident($($scene: tt)+)),*$(,)?) => {
+    ($(fn $scene_name: ident($($scene: tt)+))*) => {
         pub fn test_scenes_inner() -> SceneSet {
             let scenes = vec![
                 $($scene_name()),+
@@ -34,16 +54,23 @@ macro_rules! export_scenes {
 
 /// A helper to create a shorthand name for a single scene.
 /// Used in `export_scenes`.
+/// See the comments on each branch for explanation.
 macro_rules! scene {
+    // An unanimated version of the test scene at `impls::$name` with signature:
+    // `pub(super) fn $name(scene: &mut Scene, params: &mut SceneParams<'_>) {...}`
     ($name: ident) => {
         scene!($name: false)
     };
+    // An animated version of the test scene at `impls::$name` with the same signature
     ($name: ident: animated) => {
         scene!($name: true)
     };
+    // Internal implementation detail of the above two branches
     ($name: ident: $animated: literal) => {
         scene!(impls::$name, stringify!($name), $animated)
     };
+    // Create a full scene from an evaluated function, with the given name.
+    // This can be useful for test scenes with multiple variants based on parameters.
     ($func:expr, $name: expr, $animated: literal) => {
         ExampleScene {
             config: SceneConfig {
@@ -56,37 +83,37 @@ macro_rules! scene {
 }
 
 export_scenes!(
-    splash_with_tiger(impls::splash_with_tiger(), "splash_with_tiger", false),
-    funky_paths(funky_paths),
-    stroke_styles(impls::stroke_styles(Affine::IDENTITY), "stroke_styles", false),
-    stroke_styles_non_uniform(impls::stroke_styles(Affine::scale_non_uniform(1.2, 0.7)), "stroke_styles (non-uniform scale)", false),
-    stroke_styles_skew(impls::stroke_styles(Affine::skew(1., 0.)), "stroke_styles (skew)", false),
-    emoji(emoji),
-    tricky_strokes(tricky_strokes),
-    fill_types(fill_types),
-    cardioid_and_friends(cardioid_and_friends),
-    animated_text(animated_text: animated),
-    gradient_extend(gradient_extend),
-    two_point_radial(two_point_radial),
-    brush_transform(brush_transform: animated),
-    blend_grid(blend_grid),
-    deep_blend(deep_blend),
-    many_clips(many_clips),
-    conflation_artifacts(conflation_artifacts),
-    labyrinth(labyrinth),
-    robust_paths(robust_paths),
-    base_color_test(base_color_test: animated),
-    clip_test(clip_test: animated),
-    longpathdash_butt(impls::longpathdash(Cap::Butt), "longpathdash (butt caps)", false),
-    longpathdash_round(impls::longpathdash(Cap::Round), "longpathdash (round caps)", false),
-    mmark(crate::mmark::MMark::new(80_000), "mmark", false),
-    many_draw_objects(many_draw_objects),
-    blurred_rounded_rect(blurred_rounded_rect),
-    image_sampling(image_sampling),
-    image_extend_modes_bilinear(impls::image_extend_modes(ImageQuality::Medium), "image_extend_modes (bilinear)", false),
-    image_extend_modes_nearest_neighbor(impls::image_extend_modes(ImageQuality::Low), "image_extend_modes (nearest neighbor)", false),
-    luminance_mask(luminance_mask),
-    image_luminance_mask(image_luminance_mask),
+    fn splash_with_tiger(impls::splash_with_tiger(), "splash_with_tiger", false)
+    fn funky_paths(funky_paths)
+    fn stroke_styles(impls::stroke_styles(Affine::IDENTITY), "stroke_styles", false)
+    fn stroke_styles_non_uniform(impls::stroke_styles(Affine::scale_non_uniform(1.2, 0.7)), "stroke_styles (non-uniform scale)", false)
+    fn stroke_styles_skew(impls::stroke_styles(Affine::skew(1., 0.)), "stroke_styles (skew)", false)
+    fn emoji(emoji)
+    fn tricky_strokes(tricky_strokes)
+    fn fill_types(fill_types)
+    fn cardioid_and_friends(cardioid_and_friends)
+    fn animated_text(animated_text: animated)
+    fn gradient_extend(gradient_extend)
+    fn two_point_radial(two_point_radial)
+    fn brush_transform(brush_transform: animated)
+    fn blend_grid(blend_grid)
+    fn deep_blend(deep_blend)
+    fn many_clips(many_clips)
+    fn conflation_artifacts(conflation_artifacts)
+    fn labyrinth(labyrinth)
+    fn robust_paths(robust_paths)
+    fn base_color_test(base_color_test: animated)
+    fn clip_test(clip_test: animated)
+    fn longpathdash_butt(impls::longpathdash(Cap::Butt), "longpathdash (butt caps)", false)
+    fn longpathdash_round(impls::longpathdash(Cap::Round), "longpathdash (round caps)", false)
+    fn mmark(crate::mmark::MMark::new(80_000), "mmark", false)
+    fn many_draw_objects(many_draw_objects)
+    fn blurred_rounded_rect(blurred_rounded_rect)
+    fn image_sampling(image_sampling)
+    fn image_extend_modes_bilinear(impls::image_extend_modes(ImageQuality::Medium), "image_extend_modes (bilinear)", false)
+    fn image_extend_modes_nearest_neighbor(impls::image_extend_modes(ImageQuality::Low), "image_extend_modes (nearest neighbor)", false)
+    fn luminance_mask(luminance_mask)
+    fn image_luminance_mask(image_luminance_mask)
 );
 
 /// Implementations for the test scenes.
