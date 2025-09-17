@@ -739,7 +739,7 @@ impl WebGlPrograms {
                 let config = Config {
                     width: new_render_size.width,
                     height: new_render_size.height,
-                    strip_height: Tile::HEIGHT.into(),
+                    strip_height: u32::from(Tile::HEIGHT),
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                 };
 
@@ -755,13 +755,13 @@ impl WebGlPrograms {
                 );
             }
 
+            let total_slots = max_texture_dimension_2d / u32::from(Tile::HEIGHT);
             // Update slot config buffer.
             {
                 let slot_config = Config {
                     width: u32::from(WideTile::WIDTH),
-                    height: u32::from(Tile::HEIGHT)
-                        * (max_texture_dimension_2d / u32::from(Tile::HEIGHT)),
-                    strip_height: Tile::HEIGHT.into(),
+                    height: u32::from(Tile::HEIGHT) * total_slots,
+                    strip_height: u32::from(Tile::HEIGHT),
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                 };
 
@@ -782,9 +782,8 @@ impl WebGlPrograms {
             {
                 let clear_config = ClearSlotsConfig {
                     slot_width: u32::from(WideTile::WIDTH),
-                    slot_height: u32::from(Tile::HEIGHT)
-                        * (max_texture_dimension_2d / u32::from(Tile::HEIGHT)),
-                    texture_height: Tile::HEIGHT.into(),
+                    slot_height: u32::from(Tile::HEIGHT),
+                    texture_height: u32::from(Tile::HEIGHT) * total_slots,
                     _padding: 0,
                 };
 
@@ -1583,6 +1582,10 @@ impl WebGlRendererContext<'_> {
             return;
         }
 
+        // No blending needed for clearing: we want to completely overwrite existing slot data
+        // (matches wgpu implementation)
+        self.gl.disable(WebGl2RenderingContext::BLEND);
+
         // Upload slot indices.
         self.gl.bind_buffer(
             WebGl2RenderingContext::ARRAY_BUFFER,
@@ -1628,6 +1631,8 @@ impl WebGlRendererContext<'_> {
             4,
             slot_indices.len() as i32,
         );
+
+        self.gl.enable(WebGl2RenderingContext::BLEND);
 
         // Clean up.
         self.gl.bind_vertex_array(None);
