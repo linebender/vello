@@ -767,18 +767,8 @@ impl WgpuEngine {
             }
         }
         for id in free_images {
-            if let Some((texture, view)) = self.bind_map.image_map.remove(&id) {
+            if let Some((_texture, _view)) = self.bind_map.image_map.remove(&id) {
                 // TODO: have a pool to avoid needless re-allocation
-                #[allow(
-                    clippy::drop_non_drop,
-                    reason = "suppress warning when no wgpu backend is enabled"
-                )]
-                drop(texture);
-                #[allow(
-                    clippy::drop_non_drop,
-                    reason = "suppress warning when no wgpu backend is enabled"
-                )]
-                drop(view);
             }
         }
         Ok(())
