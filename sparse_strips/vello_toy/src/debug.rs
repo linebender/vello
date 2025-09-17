@@ -18,7 +18,7 @@ use vello_common::coarse::{Cmd, MODE_CPU, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
 use vello_common::fearless_simd::Level;
 use vello_common::flatten::{FlattenCtx, Line};
-use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke};
+use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke, StrokeCtx};
 use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
 use vello_common::tile::{Tile, Tiles};
@@ -64,6 +64,7 @@ fn main() {
                 Affine::IDENTITY,
                 &mut line_buf,
                 &mut FlattenCtx::default(),
+                &mut StrokeCtx::default(),
             );
         }
     }

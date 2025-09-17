@@ -6,6 +6,7 @@ use criterion::Criterion;
 use vello_common::flatten;
 use vello_common::flatten::FlattenCtx;
 use vello_common::kurbo::Stroke;
+use vello_common::kurbo::StrokeCtx;
 use vello_cpu::Level;
 use vello_cpu::kurbo::Affine;
 
@@ -68,7 +69,9 @@ pub fn strokes(c: &mut Criterion) {
                             width: path.stroke_width as f64,
                             ..Default::default()
                         };
-                        paths.push(flatten::expand_stroke(path.path.iter(), &stroke, 0.25));
+                        let mut stroke_ctx = StrokeCtx::default();
+                        flatten::expand_stroke(path.path.iter(), &stroke, 0.25, &mut stroke_ctx);
+                        paths.push(stroke_ctx.output().clone());
                     }
 
                     std::hint::black_box(&paths);
