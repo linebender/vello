@@ -24,6 +24,13 @@ const CMD_END_CLIP = 11u;
 const CMD_JUMP = 12u;
 const CMD_BLUR_RECT = 13u;
 
+// Full blend state for clip + normal.
+const BLEND_CLIP = (128u << 8u) | 3u;
+
+// Flag set on CMD_BEGIN_CLIP to allow blending to punch through
+// the layer.
+const NON_ISOLATED_BLENDING_FLAG = 0x100u;
+
 // The individual PTCL structs are written here, but read/write is by
 // hand in the relevant shaders
 
