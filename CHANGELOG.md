@@ -23,7 +23,7 @@ This release has an [MSRV][] of 1.86.
 
 ## Changed
 
-- Breaking: Put `wgpu`'s default features behind a `wgpu_default` feature flag ([#1229][] by [@StT191][])
+- Breaking: Put `wgpu`'s default features behind a `wgpu_default` feature flag ([#1229] by [@StT191])
 
 ## Fixed
 
@@ -244,6 +244,7 @@ This release has an [MSRV][] of 1.75.
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@xStrom]: https://github.com/xStrom
 [@yutannihilation]: https://github.com/yutannihilation
+[@StT191]: https://github.com/StT191
 
 [#416]: https://github.com/linebender/vello/pull/416
 [#435]: https://github.com/linebender/vello/pull/435
