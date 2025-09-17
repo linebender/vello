@@ -44,6 +44,7 @@ mod mix;
 mod opacity;
 mod recording;
 mod renderer;
+mod scenes;
 #[macro_use]
 mod util;
 #[cfg(target_arch = "wasm32")]

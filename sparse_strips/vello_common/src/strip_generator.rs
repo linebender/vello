@@ -11,6 +11,7 @@ use crate::strip::Strip;
 use crate::tile::Tiles;
 use crate::{flatten, strip};
 use alloc::vec::Vec;
+use peniko::kurbo::StrokeCtx;
 
 /// A storage for storing strip-related data.
 #[derive(Debug, Default)]
@@ -56,6 +57,7 @@ pub struct StripGenerator {
     level: Level,
     line_buf: Vec<Line>,
     flatten_ctx: FlattenCtx,
+    stroke_ctx: StrokeCtx,
     tiles: Tiles,
     width: u16,
     height: u16,
@@ -69,6 +71,7 @@ impl StripGenerator {
             line_buf: Vec::new(),
             tiles: Tiles::new(level),
             flatten_ctx: FlattenCtx::default(),
+            stroke_ctx: StrokeCtx::default(),
             width,
             height,
         }
@@ -109,6 +112,7 @@ impl StripGenerator {
             transform,
             &mut self.line_buf,
             &mut self.flatten_ctx,
+            &mut self.stroke_ctx,
         );
         self.make_strips(strip_storage, Fill::NonZero, aliasing_threshold);
     }
