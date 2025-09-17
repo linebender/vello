@@ -23,6 +23,9 @@ default = ["wgpu", "wgpu_default"]
 # TODO: Turn this into a runtime option used at resolve time and remove the feature.
 bump_estimate = ["vello_encoding/bump_estimate"]
 wgpu = ["dep:wgpu", "dep:vello_shaders", "dep:futures-intrusive"]
+# Enable wgpu with its default features. If you need to customise the set of enabled wgpu features,
+# please disable this crate's default features, enable its "wgpu" feature, then depend on wgpu directly
+# with the features which you need enabled.
 wgpu_default = ["wgpu", "wgpu/default"]
 
 # Development only features

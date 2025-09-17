@@ -18,8 +18,12 @@ This release has an [MSRV][] of 1.86.
 ## Added
 
 - `register_texture`, a helper for using `wgpu` textures in a Vello `Renderer`. ([#1161][] by [@DJMcNab][])
-- `push_luminance_mask_layer`, content within which is used as a luminance mask. ([#1183][] by [@DJMcNab][]).  
+- `push_luminance_mask_layer`, content within which is used as a luminance mask. ([#1183][] by [@DJMcNab][]).
    This is a breaking change to Vello Encoding.
+
+## Changed
+
+- Breaking: Put `wgpu`'s default features behind a `wgpu_default` feature flag ([#1229][] by [@StT191][])
 
 ## Fixed
 
@@ -44,7 +48,7 @@ This release has an [MSRV][] of 1.85.
 - Implement `Default` for `RendererOptions`. ([#524][] by [@DJMcNab][])
 
 ```diff
- RendererOptions { 
+ RendererOptions {
      // ...
 +    ..Default::default()
  }
@@ -52,7 +56,7 @@ This release has an [MSRV][] of 1.85.
 
 ### Removed
 
-- Breaking: `Renderer::render_to_surface` has been removed. ([#803][] by [@DJMcNab][])  
+- Breaking: `Renderer::render_to_surface` has been removed. ([#803][] by [@DJMcNab][])
   This API was not fit for purpose, as it assumed that you would only ever use a single window.
   The new recommended way to use Vello to render to a surface is to use `Renderer::render_to_texture` to render to an
   intermediate texture, then blit from that to the surface yourself.
@@ -320,6 +324,7 @@ This release has an [MSRV][] of 1.75.
 [#1182]: https://github.com/linebender/vello/pull/1182
 [#1183]: https://github.com/linebender/vello/pull/1183
 [#1187]: https://github.com/linebender/vello/pull/1187
+[#1229]: https://github.com/linebender/vello/pull/1229
 
 <!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.5.0...HEAD

@@ -51,7 +51,7 @@ vello_common = { workspace = true, features = ["pico_svg"] }
 roxmltree = "0.20.0"
 
 [features]
-default = ["wgpu", "wgpu/default"]
+default = ["wgpu", "wgpu_default"]
 std = ["wgpu", "vello_common/std"]
 wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
 wgpu_default = ["wgpu", "wgpu/default"]
