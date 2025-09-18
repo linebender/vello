@@ -23,7 +23,8 @@ This release has an [MSRV][] of 1.86.
 
 ## Changed
 
-- Breaking: Put `wgpu`'s default features behind a `wgpu_default` feature flag. ([#1229][] by [@StT191][])
+- Breaking: Put `wgpu`'s default features behind a `wgpu_default` feature flag. ([#1229][] by [@StT191][])  
+  If you're using Vello with default features enabled, then no change is needed.
 
 ## Fixed
 
