@@ -606,7 +606,7 @@ impl<T> AllocationManager<T> {
     ///
     /// The vector is guaranteed to have been cleared before.
     fn get(&mut self) -> Vec<T> {
-        self.entries.pop().unwrap_or(vec![])
+        self.entries.pop().unwrap_or_default()
     }
 
     /// Insert a new allocation in the store.
