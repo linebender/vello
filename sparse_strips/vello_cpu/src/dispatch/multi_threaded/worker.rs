@@ -41,16 +41,20 @@ impl Worker {
 
     pub(crate) fn run_render_task(
         &mut self,
-        render_task: RenderTask,
+        mut render_task: RenderTask,
         result_sender: &mut CoarseTaskSender,
     ) {
+        let num_tasks = render_task.allocation_group.render_tasks.len();
         self.strip_storage.strips.clear();
         self.strip_storage
             .set_generation_mode(GenerationMode::Append);
-        let mut task_buf = Vec::with_capacity(render_task.tasks.len());
         let task_idx = render_task.idx;
 
-        for task in render_task.tasks {
+        for task in render_task
+            .allocation_group
+            .render_tasks
+            .drain(0..num_tasks)
+        {
             match task {
                 RenderTaskType::FillPath {
                     path_range,
@@ -60,8 +64,8 @@ impl Worker {
                     aliasing_threshold,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
-                    let path =
-                        &render_task.path[path_range.start as usize..path_range.end as usize];
+                    let path = &render_task.allocation_group.path
+                        [path_range.start as usize..path_range.end as usize];
 
                     self.strip_generator.generate_filled_path(
                         path.iter().copied(),
@@ -78,7 +82,10 @@ impl Worker {
                         paint,
                     };
 
-                    task_buf.push(coarse_command);
+                    render_task
+                        .allocation_group
+                        .coarse_tasks
+                        .push(coarse_command);
                 }
                 RenderTaskType::StrokePath {
                     path_range,
@@ -88,8 +95,8 @@ impl Worker {
                     aliasing_threshold,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
-                    let path =
-                        &render_task.path[path_range.start as usize..path_range.end as usize];
+                    let path = &render_task.allocation_group.path
+                        [path_range.start as usize..path_range.end as usize];
 
                     self.strip_generator.generate_stroked_path(
                         path.iter().copied(),
@@ -106,7 +113,10 @@ impl Worker {
                         paint,
                     };
 
-                    task_buf.push(coarse_command);
+                    render_task
+                        .allocation_group
+                        .coarse_tasks
+                        .push(coarse_command);
                 }
                 RenderTaskType::PushLayer {
                     clip_path,
@@ -118,8 +128,8 @@ impl Worker {
                 } => {
                     let clip = if let Some((path_range, transform)) = clip_path {
                         let start = self.strip_storage.strips.len() as u32;
-                        let path =
-                            &render_task.path[path_range.start as usize..path_range.end as usize];
+                        let path = &render_task.allocation_group.path
+                            [path_range.start as usize..path_range.end as usize];
 
                         self.strip_generator.generate_filled_path(
                             path.iter().copied(),
@@ -144,10 +154,16 @@ impl Worker {
                         opacity,
                     };
 
-                    task_buf.push(coarse_command);
+                    render_task
+                        .allocation_group
+                        .coarse_tasks
+                        .push(coarse_command);
                 }
                 RenderTaskType::PopLayer => {
-                    task_buf.push(CoarseTaskType::PopLayer);
+                    render_task
+                        .allocation_group
+                        .coarse_tasks
+                        .push(CoarseTaskType::PopLayer);
                 }
                 RenderTaskType::WideCommand {
                     strip_buf,
@@ -160,16 +176,22 @@ impl Worker {
                         paint,
                     };
 
-                    task_buf.push(coarse_command);
+                    render_task
+                        .allocation_group
+                        .coarse_tasks
+                        .push(coarse_command);
                 }
             }
         }
 
-        let strips_slice = self.strip_storage.strips.as_slice();
+        let taken_strips = std::mem::replace(
+            &mut self.strip_storage.strips,
+            render_task.allocation_group.strips,
+        );
+        render_task.allocation_group.strips = taken_strips;
 
         let task = CoarseTask {
-            strips: strips_slice.into(),
-            tasks: task_buf,
+            allocation_group: render_task.allocation_group,
         };
 
         result_sender.send(task_idx as usize, task).unwrap();
