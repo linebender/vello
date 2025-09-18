@@ -311,6 +311,7 @@ impl MultiThreadedDispatcher {
                         }
                     }
 
+                    // Put the allocation group back so it can be reused in future iterations!
                     self.allocations.put(task.allocation_group);
                 }
                 Err(e) => match e {
@@ -595,15 +596,20 @@ impl Debug for MultiThreadedDispatcher {
     }
 }
 
+/// A structure that allows storing and fetching existing allocations.
 struct AllocationManager<T> {
     entries: Vec<Vec<T>>,
 }
 
 impl<T> AllocationManager<T> {
+    /// Get a new vector allocation.
+    ///
+    /// The vector is guaranteed to have been cleared before.
     fn get(&mut self) -> Vec<T> {
         self.entries.pop().unwrap_or(vec![])
     }
 
+    /// Insert a new allocation in the store.
     fn put(&mut self, mut allocation: Vec<T>) {
         allocation.clear();
         self.entries.push(allocation);
@@ -616,15 +622,27 @@ impl<T> Default for AllocationManager<T> {
     }
 }
 
+/// A structure to keep track of allocations that will be done while rendering with
+/// multi-threading.
 #[derive(Default)]
 struct Allocations {
+    /// The render tasks of a batch. They will be filled by the main thread as new fill/stroke commands
+    /// come in and consumed by worker threads as they process them.
     render_tasks: AllocationManager<RenderTaskType>,
+    /// The path store of a batch. It will be filled by the main thread as new commands come in
+    /// and be used by the worker thread to generate the strips of a path.
     paths: AllocationManager<PathEl>,
+    /// Stores allocations that are used by the worker thread to produce strips. They will be
+    /// sent back to the main thread which then uses them for coarse rasterization.
     strips: AllocationManager<Strip>,
+    /// The coarse tasks produced by a worker thread, which will be processed by the main thread.
     coarse_tasks: AllocationManager<CoarseTaskType>,
 }
 
 impl Allocations {
+    /// Return a new allocation group.
+    ///
+    /// The group is guaranteed to have been cleared.
     fn get(&mut self) -> AllocationGroup {
         let render_tasks = self.render_tasks.get();
         let path = self.paths.get();
@@ -667,7 +685,6 @@ impl AllocationGroup {
 #[derive(Debug)]
 pub(crate) struct RenderTask {
     pub(crate) idx: u32,
-    /// The path elements of the task.
     pub(crate) allocation_group: AllocationGroup,
 }
 
