@@ -789,3 +789,35 @@ impl<T: Default> MaybePresent<T> {
         std::mem::take(&mut *locked)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::Level;
+    use crate::color::palette::css::BLUE;
+    use crate::dispatch::Dispatcher;
+    use crate::dispatch::multi_threaded::{MultiThreadedDispatcher};
+    use crate::kurbo::{Affine, Rect, Shape};
+    use crate::peniko::Fill;
+    use vello_common::paint::{Paint, PremulColor};
+
+    /// Ensure we don't cause a memory leak.
+    #[test]
+    fn allocations() {
+        let mut dispatcher = MultiThreadedDispatcher::new(100, 100, 4, Level::new());
+        for _ in 0..20 {
+            dispatcher.fill_path(
+                &Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1),
+                Fill::NonZero,
+                Affine::IDENTITY,
+                Paint::Solid(PremulColor::from_alpha_color(BLUE)),
+                None,
+            );
+            dispatcher.flush();
+        }
+
+        assert_eq!(dispatcher.allocations.paths.entries.len(), 1);
+        assert_eq!(dispatcher.allocations.strips.entries.len(), 1);
+        assert_eq!(dispatcher.allocations.render_tasks.entries.len(), 1);
+        assert_eq!(dispatcher.allocations.coarse_tasks.entries.len(), 1);
+    }
+}
