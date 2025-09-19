@@ -171,7 +171,7 @@ impl Scene {
             aliasing_threshold,
             &mut self.strip_storage,
         );
-        wide.generate(&self.strip_storage.strips, paint, 0);
+        wide.generate(&self.strip_storage.strips, paint, 0, None);
     }
 
     /// Stroke a path with the current paint and stroke settings.
@@ -202,7 +202,7 @@ impl Scene {
             &mut self.strip_storage,
         );
 
-        wide.generate(&self.strip_storage.strips, paint, 0);
+        wide.generate(&self.strip_storage.strips, paint, 0, None);
     }
 
     /// Set the aliasing threshold.
@@ -611,7 +611,8 @@ impl Scene {
             "Invalid strip range: start={start}, end={end}, count={count}"
         );
         let paint = self.encode_current_paint();
-        self.wide.generate(&adjusted_strips[start..end], paint, 0);
+        self.wide
+            .generate(&adjusted_strips[start..end], paint, 0, None);
     }
 
     /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.

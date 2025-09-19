@@ -35,6 +35,7 @@ pub use lowp::U8Kernel;
 use vello_common::fearless_simd::{
     Simd, SimdBase, SimdFloat, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4, u32x8,
 };
+use vello_common::mask::Mask;
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::Splat4thExt;
 use vello_common::util::f32_to_u8;
@@ -275,9 +276,12 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     fn blend(
         simd: S,
         dest: &mut [Self::Numeric],
+        start_x: u16,
+        start_y: u16,
         src: impl Iterator<Item = Self::Composite>,
         blend_mode: BlendMode,
         alphas: Option<&[u8]>,
+        mask: Option<&Mask>,
     );
 }
 
@@ -334,6 +338,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         .unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
                     paints,
                     None,
+                    f.mask.as_ref(),
                 );
             }
             Cmd::AlphaFill(s) => {
@@ -345,6 +350,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         .unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
                     paints,
                     Some(&alphas[s.alpha_idx..]),
+                    s.mask.as_ref(),
                 );
             }
             Cmd::PushBuf => {
@@ -430,6 +436,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         blend_mode: BlendMode,
         encoded_paints: &[EncodedPaint],
         alphas: Option<&[u8]>,
+        mask: Option<&Mask>,
     ) {
         let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
             [..TILE_HEIGHT_COMPONENTS * width];
@@ -441,21 +448,31 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                 // If color is completely opaque, we can just directly override
                 // the blend buffer.
-                if color[3] == T::Numeric::ONE && default_blend && alphas.is_none() {
+                if color[3] == T::Numeric::ONE
+                    && default_blend
+                    && alphas.is_none()
+                    && mask.is_none()
+                {
                     T::copy_solid(self.simd, blend_buf, color);
 
                     return;
                 }
 
-                if default_blend {
+                if default_blend && mask.is_none() {
                     T::alpha_composite_solid(self.simd, blend_buf, color, alphas);
                 } else {
+                    let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
+                    let start_y = self.wide_coords.1 * Tile::HEIGHT;
+
                     T::blend(
                         self.simd,
                         blend_buf,
+                        start_x,
+                        start_y,
                         iter::repeat(T::Composite::from_color(self.simd, color)),
                         blend_mode,
                         alphas,
+                        mask,
                     );
                 }
             }
@@ -475,17 +492,20 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         if $has_opacities || alphas.is_some() {
                             T::apply_painter(self.simd, color_buf, $filler);
 
-                            if default_blend {
+                            if default_blend && mask.is_none() {
                                 T::alpha_composite_buffer(self.simd, blend_buf, color_buf, alphas);
                             } else {
                                 T::blend(
                                     self.simd,
                                     blend_buf,
+                                    start_x,
+                                    start_y,
                                     color_buf
                                         .chunks_exact(T::Composite::LENGTH)
                                         .map(|s| T::Composite::from_slice(self.simd, s)),
                                     blend_mode,
                                     alphas,
+                                    mask,
                                 );
                             }
                         } else {
@@ -620,10 +640,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             T::blend(
                 self.simd,
                 target_buffer,
+                // `start_x` and `start_y` are only needed to sample the correct position
+                // of a mask, so we can just pass dummy values here.
+                0,
+                0,
                 source_buffer
                     .chunks_exact(T::Composite::LENGTH)
                     .map(|s| T::Composite::from_slice(self.simd, s)),
                 blend_mode,
+                None,
                 None,
             );
         }

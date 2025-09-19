@@ -58,6 +58,7 @@ impl Worker {
                     paint,
                     fill_rule,
                     aliasing_threshold,
+                    mask,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
                     let path =
@@ -76,6 +77,7 @@ impl Worker {
                         thread_id: self.thread_id,
                         strips: start..end,
                         paint,
+                        mask,
                     };
 
                     task_buf.push(coarse_command);
@@ -86,6 +88,7 @@ impl Worker {
                     paint,
                     stroke,
                     aliasing_threshold,
+                    mask,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
                     let path =
@@ -104,6 +107,7 @@ impl Worker {
                         thread_id: self.thread_id,
                         strips: start..end,
                         paint,
+                        mask,
                     };
 
                     task_buf.push(coarse_command);
@@ -158,6 +162,7 @@ impl Worker {
                         thread_id: thread_idx,
                         strips: strip_buf,
                         paint,
+                        mask: None,
                     };
 
                     task_buf.push(coarse_command);

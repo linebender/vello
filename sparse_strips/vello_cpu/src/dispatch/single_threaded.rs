@@ -97,6 +97,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     ) {
         let wide = &mut self.wide;
 
@@ -108,7 +109,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             &mut self.strip_storage,
         );
 
-        wide.generate(&self.strip_storage.strips, paint, 0);
+        wide.generate(&self.strip_storage.strips, paint, 0, mask);
     }
 
     fn stroke_path(
@@ -118,6 +119,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     ) {
         let wide = &mut self.wide;
 
@@ -129,7 +131,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             &mut self.strip_storage,
         );
 
-        wide.generate(&self.strip_storage.strips, paint, 0);
+        wide.generate(&self.strip_storage.strips, paint, 0, mask);
     }
 
     fn push_layer(
@@ -187,7 +189,8 @@ impl Dispatcher for SingleThreadedDispatcher {
     }
 
     fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint) {
-        self.wide.generate(strip_buf, paint, 0);
+        // Masks are not supported in recordings, so just pass `None` for now.
+        self.wide.generate(strip_buf, paint, 0, None);
     }
 
     fn strip_storage_mut(&mut self) -> &mut StripStorage {

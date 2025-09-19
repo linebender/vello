@@ -43,6 +43,7 @@ pub struct RenderContext {
     pub(crate) height: u16,
     pub(crate) paint: PaintType,
     pub(crate) paint_transform: Affine,
+    pub(crate) mask: Option<Mask>,
     pub(crate) stroke: Stroke,
     pub(crate) transform: Affine,
     pub(crate) fill_rule: Fill,
@@ -141,6 +142,7 @@ impl RenderContext {
             aliasing_threshold,
             paint,
             render_settings: settings,
+            mask: None,
             paint_transform,
             fill_rule,
             stroke,
@@ -177,6 +179,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
+            self.mask.clone(),
         );
     }
 
@@ -189,6 +192,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
+            self.mask.clone(),
         );
     }
 
@@ -202,6 +206,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
+            self.mask.clone(),
         );
     }
 
@@ -253,6 +258,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
+            self.mask.clone(),
         );
     }
 
@@ -266,6 +272,7 @@ impl RenderContext {
             self.transform,
             paint,
             self.aliasing_threshold,
+            self.mask.clone(),
         );
     }
 
@@ -397,6 +404,11 @@ impl RenderContext {
         self.fill_rule = fill_rule;
     }
 
+    /// Set the mask to use for path-painting operations.
+    pub fn set_mask(&mut self, mask: Mask) {
+        self.mask = Some(mask);
+    }
+
     /// Get the current fill rule.
     pub fn fill_rule(&self) -> &Fill {
         &self.fill_rule
@@ -421,6 +433,7 @@ impl RenderContext {
     pub fn reset(&mut self) {
         self.dispatcher.reset();
         self.encoded_paints.clear();
+        self.mask = None;
         self.reset_transform();
         self.reset_paint_transform();
         #[cfg(feature = "text")]
@@ -501,6 +514,7 @@ impl GlyphRenderer for RenderContext {
                     prepared_glyph.transform,
                     paint,
                     self.aliasing_threshold,
+                    self.mask.clone(),
                 );
             }
             GlyphType::Bitmap(glyph) => {
@@ -596,6 +610,7 @@ impl GlyphRenderer for RenderContext {
                     prepared_glyph.transform,
                     paint,
                     self.aliasing_threshold,
+                    self.mask.clone(),
                 );
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
