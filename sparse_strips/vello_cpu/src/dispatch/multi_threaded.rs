@@ -795,7 +795,7 @@ mod tests {
     use crate::Level;
     use crate::color::palette::css::BLUE;
     use crate::dispatch::Dispatcher;
-    use crate::dispatch::multi_threaded::{MultiThreadedDispatcher};
+    use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::peniko::Fill;
     use vello_common::paint::{Paint, PremulColor};
