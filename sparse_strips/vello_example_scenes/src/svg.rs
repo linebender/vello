@@ -6,13 +6,12 @@
 use std::fmt;
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
-use vello_common::recording::{Recordable, Recorder, Recording};
-use vello_hybrid::Scene;
+use vello_common::recording::{Recorder, Recording};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
-use crate::ExampleScene;
+use crate::{ExampleScene, RenderingContext};
 
 /// SVG scene that renders an SVG file
 pub struct SvgScene {
@@ -31,23 +30,23 @@ impl fmt::Debug for SvgScene {
 }
 
 impl ExampleScene for SvgScene {
-    fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
+    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
         let current_transform = root_transform * self.transform;
 
         if self.recording_enabled {
             // Try to reuse existing recording if possible
-            let render_result = try_reuse_recording(scene, &mut self.recording, current_transform);
+            let render_result = try_reuse_recording(ctx, &mut self.recording, current_transform);
             if render_result.is_reused {
                 return;
             }
 
             // If we get here, we need to record fresh
-            record_fresh(self, scene, current_transform);
+            record_fresh(self, ctx, current_transform);
         } else {
             // Direct rendering mode (no recording/caching)
             #[cfg(not(target_arch = "wasm32"))]
             let start = std::time::Instant::now();
-            render_svg(scene, &self.svg.items, current_transform);
+            render_svg(ctx, &self.svg.items, current_transform);
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let elapsed = start.elapsed();
@@ -93,7 +92,7 @@ impl CachedRecording {
 
 /// Try to reuse an existing recording, either directly (TODO: or with translation)
 fn try_reuse_recording(
-    scene: &mut Scene,
+    ctx: &mut impl RenderingContext,
     recording: &mut CachedRecording,
     current_transform: Affine,
 ) -> RenderResult {
@@ -105,7 +104,7 @@ fn try_reuse_recording(
     let start = std::time::Instant::now();
     // Case 1: Identical transforms - can reuse directly
     if transforms_are_identical(recording_transform, current_transform) {
-        scene.execute_recording(&recording.recording);
+        ctx.execute_recording(&recording.recording);
         #[cfg(not(target_arch = "wasm32"))]
         print_render_stats("Identical ", start.elapsed(), &recording.recording);
         return RenderResult { is_reused: true };
@@ -118,17 +117,21 @@ fn try_reuse_recording(
 }
 
 /// Record a fresh scene from scratch
-fn record_fresh(scene_obj: &mut SvgScene, scene: &mut Scene, current_transform: Affine) {
+fn record_fresh(
+    scene_obj: &mut SvgScene,
+    ctx: &mut impl RenderingContext,
+    current_transform: Affine,
+) {
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
     scene_obj.recording.transform_key = Some(current_transform);
     let new_recording = &mut scene_obj.recording.recording;
     new_recording.clear();
-    scene.record(new_recording, |recorder| {
+    ctx.record(new_recording, |recorder| {
         render_svg_record(recorder, &scene_obj.svg.items, current_transform);
     });
-    scene.prepare_recording(new_recording);
-    scene.execute_recording(new_recording);
+    ctx.prepare_recording(new_recording);
+    ctx.execute_recording(new_recording);
     #[cfg(not(target_arch = "wasm32"))]
     print_render_stats("Fresh     ", start.elapsed(), new_recording);
 }
@@ -164,7 +167,7 @@ impl SvgScene {
     pub fn tiger() -> Self {
         // Load the ghost tiger SVG by default
         #[cfg(target_arch = "wasm32")]
-        let svg_content = include_str!("../../../../../examples/assets/Ghostscript_Tiger.svg");
+        let svg_content = include_str!("../../../examples/assets/Ghostscript_Tiger.svg");
         #[cfg(not(target_arch = "wasm32"))]
         let svg_content = {
             let cargo_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -232,23 +235,23 @@ fn render_svg_record(ctx: &mut Recorder<'_>, items: &[Item], transform: Affine) 
 }
 
 /// Render SVG directly to scene without recording
-fn render_svg(scene: &mut Scene, items: &[Item], transform: Affine) {
-    scene.set_transform(transform);
+fn render_svg(ctx: &mut impl RenderingContext, items: &[Item], transform: Affine) {
+    ctx.set_transform(transform);
     for item in items {
         match item {
             Item::Fill(fill_item) => {
-                scene.set_paint(fill_item.color);
-                scene.fill_path(&fill_item.path);
+                ctx.set_paint(fill_item.color);
+                ctx.fill_path(&fill_item.path);
             }
             Item::Stroke(stroke_item) => {
                 let style = Stroke::new(stroke_item.width);
-                scene.set_stroke(style);
-                scene.set_paint(stroke_item.color);
-                scene.stroke_path(&stroke_item.path);
+                ctx.set_stroke(style);
+                ctx.set_paint(stroke_item.color);
+                ctx.stroke_path(&stroke_item.path);
             }
             Item::Group(group_item) => {
-                render_svg(scene, &group_item.children, transform * group_item.affine);
-                scene.set_transform(transform);
+                render_svg(ctx, &group_item.children, transform * group_item.affine);
+                ctx.set_transform(transform);
             }
         }
     }

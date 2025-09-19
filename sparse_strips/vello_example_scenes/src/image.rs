@@ -10,142 +10,141 @@ use vello_common::peniko::ImageFormat;
 use vello_common::pixmap::Pixmap;
 use vello_common::{
     kurbo::{Affine, Rect},
-    paint::{Image, ImageId, ImageSource},
+    paint::{Image, ImageSource},
     peniko::{Extend, ImageQuality},
 };
-use vello_hybrid::Scene;
 
-use crate::ExampleScene;
+use crate::{ExampleScene, RenderingContext};
 
 /// Image scene state
 #[derive(Debug, Default)]
-pub struct ImageScene {}
+pub struct ImageScene {
+    img_sources: Vec<ImageSource>,
+}
 
 impl ImageScene {
     /// Create a new image scene
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(img_sources: Vec<ImageSource>) -> Self {
+        Self { img_sources }
     }
 }
 
 impl ExampleScene for ImageScene {
-    fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
-        let splash_flower_id = ImageId::new(0);
-        let cowboy_id = ImageId::new(1);
+    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+        let splash_flower_id = self.img_sources[0].clone();
+        let cowboy_id = self.img_sources[1].clone();
 
-        scene.set_transform(
+        ctx.set_transform(
             root_transform
                 * Affine::translate((200.0, 50.0))
                 * Affine::rotate(PI / 4.0)
                 * Affine::scale(0.5),
         );
-        scene.set_paint_transform(Affine::translate((0.0, 0.0)));
-        scene.set_paint(Image {
-            source: ImageSource::OpaqueId(splash_flower_id),
+        ctx.set_paint_transform(Affine::translate((0.0, 0.0)));
+        ctx.set_paint(Image {
+            source: splash_flower_id.clone(),
             x_extend: Extend::Pad,
             y_extend: Extend::Pad,
             quality: ImageQuality::Low,
         });
-        scene.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
 
-        scene.set_transform(
+        ctx.set_transform(
             root_transform
                 * Affine::translate((500.0, 50.0))
                 * Affine::skew(0.5, 0.5)
                 * Affine::scale(0.5),
         );
-        scene.set_paint(Image {
-            source: ImageSource::OpaqueId(splash_flower_id),
+        ctx.set_paint(Image {
+            source: splash_flower_id.clone(),
             x_extend: Extend::Pad,
             y_extend: Extend::Pad,
             quality: ImageQuality::Low,
         });
-        scene.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
 
-        scene.set_transform(root_transform * Affine::translate((0.0, 500.0)));
-        scene.set_paint(Image {
-            source: ImageSource::OpaqueId(splash_flower_id),
+        ctx.set_transform(root_transform * Affine::translate((0.0, 500.0)));
+        ctx.set_paint(Image {
+            source: splash_flower_id.clone(),
             x_extend: Extend::Pad,
             y_extend: Extend::Pad,
             quality: ImageQuality::Low,
         });
-        scene.fill_path(&heart_shape());
+        ctx.fill_path(&heart_shape());
 
-        scene.set_transform(root_transform * Affine::translate((400.0, 480.0)));
-        scene.push_clip_layer(
-            &circular_star(Point::new(300.0, 220.0), 5, 100.0, 150.0).to_path(0.1),
-        );
-        scene.set_paint_transform(Affine::IDENTITY);
-        scene.set_paint(Image {
-            source: ImageSource::OpaqueId(splash_flower_id),
+        ctx.set_transform(root_transform * Affine::translate((400.0, 480.0)));
+        ctx.push_clip_layer(&circular_star(Point::new(300.0, 220.0), 5, 100.0, 150.0).to_path(0.1));
+        ctx.set_paint_transform(Affine::IDENTITY);
+        ctx.set_paint(Image {
+            source: splash_flower_id.clone(),
             x_extend: Extend::Repeat,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
         });
-        scene.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
-        scene.pop_layer();
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
+        ctx.pop_layer();
 
-        scene.set_transform(root_transform * Affine::translate((1000.0, 50.0)));
-        scene.set_paint_transform(Affine::scale(0.25));
-        scene.set_paint(Image {
-            source: ImageSource::OpaqueId(splash_flower_id),
+        ctx.set_transform(root_transform * Affine::translate((1000.0, 50.0)));
+        ctx.set_paint_transform(Affine::scale(0.25));
+        ctx.set_paint(Image {
+            source: splash_flower_id.clone(),
             x_extend: Extend::Repeat,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
         });
-        scene.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
 
-        scene.set_transform(root_transform * Affine::translate((1000.0, 600.0)));
-        scene.set_paint_transform(Affine::scale(0.25));
-        scene.set_paint(Image {
-            source: ImageSource::OpaqueId(splash_flower_id),
+        ctx.set_transform(root_transform * Affine::translate((1000.0, 600.0)));
+        ctx.set_paint_transform(Affine::scale(0.25));
+        ctx.set_paint(Image {
+            source: splash_flower_id.clone(),
             x_extend: Extend::Reflect,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
         });
-        scene.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
 
-        scene.set_transform(root_transform * Affine::translate((1000.0, 1200.0)));
-        scene.set_paint_transform(Affine::scale(0.25));
-        scene.set_paint(Image {
-            source: ImageSource::OpaqueId(splash_flower_id),
+        ctx.set_transform(root_transform * Affine::translate((1000.0, 1200.0)));
+        ctx.set_paint_transform(Affine::scale(0.25));
+        ctx.set_paint(Image {
+            source: splash_flower_id.clone(),
             x_extend: Extend::Pad,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
         });
-        scene.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
 
-        scene.set_transform(root_transform * Affine::translate((100.0, 1000.0)));
-        scene.set_paint_transform(Affine::IDENTITY);
-        scene.set_paint(Image {
-            source: ImageSource::OpaqueId(cowboy_id),
+        ctx.set_transform(root_transform * Affine::translate((100.0, 1000.0)));
+        ctx.set_paint_transform(Affine::IDENTITY);
+        ctx.set_paint(Image {
+            source: cowboy_id,
             x_extend: Extend::Repeat,
             y_extend: Extend::Repeat,
             quality: ImageQuality::High,
         });
-        scene.fill_rect(&Rect::new(0.0, 0.0, 800.0, 160.0));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 800.0, 160.0));
 
-        scene.set_transform(
+        ctx.set_transform(
             root_transform
                 * Affine::translate((200.0, 1200.0))
                 * Affine::rotate(PI / 4.0)
                 * Affine::scale(0.5),
         );
-        scene.set_paint_transform(Affine::scale(0.25));
-        scene.set_paint(Image {
-            source: ImageSource::OpaqueId(ImageId::new(0)),
+        ctx.set_paint_transform(Affine::scale(0.25));
+        ctx.set_paint(Image {
+            source: splash_flower_id.clone(),
             x_extend: Extend::Repeat,
             y_extend: Extend::Repeat,
             quality: ImageQuality::Low,
         });
-        scene.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
     }
 }
 
 impl ImageScene {
     /// Read the flower image
     pub fn read_flower_image() -> Pixmap {
-        let image_data = include_bytes!("../../../../../examples/assets/splash-flower.jpg");
+        let image_data = include_bytes!("../../../examples/assets/splash-flower.jpg");
         Self::read_image(image_data)
     }
 
@@ -176,18 +175,14 @@ impl ImageScene {
 
     /// Read the cowboy image
     pub fn read_cowboy_image() -> Pixmap {
-        let data = include_bytes!("../../../../vello_sparse_tests/tests/assets/cowboy.png");
+        let data = include_bytes!("../../vello_sparse_tests/tests/assets/cowboy.png");
         Pixmap::from_png(&data[..]).unwrap()
     }
 }
 
 /// Decode an image from a byte slice
 pub fn decode_image(data: &[u8]) -> ImageData {
-    let image = image::ImageReader::new(std::io::Cursor::new(data))
-        .with_guessed_format()
-        .unwrap()
-        .decode()
-        .unwrap();
+    let image = image::load_from_memory(data).expect("Failed to decode image");
     let width = image.width();
     let height = image.height();
     ImageData {
