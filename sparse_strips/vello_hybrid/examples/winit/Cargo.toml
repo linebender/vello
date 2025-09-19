@@ -11,7 +11,7 @@ workspace = true
 
 [dependencies]
 winit = { workspace = true }
-wgpu = { workspace = true }
+wgpu = { workspace = true, default-features = true }
 vello_common = { workspace = true }
 vello_hybrid = { workspace = true }
 vello_hybrid_scenes = { workspace = true }

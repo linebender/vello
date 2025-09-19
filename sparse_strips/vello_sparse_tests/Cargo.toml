@@ -19,7 +19,7 @@ vello_api = { workspace = true }
 vello_common = { workspace = true, features = ["std"] }
 vello_cpu = { workspace = true, features = ["multithreading", "std"] }
 vello_hybrid = { workspace = true }
-wgpu = { workspace = true }
+wgpu = { workspace = true, default-features = true }
 pollster = { workspace = true }
 vello_dev_macros = { workspace = true }
 bytemuck = { workspace = true }

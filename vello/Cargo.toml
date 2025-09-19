@@ -16,13 +16,17 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = []
 
 [features]
-default = ["wgpu"]
+default = ["wgpu", "wgpu_default"]
 # Enables GPU memory usage estimation. This performs additional computations
 # in order to estimate the minimum required allocations for buffers backing
 # bump-allocated GPU memory.
 # TODO: Turn this into a runtime option used at resolve time and remove the feature.
 bump_estimate = ["vello_encoding/bump_estimate"]
 wgpu = ["dep:wgpu", "dep:vello_shaders", "dep:futures-intrusive"]
+# Enable wgpu with its default features. If you need to customise the set of enabled wgpu features,
+# please disable this crate's default features, enable its "wgpu" feature, then depend on wgpu directly
+# with the features which you need enabled.
+wgpu_default = ["wgpu", "wgpu/default"]
 
 # Development only features
 
@@ -46,7 +50,7 @@ vello_shaders = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 skrifa = { workspace = true, features = ["std"] }
 peniko = { workspace = true, default-features = true }
-wgpu = { workspace = true, optional = true }
+wgpu = { workspace = true, default-features = false, optional = true }
 log = { workspace = true }
 static_assertions = { workspace = true }
 futures-intrusive = { workspace = true, optional = true }
