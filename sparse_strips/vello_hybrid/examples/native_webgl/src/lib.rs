@@ -11,8 +11,14 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use vello_common::kurbo::{Affine, Vec2};
-use vello_hybrid_scenes::AnyScene;
+use vello_common::paint::ImageId;
+use vello_common::{
+    kurbo::{Affine, Vec2},
+    paint::ImageSource,
+};
+use vello_example_scenes::AnyScene;
+use vello_example_scenes::image::ImageScene;
+use vello_hybrid::Scene;
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
@@ -30,7 +36,7 @@ impl RendererWrapper {
 
 /// State that handles scene rendering and interactions
 struct AppState {
-    scenes: Box<[AnyScene]>,
+    scenes: Box<[AnyScene<Scene>]>,
     current_scene: usize,
     scene: vello_hybrid::Scene,
     transform: Affine,
@@ -44,7 +50,7 @@ struct AppState {
 }
 
 impl AppState {
-    fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene]>) -> Self {
+    fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<Scene>]>) -> Self {
         let width = canvas.width();
         let height = canvas.height();
 
@@ -178,8 +184,6 @@ impl AppState {
     /// Upload images to the WebGL atlas texture
     /// This is the WebGL analogue of the winit example's `upload_images_to_atlas` function
     fn upload_images_to_atlas(&mut self) {
-        use vello_hybrid_scenes::image::ImageScene;
-
         // 1st example — uploading pixmap directly to WebGL atlas
         let pixmap1 = ImageScene::read_flower_image();
         self.renderer_wrapper.renderer.upload_image(&pixmap1);
@@ -280,7 +284,11 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     body.append_child(&canvas).unwrap();
 
     let scenes = {
-        let v = vello_hybrid_scenes::get_example_scenes().into_vec();
+        let v = vello_example_scenes::get_example_scenes(vec![
+            ImageSource::OpaqueId(ImageId::new(0)),
+            ImageSource::OpaqueId(ImageId::new(1)),
+        ])
+        .into_vec();
         v.into_boxed_slice()
     };
 

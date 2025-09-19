@@ -13,10 +13,9 @@ use vello_common::color::palette::css::WHITE;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::Affine;
-use vello_common::recording::{Recordable, Recorder, Recording};
-use vello_hybrid::Scene;
+use vello_common::recording::{Recorder, Recording};
 
-use crate::ExampleScene;
+use crate::{ExampleScene, RenderingContext};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ColorBrush {
@@ -31,8 +30,7 @@ impl Default for ColorBrush {
 
 // Wasm doesn't support system fonts, so we need to include the font data directly.
 #[cfg(target_arch = "wasm32")]
-const ROBOTO_FONT: &[u8] =
-    include_bytes!("../../../../../examples/assets/roboto/Roboto-Regular.ttf");
+const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
 
 /// State for the text example.
 pub struct TextScene {
@@ -50,22 +48,22 @@ impl fmt::Debug for TextScene {
 }
 
 impl ExampleScene for TextScene {
-    fn render(&mut self, scene: &mut Scene, root_transform: Affine) {
+    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
         if self.recording_enabled {
             // Try to reuse existing recording if possible
-            let render_result = try_reuse_recording(scene, &mut self.recording, root_transform);
+            let render_result = try_reuse_recording(ctx, &mut self.recording, root_transform);
             if render_result.is_reused {
                 return;
             }
 
             // If we get here, we need to record fresh
-            record_fresh(self, scene, root_transform);
+            record_fresh(self, ctx, root_transform);
         } else {
             // Direct rendering mode (no recording/caching)
             #[cfg(not(target_arch = "wasm32"))]
             let start = std::time::Instant::now();
-            scene.set_transform(root_transform);
-            render_text(self, scene);
+            ctx.set_transform(root_transform);
+            render_text(self, ctx);
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let elapsed = start.elapsed();
@@ -155,7 +153,7 @@ impl CachedRecording {
 
 /// Try to reuse an existing recording, either directly (TODO: or with translation)
 fn try_reuse_recording(
-    scene: &mut Scene,
+    ctx: &mut impl RenderingContext,
     recording: &mut CachedRecording,
     current_transform: Affine,
 ) -> RenderResult {
@@ -168,7 +166,7 @@ fn try_reuse_recording(
 
     // Case 1: Identical transforms - can reuse directly
     if transforms_are_identical(recording_transform, current_transform) {
-        scene.execute_recording(&recording.recording);
+        ctx.execute_recording(&recording.recording);
         #[cfg(not(target_arch = "wasm32"))]
         print_render_stats("Identical ", start.elapsed(), &recording.recording);
         return RenderResult { is_reused: true };
@@ -181,17 +179,21 @@ fn try_reuse_recording(
 }
 
 /// Record a fresh scene from scratch
-fn record_fresh(scene_obj: &mut TextScene, scene: &mut Scene, current_transform: Affine) {
+fn record_fresh(
+    scene_obj: &mut TextScene,
+    ctx: &mut impl RenderingContext,
+    current_transform: Affine,
+) {
     #[cfg(not(target_arch = "wasm32"))]
     let start = std::time::Instant::now();
     scene_obj.recording.transform_key = Some(current_transform);
     let recording = &mut scene_obj.recording.recording;
     recording.clear();
-    scene.record(recording, |recorder| {
+    ctx.record(recording, |recorder| {
         render_text_record(&mut scene_obj.layout, recorder, current_transform);
     });
-    scene.prepare_recording(recording);
-    scene.execute_recording(recording);
+    ctx.prepare_recording(recording);
+    ctx.execute_recording(recording);
     #[cfg(not(target_arch = "wasm32"))]
     print_render_stats("Fresh     ", start.elapsed(), recording);
 }
@@ -231,7 +233,7 @@ impl TextScene {
     }
 }
 
-fn render_text(state: &mut TextScene, ctx: &mut Scene) {
+fn render_text(state: &mut TextScene, ctx: &mut impl RenderingContext) {
     for line in state.layout.lines() {
         for item in line.items() {
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
@@ -253,7 +255,11 @@ fn render_text_record(layout: &mut Layout<ColorBrush>, ctx: &mut Recorder<'_>, t
     }
 }
 
-fn render_glyph_run(ctx: &mut Scene, glyph_run: &GlyphRun<'_, ColorBrush>, padding: u32) {
+fn render_glyph_run(
+    ctx: &mut impl RenderingContext,
+    glyph_run: &GlyphRun<'_, ColorBrush>,
+    padding: u32,
+) {
     let mut run_x = glyph_run.offset();
     let run_y = glyph_run.baseline();
     let glyphs = glyph_run.glyphs().map(|glyph| {
