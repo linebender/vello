@@ -269,6 +269,7 @@ mod alpha_fill {
     use crate::peniko::BlendMode;
     use vello_common::fearless_simd::*;
 
+    #[inline(always)]
     pub(super) fn alpha_composite_solid<S: Simd>(
         s: S,
         dest: &mut [f32],

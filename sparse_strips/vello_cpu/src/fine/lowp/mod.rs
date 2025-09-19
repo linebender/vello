@@ -13,7 +13,7 @@ use crate::region::Region;
 use crate::util::Div255Ext;
 use crate::util::scalar::div_255;
 use bytemuck::cast_slice;
-use std::iter;
+use core::iter;
 use vello_common::coarse::WideTile;
 use vello_common::encode::{EncodedGradient, EncodedImage};
 use vello_common::fearless_simd::*;
@@ -349,6 +349,7 @@ mod alpha_fill {
         );
     }
 
+    #[inline(always)]
     pub(super) fn alpha_composite_solid<S: Simd>(
         s: S,
         dest: &mut [u8],
@@ -369,6 +370,7 @@ mod alpha_fill {
         );
     }
 
+    #[inline(always)]
     pub(super) fn alpha_composite<S: Simd, T: Iterator<Item = u8x32<S>>>(
         simd: S,
         dest: &mut [u8],
