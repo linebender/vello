@@ -180,7 +180,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                         ((a1[3] as u16 * a2[3] as u16) / 255) as u8,
                     ]
                 });
-                alpha_fill::blend(simd, dest, src, iter, blend_mode)
+                alpha_fill::blend(simd, dest, src, iter, blend_mode);
             }
             (None, Some(mask_iter)) => alpha_fill::blend(simd, dest, src, mask_iter, blend_mode),
             (Some(alpha_iter), None) => alpha_fill::blend(simd, dest, src, alpha_iter, blend_mode),

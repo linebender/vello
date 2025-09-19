@@ -217,7 +217,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                         div_255(a1[7] as u16 * a2[7] as u16) as u8,
                     ]
                 });
-                alpha_fill::blend(simd, dest, src, blend_mode, iter)
+                alpha_fill::blend(simd, dest, src, blend_mode, iter);
             }
             (None, Some(mask_iter)) => alpha_fill::blend(simd, dest, src, blend_mode, mask_iter),
             (Some(alpha_iter), None) => alpha_fill::blend(simd, dest, src, blend_mode, alpha_iter),
