@@ -57,7 +57,7 @@ impl Strip {
 
     /// Sets the alpha index.
     ///
-    /// Note that the largest value that can be stored in the alpha index is `u32::MAX - 1`, as the
+    /// Note that the largest value that can be stored in the alpha index is `u32::MAX << 1`, as the
     /// highest bit is reserved for `fill_gap`.
     #[inline(always)]
     pub fn set_alpha_idx(&mut self, alpha_idx: u32) {
