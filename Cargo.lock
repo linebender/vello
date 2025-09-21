@@ -3706,7 +3706,7 @@ dependencies = [
 
 [[package]]
 name = "vello_common"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -3722,7 +3722,7 @@ dependencies = [
 
 [[package]]
 name = "vello_cpu"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
