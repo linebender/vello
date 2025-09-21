@@ -29,7 +29,7 @@ impl Strip {
     /// The bit mask for `fill_gap` packed into `packed_alpha_idx_fill_gap`.
     const FILL_GAP_MASK: u32 = 1 << 31;
 
-    /// Create a new strip.
+    /// Creates a new strip.
     pub fn new(x: u16, y: u16, alpha_idx: u32, fill_gap: bool) -> Self {
         // Ensure `alpha_idx` does not collide with the fill flag bit.
         assert!(alpha_idx & Self::FILL_GAP_MASK == 0);
@@ -41,18 +41,21 @@ impl Strip {
         }
     }
 
-    /// Return the y coordinate of the strip, in strip units.
+    /// Returns the y coordinate of the strip, in strip units.
     pub fn strip_y(&self) -> u16 {
         self.y / Tile::HEIGHT
     }
 
-    /// Get the alpha index (with the `fill_gap` bit masked out).
+    /// Returns the alpha index.
     #[inline(always)]
     pub fn alpha_idx(&self) -> u32 {
         self.packed_alpha_idx_fill_gap & !Self::FILL_GAP_MASK
     }
 
-    /// Set the alpha index. The high bit is reserved for `fill_gap` and must remain clear.
+    /// Sets the alpha index.
+    ///
+    /// Note that the largest value that can be stored in the alpha index is `u32::MAX - 1`, as the
+    /// highest bit is reserved for `fill_gap`.
     #[inline(always)]
     pub fn set_alpha_idx(&mut self, alpha_idx: u32) {
         // Ensure `alpha_idx` does not collide with the fill flag bit.
@@ -61,13 +64,13 @@ impl Strip {
         self.packed_alpha_idx_fill_gap = alpha_idx | fill_gap;
     }
 
-    /// Whether the gap that lies between this strip and the previous in the same row should be filled.
+    /// Returns whether the gap that lies between this strip and the previous in the same row should be filled.
     #[inline(always)]
     pub fn fill_gap(&self) -> bool {
         (self.packed_alpha_idx_fill_gap & Self::FILL_GAP_MASK) != 0
     }
 
-    /// Set whether the gap that lies between this strip and the previous in the same row should be filled.
+    /// Sets whether the gap that lies between this strip and the previous in the same row should be filled.
     #[inline(always)]
     pub fn set_fill_gap(&mut self, fill: bool) {
         let fill = u32::from(fill) << 31;
