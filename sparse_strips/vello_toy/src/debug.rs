@@ -225,13 +225,13 @@ fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
 
         let end = strips
             .get(i + 1)
-            .map(|s| s.alpha_idx / u32::from(Tile::HEIGHT))
+            .map(|s| s.alpha_idx() / u32::from(Tile::HEIGHT))
             .unwrap_or(alphas.len() as u32);
 
-        let width = end - strip.alpha_idx / u32::from(Tile::HEIGHT);
+        let width = end - strip.alpha_idx() / u32::from(Tile::HEIGHT);
 
         // TODO: Account for even-odd?
-        let color = if strip.fill_gap { "red" } else { "limegreen" };
+        let color = if strip.fill_gap() { "red" } else { "limegreen" };
 
         let rect = Rectangle::new()
             .set("x", x)
@@ -254,17 +254,17 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
 
         let end = strips
             .get(s + 1)
-            .map(|st| st.alpha_idx / u32::from(Tile::HEIGHT))
+            .map(|st| st.alpha_idx() / u32::from(Tile::HEIGHT))
             .unwrap_or(alphas.len() as u32);
 
-        let width = u16::try_from(end - strip.alpha_idx / u32::from(Tile::HEIGHT)).unwrap();
+        let width = u16::try_from(end - strip.alpha_idx() / u32::from(Tile::HEIGHT)).unwrap();
 
         // TODO: Account for even-odd?
-        let color = if strip.fill_gap { "red" } else { "limegreen" };
+        let color = if strip.fill_gap() { "red" } else { "limegreen" };
 
         for x in 0..width {
             for y in 0..Tile::HEIGHT {
-                let alpha = alphas[strip.alpha_idx as usize
+                let alpha = alphas[strip.alpha_idx() as usize
                     + usize::from(x) * usize::from(Tile::HEIGHT)
                     + usize::from(y)];
                 let rect = Rectangle::new()
