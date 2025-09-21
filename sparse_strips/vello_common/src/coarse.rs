@@ -518,7 +518,8 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Process wide tiles covered by the strip - these need actual clipping
             let next_strip = &strips[i + 1];
-            let width = ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
+            let width =
+                ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
             let wtile_x1 = (x + width).div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x1 {
                 for wtile_x in cur_wtile_x..wtile_x1 {
