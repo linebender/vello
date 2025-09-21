@@ -915,7 +915,7 @@ impl RenderContext {
             .iter()
             .map(move |strip| {
                 let mut adjusted_strip = *strip;
-                adjusted_strip.set_alpha_idx(adjusted_strip.alpha_idx().wrapping_add(alpha_offset));
+                adjusted_strip.set_alpha_idx(adjusted_strip.alpha_idx() + alpha_offset);
                 adjusted_strip
             })
             .collect()
