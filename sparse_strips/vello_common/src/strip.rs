@@ -20,8 +20,8 @@ pub struct Strip {
     /// Packed alpha index and fill gap flag.
     ///
     /// Bit layout (u32):
-    /// - bit 31: (fill_gap) See `Strip::fill_gap()`.
-    /// - bits 0..=30: (alpha_idx) See `Strip::alpha_idx()`.
+    /// - bit 31: `fill_gap` (See `Strip::fill_gap()`).
+    /// - bits 0..=30: `alpha_idx` (See `Strip::alpha_idx()`).
     packed_alpha_idx_fill_gap: u32,
 }
 
