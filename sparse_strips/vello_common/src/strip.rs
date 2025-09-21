@@ -17,17 +17,71 @@ pub struct Strip {
     pub x: u16,
     /// The y coordinate of the strip, in user coordinates.
     pub y: u16,
-    /// The index into the alpha buffer.
-    pub alpha_idx: u32,
-    /// Whether the gap that lies between this strip and the previous in the _same_
-    /// row should be filled.
-    pub fill_gap: bool,
+    /// Packed alpha index and fill gap flag.
+    ///
+    /// Bit layout (u32):
+    /// - bit 31: `fill_gap` (See `Strip::fill_gap()`).
+    /// - bits 0..=30: `alpha_idx` (See `Strip::alpha_idx()`).
+    packed_alpha_idx_fill_gap: u32,
 }
 
 impl Strip {
-    /// Return the y coordinate of the strip, in strip units.
+    /// The bit mask for `fill_gap` packed into `packed_alpha_idx_fill_gap`.
+    const FILL_GAP_MASK: u32 = 1 << 31;
+
+    /// Creates a new strip.
+    pub fn new(x: u16, y: u16, alpha_idx: u32, fill_gap: bool) -> Self {
+        // Ensure `alpha_idx` does not collide with the fill flag bit.
+        assert!(
+            alpha_idx & Self::FILL_GAP_MASK == 0,
+            "`alpha_idx` too large"
+        );
+        let fill_gap = u32::from(fill_gap) << 31;
+        Self {
+            x,
+            y,
+            packed_alpha_idx_fill_gap: alpha_idx | fill_gap,
+        }
+    }
+
+    /// Returns the y coordinate of the strip, in strip units.
     pub fn strip_y(&self) -> u16 {
         self.y / Tile::HEIGHT
+    }
+
+    /// Returns the alpha index.
+    #[inline(always)]
+    pub fn alpha_idx(&self) -> u32 {
+        self.packed_alpha_idx_fill_gap & !Self::FILL_GAP_MASK
+    }
+
+    /// Sets the alpha index.
+    ///
+    /// Note that the largest value that can be stored in the alpha index is `u32::MAX << 1`, as the
+    /// highest bit is reserved for `fill_gap`.
+    #[inline(always)]
+    pub fn set_alpha_idx(&mut self, alpha_idx: u32) {
+        // Ensure `alpha_idx` does not collide with the fill flag bit.
+        assert!(
+            alpha_idx & Self::FILL_GAP_MASK == 0,
+            "`alpha_idx` too large"
+        );
+        let fill_gap = self.packed_alpha_idx_fill_gap & Self::FILL_GAP_MASK;
+        self.packed_alpha_idx_fill_gap = alpha_idx | fill_gap;
+    }
+
+    /// Returns whether the gap that lies between this strip and the previous in the same row should be filled.
+    #[inline(always)]
+    pub fn fill_gap(&self) -> bool {
+        (self.packed_alpha_idx_fill_gap & Self::FILL_GAP_MASK) != 0
+    }
+
+    /// Sets whether the gap that lies between this strip and the previous in the same row should be filled.
+    #[inline(always)]
+    pub fn set_fill_gap(&mut self, fill: bool) {
+        let fill = u32::from(fill) << 31;
+        self.packed_alpha_idx_fill_gap =
+            (self.packed_alpha_idx_fill_gap & !Self::FILL_GAP_MASK) | fill;
     }
 }
 
@@ -100,12 +154,12 @@ fn render_impl<S: Simd>(
     const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, false);
 
     // The strip we're building.
-    let mut strip = Strip {
-        x: prev_tile.x * Tile::WIDTH,
-        y: prev_tile.y * Tile::HEIGHT,
-        alpha_idx: alpha_buf.len() as u32,
-        fill_gap: false,
-    };
+    let mut strip = Strip::new(
+        prev_tile.x * Tile::WIDTH,
+        prev_tile.y * Tile::HEIGHT,
+        alpha_buf.len() as u32,
+        false,
+    );
 
     for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
         let line = lines[tile.line_idx() as usize];
@@ -179,7 +233,7 @@ fn render_impl<S: Simd>(
         if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
             debug_assert_eq!(
                 (prev_tile.x + 1) * Tile::WIDTH - strip.x,
-                ((alpha_buf.len() - strip.alpha_idx as usize) / usize::from(Tile::HEIGHT)) as u16,
+                ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT)) as u16,
                 "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
             );
             strip_buf.push(strip);
@@ -190,12 +244,12 @@ fn render_impl<S: Simd>(
                 // or unconditionally if we've reached the sentinel tile to end the path (the
                 // `alpha_idx` field is used for width calculations).
                 if winding_delta != 0 || is_sentinel {
-                    strip_buf.push(Strip {
-                        x: u16::MAX,
-                        y: prev_tile.y * Tile::HEIGHT,
-                        alpha_idx: alpha_buf.len() as u32,
-                        fill_gap: should_fill(winding_delta),
-                    });
+                    strip_buf.push(Strip::new(
+                        u16::MAX,
+                        prev_tile.y * Tile::HEIGHT,
+                        alpha_buf.len() as u32,
+                        should_fill(winding_delta),
+                    ));
                 }
 
                 winding_delta = 0;
@@ -211,12 +265,12 @@ fn render_impl<S: Simd>(
                 break;
             }
 
-            strip = Strip {
-                x: tile.x * Tile::WIDTH,
-                y: tile.y * Tile::HEIGHT,
-                alpha_idx: alpha_buf.len() as u32,
-                fill_gap: should_fill(winding_delta),
-            };
+            strip = Strip::new(
+                tile.x * Tile::WIDTH,
+                tile.y * Tile::HEIGHT,
+                alpha_buf.len() as u32,
+                should_fill(winding_delta),
+            );
             // Note: this fill is mathematically not necessary. It provides a way to reduce
             // accumulation of float rounding errors.
             accumulated_winding = f32x4::splat(s, winding_delta as f32);

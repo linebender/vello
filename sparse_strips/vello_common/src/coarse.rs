@@ -273,8 +273,8 @@ impl<const MODE: u8> Wide<MODE> {
             }
 
             // Calculate the width of the strip in columns
-            let mut col = strip.alpha_idx / u32::from(Tile::HEIGHT);
-            let next_col = next_strip.alpha_idx / u32::from(Tile::HEIGHT);
+            let mut col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
+            let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
             // Can potentially be 0 if strip only changes winding without covering pixels
             let strip_width = next_col.saturating_sub(col) as u16;
             let x1 = x0 + strip_width;
@@ -314,7 +314,7 @@ impl<const MODE: u8> Wide<MODE> {
             }
 
             // Determine if the region between this strip and the next should be filled.
-            let active_fill = next_strip.fill_gap;
+            let active_fill = next_strip.fill_gap();
 
             // If region should be filled and both strips are on the same row,
             // generate fill commands for the region between them
@@ -456,7 +456,7 @@ impl<const MODE: u8> Wide<MODE> {
                 let strip = &strips[i];
                 let next_strip = &strips[i + 1];
                 let width =
-                    ((next_strip.alpha_idx - strip.alpha_idx) / u32::from(Tile::HEIGHT)) as u16;
+                    ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
                 let x = strip.x;
                 wtile_x0 = wtile_x0.min(x / WideTile::WIDTH);
                 wtile_x1 = wtile_x1.max((x + width).div_ceil(WideTile::WIDTH));
@@ -505,7 +505,7 @@ impl<const MODE: u8> Wide<MODE> {
             let wtile_x_clamped = (x / WideTile::WIDTH).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x_clamped {
                 // If winding is zero or doesn't match fill rule, these wide tiles are outside the path
-                let is_inside = strip.fill_gap;
+                let is_inside = strip.fill_gap();
                 if !is_inside {
                     for wtile_x in cur_wtile_x..wtile_x_clamped {
                         self.get_mut(wtile_x, cur_wtile_y).push_zero_clip();
@@ -518,7 +518,8 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Process wide tiles covered by the strip - these need actual clipping
             let next_strip = &strips[i + 1];
-            let width = ((next_strip.alpha_idx - strip.alpha_idx) / u32::from(Tile::HEIGHT)) as u16;
+            let width =
+                ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
             let wtile_x1 = (x + width).div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x1 {
                 for wtile_x in cur_wtile_x..wtile_x1 {
@@ -631,7 +632,7 @@ impl<const MODE: u8> Wide<MODE> {
                 // Pop zero clips for tiles that had zero winding or didn't match fill rule
                 // TODO: The winding check is probably not needed; if there was a fill,
                 // the logic below should have advanced wtile_x.
-                let is_inside = strip.fill_gap;
+                let is_inside = strip.fill_gap();
                 if !is_inside {
                     for wtile_x in cur_wtile_x..wtile_x_clamped {
                         self.get_mut(wtile_x, cur_wtile_y).pop_zero_clip();
@@ -643,14 +644,14 @@ impl<const MODE: u8> Wide<MODE> {
             // Process tiles covered by the strip - render clip content and pop
             let next_strip = &strips[i + 1];
             let strip_width =
-                ((next_strip.alpha_idx - strip.alpha_idx) / u32::from(Tile::HEIGHT)) as u16;
+                ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
             let mut clipped_x1 = x0 + strip_width;
             let wtile_x0 = (x0 / WideTile::WIDTH).max(clip_bbox.x0());
             let wtile_x1 = clipped_x1.div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
 
             // Calculate starting position and column for alpha mask
             let mut x = x0;
-            let mut col = strip.alpha_idx / u32::from(Tile::HEIGHT);
+            let mut col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
             let clip_x = clip_bbox.x0() * WideTile::WIDTH;
             if clip_x > x {
                 col += u32::from(clip_x - x);
@@ -691,7 +692,7 @@ impl<const MODE: u8> Wide<MODE> {
             }
 
             // Handle fill regions between strips based on fill rule
-            let is_inside = next_strip.fill_gap;
+            let is_inside = next_strip.fill_gap();
             if is_inside && strip_y == next_strip.strip_y() {
                 if cur_wtile_x >= clip_bbox.x1() {
                     continue;
@@ -1164,12 +1165,7 @@ mod tests {
         assert_eq!(wide.layer_stack.len(), 1);
         assert_eq!(wide.clip_stack.len(), 0);
 
-        let strip = Strip {
-            x: 2,
-            y: 2,
-            alpha_idx: 0,
-            fill_gap: true,
-        };
+        let strip = Strip::new(2, 2, 0, true);
         let clip_path = Some(vec![strip].into_boxed_slice());
         wide.push_layer(clip_path, BlendMode::default(), None, 0.09, 0);
 
