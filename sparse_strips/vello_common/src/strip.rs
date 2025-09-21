@@ -32,7 +32,10 @@ impl Strip {
     /// Creates a new strip.
     pub fn new(x: u16, y: u16, alpha_idx: u32, fill_gap: bool) -> Self {
         // Ensure `alpha_idx` does not collide with the fill flag bit.
-        assert!(alpha_idx & Self::FILL_GAP_MASK == 0);
+        assert!(
+            alpha_idx & Self::FILL_GAP_MASK == 0,
+            "`alpha_idx` too large"
+        );
         let fill_gap = u32::from(fill_gap) << 31;
         Self {
             x,
@@ -59,7 +62,10 @@ impl Strip {
     #[inline(always)]
     pub fn set_alpha_idx(&mut self, alpha_idx: u32) {
         // Ensure `alpha_idx` does not collide with the fill flag bit.
-        assert!(alpha_idx & Self::FILL_GAP_MASK == 0);
+        assert!(
+            alpha_idx & Self::FILL_GAP_MASK == 0,
+            "`alpha_idx` too large"
+        );
         let fill_gap = self.packed_alpha_idx_fill_gap & Self::FILL_GAP_MASK;
         self.packed_alpha_idx_fill_gap = alpha_idx | fill_gap;
     }
