@@ -14,8 +14,8 @@ crate-type = ["cdylib", "rlib"]
 workspace = true
 
 [dependencies]
-console_error_panic_hook = "0.1.7"
-console_log = "1.0"
+console_error_panic_hook = { workspace = true }
+console_log = { workspace = true }
 js-sys = "0.3.77"
 log = { workspace = true }
 vello_common = { workspace = true }

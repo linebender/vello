@@ -144,6 +144,8 @@ criterion = { version = "0.5.1", default-features = false }
 rand = { version = "0.9.1", default-features = false, features = ["std_rng"] }
 usvg = { version = "0.45.1" }
 once_cell = "1.21.3"
+console_error_panic_hook = "0.1.7"
+console_log = "1.0"
 
 # Used for testing
 proc-macro2 = "1.0.95"

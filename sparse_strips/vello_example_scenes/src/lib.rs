@@ -24,10 +24,11 @@ use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_cpu::RenderContext;
 use vello_hybrid::Scene;
 
-/// A generic render target.
+/// A generic rendering context.
 pub trait RenderingContext: Sized + GlyphRenderer {
     /// The glyph renderer type.
     type GlyphRenderer: GlyphRenderer;
+
     /// Set the current transform.
     fn set_transform(&mut self, transform: Affine);
     /// Set the current paint transform.
@@ -207,30 +208,30 @@ impl RenderingContext for Scene {
     }
 }
 
-/// Example scene that can maintain state between renders
+/// Example scene that can maintain state between renders.
 pub trait ExampleScene {
-    /// Render the scene using the current state
+    /// Render the scene using the current state.
     fn render(&mut self, target: &mut impl RenderingContext, root_transform: Affine);
 
-    /// Handle key press events (optional)
-    /// Returns true if the key was handled, false otherwise
+    /// Handle key press events (optional).
+    /// Returns true if the key was handled, false otherwise.
     fn handle_key(&mut self, _key: &str) -> bool {
         false
     }
 }
 
-/// A type-erased example scene
+/// A type-erased example scene.
 pub struct AnyScene<T> {
-    /// The render function that calls the wrapped scene's render method
+    /// The render function that calls the wrapped scene's render method.
     render_fn: RenderFn<T>,
-    /// The key handler function
+    /// The key handler function.
     key_handler_fn: KeyHandlerFn,
 }
 
-/// A type-erased render function
+/// A type-erased render function.
 type RenderFn<T> = Box<dyn FnMut(&mut T, Affine)>;
 
-/// A type-erased key handler function
+/// A type-erased key handler function.
 type KeyHandlerFn = Box<dyn FnMut(&str) -> bool>;
 
 impl<T> std::fmt::Debug for AnyScene<T> {
@@ -240,7 +241,7 @@ impl<T> std::fmt::Debug for AnyScene<T> {
 }
 
 impl<T: RenderingContext> AnyScene<T> {
-    /// Create a new `AnyScene` from any type that implements `ExampleScene`
+    /// Create a new `AnyScene` from any type that implements `ExampleScene`.
     pub fn new<S: ExampleScene + 'static>(scene: S) -> Self {
         let scene = std::rc::Rc::new(std::cell::RefCell::new(scene));
         let scene_clone = scene.clone();
@@ -251,19 +252,19 @@ impl<T: RenderingContext> AnyScene<T> {
         }
     }
 
-    /// Render the scene
+    /// Render the scene.
     pub fn render(&mut self, target: &mut T, root_transform: Affine) {
         (self.render_fn)(target, root_transform);
     }
 
-    /// Handle key press events
-    /// Returns true if the key was handled, false otherwise
+    /// Handle key press events.
+    /// Returns true if the key was handled, false otherwise.
     pub fn handle_key(&mut self, key: &str) -> bool {
         (self.key_handler_fn)(key)
     }
 }
 
-/// Get all available example scenes
+/// Get all available example scenes.
 /// Unlike the Wasm version, this function allows for passing custom SVGs.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn get_example_scenes<T: RenderingContext + 'static>(
@@ -272,7 +273,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
 ) -> Box<[AnyScene<T>]> {
     let mut scenes = Vec::new();
 
-    // Create SVG scenes for each provided path
+    // Create SVG scenes for each provided path.
     if let Some(paths) = svg_paths {
         for path in paths {
             scenes.push(AnyScene::new(
@@ -301,7 +302,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     scenes.into_boxed_slice()
 }
 
-/// Get all available example scenes (WASM version)
+/// Get all available example scenes (WASM version).
 #[cfg(target_arch = "wasm32")]
 pub fn get_example_scenes<T: RenderingContext + 'static>(
     img_sources: Vec<ImageSource>,
