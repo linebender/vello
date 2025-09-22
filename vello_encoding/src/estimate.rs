@@ -75,20 +75,20 @@ impl BumpEstimator {
             match el {
                 PathEl::MoveTo(p0) => {
                     first_pt = Some(p0);
-                    if last_pt.is_none() {
+                    let Some(point) = last_pt else {
                         continue;
-                    }
+                    };
                     caps += 1;
                     joins = joins.saturating_sub(1);
                     fill_close_lines += 1;
-                    segments += count_segments_for_line(first_pt.unwrap(), last_pt.unwrap(), t);
+                    segments += count_segments_for_line(first_pt.unwrap(), point, t);
                     last_pt = None;
                 }
                 PathEl::ClosePath => {
-                    if last_pt.is_some() {
+                    if let Some(last_pt) = last_pt {
                         joins += 1;
                         lineto_lines += 1;
-                        segments += count_segments_for_line(first_pt.unwrap(), last_pt.unwrap(), t);
+                        segments += count_segments_for_line(first_pt.unwrap(), last_pt, t);
                     }
                     last_pt = first_pt;
                 }

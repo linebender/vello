@@ -359,7 +359,7 @@ fn clip_clear(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-/// https://github.com/web-platform-tests/wpt/blob/18c64a74b1/html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.html
+/// <https://github.com/web-platform-tests/wpt/blob/18c64a74b1/html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.html>
 /// See <https://github.com/linebender/vello/issues/1056>.
 #[vello_test(width = 100, height = 50)]
 fn gradient_color_alpha(ctx: &mut impl Renderer) {

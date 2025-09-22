@@ -8,8 +8,6 @@ use render_context::{RenderContext, RenderSurface, create_vello_renderer, create
 #[cfg(not(target_arch = "wasm32"))]
 use std::env;
 use std::sync::Arc;
-use vello_common::color::palette::css::WHITE;
-use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Point};
 use vello_common::paint::ImageId;
 use vello_common::paint::ImageSource;
@@ -25,17 +23,6 @@ use winit::{
 };
 
 const ZOOM_STEP: f64 = 0.1;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct ColorBrush {
-    color: AlphaColor<Srgb>,
-}
-
-impl Default for ColorBrush {
-    fn default() -> Self {
-        Self { color: WHITE }
-    }
-}
 
 struct App<'s> {
     context: RenderContext,
@@ -215,10 +202,10 @@ impl ApplicationHandler for App<'_> {
                     event_loop.exit();
                 }
                 Key::Character(ch) => {
-                    if let Some(scene) = self.scenes.get_mut(self.current_scene) {
-                        if scene.handle_key(ch.as_str()) {
-                            window.request_redraw();
-                        }
+                    if let Some(scene) = self.scenes.get_mut(self.current_scene)
+                        && scene.handle_key(ch.as_str())
+                    {
+                        window.request_redraw();
                     }
                 }
                 _ => {}

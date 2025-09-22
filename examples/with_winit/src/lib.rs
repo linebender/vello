@@ -411,17 +411,15 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                             valid_surface,
                             ..
                         }) = &self.state
+                            && *valid_surface
+                            && touch.location.y > surface.config.height as f64 * 2. / 3.
                         {
-                            if *valid_surface
-                                && touch.location.y > surface.config.height as f64 * 2. / 3.
-                            {
-                                self.navigation_fingers.insert(touch.id);
-                                // The left third of the navigation zone navigates backwards
-                                if touch.location.x < surface.config.width as f64 / 3. {
-                                    self.scene_ix = self.scene_ix.saturating_sub(1);
-                                } else if touch.location.x > 2. * surface.config.width as f64 / 3. {
-                                    self.scene_ix = self.scene_ix.saturating_add(1);
-                                }
+                            self.navigation_fingers.insert(touch.id);
+                            // The left third of the navigation zone navigates backwards
+                            if touch.location.x < surface.config.width as f64 / 3. {
+                                self.scene_ix = self.scene_ix.saturating_sub(1);
+                            } else if touch.location.x > 2. * surface.config.width as f64 / 3. {
+                                self.scene_ix = self.scene_ix.saturating_add(1);
                             }
                         }
                     }
@@ -485,10 +483,10 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                     x: position.x,
                     y: position.y,
                 };
-                if self.mouse_down {
-                    if let Some(prior) = self.prior_position {
-                        self.transform = self.transform.then_translate(position - prior);
-                    }
+                if self.mouse_down
+                    && let Some(prior) = self.prior_position
+                {
+                    self.transform = self.transform.then_translate(position - prior);
                 }
                 self.prior_position = Some(position);
             }
@@ -578,13 +576,11 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                     if let Some(profiling_result) = self.renderers[surface.dev_id]
                         .as_mut()
                         .and_then(|renderer| renderer.profile_result.take())
+                        && (self.profile_stored.is_none()
+                            || self.profile_taken.elapsed() > Duration::from_secs(1))
                     {
-                        if self.profile_stored.is_none()
-                            || self.profile_taken.elapsed() > Duration::from_secs(1)
-                        {
-                            self.profile_stored = Some(profiling_result);
-                            self.profile_taken = Instant::now();
-                        }
+                        self.profile_stored = Some(profiling_result);
+                        self.profile_taken = Instant::now();
                     }
                     #[cfg(feature = "wgpu-profiler")]
                     if let Some(profiling_result) = self.profile_stored.as_ref() {
@@ -794,7 +790,8 @@ fn run(
             .expect("Not setting max_num_pending_frames");
         renderers[id] = Some(renderer);
         if let Some((cache, file)) = cache {
-            if let Err(e) = write_pipeline_cache(&file, &cache) {
+            let result = write_pipeline_cache(&file, &cache);
+            if let Err(e) = result {
                 log::error!("Failed to write pipeline cache: {e}");
             }
         }
@@ -805,7 +802,8 @@ fn run(
         let (tx, rx) = std::sync::mpsc::channel::<(PipelineCache, PathBuf)>();
         std::thread::spawn(move || {
             while let Ok((cache, path)) = rx.recv() {
-                if let Err(e) = write_pipeline_cache(&path, &cache) {
+                let result = write_pipeline_cache(&path, &cache);
+                if let Err(e) = result {
                     log::error!("Failed to write pipeline cache: {e}");
                 }
             }

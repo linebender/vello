@@ -172,19 +172,19 @@ impl Parser {
                             path: path.clone(),
                         }));
                     }
-                    if let Some(stroke_color) = node.attribute("stroke") {
-                        if stroke_color != "none" {
-                            let width = node
-                                .attribute("stroke-width")
-                                .map(|a| f64::from_str(a).unwrap_or(1.0))
-                                .unwrap_or(1.0)
-                                * self.scale.abs();
-                            let color = parse_color(stroke_color);
-                            let color = modify_opacity(color, "stroke-opacity", node);
-                            // TODO: Handle recursive opacity properly
-                            let color = modify_opacity(color, "opacity", node);
-                            items.push(Item::Stroke(StrokeItem { width, color, path }));
-                        }
+                    if let Some(stroke_color) = node.attribute("stroke")
+                        && stroke_color != "none"
+                    {
+                        let width = node
+                            .attribute("stroke-width")
+                            .map(|a| f64::from_str(a).unwrap_or(1.0))
+                            .unwrap_or(1.0)
+                            * self.scale.abs();
+                        let color = parse_color(stroke_color);
+                        let color = modify_opacity(color, "stroke-opacity", node);
+                        // TODO: Handle recursive opacity properly
+                        let color = modify_opacity(color, "opacity", node);
+                        items.push(Item::Stroke(StrokeItem { width, color, path }));
                     }
                 }
                 other => eprintln!("Unhandled node type {other}"),
