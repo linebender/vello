@@ -8,7 +8,7 @@ use crate::color::{AlphaColor, DynamicColor};
 use crate::glyph::{ColorGlyph, OutlinePath};
 use crate::kurbo::{Affine, BezPath, Point, Rect, Shape};
 use crate::math::FloatExt;
-use crate::peniko::{self, BlendMode, ColorStops, Compose, Extend, Gradient, GradientKind, Mix};
+use crate::peniko::{self, BlendMode, ColorStops, Compose, Extend, Gradient, Mix};
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -237,7 +237,7 @@ impl ColorPainter for ColrPainter<'_> {
                     self.painter.fill_solid(stops[0].color.to_alpha_color());
                 } else {
                     let grad = Gradient {
-                        kind: GradientKind::Linear(LinearGradientPosition { start: p0, end: p1 }),
+                        kind: LinearGradientPosition { start: p0, end: p1 }.into(),
                         stops,
                         extend,
                         ..Default::default()
@@ -268,12 +268,13 @@ impl ColorPainter for ColrPainter<'_> {
                 }
 
                 let grad = Gradient {
-                    kind: GradientKind::Radial(RadialGradientPosition {
+                    kind: RadialGradientPosition {
                         start_center: p0,
                         start_radius: r0,
                         end_center: p1,
                         end_radius: r1,
-                    }),
+                    }
+                    .into(),
                     stops,
                     extend,
                     ..Default::default()
@@ -317,11 +318,12 @@ impl ColorPainter for ColrPainter<'_> {
                 // We need to invert the direction of the gradient to bridge the gap between
                 // peniko and COLR.
                 let grad = Gradient {
-                    kind: GradientKind::Sweep(SweepGradientPosition {
+                    kind: SweepGradientPosition {
                         center: Point::new(p0.x, -p0.y),
                         start_angle: start_angle.to_radians(),
                         end_angle: end_angle.to_radians(),
-                    }),
+                    }
+                    .into(),
                     stops,
                     extend,
                     ..Default::default()

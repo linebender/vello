@@ -13,9 +13,7 @@ use crate::{ExampleScene, RenderingContext};
 use smallvec::smallvec;
 use vello_common::color::palette::css::{BLACK, BLUE, LIME, RED, WHITE, YELLOW};
 use vello_common::kurbo::{Affine, Ellipse, Point, Rect, Shape, Stroke};
-use vello_common::peniko::{
-    Color, ColorStop, ColorStops, Extend, Gradient, GradientKind, color::DynamicColor,
-};
+use vello_common::peniko::{Color, ColorStop, ColorStops, Extend, Gradient, color::DynamicColor};
 use vello_common::peniko::{LinearGradientPosition, RadialGradientPosition, SweepGradientPosition};
 
 /// Gradient scene state
@@ -69,10 +67,11 @@ impl ExampleScene for GradientExtendScene {
                     let end_y = height * 0.5;
 
                     Gradient {
-                        kind: GradientKind::Linear(LinearGradientPosition {
+                        kind: LinearGradientPosition {
                             start: Point::new(start_x, start_y),
                             end: Point::new(end_x, end_y),
-                        }),
+                        }
+                        .into(),
                         stops: create_color_stops(&colors),
                         extend,
                         ..Default::default()
@@ -88,12 +87,13 @@ impl ExampleScene for GradientExtendScene {
                     let radius = (width * 0.25) as f32;
 
                     Gradient {
-                        kind: GradientKind::Radial(RadialGradientPosition {
+                        kind: RadialGradientPosition {
                             start_center: Point::new(center_x, center_y),
                             start_radius: radius * 0.25,
                             end_center: Point::new(center_x, center_y),
                             end_radius: radius,
-                        }),
+                        }
+                        .into(),
                         stops: create_color_stops(&colors),
                         extend,
                         ..Default::default()
@@ -104,11 +104,12 @@ impl ExampleScene for GradientExtendScene {
                     let center_y = height * 0.5;
 
                     Gradient {
-                        kind: GradientKind::Sweep(SweepGradientPosition {
+                        kind: SweepGradientPosition {
                             center: Point::new(center_x, center_y),
                             start_angle: 30.0_f32.to_radians(),
                             end_angle: 150.0_f32.to_radians(),
-                        }),
+                        }
+                        .into(),
                         stops: create_color_stops(&colors),
                         extend,
                         ..Default::default()
@@ -187,12 +188,13 @@ impl ExampleScene for RadialScene {
             ctx.fill_rect(&Rect::new(0.0, 0.0, width, height));
 
             let gradient = Gradient {
-                kind: GradientKind::Radial(RadialGradientPosition {
+                kind: RadialGradientPosition {
                     start_center: Point::new(x0, y0),
                     start_radius: r0,
                     end_center: Point::new(x1, y1),
                     end_radius: r1,
-                }),
+                }
+                .into(),
                 stops: create_color_stops(&colors),
                 extend,
                 ..Default::default()
