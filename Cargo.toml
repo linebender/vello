@@ -21,7 +21,7 @@ members = [
     "sparse_strips/vello_hybrid",
     "sparse_strips/vello_sparse_shaders",
     "sparse_strips/vello_hybrid/examples/native_webgl",
-    "sparse_strips/vello_hybrid/examples/scenes",
+    "sparse_strips/vello_example_scenes",
     "sparse_strips/vello_hybrid/examples/wgpu_webgl",
     "sparse_strips/vello_hybrid/examples/winit",
     "sparse_strips/vello_toy",
@@ -123,7 +123,7 @@ vello_common = { version = "0.0.1", path = "sparse_strips/vello_common", default
 vello_cpu = { path = "sparse_strips/vello_cpu" }
 vello_hybrid = { path = "sparse_strips/vello_hybrid" }
 vello_sparse_shaders = { path = "sparse_strips/vello_sparse_shaders" }
-vello_hybrid_scenes = { path = "sparse_strips/vello_hybrid/examples/scenes" }
+vello_example_scenes = { path = "sparse_strips/vello_example_scenes" }
 vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
 
 # NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
@@ -144,6 +144,8 @@ criterion = { version = "0.5.1", default-features = false }
 rand = { version = "0.9.1", default-features = false, features = ["std_rng"] }
 usvg = { version = "0.45.1" }
 once_cell = "1.21.3"
+console_error_panic_hook = "0.1.7"
+console_log = "1.0"
 
 # Used for testing
 proc-macro2 = "1.0.95"

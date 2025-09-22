@@ -71,8 +71,8 @@ profiling = { version = "1.0.16", features = ["profile-with-tracing"] }
 jni = "0.21.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "0.1.7"
-console_log = "1.0.0"
+console_error_panic_hook = { workspace = true }
+console_log = { workspace = true }
 wasm-bindgen-futures = "0.4.50"
 web-sys = { version = "0.3.77", features = ["HtmlCollection", "Text"] }
 web-time = { workspace = true }

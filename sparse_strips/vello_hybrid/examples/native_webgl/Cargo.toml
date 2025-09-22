@@ -14,13 +14,13 @@ crate-type = ["cdylib", "rlib"]
 workspace = true
 
 [dependencies]
-console_error_panic_hook = "0.1.7"
-console_log = "1.0"
+console_error_panic_hook = { workspace = true }
+console_log = { workspace = true }
 js-sys = "0.3.77"
 log = { workspace = true }
 vello_common = { workspace = true }
 vello_hybrid = { workspace = true, features = ["webgl"] }
-vello_hybrid_scenes = { workspace = true }
+vello_example_scenes = { workspace = true }
 wasm-bindgen = "0.2.100"
 wasm-bindgen-futures = "0.4.50"
 web-sys = { version = "0.3.77", features = [

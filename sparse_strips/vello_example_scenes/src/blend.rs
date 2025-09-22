@@ -3,25 +3,24 @@
 
 //! Example compositing an image using blend layers.
 
-use crate::scenes::ExampleScene;
+use crate::{ExampleScene, RenderingContext};
 use vello_common::color::palette::css::{BLUE, GREEN, PURPLE, RED, YELLOW};
 use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
-use vello_cpu::RenderContext;
 
 /// Blend scene state
 #[derive(Debug)]
-pub(crate) struct BlendScene {}
+pub struct BlendScene {}
 
 impl ExampleScene for BlendScene {
-    fn render(&mut self, ctx: &mut RenderContext, root_transform: Affine) {
+    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
         render(ctx, root_transform);
     }
 }
 
 impl BlendScene {
     /// Create a new `BlendScene`
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {}
     }
 }
@@ -33,7 +32,7 @@ impl Default for BlendScene {
 }
 
 /// Demonstrates a complex compositing scene.
-pub(crate) fn render(ctx: &mut RenderContext, root_transform: Affine) {
+pub fn render(ctx: &mut impl RenderingContext, root_transform: Affine) {
     ctx.set_transform(root_transform);
     ctx.push_layer(
         None,

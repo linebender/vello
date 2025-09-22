@@ -14,5 +14,5 @@ winit = { workspace = true }
 wgpu = { workspace = true }
 vello_common = { workspace = true }
 vello_hybrid = { workspace = true }
-vello_hybrid_scenes = { workspace = true }
+vello_example_scenes = { workspace = true }
 pollster = { workspace = true }

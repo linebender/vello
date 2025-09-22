@@ -9,19 +9,18 @@
 )]
 #![cfg(target_arch = "wasm32")]
 
-mod scenes;
-
-use std::cell::RefCell;
 use std::rc::Rc;
+use std::{cell::RefCell, sync::Arc};
 use vello_common::kurbo::{Affine, Vec2};
+use vello_common::paint::ImageSource;
+use vello_cpu::RenderContext;
+use vello_example_scenes::{AnyScene, image::ImageScene};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
-use crate::scenes::AnyScene;
-
 /// State that handles scene rendering and interactions
 struct AppState {
-    scenes: Box<[AnyScene]>,
+    scenes: Box<[AnyScene<vello_cpu::RenderContext>]>,
     current_scene: usize,
     transform: Affine,
     mouse_down: bool,
@@ -35,7 +34,7 @@ struct AppState {
 }
 
 impl AppState {
-    fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene]>) -> Self {
+    fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<vello_cpu::RenderContext>]>) -> Self {
         let width = canvas.width();
         let height = canvas.height();
 
@@ -220,7 +219,12 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     // Add canvas to body
     body.append_child(&canvas).unwrap();
 
-    let scenes = crate::scenes::get_example_scenes();
+    let pixmap1 = ImageScene::read_flower_image();
+    let pixmap2 = ImageScene::read_cowboy_image();
+    let scenes = vello_example_scenes::get_example_scenes::<RenderContext>(vec![
+        ImageSource::Pixmap(Arc::new(pixmap1)),
+        ImageSource::Pixmap(Arc::new(pixmap2)),
+    ]);
 
     let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes)));
 

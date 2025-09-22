@@ -2048,8 +2048,8 @@ dependencies = [
  "js-sys",
  "log",
  "vello_common",
+ "vello_example_scenes",
  "vello_hybrid",
- "vello_hybrid_scenes",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -3871,6 +3871,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "vello_example_scenes"
+version = "0.0.0"
+dependencies = [
+ "bytemuck",
+ "console_error_panic_hook",
+ "console_log",
+ "image",
+ "log",
+ "parley",
+ "smallvec",
+ "vello_common",
+ "vello_cpu",
+ "vello_hybrid",
+]
+
+[[package]]
 name = "vello_filters_cpu"
 version = "0.5.0"
 
@@ -3894,25 +3910,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "vello_hybrid_scenes"
-version = "0.0.0"
-dependencies = [
- "bytemuck",
- "image",
- "parley",
- "smallvec",
- "vello_common",
- "vello_hybrid",
-]
-
-[[package]]
 name = "vello_hybrid_winit"
 version = "0.0.0"
 dependencies = [
  "pollster",
  "vello_common",
+ "vello_example_scenes",
  "vello_hybrid",
- "vello_hybrid_scenes",
  "wgpu",
  "winit",
 ]
@@ -4251,6 +4255,7 @@ dependencies = [
  "parley",
  "vello_common",
  "vello_cpu",
+ "vello_example_scenes",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -4593,8 +4598,8 @@ dependencies = [
  "js-sys",
  "log",
  "vello_common",
+ "vello_example_scenes",
  "vello_hybrid",
- "vello_hybrid_scenes",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
