@@ -790,7 +790,8 @@ fn run(
             .expect("Not setting max_num_pending_frames");
         renderers[id] = Some(renderer);
         if let Some((cache, file)) = cache {
-            if let Err(e) = write_pipeline_cache(&file, &cache) {
+            let result = write_pipeline_cache(&file, &cache);
+            if let Err(e) = result {
                 log::error!("Failed to write pipeline cache: {e}");
             }
         }
@@ -801,7 +802,8 @@ fn run(
         let (tx, rx) = std::sync::mpsc::channel::<(PipelineCache, PathBuf)>();
         std::thread::spawn(move || {
             while let Ok((cache, path)) = rx.recv() {
-                if let Err(e) = write_pipeline_cache(&path, &cache) {
+                let result = write_pipeline_cache(&path, &cache);
+                if let Err(e) = result {
                     log::error!("Failed to write pipeline cache: {e}");
                 }
             }
