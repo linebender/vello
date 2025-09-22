@@ -25,7 +25,7 @@ use vello_cpu::RenderContext;
 use vello_hybrid::Scene;
 
 /// A generic rendering context.
-pub trait RenderingContext: Sized + GlyphRenderer {
+pub trait RenderingContext: Sized {
     /// The glyph renderer type.
     type GlyphRenderer: GlyphRenderer;
 

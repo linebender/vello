@@ -191,6 +191,7 @@ impl FunkyPathsScene {
     }
 }
 
+// TODO: fix issue https://github.com/linebender/vello/issues/1240
 impl ExampleScene for FunkyPathsScene {
     fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
         // Missing movetos path
