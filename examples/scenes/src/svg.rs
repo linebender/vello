@@ -39,10 +39,10 @@ fn scene_from_files_inner(files: &[PathBuf]) -> std::result::Result<SceneSet, an
             let start_index = scenes.len();
             for file in read_dir(path)? {
                 let entry = file?;
-                if let Some(extension) = Path::new(&entry.file_name()).extension() {
-                    if extension == "svg" {
-                        scenes.push(example_scene_of(entry.path()));
-                    }
+                if let Some(extension) = Path::new(&entry.file_name()).extension()
+                    && extension == "svg"
+                {
+                    scenes.push(example_scene_of(entry.path()));
                 }
             }
             // Ensure a consistent order within directories
