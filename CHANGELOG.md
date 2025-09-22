@@ -32,8 +32,8 @@ This release has an [MSRV][] of 1.86.
 
   - Breaking change: Gradients must have their alpha interpolation space specified. For this, you should use `InterpolationAlphaSpace::Premultiplied`, unless you are implementing a specification which indicates otherwise.
     Currently, only `InterpolationAlphaSpace::Premultiplied` is supported.
-  - Breaking change: `Gradient` kinds now have a corresponding struct. For example, `GradientKind::Linear {...}` is now `GradientKind::Linear(LinearGradientPosition {...})`.
-    This makes it possible to talk about gradient kinds in code individually.
+  - Breaking change: `Gradient` kinds now have a corresponding struct. For example, `GradientKind::Linear {...}` is now `LinearGradientPosition {...}.into()`.
+    This makes it possible to pass individual gradient kinds between functions.
   - `GradientKind::Sweep`'s defined semantics now match those which Vello previously implemented.
   - Breaking change: `Image` has been renamed to `ImageBrush`, consisting of an `ImageData` and an `ImageSampler`.
     The equivalent to the old `Image::new($data, $format, $width, $height)` is `ImageBrush::new(ImageData { data: $data, format: $format, width: $width, height: $height, alpha_type: ImageAlphaType::Alpha })`.
