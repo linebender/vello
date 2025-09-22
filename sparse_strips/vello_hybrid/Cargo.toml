@@ -18,7 +18,7 @@ workspace = true
 bytemuck = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 vello_common = { workspace = true, features = ["std", "text"] }
-wgpu = { workspace = true, optional = true }
+wgpu = { workspace = true, default-features = false, optional = true }
 vello_sparse_shaders = { workspace = true, optional = true }
 log = { workspace = true }
 guillotiere = "0.6.2"
@@ -51,7 +51,11 @@ vello_common = { workspace = true, features = ["pico_svg"] }
 roxmltree = "0.20.0"
 
 [features]
-default = ["wgpu"]
+default = ["wgpu", "wgpu_default"]
 std = ["wgpu", "vello_common/std"]
 wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
+# Enable wgpu with its default features. If you need to customise the set of enabled wgpu features,
+# please disable this crate's default features, enable its "wgpu" feature, then depend on wgpu directly
+# with the features which you need enabled.
+wgpu_default = ["wgpu", "wgpu/default"]
 webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_sparse_shaders", "vello_sparse_shaders/glsl"]

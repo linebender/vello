@@ -21,6 +21,11 @@ This release has an [MSRV][] of 1.86.
 - `push_luminance_mask_layer`, content within which is used as a luminance mask. ([#1183][] by [@DJMcNab][]).  
    This is a breaking change to Vello Encoding.
 
+## Changed
+
+- Breaking: Put `wgpu`'s default features behind a `wgpu_default` feature flag. ([#1229][] by [@StT191][])  
+  If you're using Vello with default features enabled, then no change is needed.
+
 ## Fixed
 
 - Examples crashing when window is resized to zero. ([#1182][] by [@xStrom][])
@@ -44,7 +49,7 @@ This release has an [MSRV][] of 1.85.
 - Implement `Default` for `RendererOptions`. ([#524][] by [@DJMcNab][])
 
 ```diff
- RendererOptions { 
+ RendererOptions {
      // ...
 +    ..Default::default()
  }
@@ -233,6 +238,7 @@ This release has an [MSRV][] of 1.75.
 [@ratmice]: https://github.com/ratmice
 [@simbleau]: https://github.com/simbleau
 [@songhuaixu]: https://github.com/songhuaixu
+[@StT191]: https://github.com/StT191
 [@TheNachoBIT]: https://github.com/TheNachoBIT
 [@timtom-dev]: https://github.com/timtom-dev
 [@tomcur]: https://github.com/tomcur
@@ -320,6 +326,7 @@ This release has an [MSRV][] of 1.75.
 [#1182]: https://github.com/linebender/vello/pull/1182
 [#1183]: https://github.com/linebender/vello/pull/1183
 [#1187]: https://github.com/linebender/vello/pull/1187
+[#1229]: https://github.com/linebender/vello/pull/1229
 
 <!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.5.0...HEAD
