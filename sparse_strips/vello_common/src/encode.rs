@@ -1087,7 +1087,7 @@ mod tests {
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::{Affine, Point};
-    use crate::peniko::{ColorStop, ColorStops, GradientKind};
+    use crate::peniko::{ColorStop, ColorStops};
     use alloc::vec;
     use peniko::{LinearGradientPosition, RadialGradientPosition};
     use smallvec::smallvec;
@@ -1097,10 +1097,11 @@ mod tests {
         let mut buf = vec![];
 
         let gradient = Gradient {
-            kind: GradientKind::Linear(LinearGradientPosition {
+            kind: LinearGradientPosition {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
-            }),
+            }
+            .into(),
             ..Default::default()
         };
 
@@ -1115,10 +1116,11 @@ mod tests {
         let mut buf = vec![];
 
         let gradient = Gradient {
-            kind: GradientKind::Linear(LinearGradientPosition {
+            kind: LinearGradientPosition {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
-            }),
+            }
+            .into(),
             stops: ColorStops(smallvec![ColorStop {
                 offset: 0.0,
                 color: DynamicColor::from_alpha_color(GREEN),
@@ -1138,10 +1140,11 @@ mod tests {
         let mut buf = vec![];
 
         let gradient = Gradient {
-            kind: GradientKind::Linear(LinearGradientPosition {
+            kind: LinearGradientPosition {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(20.0, 0.0),
-            }),
+            }
+            .into(),
             stops: ColorStops(smallvec![
                 ColorStop {
                     offset: 1.0,
@@ -1166,10 +1169,11 @@ mod tests {
         let mut buf = vec![];
 
         let gradient = Gradient {
-            kind: GradientKind::Linear(LinearGradientPosition {
+            kind: LinearGradientPosition {
                 start: Point::new(0.0, 0.0),
                 end: Point::new(0.0, 0.0),
-            }),
+            }
+            .into(),
             stops: ColorStops(smallvec![
                 ColorStop {
                     offset: 0.0,
@@ -1194,12 +1198,13 @@ mod tests {
         let mut buf = vec![];
 
         let gradient = Gradient {
-            kind: GradientKind::Radial(RadialGradientPosition {
+            kind: RadialGradientPosition {
                 start_center: Point::new(0.0, 0.0),
                 start_radius: 20.0,
                 end_center: Point::new(0.0, 0.0),
                 end_radius: 20.0,
-            }),
+            }
+            .into(),
             stops: ColorStops(smallvec![
                 ColorStop {
                     offset: 0.0,
