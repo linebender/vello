@@ -238,11 +238,11 @@ impl AppState {
     fn handle_mouse_move(&mut self, x: f64, y: f64) {
         let current_pos = Point { x, y };
 
-        if self.mouse_down {
-            if let Some(last_pos) = self.last_cursor_position {
-                self.transform = self.transform.then_translate(current_pos - last_pos);
-                self.need_render = true;
-            }
+        if self.mouse_down
+            && let Some(last_pos) = self.last_cursor_position
+        {
+            self.transform = self.transform.then_translate(current_pos - last_pos);
+            self.need_render = true;
         }
 
         self.last_cursor_position = Some(current_pos);
