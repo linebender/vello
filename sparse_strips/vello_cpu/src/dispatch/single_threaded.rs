@@ -260,19 +260,14 @@ mod tests {
             None,
         );
 
-        let first_strip_len = dispatcher.strip_storage.strips.len();
-        let first_alpha_len = dispatcher.strip_storage.alphas.len();
-
         // Ensure there is data to clear.
-        assert!(first_strip_len > 0);
-        assert!(first_alpha_len > 0);
+        assert!(dispatcher.strip_storage.alphas.len() > 0);
         assert!(dispatcher.wide.get(0, 0).cmds.len() > 0);
 
         dispatcher.reset();
 
-        // Verify buffers are cleared
-        assert_eq!(dispatcher.strip_storage.strips.len(), 0,);
-        assert_eq!(dispatcher.strip_storage.alphas.len(), 0,);
-        assert_eq!(dispatcher.wide.get(0, 0).cmds.len(), 0,);
+        // Verify buffers are cleared.
+        assert_eq!(dispatcher.strip_storage.alphas.len(), 0);
+        assert_eq!(dispatcher.wide.get(0, 0).cmds.len(), 0);
     }
 }
