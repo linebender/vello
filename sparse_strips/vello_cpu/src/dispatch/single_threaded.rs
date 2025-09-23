@@ -239,3 +239,40 @@ fn rasterize_with_u8<S: Simd>(
 ) {
     self_.rasterize_with::<S, U8Kernel>(simd, buffer, width, height, encoded_paints);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kurbo::Rect;
+    use vello_common::color::palette::css::BLUE;
+    use vello_common::kurbo::Shape;
+    use vello_common::paint::PremulColor;
+
+    #[test]
+    fn buffers_cleared_on_reset() {
+        let mut dispatcher = SingleThreadedDispatcher::new(100, 100, Level::new());
+
+        dispatcher.fill_path(
+            &Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Paint::Solid(PremulColor::from_alpha_color(BLUE)),
+            None,
+        );
+
+        let first_strip_len = dispatcher.strip_storage.strips.len();
+        let first_alpha_len = dispatcher.strip_storage.alphas.len();
+
+        // Ensure there is data to clear.
+        assert!(first_strip_len > 0);
+        assert!(first_alpha_len > 0);
+        assert!(dispatcher.wide.get(0, 0).cmds.len() > 0);
+
+        dispatcher.reset();
+
+        // Verify buffers are cleared
+        assert_eq!(dispatcher.strip_storage.strips.len(), 0,);
+        assert_eq!(dispatcher.strip_storage.alphas.len(), 0,);
+        assert_eq!(dispatcher.wide.get(0, 0).cmds.len(), 0,);
+    }
+}
