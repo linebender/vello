@@ -166,6 +166,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     fn reset(&mut self) {
         self.wide.reset();
         self.strip_generator.reset();
+        self.strip_storage.clear();
     }
 
     fn flush(&mut self) {}
