@@ -166,6 +166,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     fn reset(&mut self) {
         self.wide.reset();
         self.strip_generator.reset();
+        self.strip_storage.clear();
     }
 
     fn flush(&mut self) {}
@@ -237,4 +238,36 @@ fn rasterize_with_u8<S: Simd>(
     encoded_paints: &[EncodedPaint],
 ) {
     self_.rasterize_with::<S, U8Kernel>(simd, buffer, width, height, encoded_paints);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kurbo::Rect;
+    use vello_common::color::palette::css::BLUE;
+    use vello_common::kurbo::Shape;
+    use vello_common::paint::PremulColor;
+
+    #[test]
+    fn buffers_cleared_on_reset() {
+        let mut dispatcher = SingleThreadedDispatcher::new(100, 100, Level::new());
+
+        dispatcher.fill_path(
+            &Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Paint::Solid(PremulColor::from_alpha_color(BLUE)),
+            None,
+        );
+
+        // Ensure there is data to clear.
+        assert!(!dispatcher.strip_storage.alphas.is_empty());
+        assert!(!dispatcher.wide.get(0, 0).cmds.is_empty());
+
+        dispatcher.reset();
+
+        // Verify buffers are cleared.
+        assert!(dispatcher.strip_storage.alphas.is_empty());
+        assert!(dispatcher.wide.get(0, 0).cmds.is_empty());
+    }
 }
