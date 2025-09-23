@@ -261,13 +261,13 @@ mod tests {
         );
 
         // Ensure there is data to clear.
-        assert!(dispatcher.strip_storage.alphas.len() > 0);
-        assert!(dispatcher.wide.get(0, 0).cmds.len() > 0);
+        assert!(!dispatcher.strip_storage.alphas.is_empty());
+        assert!(!dispatcher.wide.get(0, 0).cmds.is_empty());
 
         dispatcher.reset();
 
         // Verify buffers are cleared.
-        assert_eq!(dispatcher.strip_storage.alphas.len(), 0);
-        assert_eq!(dispatcher.wide.get(0, 0).cmds.len(), 0);
+        assert!(dispatcher.strip_storage.alphas.is_empty());
+        assert!(dispatcher.wide.get(0, 0).cmds.is_empty());
     }
 }
