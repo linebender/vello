@@ -5,7 +5,6 @@ use crate::fine::FineKernel;
 use crate::fine::{COLOR_COMPONENTS, Painter};
 use crate::peniko::BlendMode;
 use crate::region::Region;
-use std::iter;
 use vello_common::fearless_simd::*;
 use vello_common::mask::Mask;
 use vello_common::paint::PremulColor;
@@ -147,7 +146,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         let alpha_iter = alphas.map(|a| a.chunks_exact(4).map(|d| [d[0], d[1], d[2], d[3]]));
 
         let mask_iter = mask.map(|m| {
-            iter::from_fn(|| {
+            core::iter::from_fn(|| {
                 let sample = |x: u16, y: u16| {
                     if x < m.width() && y < m.height() {
                         m.sample(x, y)
