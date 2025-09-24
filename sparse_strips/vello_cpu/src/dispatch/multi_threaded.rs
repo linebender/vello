@@ -280,18 +280,23 @@ impl MultiThreadedDispatcher {
                             CoarseTaskType::RenderPath {
                                 strips: strip_range,
                                 paint,
+                                blend_mode,
                                 thread_id,
                             } => self.wide.generate(
                                 &task.allocation_group.strips
                                     [strip_range.start as usize..strip_range.end as usize],
                                 paint.clone(),
+                                blend_mode,
                                 thread_id,
                             ),
                             CoarseTaskType::RenderWideCommand {
                                 strips,
+                                blend_mode,
                                 paint,
                                 thread_id,
-                            } => self.wide.generate(&strips, paint.clone(), thread_id),
+                            } => self
+                                .wide
+                                .generate(&strips, paint.clone(), blend_mode, thread_id),
                             CoarseTaskType::PushLayer {
                                 thread_id,
                                 clip_path,
@@ -386,6 +391,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         fill_rule: Fill,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     ) {
         let start = self.allocation_group.path.len() as u32;
@@ -396,6 +402,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             transform,
             paint,
             fill_rule,
+            blend_mode,
             aliasing_threshold,
         });
     }
@@ -406,6 +413,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         stroke: &Stroke,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     ) {
         let start = self.allocation_group.path.len() as u32;
@@ -416,6 +424,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             transform,
             paint,
             stroke: stroke.clone(),
+            blend_mode,
             aliasing_threshold,
         });
     }
@@ -524,7 +533,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         }
     }
 
-    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint) {
+    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint, blend_mode: BlendMode) {
         // Note that we are essentially round-tripping here: The wide container is inside of the
         // main thread, but we first send a render task to a child thread which basically just
         // forwards it back to the main thread again. We cannot apply the wide command directly
@@ -538,6 +547,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             // of 0.
             thread_idx: 0,
             paint,
+            blend_mode,
         });
     }
 
@@ -695,18 +705,21 @@ pub(crate) enum RenderTaskType {
         transform: Affine,
         paint: Paint,
         fill_rule: Fill,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     },
     WideCommand {
         strip_buf: Box<[Strip]>,
         thread_idx: u8,
         paint: Paint,
+        blend_mode: BlendMode,
     },
     StrokePath {
         path_range: Range<u32>,
         transform: Affine,
         paint: Paint,
         stroke: Stroke,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     },
     PushLayer {
@@ -729,12 +742,14 @@ pub(crate) enum CoarseTaskType {
     RenderPath {
         thread_id: u8,
         strips: Range<u32>,
+        blend_mode: BlendMode,
         paint: Paint,
     },
     RenderWideCommand {
         thread_id: u8,
         strips: Box<[Strip]>,
         paint: Paint,
+        blend_mode: BlendMode,
     },
     PushLayer {
         thread_id: u8,
@@ -797,7 +812,7 @@ mod tests {
     use crate::dispatch::Dispatcher;
     use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
     use crate::kurbo::{Affine, Rect, Shape};
-    use crate::peniko::Fill;
+    use crate::peniko::{BlendMode, Fill};
     use vello_common::paint::{Paint, PremulColor};
 
     /// Ensure we don't cause a memory leak.
@@ -810,6 +825,7 @@ mod tests {
                 Fill::NonZero,
                 Affine::IDENTITY,
                 Paint::Solid(PremulColor::from_alpha_color(BLUE)),
+                BlendMode::default(),
                 None,
             );
             dispatcher.flush();

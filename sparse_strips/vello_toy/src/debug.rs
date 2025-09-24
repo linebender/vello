@@ -23,6 +23,7 @@ use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
 use vello_common::tile::{Tile, Tiles};
 use vello_common::{flatten, strip};
+use vello_cpu::peniko::{BlendMode, Compose, Mix};
 
 fn main() {
     let args = Args::parse();
@@ -87,7 +88,12 @@ fn main() {
     }
 
     if stages.iter().any(|s| s.requires_wide_tiles()) {
-        wide.generate(&strip_buf, BLACK.into(), 0);
+        wide.generate(
+            &strip_buf,
+            BLACK.into(),
+            BlendMode::new(Mix::Normal, Compose::SrcOver),
+            0,
+        );
     }
 
     draw_grid(&mut document, args.width, args.height);
