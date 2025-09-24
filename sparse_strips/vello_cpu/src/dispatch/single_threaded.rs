@@ -261,6 +261,7 @@ mod tests {
             Affine::IDENTITY,
             Paint::Solid(PremulColor::from_alpha_color(BLUE)),
             None,
+            None,
         );
 
         // Ensure there is data to clear.

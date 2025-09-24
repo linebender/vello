@@ -822,6 +822,7 @@ mod tests {
                 Affine::IDENTITY,
                 Paint::Solid(PremulColor::from_alpha_color(BLUE)),
                 None,
+                None,
             );
             dispatcher.flush();
         }
