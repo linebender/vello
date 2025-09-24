@@ -259,6 +259,7 @@ mod tests {
             Fill::NonZero,
             Affine::IDENTITY,
             Paint::Solid(PremulColor::from_alpha_color(BLUE)),
+            BlendMode::default(),
             None,
         );
 
