@@ -1083,13 +1083,13 @@ impl BlendModeExt for BlendMode {
 #[cfg(test)]
 mod tests {
     use crate::coarse::{MODE_CPU, Wide, WideTile};
+    use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
     use crate::paint::{Paint, PremulColor};
     use crate::peniko::BlendMode;
     use crate::strip::Strip;
     use alloc::{boxed::Box, vec};
     use peniko::{Compose, Mix};
-    use crate::color::AlphaColor;
 
     #[test]
     fn optimize_empty_layers() {
