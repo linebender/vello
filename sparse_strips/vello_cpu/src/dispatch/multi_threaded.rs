@@ -281,17 +281,20 @@ impl MultiThreadedDispatcher {
                                 strips: strip_range,
                                 paint,
                                 thread_id,
+                                mask,
                             } => self.wide.generate(
                                 &task.allocation_group.strips
                                     [strip_range.start as usize..strip_range.end as usize],
                                 paint.clone(),
                                 thread_id,
+                                mask,
                             ),
                             CoarseTaskType::RenderWideCommand {
                                 strips,
                                 paint,
                                 thread_id,
-                            } => self.wide.generate(&strips, paint.clone(), thread_id),
+                                mask,
+                            } => self.wide.generate(&strips, paint.clone(), thread_id, mask),
                             CoarseTaskType::PushLayer {
                                 thread_id,
                                 clip_path,
@@ -387,6 +390,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -397,6 +401,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             paint,
             fill_rule,
             aliasing_threshold,
+            mask,
         });
     }
 
@@ -407,6 +412,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         transform: Affine,
         paint: Paint,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -417,6 +423,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             paint,
             stroke: stroke.clone(),
             aliasing_threshold,
+            mask,
         });
     }
 
@@ -696,6 +703,7 @@ pub(crate) enum RenderTaskType {
         paint: Paint,
         fill_rule: Fill,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     },
     WideCommand {
         strip_buf: Box<[Strip]>,
@@ -708,6 +716,7 @@ pub(crate) enum RenderTaskType {
         paint: Paint,
         stroke: Stroke,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     },
     PushLayer {
         clip_path: Option<(Range<u32>, Affine)>,
@@ -730,11 +739,13 @@ pub(crate) enum CoarseTaskType {
         thread_id: u8,
         strips: Range<u32>,
         paint: Paint,
+        mask: Option<Mask>,
     },
     RenderWideCommand {
         thread_id: u8,
         strips: Box<[Strip]>,
         paint: Paint,
+        mask: Option<Mask>,
     },
     PushLayer {
         thread_id: u8,
@@ -810,6 +821,7 @@ mod tests {
                 Fill::NonZero,
                 Affine::IDENTITY,
                 Paint::Solid(PremulColor::from_alpha_color(BLUE)),
+                None,
                 None,
             );
             dispatcher.flush();

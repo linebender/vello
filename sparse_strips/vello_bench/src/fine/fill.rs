@@ -59,7 +59,7 @@ pub(crate) fn fill_single<S: Simd, N: FineKernel<S>>(
     fine: &mut Fine<S, N>,
 ) {
     b.iter(|| {
-        fine.fill(0, width, paint, blend_mode, encoded_paints, None);
+        fine.fill(0, width, paint, blend_mode, encoded_paints, None, None);
 
         std::hint::black_box(&fine);
     });

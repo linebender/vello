@@ -77,3 +77,14 @@ fn mask_alpha(ctx: &mut impl Renderer) {
 fn mask_luminance(ctx: &mut impl Renderer) {
     mask(ctx, false);
 }
+
+#[vello_test(skip_hybrid)]
+fn mask_non_isolated(ctx: &mut impl Renderer) {
+    let mask = example_mask(false);
+
+    ctx.set_paint(BLACK);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+    ctx.set_mask(mask);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+}
