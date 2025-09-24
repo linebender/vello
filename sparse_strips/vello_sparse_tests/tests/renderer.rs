@@ -51,6 +51,7 @@ pub(crate) trait Renderer: Sized {
     fn set_fill_rule(&mut self, fill_rule: Fill);
     fn set_transform(&mut self, transform: Affine);
     fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>);
+    fn set_blend_mode(&mut self, blend_mode: BlendMode);
     fn render_to_pixmap(&self, pixmap: &mut Pixmap);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
@@ -159,6 +160,10 @@ impl Renderer for RenderContext {
 
     fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
         Self::set_aliasing_threshold(self, aliasing_threshold);
+    }
+
+    fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        Self::set_blend_mode(self, blend_mode);
     }
 
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
@@ -346,6 +351,10 @@ impl Renderer for HybridRenderer {
 
     fn set_transform(&mut self, transform: Affine) {
         self.scene.set_transform(transform);
+    }
+
+    fn set_blend_mode(&mut self, _: BlendMode) {
+        unimplemented!()
     }
 
     fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
@@ -553,6 +562,10 @@ impl Renderer for HybridRenderer {
 
     fn fill_path(&mut self, path: &BezPath) {
         self.scene.fill_path(path);
+    }
+
+    fn set_blend_mode(&mut self, _: BlendMode) {
+        unimplemented!()
     }
 
     fn stroke_path(&mut self, path: &BezPath) {

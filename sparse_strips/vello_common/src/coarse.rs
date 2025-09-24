@@ -235,7 +235,13 @@ impl<const MODE: u8> Wide<MODE> {
     ///    - Generate alpha fill commands for the intersected wide tiles
     /// 2. For active fill regions (determined by fill rule):
     ///    - Generate solid fill commands for the regions between strips
-    pub fn generate(&mut self, strip_buf: &[Strip], paint: Paint, thread_idx: u8) {
+    pub fn generate(
+        &mut self,
+        strip_buf: &[Strip],
+        paint: Paint,
+        blend_mode: BlendMode,
+        thread_idx: u8,
+    ) {
         if strip_buf.is_empty() {
             return;
         }
@@ -306,7 +312,7 @@ impl<const MODE: u8> Wide<MODE> {
                     #[cfg(feature = "multithreading")]
                     thread_idx,
                     paint: paint.clone(),
-                    blend_mode: None,
+                    blend_mode,
                 };
                 x += width;
                 col += u32::from(width);
@@ -332,8 +338,12 @@ impl<const MODE: u8> Wide<MODE> {
                     let x_wtile_rel = x % WideTile::WIDTH;
                     let width = x2.min((wtile_x + 1) * WideTile::WIDTH) - x;
                     x += width;
-                    self.get_mut(wtile_x, strip_y)
-                        .fill(x_wtile_rel, width, paint.clone());
+                    self.get_mut(wtile_x, strip_y).fill(
+                        x_wtile_rel,
+                        width,
+                        blend_mode,
+                        paint.clone(),
+                    );
                 }
             }
         }
@@ -818,7 +828,7 @@ impl<const MODE: u8> WideTile<MODE> {
         }
     }
 
-    pub(crate) fn fill(&mut self, x: u16, width: u16, paint: Paint) {
+    pub(crate) fn fill(&mut self, x: u16, width: u16, blend_mode: BlendMode, paint: Paint) {
         if !self.is_zero_clip() {
             match MODE {
                 MODE_CPU => {
@@ -852,7 +862,7 @@ impl<const MODE: u8> WideTile<MODE> {
                             x,
                             width,
                             paint,
-                            blend_mode: None,
+                            blend_mode,
                         }));
                     }
                 }
@@ -861,7 +871,7 @@ impl<const MODE: u8> WideTile<MODE> {
                         x,
                         width,
                         paint,
-                        blend_mode: None,
+                        blend_mode,
                     }));
                 }
                 _ => unreachable!(),
@@ -1003,7 +1013,7 @@ pub struct CmdFill {
     /// The paint that should be used to fill the area.
     pub paint: Paint,
     /// The blend mode to apply before drawing the contents.
-    pub blend_mode: Option<BlendMode>,
+    pub blend_mode: BlendMode,
 }
 
 /// Fill a consecutive region of a wide tile with an alpha mask.
@@ -1022,7 +1032,7 @@ pub struct CmdAlphaFill {
     /// The paint that should be used to fill the area.
     pub paint: Paint,
     /// A blend mode to apply before drawing the contents.
-    pub blend_mode: Option<BlendMode>,
+    pub blend_mode: BlendMode,
 }
 
 /// Same as fill, but copies top of clip stack to next on stack.
@@ -1073,10 +1083,9 @@ impl BlendModeExt for BlendMode {
 #[cfg(test)]
 mod tests {
     use crate::coarse::{MODE_CPU, Wide, WideTile};
-    use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
     use crate::paint::{Paint, PremulColor};
-    use crate::peniko::{BlendMode, Compose, Mix};
+    use crate::peniko::{BlendMode, Compose, Fill, Mix};
     use crate::strip::Strip;
     use alloc::{boxed::Box, vec};
 
@@ -1096,46 +1105,15 @@ mod tests {
         wide.fill(
             0,
             10,
+            BlendMode::default(),
             Paint::Solid(PremulColor::from_alpha_color(TRANSPARENT)),
         );
         wide.fill(
             10,
             10,
+            BlendMode::default(),
             Paint::Solid(PremulColor::from_alpha_color(TRANSPARENT)),
         );
-        wide.pop_buf();
-
-        assert_eq!(wide.cmds.len(), 4);
-    }
-
-    #[test]
-    fn dont_inline_blend_with_two_fills() {
-        let paint = Paint::Solid(PremulColor::from_alpha_color(AlphaColor::from_rgba8(
-            30, 30, 30, 255,
-        )));
-        let blend_mode = BlendMode::new(Mix::Lighten, Compose::SrcOver);
-
-        let mut wide = WideTile::<MODE_CPU>::new(0, 0);
-        wide.push_buf();
-        wide.fill(0, 10, paint.clone());
-        wide.fill(10, 10, paint.clone());
-        wide.blend(blend_mode);
-        wide.pop_buf();
-
-        assert_eq!(wide.cmds.len(), 5);
-    }
-
-    #[test]
-    fn dont_inline_destructive_blend() {
-        let paint = Paint::Solid(PremulColor::from_alpha_color(AlphaColor::from_rgba8(
-            30, 30, 30, 255,
-        )));
-        let blend_mode = BlendMode::new(Mix::Lighten, Compose::Clear);
-
-        let mut wide = WideTile::<MODE_CPU>::new(0, 0);
-        wide.push_buf();
-        wide.fill(0, 10, paint.clone());
-        wide.blend(blend_mode);
         wide.pop_buf();
 
         assert_eq!(wide.cmds.len(), 4);
