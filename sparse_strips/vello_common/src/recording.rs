@@ -3,6 +3,8 @@
 
 //! Recording API for caching sparse strips
 
+use core::marker::PhantomData;
+
 #[cfg(feature = "text")]
 use crate::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
@@ -77,15 +79,40 @@ impl CachedStrips {
     }
 }
 
+mod private {
+    /// Sealed trait to prevent re-implementation of [`RecordingState`].
+    pub trait Sealed {}
+}
+
+/// Trait used to implement typestate pattern over the [`Recording`] struct.
+pub trait RecordingState: private::Sealed {}
+/// State where the [`Recording`] is actively recording commands.
+#[derive(Debug)]
+pub struct Active;
+/// State where the [`Recording`] is awaiting preparation.
+#[derive(Debug)]
+pub struct Unprepared;
+/// State where the [`Recording`] is prepared and can be executed.
+#[derive(Debug)]
+pub struct Prepared;
+
+impl private::Sealed for Active {}
+impl private::Sealed for Unprepared {}
+impl private::Sealed for Prepared {}
+impl RecordingState for Active {}
+impl RecordingState for Unprepared {}
+impl RecordingState for Prepared {}
+
 /// A recording of rendering commands that can cache generated strips.
 #[derive(Debug)]
-pub struct Recording {
+pub struct Recording<S: RecordingState> {
     /// Recorded commands.
     commands: Vec<RenderCommand>,
     /// Cached sparse strips.
     cached_strips: CachedStrips,
     /// Track the transform of the underlying rasterization context.
     transform: Affine,
+    marker: core::marker::PhantomData<S>,
 }
 
 /// Command for pushing a new layer.
@@ -136,21 +163,7 @@ pub enum RenderCommand {
     StrokeOutlineGlyph((BezPath, Affine)),
 }
 
-impl Recording {
-    /// Create a new empty recording.
-    pub fn new() -> Self {
-        Self {
-            commands: Vec::new(),
-            cached_strips: CachedStrips::default(),
-            transform: Affine::IDENTITY,
-        }
-    }
-
-    /// Set the transform.
-    pub(crate) fn set_transform(&mut self, transform: Affine) {
-        self.transform = transform;
-    }
-
+impl<S: RecordingState> Recording<S> {
     /// Get commands as a slice.
     pub fn commands(&self) -> &[RenderCommand] {
         &self.commands
@@ -176,26 +189,33 @@ impl Recording {
         self.cached_strips.alpha_count()
     }
 
-    /// Get cached strips.
-    pub fn get_cached_strips(&self) -> (&[Strip], &[u8]) {
-        (self.cached_strips.strips(), self.cached_strips.alphas())
-    }
-
-    /// Takes cached strip buffers.
-    pub fn take_cached_strips(&mut self) -> (StripStorage, Vec<usize>) {
-        self.cached_strips.take()
-    }
-
-    /// Get strip start indices.
-    pub fn get_strip_start_indices(&self) -> &[usize] {
-        self.cached_strips.strip_start_indices()
-    }
-
-    /// Clear the recording contents.
-    pub fn clear(&mut self) {
+    fn clear_impl(mut self) -> Recording<Active> {
         self.commands.clear();
         self.cached_strips.clear();
         self.transform = Affine::IDENTITY;
+        Recording {
+            commands: self.commands,
+            cached_strips: self.cached_strips,
+            transform: self.transform,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl Recording<Active> {
+    /// Create a new empty recording.
+    pub fn new() -> Recording<Active> {
+        Recording {
+            commands: Vec::new(),
+            cached_strips: CachedStrips::default(),
+            transform: Affine::IDENTITY,
+            marker: PhantomData,
+        }
+    }
+
+    /// Set the transform.
+    pub(crate) fn set_transform(&mut self, transform: Affine) {
+        self.transform = transform;
     }
 
     /// Add a command to the recording.
@@ -203,19 +223,56 @@ impl Recording {
         self.commands.push(command);
     }
 
-    /// Set cached strips.
-    pub fn set_cached_strips(
-        &mut self,
+    /// Mark the completion of a recording.
+    pub fn finish_recording(self) -> Recording<Unprepared> {
+        Recording {
+            commands: self.commands,
+            cached_strips: self.cached_strips,
+            transform: self.transform,
+            marker: PhantomData,
+        }
+    }
+}
+impl Recording<Unprepared> {
+    /// Clear the recording contents returning an empty recording.
+    pub fn clear(self) -> Recording<Active> {
+        Recording::clear_impl(self)
+    }
+
+    /// Takes cached strip buffers.
+    pub fn take_cached_strips(&mut self) -> (StripStorage, Vec<usize>) {
+        self.cached_strips.take()
+    }
+
+    /// Prepare recording by providing cached strips.
+    pub fn prepare(
+        self,
         strip_storage: StripStorage,
         strip_start_indices: Vec<usize>,
-    ) {
-        self.cached_strips = CachedStrips::new(strip_storage, strip_start_indices);
+    ) -> Recording<Prepared> {
+        Recording {
+            commands: self.commands,
+            cached_strips: CachedStrips::new(strip_storage, strip_start_indices),
+            transform: self.transform,
+            marker: PhantomData,
+        }
     }
 }
 
-impl Default for Recording {
-    fn default() -> Self {
-        Self::new()
+impl Recording<Prepared> {
+    /// Clear the recording contents returning an empty recording.
+    pub fn clear(self) -> Recording<Active> {
+        Recording::clear_impl(self)
+    }
+
+    /// Get cached strips.
+    pub fn get_cached_strips(&self) -> (&[Strip], &[u8]) {
+        (self.cached_strips.strips(), self.cached_strips.alphas())
+    }
+
+    /// Get strip start indices.
+    pub fn get_strip_start_indices(&self) -> &[usize] {
+        self.cached_strips.strip_start_indices()
     }
 }
 
@@ -263,13 +320,13 @@ pub trait Recordable {
     /// # Example
     /// ```ignore
     /// let mut recording = Recording::new();
-    /// scene.record(&mut recording, |ctx| {
+    /// let recording = scene.record(recording, |ctx| {
     ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
     ///     ctx.set_paint(Color::RED);
     ///     ctx.stroke_path(&some_path);
     /// });
     /// ```
-    fn record<F>(&mut self, recording: &mut Recording, f: F)
+    fn record<F>(&mut self, recording: Recording<Active>, f: F) -> Recording<Unprepared>
     where
         F: FnOnce(&mut Recorder<'_>);
 
@@ -282,14 +339,14 @@ pub trait Recordable {
     /// # Example
     /// ```ignore
     /// let mut recording = Recording::new();
-    /// scene.record(&mut recording, |ctx| {
+    /// let recording = scene.record(recording, |ctx| {
     ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
     /// });
     ///
     /// // Generate strips explicitly
-    /// scene.prepare_recording(&mut recording);
+    /// let recording = scene.prepare_recording(recording);
     /// ```
-    fn prepare_recording(&mut self, recording: &mut Recording);
+    fn prepare_recording(&mut self, recording: Recording<Unprepared>) -> Recording<Prepared>;
 
     /// Execute a recording directly without preparation.
     ///
@@ -304,24 +361,24 @@ pub trait Recordable {
     /// # Example
     /// ```ignore
     /// let mut recording = Recording::new();
-    /// scene.record(&mut recording, |ctx| {
+    /// let recording = scene.record(recording, |ctx| {
     ///     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
     /// });
     ///
     /// // Prepare strips first
-    /// scene.prepare_recording(&mut recording);
+    /// let recording = scene.prepare_recording(&mut recording);
     ///
     /// // Then execute with cached strips
     /// scene.execute_recording(&recording);
     /// ```
-    fn execute_recording(&mut self, recording: &Recording);
+    fn execute_recording(&mut self, recording: &Recording<Prepared>);
 }
 
 /// Recorder context that captures commands.
 #[derive(Debug)]
 pub struct Recorder<'a> {
     /// The recording to capture commands into.
-    recording: &'a mut Recording,
+    recording: &'a mut Recording<Active>,
 
     #[cfg(feature = "text")]
     glyph_caches: Option<crate::glyph::GlyphCaches>,
@@ -330,7 +387,7 @@ pub struct Recorder<'a> {
 impl<'a> Recorder<'a> {
     /// Create a new recorder for the given recording.
     pub fn new(
-        recording: &'a mut Recording,
+        recording: &'a mut Recording<Active>,
         transform: Affine,
         #[cfg(feature = "text")] glyph_caches: crate::glyph::GlyphCaches,
     ) -> Self {

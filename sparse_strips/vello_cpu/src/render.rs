@@ -26,7 +26,9 @@ use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
-use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
+use vello_common::recording::{
+    Active, Prepared, PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, Unprepared,
+};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 #[cfg(feature = "text")]
@@ -656,12 +658,12 @@ impl ColrRenderer for RenderContext {
 }
 
 impl Recordable for RenderContext {
-    fn record<F>(&mut self, recording: &mut Recording, f: F)
+    fn record<F>(&mut self, mut recording: Recording<Active>, f: F) -> Recording<Unprepared>
     where
         F: FnOnce(&mut Recorder<'_>),
     {
         let mut recorder = Recorder::new(
-            recording,
+            &mut recording,
             self.transform,
             #[cfg(feature = "text")]
             self.take_glyph_caches(),
@@ -671,16 +673,17 @@ impl Recordable for RenderContext {
         {
             self.glyph_caches = Some(recorder.take_glyph_caches());
         }
+        recording.finish_recording()
     }
 
-    fn prepare_recording(&mut self, recording: &mut Recording) {
+    fn prepare_recording(&mut self, mut recording: Recording<Unprepared>) -> Recording<Prepared> {
         let buffers = recording.take_cached_strips();
         let (strip_storage, strip_start_indices) =
             self.generate_strips_from_commands(recording.commands(), buffers);
-        recording.set_cached_strips(strip_storage, strip_start_indices);
+        recording.prepare(strip_storage, strip_start_indices)
     }
 
-    fn execute_recording(&mut self, recording: &Recording) {
+    fn execute_recording(&mut self, recording: &Recording<Prepared>) {
         let (cached_strips, cached_alphas) = recording.get_cached_strips();
         let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
 

@@ -10,7 +10,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
-use vello_common::recording::{Recordable, Recorder, Recording};
+use vello_common::recording::{Active, Prepared, Recordable, Recorder, Recording, Unprepared};
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
 use vello_hybrid::Scene;
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -55,9 +55,13 @@ pub(crate) trait Renderer: Sized {
     fn width(&self) -> u16;
     fn height(&self) -> u16;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
-    fn prepare_recording(&mut self, recording: &mut Recording);
-    fn execute_recording(&mut self, recording: &Recording);
+    fn record(
+        &mut self,
+        recording: Recording<Active>,
+        f: impl FnOnce(&mut Recorder<'_>),
+    ) -> Recording<Unprepared>;
+    fn prepare_recording(&mut self, recording: Recording<Unprepared>) -> Recording<Prepared>;
+    fn execute_recording(&mut self, recording: &Recording<Prepared>);
 }
 
 impl Renderer for RenderContext {
@@ -177,15 +181,19 @@ impl Renderer for RenderContext {
         ImageSource::Pixmap(pixmap)
     }
 
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(self, recording, f);
+    fn record(
+        &mut self,
+        recording: Recording<Active>,
+        f: impl FnOnce(&mut Recorder<'_>),
+    ) -> Recording<Unprepared> {
+        Recordable::record(self, recording, f)
     }
 
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(self, recording);
+    fn prepare_recording(&mut self, recording: Recording<Unprepared>) -> Recording<Prepared> {
+        Recordable::prepare_recording(self, recording)
     }
 
-    fn execute_recording(&mut self, recording: &Recording) {
+    fn execute_recording(&mut self, recording: &Recording<Prepared>) {
         Recordable::execute_recording(self, recording);
     }
 }
@@ -484,15 +492,19 @@ impl Renderer for HybridRenderer {
         ImageSource::OpaqueId(image_id)
     }
 
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(&mut self.scene, recording, f);
+    fn record(
+        &mut self,
+        recording: Recording<Active>,
+        f: impl FnOnce(&mut Recorder<'_>),
+    ) -> Recording<Unprepared> {
+        Recordable::record(&mut self.scene, recording, f)
     }
 
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(&mut self.scene, recording);
+    fn prepare_recording(&mut self, recording: Recording<Unprepared>) -> Recording<Prepared> {
+        Recordable::prepare_recording(&mut self.scene, recording)
     }
 
-    fn execute_recording(&mut self, recording: &Recording) {
+    fn execute_recording(&mut self, recording: &Recording<Prepared>) {
         Recordable::execute_recording(&mut self.scene, recording);
     }
 }
@@ -681,15 +693,19 @@ impl Renderer for HybridRenderer {
         ImageSource::OpaqueId(image_id)
     }
 
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        self.scene.record(recording, f);
+    fn record(
+        &mut self,
+        recording: Recording<Active>,
+        f: impl FnOnce(&mut Recorder<'_>),
+    ) -> Recording<Unprepared> {
+        Recordable::record(&mut self.scene, recording, f)
     }
 
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        self.scene.prepare_recording(recording);
+    fn prepare_recording(&mut self, recording: Recording<Unprepared>) -> Recording<Prepared> {
+        Recordable::prepare_recording(&mut self.scene, recording)
     }
 
-    fn execute_recording(&mut self, recording: &Recording) {
-        self.scene.execute_recording(recording);
+    fn execute_recording(&mut self, recording: &Recording<Prepared>) {
+        Recordable::execute_recording(&mut self.scene, recording);
     }
 }
