@@ -20,7 +20,7 @@ use core::hash::{Hash, Hasher};
 use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
 use peniko::color::cache_key::{BitEq, BitHash, CacheKey};
 use peniko::{LinearGradientPosition, RadialGradientPosition, SweepGradientPosition};
-use smallvec::{SmallVec, ToSmallVec};
+use smallvec::ToSmallVec;
 // So we can just use `OnceCell` regardless of which feature is activated.
 #[cfg(feature = "multithreading")]
 use std::sync::OnceLock as OnceCell;
@@ -62,7 +62,6 @@ impl EncodeExt for Gradient {
         }
 
         let mut has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
-        let pad = self.extend == Extend::Pad;
 
         let mut base_transform;
 
@@ -101,8 +100,8 @@ impl EncodeExt for Gradient {
             GradientKind::Radial(RadialGradientPosition {
                 start_center: c0,
                 start_radius: r0,
-                end_center: mut c1,
-                end_radius: mut r1,
+                end_center: c1,
+                end_radius: r1,
             }) => {
                 // The implementation of radial gradients is translated from Skia.
                 // See:
@@ -157,7 +156,7 @@ impl EncodeExt for Gradient {
             GradientKind::Sweep(SweepGradientPosition {
                 center,
                 start_angle,
-                mut end_angle,
+                end_angle,
             }) => {
                 // Make sure the center of the gradient falls on the origin (0, 0), to make
                 // angle calculation easier.
