@@ -187,20 +187,20 @@ pub(crate) struct GpuSweepGradient {
 }
 
 // Constants for packing extend_mode and texture_width.
-const EXTEND_MODE_MASK: u32 = 1 << 31;
+const EXTEND_MODE_MASK: u32 = 1 << 30;
 const TEXTURE_WIDTH_MASK: u32 = !EXTEND_MODE_MASK;
 
 /// Pack `extend_mode` and `texture_width` into a single u32.
-/// `extend_mode`: 0=Pad, 1=Repeat (stored in bit 31)
-/// `texture_width`: stored in bits 0-30 (max value: 2^31-1)
+/// `extend_mode`: 0=Pad, 1=Repeat, 2=Reflect (stored in bits 30 & 31)
+/// `texture_width`: stored in bits 0-29 (max value: 2^30-1)
 #[inline(always)]
 pub(crate) fn pack_texture_width_and_extend_mode(texture_width: u32, extend_mode: u32) -> u32 {
-    debug_assert!(extend_mode <= 1, "extend_mode must be 0 or 1");
+    debug_assert!(extend_mode <= 2, "extend_mode must be less or equal to 2");
     debug_assert!(
         texture_width <= TEXTURE_WIDTH_MASK,
         "texture_width {texture_width} exceeds maximum value {TEXTURE_WIDTH_MASK}"
     );
-    (extend_mode << 31) | (texture_width & TEXTURE_WIDTH_MASK)
+    (extend_mode << 30) | (texture_width & TEXTURE_WIDTH_MASK)
 }
 
 /// Pack radial gradient `kind` and `f_is_swapped` into a single u32.
