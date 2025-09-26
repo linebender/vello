@@ -855,6 +855,27 @@ mod radial {
         ctx.set_paint(gradient);
         ctx.fill_rect(&rect);
     }
+
+    // See <https://github.com/linebender/vello/issues/1212>
+    #[vello_test]
+    fn gradient_radial_smaller_r1_with_reflect(ctx: &mut impl Renderer) {
+        let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+
+        let gradient = Gradient {
+            kind: Radial(RadialGradientPosition {
+                start_center: Point::new(30.0, 50.0),
+                start_radius: 20.0,
+                end_center: Point::new(70.0, 50.0),
+                end_radius: 5.0,
+            }),
+            stops: stops_blue_green_red_yellow(),
+            extend: Extend::Reflect,
+            ..Default::default()
+        };
+
+        ctx.set_paint(gradient);
+        ctx.fill_rect(&rect);
+    }
 }
 
 mod sweep {

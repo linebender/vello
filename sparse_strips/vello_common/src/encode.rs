@@ -20,7 +20,7 @@ use core::hash::{Hash, Hasher};
 use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
 use peniko::color::cache_key::{BitEq, BitHash, CacheKey};
 use peniko::{LinearGradientPosition, RadialGradientPosition, SweepGradientPosition};
-use smallvec::{SmallVec, ToSmallVec};
+use smallvec::ToSmallVec;
 // So we can just use `OnceCell` regardless of which feature is activated.
 #[cfg(feature = "multithreading")]
 use std::sync::OnceLock as OnceCell;
@@ -62,7 +62,6 @@ impl EncodeExt for Gradient {
         }
 
         let mut has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
-        let pad = self.extend == Extend::Pad;
 
         let mut base_transform;
 
@@ -90,19 +89,7 @@ impl EncodeExt for Gradient {
         }
 
         let kind = match self.kind {
-            GradientKind::Linear(LinearGradientPosition {
-                start: p0,
-                end: mut p1,
-            }) => {
-                // Double the length of the iterator, and append stops in reverse order in case
-                // we have the extend `Reflect`.
-                // Then we can treat it the same as a repeated gradient.
-                if self.extend == Extend::Reflect {
-                    p1.x += p1.x - p0.x;
-                    p1.y += p1.y - p0.y;
-                    stops = Cow::Owned(apply_reflect(&stops));
-                }
-
+            GradientKind::Linear(LinearGradientPosition { start: p0, end: p1 }) => {
                 // We update the transform currently in-place, such that the gradient line always
                 // starts at the point (0, 0) and ends at the point (1, 0). This simplifies the
                 // calculation for the current position along the gradient line a lot.
@@ -113,23 +100,14 @@ impl EncodeExt for Gradient {
             GradientKind::Radial(RadialGradientPosition {
                 start_center: c0,
                 start_radius: r0,
-                end_center: mut c1,
-                end_radius: mut r1,
+                end_center: c1,
+                end_radius: r1,
             }) => {
                 // The implementation of radial gradients is translated from Skia.
                 // See:
                 // - <https://skia.org/docs/dev/design/conical/>
                 // - <https://github.com/google/skia/blob/main/src/shaders/gradients/SkConicalGradient.h>
                 // - <https://github.com/google/skia/blob/main/src/shaders/gradients/SkConicalGradient.cpp>
-
-                // Same story as for linear gradients, mutate stops so that reflect and repeat
-                // can be treated the same.
-                if self.extend == Extend::Reflect {
-                    c1 += c1 - c0;
-                    r1 += r1 - r0;
-                    stops = Cow::Owned(apply_reflect(&stops));
-                }
-
                 let d_radius = r1 - r0;
 
                 // <https://github.com/google/skia/blob/1e07a4b16973cf716cb40b72dd969e961f4dd950/src/shaders/gradients/SkConicalGradient.cpp#L83-L112>
@@ -178,14 +156,8 @@ impl EncodeExt for Gradient {
             GradientKind::Sweep(SweepGradientPosition {
                 center,
                 start_angle,
-                mut end_angle,
+                end_angle,
             }) => {
-                // Same as before, reduce `Reflect` to `Repeat`.
-                if self.extend == Extend::Reflect {
-                    end_angle += end_angle - start_angle;
-                    stops = Cow::Owned(apply_reflect(&stops));
-                }
-
                 // Make sure the center of the gradient falls on the origin (0, 0), to make
                 // angle calculation easier.
                 let x_offset = -center.x as f32;
@@ -240,7 +212,7 @@ impl EncodeExt for Gradient {
             x_advance,
             y_advance,
             ranges,
-            pad,
+            extend: self.extend,
             has_opacities,
             u8_lut: OnceCell::new(),
             f32_lut: OnceCell::new(),
@@ -334,21 +306,6 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
     }
 
     Ok(())
-}
-
-/// Extend the stops so that we can treat a repeated gradient like a reflected gradient.
-fn apply_reflect(stops: &[ColorStop]) -> SmallVec<[ColorStop; 4]> {
-    let first_half = stops.iter().map(|s| ColorStop {
-        offset: s.offset / 2.0,
-        color: s.color,
-    });
-
-    let second_half = stops.iter().rev().map(|s| ColorStop {
-        offset: 0.5 + (1.0 - s.offset) / 2.0,
-        color: s.color,
-    });
-
-    first_half.chain(second_half).collect::<SmallVec<_>>()
 }
 
 /// Encode all stops into a sequence of ranges.
@@ -716,8 +673,8 @@ pub struct EncodedGradient {
     pub y_advance: Vec2,
     /// The color ranges of the gradient.
     pub ranges: Vec<GradientRange>,
-    /// Whether the gradient should be padded.
-    pub pad: bool,
+    /// The extend of the gradient.
+    pub extend: Extend,
     /// Whether the gradient requires `source_over` compositing.
     pub has_opacities: bool,
     u8_lut: OnceCell<GradientLut<u8>>,

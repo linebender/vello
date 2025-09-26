@@ -3,6 +3,7 @@
 
 use crate::fine::{NumericVec, PosExt, ShaderResultF32};
 use crate::kurbo::Point;
+use crate::peniko;
 use core::slice::ChunksExact;
 use vello_common::encode::{EncodedGradient, GradientLut};
 use vello_common::fearless_simd::*;
@@ -75,9 +76,9 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        let pad = self.gradient.pad;
+        let extend = self.gradient.extend;
         let pos = f32x8::from_slice(self.simd, self.t_vals.next()?);
-        let t_vals = extend(pos, pad);
+        let t_vals = apply_extend(pos, extend);
 
         let indices = {
             // Clear NaNs.
@@ -174,11 +175,15 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
 }
 
 #[inline(always)]
-pub(crate) fn extend<S: Simd>(val: f32x8<S>, pad: bool) -> f32x8<S> {
-    if pad {
-        val.max(0.0).min(1.0)
-    } else {
-        (val - val.floor()).fract()
+pub(crate) fn apply_extend<S: Simd>(val: f32x8<S>, extend: peniko::Extend) -> f32x8<S> {
+    match extend {
+        peniko::Extend::Pad => val.max(0.0).min(1.0),
+        peniko::Extend::Repeat => (val - val.floor()).fract(),
+        // See <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L6472-L6475>
+        peniko::Extend::Reflect => ((val - 1.0) - 2.0 * ((val - 1.0) * 0.5).floor() - 1.0)
+            .abs()
+            .max(0.0)
+            .min(1.0),
     }
 }
 

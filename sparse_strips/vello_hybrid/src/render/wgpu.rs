@@ -45,6 +45,7 @@ use vello_common::{
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
     kurbo::Affine,
     paint::ImageSource,
+    peniko,
     pixmap::Pixmap,
     tile::Tile,
 };
@@ -338,9 +339,10 @@ impl Renderer {
     ) -> GpuEncodedPaint {
         let gradient_transform = gradient.transform * Affine::translate((-0.5, -0.5));
         let transform = gradient_transform.as_coeffs().map(|x| x as f32);
-        let extend_mode = match gradient.pad {
-            true => 0,
-            false => 1,
+        let extend_mode = match gradient.extend {
+            peniko::Extend::Pad => 0,
+            peniko::Extend::Repeat => 1,
+            peniko::Extend::Reflect => 2,
         };
         let texture_width_and_extend_mode =
             pack_texture_width_and_extend_mode(gradient_width, extend_mode);

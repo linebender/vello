@@ -1213,8 +1213,8 @@ fn unpack_sweep_gradient(paint_tex_idx: u32) -> SweepGradient {
 // Unpack texture_width and extend_mode from packed field.
 // Returns (texture_width, extend_mode).
 fn unpack_texture_width_and_extend_mode(packed: u32) -> vec2<u32> {
-    let texture_width = packed & 0x7FFFFFFFu;  // Mask out bit 31
-    let extend_mode = (packed >> 31u) & 1u;    // Extract bit 31
+    let texture_width = packed & 0x0FFFFFFFu;  // Mask out bits 30 & 31
+    let extend_mode = (packed >> 30u) & 3u;    // Extract bits 30 & 31
     return vec2<u32>(texture_width, extend_mode);
 }
 
