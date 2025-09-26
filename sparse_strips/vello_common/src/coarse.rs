@@ -235,7 +235,13 @@ impl<const MODE: u8> Wide<MODE> {
     ///    - Generate alpha fill commands for the intersected wide tiles
     /// 2. For active fill regions (determined by fill rule):
     ///    - Generate solid fill commands for the regions between strips
-    pub fn generate(&mut self, strip_buf: &[Strip], paint: Paint, thread_idx: u8) {
+    pub fn generate(
+        &mut self,
+        strip_buf: &[Strip],
+        paint: Paint,
+        thread_idx: u8,
+        mask: Option<Mask>,
+    ) {
         if strip_buf.is_empty() {
             return;
         }
@@ -307,6 +313,7 @@ impl<const MODE: u8> Wide<MODE> {
                     thread_idx,
                     paint: paint.clone(),
                     blend_mode: None,
+                    mask: mask.clone(),
                 };
                 x += width;
                 col += u32::from(width);
@@ -332,8 +339,12 @@ impl<const MODE: u8> Wide<MODE> {
                     let x_wtile_rel = x % WideTile::WIDTH;
                     let width = x2.min((wtile_x + 1) * WideTile::WIDTH) - x;
                     x += width;
-                    self.get_mut(wtile_x, strip_y)
-                        .fill(x_wtile_rel, width, paint.clone());
+                    self.get_mut(wtile_x, strip_y).fill(
+                        x_wtile_rel,
+                        width,
+                        paint.clone(),
+                        mask.clone(),
+                    );
                 }
             }
         }
@@ -818,7 +829,7 @@ impl<const MODE: u8> WideTile<MODE> {
         }
     }
 
-    pub(crate) fn fill(&mut self, x: u16, width: u16, paint: Paint) {
+    pub(crate) fn fill(&mut self, x: u16, width: u16, paint: Paint, mask: Option<Mask>) {
         if !self.is_zero_clip() {
             match MODE {
                 MODE_CPU => {
@@ -853,6 +864,7 @@ impl<const MODE: u8> WideTile<MODE> {
                             width,
                             paint,
                             blend_mode: None,
+                            mask,
                         }));
                     }
                 }
@@ -862,6 +874,7 @@ impl<const MODE: u8> WideTile<MODE> {
                         width,
                         paint,
                         blend_mode: None,
+                        mask,
                     }));
                 }
                 _ => unreachable!(),
@@ -1004,6 +1017,8 @@ pub struct CmdFill {
     pub paint: Paint,
     /// The blend mode to apply before drawing the contents.
     pub blend_mode: Option<BlendMode>,
+    /// A mask to apply to the command.
+    pub mask: Option<Mask>,
 }
 
 /// Fill a consecutive region of a wide tile with an alpha mask.
@@ -1023,6 +1038,8 @@ pub struct CmdAlphaFill {
     pub paint: Paint,
     /// A blend mode to apply before drawing the contents.
     pub blend_mode: Option<BlendMode>,
+    /// A mask to apply to the command.
+    pub mask: Option<Mask>,
 }
 
 /// Same as fill, but copies top of clip stack to next on stack.
@@ -1097,11 +1114,13 @@ mod tests {
             0,
             10,
             Paint::Solid(PremulColor::from_alpha_color(TRANSPARENT)),
+            None,
         );
         wide.fill(
             10,
             10,
             Paint::Solid(PremulColor::from_alpha_color(TRANSPARENT)),
+            None,
         );
         wide.pop_buf();
 
@@ -1117,8 +1136,8 @@ mod tests {
 
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf();
-        wide.fill(0, 10, paint.clone());
-        wide.fill(10, 10, paint.clone());
+        wide.fill(0, 10, paint.clone(), None);
+        wide.fill(10, 10, paint.clone(), None);
         wide.blend(blend_mode);
         wide.pop_buf();
 
@@ -1134,7 +1153,7 @@ mod tests {
 
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf();
-        wide.fill(0, 10, paint.clone());
+        wide.fill(0, 10, paint.clone(), None);
         wide.blend(blend_mode);
         wide.pop_buf();
 
