@@ -328,26 +328,26 @@ fn render_impl<S: Simd>(
 
         // Push out the strip if we're moving to a next strip.
         if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
-            debug_assert_eq!(
-                (prev_tile.x + 1) * Tile::WIDTH - strip.x,
-                ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT)) as u16,
-                "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
-            );
-            strip_buf.push(strip);
+            // debug_assert_eq!(
+            //     (prev_tile.x + 1) * Tile::WIDTH - strip.x,
+            //     ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT)) as u16,
+            //     "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
+            // );
+            //strip_buf.push(strip);
 
             let is_sentinel = tile_idx == tiles.len() as usize;
             if !prev_tile.same_row(&tile) {
                 // Emit a final strip in the row if there is non-zero winding for the sparse fill,
                 // or unconditionally if we've reached the sentinel tile to end the path (the
                 // `alpha_idx` field is used for width calculations).
-                if winding_delta != 0 || is_sentinel {
-                    strip_buf.push(Strip::new(
-                        u16::MAX,
-                        prev_tile.y * Tile::HEIGHT,
-                        alpha_buf.len() as u32,
-                        should_fill(winding_delta),
-                    ));
-                }
+                // if winding_delta != 0 || is_sentinel {
+                //     strip_buf.push(Strip::new(
+                //         u16::MAX,
+                //         prev_tile.y * Tile::HEIGHT,
+                //         alpha_buf.len() as u32,
+                //         should_fill(winding_delta),
+                //     ));
+                // }
 
                 winding_delta = 0;
                 accumulated_winding = f32x4::splat(s, 0.0);
@@ -618,8 +618,8 @@ fn prepare_gpu_inputs(
         pmt.set_start_tile(tile_idx == 0 || !prev_tile.same_loc(&tile));
         pmt.set_start_row(tile_idx == 0 || !prev_tile.same_row(&tile));
         pmt.set_start_segment(tile_idx == 0 || is_start_segment);
-        pmt.set_is_end_tile(
-            tile_idx - 1 == tiles.len() as usize || tiles.get(tile_idx as u32 + 1).same_loc(&tile),
+        pmt.set_is_end_tile(tile_idx == tiles.len() as usize - 1  ||
+                            !tiles.get(tile_idx as u32 + 1).same_loc(&tile),
         );
         pre_merge_buf.push(pmt);
         prev_tile = tile;

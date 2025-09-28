@@ -174,7 +174,7 @@ impl SvgScene {
                 .canonicalize()
                 .unwrap();
             &std::fs::read_to_string(
-                cargo_dir.join("../../../../examples/assets/Ghostscript_Tiger.svg"),
+                cargo_dir.join("/Users/thomsmit/Desktop/vello/examples/assets/Ghostscript_Tiger.svg"),
             )
             .unwrap()
         };
