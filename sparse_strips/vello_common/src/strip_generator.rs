@@ -7,7 +7,7 @@ use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::kurbo::{Affine, PathEl, Stroke};
 use crate::peniko::Fill;
-use crate::strip::Strip;
+use crate::strip::{PreMergeTile, Strip};
 use crate::tile::Tiles;
 use crate::{flatten, strip};
 use alloc::vec::Vec;
@@ -20,6 +20,9 @@ pub struct StripStorage {
     pub strips: Vec<Strip>,
     /// The alphas in the storage.
     pub alphas: Vec<u8>,
+
+    pub pre_merge_tiles: Vec<PreMergeTile>,
+
     generation_mode: GenerationMode,
 }
 
