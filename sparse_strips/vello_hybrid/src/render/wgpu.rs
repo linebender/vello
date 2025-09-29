@@ -18,10 +18,12 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use alloc::vec;
 use alloc::vec::Vec;
+use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, mem, num::NonZeroU64};
+use wgpu::Extent3d;
 
+use crate::{AtlasConfig, AtlasId};
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
@@ -106,7 +108,7 @@ impl Renderer {
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
-        let image_cache = ImageCache::new(max_texture_dimension_2d, max_texture_dimension_2d);
+        let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size =
@@ -114,7 +116,7 @@ impl Renderer {
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
 
         Self {
-            programs: Programs::new(device, render_target_config, total_slots),
+            programs: Programs::new(device, &image_cache, render_target_config, total_slots),
             scheduler: Scheduler::new(total_slots),
             image_cache,
             gradient_cache,
@@ -180,21 +182,29 @@ impl Renderer {
     ) -> vello_common::paint::ImageId {
         let width = writer.width();
         let height = writer.height();
-        let image_id = self.image_cache.allocate(width, height);
+        let image_id = self.image_cache.allocate(width, height).unwrap();
         let image_resource = self
             .image_cache
             .get(image_id)
             .expect("Image resource not found");
+
+        Programs::maybe_resize_atlas_texture_array(
+            device,
+            queue,
+            &mut self.programs.resources,
+            &self.programs.atlas_bind_group_layout,
+            self.image_cache.atlas_count() as u32,
+        );
         let offset = [
             image_resource.offset[0] as u32,
             image_resource.offset[1] as u32,
         ];
-
-        writer.write_to_atlas(
+        writer.write_to_atlas_layer(
             device,
             queue,
             encoder,
-            &self.programs.resources.atlas_texture,
+            &self.programs.resources.atlas_texture_array,
+            image_resource.atlas_id.as_u32(),
             offset,
             width,
             height,
@@ -216,6 +226,7 @@ impl Renderer {
                 device,
                 queue,
                 encoder,
+                image_resource.atlas_id,
                 [
                     image_resource.offset[0] as u32,
                     image_resource.offset[1] as u32,
@@ -232,6 +243,7 @@ impl Renderer {
         _device: &Device,
         queue: &Queue,
         _encoder: &mut CommandEncoder,
+        atlas_id: AtlasId,
         offset: [u32; 2],
         width: u32,
         height: u32,
@@ -240,12 +252,12 @@ impl Renderer {
         let uninitialized_data = vec![0_u8; (width * height * 4) as usize];
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.programs.resources.atlas_texture,
+                texture: &self.programs.resources.atlas_texture_array,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
                     x: offset[0],
                     y: offset[1],
-                    z: 0,
+                    z: atlas_id.as_u32(),
                 },
                 aspect: wgpu::TextureAspect::All,
             },
@@ -326,8 +338,9 @@ impl Renderer {
             quality_and_extend_modes,
             image_size,
             image_offset,
+            atlas_index: image_resource.atlas_id.as_u32(),
             transform,
-            _padding: [0, 0, 0],
+            _padding: [0, 0],
         })
     }
 
@@ -415,10 +428,10 @@ struct Programs {
     encoded_paints_bind_group_layout: BindGroupLayout,
     /// Bind group layout for gradient texture
     gradient_bind_group_layout: BindGroupLayout,
-
+    /// Bind group layout for atlas textures
+    atlas_bind_group_layout: BindGroupLayout,
     /// Pipeline for clearing slots in slot textures.
     clear_pipeline: RenderPipeline,
-
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
     /// Dimensions of the rendering target
@@ -436,10 +449,11 @@ struct GpuResources {
     strips_buffer: Buffer,
     /// Texture for alpha values (used by both view and slot rendering)
     alphas_texture: Texture,
-    /// Texture for atlas data
-    // TODO: Support more than one atlas texture
-    atlas_texture: Texture,
-    /// Bind group for atlas texture
+    /// Textures for atlas data (multiple atlases supported)
+    atlas_texture_array: Texture,
+    /// View for atlas texture array
+    atlas_texture_array_view: TextureView,
+    /// Bind group for atlas textures (as texture array)
     atlas_bind_group: BindGroup,
     /// Texture for encoded paints
     encoded_paints_texture: Texture,
@@ -496,7 +510,12 @@ impl GpuStrip {
 }
 
 impl Programs {
-    fn new(device: &Device, render_target_config: &RenderTargetConfig, slot_count: usize) -> Self {
+    fn new(
+        device: &Device,
+        image_cache: &ImageCache,
+        render_target_config: &RenderTargetConfig,
+        slot_count: usize,
+    ) -> Self {
         let strip_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Strip Bind Group Layout"),
@@ -542,7 +561,7 @@ impl Programs {
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                         multisampled: false,
                     },
                     count: None,
@@ -734,12 +753,12 @@ impl Programs {
                 resource: clear_config_buffer.as_entire_binding(),
             }],
         });
-        let clear_slot_indices_buffer = Self::make_clear_slot_indices_buffer(
+        let clear_slot_indices_buffer = Self::create_clear_slot_indices_buffer(
             device,
             slot_count as u64 * size_of::<u32>() as u64,
         );
 
-        let slot_config_buffer = Self::make_config_buffer(
+        let slot_config_buffer = Self::create_config_buffer(
             device,
             &RenderSize {
                 width: u32::from(WideTile::WIDTH),
@@ -750,14 +769,14 @@ impl Programs {
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
-        let alphas_texture = Self::make_alphas_texture(
+        let alphas_texture = Self::create_alphas_texture(
             device,
             max_texture_dimension_2d,
             INITIAL_ALPHA_TEXTURE_HEIGHT,
         );
         let alpha_data =
             vec![0; ((max_texture_dimension_2d * INITIAL_ALPHA_TEXTURE_HEIGHT) << 4) as usize];
-        let view_config_buffer = Self::make_config_buffer(
+        let view_config_buffer = Self::create_config_buffer(
             device,
             &RenderSize {
                 width: render_target_config.width,
@@ -765,45 +784,54 @@ impl Programs {
             },
             max_texture_dimension_2d,
         );
-        let atlas_texture = Self::make_atlas_texture(
+
+        let AtlasConfig {
+            atlas_size: (atlas_width, atlas_height),
+            initial_atlas_count,
+            ..
+        } = image_cache.atlas_manager().config();
+        let (atlas_texture_array, atlas_texture_array_view) = Self::create_atlas_texture_array(
             device,
-            max_texture_dimension_2d,
-            max_texture_dimension_2d,
-            wgpu::TextureFormat::Rgba8Unorm,
+            *atlas_width,
+            *atlas_height,
+            *initial_atlas_count as u32,
         );
-        let atlas_bind_group = Self::make_atlas_bind_group(
+        let atlas_bind_group = Self::create_atlas_bind_group(
             device,
             &atlas_bind_group_layout,
-            &atlas_texture.create_view(&Default::default()),
+            &atlas_texture_array_view,
         );
+
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
         let encoded_paints_data = vec![
             0;
             ((max_texture_dimension_2d * INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT) << 4)
                 as usize
         ];
-        let encoded_paints_texture = Self::make_encoded_paints_texture(
+        let encoded_paints_texture = Self::create_encoded_paints_texture(
             device,
             max_texture_dimension_2d,
             INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT,
         );
-        let encoded_paints_bind_group = Self::make_encoded_paints_bind_group(
+        let encoded_paints_bind_group = Self::create_encoded_paints_bind_group(
             device,
             &encoded_paints_bind_group_layout,
             &encoded_paints_texture.create_view(&Default::default()),
         );
+
         const INITIAL_GRADIENT_TEXTURE_HEIGHT: u32 = 1;
-        let gradient_texture = Self::make_gradient_texture(
+        let gradient_texture = Self::create_gradient_texture(
             device,
             max_texture_dimension_2d,
             INITIAL_GRADIENT_TEXTURE_HEIGHT,
         );
-        let gradient_bind_group = Self::make_gradient_bind_group(
+        let gradient_bind_group = Self::create_gradient_bind_group(
             device,
             &gradient_bind_group_layout,
             &gradient_texture.create_view(&Default::default()),
         );
-        let slot_bind_groups = Self::make_strip_bind_groups(
+
+        let slot_bind_groups = Self::create_strip_bind_groups(
             device,
             &strip_bind_group_layout,
             &alphas_texture.create_view(&Default::default()),
@@ -813,14 +841,15 @@ impl Programs {
         );
 
         let resources = GpuResources {
-            strips_buffer: Self::make_strips_buffer(device, 0),
+            strips_buffer: Self::create_strips_buffer(device, 0),
             clear_slot_indices_buffer,
             slot_texture_views,
             slot_config_buffer,
             slot_bind_groups,
             clear_bind_group,
             alphas_texture,
-            atlas_texture,
+            atlas_texture_array,
+            atlas_texture_array_view,
             atlas_bind_group,
             encoded_paints_texture,
             encoded_paints_bind_group,
@@ -834,6 +863,7 @@ impl Programs {
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
+            atlas_bind_group_layout,
             resources,
             alpha_data,
             encoded_paints_data,
@@ -841,12 +871,11 @@ impl Programs {
                 width: render_target_config.width,
                 height: render_target_config.height,
             },
-
             clear_pipeline,
         }
     }
 
-    fn make_strips_buffer(device: &Device, required_strips_size: u64) -> Buffer {
+    fn create_strips_buffer(device: &Device, required_strips_size: u64) -> Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Strips Buffer"),
             size: required_strips_size,
@@ -855,7 +884,7 @@ impl Programs {
         })
     }
 
-    fn make_clear_slot_indices_buffer(device: &Device, required_size: u64) -> Buffer {
+    fn create_clear_slot_indices_buffer(device: &Device, required_size: u64) -> Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Slot Indices Buffer"),
             size: required_size,
@@ -864,7 +893,7 @@ impl Programs {
         })
     }
 
-    fn make_config_buffer(
+    fn create_config_buffer(
         device: &Device,
         render_size: &RenderSize,
         alpha_texture_width: u32,
@@ -881,7 +910,7 @@ impl Programs {
         })
     }
 
-    fn make_alphas_texture(device: &Device, width: u32, height: u32) -> Texture {
+    fn create_alphas_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Alpha Texture"),
             size: wgpu::Extent3d {
@@ -898,44 +927,62 @@ impl Programs {
         })
     }
 
-    fn make_atlas_texture(
+    fn create_atlas_texture_array(
         device: &Device,
         width: u32,
         height: u32,
-        format: wgpu::TextureFormat,
-    ) -> Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Atlas Texture"),
+        atlas_count: u32,
+    ) -> (Texture, TextureView) {
+        // Create a single texture array with multiple layers
+        let atlas_texture_array = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Atlas Texture Array"),
             size: wgpu::Extent3d {
                 width,
                 height,
-                depth_or_array_layers: 1,
+                depth_or_array_layers: atlas_count,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
-        })
+        });
+
+        let atlas_texture_array_view =
+            atlas_texture_array.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("Atlas Texture Array View"),
+                format: None,
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                aspect: wgpu::TextureAspect::All,
+                base_mip_level: 0,
+                mip_level_count: None,
+                base_array_layer: 0,
+                array_layer_count: Some(atlas_count),
+                usage: None,
+            });
+
+        (atlas_texture_array, atlas_texture_array_view)
     }
 
-    fn make_atlas_bind_group(
+    fn create_atlas_bind_group(
         device: &Device,
         atlas_bind_group_layout: &BindGroupLayout,
-        atlas_texture_view: &TextureView,
+        atlas_texture_array_view: &TextureView,
     ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Atlas Bind Group"),
             layout: atlas_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(atlas_texture_view),
+                resource: wgpu::BindingResource::TextureView(atlas_texture_array_view),
             }],
         })
     }
 
-    fn make_encoded_paints_texture(device: &Device, width: u32, height: u32) -> Texture {
+    fn create_encoded_paints_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Encoded Paints Texture"),
             size: wgpu::Extent3d {
@@ -952,7 +999,7 @@ impl Programs {
         })
     }
 
-    fn make_encoded_paints_bind_group(
+    fn create_encoded_paints_bind_group(
         device: &Device,
         encoded_paints_bind_group_layout: &BindGroupLayout,
         encoded_paints_texture_view: &TextureView,
@@ -967,7 +1014,7 @@ impl Programs {
         })
     }
 
-    fn make_gradient_texture(device: &Device, width: u32, height: u32) -> Texture {
+    fn create_gradient_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Gradient Texture"),
             size: wgpu::Extent3d {
@@ -984,7 +1031,7 @@ impl Programs {
         })
     }
 
-    fn make_gradient_bind_group(
+    fn create_gradient_bind_group(
         device: &Device,
         gradient_bind_group_layout: &BindGroupLayout,
         gradient_texture_view: &TextureView,
@@ -999,7 +1046,7 @@ impl Programs {
         })
     }
 
-    fn make_strip_bind_groups(
+    fn create_strip_bind_groups(
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
         alphas_texture_view: &TextureView,
@@ -1008,21 +1055,21 @@ impl Programs {
         strip_texture_views: &[TextureView],
     ) -> [BindGroup; 3] {
         [
-            Self::make_strip_bind_group(
+            Self::create_strip_bind_group(
                 device,
                 strip_bind_group_layout,
                 alphas_texture_view,
                 strip_config_buffer,
                 &strip_texture_views[1],
             ),
-            Self::make_strip_bind_group(
+            Self::create_strip_bind_group(
                 device,
                 strip_bind_group_layout,
                 alphas_texture_view,
                 strip_config_buffer,
                 &strip_texture_views[0],
             ),
-            Self::make_strip_bind_group(
+            Self::create_strip_bind_group(
                 device,
                 strip_bind_group_layout,
                 alphas_texture_view,
@@ -1032,7 +1079,7 @@ impl Programs {
         ]
     }
 
-    fn make_strip_bind_group(
+    fn create_strip_bind_group(
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
         alphas_texture_view: &TextureView,
@@ -1115,12 +1162,15 @@ impl Programs {
             let required_alpha_size = (max_texture_dimension_2d * required_alpha_height) << 4;
             self.alpha_data.resize(required_alpha_size as usize, 0);
             // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
-            let alphas_texture =
-                Self::make_alphas_texture(device, max_texture_dimension_2d, required_alpha_height);
+            let alphas_texture = Self::create_alphas_texture(
+                device,
+                max_texture_dimension_2d,
+                required_alpha_height,
+            );
             self.resources.alphas_texture = alphas_texture;
 
             // Since the alpha texture has changed, we need to update the clip bind groups.
-            self.resources.slot_bind_groups = Self::make_strip_bind_groups(
+            self.resources.slot_bind_groups = Self::create_strip_bind_groups(
                 device,
                 &self.strip_bind_group_layout,
                 &self
@@ -1157,7 +1207,7 @@ impl Programs {
                 (max_texture_dimension_2d * required_encoded_paints_height) << 4;
             self.encoded_paints_data
                 .resize(required_encoded_paints_size as usize, 0);
-            let encoded_paints_texture = Self::make_encoded_paints_texture(
+            let encoded_paints_texture = Self::create_encoded_paints_texture(
                 device,
                 max_texture_dimension_2d,
                 required_encoded_paints_height,
@@ -1165,7 +1215,7 @@ impl Programs {
             self.resources.encoded_paints_texture = encoded_paints_texture;
 
             // Since the encoded paints texture has changed, we need to update the strip bind groups.
-            self.resources.encoded_paints_bind_group = Self::make_encoded_paints_bind_group(
+            self.resources.encoded_paints_bind_group = Self::create_encoded_paints_bind_group(
                 device,
                 &self.encoded_paints_bind_group_layout,
                 &self
@@ -1195,7 +1245,7 @@ impl Programs {
                 required_gradient_height <= max_texture_dimension_2d,
                 "Gradient texture height exceeds max texture dimensions"
             );
-            let gradient_texture = Self::make_gradient_texture(
+            let gradient_texture = Self::create_gradient_texture(
                 device,
                 max_texture_dimension_2d,
                 required_gradient_height,
@@ -1203,7 +1253,7 @@ impl Programs {
             self.resources.gradient_texture = gradient_texture;
 
             // Since the gradient texture has changed, we need to update the gradient bind group.
-            self.resources.gradient_bind_group = Self::make_gradient_bind_group(
+            self.resources.gradient_bind_group = Self::create_gradient_bind_group(
                 device,
                 &self.gradient_bind_group_layout,
                 &self
@@ -1235,6 +1285,98 @@ impl Programs {
 
             self.render_size = new_render_size.clone();
         }
+    }
+
+    /// Resize the texture array to accommodate more atlases.
+    fn maybe_resize_atlas_texture_array(
+        device: &Device,
+        queue: &Queue,
+        resources: &mut GpuResources,
+        atlas_bind_group_layout: &BindGroupLayout,
+        required_atlas_count: u32,
+    ) {
+        let Extent3d {
+            width,
+            height,
+            depth_or_array_layers: current_atlas_count,
+        } = resources.atlas_texture_array.size();
+        if required_atlas_count > current_atlas_count {
+            // Create new texture array with more layers
+            let (new_atlas_texture_array, new_atlas_texture_array_view) =
+                Self::create_atlas_texture_array(device, width, height, required_atlas_count);
+
+            // Copy existing atlas data from old texture array to new one
+            Self::copy_atlas_texture_data(
+                device,
+                queue,
+                &resources.atlas_texture_array,
+                &new_atlas_texture_array,
+                current_atlas_count,
+                width,
+                height,
+            );
+
+            // Update the bind group with the new texture array view
+            let new_atlas_bind_group = Self::create_atlas_bind_group(
+                device,
+                atlas_bind_group_layout,
+                &new_atlas_texture_array_view,
+            );
+
+            // Replace the old resources
+            resources.atlas_texture_array = new_atlas_texture_array;
+            resources.atlas_texture_array_view = new_atlas_texture_array_view;
+            resources.atlas_bind_group = new_atlas_bind_group;
+        }
+    }
+
+    /// Copy texture data from the old atlas texture array to a new one.
+    /// This is necessary when resizing the texture array to preserve existing atlas data.
+    fn copy_atlas_texture_data(
+        device: &Device,
+        queue: &Queue,
+        old_atlas_texture_array: &Texture,
+        new_atlas_texture_array: &Texture,
+        layer_count_to_copy: u32,
+        width: u32,
+        height: u32,
+    ) {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Atlas Resize Copy"),
+        });
+
+        // Copy each layer from old texture array to new texture array
+        for layer in 0..layer_count_to_copy {
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: old_atlas_texture_array,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: layer,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: new_atlas_texture_array,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: layer,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+
+        queue.submit([encoder.finish()]);
     }
 
     /// Upload alpha data to the texture.
@@ -1349,7 +1491,7 @@ impl Programs {
     /// Upload the strip data by creating and assigning a new `self.resources.strips_buffer`.
     fn upload_strips(&mut self, device: &Device, queue: &Queue, strips: &[GpuStrip]) {
         let required_strips_size = size_of_val(strips) as u64;
-        self.resources.strips_buffer = Self::make_strips_buffer(device, required_strips_size);
+        self.resources.strips_buffer = Self::create_strips_buffer(device, required_strips_size);
         // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
         let mut buffer = queue
             .write_buffer_with(
@@ -1427,7 +1569,7 @@ impl RendererContext<'_> {
         // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
         // approach would be to re-use buffers or slices of a larger buffer.
         resources.clear_slot_indices_buffer =
-            Programs::make_clear_slot_indices_buffer(self.device, size);
+            Programs::create_clear_slot_indices_buffer(self.device, size);
         // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
         let mut buffer = self
             .queue
@@ -1499,13 +1641,14 @@ pub trait AtlasWriter {
     /// Get the height of the image.
     fn height(&self) -> u32;
 
-    /// Write image data to the atlas texture at the specified offset.
-    fn write_to_atlas(
+    /// Write image data to a specific layer of an atlas texture array at the specified offset.
+    fn write_to_atlas_layer(
         &self,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
         atlas_texture: &wgpu::Texture,
+        layer: u32,
         offset: [u32; 2],
         width: u32,
         height: u32,
@@ -1522,12 +1665,13 @@ impl AtlasWriter for wgpu::Texture {
         self.height()
     }
 
-    fn write_to_atlas(
+    fn write_to_atlas_layer(
         &self,
         _device: &Device,
         _queue: &Queue,
         encoder: &mut CommandEncoder,
         atlas_texture: &wgpu::Texture,
+        layer: u32,
         offset: [u32; 2],
         width: u32,
         height: u32,
@@ -1545,7 +1689,7 @@ impl AtlasWriter for wgpu::Texture {
                 origin: wgpu::Origin3d {
                     x: offset[0],
                     y: offset[1],
-                    z: 0,
+                    z: layer,
                 },
                 aspect: wgpu::TextureAspect::All,
             },
@@ -1568,12 +1712,13 @@ impl AtlasWriter for Pixmap {
         self.height() as u32
     }
 
-    fn write_to_atlas(
+    fn write_to_atlas_layer(
         &self,
         _device: &Device,
         queue: &Queue,
         _encoder: &mut CommandEncoder,
         atlas_texture: &wgpu::Texture,
+        layer: u32,
         offset: [u32; 2],
         width: u32,
         height: u32,
@@ -1585,7 +1730,7 @@ impl AtlasWriter for Pixmap {
                 origin: wgpu::Origin3d {
                     x: offset[0],
                     y: offset[1],
-                    z: 0,
+                    z: layer,
                 },
                 aspect: wgpu::TextureAspect::All,
             },
@@ -1605,7 +1750,7 @@ impl AtlasWriter for Pixmap {
 }
 
 /// Implementation for `Arc<Pixmap>`
-impl AtlasWriter for alloc::sync::Arc<Pixmap> {
+impl AtlasWriter for Arc<Pixmap> {
     fn width(&self) -> u32 {
         self.as_ref().width() as u32
     }
@@ -1614,17 +1759,26 @@ impl AtlasWriter for alloc::sync::Arc<Pixmap> {
         self.as_ref().height() as u32
     }
 
-    fn write_to_atlas(
+    fn write_to_atlas_layer(
         &self,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
         atlas_texture: &wgpu::Texture,
+        layer: u32,
         offset: [u32; 2],
         width: u32,
         height: u32,
     ) {
-        self.as_ref()
-            .write_to_atlas(device, queue, encoder, atlas_texture, offset, width, height);
+        self.as_ref().write_to_atlas_layer(
+            device,
+            queue,
+            encoder,
+            atlas_texture,
+            layer,
+            offset,
+            width,
+            height,
+        );
     }
 }

@@ -195,7 +195,7 @@ struct VertexOutput {
 var<uniform> config: Config;
 
 @group(1) @binding(0)
-var atlas_texture: texture_2d<f32>;
+var atlas_texture_array: texture_2d_array<f32>;
 
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
@@ -321,26 +321,34 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             if encoded_image.quality == IMAGE_QUALITY_HIGH {
                 let final_xy = image_offset + extended_xy;
                 let sample_color = bicubic_sample(
-                    atlas_texture,
+                    atlas_texture_array,
                     final_xy,
+                    i32(encoded_image.atlas_index),
                     image_offset,
                     image_size,
-                    encoded_image.extend_modes
+                    encoded_image.extend_modes,
                 );
                 final_color = alpha * sample_color;
             } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
                 let final_xy = image_offset + extended_xy - vec2(0.5);
                 let sample_color = bilinear_sample(
-                    atlas_texture,
+                    atlas_texture_array,
                     final_xy,
+                    i32(encoded_image.atlas_index),
                     image_offset,
                     image_size,
-                    encoded_image.extend_modes
+                    encoded_image.extend_modes,
                 );
                 final_color = alpha * sample_color;
             } else if encoded_image.quality == IMAGE_QUALITY_LOW {
                 let final_xy = image_offset + extended_xy;
-                final_color = alpha * textureLoad(atlas_texture, vec2<u32>(final_xy), 0);
+                let sample_color = textureLoad(
+                    atlas_texture_array,
+                    vec2<u32>(final_xy),
+                    i32(encoded_image.atlas_index),
+                    0,
+                );
+                final_color = alpha * sample_color;
             }
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT {
             let paint_tex_idx = in.paint & PAINT_TEXTURE_INDEX_MASK;
@@ -737,6 +745,8 @@ struct EncodedImage {
     image_size: vec2<f32>,
     /// The offset of the image in pixels.
     image_offset: vec2<f32>,
+    /// The atlas index containing this image.
+    atlas_index: u32,
     /// Linear transformation matrix coefficients for 2D affine transformation.
     /// Contains [a, b, c, d] where the transformation matrix is:
     /// This enables scaling, rotation, and skewing of the image coordinates.
@@ -759,17 +769,19 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
     let image_size = vec2<f32>(f32(texel0.y >> 16u), f32(texel0.y & 0xFFFFu));
     // Unpack image_offset from texel0.z (stored as u32, unpack to x/y)
     let image_offset = vec2<f32>(f32(texel0.z >> 16u), f32(texel0.z & 0xFFFFu));
+    let atlas_index = texel0.w;
     let transform = vec4<f32>(
-        bitcast<f32>(texel0.w), bitcast<f32>(texel1.x), 
-        bitcast<f32>(texel1.y), bitcast<f32>(texel1.z)
+        bitcast<f32>(texel1.x), bitcast<f32>(texel1.y), 
+        bitcast<f32>(texel1.z), bitcast<f32>(texel1.w)
     );
-    let translate = vec2<f32>(bitcast<f32>(texel1.w), bitcast<f32>(texel2.x));
+    let translate = vec2<f32>(bitcast<f32>(texel2.x), bitcast<f32>(texel2.y));
 
     return EncodedImage(
         quality, 
         vec2<u32>(extend_x, extend_y),
         image_size,
         image_offset,
+        atlas_index,
         transform,
         translate
     );
@@ -822,20 +834,21 @@ fn extend_mode_normalized(t: f32, mode: u32) -> f32 {
 // Bilinear filtering consists of sampling the 4 surrounding pixels of the target point and
 // interpolating them with a bilinear filter.
 fn bilinear_sample(
-    tex: texture_2d<f32>,
+    tex: texture_2d_array<f32>,
     coords: vec2<f32>,
+    atlas_idx: i32,
     image_offset: vec2<f32>,
     image_size: vec2<f32>,
-    extend_modes: vec2<u32>
+    extend_modes: vec2<u32>,
 ) -> vec4<f32> {
     let atlas_max = image_offset + image_size - vec2(1.0);
     let atlas_uv_clamped = clamp(coords, image_offset, atlas_max);
     let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
     let uv_frac = fract(coords);
-    let a = textureLoad(tex, vec2<i32>(uv_quad.xy), 0);
-    let b = textureLoad(tex, vec2<i32>(uv_quad.xw), 0);
-    let c = textureLoad(tex, vec2<i32>(uv_quad.zy), 0);
-    let d = textureLoad(tex, vec2<i32>(uv_quad.zw), 0);
+    let a = textureLoad(tex, vec2<i32>(uv_quad.xy), atlas_idx, 0);
+    let b = textureLoad(tex, vec2<i32>(uv_quad.xw), atlas_idx, 0);
+    let c = textureLoad(tex, vec2<i32>(uv_quad.zy), atlas_idx, 0);
+    let d = textureLoad(tex, vec2<i32>(uv_quad.zw), atlas_idx, 0);
     return mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
 }
 
@@ -846,8 +859,9 @@ fn bilinear_sample(
 // of the cubic function used to  calculate weights based on the `x_fract` and `y_fract` of the
 // location we are looking at.
 fn bicubic_sample(
-    tex: texture_2d<f32>,
+    tex: texture_2d_array<f32>,
     coords: vec2<f32>,
+    atlas_idx: i32,
     image_offset: vec2<f32>,
     image_size: vec2<f32>,
     extend_modes: vec2<u32>,
@@ -859,25 +873,25 @@ fn bicubic_sample(
      let cy = cubic_weights(frac_coords.y);
      
      // Sample 4x4 grid around coords
-     let s00 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, -1.5), image_offset, atlas_max)), 0);
-     let s10 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, -1.5), image_offset, atlas_max)), 0);
-     let s20 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, -1.5), image_offset, atlas_max)), 0);
-     let s30 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, -1.5), image_offset, atlas_max)), 0);
+     let s00 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, -1.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s10 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, -1.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s20 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, -1.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s30 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, -1.5), image_offset, atlas_max)), atlas_idx, 0);
      
-     let s01 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, -0.5), image_offset, atlas_max)), 0);
-     let s11 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, -0.5), image_offset, atlas_max)), 0);
-     let s21 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, -0.5), image_offset, atlas_max)), 0);
-     let s31 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, -0.5), image_offset, atlas_max)), 0);
+     let s01 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, -0.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s11 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, -0.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s21 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, -0.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s31 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, -0.5), image_offset, atlas_max)), atlas_idx, 0);
      
-     let s02 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, 0.5), image_offset, atlas_max)), 0);
-     let s12 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, 0.5), image_offset, atlas_max)), 0);
-     let s22 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, 0.5), image_offset, atlas_max)), 0);
-     let s32 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, 0.5), image_offset, atlas_max)), 0);
+     let s02 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, 0.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s12 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, 0.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s22 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, 0.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s32 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, 0.5), image_offset, atlas_max)), atlas_idx, 0);
      
-     let s03 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, 1.5), image_offset, atlas_max)), 0);
-     let s13 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, 1.5), image_offset, atlas_max)), 0);
-     let s23 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, 1.5), image_offset, atlas_max)), 0);
-     let s33 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, 1.5), image_offset, atlas_max)), 0);
+     let s03 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-1.5, 1.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s13 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(-0.5, 1.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s23 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(0.5, 1.5), image_offset, atlas_max)), atlas_idx, 0);
+     let s33 = textureLoad(tex, vec2<i32>(clamp(coords + vec2(1.5, 1.5), image_offset, atlas_max)), atlas_idx, 0);
     
     // Interpolate in x direction for each row
     let row0 = cx.x * s00 + cx.y * s10 + cx.z * s20 + cx.w * s30;
