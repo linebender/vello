@@ -77,12 +77,8 @@ pub enum ImageSource {
     OpaqueId(ImageId),
 }
 
-/// An image.
-pub type Image = peniko::ImageBrush<ImageSource>;
-
-/*
-impl Image {
-    /// Convert a [`peniko::ImageBrush`] to an [`Image`].
+impl ImageSource {
+    /// Convert a [`peniko::ImageData`] to an [`ImageSource`].
     ///
     /// This is a somewhat lossy conversion, as the image data data is transformed to
     /// [premultiplied RGBA8](`PremulRgba8`).
@@ -90,67 +86,58 @@ impl Image {
     /// # Panics
     ///
     /// This panics if `image` has a `width` or `height` greater than `u16::MAX`.
-    pub fn from_peniko_image(brush: &peniko::ImageBrush) -> Self {
+    pub fn from_peniko_image_data(image: &peniko::ImageData) -> Self {
         // TODO: how do we deal with `peniko::ImageFormat` growing? See also
         // <https://github.com/linebender/vello/pull/996#discussion_r2080510863>.
-        if brush.image.alpha_type != peniko::ImageAlphaType::Alpha {
-            unimplemented!("Unsupported image alpha type: {:?}", brush.image.alpha_type);
-        }
+        let do_alpha_multiply = image.alpha_type != peniko::ImageAlphaType::AlphaPremultiplied;
 
         assert!(
-            brush.image.width <= u16::MAX as u32 && brush.image.height <= u16::MAX as u32,
+            image.width <= u16::MAX as u32 && image.height <= u16::MAX as u32,
             "The image is too big. Its width and height can be no larger than {} pixels.",
             u16::MAX,
         );
-        let width = brush.image.width.try_into().unwrap();
-        let height = brush.image.height.try_into().unwrap();
-        let ImageSampler {
-            x_extend,
-            y_extend,
-            quality,
-            alpha: global_alpha,
-        } = brush.sampler;
-
-        #[expect(clippy::cast_possible_truncation, reason = "deliberate quantization")]
-        let global_alpha = u16::from((global_alpha * 255. + 0.5) as u8);
+        let width = image.width.try_into().unwrap();
+        let height = image.height.try_into().unwrap();
 
         // TODO: SIMD
         #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow.")]
-        let pixels = brush
-            .image
+        let pixels = image
             .data
             .data()
             .chunks_exact(4)
             .map(|pixel| {
-                let rgba: [u8; 4] = match brush.image.format {
+                let rgba: [u8; 4] = match image.format {
                     peniko::ImageFormat::Rgba8 => pixel.try_into().unwrap(),
                     peniko::ImageFormat::Bgra8 => [pixel[2], pixel[1], pixel[0], pixel[3]],
                     format => unimplemented!("Unsupported image format: {format:?}"),
                 };
-                let alpha = ((u16::from(rgba[3]) * global_alpha) / 255) as u8;
-                let color_multiplier = match brush.image.alpha_type {
-                    peniko::ImageAlphaType::Alpha => alpha as u16,
-                    peniko::ImageAlphaType::AlphaPremultiplied => global_alpha,
-                };
-                let multiply = |component| ((color_multiplier * u16::from(component)) / 255) as u8;
-                PremulRgba8 {
-                    r: multiply(rgba[0]),
-                    g: multiply(rgba[1]),
-                    b: multiply(rgba[2]),
-                    a: alpha,
+                let alpha = u16::from(rgba[3]);
+                let multiply = |component| ((alpha * u16::from(component)) / 255) as u8;
+                if do_alpha_multiply {
+                    PremulRgba8 {
+                        r: multiply(rgba[0]),
+                        g: multiply(rgba[1]),
+                        b: multiply(rgba[2]),
+                        a: rgba[3],
+                    }
+                } else {
+                    PremulRgba8 {
+                        r: rgba[0],
+                        g: rgba[1],
+                        b: rgba[2],
+                        a: rgba[3],
+                    }
                 }
             })
             .collect();
         let pixmap = Pixmap::from_parts(pixels, width, height);
 
-        Self {
-            source: ImageSource::Pixmap(Arc::new(pixmap)),
-            x_extend,
-            y_extend,
-            quality,
-        }
+        Self::Pixmap(Arc::new(pixmap))
     }
-}*/
+}
+
+/// An image.
+pub type Image = peniko::ImageBrush<ImageSource>;
 
 /// A premultiplied color.
 #[derive(Debug, Clone, PartialEq, Copy)]
