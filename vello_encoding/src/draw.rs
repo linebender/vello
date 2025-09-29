@@ -201,7 +201,14 @@ impl DrawBeginClip {
     ///
     /// The least significant 16 bits are reserved for Mix + Compose
     /// combinations.
-    pub const LUMINANCE_MASK_LAYER: u32 = 0x10000;
+    pub const LUMINANCE_MASK_BLEND_MODE: u32 = 0x10000;
+    /// The `blend_mode` used to indicate that a layer should be
+    /// treated as a clip.
+    ///
+    /// This is equivalent to `Compose::SrcOver` with a `Mix` of 128,
+    /// for legacy reasons.
+    /// We expect this to change in the future.
+    pub const CLIP_BLEND_MODE: u32 = 0x8003;
 
     /// Creates new clip draw data for a Porter-Duff blend mode.
     pub fn new(blend_mode: BlendMode, alpha: f32) -> Self {
@@ -214,8 +221,16 @@ impl DrawBeginClip {
     /// Creates a new clip draw data for a luminance mask.
     pub fn luminance_mask(alpha: f32) -> Self {
         Self {
-            blend_mode: Self::LUMINANCE_MASK_LAYER,
+            blend_mode: Self::LUMINANCE_MASK_BLEND_MODE,
             alpha,
+        }
+    }
+
+    /// Creates the clip draw data for a clip-only layer.
+    pub fn clip() -> Self {
+        Self {
+            blend_mode: Self::CLIP_BLEND_MODE,
+            alpha: 1.0,
         }
     }
 }

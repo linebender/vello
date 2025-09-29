@@ -20,6 +20,8 @@ This release has an [MSRV][] of 1.86.
 - `register_texture`, a helper for using `wgpu` textures in a Vello `Renderer`. ([#1161][] by [@DJMcNab][])
 - `push_luminance_mask_layer`, content within which is used as a luminance mask. ([#1183][] by [@DJMcNab][]).  
    This is a breaking change to Vello Encoding.
+- `push_clip_layer`, which replaces the previous `push_layer` using `Mix::Clip`, and has fewer footguns. ([#1192][] by [@DJMcNab][])  
+  This is not a breaking change, as `Mix::Clip` is still supported (although it is deprecated).
 
 ### Changed
 
@@ -346,6 +348,7 @@ This release has an [MSRV][] of 1.75.
 [#1182]: https://github.com/linebender/vello/pull/1182
 [#1183]: https://github.com/linebender/vello/pull/1183
 [#1187]: https://github.com/linebender/vello/pull/1187
+[#1192]: https://github.com/linebender/vello/pull/1192
 [#1224]: https://github.com/linebender/vello/pull/1224
 [#1229]: https://github.com/linebender/vello/pull/1229
 
