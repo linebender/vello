@@ -130,7 +130,7 @@ impl EncodedImageExt for EncodedImage {
     }
 
     fn nearest_neighbor(&self) -> bool {
-        self.quality == ImageQuality::Low
+        self.sampler.quality == ImageQuality::Low
     }
 }
 

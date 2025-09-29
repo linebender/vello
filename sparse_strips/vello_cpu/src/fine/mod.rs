@@ -573,7 +573,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                         match (i.has_skew(), i.nearest_neighbor()) {
                             (_, false) => {
-                                if i.quality == ImageQuality::Medium {
+                                if i.sampler.quality == ImageQuality::Medium {
                                     fill_complex_paint!(
                                         i.has_opacities,
                                         T::medium_quality_image_painter(

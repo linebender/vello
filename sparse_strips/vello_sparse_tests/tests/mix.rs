@@ -11,7 +11,7 @@ use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{
     BlendMode, Color, ColorStop, ColorStops, Compose, Extend, Gradient, ImageQuality, Mix,
 };
-use vello_cpu::peniko::LinearGradientPosition;
+use vello_cpu::peniko::{ImageSampler, LinearGradientPosition};
 use vello_dev_macros::vello_test;
 
 fn cowboy_img(ctx: &mut impl Renderer) -> ImageSource {
@@ -55,10 +55,13 @@ fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
     };
 
     let image = Image {
-        source: cowboy_img(ctx),
-        x_extend: Extend::Pad,
-        y_extend: Extend::Pad,
-        quality: ImageQuality::Low,
+        image: cowboy_img(ctx),
+        sampler: ImageSampler {
+            x_extend: Extend::Pad,
+            y_extend: Extend::Pad,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
     };
 
     ctx.set_transform(Affine::translate((10.0, 10.0)));

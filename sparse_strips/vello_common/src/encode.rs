@@ -20,7 +20,8 @@ use core::hash::{Hash, Hasher};
 use fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, f32x16};
 use peniko::color::cache_key::{BitEq, BitHash, CacheKey};
 use peniko::{
-    InterpolationAlphaSpace, LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
+    ImageSampler, InterpolationAlphaSpace, LinearGradientPosition, RadialGradientPosition,
+    SweepGradientPosition,
 };
 use smallvec::ToSmallVec;
 // So we can just use `OnceCell` regardless of which feature is activated.
@@ -430,7 +431,7 @@ impl EncodeExt for Image {
     fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
         let idx = paints.len();
 
-        let mut quality = self.quality;
+        let mut sampler = self.sampler;
 
         let c = transform.as_coeffs();
 
@@ -441,9 +442,9 @@ impl EncodeExt for Image {
             && (c[3] as f32 - 1.0).is_nearly_zero()
             && ((c[4] - c[4].floor()) as f32).is_nearly_zero()
             && ((c[5] - c[5].floor()) as f32).is_nearly_zero()
-            && quality == ImageQuality::Medium
+            && sampler.quality == ImageQuality::Medium
         {
-            quality = ImageQuality::Low;
+            sampler.quality = ImageQuality::Low;
         }
 
         // Similarly to gradients, apply a 0.5 offset so we sample at the center of
@@ -452,12 +453,11 @@ impl EncodeExt for Image {
 
         let (x_advance, y_advance) = x_y_advances(&transform);
 
-        let encoded = match &self.source {
+        let encoded = match &self.image {
             ImageSource::Pixmap(pixmap) => {
                 EncodedImage {
                     source: ImageSource::Pixmap(pixmap.clone()),
-                    extends: (self.x_extend, self.y_extend),
-                    quality,
+                    sampler,
                     // While we could optimize RGB8 images, it's probably not worth the trouble.
                     has_opacities: true,
                     transform,
@@ -467,8 +467,7 @@ impl EncodeExt for Image {
             }
             ImageSource::OpaqueId(image) => EncodedImage {
                 source: ImageSource::OpaqueId(*image),
-                extends: (self.x_extend, self.y_extend),
-                quality: self.quality,
+                sampler,
                 has_opacities: true,
                 transform,
                 x_advance,
@@ -510,10 +509,8 @@ impl From<EncodedBlurredRoundedRectangle> for EncodedPaint {
 pub struct EncodedImage {
     /// The underlying pixmap of the image.
     pub source: ImageSource,
-    /// The extends in the horizontal and vertical direction.
-    pub extends: (Extend, Extend),
-    /// The rendering quality of the image.
-    pub quality: ImageQuality,
+    /// Sampler
+    pub sampler: ImageSampler,
     /// Whether the image has opacities.
     pub has_opacities: bool,
     /// A transform to apply to the image.

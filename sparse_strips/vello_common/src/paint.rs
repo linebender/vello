@@ -6,7 +6,7 @@
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
 use peniko::{
-    Gradient, ImageQuality, ImageSampler,
+    Gradient,
     color::{AlphaColor, PremulRgba8, Srgb},
 };
 
@@ -78,18 +78,9 @@ pub enum ImageSource {
 }
 
 /// An image.
-#[derive(Debug, Clone)]
-pub struct Image {
-    /// The underlying pixmap of the image.
-    pub source: ImageSource,
-    /// Extend mode in the horizontal direction.
-    pub x_extend: peniko::Extend,
-    /// Extend mode in the vertical direction.
-    pub y_extend: peniko::Extend,
-    /// Hint for desired rendering quality.
-    pub quality: ImageQuality,
-}
+pub type Image = peniko::ImageBrush<ImageSource>;
 
+/*
 impl Image {
     /// Convert a [`peniko::ImageBrush`] to an [`Image`].
     ///
@@ -102,9 +93,6 @@ impl Image {
     pub fn from_peniko_image(brush: &peniko::ImageBrush) -> Self {
         // TODO: how do we deal with `peniko::ImageFormat` growing? See also
         // <https://github.com/linebender/vello/pull/996#discussion_r2080510863>.
-        if brush.image.format != peniko::ImageFormat::Rgba8 {
-            unimplemented!("Unsupported image format: {:?}", brush.image.format);
-        }
         if brush.image.alpha_type != peniko::ImageAlphaType::Alpha {
             unimplemented!("Unsupported image alpha type: {:?}", brush.image.alpha_type);
         }
@@ -133,9 +121,18 @@ impl Image {
             .data
             .data()
             .chunks_exact(4)
-            .map(|rgba| {
+            .map(|pixel| {
+                let rgba: [u8; 4] = match brush.image.format {
+                    peniko::ImageFormat::Rgba8 => pixel.try_into().unwrap(),
+                    peniko::ImageFormat::Bgra8 => [pixel[2], pixel[1], pixel[0], pixel[3]],
+                    format => unimplemented!("Unsupported image format: {format:?}"),
+                };
                 let alpha = ((u16::from(rgba[3]) * global_alpha) / 255) as u8;
-                let multiply = |component| ((u16::from(alpha) * u16::from(component)) / 255) as u8;
+                let color_multiplier = match brush.image.alpha_type {
+                    peniko::ImageAlphaType::Alpha => alpha as u16,
+                    peniko::ImageAlphaType::AlphaPremultiplied => global_alpha,
+                };
+                let multiply = |component| ((color_multiplier * u16::from(component)) / 255) as u8;
                 PremulRgba8 {
                     r: multiply(rgba[0]),
                     g: multiply(rgba[1]),
@@ -153,7 +150,7 @@ impl Image {
             quality,
         }
     }
-}
+}*/
 
 /// A premultiplied color.
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -193,30 +190,4 @@ impl PremulColor {
 }
 
 /// A kind of paint that can be used for filling and stroking shapes.
-#[derive(Debug, Clone)]
-pub enum PaintType {
-    /// A solid color.
-    Solid(AlphaColor<Srgb>),
-    /// A gradient.
-    Gradient(Gradient),
-    /// An image.
-    Image(Image),
-}
-
-impl From<AlphaColor<Srgb>> for PaintType {
-    fn from(value: AlphaColor<Srgb>) -> Self {
-        Self::Solid(value)
-    }
-}
-
-impl From<Gradient> for PaintType {
-    fn from(value: Gradient) -> Self {
-        Self::Gradient(value)
-    }
-}
-
-impl From<Image> for PaintType {
-    fn from(value: Image) -> Self {
-        Self::Image(value)
-    }
-}
+pub type PaintType = peniko::Brush<Image, Gradient>;

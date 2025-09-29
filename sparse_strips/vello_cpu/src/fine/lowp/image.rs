@@ -60,7 +60,7 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
             extend(
                 self.simd,
                 x_pos,
-                self.data.image.extends.0,
+                self.data.image.sampler.x_extend,
                 self.data.width,
                 self.data.width_inv,
             )
@@ -70,7 +70,7 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
             extend(
                 self.simd,
                 y_pos,
-                self.data.image.extends.1,
+                self.data.image.sampler.y_extend,
                 self.data.height,
                 self.data.height_inv,
             )
