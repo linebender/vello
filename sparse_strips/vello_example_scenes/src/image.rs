@@ -7,13 +7,13 @@ use std::f64::consts::PI;
 use vello_common::color::PremulRgba8;
 use vello_common::kurbo::{BezPath, Point, Shape, Vec2};
 use vello_common::peniko::ImageFormat;
+use vello_common::peniko::ImageSampler;
 use vello_common::pixmap::Pixmap;
 use vello_common::{
     kurbo::{Affine, Rect},
     paint::{Image, ImageSource},
     peniko::{Extend, ImageQuality},
 };
-use vello_cpu::peniko::ImageSampler;
 
 use crate::{ExampleScene, RenderingContext};
 

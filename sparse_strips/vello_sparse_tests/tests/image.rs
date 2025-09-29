@@ -9,10 +9,10 @@ use std::f64::consts::PI;
 use std::sync::Arc;
 use vello_common::color::palette::css::REBECCA_PURPLE;
 use vello_common::kurbo::{Affine, Point, Rect};
+use vello_common::kurbo::{Shape, Triangle};
 use vello_common::paint::{Image, ImageSource};
+use vello_common::peniko::ImageSampler;
 use vello_common::peniko::{Extend, ImageQuality};
-use vello_cpu::kurbo::{Shape, Triangle};
-use vello_cpu::peniko::ImageSampler;
 use vello_dev_macros::vello_test;
 
 fn rgb_img_10x10(ctx: &mut impl Renderer) -> ImageSource {

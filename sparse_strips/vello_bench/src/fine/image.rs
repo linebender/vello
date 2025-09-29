@@ -11,9 +11,9 @@ use vello_common::kurbo::Affine;
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko;
 use vello_common::peniko::ImageQuality;
+use vello_common::peniko::ImageSampler;
 use vello_common::pixmap::Pixmap;
 use vello_cpu::fine::{Fine, FineKernel};
-use vello_cpu::peniko::ImageSampler;
 
 pub fn image(c: &mut Criterion) {
     transform::none(c);
