@@ -147,6 +147,9 @@ impl Scene {
     /// The pushed layer is intended to not impact the "source" for blending; that is, any blends
     /// within this layer will still include content from before this method was called in the "source"
     /// of that blend operation.
+    /// Note that this is not currently implemented correctly -
+    /// see [#1198](https://github.com/linebender/vello/issues/1198).
+    /// As such, you should currently not include any blend layers until this layer is popped.
     ///
     /// Every drawing command after this call will be clipped by the shape
     /// until the layer is [popped](Self::pop_layer).
