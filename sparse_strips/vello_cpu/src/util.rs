@@ -112,6 +112,8 @@ pub(crate) trait BlendModeExt {
 
 impl BlendModeExt for BlendMode {
     // peniko uses `Clip` instead of `Normal` as the default, hence this override.
+    // TODO: This default has changed, re-evaluate.
+    #[expect(deprecated, reason = "Provided by the user, need to handle correctly.")]
     fn is_default(&self) -> bool {
         matches!(self.mix, Mix::Normal | Mix::Clip) && self.compose == Compose::SrcOver
     }

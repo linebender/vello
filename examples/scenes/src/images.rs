@@ -22,22 +22,22 @@ impl ImageCache {
     pub fn from_file(&mut self, path: impl AsRef<Path>) -> anyhow::Result<ImageBrush> {
         let path = path.as_ref();
         if let Some(image) = self.files.get(path) {
-            Ok(ImageBrush::new(image.clone()))
+            Ok(image.clone().into())
         } else {
             let data = std::fs::read(path)?;
             let image = decode_image(&data)?;
             self.files.insert(path.to_owned(), image.clone());
-            Ok(ImageBrush::new(image))
+            Ok(image.into())
         }
     }
 
     pub fn from_bytes(&mut self, key: usize, bytes: &[u8]) -> anyhow::Result<ImageBrush> {
         if let Some(image) = self.bytes.get(&key) {
-            Ok(ImageBrush::new(image.clone()))
+            Ok(image.clone().into())
         } else {
             let image = decode_image(bytes)?;
             self.bytes.insert(key, image.clone());
-            Ok(ImageBrush::new(image))
+            Ok(image.into())
         }
     }
 }

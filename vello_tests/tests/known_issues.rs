@@ -205,7 +205,7 @@ fn clip_blends() {
         &Rect::from_origin_size((0., 0.), (100., 100.)),
     );
     let layer_shape = Triangle::from_coords((50., 0.), (0., 100.), (100., 100.));
-    scene.push_layer(Mix::Clip, 1.0, Affine::IDENTITY, &layer_shape);
+    scene.push_clip_layer(Affine::IDENTITY, &layer_shape);
     scene.push_layer(Mix::Multiply, 1.0, Affine::IDENTITY, &layer_shape);
     scene.fill(
         vello::peniko::Fill::EvenOdd,

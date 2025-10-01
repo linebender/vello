@@ -564,6 +564,10 @@ impl Scheduler {
     ///
     /// Returns `Some(command_idx)` if there is more work to be done. Returns `None` if the wide
     /// tile has been fully consumed.
+    #[expect(
+        deprecated,
+        reason = "Mix::Clip might be provided by the user, need to handle correctly."
+    )]
     fn do_tile<'a, R: RendererBackend>(
         &mut self,
         renderer: &mut R,
