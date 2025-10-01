@@ -6,8 +6,7 @@
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
 use peniko::{
-    Gradient, ImageQuality, ImageSampler,
-    color::{AlphaColor, PremulRgba8, Srgb},
+    color::{AlphaColor, PremulRgba8, Srgb}, Gradient, ImageBrushRef, ImageQuality, ImageSampler
 };
 
 /// A paint that needs to be resolved via its index.
@@ -99,7 +98,7 @@ impl Image {
     /// # Panics
     ///
     /// This panics if `image` has a `width` or `height` greater than `u16::MAX`.
-    pub fn from_peniko_image(brush: &peniko::ImageBrush) -> Self {
+    pub fn from_peniko_image<'a>(brush: ImageBrushRef<'a>) -> Self {
         // TODO: how do we deal with `peniko::ImageFormat` growing? See also
         // <https://github.com/linebender/vello/pull/996#discussion_r2080510863>.
         if brush.image.format != peniko::ImageFormat::Rgba8 {
