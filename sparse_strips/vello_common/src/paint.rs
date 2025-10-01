@@ -6,7 +6,8 @@
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
 use peniko::{
-    color::{AlphaColor, PremulRgba8, Srgb}, Gradient, ImageBrushRef, ImageQuality, ImageSampler
+    Gradient, ImageBrushRef, ImageQuality, ImageSampler,
+    color::{AlphaColor, PremulRgba8, Srgb},
 };
 
 /// A paint that needs to be resolved via its index.
