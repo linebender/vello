@@ -41,7 +41,7 @@ mod scene;
 #[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
 mod schedule;
 pub mod util;
-pub use multi_atlas::{AllocationStrategy, AtlasConfig, AtlasError, AtlasId};
+pub use multi_atlas::{AllocationStrategy, AtlasConfig};
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};

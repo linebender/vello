@@ -23,7 +23,8 @@ use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, mem, num::NonZeroU64};
 use wgpu::Extent3d;
 
-use crate::{AtlasConfig, AtlasId};
+use crate::AtlasConfig;
+use crate::multi_atlas::AtlasId;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
@@ -34,8 +35,8 @@ use crate::{
             GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
             GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            pack_image_offset, pack_image_size, pack_quality_and_extend_modes,
-            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode,
+            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
+            pack_texture_width_and_extend_mode,
         },
     },
     scene::Scene,
@@ -190,7 +191,7 @@ impl Renderer {
 
         Programs::maybe_resize_atlas_texture_array(
             device,
-            queue,
+            encoder,
             &mut self.programs.resources,
             &self.programs.atlas_bind_group_layout,
             self.image_cache.atlas_count() as u32,
@@ -237,42 +238,58 @@ impl Renderer {
         }
     }
 
-    /// Clear a specific region of the atlas texture with uninitialized data.
+    /// Clear a specific region of the atlas texture.
     fn clear_atlas_region(
         &mut self,
         _device: &Device,
-        queue: &Queue,
-        _encoder: &mut CommandEncoder,
+        _queue: &Queue,
+        encoder: &mut CommandEncoder,
         atlas_id: AtlasId,
         offset: [u32; 2],
         width: u32,
         height: u32,
     ) {
-        // Rgba8Unorm is 4 bytes per pixel
-        let uninitialized_data = vec![0_u8; (width * height * 4) as usize];
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.programs.resources.atlas_texture_array,
-                mip_level: 0,
-                origin: wgpu::Origin3d {
-                    x: offset[0],
-                    y: offset[1],
-                    z: atlas_id.as_u32(),
+        // Create a texture view for the specific atlas layer
+        let layer_view =
+            self.programs
+                .resources
+                .atlas_texture_array
+                .create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("Atlas Layer Clear View"),
+                    format: Some(wgpu::TextureFormat::Rgba8Unorm),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    aspect: wgpu::TextureAspect::All,
+                    base_mip_level: 0,
+                    mip_level_count: Some(1),
+                    base_array_layer: atlas_id.as_u32(),
+                    array_layer_count: Some(1),
+                    // Inherit usage from the texture
+                    usage: None,
+                });
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Clear Atlas Region"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &layer_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    // Don't clear entire texture, just the scissor region
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
                 },
-                aspect: wgpu::TextureAspect::All,
-            },
-            &uninitialized_data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * width),
-                rows_per_image: Some(height),
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        // Set scissor rectangle to limit clearing to specific region
+        render_pass.set_scissor_rect(offset[0], offset[1], width, height);
+        // Use atlas clear pipeline to render transparent pixels
+        render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
+        // Draw fullscreen quad
+        render_pass.draw(0..4, 0..1);
     }
 
     fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
@@ -328,19 +345,19 @@ impl Renderer {
         let transform = image_transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(image_resource.width, image_resource.height);
         let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
-        let quality_and_extend_modes = pack_quality_and_extend_modes(
+        let image_params = pack_image_params(
+            image.quality as u32,
             image.extends.0 as u32,
             image.extends.1 as u32,
-            image.quality as u32,
+            image_resource.atlas_id.as_u32(),
         );
 
         GpuEncodedPaint::Image(GpuEncodedImage {
-            quality_and_extend_modes,
+            image_params,
             image_size,
             image_offset,
-            atlas_index: image_resource.atlas_id.as_u32(),
             transform,
-            _padding: [0, 0],
+            _padding: [0, 0, 0],
         })
     }
 
@@ -432,6 +449,8 @@ struct Programs {
     atlas_bind_group_layout: BindGroupLayout,
     /// Pipeline for clearing slots in slot textures.
     clear_pipeline: RenderPipeline,
+    /// Pipeline for clearing atlas regions.
+    atlas_clear_pipeline: RenderPipeline,
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
     /// Dimensions of the rendering target
@@ -714,6 +733,43 @@ impl Programs {
             cache: None,
         });
 
+        // Create atlas clear pipeline
+        let atlas_clear_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Atlas Clear Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+        let atlas_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Atlas Clear Pipeline"),
+            layout: Some(&atlas_clear_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &clear_shader,
+                // Use a different vertex shader entry point
+                entry_point: Some("vs_main_fullscreen"),
+                buffers: &[],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &clear_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         let slot_texture_views: [TextureView; 2] = core::array::from_fn(|_| {
             device
                 .create_texture(&wgpu::TextureDescriptor {
@@ -872,6 +928,7 @@ impl Programs {
                 height: render_target_config.height,
             },
             clear_pipeline,
+            atlas_clear_pipeline,
         }
     }
 
@@ -947,7 +1004,8 @@ impl Programs {
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::COPY_SRC,
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
 
@@ -1290,7 +1348,7 @@ impl Programs {
     /// Resize the texture array to accommodate more atlases.
     fn maybe_resize_atlas_texture_array(
         device: &Device,
-        queue: &Queue,
+        encoder: &mut CommandEncoder,
         resources: &mut GpuResources,
         atlas_bind_group_layout: &BindGroupLayout,
         required_atlas_count: u32,
@@ -1307,8 +1365,7 @@ impl Programs {
 
             // Copy existing atlas data from old texture array to new one
             Self::copy_atlas_texture_data(
-                device,
-                queue,
+                encoder,
                 &resources.atlas_texture_array,
                 &new_atlas_texture_array,
                 current_atlas_count,
@@ -1333,50 +1390,33 @@ impl Programs {
     /// Copy texture data from the old atlas texture array to a new one.
     /// This is necessary when resizing the texture array to preserve existing atlas data.
     fn copy_atlas_texture_data(
-        device: &Device,
-        queue: &Queue,
+        encoder: &mut CommandEncoder,
         old_atlas_texture_array: &Texture,
         new_atlas_texture_array: &Texture,
         layer_count_to_copy: u32,
         width: u32,
         height: u32,
     ) {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Atlas Resize Copy"),
-        });
-
-        // Copy each layer from old texture array to new texture array
-        for layer in 0..layer_count_to_copy {
-            encoder.copy_texture_to_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: old_atlas_texture_array,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d {
-                        x: 0,
-                        y: 0,
-                        z: layer,
-                    },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: new_atlas_texture_array,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d {
-                        x: 0,
-                        y: 0,
-                        z: layer,
-                    },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
-
-        queue.submit([encoder.finish()]);
+        // Copy all layers from old texture array to new texture array
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: old_atlas_texture_array,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: new_atlas_texture_array,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: layer_count_to_copy,
+            },
+        );
     }
 
     /// Upload alpha data to the texture.

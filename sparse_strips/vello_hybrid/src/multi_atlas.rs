@@ -8,6 +8,7 @@
 
 use alloc::vec::Vec;
 use guillotiere::{AllocId, Allocation, AtlasAllocator, size2};
+use thiserror::Error;
 
 /// Manages multiple texture atlases.
 pub(crate) struct MultiAtlasManager {
@@ -38,16 +39,6 @@ impl MultiAtlasManager {
         }
 
         manager
-    }
-
-    /// Create a new multi-atlas manager with default configuration.
-    pub(crate) fn new_with_initial_atlas(width: u32, height: u32) -> Self {
-        let config = AtlasConfig {
-            atlas_size: (width, height),
-            ..Default::default()
-        };
-
-        Self::new(config)
     }
 
     /// Get the current configuration.
@@ -84,11 +75,6 @@ impl MultiAtlasManager {
         // Check if the image is too large for any atlas
         if width > self.config.atlas_size.0 || height > self.config.atlas_size.1 {
             return Err(AtlasError::TextureTooLarge { width, height });
-        }
-
-        // If no atlases exist and auto-grow is enabled, create one
-        if self.atlases.is_empty() && self.config.auto_grow {
-            self.create_atlas()?;
         }
 
         // Try allocation based on strategy
@@ -247,13 +233,14 @@ impl MultiAtlasManager {
         width: u32,
         height: u32,
     ) -> Result<(), AtlasError> {
-        for atlas in &mut self.atlases {
-            if atlas.id == atlas_id {
-                atlas.deallocate(alloc_id, width, height);
-                return Ok(());
-            }
-        }
-        Err(AtlasError::AtlasNotFound(atlas_id))
+        // Since atlases only grow (never deallocate) and id is the index into the atlases vec,
+        // we can do a lookup instead of a linear search
+        let atlas = self
+            .atlases
+            .get_mut(atlas_id.0 as usize)
+            .ok_or(AtlasError::AtlasNotFound(atlas_id))?;
+        atlas.deallocate(alloc_id, width, height);
+        Ok(())
     }
 
     /// Get statistics for all atlases.
@@ -267,13 +254,6 @@ impl MultiAtlasManager {
     /// Get the number of atlases.
     pub(crate) fn atlas_count(&self) -> usize {
         self.atlases.len()
-    }
-
-    /// Clear all atlases.
-    pub(crate) fn clear(&mut self) {
-        for atlas in &mut self.atlases {
-            atlas.clear();
-        }
     }
 }
 
@@ -339,14 +319,6 @@ impl Atlas {
     pub(crate) fn stats(&self) -> &AtlasUsageStats {
         &self.stats
     }
-
-    /// Clear all allocations in this atlas.
-    pub(crate) fn clear(&mut self) {
-        self.allocator.clear();
-        self.stats.allocated_area = 0;
-        self.stats.allocated_count = 0;
-        self.allocation_counter = 0;
-    }
 }
 
 impl core::fmt::Debug for Atlas {
@@ -360,48 +332,36 @@ impl core::fmt::Debug for Atlas {
 }
 
 /// Errors that can occur during atlas operations.
-#[derive(Debug)]
-pub enum AtlasError {
-    /// No space available in any atlas.
+#[derive(Debug, Error)]
+pub(crate) enum AtlasError {
+    #[error("No space available in any atlas")]
     NoSpaceAvailable,
-    /// Maximum number of atlases reached.
+    #[error("Maximum number of atlases reached")]
     AtlasLimitReached,
     /// The requested texture size is too large for any atlas.
+    #[error("Texture too large ({width}x{height}) for atlas")]
     TextureTooLarge {
         /// The width of the requested texture.
         width: u32,
         /// The height of the requested texture.
         height: u32,
     },
-    /// Atlas with the given ID was not found.
+    #[error("Atlas with Id {0:?} not found")]
     AtlasNotFound(AtlasId),
-}
-
-impl core::fmt::Display for AtlasError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::NoSpaceAvailable => write!(f, "No space available in any atlas"),
-            Self::AtlasLimitReached => write!(f, "Maximum number of atlases reached"),
-            Self::TextureTooLarge { width, height } => {
-                write!(f, "Texture too large ({width}x{height}) for atlas")
-            }
-            Self::AtlasNotFound(id) => write!(f, "Atlas with ID {:?} not found", id),
-        }
-    }
 }
 
 /// Unique identifier for an atlas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct AtlasId(pub u32);
+pub(crate) struct AtlasId(pub u32);
 
 impl AtlasId {
     /// Create a new atlas ID.
-    pub fn new(id: u32) -> Self {
+    pub(crate) fn new(id: u32) -> Self {
         Self(id)
     }
 
     /// Get the raw ID value.
-    pub fn as_u32(self) -> u32 {
+    pub(crate) fn as_u32(self) -> u32 {
         self.0
     }
 }
@@ -460,6 +420,15 @@ pub struct AtlasConfig {
 impl Default for AtlasConfig {
     fn default() -> Self {
         Self {
+            // In WGPU's GLES backend, heuristics are used to decide whether a texture
+            // should be treated as D2 or D2Array. However, this can cause a mismatch:
+            // - when depth_or_array_layers == 1, the backend assumes the texture is D2,
+            // even if it was actually created as a D2Array. This issue only occurs with the GLES backend.
+            //
+            // @see https://github.com/gfx-rs/wgpu/blob/61e5124eb9530d3b3865556a7da4fd320d03ddc5/wgpu-hal/src/gles/mod.rs#L470-L517
+            #[cfg(all(target_arch = "wasm32", feature = "wgpu"))]
+            initial_atlas_count: 2,
+            #[cfg(not(all(target_arch = "wasm32", feature = "wgpu")))]
             initial_atlas_count: 1,
             max_atlases: 8,
             atlas_size: (4096, 4096),
@@ -535,5 +504,153 @@ mod tests {
 
         let result = manager.try_allocate(300, 300);
         assert!(matches!(result, Err(AtlasError::TextureTooLarge { .. })));
+    }
+
+    #[test]
+    fn test_first_fit_allocation_strategy() {
+        let mut manager = MultiAtlasManager::new(AtlasConfig {
+            initial_atlas_count: 3,
+            max_atlases: 3,
+            atlas_size: (256, 256),
+            allocation_strategy: AllocationStrategy::FirstFit,
+            auto_grow: false,
+        });
+
+        // First allocation should go to atlas 0
+        let allocation0 = manager.try_allocate(100, 100).unwrap();
+        assert_eq!(allocation0.atlas_id.as_u32(), 0);
+
+        // Second allocation should also go to atlas 0 (first fit)
+        let allocation1 = manager.try_allocate(50, 50).unwrap();
+        assert_eq!(allocation1.atlas_id.as_u32(), 0);
+
+        // Third allocation should still go to atlas 0 (first fit continues to use same atlas)
+        let allocation2 = manager.try_allocate(80, 80).unwrap();
+        assert_eq!(allocation2.atlas_id.as_u32(), 0);
+
+        // Try to allocate something very large that definitely won't fit in atlas 0's remaining space
+        // This should force it to go to atlas 1
+        let allocation3 = manager.try_allocate(200, 200).unwrap();
+        assert_eq!(allocation3.atlas_id.as_u32(), 1);
+
+        // Next small allocation should go back to atlas 0 (first fit tries atlas 0 first)
+        let allocation4 = manager.try_allocate(20, 20).unwrap();
+        assert_eq!(allocation4.atlas_id.as_u32(), 0);
+    }
+
+    #[test]
+    fn test_best_fit_allocation_strategy() {
+        let mut manager = MultiAtlasManager::new(AtlasConfig {
+            initial_atlas_count: 3,
+            max_atlases: 3,
+            atlas_size: (256, 256),
+            allocation_strategy: AllocationStrategy::BestFit,
+            auto_grow: false,
+        });
+
+        // All atlases start empty, so first allocation goes to atlas 0 (first available)
+        let allocation0 = manager.try_allocate(150, 150).unwrap();
+        assert_eq!(allocation0.atlas_id.as_u32(), 0);
+
+        // Second allocation should also go to atlas 0 since it still has the least remaining space
+        // that can fit the image (all atlases have same remaining space, so it picks the first)
+        let allocation1 = manager.try_allocate(100, 100).unwrap();
+        assert_eq!(allocation1.atlas_id.as_u32(), 0);
+
+        // Now atlas 0 has less remaining space than atlases 1 and 2
+        // For a small allocation, it should still go to atlas 0 (best fit - least remaining space)
+        let allocation2 = manager.try_allocate(100, 100).unwrap();
+        assert_eq!(allocation2.atlas_id.as_u32(), 0);
+
+        // Now try to allocate something very large that won't fit in atlas 0's remaining space
+        // This should force it to go to atlas 1 (which has the most remaining space)
+        let allocation3 = manager.try_allocate(200, 200).unwrap();
+        assert_eq!(allocation3.atlas_id.as_u32(), 1);
+
+        // Now atlas 1 has less remaining space
+        // A small allocation should go to atlas 0 as it can
+        let allocation4 = manager.try_allocate(80, 80).unwrap();
+        assert_eq!(allocation4.atlas_id.as_u32(), 0);
+
+        // Now atlas 1 has less remaining space but it can't fit the allocation
+        // It should go to atlas 2 (best fit - least remaining space)
+        let allocation5 = manager.try_allocate(80, 80).unwrap();
+        assert_eq!(allocation5.atlas_id.as_u32(), 2);
+    }
+
+    #[test]
+    fn test_least_used_allocation_strategy() {
+        let mut manager = MultiAtlasManager::new(AtlasConfig {
+            initial_atlas_count: 3,
+            max_atlases: 3,
+            atlas_size: (256, 256),
+            allocation_strategy: AllocationStrategy::LeastUsed,
+            auto_grow: false,
+        });
+
+        // First allocation goes to atlas 0 (all atlases have 0% usage, picks first)
+        let allocation0 = manager.try_allocate(100, 100).unwrap();
+        assert_eq!(allocation0.atlas_id.as_u32(), 0);
+
+        // Second allocation should go to atlas 1 (least used among remaining)
+        let allocation1 = manager.try_allocate(50, 50).unwrap();
+        assert_eq!(allocation1.atlas_id.as_u32(), 1);
+
+        // Third allocation should go to atlas 2 (least used)
+        let allocation2 = manager.try_allocate(30, 30).unwrap();
+        assert_eq!(allocation2.atlas_id.as_u32(), 2);
+
+        // Fourth allocation should go to atlas 2 again (still least used)
+        let allocation3 = manager.try_allocate(30, 30).unwrap();
+        assert_eq!(allocation3.atlas_id.as_u32(), 2);
+    }
+
+    #[test]
+    fn test_round_robin_allocation_strategy() {
+        let mut manager = MultiAtlasManager::new(AtlasConfig {
+            initial_atlas_count: 3,
+            max_atlases: 3,
+            atlas_size: (256, 256),
+            allocation_strategy: AllocationStrategy::RoundRobin,
+            auto_grow: false,
+        });
+
+        // Allocations should cycle through atlases in order
+        let allocation0 = manager.try_allocate(50, 50).unwrap();
+        assert_eq!(allocation0.atlas_id.as_u32(), 0);
+
+        let allocation1 = manager.try_allocate(50, 50).unwrap();
+        assert_eq!(allocation1.atlas_id.as_u32(), 1);
+
+        let allocation2 = manager.try_allocate(50, 50).unwrap();
+        assert_eq!(allocation2.atlas_id.as_u32(), 2);
+
+        // Should wrap back to atlas 0
+        let allocation3 = manager.try_allocate(50, 50).unwrap();
+        assert_eq!(allocation3.atlas_id.as_u32(), 0);
+
+        // Continue the cycle
+        let allocation4 = manager.try_allocate(50, 50).unwrap();
+        assert_eq!(allocation4.atlas_id.as_u32(), 1);
+    }
+
+    #[test]
+    fn test_auto_grow() {
+        let mut manager = MultiAtlasManager::new(AtlasConfig {
+            initial_atlas_count: 1,
+            max_atlases: 3,
+            atlas_size: (256, 256),
+            allocation_strategy: AllocationStrategy::FirstFit,
+            auto_grow: true,
+        });
+
+        let allocation0 = manager.try_allocate(256, 256).unwrap();
+        assert_eq!(allocation0.atlas_id.as_u32(), 0);
+
+        let allocation1 = manager.try_allocate(256, 256).unwrap();
+        assert_eq!(allocation1.atlas_id.as_u32(), 1);
+
+        let allocation2 = manager.try_allocate(256, 256).unwrap();
+        assert_eq!(allocation2.atlas_id.as_u32(), 2);
     }
 }

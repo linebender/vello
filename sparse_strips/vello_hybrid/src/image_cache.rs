@@ -1,8 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#![allow(dead_code, reason = "Clippy fails when --no-default-features")]
-
 use crate::multi_atlas::{AtlasConfig, AtlasError, AtlasId, MultiAtlasManager};
 use alloc::vec::Vec;
 use guillotiere::AllocId;
@@ -49,15 +47,6 @@ impl core::fmt::Debug for ImageCache {
 }
 
 impl ImageCache {
-    /// Create a new image cache with default atlas configuration.
-    pub(crate) fn new(width: u32, height: u32) -> Self {
-        Self {
-            atlas_manager: MultiAtlasManager::new_with_initial_atlas(width, height),
-            slots: Vec::new(),
-            free_idxs: Vec::new(),
-        }
-    }
-
     /// Create a new image cache with custom atlas configuration.
     pub(crate) fn new_with_config(config: AtlasConfig) -> Self {
         Self {
@@ -89,7 +78,7 @@ impl ImageCache {
         });
 
         let image_id = ImageId::new(slot_idx as u32);
-        self.slots[slot_idx] = Some(ImageResource {
+        let image_resource = ImageResource {
             id: image_id,
             width: width as u16,
             height: height as u16,
@@ -99,8 +88,9 @@ impl ImageCache {
                 atlas_alloc.allocation.rectangle.min.y as u16,
             ],
             atlas_alloc_id: atlas_alloc.allocation.id,
-        });
-        Ok(image_id)
+        };
+        self.slots[slot_idx] = Some(image_resource);
+        Ok(self.slots[slot_idx].as_ref().unwrap().id)
     }
 
     /// Deallocate an image from the cache, returning the image resource if it existed.
@@ -108,12 +98,14 @@ impl ImageCache {
         let index = id.as_u32() as usize;
         if let Some(image_resource) = self.slots.get_mut(index).and_then(Option::take) {
             // Deallocate from the appropriate atlas
-            let _ = self.atlas_manager.deallocate(
-                image_resource.atlas_id,
-                image_resource.atlas_alloc_id,
-                image_resource.width as u32,
-                image_resource.height as u32,
-            );
+            self.atlas_manager
+                .deallocate(
+                    image_resource.atlas_id,
+                    image_resource.atlas_alloc_id,
+                    image_resource.width as u32,
+                    image_resource.height as u32,
+                )
+                .unwrap();
             self.free_idxs.push(index);
             Some(image_resource)
         } else {
@@ -126,21 +118,9 @@ impl ImageCache {
         &self.atlas_manager
     }
 
-    /// Get atlas stats.
-    pub(crate) fn atlas_stats(&self) -> Vec<(AtlasId, &crate::multi_atlas::AtlasUsageStats)> {
-        self.atlas_manager.atlas_stats()
-    }
-
     /// Get the number of atlases.
     pub(crate) fn atlas_count(&self) -> usize {
         self.atlas_manager.atlas_count()
-    }
-
-    /// Clear all images from the cache.
-    pub(crate) fn clear(&mut self) {
-        self.slots.clear();
-        self.free_idxs.clear();
-        self.atlas_manager.clear();
     }
 }
 
@@ -152,7 +132,10 @@ mod tests {
 
     #[test]
     fn test_insert_single_image() {
-        let mut cache = ImageCache::new(ATLAS_SIZE, ATLAS_SIZE);
+        let mut cache = ImageCache::new_with_config(AtlasConfig {
+            atlas_size: (ATLAS_SIZE, ATLAS_SIZE),
+            ..Default::default()
+        });
 
         let id = cache.allocate(100, 100).unwrap();
 
@@ -161,12 +144,16 @@ mod tests {
         assert_eq!(resource.id, id);
         assert_eq!(resource.width, 100);
         assert_eq!(resource.height, 100);
-        assert_eq!(resource.offset, [0, 0]); // First image should be at origin
+        // First image should be at origin
+        assert_eq!(resource.offset, [0, 0]);
     }
 
     #[test]
     fn test_insert_multiple_images() {
-        let mut cache = ImageCache::new(ATLAS_SIZE, ATLAS_SIZE);
+        let mut cache = ImageCache::new_with_config(AtlasConfig {
+            atlas_size: (ATLAS_SIZE, ATLAS_SIZE),
+            ..Default::default()
+        });
 
         let id1 = cache.allocate(50, 50).unwrap();
         let id2 = cache.allocate(75, 75).unwrap();
@@ -186,7 +173,10 @@ mod tests {
 
     #[test]
     fn test_get_nonexistent_image() {
-        let cache: ImageCache = ImageCache::new(ATLAS_SIZE, ATLAS_SIZE);
+        let cache: ImageCache = ImageCache::new_with_config(AtlasConfig {
+            atlas_size: (ATLAS_SIZE, ATLAS_SIZE),
+            ..Default::default()
+        });
 
         assert!(cache.get(ImageId::new(0)).is_none());
         assert!(cache.get(ImageId::new(999)).is_none());
@@ -194,7 +184,10 @@ mod tests {
 
     #[test]
     fn test_remove_image() {
-        let mut cache = ImageCache::new(ATLAS_SIZE, ATLAS_SIZE);
+        let mut cache = ImageCache::new_with_config(AtlasConfig {
+            atlas_size: (ATLAS_SIZE, ATLAS_SIZE),
+            ..Default::default()
+        });
 
         let id = cache.allocate(100, 100).unwrap();
         assert!(cache.get(id).is_some());
@@ -205,7 +198,10 @@ mod tests {
 
     #[test]
     fn test_remove_nonexistent_image() {
-        let mut cache: ImageCache = ImageCache::new(ATLAS_SIZE, ATLAS_SIZE);
+        let mut cache: ImageCache = ImageCache::new_with_config(AtlasConfig {
+            atlas_size: (ATLAS_SIZE, ATLAS_SIZE),
+            ..Default::default()
+        });
 
         // Should not panic when unregistering non-existent image
         cache.deallocate(ImageId::new(0));
@@ -214,7 +210,10 @@ mod tests {
 
     #[test]
     fn test_slot_reuse_after_remove() {
-        let mut cache = ImageCache::new(ATLAS_SIZE, ATLAS_SIZE);
+        let mut cache = ImageCache::new_with_config(AtlasConfig {
+            atlas_size: (ATLAS_SIZE, ATLAS_SIZE),
+            ..Default::default()
+        });
 
         // Register three images
         let id1 = cache.allocate(50, 50).unwrap();
@@ -243,7 +242,10 @@ mod tests {
 
     #[test]
     fn test_multiple_remove_and_reuse() {
-        let mut cache = ImageCache::new(ATLAS_SIZE, ATLAS_SIZE);
+        let mut cache = ImageCache::new_with_config(AtlasConfig {
+            atlas_size: (ATLAS_SIZE, ATLAS_SIZE),
+            ..Default::default()
+        });
 
         // Register several images
         let ids: Vec<_> = (0..5)

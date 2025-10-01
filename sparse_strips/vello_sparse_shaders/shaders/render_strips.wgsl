@@ -765,16 +765,16 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
     let quality = texel0.x & 0x3u;
     let extend_x = (texel0.x >> 2u) & 0x3u;
     let extend_y = (texel0.x >> 4u) & 0x3u;
+    let atlas_index = (texel0.x >> 6u) & 0xFFu;
     // Unpack image_size from texel0.y (stored as u32, unpack to width/height)
     let image_size = vec2<f32>(f32(texel0.y >> 16u), f32(texel0.y & 0xFFFFu));
     // Unpack image_offset from texel0.z (stored as u32, unpack to x/y)
     let image_offset = vec2<f32>(f32(texel0.z >> 16u), f32(texel0.z & 0xFFFFu));
-    let atlas_index = texel0.w;
     let transform = vec4<f32>(
-        bitcast<f32>(texel1.x), bitcast<f32>(texel1.y), 
-        bitcast<f32>(texel1.z), bitcast<f32>(texel1.w)
+        bitcast<f32>(texel0.w), bitcast<f32>(texel1.x), 
+        bitcast<f32>(texel1.y), bitcast<f32>(texel1.z)
     );
-    let translate = vec2<f32>(bitcast<f32>(texel2.x), bitcast<f32>(texel2.y));
+    let translate = vec2<f32>(bitcast<f32>(texel1.w), bitcast<f32>(texel2.x));
 
     return EncodedImage(
         quality, 

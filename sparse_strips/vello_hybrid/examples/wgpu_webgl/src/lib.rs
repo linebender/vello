@@ -17,9 +17,7 @@ use vello_common::{
     paint::{ImageId, ImageSource},
 };
 use vello_example_scenes::{AnyScene, image::ImageScene};
-use vello_hybrid::{
-    AllocationStrategy, AtlasConfig, Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene,
-};
+use vello_hybrid::{AtlasConfig, Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
@@ -90,16 +88,7 @@ impl RendererWrapper {
                 level: Level::try_detect().unwrap_or(Level::fallback()),
                 atlas_config: AtlasConfig {
                     atlas_size: (max_texture_dimension_2d, max_texture_dimension_2d),
-                    // In WGPU’s GLES backend, heuristics are used to decide whether a texture
-                    // should be treated as D2 or D2Array. However, this can cause a mismatch:
-                    // - when depth_or_array_layers == 1, the backend assumes the texture is D2,
-                    // even if it was actually created as a D2Array. This issue only occurs with the GLES backend.
-                    //
-                    // @see https://github.com/gfx-rs/wgpu/blob/61e5124eb9530d3b3865556a7da4fd320d03ddc5/wgpu-hal/src/gles/mod.rs#L470-L517
-                    initial_atlas_count: 2,
-                    max_atlases: 10,
-                    auto_grow: true,
-                    allocation_strategy: AllocationStrategy::FirstFit,
+                    ..AtlasConfig::default()
                 },
             },
         );

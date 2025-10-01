@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// This shader clears specific slots in slot textures to transparent pixels.
+// This vertex shader clears specific slots in slot textures to transparent pixels.
 
 // Assumes this texture consists of a single column of slots of `config.slot_height`, 
 // numbering from 0 to `texture_height / slot_height - 1` from top to bottom.
@@ -42,6 +42,27 @@ fn vs_main(
     let ndc_y = 1.0 - pix_y * 2.0 / f32(config.texture_height);
     
     return vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
+}
+
+// This vertex shader is used for clearing atlas regions.
+@vertex
+fn vs_main_fullscreen(
+    @builtin(vertex_index) vertex_index: u32,
+) -> @builtin(position) vec4<f32> {
+    // This generates a quad that covers the entire render target (hence "fullscreen"),
+    // but the actual clearing region is controlled by the scissor test set on the render pass.
+    // This approach is more efficient than generating region-specific geometry because:
+    // 1. No vertex buffer needed - geometry generated from vertex index alone
+    // 2. Same simple shader works for any region size
+    // 3. Hardware scissor test efficiently clips to the desired region
+    // 4. GPU rasterizer + scissor test is faster than complex vertex calculations
+    //
+    // Map vertex_index (0-3) to fullscreen quad corners in NDC:
+    // 0 → (-1,-1), 1 → (1,-1), 2 → (-1,1), 3 → (1,1)
+    let x = f32((vertex_index & 1u) * 2u) - 1.0; // 0->-1, 1->1
+    let y = f32((vertex_index & 2u)) - 1.0;      // 0->-1, 2->1
+    
+    return vec4<f32>(x, y, 0.0, 1.0);
 }
 
 @fragment
