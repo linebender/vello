@@ -1809,13 +1809,14 @@ mod impls {
             blob.extend(c.to_rgba8().to_u8_array());
         });
         let data = Blob::new(Arc::new(blob));
-        let image = ImageBrush::new(ImageData {
+        let image = ImageData {
             data,
             format: ImageFormat::Rgba8,
             width: 2,
             height: 2,
             alpha_type: ImageAlphaType::Alpha,
-        });
+        }
+        .into();
 
         scene.draw_image(
             &image,

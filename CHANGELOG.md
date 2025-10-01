@@ -38,8 +38,8 @@ This release has an [MSRV][] of 1.86.
     This makes it possible to pass individual gradient kinds between functions.
   - `GradientKind::Sweep`'s defined semantics now match those which Vello previously implemented.
   - Breaking change: `Image` has been renamed to `ImageBrush`, consisting of an `ImageData` and an `ImageSampler`.
-    The equivalent to the old `Image::new($data, $format, $width, $height)` is `ImageBrush::new(ImageData { data: $data, format: $format, width: $width, height: $height, alpha_type: ImageAlphaType::Alpha })`.
-    Only `ImageAlphaType::Alpha` is currently supported in Vello.
+    The equivalent to the old `Image::new($data, $format, $width, $height)` is `ImageBrush::new(ImageData { data: $data, format: $format, width: $width, height: $height, alpha_type: ImageAlphaType::Alpha })`
+    (or `ImageData { ... }.into()` if you don't need to set sampler parameters). Only `ImageAlphaType::Alpha` is currently supported in Vello.
 
 ### Linebender Resource Handle
 

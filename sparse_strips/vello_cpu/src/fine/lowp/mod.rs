@@ -175,6 +175,7 @@ mod fill {
         simd.vectorize(
             #[inline(always)]
             || {
+                #[expect(deprecated, reason = "Provided by the user, need to handle correctly.")]
                 let default_mix = matches!(blend_mode.mix, Mix::Normal | Mix::Clip);
                 let mask = u8x32::splat(simd, 255);
                 for (next_dest, next_src) in dest.chunks_exact_mut(32).zip(src) {
@@ -259,6 +260,7 @@ mod alpha_fill {
         simd.vectorize(
             #[inline(always)]
             || {
+                #[expect(deprecated, reason = "Provided by the user, need to handle correctly.")]
                 let default_mix = matches!(blend_mode.mix, Mix::Normal | Mix::Clip);
 
                 for ((next_bg, next_mask), next_src) in dest

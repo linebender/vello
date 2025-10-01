@@ -89,9 +89,7 @@ impl Scene {
     ///
     /// **However, the transforms are *not* saved or modified by the layer stack.**
     /// That is, the `transform` argument to this function only applies a transform to the `clip` shape.
-    ///
-    /// Clip layers (`blend` = [`Mix::Clip`]) should have an alpha value of 1.0.
-    /// For an opacity group with non-unity alpha, specify [`Mix::Normal`].
+    #[expect(deprecated, reason = "Provided by the user, need to handle correctly.")]
     #[track_caller]
     pub fn push_layer(
         &mut self,
@@ -102,7 +100,10 @@ impl Scene {
     ) {
         let blend = blend.into();
         if blend.mix == Mix::Clip && alpha != 1.0 {
-            log::warn!("Clip mix mode used with semitransparent alpha");
+            log::warn!(
+                "Clip mix mode used with semitransparent alpha.\
+                This is wrong, and you should be using `push_clip_layer` instead."
+            );
         }
         self.push_layer_inner(
             DrawBeginClip::new(blend, alpha.clamp(0.0, 1.0)),
@@ -637,7 +638,7 @@ impl<'a> DrawGlyphs<'a> {
                                     [r, g, b, a]
                                 })
                                 .collect();
-                            ImageBrush::new(ImageData {
+                            ImageData {
                                 // TODO: The design of the Blob type forces the double boxing
                                 data: Blob::new(Arc::new(data)),
                                 // TODO: Use bgra8 to not transpose once it's supported.
@@ -646,7 +647,7 @@ impl<'a> DrawGlyphs<'a> {
                                 alpha_type: peniko::ImageAlphaType::Alpha,
                                 width: bitmap.width,
                                 height: bitmap.height,
-                            })
+                            }
                         }
                         bitmap::BitmapData::Png(data) => {
                             let mut decoder = png::Decoder::new(data);
@@ -669,14 +670,14 @@ impl<'a> DrawGlyphs<'a> {
                                 log::error!("Unexpected width and height");
                                 continue;
                             }
-                            ImageBrush::new(ImageData {
+                            ImageData {
                                 // TODO: The design of the Blob type forces the double boxing
                                 data: Blob::new(Arc::new(buf)),
                                 format: peniko::ImageFormat::Rgba8,
                                 alpha_type: peniko::ImageAlphaType::Alpha,
                                 width: bitmap.width,
                                 height: bitmap.height,
-                            })
+                            }
                         }
                         bitmap::BitmapData::Mask(mask) => {
                             // TODO: Is this code worth having?
@@ -701,17 +702,17 @@ impl<'a> DrawGlyphs<'a> {
                                 .flat_map(|alpha| [u8::MAX, u8::MAX, u8::MAX, alpha])
                                 .collect();
 
-                            ImageBrush::new(ImageData {
+                            ImageData {
                                 // TODO: The design of the Blob type forces the double boxing
                                 data: Blob::new(Arc::new(data)),
                                 format: peniko::ImageFormat::Rgba8,
                                 alpha_type: peniko::ImageAlphaType::Alpha,
                                 width: bitmap.width,
                                 height: bitmap.height,
-                            })
+                            }
                         }
                     };
-                    let image = image.multiply_alpha(self.brush_alpha);
+                    let image = ImageBrush::new(image).multiply_alpha(self.brush_alpha);
                     // Split into multiple statements because rustfmt breaks
                     let transform =
                         run_transform.then_translate(Vec2::new(glyph.x.into(), glyph.y.into()));

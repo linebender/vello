@@ -2563,24 +2563,25 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "peniko"
-version = "0.4.0"
-source = "git+https://github.com/linebender/peniko?rev=dde968cf406be54d3211fe422bdd066f891ab632#dde968cf406be54d3211fe422bdd066f891ab632"
-dependencies = [
- "bytemuck",
- "color",
- "kurbo 0.12.0",
- "linebender_resource_handle",
- "smallvec",
-]
-
-[[package]]
-name = "peniko"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b44f9ddd2f480176b34278eb653ec1c8062f3b143a4e16eeff5ffac3334e288"
 dependencies = [
  "color",
  "kurbo 0.11.3",
+ "linebender_resource_handle",
+ "smallvec",
+]
+
+[[package]]
+name = "peniko"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3c76095c9a636173600478e0373218c7b955335048c2bcd12dc6a79657649d8"
+dependencies = [
+ "bytemuck",
+ "color",
+ "kurbo 0.12.0",
  "linebender_resource_handle",
  "smallvec",
 ]
@@ -3797,7 +3798,7 @@ dependencies = [
  "bytemuck",
  "futures-intrusive",
  "log",
- "peniko 0.4.0",
+ "peniko 0.5.0",
  "png 0.17.16",
  "skrifa 0.37.0",
  "static_assertions",
@@ -3813,7 +3814,7 @@ name = "vello_api"
 version = "0.5.0"
 dependencies = [
  "bytemuck",
- "peniko 0.4.0",
+ "peniko 0.5.0",
  "png 0.17.16",
 ]
 
@@ -3840,7 +3841,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "libm",
  "log",
- "peniko 0.4.0",
+ "peniko 0.5.0",
  "png 0.17.16",
  "roxmltree",
  "skrifa 0.37.0",
@@ -3874,7 +3875,7 @@ version = "0.5.0"
 dependencies = [
  "bytemuck",
  "guillotiere",
- "peniko 0.4.0",
+ "peniko 0.5.0",
  "skrifa 0.37.0",
  "smallvec",
 ]
