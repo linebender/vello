@@ -102,7 +102,7 @@ impl Scene {
         if blend.mix == Mix::Clip && alpha != 1.0 {
             log::warn!(
                 "Clip mix mode used with semitransparent alpha.\
-                This is wrong, and you should be using `push_clip_layer` instead."
+                This is wrong, and you should be using `Mix::Normal` instead."
             );
         }
         self.push_layer_inner(
