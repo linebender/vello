@@ -847,6 +847,7 @@ impl<const MODE: u8> WideTile<MODE> {
                         let can_override = x == 0
                             && width == WideTile::WIDTH
                             && s.is_opaque()
+                            && mask.is_none()
                             && self.n_clip == 0
                             && self.n_bufs == 0;
                         can_override.then_some(*s)
