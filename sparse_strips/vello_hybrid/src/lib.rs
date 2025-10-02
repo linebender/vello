@@ -35,11 +35,13 @@ extern crate alloc;
 
 mod gradient_cache;
 mod image_cache;
+mod multi_atlas;
 mod render;
 mod scene;
 #[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
 mod schedule;
 pub mod util;
+pub use multi_atlas::{AllocationStrategy, AtlasConfig};
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};

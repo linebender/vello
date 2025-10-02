@@ -19,6 +19,8 @@ use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording,
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
+use crate::AtlasConfig;
+
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 
@@ -27,12 +29,25 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 pub struct RenderSettings {
     /// The SIMD level that should be used for rendering operations.
     pub level: Level,
+    /// The configuration for the texture atlas.
+    ///
+    /// This controls how images are managed in GPU memory through texture atlases.
+    /// The atlas system packs multiple images into larger textures to reduce the
+    /// number of GPU texture bindings. This config allows customizing atlas parameters such as:
+    /// - The number and size of atlases
+    /// - How images are allocated across multiple atlases
+    /// - Whether new atlases are automatically created when needed
+    ///
+    /// Adjusting these settings can affect memory usage and rendering performance
+    /// depending on your application's image usage patterns.
+    pub atlas_config: AtlasConfig,
 }
 
 impl Default for RenderSettings {
     fn default() -> Self {
         Self {
             level: Level::try_detect().unwrap_or(Level::fallback()),
+            atlas_config: AtlasConfig::default(),
         }
     }
 }

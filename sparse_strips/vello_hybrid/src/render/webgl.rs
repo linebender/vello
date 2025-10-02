@@ -21,23 +21,25 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::{
-    GpuStrip, RenderError, RenderSettings, RenderSize,
+    AtlasConfig, GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
     image_cache::{ImageCache, ImageResource},
+    multi_atlas::AtlasId,
     render::{
         Config,
         common::{
             GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
             GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            pack_image_offset, pack_image_size, pack_quality_and_extend_modes,
-            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode,
+            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
+            pack_texture_width_and_extend_mode,
         },
     },
     scene::Scene,
     schedule::{LoadOp, RendererBackend, Scheduler},
 };
 
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
@@ -48,6 +50,7 @@ use vello_common::{
     kurbo::Affine,
     paint::ImageSource,
     peniko,
+    pixmap::Pixmap,
     tile::Tile,
 };
 use vello_sparse_shaders::{clear_slots, render_strips};
@@ -139,7 +142,7 @@ impl WebGlRenderer {
 
         let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
-        let image_cache = ImageCache::new(max_texture_dimension_2d, max_texture_dimension_2d);
+        let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size =
@@ -147,7 +150,7 @@ impl WebGlRenderer {
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
 
         Self {
-            programs: WebGlPrograms::new(gl.clone(), total_slots),
+            programs: WebGlPrograms::new(gl.clone(), &image_cache, total_slots),
             scheduler: Scheduler::new(total_slots),
             gl,
             image_cache,
@@ -249,6 +252,13 @@ impl WebGlRenderer {
         Ok(())
     }
 
+    /// Get a reference to the underlying WebGL context.
+    ///
+    /// This allows direct access to WebGL operations for advanced use cases like texture creation.
+    pub fn gl_context(&self) -> &WebGl2RenderingContext {
+        &self.gl
+    }
+
     /// Upload image to cache and atlas in one step. Returns the `ImageId`.
     ///
     /// This is the WebGL analogue of the wgpu Renderer's `upload_image` method.
@@ -259,19 +269,23 @@ impl WebGlRenderer {
     ) -> vello_common::paint::ImageId {
         let width = writer.width();
         let height = writer.height();
-        let image_id = self.image_cache.allocate(width, height);
+        let image_id = self.image_cache.allocate(width, height).unwrap();
         let image_resource = self
             .image_cache
             .get(image_id)
             .expect("Image resource not found");
+
+        self.programs
+            .maybe_resize_atlas_texture_array(&self.gl, self.image_cache.atlas_count() as u32);
         let offset = [
             image_resource.offset[0] as u32,
             image_resource.offset[1] as u32,
         ];
-
-        writer.write_to_atlas(
+        // Write to the appropriate layer in the atlas texture array
+        writer.write_to_atlas_layer(
             &self.gl,
-            &self.programs.resources.atlas_texture,
+            &self.programs.resources.atlas_texture_array.texture,
+            image_resource.atlas_id.as_u32(),
             offset,
             width,
             height,
@@ -280,17 +294,11 @@ impl WebGlRenderer {
         image_id
     }
 
-    /// Get a reference to the underlying WebGL context.
-    ///
-    /// This allows direct access to WebGL operations for advanced use cases like texture creation.
-    pub fn gl_context(&self) -> &WebGl2RenderingContext {
-        &self.gl
-    }
-
     /// Destroy an image from the cache and clear the allocated slot in the atlas.
     pub fn destroy_image(&mut self, image_id: vello_common::paint::ImageId) {
         if let Some(image_resource) = self.image_cache.deallocate(image_id) {
             self.clear_atlas_region(
+                image_resource.atlas_id,
                 [
                     image_resource.offset[0] as u32,
                     image_resource.offset[1] as u32,
@@ -301,30 +309,44 @@ impl WebGlRenderer {
         }
     }
 
-    /// Clear a specific region of the atlas texture with uninitialized data.
-    fn clear_atlas_region(&mut self, offset: [u32; 2], width: u32, height: u32) {
-        // Rgba8Unorm is 4 bytes per pixel
-        let uninitialized_data = vec![0_u8; (width * height * 4) as usize];
+    /// Clear a specific region of the atlas texture array.
+    fn clear_atlas_region(&mut self, atlas_id: AtlasId, offset: [u32; 2], width: u32, height: u32) {
+        let _state_guard = WebGlStateGuard::for_clear_atlas_region(&self.gl);
+        let temp_framebuffer = self.gl.create_framebuffer().unwrap();
 
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.atlas_texture),
+        // Bind our temporary framebuffer
+        self.gl
+            .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&temp_framebuffer));
+
+        // Attach the specific atlas layer to the framebuffer
+        self.gl.framebuffer_texture_layer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            WebGl2RenderingContext::COLOR_ATTACHMENT0,
+            Some(&self.programs.resources.atlas_texture_array.texture),
+            0,
+            atlas_id.as_u32() as i32,
         );
 
+        // Set viewport to match the atlas texture dimensions
+        let atlas_size = &self.programs.resources.atlas_texture_array.size;
         self.gl
-            .tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
-                WebGl2RenderingContext::TEXTURE_2D,
-                0,                // mip level
-                offset[0] as i32, // x offset
-                offset[1] as i32, // y offset
-                width as i32,
-                height as i32,
-                WebGl2RenderingContext::RGBA,
-                WebGl2RenderingContext::UNSIGNED_BYTE,
-                Some(&uninitialized_data),
-            )
-            .unwrap();
+            .viewport(0, 0, atlas_size.width as i32, atlas_size.height as i32);
+
+        // Enable scissor test and set scissor rectangle to our region
+        self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+        self.gl.scissor(
+            offset[0] as i32,
+            offset[1] as i32,
+            width as i32,
+            height as i32,
+        );
+
+        // Clear the region to transparent (0, 0, 0, 0)
+        self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
+        self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+
+        // Clean up temporary framebuffer
+        self.gl.delete_framebuffer(Some(&temp_framebuffer));
     }
 
     fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
@@ -380,14 +402,15 @@ impl WebGlRenderer {
         let transform = image_transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(image_resource.width, image_resource.height);
         let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
-        let quality_and_extend_modes = pack_quality_and_extend_modes(
+        let image_params = pack_image_params(
+            image.quality as u32,
             image.extends.0 as u32,
             image.extends.1 as u32,
-            image.quality as u32,
+            image_resource.atlas_id.as_u32(),
         );
 
         GpuEncodedPaint::Image(GpuEncodedImage {
-            quality_and_extend_modes,
+            image_params,
             image_size,
             image_offset,
             transform,
@@ -501,7 +524,7 @@ struct StripUniforms {
     /// Clip input texture location.
     clip_input_texture: WebGlUniformLocation,
     /// Atlas texture location.
-    atlas_texture: WebGlUniformLocation,
+    atlas_texture_array: WebGlUniformLocation,
     /// Encoded paints texture location for fragment shader.
     encoded_paints_texture_fs: WebGlUniformLocation,
     /// Encoded paints texture location for vertex shader.
@@ -528,9 +551,8 @@ struct WebGlResources {
     alphas_texture: WebGlTexture,
     /// Height of alpha texture.
     alpha_texture_height: u32,
-    /// Texture for atlas data
-    // TODO: Support more than one atlas texture
-    atlas_texture: WebGlTexture,
+    /// Texture array for atlas data (multiple atlases supported)
+    atlas_texture_array: WebGlTextureArray,
     /// Encoded paints texture for image metadata.
     encoded_paints_texture: WebGlTexture,
     /// Height of encoded paints texture.
@@ -583,7 +605,7 @@ struct ClearSlotsConfig {
 
 impl WebGlPrograms {
     /// Creates programs and initializes resources.
-    fn new(gl: WebGl2RenderingContext, slot_count: usize) -> Self {
+    fn new(gl: WebGl2RenderingContext, image_cache: &ImageCache, slot_count: usize) -> Self {
         let strip_program = create_shader_program(
             &gl,
             render_strips::VERTEX_SOURCE,
@@ -598,7 +620,7 @@ impl WebGlPrograms {
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
         let clear_uniforms = get_clear_uniforms(&gl, &clear_program);
 
-        let resources = create_webgl_resources(&gl, slot_count);
+        let resources = create_webgl_resources(&gl, image_cache, slot_count);
 
         initialize_strip_vao(&gl, &resources);
         initialize_clear_vao(&gl, &resources);
@@ -653,6 +675,62 @@ impl WebGlPrograms {
         }
 
         self.clear_view_framebuffer(gl);
+    }
+
+    /// Resize atlas texture array to accommodate more atlases.
+    fn maybe_resize_atlas_texture_array(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        required_atlas_count: u32,
+    ) {
+        let WebGlTextureSize {
+            width,
+            height,
+            depth_or_array_layers: current_atlas_count,
+        } = self.resources.atlas_texture_array.size();
+        if required_atlas_count > current_atlas_count {
+            // Create new texture array with more layers
+            let new_atlas_texture_array =
+                create_atlas_texture_array(gl, width, height, required_atlas_count);
+
+            // Copy existing atlas data from old texture array to new one
+            self.copy_atlas_texture_data(gl, &new_atlas_texture_array, current_atlas_count);
+
+            // Replace the old resources
+            self.resources.atlas_texture_array = new_atlas_texture_array;
+        }
+    }
+
+    /// Copy texture data from the old atlas texture array to a new one.
+    /// This is necessary when resizing the texture array to preserve existing atlas data.
+    fn copy_atlas_texture_data(
+        &self,
+        gl: &WebGl2RenderingContext,
+        new_atlas_texture_array: &WebGlTextureArray,
+        layer_count_to_copy: u32,
+    ) {
+        let WebGlTextureSize { width, height, .. } = self.resources.atlas_texture_array.size();
+
+        // Copy each layer from the old atlas to the new one
+        for layer in 0..layer_count_to_copy {
+            copy_to_texture_array_layer(
+                gl,
+                |gl| {
+                    // Attach source layer to READ framebuffer
+                    gl.framebuffer_texture_layer(
+                        WebGl2RenderingContext::READ_FRAMEBUFFER,
+                        WebGl2RenderingContext::COLOR_ATTACHMENT0,
+                        Some(&self.resources.atlas_texture_array.texture),
+                        0,
+                        layer as i32,
+                    );
+                },
+                &new_atlas_texture_array.texture,
+                layer,
+                [0, 0],
+                [width, height],
+            );
+        }
     }
 
     /// Update the alpha texture size if needed.
@@ -973,6 +1051,177 @@ impl WebGlPrograms {
     }
 }
 
+/// RAII guard for WebGL state management.
+/// Automatically saves state on creation and restores it on drop.
+/// Only saves/restores the state specified in the configuration.
+struct WebGlStateGuard<'a> {
+    gl: &'a WebGl2RenderingContext,
+    config: WebGlStateConfig,
+    original_framebuffer: Option<web_sys::WebGlFramebuffer>,
+    original_read_framebuffer: Option<web_sys::WebGlFramebuffer>,
+    original_texture_2d_array: Option<web_sys::WebGlTexture>,
+    scissor_enabled: bool,
+    viewport: [i32; 4],
+}
+
+impl<'a> WebGlStateGuard<'a> {
+    /// Create a new state guard with custom configuration.
+    fn with_config(gl: &'a WebGl2RenderingContext, config: WebGlStateConfig) -> Self {
+        // Save current framebuffer binding if requested
+        let original_framebuffer = if config.framebuffer {
+            gl.get_parameter(WebGl2RenderingContext::FRAMEBUFFER_BINDING)
+                .ok()
+                .and_then(|v| v.dyn_into::<web_sys::WebGlFramebuffer>().ok())
+        } else {
+            None
+        };
+
+        // Save current read framebuffer binding if requested
+        let original_read_framebuffer = if config.read_framebuffer {
+            gl.get_parameter(WebGl2RenderingContext::READ_FRAMEBUFFER_BINDING)
+                .ok()
+                .and_then(|v| v.dyn_into::<web_sys::WebGlFramebuffer>().ok())
+        } else {
+            None
+        };
+
+        // Save current 2D array texture binding if requested
+        let original_texture_2d_array = if config.texture_2d_array {
+            gl.get_parameter(WebGl2RenderingContext::TEXTURE_BINDING_2D_ARRAY)
+                .ok()
+                .and_then(|v| v.dyn_into::<web_sys::WebGlTexture>().ok())
+        } else {
+            None
+        };
+
+        // Save current scissor test state if requested
+        let scissor_enabled = if config.scissor {
+            gl.get_parameter(WebGl2RenderingContext::SCISSOR_TEST)
+                .unwrap()
+                .as_bool()
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        // Save current viewport if requested
+        let viewport = if config.viewport {
+            let viewport_js = gl
+                .get_parameter(WebGl2RenderingContext::VIEWPORT)
+                .unwrap()
+                .dyn_into::<js_sys::Int32Array>()
+                .unwrap();
+            let viewport_vec = viewport_js.to_vec();
+            [
+                viewport_vec[0],
+                viewport_vec[1],
+                viewport_vec[2],
+                viewport_vec[3],
+            ]
+        } else {
+            [0, 0, 0, 0]
+        };
+
+        Self {
+            gl,
+            config,
+            original_framebuffer,
+            original_read_framebuffer,
+            original_texture_2d_array,
+            scissor_enabled,
+            viewport,
+        }
+    }
+
+    /// Create a state guard for clearing an atlas region operations.
+    fn for_clear_atlas_region(gl: &'a WebGl2RenderingContext) -> Self {
+        Self::with_config(
+            gl,
+            WebGlStateConfig {
+                framebuffer: true,
+                scissor: true,
+                viewport: true,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Create a state guard for texture copying operations.
+    fn for_texture_copy(gl: &'a WebGl2RenderingContext) -> Self {
+        Self::with_config(
+            gl,
+            WebGlStateConfig {
+                read_framebuffer: true,
+                texture_2d_array: true,
+                ..Default::default()
+            },
+        )
+    }
+}
+
+impl Drop for WebGlStateGuard<'_> {
+    /// Restore WebGL state when the guard goes out of scope.
+    /// Only restores state that was configured to be saved.
+    fn drop(&mut self) {
+        // Restore scissor test state if it was saved
+        if self.config.scissor {
+            if self.scissor_enabled {
+                self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+            } else {
+                self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+            }
+        }
+
+        // Restore viewport if it was saved
+        if self.config.viewport {
+            self.gl.viewport(
+                self.viewport[0],
+                self.viewport[1],
+                self.viewport[2],
+                self.viewport[3],
+            );
+        }
+
+        // Restore original framebuffer if it was saved
+        if self.config.framebuffer {
+            self.gl.bind_framebuffer(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                self.original_framebuffer.as_ref(),
+            );
+        }
+
+        // Restore original read framebuffer if it was saved
+        if self.config.read_framebuffer {
+            self.gl.bind_framebuffer(
+                WebGl2RenderingContext::READ_FRAMEBUFFER,
+                self.original_read_framebuffer.as_ref(),
+            );
+        }
+
+        // Restore original 2D array texture binding if it was saved
+        if self.config.texture_2d_array {
+            self.gl.bind_texture(
+                WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+                self.original_texture_2d_array.as_ref(),
+            );
+        }
+    }
+}
+/// Configuration for which WebGL state to save/restore.
+#[derive(Debug, Default)]
+struct WebGlStateConfig {
+    /// Save/restore framebuffer binding (`FRAMEBUFFER_BINDING`)
+    framebuffer: bool,
+    /// Save/restore read framebuffer binding (`READ_FRAMEBUFFER_BINDING`)
+    read_framebuffer: bool,
+    /// Save/restore 2D array texture binding (`TEXTURE_BINDING_2D_ARRAY`)
+    texture_2d_array: bool,
+    /// Save/restore scissor test state
+    scissor: bool,
+    /// Save/restore viewport
+    viewport: bool,
+}
+
 /// Create a WebGL shader program from vertex and fragment sources.
 fn create_shader_program(
     gl: &WebGl2RenderingContext,
@@ -1064,7 +1313,7 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
     // Get texture uniform locations.
     let alphas_texture_name = render_strips::fragment::ALPHAS_TEXTURE;
     let clip_input_texture_name = render_strips::fragment::CLIP_INPUT_TEXTURE;
-    let atlas_texture_name = render_strips::fragment::ATLAS_TEXTURE;
+    let atlas_texture_array_name = render_strips::fragment::ATLAS_TEXTURE_ARRAY;
     let encoded_paints_texture_fs_name = render_strips::fragment::ENCODED_PAINTS_TEXTURE;
     let encoded_paints_texture_vs_name = render_strips::vertex::ENCODED_PAINTS_TEXTURE;
     let gradient_texture_name = render_strips::fragment::GRADIENT_TEXTURE;
@@ -1078,8 +1327,8 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
         clip_input_texture: gl
             .get_uniform_location(program, clip_input_texture_name)
             .unwrap(),
-        atlas_texture: gl
-            .get_uniform_location(program, atlas_texture_name)
+        atlas_texture_array: gl
+            .get_uniform_location(program, atlas_texture_array_name)
             .unwrap(),
         encoded_paints_texture_fs: gl
             .get_uniform_location(program, encoded_paints_texture_fs_name)
@@ -1111,7 +1360,11 @@ fn get_clear_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> Cl
 }
 
 /// Create all WebGL resources needed for rendering.
-fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> WebGlResources {
+fn create_webgl_resources(
+    gl: &WebGl2RenderingContext,
+    image_cache: &ImageCache,
+    slot_count: usize,
+) -> WebGlResources {
     let strip_vao = gl.create_vertex_array().unwrap();
     let clear_vao = gl.create_vertex_array().unwrap();
 
@@ -1148,47 +1401,13 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> Web
         );
     }
 
-    // Create and configure atlas texture.
-    let atlas_texture = gl.create_texture().unwrap();
-    {
-        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&atlas_texture));
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-            WebGl2RenderingContext::LINEAR as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-            WebGl2RenderingContext::LINEAR as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_WRAP_S,
-            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_WRAP_T,
-            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-        );
-
-        // Initialize with empty texture data
-        let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
-        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-            WebGl2RenderingContext::TEXTURE_2D,
-            0,
-            WebGl2RenderingContext::RGBA8 as i32,
-            max_texture_dimension_2d as i32,
-            max_texture_dimension_2d as i32,
-            0,
-            WebGl2RenderingContext::RGBA,
-            WebGl2RenderingContext::UNSIGNED_BYTE,
-            None,
-        )
-        .unwrap();
-    }
+    let AtlasConfig {
+        atlas_size: (atlas_width, atlas_height),
+        initial_atlas_count,
+        ..
+    } = image_cache.atlas_manager().config();
+    let atlas_texture_array =
+        create_atlas_texture_array(gl, *atlas_width, *atlas_height, *initial_atlas_count as u32);
 
     // Create and configure encoded paints texture.
     let encoded_paints_texture = gl.create_texture().unwrap();
@@ -1294,7 +1513,7 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> Web
         strips_buffer,
         alphas_texture,
         alpha_texture_height: 0,
-        atlas_texture,
+        atlas_texture_array,
         encoded_paints_texture,
         encoded_paints_texture_height: 0,
         gradient_texture,
@@ -1310,6 +1529,59 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, slot_count: usize) -> Web
         view_framebuffer,
         max_texture_dimension_2d,
     }
+}
+
+/// Create an atlas texture array.
+fn create_atlas_texture_array(
+    gl: &WebGl2RenderingContext,
+    width: u32,
+    height: u32,
+    layer_count: u32,
+) -> WebGlTextureArray {
+    let atlas_texture = gl.create_texture().unwrap();
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        Some(&atlas_texture),
+    );
+
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_WRAP_S,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_WRAP_T,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
+
+    // Initialize with empty texture array data
+    gl.tex_image_3d_with_opt_u8_array(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        0,
+        WebGl2RenderingContext::RGBA8 as i32,
+        width as i32,
+        height as i32,
+        layer_count as i32,
+        0,
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        None,
+    )
+    .unwrap();
+
+    WebGlTextureArray::new(atlas_texture, width, height, layer_count)
 }
 
 /// Create a texture for slot rendering.
@@ -1533,14 +1805,14 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.clip_input_texture), 1);
 
-        // Bind atlas texture for image rendering
+        // Bind atlas texture array for image rendering
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.atlas_texture),
+            WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+            Some(&self.programs.resources.atlas_texture_array.texture),
         );
         self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.atlas_texture), 2);
+            .uniform1i(Some(&self.programs.strip_uniforms.atlas_texture_array), 2);
 
         // Bind encoded paints texture for image metadata
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE3);
@@ -1665,19 +1937,20 @@ pub trait WebGlAtlasWriter {
     /// Get the height of the image.
     fn height(&self) -> u32;
 
-    /// Write image data to the atlas texture at the specified offset.
-    fn write_to_atlas(
+    /// Write image data to a specific layer of an atlas texture array at the specified offset.
+    fn write_to_atlas_layer(
         &self,
         gl: &WebGl2RenderingContext,
-        atlas_texture: &WebGlTexture,
+        atlas_texture_array: &WebGlTexture,
+        layer: u32,
         offset: [u32; 2],
         width: u32,
         height: u32,
     );
 }
 
-/// Implementation for `Pixmap` - direct upload using raw pixel data
-impl WebGlAtlasWriter for crate::Pixmap {
+/// Implementation for `Pixmap` - direct upload using raw pixel data.
+impl WebGlAtlasWriter for Pixmap {
     fn width(&self) -> u32 {
         self.width() as u32
     }
@@ -1686,29 +1959,35 @@ impl WebGlAtlasWriter for crate::Pixmap {
         self.height() as u32
     }
 
-    fn write_to_atlas(
+    fn write_to_atlas_layer(
         &self,
         gl: &WebGl2RenderingContext,
-        atlas_texture: &WebGlTexture,
+        atlas_texture_array: &WebGlTexture,
+        layer: u32,
         offset: [u32; 2],
         width: u32,
         height: u32,
     ) {
-        // Bind the atlas texture
+        // Bind the atlas texture array
         gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(atlas_texture));
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+            Some(atlas_texture_array),
+        );
 
         // Convert pixmap data to the format expected by WebGL
         let rgba_data = self.data_as_u8_slice();
 
-        // Upload the image data to the specific region of the atlas texture
-        gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
-            WebGl2RenderingContext::TEXTURE_2D,
-            0,                // mip level
-            offset[0] as i32, // x offset
-            offset[1] as i32, // y offset
+        // Upload the image data to the specific layer and region of the atlas texture array
+        gl.tex_sub_image_3d_with_opt_u8_array(
+            WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+            0,
+            offset[0] as i32,
+            offset[1] as i32,
+            layer as i32,
             width as i32,
             height as i32,
+            1,
             WebGl2RenderingContext::RGBA,
             WebGl2RenderingContext::UNSIGNED_BYTE,
             Some(rgba_data),
@@ -1717,8 +1996,8 @@ impl WebGlAtlasWriter for crate::Pixmap {
     }
 }
 
-/// Implementation for `Arc<Pixmap>`
-impl WebGlAtlasWriter for alloc::sync::Arc<crate::Pixmap> {
+/// Implementation for `Arc<Pixmap>`.
+impl WebGlAtlasWriter for Arc<Pixmap> {
     fn width(&self) -> u32 {
         self.as_ref().width() as u32
     }
@@ -1727,20 +2006,21 @@ impl WebGlAtlasWriter for alloc::sync::Arc<crate::Pixmap> {
         self.as_ref().height() as u32
     }
 
-    fn write_to_atlas(
+    fn write_to_atlas_layer(
         &self,
         gl: &WebGl2RenderingContext,
-        atlas_texture: &WebGlTexture,
+        atlas_texture_array: &WebGlTexture,
+        layer: u32,
         offset: [u32; 2],
         width: u32,
         height: u32,
     ) {
         self.as_ref()
-            .write_to_atlas(gl, atlas_texture, offset, width, height);
+            .write_to_atlas_layer(gl, atlas_texture_array, layer, offset, width, height);
     }
 }
 
-/// Implementation for `WebGlTexture` - texture-to-texture copy
+/// Implementation for `WebGlTexture` - texture-to-texture copy.
 impl WebGlAtlasWriter for WebGlTexture {
     fn width(&self) -> u32 {
         // WebGL textures don't expose their dimensions directly
@@ -1756,56 +2036,36 @@ impl WebGlAtlasWriter for WebGlTexture {
         unreachable!("WebGlTexture height must be provided by caller")
     }
 
-    fn write_to_atlas(
+    fn write_to_atlas_layer(
         &self,
         gl: &WebGl2RenderingContext,
-        atlas_texture: &WebGlTexture,
+        atlas_texture_array: &WebGlTexture,
+        layer: u32,
         offset: [u32; 2],
         width: u32,
         height: u32,
     ) {
-        // Create a temporary framebuffer for the source texture
-        let framebuffer = gl.create_framebuffer().unwrap();
-        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
-
-        // Attach the source texture to the framebuffer
-        gl.framebuffer_texture_2d(
-            WebGl2RenderingContext::FRAMEBUFFER,
-            WebGl2RenderingContext::COLOR_ATTACHMENT0,
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(self),
-            0, // mip level
+        copy_to_texture_array_layer(
+            gl,
+            |gl| {
+                // Attach source texture to read framebuffer
+                gl.framebuffer_texture_2d(
+                    WebGl2RenderingContext::READ_FRAMEBUFFER,
+                    WebGl2RenderingContext::COLOR_ATTACHMENT0,
+                    WebGl2RenderingContext::TEXTURE_2D,
+                    Some(self),
+                    0,
+                );
+            },
+            atlas_texture_array,
+            layer,
+            offset,
+            [width, height],
         );
-
-        // Verify framebuffer is complete
-        let status = gl.check_framebuffer_status(WebGl2RenderingContext::FRAMEBUFFER);
-        if status != WebGl2RenderingContext::FRAMEBUFFER_COMPLETE {
-            panic!("Framebuffer not complete: {status}");
-        }
-
-        // Bind the atlas texture as the target
-        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(atlas_texture));
-
-        // Copy from framebuffer to atlas texture
-        gl.copy_tex_sub_image_2d(
-            WebGl2RenderingContext::TEXTURE_2D,
-            0,                // mip level
-            offset[0] as i32, // x offset in atlas
-            offset[1] as i32, // y offset in atlas
-            0,                // x coordinate in source framebuffer
-            0,                // y coordinate in source framebuffer
-            width as i32,
-            height as i32,
-        );
-
-        // Clean up
-        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
-        gl.delete_framebuffer(Some(&framebuffer));
     }
 }
 
-/// Wrapper for `WebGlTexture` with known dimensions to work around WebGL API limitations
+/// Wrapper for `WebGlTexture` with known dimensions.
 #[derive(Debug)]
 pub struct WebGlTextureWithDimensions {
     /// The WebGL texture.
@@ -1825,15 +2085,100 @@ impl WebGlAtlasWriter for WebGlTextureWithDimensions {
         self.height
     }
 
-    fn write_to_atlas(
+    fn write_to_atlas_layer(
         &self,
         gl: &WebGl2RenderingContext,
-        atlas_texture: &WebGlTexture,
+        atlas_texture_array: &WebGlTexture,
+        layer: u32,
         offset: [u32; 2],
         width: u32,
         height: u32,
     ) {
         self.texture
-            .write_to_atlas(gl, atlas_texture, offset, width, height);
+            .write_to_atlas_layer(gl, atlas_texture_array, layer, offset, width, height);
     }
+}
+
+/// Wrapper for `WebGlTexture` array with known dimensions.
+#[derive(Debug)]
+struct WebGlTextureArray {
+    /// The WebGL texture array.
+    texture: WebGlTexture,
+    /// The size of the texture array.
+    size: WebGlTextureSize,
+}
+
+impl WebGlTextureArray {
+    /// Create a new WebGL texture array wrapper.
+    fn new(texture: WebGlTexture, width: u32, height: u32, depth_or_array_layers: u32) -> Self {
+        Self {
+            texture,
+            size: WebGlTextureSize {
+                width,
+                height,
+                depth_or_array_layers,
+            },
+        }
+    }
+
+    /// Get the size of the texture array, similar to WGPU's `texture.size()`.
+    fn size(&self) -> WebGlTextureSize {
+        self.size
+    }
+}
+
+/// Size information for WebGL texture arrays, similar to WGPU's `Extent3d`.
+#[derive(Debug, Clone, Copy)]
+struct WebGlTextureSize {
+    /// The width of the texture.
+    width: u32,
+    /// The height of the texture.
+    height: u32,
+    /// The number of layers in the texture array.
+    depth_or_array_layers: u32,
+}
+
+/// Helper function to copy from a source texture/framebuffer to a destination texture array layer.
+fn copy_to_texture_array_layer(
+    gl: &WebGl2RenderingContext,
+    source_setup: impl FnOnce(&WebGl2RenderingContext),
+    dest_texture_array: &web_sys::WebGlTexture,
+    dest_layer: u32,
+    dest_offset: [u32; 2],
+    copy_size: [u32; 2],
+) {
+    let _state_guard = WebGlStateGuard::for_texture_copy(gl);
+    let read_framebuffer = gl.create_framebuffer().unwrap();
+
+    // Bind destination texture array
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        Some(dest_texture_array),
+    );
+
+    // Bind the READ framebuffer
+    gl.bind_framebuffer(
+        WebGl2RenderingContext::READ_FRAMEBUFFER,
+        Some(&read_framebuffer),
+    );
+
+    // Let the caller set up the source (attach texture/layer to read framebuffer)
+    source_setup(gl);
+
+    // Copy from READ framebuffer to destination array layer
+    gl.copy_tex_sub_image_3d(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        0,
+        dest_offset[0] as i32,
+        dest_offset[1] as i32,
+        dest_layer as i32,
+        0,
+        0,
+        copy_size[0] as i32,
+        copy_size[1] as i32,
+    );
+
+    // Clean up
+    gl.delete_framebuffer(Some(&read_framebuffer));
 }

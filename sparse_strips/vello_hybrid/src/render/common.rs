@@ -110,15 +110,19 @@ impl GpuEncodedPaint {
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuEncodedImage {
-    /// The rendering quality of the image.
-    pub quality_and_extend_modes: u32,
+    /// Packed rendering quality, extend modes, and atlas index.
+    /// Bits 6-13: `atlas_index` (8 bits, supports up to 256 atlases)
+    /// Bits 4-5: `extend_y` (2 bits)
+    /// Bits 2-3: `extend_x` (2 bits)  
+    /// Bits 0-1: `quality` (2 bits)
+    pub image_params: u32,
     /// Packed image width and height.
     pub image_size: u32,
     /// The offset of the image in the atlas texture in pixels.
     pub image_offset: u32,
     /// Transform matrix [a, b, c, d, tx, ty].
     pub transform: [f32; 6],
-    /// Padding for 16-byte alignment
+    /// Padding for 16-byte alignment.
     pub _padding: [u32; 3],
 }
 
@@ -229,16 +233,23 @@ pub(crate) fn pack_image_offset(x: u16, y: u16) -> u32 {
     ((x as u32) << 16) | (y as u32)
 }
 
-/// Pack image `quality` and extend modes into a single u32.
-/// `extend_y`: stored in bits 4-7
-/// `extend_x`: stored in bits 2-3
-/// `quality`: stored in bits 0-1
+/// Pack image `quality`, extend modes, and `atlas_index` into a single u32.
+/// `atlas_index`: stored in bits 6-13 (8 bits, supports up to 256 atlases)
+/// `extend_y`: stored in bits 4-5 (2 bits)
+/// `extend_x`: stored in bits 2-3 (2 bits)
+/// `quality`: stored in bits 0-1 (2 bits)
 #[inline(always)]
-pub(crate) fn pack_quality_and_extend_modes(extend_x: u32, extend_y: u32, quality: u32) -> u32 {
+pub(crate) fn pack_image_params(
+    quality: u32,
+    extend_x: u32,
+    extend_y: u32,
+    atlas_index: u32,
+) -> u32 {
     debug_assert!(extend_x <= 3, "extend_x must be 0-3 (2 bits)");
-    debug_assert!(extend_y <= 15, "extend_y must be 0-15 (4 bits)");
+    debug_assert!(extend_y <= 3, "extend_y must be 0-3 (2 bits)");
     debug_assert!(quality <= 3, "quality must be 0-3 (2 bits)");
-    (extend_y << 4) | (extend_x << 2) | quality
+    debug_assert!(atlas_index <= 255, "atlas_index must be 0-255 (8 bits)");
+    (atlas_index << 6) | (extend_y << 4) | (extend_x << 2) | quality
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))]

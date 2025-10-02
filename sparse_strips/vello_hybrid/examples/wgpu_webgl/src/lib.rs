@@ -12,11 +12,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use vello_common::{
+    fearless_simd::Level,
     kurbo::{Affine, Point},
     paint::{ImageId, ImageSource},
 };
 use vello_example_scenes::{AnyScene, image::ImageScene};
-use vello_hybrid::{Pixmap, Scene};
+use vello_hybrid::{AtlasConfig, Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
@@ -75,12 +76,20 @@ impl RendererWrapper {
         };
         surface.configure(&device, &surface_config);
 
-        let renderer = vello_hybrid::Renderer::new(
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+        let renderer = Renderer::new_with(
             &device,
-            &vello_hybrid::RenderTargetConfig {
+            &RenderTargetConfig {
                 format: surface_format,
                 width,
                 height,
+            },
+            RenderSettings {
+                level: Level::try_detect().unwrap_or(Level::fallback()),
+                atlas_config: AtlasConfig {
+                    atlas_size: (max_texture_dimension_2d, max_texture_dimension_2d),
+                    ..AtlasConfig::default()
+                },
             },
         );
 
