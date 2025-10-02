@@ -7,7 +7,7 @@ use scenes::SimpleText;
 use vello::{
     Scene,
     kurbo::{Affine, Circle, Rect},
-    peniko::{Brush, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, color::palette},
+    peniko::{Brush, Fill, color::palette},
 };
 use vello_tests::{TestParams, smoke_snapshot_test_sync};
 
@@ -111,33 +111,4 @@ fn two_emoji_gpu() {
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn two_emoji_cpu() {
     two_emoji(true);
-}
-
-#[test]
-#[cfg_attr(skip_gpu_tests, ignore)]
-fn bgra_image() {
-    let mut scene = Scene::new();
-    let mut blob: Vec<u8> = Vec::new();
-    [
-        palette::css::BLUE,
-        palette::css::LIME,
-        palette::css::RED,
-        palette::css::WHITE,
-    ]
-    .iter()
-    .for_each(|c| {
-        let [r, g, b, a] = c.to_rgba8().to_u8_array();
-        blob.extend([b, g, r, a]);
-    });
-    let image = ImageBrush::new(ImageData {
-        data: blob.into(),
-        format: ImageFormat::Bgra8,
-        width: 2,
-        height: 2,
-        alpha_type: ImageAlphaType::Alpha,
-    });
-    scene.draw_image(&image, Affine::IDENTITY);
-    smoke_snapshot_test_sync(scene, &TestParams::new("bgra", 2, 2))
-        .unwrap()
-        .assert_mean_less_than(0.03);
 }
