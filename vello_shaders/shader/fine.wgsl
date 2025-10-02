@@ -813,7 +813,7 @@ fn read_image(cmd_ix: u32) -> CmdImage {
     let width_height = info[info_offset + 7u];
     let sample_alpha = info[info_offset + 8u];
     let alpha = f32(sample_alpha & 0xFFu) / 255.0;
-    let format = sample_alpha >> 13u;
+    let format = sample_alpha >> 14u;
     let quality = (sample_alpha >> 12u) & 0x1u;
     let x_extend = (sample_alpha >> 10u) & 0x3u;
     let y_extend = (sample_alpha >> 8u) & 0x3u;
@@ -1220,7 +1220,7 @@ fn main(
                         }
                     }
                     case IMAGE_QUALITY_MEDIUM, default: {
-                        // We don't have an implementation for `IMAGE_QUALITY_HIGH` yet, just use the same as medium                        
+                        // We don't have an implementation for `IMAGE_QUALITY_HIGH` yet, just use the same as medium
                         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                             // We only need to load from the textures if the value will be used.
                             if area[i] != 0.0 {
