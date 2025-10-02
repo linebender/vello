@@ -3,12 +3,19 @@
 
 //! Types for paints.
 
+use crate::encode::{EncodedImage, EncodedPaint, x_y_advances};
+use crate::kurbo::Affine;
+use crate::math::FloatExt;
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use peniko::{
-    Gradient,
+    Gradient, ImageQuality,
     color::{AlphaColor, PremulRgba8, Srgb},
 };
+
+#[cfg(not(feature = "std"))]
+use peniko::kurbo::common::FloatFuncs as _;
 
 /// A paint that needs to be resolved via its index.
 // In the future, we might add additional flags, that's why we have
@@ -138,6 +145,71 @@ impl ImageSource {
 
 /// An image.
 pub type Image = peniko::ImageBrush<ImageSource>;
+
+/// Encode the image, optionally ignoring the extends of the image.
+pub fn encode_image_with(
+    image: &Image,
+    paints: &mut Vec<EncodedPaint>,
+    transform: Affine,
+    ignore_extend: bool,
+) -> Paint {
+    let idx = paints.len();
+
+    let mut sampler = image.sampler;
+
+    if sampler.alpha != 1.0 {
+        // If the sampler alpha is not 1.0, we need to force alpha compositing.
+        unimplemented!("Applying opacity to image commands");
+    }
+
+    let c = transform.as_coeffs();
+
+    // Optimize image quality for integer-only translations.
+    if (c[0] as f32 - 1.0).is_nearly_zero()
+        && (c[1] as f32).is_nearly_zero()
+        && (c[2] as f32).is_nearly_zero()
+        && (c[3] as f32 - 1.0).is_nearly_zero()
+        && ((c[4] - c[4].floor()) as f32).is_nearly_zero()
+        && ((c[5] - c[5].floor()) as f32).is_nearly_zero()
+        && sampler.quality == ImageQuality::Medium
+    {
+        sampler.quality = ImageQuality::Low;
+    }
+
+    // Similarly to gradients, apply a 0.5 offset so we sample at the center of
+    // a pixel.
+    let transform = transform.inverse() * Affine::translate((0.5, 0.5));
+
+    let (x_advance, y_advance) = x_y_advances(&transform);
+
+    let encoded = match &image.image {
+        ImageSource::Pixmap(pixmap) => {
+            EncodedImage {
+                source: ImageSource::Pixmap(pixmap.clone()),
+                sampler,
+                // While we could optimize RGB8 images, it's probably not worth the trouble.
+                has_opacities: true,
+                transform,
+                x_advance,
+                y_advance,
+                ignore_extend,
+            }
+        }
+        ImageSource::OpaqueId(image) => EncodedImage {
+            source: ImageSource::OpaqueId(*image),
+            sampler,
+            has_opacities: true,
+            transform,
+            x_advance,
+            y_advance,
+            ignore_extend,
+        },
+    };
+
+    paints.push(EncodedPaint::Image(encoded));
+
+    Paint::Indexed(IndexedPaint::new(idx))
+}
 
 /// A premultiplied color.
 #[derive(Debug, Clone, PartialEq, Copy)]

@@ -8,8 +8,8 @@ use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
 use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::{FloatExt, compute_erf7};
-use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor};
-use crate::peniko::{ColorStop, ColorStops, Extend, Gradient, GradientKind, ImageQuality};
+use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor, encode_image_with};
+use crate::peniko::{ColorStop, ColorStops, Extend, Gradient, GradientKind};
 use alloc::borrow::Cow;
 use alloc::fmt::Debug;
 use alloc::vec;
@@ -429,60 +429,7 @@ impl private::Sealed for Image {}
 
 impl EncodeExt for Image {
     fn encode_into(&self, paints: &mut Vec<EncodedPaint>, transform: Affine) -> Paint {
-        let idx = paints.len();
-
-        let mut sampler = self.sampler;
-
-        if sampler.alpha != 1.0 {
-            // If the sampler alpha is not 1.0, we need to force alpha compositing.
-            unimplemented!("Applying opacity to image commands");
-        }
-
-        let c = transform.as_coeffs();
-
-        // Optimize image quality for integer-only translations.
-        if (c[0] as f32 - 1.0).is_nearly_zero()
-            && (c[1] as f32).is_nearly_zero()
-            && (c[2] as f32).is_nearly_zero()
-            && (c[3] as f32 - 1.0).is_nearly_zero()
-            && ((c[4] - c[4].floor()) as f32).is_nearly_zero()
-            && ((c[5] - c[5].floor()) as f32).is_nearly_zero()
-            && sampler.quality == ImageQuality::Medium
-        {
-            sampler.quality = ImageQuality::Low;
-        }
-
-        // Similarly to gradients, apply a 0.5 offset so we sample at the center of
-        // a pixel.
-        let transform = transform.inverse() * Affine::translate((0.5, 0.5));
-
-        let (x_advance, y_advance) = x_y_advances(&transform);
-
-        let encoded = match &self.image {
-            ImageSource::Pixmap(pixmap) => {
-                EncodedImage {
-                    source: ImageSource::Pixmap(pixmap.clone()),
-                    sampler,
-                    // While we could optimize RGB8 images, it's probably not worth the trouble.
-                    has_opacities: true,
-                    transform,
-                    x_advance,
-                    y_advance,
-                }
-            }
-            ImageSource::OpaqueId(image) => EncodedImage {
-                source: ImageSource::OpaqueId(*image),
-                sampler,
-                has_opacities: true,
-                transform,
-                x_advance,
-                y_advance,
-            },
-        };
-
-        paints.push(EncodedPaint::Image(encoded));
-
-        Paint::Indexed(IndexedPaint::new(idx))
+        encode_image_with(self, paints, transform, false)
     }
 }
 
@@ -524,6 +471,30 @@ pub struct EncodedImage {
     pub x_advance: Vec2,
     /// The advance in image coordinates for one step in the y direction.
     pub y_advance: Vec2,
+    /// Whether the extends in `ImageSampler` should be ignored.
+    pub ignore_extend: bool,
+}
+
+impl EncodedImage {
+    /// Return the x extend of the image.
+    #[inline(always)]
+    pub fn x_extend(&self) -> Option<peniko::Extend> {
+        if self.ignore_extend {
+            None
+        } else {
+            Some(self.sampler.x_extend)
+        }
+    }
+
+    /// Return the y extend of the image.
+    #[inline(always)]
+    pub fn y_extend(&self) -> Option<peniko::Extend> {
+        if self.ignore_extend {
+            None
+        } else {
+            Some(self.sampler.y_extend)
+        }
+    }
 }
 
 /// Computed properties of a linear gradient.
