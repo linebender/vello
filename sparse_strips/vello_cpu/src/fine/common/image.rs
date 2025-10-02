@@ -38,7 +38,7 @@ impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
                 data.x_advances.1,
                 data.y_advances.1,
             ),
-            image.extends.1,
+            image.sampler.y_extend,
             data.height,
             data.height_inv,
         );
@@ -68,7 +68,7 @@ impl<S: Simd> Iterator for PlainNNImagePainter<'_, S> {
         let x_pos = extend(
             self.simd,
             self.cur_x_pos,
-            self.data.image.extends.0,
+            self.data.image.sampler.x_extend,
             self.data.width,
             self.data.width_inv,
         );
@@ -116,7 +116,7 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
                 self.data.x_advances.0,
                 self.data.y_advances.0,
             ),
-            self.data.image.extends.0,
+            self.data.image.sampler.x_extend,
             self.data.width,
             self.data.width_inv,
         );
@@ -129,7 +129,7 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
                 self.data.x_advances.1,
                 self.data.y_advances.1,
             ),
-            self.data.image.extends.1,
+            self.data.image.sampler.y_extend,
             self.data.height,
             self.data.height_inv,
         );
@@ -214,7 +214,7 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
                 extend(
                     self.simd,
                     x_positions + $offsets[$idx],
-                    self.data.image.extends.0,
+                    self.data.image.sampler.y_extend,
                     self.data.width,
                     self.data.width_inv,
                 )
@@ -226,14 +226,14 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
                 extend(
                     self.simd,
                     y_positions + $offsets[$idx],
-                    self.data.image.extends.1,
+                    self.data.image.sampler.y_extend,
                     self.data.height,
                     self.data.height_inv,
                 )
             };
         }
 
-        match self.data.image.quality {
+        match self.data.image.sampler.quality {
             ImageQuality::Low => unreachable!(),
             ImageQuality::Medium => {
                 // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L5039-L5078>

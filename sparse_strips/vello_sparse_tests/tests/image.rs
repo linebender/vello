@@ -9,9 +9,10 @@ use std::f64::consts::PI;
 use std::sync::Arc;
 use vello_common::color::palette::css::REBECCA_PURPLE;
 use vello_common::kurbo::{Affine, Point, Rect};
+use vello_common::kurbo::{Shape, Triangle};
 use vello_common::paint::{Image, ImageSource};
+use vello_common::peniko::ImageSampler;
 use vello_common::peniko::{Extend, ImageQuality};
-use vello_cpu::kurbo::{Shape, Triangle};
 use vello_dev_macros::vello_test;
 
 fn rgb_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
@@ -50,10 +51,13 @@ fn repeat(ctx: &mut impl Renderer, x_extend: Extend, y_extend: Extend) {
 
     ctx.set_paint_transform(Affine::translate((45.0, 45.0)));
     ctx.set_paint(Image {
-        source: image_source,
-        x_extend,
-        y_extend,
-        quality: ImageQuality::Low,
+        image: image_source,
+        sampler: ImageSampler {
+            x_extend,
+            y_extend,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
     });
     ctx.fill_rect(&rect);
 }
@@ -88,10 +92,13 @@ fn transform(ctx: &mut impl Renderer, transform: Affine, l: f64, t: f64, r: f64,
     let image_source = rgb_img_10x10(ctx);
 
     let image = Image {
-        source: image_source,
-        x_extend: Extend::Repeat,
-        y_extend: Extend::Repeat,
-        quality: ImageQuality::Low,
+        image: image_source,
+        sampler: ImageSampler {
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Repeat,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
     };
 
     ctx.set_transform(transform);
@@ -228,10 +235,13 @@ fn image_complex_shape(ctx: &mut impl Renderer) {
     let image_source = rgb_img_10x10(ctx);
 
     let image = Image {
-        source: image_source,
-        x_extend: Extend::Repeat,
-        y_extend: Extend::Repeat,
-        quality: ImageQuality::Low,
+        image: image_source,
+        sampler: ImageSampler {
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Repeat,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
     };
 
     ctx.set_paint(image);
@@ -243,10 +253,13 @@ fn image_global_alpha(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
     let image = Image {
-        source: rgb_img_10x10_alpha_multiplied(ctx, 75),
-        x_extend: Extend::Repeat,
-        y_extend: Extend::Repeat,
-        quality: ImageQuality::Low,
+        image: rgb_img_10x10_alpha_multiplied(ctx, 75),
+        sampler: ImageSampler {
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Repeat,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
     };
 
     ctx.set_paint(image);
@@ -264,10 +277,13 @@ fn image_with_opacity(ctx: &mut impl Renderer) {
     let image_source = rgb_img_10x10(ctx);
 
     let image = Image {
-        source: image_source,
-        x_extend: Extend::Repeat,
-        y_extend: Extend::Repeat,
-        quality: ImageQuality::Low,
+        image: image_source,
+        sampler: ImageSampler {
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Repeat,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
     };
 
     ctx.set_paint(image);
@@ -280,10 +296,13 @@ fn image_format(ctx: &mut impl Renderer, image_source: ImageSource) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
     let image = Image {
-        source: image_source,
-        x_extend: Extend::Repeat,
-        y_extend: Extend::Repeat,
-        quality: ImageQuality::Low,
+        image: image_source,
+        sampler: ImageSampler {
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Repeat,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
     };
 
     ctx.set_paint(image);
@@ -325,10 +344,13 @@ fn quality(
 
     ctx.set_paint_transform(transform);
     let image = Image {
-        source: image_source,
-        x_extend: extend,
-        y_extend: extend,
-        quality,
+        image: image_source,
+        sampler: ImageSampler {
+            x_extend: extend,
+            y_extend: extend,
+            quality,
+            alpha: 1.0,
+        },
     };
 
     ctx.set_paint(image);
@@ -528,10 +550,13 @@ fn image_with_multiple_clip_layers(ctx: &mut impl Renderer) {
     ctx.push_clip_layer(&clipped_area2.to_path(0.1));
     ctx.set_paint_transform(Affine::IDENTITY);
     ctx.set_paint(Image {
-        source: image_source,
-        x_extend: Extend::Repeat,
-        y_extend: Extend::Repeat,
-        quality: ImageQuality::Low,
+        image: image_source,
+        sampler: ImageSampler {
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Repeat,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
     });
     ctx.fill_rect(&image_rect);
     ctx.pop_layer();

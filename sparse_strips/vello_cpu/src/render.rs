@@ -508,6 +508,8 @@ impl GlyphRenderer for RenderContext {
                 // We need to change the state of the render context
                 // to render the bitmap, but don't want to pollute the context,
                 // so simulate a `save` and `restore` operation.
+
+                use vello_common::peniko::ImageSampler;
                 let old_transform = self.transform;
                 let old_paint = self.paint.clone();
 
@@ -521,10 +523,13 @@ impl GlyphRenderer for RenderContext {
                 };
 
                 let image = vello_common::paint::Image {
-                    source: ImageSource::Pixmap(Arc::new(glyph.pixmap)),
-                    x_extend: crate::peniko::Extend::Pad,
-                    y_extend: crate::peniko::Extend::Pad,
-                    quality,
+                    image: ImageSource::Pixmap(Arc::new(glyph.pixmap)),
+                    sampler: ImageSampler {
+                        x_extend: crate::peniko::Extend::Pad,
+                        y_extend: crate::peniko::Extend::Pad,
+                        quality,
+                        alpha: 1.0,
+                    },
                 };
 
                 self.set_paint(image);
@@ -537,6 +542,8 @@ impl GlyphRenderer for RenderContext {
             }
             GlyphType::Colr(glyph) => {
                 // Same as for bitmap glyphs, save the state and restore it later on.
+
+                use vello_common::peniko::ImageSampler;
                 let old_transform = self.transform;
                 let old_paint = self.paint.clone();
                 let context_color = match old_paint {
@@ -568,12 +575,15 @@ impl GlyphRenderer for RenderContext {
                 };
 
                 let image = vello_common::paint::Image {
-                    source: ImageSource::Pixmap(Arc::new(glyph_pixmap)),
-                    x_extend: crate::peniko::Extend::Pad,
-                    y_extend: crate::peniko::Extend::Pad,
-                    // Since the pixmap will already have the correct size, no need to
-                    // use a different image quality here.
-                    quality: crate::peniko::ImageQuality::Low,
+                    image: ImageSource::Pixmap(Arc::new(glyph_pixmap)),
+                    sampler: ImageSampler {
+                        x_extend: crate::peniko::Extend::Pad,
+                        y_extend: crate::peniko::Extend::Pad,
+                        // Since the pixmap will already have the correct size, no need to
+                        // use a different image quality here.
+                        quality: crate::peniko::ImageQuality::Low,
+                        alpha: 1.0,
+                    },
                 };
 
                 self.set_paint(image);

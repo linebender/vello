@@ -11,6 +11,7 @@ use vello_common::kurbo::Affine;
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko;
 use vello_common::peniko::ImageQuality;
+use vello_common::peniko::ImageSampler;
 use vello_common::pixmap::Pixmap;
 use vello_cpu::fine::{Fine, FineKernel};
 
@@ -148,10 +149,13 @@ fn get_colr_image(extend: peniko::Extend, quality: ImageQuality) -> Image {
 
     let pixmap = Pixmap::from_png(&data[..]).unwrap();
     Image {
-        source: ImageSource::Pixmap(Arc::new(pixmap)),
-        x_extend: extend,
-        y_extend: extend,
-        quality,
+        image: ImageSource::Pixmap(Arc::new(pixmap)),
+        sampler: ImageSampler {
+            x_extend: extend,
+            y_extend: extend,
+            quality,
+            alpha: 1.0,
+        },
     }
 }
 
@@ -160,10 +164,13 @@ fn get_small_image(extend: peniko::Extend, quality: ImageQuality) -> Image {
 
     let pixmap = Pixmap::from_png(&data[..]).unwrap();
     Image {
-        source: ImageSource::Pixmap(Arc::new(pixmap)),
-        x_extend: extend,
-        y_extend: extend,
-        quality,
+        image: ImageSource::Pixmap(Arc::new(pixmap)),
+        sampler: ImageSampler {
+            x_extend: extend,
+            y_extend: extend,
+            quality,
+            alpha: 1.0,
+        },
     }
 }
 

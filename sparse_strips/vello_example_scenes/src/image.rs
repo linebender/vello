@@ -7,6 +7,7 @@ use std::f64::consts::PI;
 use vello_common::color::PremulRgba8;
 use vello_common::kurbo::{BezPath, Point, Shape, Vec2};
 use vello_common::peniko::ImageFormat;
+use vello_common::peniko::ImageSampler;
 use vello_common::pixmap::Pixmap;
 use vello_common::{
     kurbo::{Affine, Rect},
@@ -42,10 +43,13 @@ impl ExampleScene for ImageScene {
         );
         ctx.set_paint_transform(Affine::translate((0.0, 0.0)));
         ctx.set_paint(Image {
-            source: splash_flower_id.clone(),
-            x_extend: Extend::Pad,
-            y_extend: Extend::Pad,
-            quality: ImageQuality::Low,
+            image: splash_flower_id.clone(),
+            sampler: ImageSampler {
+                x_extend: Extend::Pad,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
         });
         ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
 
@@ -56,19 +60,25 @@ impl ExampleScene for ImageScene {
                 * Affine::scale(0.5),
         );
         ctx.set_paint(Image {
-            source: splash_flower_id.clone(),
-            x_extend: Extend::Pad,
-            y_extend: Extend::Pad,
-            quality: ImageQuality::Low,
+            image: splash_flower_id.clone(),
+            sampler: ImageSampler {
+                x_extend: Extend::Pad,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
         });
         ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
 
         ctx.set_transform(root_transform * Affine::translate((0.0, 500.0)));
         ctx.set_paint(Image {
-            source: splash_flower_id.clone(),
-            x_extend: Extend::Pad,
-            y_extend: Extend::Pad,
-            quality: ImageQuality::Low,
+            image: splash_flower_id.clone(),
+            sampler: ImageSampler {
+                x_extend: Extend::Pad,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
         });
         ctx.fill_path(&heart_shape());
 
@@ -76,10 +86,13 @@ impl ExampleScene for ImageScene {
         ctx.push_clip_layer(&circular_star(Point::new(300.0, 220.0), 5, 100.0, 150.0).to_path(0.1));
         ctx.set_paint_transform(Affine::IDENTITY);
         ctx.set_paint(Image {
-            source: splash_flower_id.clone(),
-            x_extend: Extend::Repeat,
-            y_extend: Extend::Repeat,
-            quality: ImageQuality::Low,
+            image: splash_flower_id.clone(),
+            sampler: ImageSampler {
+                x_extend: Extend::Repeat,
+                y_extend: Extend::Repeat,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
         });
         ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
         ctx.pop_layer();
@@ -87,40 +100,52 @@ impl ExampleScene for ImageScene {
         ctx.set_transform(root_transform * Affine::translate((1000.0, 50.0)));
         ctx.set_paint_transform(Affine::scale(0.25));
         ctx.set_paint(Image {
-            source: splash_flower_id.clone(),
-            x_extend: Extend::Repeat,
-            y_extend: Extend::Repeat,
-            quality: ImageQuality::Low,
+            image: splash_flower_id.clone(),
+            sampler: ImageSampler {
+                x_extend: Extend::Repeat,
+                y_extend: Extend::Repeat,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
         });
         ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
 
         ctx.set_transform(root_transform * Affine::translate((1000.0, 600.0)));
         ctx.set_paint_transform(Affine::scale(0.25));
         ctx.set_paint(Image {
-            source: splash_flower_id.clone(),
-            x_extend: Extend::Reflect,
-            y_extend: Extend::Repeat,
-            quality: ImageQuality::Low,
+            image: splash_flower_id.clone(),
+            sampler: ImageSampler {
+                x_extend: Extend::Reflect,
+                y_extend: Extend::Repeat,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
         });
         ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
 
         ctx.set_transform(root_transform * Affine::translate((1000.0, 1200.0)));
         ctx.set_paint_transform(Affine::scale(0.25));
         ctx.set_paint(Image {
-            source: splash_flower_id.clone(),
-            x_extend: Extend::Pad,
-            y_extend: Extend::Repeat,
-            quality: ImageQuality::Low,
+            image: splash_flower_id.clone(),
+            sampler: ImageSampler {
+                x_extend: Extend::Pad,
+                y_extend: Extend::Repeat,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
         });
         ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
 
         ctx.set_transform(root_transform * Affine::translate((100.0, 1000.0)));
         ctx.set_paint_transform(Affine::IDENTITY);
         ctx.set_paint(Image {
-            source: cowboy_id,
-            x_extend: Extend::Repeat,
-            y_extend: Extend::Repeat,
-            quality: ImageQuality::High,
+            image: cowboy_id,
+            sampler: ImageSampler {
+                x_extend: Extend::Repeat,
+                y_extend: Extend::Repeat,
+                quality: ImageQuality::High,
+                alpha: 1.0,
+            },
         });
         ctx.fill_rect(&Rect::new(0.0, 0.0, 800.0, 160.0));
 
@@ -132,10 +157,13 @@ impl ExampleScene for ImageScene {
         );
         ctx.set_paint_transform(Affine::scale(0.25));
         ctx.set_paint(Image {
-            source: splash_flower_id.clone(),
-            x_extend: Extend::Repeat,
-            y_extend: Extend::Repeat,
-            quality: ImageQuality::Low,
+            image: splash_flower_id.clone(),
+            sampler: ImageSampler {
+                x_extend: Extend::Repeat,
+                y_extend: Extend::Repeat,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
         });
         ctx.fill_rect(&Rect::new(0.0, 0.0, 640.0, 480.0));
     }

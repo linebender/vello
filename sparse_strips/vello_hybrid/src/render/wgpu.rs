@@ -346,9 +346,9 @@ impl Renderer {
         let image_size = pack_image_size(image_resource.width, image_resource.height);
         let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
         let image_params = pack_image_params(
-            image.quality as u32,
-            image.extends.0 as u32,
-            image.extends.1 as u32,
+            image.sampler.quality as u32,
+            image.sampler.x_extend as u32,
+            image.sampler.y_extend as u32,
             image_resource.atlas_id.as_u32(),
         );
 
