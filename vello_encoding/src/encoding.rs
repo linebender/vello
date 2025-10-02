@@ -432,9 +432,6 @@ impl Encoding {
     /// Encodes an image brush.
     pub fn encode_image<'b>(&mut self, brush: impl Into<ImageBrushRef<'b>>, alpha: f32) {
         let brush = brush.into();
-        if brush.image.format != peniko::ImageFormat::Rgba8 {
-            unimplemented!("Unsupported image format: {:?}", brush.image.format);
-        }
         if brush.image.alpha_type != peniko::ImageAlphaType::Alpha {
             unimplemented!("Unsupported image alpha type: {:?}", brush.image.alpha_type);
         }
@@ -457,10 +454,11 @@ impl Encoding {
             .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(&DrawImage {
                 xy: 0,
                 width_height: (brush.image.width << 16) | (brush.image.height & 0xFFFF),
-                sample_alpha: ((quality as u32) << 12)
+                sample_alpha: ((brush.image.format as u32) << 14
+                    | (quality as u32) << 12
                     | ((x_extend as u32) << 10)
                     | ((y_extend as u32) << 8)
-                    | alpha as u32,
+                    | alpha as u32),
             })));
     }
 

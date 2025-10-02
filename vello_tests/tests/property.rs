@@ -14,6 +14,7 @@
 use vello::Scene;
 use vello::kurbo::{Affine, Rect};
 use vello::peniko::{Brush, Color, ImageFormat, color::palette};
+use vello::peniko::{ImageAlphaType, ImageData, ImageSampler};
 use vello_tests::TestParams;
 
 fn simple_square(use_cpu: bool) {
@@ -100,4 +101,48 @@ fn empty_scene_gpu() {
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn empty_scene_cpu() {
     empty_scene(true);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn bgra_image() {
+    let mut scene = Scene::new();
+    let colors = [
+        palette::css::RED,
+        palette::css::BLUE,
+        palette::css::LIME,
+        palette::css::WHITE,
+    ];
+    let blob: Vec<u8> = colors
+        .iter()
+        .flat_map(|c| {
+            let [r, g, b, a] = c.to_rgba8().to_u8_array();
+            [b, g, r, a]
+        })
+        .collect();
+    let image = vello::peniko::ImageBrush {
+        image: ImageData {
+            data: blob.into(),
+            format: ImageFormat::Bgra8,
+            width: 2,
+            height: 2,
+            alpha_type: ImageAlphaType::Alpha,
+        },
+        sampler: ImageSampler {
+            quality: vello::peniko::ImageQuality::Low,
+            ..Default::default()
+        },
+    };
+    scene.draw_image(&image, Affine::IDENTITY);
+    let scene_image =
+        vello_tests::render_then_debug_sync(&scene, &TestParams::new("bgra", 2, 2)).unwrap();
+    assert_eq!(scene_image.format, ImageFormat::Rgba8);
+    for (i, pixel) in scene_image.data.data().chunks_exact(4).enumerate() {
+        let &[r, g, b, a] = pixel else { unreachable!() };
+        let image_color = Color::from_rgba8(r, g, b, a);
+        let color = colors[i];
+        if image_color.premultiply().difference(color.premultiply()) > 1e-4 {
+            panic!("Got {image_color:?}, expected color {color:?}");
+        }
+    }
 }
