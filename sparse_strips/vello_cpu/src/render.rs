@@ -406,8 +406,8 @@ impl RenderContext {
     }
 
     /// Set the mask to use for path-painting operations.
-    pub fn set_mask(&mut self, mask: Mask) {
-        self.mask = Some(mask);
+    pub fn set_mask(&mut self, mask: Option<Mask>) {
+        self.mask = mask;
     }
 
     /// Get the current fill rule.

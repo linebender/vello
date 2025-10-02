@@ -84,7 +84,7 @@ fn mask_non_isolated(ctx: &mut impl Renderer) {
 
     ctx.set_paint(BLACK);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
-    ctx.set_mask(mask);
+    ctx.set_mask(Some(mask));
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
 }
