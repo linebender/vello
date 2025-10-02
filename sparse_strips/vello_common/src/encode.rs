@@ -433,6 +433,11 @@ impl EncodeExt for Image {
 
         let mut sampler = self.sampler;
 
+        if sampler.alpha != 1.0 {
+            // If the sampler alpha is not 1.0, we need to force alpha compositing.
+            unimplemented!("Applying opacity to image commands");
+        }
+
         let c = transform.as_coeffs();
 
         // Optimize image quality for integer-only translations.
