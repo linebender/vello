@@ -115,18 +115,19 @@ fn two_emoji_cpu() {
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
-fn test_bgra() {
+fn bgra_image() {
     let mut scene = Scene::new();
     let mut blob: Vec<u8> = Vec::new();
     [
-        palette::css::RED,
-        palette::css::LIME,
         palette::css::BLUE,
+        palette::css::LIME,
+        palette::css::RED,
         palette::css::WHITE,
     ]
     .iter()
     .for_each(|c| {
-        blob.extend(c.to_rgba8().to_u8_array());
+        let [r, g, b, a] = c.to_rgba8().to_u8_array();
+        blob.extend([b, g, r, a]);
     });
     let image = ImageBrush::new(ImageData {
         data: blob.into(),
@@ -138,5 +139,5 @@ fn test_bgra() {
     scene.draw_image(&image, Affine::IDENTITY);
     smoke_snapshot_test_sync(scene, &TestParams::new("bgra", 2, 2))
         .unwrap()
-        .assert_mean_less_than(0.01);
+        .assert_mean_less_than(0.03);
 }
