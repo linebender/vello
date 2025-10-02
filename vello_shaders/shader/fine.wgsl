@@ -814,7 +814,7 @@ fn read_image(cmd_ix: u32) -> CmdImage {
     let sample_alpha = info[info_offset + 8u];
     let alpha = f32(sample_alpha & 0xFFu) / 255.0;
     let format = sample_alpha >> 14u;
-    let quality = (sample_alpha >> 12u) & 0x1u;
+    let quality = (sample_alpha >> 12u) & 0x3u;
     let x_extend = (sample_alpha >> 10u) & 0x3u;
     let y_extend = (sample_alpha >> 8u) & 0x3u;
     // The following are not intended to be bitcasts
