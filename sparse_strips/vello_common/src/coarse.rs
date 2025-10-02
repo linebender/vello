@@ -392,6 +392,7 @@ impl<const MODE: u8> Wide<MODE> {
         paint: Paint,
         blend_mode: BlendMode,
         thread_idx: u8,
+        mask: Option<Mask>,
     ) {
         if strip_buf.is_empty() {
             return;
@@ -470,6 +471,7 @@ impl<const MODE: u8> Wide<MODE> {
                     thread_idx,
                     paint: paint.clone(),
                     blend_mode,
+                    mask: mask.clone(),
                 };
                 x += width;
                 col += u32::from(width);
@@ -512,6 +514,7 @@ impl<const MODE: u8> Wide<MODE> {
                         blend_mode,
                         paint.clone(),
                         current_layer_id,
+                        mask.clone(),
                     );
                     // TODO: This bbox update might be redundant since filled regions are always
                     // bounded by strip regions (which already update the bbox). Consider removing
@@ -1152,6 +1155,7 @@ impl<const MODE: u8> WideTile<MODE> {
         blend_mode: BlendMode,
         paint: Paint,
         current_layer_id: LayerId,
+        mask: Option<Mask>,
     ) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             match MODE {
@@ -1170,6 +1174,7 @@ impl<const MODE: u8> WideTile<MODE> {
                         let can_override = x == 0
                             && width == WideTile::WIDTH
                             && s.is_opaque()
+                            && mask.is_none()
                             && self.n_clip == 0
                             && self.n_bufs == 0;
                         can_override.then_some(*s)
@@ -1192,6 +1197,7 @@ impl<const MODE: u8> WideTile<MODE> {
                             width,
                             paint,
                             blend_mode,
+                            mask,
                         }));
                     }
                 }
@@ -1202,6 +1208,7 @@ impl<const MODE: u8> WideTile<MODE> {
                         width,
                         paint,
                         blend_mode,
+                        mask,
                     }));
                 }
                 _ => unreachable!(),
@@ -1491,6 +1498,8 @@ pub struct CmdFill {
     pub paint: Paint,
     /// The blend mode to apply before drawing the contents.
     pub blend_mode: BlendMode,
+    /// A mask to apply to the command.
+    pub mask: Option<Mask>,
 }
 
 /// Fill a consecutive horizontal region with an alpha mask.
@@ -1514,6 +1523,8 @@ pub struct CmdAlphaFill {
     pub paint: Paint,
     /// A blend mode to apply before drawing the contents.
     pub blend_mode: BlendMode,
+    /// A mask to apply to the command.
+    pub mask: Option<Mask>,
 }
 
 /// Fill operation within a clipping region.
@@ -1623,6 +1634,7 @@ mod tests {
             BlendMode::default(),
             Paint::Solid(PremulColor::from_alpha_color(TRANSPARENT)),
             0,
+            None,
         );
         wide.fill(
             10,
@@ -1630,6 +1642,7 @@ mod tests {
             BlendMode::default(),
             Paint::Solid(PremulColor::from_alpha_color(TRANSPARENT)),
             0,
+            None,
         );
         wide.pop_buf();
 
@@ -1645,8 +1658,8 @@ mod tests {
 
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf(LayerKind::Regular(0));
-        wide.fill(0, 10, BlendMode::default(), paint.clone(), 0);
-        wide.fill(10, 10, BlendMode::default(), paint.clone(), 0);
+        wide.fill(0, 10, BlendMode::default(), paint.clone(), 0, None);
+        wide.fill(10, 10, BlendMode::default(), paint.clone(), 0, None);
         wide.blend(blend_mode);
         wide.pop_buf();
 
@@ -1662,7 +1675,7 @@ mod tests {
 
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf(LayerKind::Regular(0));
-        wide.fill(0, 10, BlendMode::default(), paint.clone(), 0);
+        wide.fill(0, 10, BlendMode::default(), paint.clone(), 0, None);
         wide.blend(blend_mode);
         wide.pop_buf();
 

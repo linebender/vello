@@ -21,6 +21,7 @@ This release has an [MSRV][] of 1.88.
   intersection ([#1203][] by [@LaurenzV])
 - An `extend` method has been added to `StripStorage` to extends
   its alphas/strips from another `StripStorage` ([#1203][] by [@LaurenzV])
+- Added a `from_parts` method for masks ([#1237][] by [@LaurenzV])
 
 ### Changed
 - `WideTile::generate` now takes an additional `BlendMode` as a parameter ([#1159][] by [@LaurenzV])
@@ -31,6 +32,9 @@ This release has an [MSRV][] of 1.88.
 - The `generate_filled_path` method of `StripGenerator` now takes
   an optional clip path as input ([#1203][] by [@LaurenzV])
 - A new trait for approximate integer division by 255 has been added ([#1203][] by [@LaurenzV])
+- The `generate` method of `Wide` now takes an optional mask as an
+  additional argument ([#1237][] by [@LaurenzV])
+- `CmdFill` and `CmdAlphaFill` now store an optional mask ([#1237][] by [@LaurenzV])
 
 ## [0.0.4][] - 2025-10-17
 
@@ -66,8 +70,9 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 
 [@LaurenzV]: https://github.com/LaurenzV
 
-[#1159]: https://github.com/linebender/vello/pull/1159
+[#1237]: https://github.com/linebender/vello/pull/1237
 [#1203]: https://github.com/linebender/vello/pull/1203
+[#1159]: https://github.com/linebender/vello/pull/1159
 
 [Unreleased]: https://github.com/linebender/fearless_simd/compare/sparse-strips-v0.0.4...HEAD
 [0.0.4]: https://github.com/linebender/vello/compare/sparse-stips-v0.0.3...sparse-strips-v0.0.4
