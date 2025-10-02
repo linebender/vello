@@ -22,16 +22,18 @@ This release has an [MSRV][] of 1.86.
    This is a breaking change to Vello Encoding.
 - `push_clip_layer`, which replaces the previous `push_layer` using `Mix::Clip`, and has fewer footguns. ([#1192][] by [@DJMcNab][])  
   This is not a breaking change, as `Mix::Clip` is still supported (although it is deprecated).
+- Support for BGRA format images (as input). ([#1173][] by [@sagudev][])
 
 ### Changed
 
+- Breaking change: wgpu has been updated to wgpu 26. ([#1096][] by [@waywardmonkeys][])
+  This has been chosen to match the version used by Bevy 0.17.
+  (Note that we do not guarantee that our latest release will always match Bevy's wgpu version)
 - Breaking change: Put `wgpu`'s default features behind a `wgpu_default` feature flag. ([#1229][] by [@StT191][])  
   If you're using Vello with default features enabled, then no change is needed.
 - Breaking change: Updated Peniko to [v0.5.0](https://github.com/linebender/peniko/releases/tag/v0.5.0)
  (This release hasn't happened yet, so that link isn't yet live; see [Peniko's CHANGELOG](https://github.com/linebender/peniko/blob/main/CHANGELOG.md)). ([#1224][] by [@DJMcNab][])  
-<!-- https://github.com/linebender/peniko/blob/main/CHANGELOG.md -->
   This brings several important changes which allow Vello to be used in more use cases:
-
   - Breaking change: Gradients must have their alpha interpolation space specified. For this, you should use `InterpolationAlphaSpace::Premultiplied`, unless you are implementing a specification which indicates otherwise.
     Currently, only `InterpolationAlphaSpace::Premultiplied` is supported.
   - Breaking change: `Gradient` kinds now have a corresponding struct. For example, `GradientKind::Linear {...}` is now `LinearGradientPosition {...}.into()`.
@@ -40,11 +42,15 @@ This release has an [MSRV][] of 1.86.
   - Breaking change: `Image` has been renamed to `ImageBrush`, consisting of an `ImageData` and an `ImageSampler`.
     The equivalent to the old `Image::new($data, $format, $width, $height)` is `ImageBrush::new(ImageData { data: $data, format: $format, width: $width, height: $height, alpha_type: ImageAlphaType::Alpha })`
     (or `ImageData { ... }.into()` if you don't need to set sampler parameters). Only `ImageAlphaType::Alpha` is currently supported in Vello.
+  - Breaking change: `vello::peniko::Font` is now called `vello::peniko::FontData`.
+    This type is also now provided by [Linebender Resource Handle](https://crates.io/crates/linebender_resource_handle).
+- We now treat Vello's shaders as trusted for memory safety purposes. ([#1093][] by [@sagudev][])
+  If you're using Vello in a security critical environment with user-controlled content, you should audit these shaders yourself, or open an issue to request that these bounds checks are re-enabled.
 
 ### Linebender Resource Handle
 
 The `vello::peniko::Font` type used in Vello used to be provided by the Peniko crate, and this was used as vocabulary types for font resources between crates.
-However, this means that when Peniko made semver-incompatible releases, crates which used this type could no longer (easily) interoperate
+However, this means that when Peniko made semver-incompatible releases, crates which used this type could no longer (easily) interoperate.
 To resolve this, `vello::peniko::FontData` (which is the same type but renamed) is now a re-export from a new crate called [Linebender Resource Handle](https://crates.io/crates/linebender_resource_handle).
 These types have identical API as in previous releases, but will now be the same type across Peniko versions.
 
@@ -52,6 +58,8 @@ These types have identical API as in previous releases, but will now be the same
 
 - Examples crashing when window is resized to zero. ([#1182][] by [@xStrom][])
 - Correct flattening tolerance calculation from 2D affine transforms. ([#1187][] by [@tomcur][])
+- Zero-width strokes were previously treated as fills. ([#785][] by [@DJMcNab][])
+- Vello no longer writes to the console, instead outputting to `log`. ([#1017][] by [@DJMcNab][])
 
 ## [0.5.1][] - 2025-08-22
 
@@ -258,6 +266,7 @@ This release has an [MSRV][] of 1.75.
 [@msiglreith]: https://github.com/msiglreith
 [@nicoburns]: https://github.com/nicoburns
 [@ratmice]: https://github.com/ratmice
+[@sagudev]: https://github.com/sagudev
 [@simbleau]: https://github.com/simbleau
 [@songhuaixu]: https://github.com/songhuaixu
 [@StT191]: https://github.com/StT191
@@ -337,14 +346,19 @@ This release has an [MSRV][] of 1.75.
 [#757]: https://github.com/linebender/vello/pull/757
 [#758]: https://github.com/linebender/vello/pull/758
 [#766]: https://github.com/linebender/vello/pull/766
+[#785]: https://github.com/linebender/vello/pull/785
 [#791]: https://github.com/linebender/vello/pull/791
 [#792]: https://github.com/linebender/vello/pull/792
 [#796]: https://github.com/linebender/vello/pull/796
 [#802]: https://github.com/linebender/vello/pull/802
 [#803]: https://github.com/linebender/vello/pull/803
 [#841]: https://github.com/linebender/vello/pull/841
+[#1017]: https://github.com/linebender/vello/pull/1017
+[#1093]: https://github.com/linebender/vello/pull/1093
+[#1096]: https://github.com/linebender/vello/pull/1096
 [#1161]: https://github.com/linebender/vello/pull/1161
 [#1169]: https://github.com/linebender/vello/pull/1169
+[#1173]: https://github.com/linebender/vello/pull/1173
 [#1182]: https://github.com/linebender/vello/pull/1182
 [#1183]: https://github.com/linebender/vello/pull/1183
 [#1187]: https://github.com/linebender/vello/pull/1187
