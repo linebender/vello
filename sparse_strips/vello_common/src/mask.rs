@@ -29,6 +29,29 @@ impl Mask {
         Self::new_with(pixmap, false)
     }
 
+    /// Create a new mask from the given alpha data.
+    ///
+    /// The `data` vector must be of length `width * height` exactly.
+    ///
+    /// The pixels are in row-major order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `data` vector is not of length `width * height`.
+    pub fn from_parts(data: Vec<u8>, width: u16, height: u16) -> Self {
+        assert_eq!(
+            data.len(),
+            usize::from(width) * usize::from(height),
+            "Expected `data` to have length of exactly `width * height`"
+        );
+
+        Self(Arc::new(MaskRepr {
+            data,
+            width,
+            height,
+        }))
+    }
+
     fn new_with(pixmap: &Pixmap, alpha_mask: bool) -> Self {
         let data = pixmap
             .data()
