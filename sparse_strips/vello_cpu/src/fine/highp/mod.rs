@@ -303,7 +303,7 @@ mod alpha_fill {
         let bg_c = f32x16::from_slice(s, dest);
         let mask_a = extract_masks(s, masks);
         // 1 - src_a * mask_a
-        let inv_src_a_mask_a = -(src_a.msub(mask_a, one));
+        let inv_src_a_mask_a = src_a.madd(-mask_a, one);
 
         let res = bg_c.madd(inv_src_a_mask_a, src_c * mask_a);
         dest.copy_from_slice(&res.val);

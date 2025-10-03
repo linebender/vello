@@ -416,10 +416,8 @@ pub(crate) fn extend<S: Simd>(
         // Otherwise, we might sample out-of-bounds pixels.
         crate::peniko::Extend::Pad => val.min(max - bias).max(f32x4::splat(simd, 0.0)),
         crate::peniko::Extend::Repeat => {
-            // floor := ((val * inv_max).floor() * max) is the nearest multiple of `max` below val.
-            // We need `val - floor`, but fearless_simd doesn't provide that as a mul_add style operation.
-            // Instead we do `-(floor-val)`, which is equivalent.
-            (-max.msub((val * inv_max).floor(), val))
+            // floor := (val * inv_max).floor() * max is the nearest multiple of `max` below val.
+            max.madd(-(val * inv_max).floor(), val)
                 // In certain edge cases, we might still end up with a higher number.
                 .min(max - 1.0)
         }
