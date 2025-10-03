@@ -102,6 +102,7 @@ struct CmdImage {
     y_extend_mode: u32,
     quality: u32,
     alpha: f32,
+    alpha_type: u32,
 }
 
 struct CmdEndClip {
