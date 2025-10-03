@@ -35,8 +35,7 @@ This release has an [MSRV][] of 1.86.
   (Note that we do not guarantee that our latest release will always match Bevy's wgpu version.)
 - Breaking change: Put `wgpu`'s default features behind a `wgpu_default` feature flag. ([#1229][] by [@StT191][])  
   If you're using Vello with default features enabled, then no change is needed.
-- Breaking change: Updated Peniko to [v0.5.0](https://github.com/linebender/peniko/releases/tag/v0.5.0)
- (This release hasn't happened yet, so that link isn't yet live; see [Peniko's CHANGELOG](https://github.com/linebender/peniko/blob/main/CHANGELOG.md)). ([#1224][] by [@DJMcNab][])  
+- Breaking change: Updated Peniko to [v0.5.0](https://github.com/linebender/peniko/releases/tag/v0.5.0). ([#1224][] by [@DJMcNab][])  
   This brings several important changes which allow Vello to be used in more use cases:
   - Breaking change: Gradients must have their alpha interpolation space specified. For this, you should use `InterpolationAlphaSpace::Premultiplied`, unless you are implementing a specification which indicates otherwise.
     Currently, only `InterpolationAlphaSpace::Premultiplied` is supported.
