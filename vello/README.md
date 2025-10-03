@@ -7,7 +7,7 @@
 [![Latest published version.](https://img.shields.io/crates/v/vello.svg)](https://crates.io/crates/vello)
 [![Documentation build status.](https://img.shields.io/docsrs/vello.svg)](https://docs.rs/vello)
 [![Apache 2.0 or MIT license.](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue.svg)](#license)
-[![Required wgpu version.](https://img.shields.io/badge/wgpu-v24.0.1-orange.svg)](https://crates.io/crates/wgpu)
+[![Required wgpu version.](https://img.shields.io/badge/wgpu-v26.0.1-orange.svg)](https://crates.io/crates/wgpu)
 \
 [![Linebender Zulip chat.](https://img.shields.io/badge/Linebender-%23vello-blue?logo=Zulip)](https://xi.zulipchat.com/#narrow/channel/197075-vello)
 [![GitHub Actions CI status.](https://img.shields.io/github/actions/workflow/status/linebender/vello/ci.yml?logo=github&label=CI)](https://github.com/linebender/vello/actions)
