@@ -137,12 +137,16 @@ impl<S: Simd> Iterator for AlphaCalculator<S> {
         );
         let r = &self.r;
 
-        let y = j + r.v1.msub(r.v1, r.height);
-        let y0 = y.abs().msub(r.v1, r.h) + r.r1;
+        // Equivalent to j + r.v1 - r.v1 * r.height
+        let y = j - r.v1.msub(r.height, r.v1);
+        // Equivalent to r.r1 + y.abs() - (r.h * r.v1)
+        let y0 = r.r1 - r.h.msub(r.v1, y.abs());
         let y1 = y0.max(r.v0);
 
-        let x = i + r.v1.msub(r.v1, r.width);
-        let x0 = x.abs().msub(r.v1, r.w) + r.r1;
+        // Equivalent to i + r.v1 - r.v1 * r.width
+        let x = i - r.v1.msub(r.width, r.v1);
+        // Equivalent to r.r1 + x.abs() - (r.w * r.v1)
+        let x0 = r.r1 - r.w.msub(r.v1, x.abs());
         let x1 = x0.max(r.v0);
         let d_pos = (x1.powf(r.exponent) + y1.powf(r.exponent)).powf(r.recip_exponent);
         let d_neg = x0.max(y0).min(r.v0);

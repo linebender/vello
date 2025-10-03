@@ -79,7 +79,7 @@ impl<S: Simd> NumericVec<S> for u8x16<S> {
     fn from_f32(simd: S, val: f32x16<S>) -> Self {
         let v1 = f32x16::splat(simd, 255.0);
         let v2 = f32x16::splat(simd, 0.5);
-        let mulled = v1.madd(val, v2);
+        let mulled = val.madd(v1, v2);
 
         f32_to_u8(mulled)
     }

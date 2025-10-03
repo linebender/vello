@@ -401,7 +401,10 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let ddy = d01y - d12y;
         let d02x = d01x + d12x;
         let d02y = d01y + d12y;
-        let cross = (d02x * ddy).msub(d02y, ddx);
+        // TODO: The old version of this code was actually the following (except without a double negation on ARM).
+        // We need to choose one.
+        let cross = -ddx.msub(d02y, d02x * ddy);
+
         let x0_x2_a = {
             let (d01x_low, _) = simd.split_f32x8(d01x);
             let (d12x_low, _) = simd.split_f32x8(d12x);
