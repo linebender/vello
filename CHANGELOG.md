@@ -26,9 +26,9 @@ This release has an [MSRV][] of 1.86.
 
 ### Changed
 
-- Breaking change: wgpu has been updated to wgpu 26. ([#1096][] by [@waywardmonkeys][])
+- Breaking change: wgpu has been updated to wgpu 26. ([#1096][] by [@waywardmonkeys][])  
   This has been chosen to match the version used by Bevy 0.17.
-  (Note that we do not guarantee that our latest release will always match Bevy's wgpu version)
+  (Note that we do not guarantee that our latest release will always match Bevy's wgpu version.)
 - Breaking change: Put `wgpu`'s default features behind a `wgpu_default` feature flag. ([#1229][] by [@StT191][])  
   If you're using Vello with default features enabled, then no change is needed.
 - Breaking change: Updated Peniko to [v0.5.0](https://github.com/linebender/peniko/releases/tag/v0.5.0)
@@ -44,7 +44,7 @@ This release has an [MSRV][] of 1.86.
     (or `ImageData { ... }.into()` if you don't need to set sampler parameters). Only `ImageAlphaType::Alpha` is currently supported in Vello.
   - Breaking change: `vello::peniko::Font` is now called `vello::peniko::FontData`.
     This type is also now provided by [Linebender Resource Handle](https://crates.io/crates/linebender_resource_handle).
-- We now treat Vello's shaders as trusted for memory safety purposes. ([#1093][] by [@sagudev][])
+- We now treat Vello's shaders as trusted for memory safety purposes. ([#1093][] by [@sagudev][])  
   If you're using Vello in a security critical environment with user-controlled content, you should audit these shaders yourself, or open an issue to request that these bounds checks are re-enabled.
 
 ### Linebender Resource Handle
