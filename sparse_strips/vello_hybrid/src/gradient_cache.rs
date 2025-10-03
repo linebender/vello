@@ -6,7 +6,7 @@
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 use vello_common::encode::{EncodedGradient, GradientCacheKey};
-use vello_common::fearless_simd::{Level, simd_dispatch};
+use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::peniko::color::cache_key::CacheKey;
 
 /// Number of bytes per texel in the gradient texture.
@@ -81,7 +81,7 @@ impl GradientRampCache {
 
         // Generate new gradient LUT.
         let lut_start = self.luts.len() as u32 / BYTES_PER_TEXEL;
-        generate_gradient_lut_dispatch(self.level, gradient, &mut self.luts);
+        dispatch!(self.level, simd => generate_gradient_lut_impl(simd, gradient, &mut self.luts));
         let lut_end = self.luts.len() as u32 / BYTES_PER_TEXEL;
         let width = lut_end - lut_start;
         let cached_ramp = CachedRamp { width, lut_start };
@@ -262,19 +262,13 @@ pub(crate) struct CachedRamp {
     pub lut_start: u32,
 }
 
-simd_dispatch!(fn generate_gradient_lut_dispatch(
-    level,
-    gradient: &vello_common::encode::EncodedGradient,
-    output: &mut Vec<u8>
-) = generate_gradient_lut_impl);
-
 /// Generate the gradient LUT.
 // TODO: Consider adding a method that generates LUT data directly into output buffer
 // to avoid duplicate allocation when lut() is only used once (e.g., in gradient cache).
 // The current approach allocates LUT in OnceCell and then copies to output, keeping
 // both allocations alive.
 #[inline(always)]
-fn generate_gradient_lut_impl<S: vello_common::fearless_simd::Simd>(
+fn generate_gradient_lut_impl<S: Simd>(
     simd: S,
     gradient: &vello_common::encode::EncodedGradient,
     output: &mut Vec<u8>,

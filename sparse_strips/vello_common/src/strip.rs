@@ -95,26 +95,8 @@ pub fn render(
     aliasing_threshold: Option<u8>,
     lines: &[Line],
 ) {
-    render_dispatch(
-        level,
-        tiles,
-        strip_buf,
-        alpha_buf,
-        fill_rule,
-        aliasing_threshold,
-        lines,
-    );
+    dispatch!(level, simd => render_impl(simd, tiles, strip_buf, alpha_buf, fill_rule, aliasing_threshold, lines));
 }
-
-simd_dispatch!(fn render_dispatch(
-    level,
-    tiles: &Tiles,
-    strip_buf: &mut Vec<Strip>,
-    alpha_buf: &mut Vec<u8>,
-    fill_rule: Fill,
-    aliasing_threshold: Option<u8>,
-    lines: &[Line],
-) = render_impl);
 
 fn render_impl<S: Simd>(
     s: S,

@@ -6,7 +6,7 @@
 use crate::flatten_simd::Callback;
 use crate::kurbo::{self, Affine, PathEl, Stroke, StrokeCtx, StrokeOpts};
 use alloc::vec::Vec;
-use fearless_simd::{Level, Simd, simd_dispatch};
+use fearless_simd::{Level, Simd, dispatch};
 use log::warn;
 
 pub use crate::flatten_simd::FlattenCtx;
@@ -82,16 +82,8 @@ pub fn fill(
     line_buf: &mut Vec<Line>,
     ctx: &mut FlattenCtx,
 ) {
-    fill_dispatch(level, path, affine, line_buf, ctx);
+    dispatch!(level, simd => fill_impl(simd, path, affine, line_buf, ctx));
 }
-
-simd_dispatch!(fn fill_dispatch(
-    level,
-    path: impl IntoIterator<Item = PathEl>, 
-    affine: Affine,
-    line_buf: &mut Vec<Line>, 
-    ctx: &mut FlattenCtx
-) = fill_impl);
 
 /// Flatten a filled bezier path into line segments.
 pub fn fill_impl<S: Simd>(

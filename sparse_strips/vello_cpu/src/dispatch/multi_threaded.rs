@@ -23,7 +23,7 @@ use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
-use vello_common::fearless_simd::{Level, Simd, simd_dispatch};
+use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
@@ -162,7 +162,7 @@ impl MultiThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
-        rasterize_with_f32_dispatch(self.level, self, buffer, width, height, encoded_paints);
+        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height, encoded_paints));
     }
 
     fn rasterize_u8(
@@ -172,7 +172,7 @@ impl MultiThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
-        rasterize_with_u8_dispatch(self.level, self, buffer, width, height, encoded_paints);
+        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints));
     }
 
     fn init(&mut self) {
@@ -544,50 +544,6 @@ impl Dispatcher for MultiThreadedDispatcher {
     fn strip_storage_mut(&mut self) -> &mut StripStorage {
         &mut self.strip_storage
     }
-}
-
-simd_dispatch!(
-    pub fn rasterize_with_f32_dispatch(
-        level,
-        self_: &MultiThreadedDispatcher,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        encoded_paints: &[EncodedPaint]
-    ) = rasterize_with_f32
-);
-
-simd_dispatch!(
-    pub fn rasterize_with_u8_dispatch(
-        level,
-        self_: &MultiThreadedDispatcher,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        encoded_paints: &[EncodedPaint]
-    ) = rasterize_with_u8
-);
-
-fn rasterize_with_f32<S: Simd>(
-    simd: S,
-    self_: &MultiThreadedDispatcher,
-    buffer: &mut [u8],
-    width: u16,
-    height: u16,
-    encoded_paints: &[EncodedPaint],
-) {
-    self_.rasterize_with::<S, F32Kernel>(simd, buffer, width, height, encoded_paints);
-}
-
-fn rasterize_with_u8<S: Simd>(
-    simd: S,
-    self_: &MultiThreadedDispatcher,
-    buffer: &mut [u8],
-    width: u16,
-    height: u16,
-    encoded_paints: &[EncodedPaint],
-) {
-    self_.rasterize_with::<S, U8Kernel>(simd, buffer, width, height, encoded_paints);
 }
 
 impl Debug for MultiThreadedDispatcher {
