@@ -208,7 +208,7 @@ mod fill {
         one_minus_alpha: f32x16<S>,
     ) {
         let mut bg_c = f32x16::from_slice(s, dest);
-        bg_c = src.madd(one_minus_alpha, bg_c);
+        bg_c = one_minus_alpha.madd(bg_c, src);
         dest.copy_from_slice(&bg_c.val);
     }
 }
@@ -304,7 +304,7 @@ mod alpha_fill {
         let mask_a = extract_masks(s, masks);
         let inv_src_a_mask_a = one.msub(src_a, mask_a);
 
-        let res = (src_c * mask_a).madd(bg_c, inv_src_a_mask_a);
+        let res = bg_c.madd(inv_src_a_mask_a, src_c * mask_a);
         dest.copy_from_slice(&res.val);
     }
 }

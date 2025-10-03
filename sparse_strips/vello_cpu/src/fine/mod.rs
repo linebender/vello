@@ -79,7 +79,7 @@ impl<S: Simd> NumericVec<S> for u8x16<S> {
     fn from_f32(simd: S, val: f32x16<S>) -> Self {
         let v1 = f32x16::splat(simd, 255.0);
         let v2 = f32x16::splat(simd, 0.5);
-        let mulled = v2.madd(v1, val);
+        let mulled = v1.madd(val, v2);
 
         f32_to_u8(mulled)
     }
@@ -661,7 +661,7 @@ impl<S: Simd> PosExt<S> for f32x4<S> {
         let columns: [f32; Tile::HEIGHT as usize] = [0.0, 1.0, 2.0, 3.0];
         let column_mask: Self = columns.simd_into(simd);
 
-        Self::splat(simd, pos).madd(column_mask, Self::splat(simd, y_advance))
+        column_mask.madd(Self::splat(simd, y_advance), Self::splat(simd, pos))
     }
 }
 

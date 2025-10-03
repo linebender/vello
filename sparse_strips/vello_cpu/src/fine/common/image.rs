@@ -259,7 +259,7 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
                         let color_sample = sample(x_positions, y_positions);
                         let w = element_wise_splat(self.simd, cx[x_idx] * cy[y_idx]);
 
-                        interpolated_color = interpolated_color.madd(w, color_sample);
+                        interpolated_color = w.madd(color_sample, interpolated_color);
                     }
                 }
 
@@ -298,7 +298,7 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
                         let color_sample = sample(x_positions, y_positions);
                         let w = element_wise_splat(self.simd, cx[x_idx] * cy[y_idx]);
 
-                        interpolated_color = interpolated_color.madd(w, color_sample);
+                        interpolated_color = w.madd(color_sample, interpolated_color);
                     }
                 }
 
@@ -492,7 +492,7 @@ fn single_weight<S: Simd>(
     c: f32x4<S>,
     d: f32x4<S>,
 ) -> f32x4<S> {
-    a.madd(b.madd(c.madd(t, d), t), t)
+    t.madd(d, c).madd(t, b).madd(t, a)
 }
 
 /// Mitchell filter with the variables B = 1/3 and C = 1/3.
