@@ -361,8 +361,8 @@ fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32
         let (a, b) = src_c.simd.split_u8x32(val);
         let mut a = u8_to_f32(a);
         let mut b = u8_to_f32(b);
-        a = a * f32x16::splat(src_c.simd, 1.0 / 255.0);
-        b = b * f32x16::splat(src_c.simd, 1.0 / 255.0);
+        a *= f32x16::splat(src_c.simd, 1.0 / 255.0);
+        b *= f32x16::splat(src_c.simd, 1.0 / 255.0);
         (a, b)
     };
 

@@ -423,11 +423,10 @@ fn render_impl<S: Simd>(
             // The trapezoidal area enclosed between the line and the right edge of the pixel
             // square.
             let area = 0.5 * h * (2. * px_right_x - line_px_right_yx - line_px_left_yx);
-            location_winding[x_idx as usize] =
-                location_winding[x_idx as usize] + acc.madd(sign, area);
+            location_winding[x_idx as usize] += acc.madd(sign, area);
             acc = acc.madd(sign, h);
         }
 
-        accumulated_winding = accumulated_winding + acc;
+        accumulated_winding += acc;
     }
 }

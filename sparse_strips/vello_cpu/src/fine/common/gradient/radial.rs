@@ -93,7 +93,7 @@ impl<S: Simd> SimdGradientKind<S> for SimdRadialKind<S> {
                 }
 
                 if !focal_data.is_natively_focal() {
-                    t = t + *fp1;
+                    t += *fp1;
                 }
 
                 if focal_data.is_swapped() {

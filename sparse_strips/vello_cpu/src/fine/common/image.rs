@@ -75,7 +75,7 @@ impl<S: Simd> Iterator for PlainNNImagePainter<'_, S> {
 
         let samples = sample(self.simd, &self.data, x_pos, self.y_positions);
 
-        self.cur_x_pos = self.cur_x_pos + self.advance;
+        self.cur_x_pos += self.advance;
 
         Some(samples)
     }
@@ -263,7 +263,7 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
                     }
                 }
 
-                interpolated_color = interpolated_color * f32x16::splat(self.simd, 1.0 / 255.0);
+                interpolated_color *= f32x16::splat(self.simd, 1.0 / 255.0);
             }
             ImageQuality::High => {
                 // Compare to <https://github.com/google/skia/blob/84ff153b0093fc83f6c77cd10b025c06a12c5604/src/opts/SkRasterPipeline_opts.h#L5030-L5075>.
@@ -302,7 +302,7 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
                     }
                 }
 
-                interpolated_color = interpolated_color * f32x16::splat(self.simd, 1.0 / 255.0);
+                interpolated_color *= f32x16::splat(self.simd, 1.0 / 255.0);
 
                 let alphas = interpolated_color.splat_4th();
 

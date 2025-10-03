@@ -368,7 +368,7 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
         even_pts[i * 4..][..4].copy_from_slice(&low.val);
         odd_pts[i * 4..][..4].copy_from_slice(&high.val);
 
-        t = t + t_inc;
+        t += t_inc;
     }
 
     even_pts[n * 2..][..8].copy_from_slice(&p3_128.val);
@@ -483,7 +483,7 @@ fn output_lines_simd<S: Simd>(
 
         out[j * 8..][..8].copy_from_slice(&p.val);
 
-        a = a + a_inc;
+        a += a_inc;
     }
 }
 

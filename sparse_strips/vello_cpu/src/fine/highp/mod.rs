@@ -319,7 +319,7 @@ fn extract_masks<S: Simd>(simd: S, masks: &[u8]) -> f32x16<S> {
     ]
     .simd_into(simd);
 
-    base_mask = base_mask * f32x4::splat(simd, 1.0 / 255.0);
+    base_mask *= f32x4::splat(simd, 1.0 / 255.0);
 
     let res = f32x16::block_splat(base_mask);
     let zip_low = res.zip_low(res);

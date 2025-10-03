@@ -288,9 +288,9 @@ fn clip_color<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>) {
 
 fn set_lum<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>, l: f32x4<S>) {
     let d = l - lum(*r, *g, *b);
-    *r = *r + d;
-    *g = *g + d;
-    *b = *b + d;
+    *r += d;
+    *g += d;
+    *b += d;
 
     clip_color(r, g, b);
 }
