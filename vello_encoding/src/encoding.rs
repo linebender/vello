@@ -451,8 +451,8 @@ impl Encoding {
             .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(&DrawImage {
                 xy: 0,
                 width_height: (brush.image.width << 16) | (brush.image.height & 0xFFFF),
-                sample_alpha: ((brush.image.alpha_type as u32) << 15
-                    | (brush.image.format as u32) << 14
+                sample_alpha: ((brush.image.format as u32) << 15
+                    | (brush.image.alpha_type as u32) << 14
                     | (quality as u32) << 12
                     | ((x_extend as u32) << 10)
                     | ((y_extend as u32) << 8)
