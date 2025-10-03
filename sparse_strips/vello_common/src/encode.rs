@@ -903,7 +903,7 @@ impl FromF32Color for u8 {
 
     fn from_f32<S: Simd>(mut color: f32x4<S>) -> [Self; 4] {
         let simd = color.simd;
-        color = f32x4::splat(simd, 0.5).madd(color, f32x4::splat(simd, 255.0));
+        color = color.madd(f32x4::splat(simd, 255.0), f32x4::splat(simd, 0.5));
 
         [
             color[0] as Self,
@@ -955,11 +955,11 @@ impl<T: FromF32Color> GradientLut<T> {
             let scales = f32x16::block_splat(f32x4::from_slice(simd, &range.scale));
 
             ramp_range.step_by(4).for_each(|idx| {
-                let t_vals = add_factor.madd(f32x4::splat(simd, idx as f32), inv_lut_scale);
+                let t_vals = f32x4::splat(simd, idx as f32).madd(inv_lut_scale, add_factor);
 
                 let t_vals = element_wise_splat(simd, t_vals);
 
-                let mut result = biases.madd(scales, t_vals);
+                let mut result = scales.madd(t_vals, biases);
                 let alphas = result.splat_4th();
                 // Due to floating-point impreciseness, it can happen that
                 // values either become greater than 1 or the RGB channels

@@ -208,7 +208,7 @@ mod fill {
         one_minus_alpha: f32x16<S>,
     ) {
         let mut bg_c = f32x16::from_slice(s, dest);
-        bg_c = src.madd(one_minus_alpha, bg_c);
+        bg_c = one_minus_alpha.madd(bg_c, src);
         dest.copy_from_slice(&bg_c.val);
     }
 }
@@ -302,9 +302,10 @@ mod alpha_fill {
     ) {
         let bg_c = f32x16::from_slice(s, dest);
         let mask_a = extract_masks(s, masks);
-        let inv_src_a_mask_a = one.msub(src_a, mask_a);
+        // 1 - src_a * mask_a
+        let inv_src_a_mask_a = src_a.madd(-mask_a, one);
 
-        let res = (src_c * mask_a).madd(bg_c, inv_src_a_mask_a);
+        let res = bg_c.madd(inv_src_a_mask_a, src_c * mask_a);
         dest.copy_from_slice(&res.val);
     }
 }
@@ -319,7 +320,7 @@ fn extract_masks<S: Simd>(simd: S, masks: &[u8]) -> f32x16<S> {
     ]
     .simd_into(simd);
 
-    base_mask = base_mask * f32x4::splat(simd, 1.0 / 255.0);
+    base_mask *= f32x4::splat(simd, 1.0 / 255.0);
 
     let res = f32x16::block_splat(base_mask);
     let zip_low = res.zip_low(res);

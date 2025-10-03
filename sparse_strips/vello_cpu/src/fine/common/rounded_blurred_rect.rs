@@ -137,12 +137,16 @@ impl<S: Simd> Iterator for AlphaCalculator<S> {
         );
         let r = &self.r;
 
-        let y = j + r.v1.msub(r.v1, r.height);
-        let y0 = y.abs().msub(r.v1, r.h) + r.r1;
+        // Equivalent to j + r.v1 - r.v1 * r.height
+        let y = j - r.v1.msub(r.height, r.v1);
+        // Equivalent to r.r1 + y.abs() - (r.h * r.v1)
+        let y0 = r.r1 - r.h.msub(r.v1, y.abs());
         let y1 = y0.max(r.v0);
 
-        let x = i + r.v1.msub(r.v1, r.width);
-        let x0 = x.abs().msub(r.v1, r.w) + r.r1;
+        // Equivalent to i + r.v1 - r.v1 * r.width
+        let x = i - r.v1.msub(r.width, r.v1);
+        // Equivalent to r.r1 + x.abs() - (r.w * r.v1)
+        let x0 = r.r1 - r.w.msub(r.v1, x.abs());
         let x1 = x0.max(r.v0);
         let d_pos = (x1.powf(r.exponent) + y1.powf(r.exponent)).powf(r.recip_exponent);
         let d_neg = x0.max(y0).min(r.v0);
@@ -218,11 +222,11 @@ impl<S: Simd> FloatExt<S> for f32x8<S> {
     fn compute_erf7(simd: S, x: Self) -> Self {
         let x = x * Self::splat(simd, core::f32::consts::FRAC_2_SQRT_PI);
         let xx = x * x;
-        let p1 = Self::splat(simd, 0.03395).madd(Self::splat(simd, 0.0104), xx);
-        let p2 = Self::splat(simd, 0.24295).madd(p1, xx);
+        let p1 = Self::splat(simd, 0.0104).madd(xx, Self::splat(simd, 0.03395));
+        let p2 = p1.madd(xx, Self::splat(simd, 0.24295));
         let p3 = x * xx;
-        let x = x.madd(p2, p3);
-        let denom = Self::splat(simd, 1.0).madd(x, x).sqrt();
+        let x = p2.madd(p3, x);
+        let denom = x.madd(x, Self::splat(simd, 1.0)).sqrt();
         x / denom
     }
 
