@@ -41,7 +41,7 @@ This release has an [MSRV][] of 1.86.
   - `GradientKind::Sweep`'s defined semantics now match those which Vello previously implemented.
   - Breaking change: `Image` has been renamed to `ImageBrush`, consisting of an `ImageData` and an `ImageSampler`.
     The equivalent to the old `Image::new($data, $format, $width, $height)` is `ImageBrush::new(ImageData { data: $data, format: $format, width: $width, height: $height, alpha_type: ImageAlphaType::Alpha })`
-    (or `ImageData { ... }.into()` if you don't need to set sampler parameters). Only `ImageAlphaType::Alpha` is currently supported in Vello.
+    (or `ImageData { ... }.into()` if you don't need to set sampler parameters).
   - Breaking change: `vello::peniko::Font` is now called `vello::peniko::FontData`.
     This type is also now provided by [Linebender Resource Handle](https://crates.io/crates/linebender_resource_handle).
 - We now treat Vello's shaders as trusted for memory safety purposes. ([#1093][] by [@sagudev][])  

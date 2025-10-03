@@ -11,10 +11,11 @@
     clippy::allow_attributes_without_reason
 )]
 
-use vello::Scene;
 use vello::kurbo::{Affine, Rect};
+use vello::peniko::color::palette::css::TRANSPARENT;
 use vello::peniko::{Brush, Color, ImageFormat, color::palette};
 use vello::peniko::{ImageAlphaType, ImageData, ImageSampler};
+use vello::{AaConfig, Scene};
 use vello_tests::TestParams;
 
 fn simple_square(use_cpu: bool) {
@@ -142,6 +143,54 @@ fn bgra_image() {
         let image_color = Color::from_rgba8(r, g, b, a);
         let color = colors[i];
         if image_color.premultiply().difference(color.premultiply()) > 1e-4 {
+            panic!("Got {image_color:?}, expected color {color:?}");
+        }
+    }
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn premultiplied_image() {
+    let mut scene = Scene::new();
+    let colors = [
+        palette::css::RED.with_alpha(0.5).premultiply(),
+        palette::css::BLUE.with_alpha(0.5).premultiply(),
+        palette::css::LIME.with_alpha(0.5).premultiply(),
+        palette::css::WHITE.with_alpha(0.5).premultiply(),
+    ];
+    let blob: Vec<u8> = colors
+        .iter()
+        .flat_map(|c| c.to_rgba8().to_u8_array())
+        .collect();
+    let image = vello::peniko::ImageBrush {
+        image: ImageData {
+            data: blob.into(),
+            format: ImageFormat::Rgba8,
+            width: 2,
+            height: 2,
+            alpha_type: ImageAlphaType::AlphaPremultiplied,
+        },
+        sampler: ImageSampler {
+            quality: vello::peniko::ImageQuality::Low,
+            ..Default::default()
+        },
+    };
+    scene.draw_image(&image, Affine::IDENTITY);
+    let params = TestParams {
+        width: 2,
+        height: 2,
+        base_color: Some(TRANSPARENT),
+        use_cpu: false,
+        name: "bgra".into(),
+        anti_aliasing: AaConfig::Area,
+    };
+    let scene_image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
+    assert_eq!(scene_image.format, ImageFormat::Rgba8);
+    for (i, pixel) in scene_image.data.data().chunks_exact(4).enumerate() {
+        let &[r, g, b, a] = pixel else { unreachable!() };
+        let image_color = Color::from_rgba8(r, g, b, a).premultiply();
+        let color = colors[i];
+        if image_color.difference(color) > 1e-2 {
             panic!("Got {image_color:?}, expected color {color:?}");
         }
     }
