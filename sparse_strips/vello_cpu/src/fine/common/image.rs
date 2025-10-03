@@ -10,6 +10,8 @@ use vello_common::fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x1
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::element_wise_splat;
 
+const PIXEL_OOB_MARKER: f32 = -1.0;
+
 /// A painter for nearest-neighbor images with no skewing.
 #[derive(Debug)]
 pub(crate) struct PlainNNImagePainter<'a, S: Simd> {
@@ -38,7 +40,7 @@ impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
                 data.x_advances.1,
                 data.y_advances.1,
             ),
-            image.sampler.y_extend,
+            image.y_extend(),
             data.height,
             data.height_inv,
         );
@@ -68,7 +70,7 @@ impl<S: Simd> Iterator for PlainNNImagePainter<'_, S> {
         let x_pos = extend(
             self.simd,
             self.cur_x_pos,
-            self.data.image.sampler.x_extend,
+            self.data.image.x_extend(),
             self.data.width,
             self.data.width_inv,
         );
@@ -116,7 +118,7 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
                 self.data.x_advances.0,
                 self.data.y_advances.0,
             ),
-            self.data.image.sampler.x_extend,
+            self.data.image.x_extend(),
             self.data.width,
             self.data.width_inv,
         );
@@ -129,7 +131,7 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
                 self.data.x_advances.1,
                 self.data.y_advances.1,
             ),
-            self.data.image.sampler.y_extend,
+            self.data.image.y_extend(),
             self.data.height,
             self.data.height_inv,
         );
@@ -214,7 +216,7 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
                 extend(
                     self.simd,
                     x_positions + $offsets[$idx],
-                    self.data.image.sampler.y_extend,
+                    self.data.image.x_extend(),
                     self.data.width,
                     self.data.width_inv,
                 )
@@ -226,7 +228,7 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
                 extend(
                     self.simd,
                     y_positions + $offsets[$idx],
-                    self.data.image.sampler.y_extend,
+                    self.data.image.y_extend(),
                     self.data.height,
                     self.data.height_inv,
                 )
@@ -335,6 +337,7 @@ pub(crate) struct ImagePainterData<'a, S: Simd> {
     pub(crate) pixmap: &'a Pixmap,
     pub(crate) x_advances: (f32, f32),
     pub(crate) y_advances: (f32, f32),
+    pub(crate) mask_oob: bool,
     pub(crate) height: f32x4<S>,
     pub(crate) height_inv: f32x4<S>,
     pub(crate) width: f32x4<S>,
@@ -362,11 +365,13 @@ impl<'a, S: Simd> ImagePainterData<'a, S> {
 
         let x_advances = (image.x_advance.x as f32, image.x_advance.y as f32);
         let y_advances = (image.y_advance.x as f32, image.y_advance.y as f32);
+        let mask_oob = image.ignore_extend;
 
         Self {
             cur_pos: start_pos,
             pixmap,
             x_advances,
+            mask_oob,
             y_advances,
             image,
             width,
@@ -387,7 +392,7 @@ pub(crate) fn sample<S: Simd>(
 ) -> u8x16<S> {
     let idx = x_positions.cvt_u32() + y_positions.cvt_u32() * data.width_u32;
 
-    u32x4::from_slice(
+    let mut res = u32x4::from_slice(
         simd,
         &[
             data.pixmap.sample_idx(idx[0]).to_u32(),
@@ -395,15 +400,25 @@ pub(crate) fn sample<S: Simd>(
             data.pixmap.sample_idx(idx[2]).to_u32(),
             data.pixmap.sample_idx(idx[3]).to_u32(),
         ],
-    )
-    .reinterpret_u8()
+    );
+
+    if data.mask_oob {
+        let mask = simd.or_mask32x4(
+            x_positions.simd_eq(f32x4::splat(simd, PIXEL_OOB_MARKER)),
+            y_positions.simd_eq(f32x4::splat(simd, PIXEL_OOB_MARKER)),
+        );
+
+        res = simd.select_u32x4(mask, u32x4::splat(simd, 0), res);
+    }
+
+    res.reinterpret_u8()
 }
 
 #[inline(always)]
 pub(crate) fn extend<S: Simd>(
     simd: S,
     val: f32x4<S>,
-    extend: crate::peniko::Extend,
+    extend: Option<crate::peniko::Extend>,
     max: f32x4<S>,
     inv_max: f32x4<S>,
 ) -> f32x4<S> {
@@ -414,13 +429,13 @@ pub(crate) fn extend<S: Simd>(
     match extend {
         // Note that max should be exclusive, so subtract a small bias to enforce that.
         // Otherwise, we might sample out-of-bounds pixels.
-        crate::peniko::Extend::Pad => val.min(max - bias).max(f32x4::splat(simd, 0.0)),
-        crate::peniko::Extend::Repeat => val
+        Some(crate::peniko::Extend::Pad) => val.min(max - bias).max(f32x4::splat(simd, 0.0)),
+        Some(crate::peniko::Extend::Repeat) => val
             .msub((val * inv_max).floor(), max)
             // In certain edge cases, we might still end up with a higher number.
             .min(max - 1.0),
         // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L3274-L3290>
-        crate::peniko::Extend::Reflect => {
+        Some(crate::peniko::Extend::Reflect) => {
             let u = val
                 - (val * inv_max * f32x4::splat(simd, 0.5)).floor() * f32x4::splat(simd, 2.0) * max;
             let s = (u * inv_max).floor();
@@ -437,6 +452,10 @@ pub(crate) fn extend<S: Simd>(
             f32x4::from_bytes(biased_bits.to_bytes())
                 // In certain edge cases, we might still end up with a higher number.
                 .min(max - 1.0)
+        }
+        None => {
+            let mask = simd.and_mask32x4(val.simd_ge(f32x4::splat(simd, 0.0)), val.simd_lt(max));
+            simd.select_f32x4(mask, val, f32x4::splat(simd, PIXEL_OOB_MARKER))
         }
     }
 }
@@ -546,7 +565,7 @@ mod tests {
         let max_inv = 1.0 / max;
 
         let num = f32x4::splat(simd, 127.00001);
-        let res = extend(simd, num, crate::peniko::Extend::Repeat, max, max_inv);
+        let res = extend(simd, num, Some(crate::peniko::Extend::Repeat), max, max_inv);
 
         assert!(res[0] <= 127.0);
     }
