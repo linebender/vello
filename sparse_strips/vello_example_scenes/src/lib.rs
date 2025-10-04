@@ -49,6 +49,8 @@ pub trait RenderingContext: Sized {
     fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
     /// Push a clip layer.
     fn push_clip_layer(&mut self, path: &BezPath);
+    /// Push a clip path.
+    fn push_clip_path(&mut self, path: &BezPath);
     /// Push a layer with blend mode, alpha, etc.
     fn push_layer(
         &mut self,
@@ -59,6 +61,8 @@ pub trait RenderingContext: Sized {
     );
     /// Pop the current layer.
     fn pop_layer(&mut self);
+    /// Pop the last clip path.
+    fn pop_clip_path(&mut self);
     /// Record rendering commands into a recording.
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
     /// Generate sparse strips for a recording.
@@ -136,6 +140,14 @@ impl RenderingContext for RenderContext {
     fn execute_recording(&mut self, recording: &Recording) {
         Recordable::execute_recording(self, recording);
     }
+
+    fn push_clip_path(&mut self, path: &BezPath) {
+        Self::push_clip_path(self, path);
+    }
+
+    fn pop_clip_path(&mut self) {
+        Self::pop_clip_path(self);
+    }
 }
 
 impl RenderingContext for Scene {
@@ -205,6 +217,14 @@ impl RenderingContext for Scene {
 
     fn execute_recording(&mut self, recording: &Recording) {
         Recordable::execute_recording(self, recording);
+    }
+
+    fn push_clip_path(&mut self, path: &BezPath) {
+        Self::push_clip_path(self, path);
+    }
+
+    fn pop_clip_path(&mut self) {
+        Self::pop_clip_path(self);
     }
 }
 

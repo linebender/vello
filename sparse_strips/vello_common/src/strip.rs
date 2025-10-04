@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use fearless_simd::*;
 
 /// A strip.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Strip {
     /// The x coordinate of the strip, in user coordinates.
     pub x: u16,
@@ -44,7 +44,12 @@ impl Strip {
         }
     }
 
-    /// Returns the y coordinate of the strip, in strip units.
+    /// Return whether the strip is a sentinel strip.
+    pub fn is_sentinel(&self) -> bool {
+        self.x == u16::MAX
+    }
+
+    /// Return the y coordinate of the strip, in strip units.
     pub fn strip_y(&self) -> u16 {
         self.y / Tile::HEIGHT
     }
