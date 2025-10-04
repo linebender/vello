@@ -87,7 +87,7 @@ fn main() {
     }
 
     if stages.iter().any(|s| s.requires_wide_tiles()) {
-        wide.generate(&strip_buf, BLACK.into(), 0);
+        wide.generate(&strip_buf, BLACK.into(), 0, None);
     }
 
     draw_grid(&mut document, args.width, args.height);
