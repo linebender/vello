@@ -385,6 +385,11 @@ impl RenderContext {
         self.blend_mode = blend_mode;
     }
 
+    /// Get the currently active blend mode.
+    pub fn blend_mode(&self) -> BlendMode {
+        self.blend_mode
+    }
+    
     /// Set the current paint transform.
     ///
     /// The paint transform is applied to the paint after the transform of the geometry the paint
