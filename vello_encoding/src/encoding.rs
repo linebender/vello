@@ -126,12 +126,14 @@ impl Encoding {
                         draw_data_offset: offset,
                         stops,
                         extend,
+                        interpolation_alpha_space,
                     } => {
                         let stops = stops.start + stops_base..stops.end + stops_base;
                         Patch::Ramp {
                             draw_data_offset: offset + offsets.draw_data,
                             stops,
                             extend: *extend,
+                            interpolation_alpha_space: *interpolation_alpha_space,
                         }
                     }
                     Patch::GlyphRun { index } => Patch::GlyphRun {
@@ -297,6 +299,7 @@ impl Encoding {
                         gradient.stops.iter().copied(),
                         alpha,
                         gradient.extend,
+                        gradient.interpolation_alpha_space,
                     );
                 }
                 GradientKind::Radial(RadialGradientPosition {
@@ -316,6 +319,7 @@ impl Encoding {
                         gradient.stops.iter().copied(),
                         alpha,
                         gradient.extend,
+                        gradient.interpolation_alpha_space,
                     );
                 }
                 GradientKind::Sweep(SweepGradientPosition {
@@ -334,6 +338,7 @@ impl Encoding {
                         gradient.stops.iter().copied(),
                         alpha,
                         gradient.extend,
+                        gradient.interpolation_alpha_space,
                     );
                 }
             },
@@ -358,8 +363,9 @@ impl Encoding {
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
         extend: Extend,
+        interpolation_alpha_space: InterpolationAlphaSpace,
     ) {
-        match self.add_ramp(color_stops, alpha, extend) {
+        match self.add_ramp(color_stops, alpha, extend, interpolation_alpha_space) {
             RampStops::Empty => self.encode_color(palette::css::TRANSPARENT),
             RampStops::One(color) => {
                 self.encode_color(color);
@@ -379,6 +385,7 @@ impl Encoding {
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
         extend: Extend,
+        interpolation_alpha_space: InterpolationAlphaSpace,
     ) {
         // Match Skia's epsilon for radii comparison
         const SKIA_EPSILON: f32 = 1.0 / (1 << 12) as f32;
@@ -386,7 +393,7 @@ impl Encoding {
             self.encode_color(palette::css::TRANSPARENT);
             return;
         }
-        match self.add_ramp(color_stops, alpha, extend) {
+        match self.add_ramp(color_stops, alpha, extend, interpolation_alpha_space) {
             RampStops::Empty => self.encode_color(palette::css::TRANSPARENT),
             RampStops::One(color) => self.encode_color(color),
             RampStops::Many => {
@@ -404,13 +411,14 @@ impl Encoding {
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
         extend: Extend,
+        interpolation_alpha_space: InterpolationAlphaSpace,
     ) {
         const SKIA_DEGENERATE_THRESHOLD: f32 = 1.0 / (1 << 15) as f32;
         if (gradient.t0 - gradient.t1).abs() < SKIA_DEGENERATE_THRESHOLD {
             self.encode_color(palette::css::TRANSPARENT);
             return;
         }
-        match self.add_ramp(color_stops, alpha, extend) {
+        match self.add_ramp(color_stops, alpha, extend, interpolation_alpha_space) {
             RampStops::Empty => self.encode_color(palette::css::TRANSPARENT),
             RampStops::One(color) => self.encode_color(color),
             RampStops::Many => {
@@ -513,6 +521,7 @@ impl Encoding {
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
         extend: Extend,
+        interpolation_alpha_space: InterpolationAlphaSpace,
     ) -> RampStops {
         let offset = self.draw_data.len();
         let stops_start = self.resources.color_stops.len();
@@ -532,6 +541,7 @@ impl Encoding {
                     draw_data_offset: offset,
                     stops: stops_start..stops_end,
                     extend,
+                    interpolation_alpha_space,
                 });
                 RampStops::Many
             }

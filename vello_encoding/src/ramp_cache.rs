@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 
 use peniko::color::cache_key::CacheKey;
-use peniko::color::{HueDirection, Srgb};
-use peniko::{ColorStop, ColorStops};
+use peniko::color::{AlphaColor, HueDirection, Srgb};
+use peniko::{ColorStop, ColorStops, InterpolationAlphaSpace};
 
 const N_SAMPLES: usize = 512;
 const RETAINED_COUNT: usize = 64;
@@ -21,7 +21,7 @@ pub struct Ramps<'a> {
 #[derive(Default)]
 pub(crate) struct RampCache {
     epoch: u64,
-    map: HashMap<CacheKey<ColorStops>, (u32, u64)>,
+    map: HashMap<(InterpolationAlphaSpace, CacheKey<ColorStops>), (u32, u64)>,
     data: Vec<u32>,
 }
 
@@ -35,14 +35,25 @@ impl RampCache {
         }
     }
 
-    pub(crate) fn add(&mut self, stops: &[ColorStop]) -> u32 {
-        if let Some(entry) = self.map.get_mut(&CacheKey(stops.into())) {
+    pub(crate) fn add(
+        &mut self,
+        interpolation_alpha_space: InterpolationAlphaSpace,
+        stops: &[ColorStop],
+    ) -> u32 {
+        if let Some(entry) = self
+            .map
+            .get_mut(&(interpolation_alpha_space, CacheKey(stops.into())))
+        {
             entry.1 = self.epoch;
             entry.0
         } else if self.map.len() < RETAINED_COUNT {
             let id = (self.data.len() / N_SAMPLES) as u32;
-            self.data.extend(make_ramp(stops));
-            self.map.insert(CacheKey(stops.into()), (id, self.epoch));
+            self.data
+                .extend(make_ramp(stops, interpolation_alpha_space));
+            self.map.insert(
+                (interpolation_alpha_space, CacheKey(stops.into())),
+                (id, self.epoch),
+            );
             id
         } else {
             let mut reuse = None;
@@ -57,16 +68,23 @@ impl RampCache {
                 let start = id as usize * N_SAMPLES;
                 for (dst, src) in self.data[start..start + N_SAMPLES]
                     .iter_mut()
-                    .zip(make_ramp(stops))
+                    .zip(make_ramp(stops, interpolation_alpha_space))
                 {
                     *dst = src;
                 }
-                self.map.insert(CacheKey(stops.into()), (id, self.epoch));
+                self.map.insert(
+                    (interpolation_alpha_space, CacheKey(stops.into())),
+                    (id, self.epoch),
+                );
                 id
             } else {
                 let id = (self.data.len() / N_SAMPLES) as u32;
-                self.data.extend(make_ramp(stops));
-                self.map.insert(CacheKey(stops.into()), (id, self.epoch));
+                self.data
+                    .extend(make_ramp(stops, interpolation_alpha_space));
+                self.map.insert(
+                    (interpolation_alpha_space, CacheKey(stops.into())),
+                    (id, self.epoch),
+                );
                 id
             }
         }
@@ -81,7 +99,10 @@ impl RampCache {
     }
 }
 
-fn make_ramp(stops: &[ColorStop]) -> impl Iterator<Item = u32> + '_ {
+fn make_ramp(
+    stops: &[ColorStop],
+    interpolation_alpha_space: InterpolationAlphaSpace,
+) -> impl Iterator<Item = u32> + '_ {
     let mut last_u = 0.0;
     let mut last_c = stops[0].color.to_alpha_color::<Srgb>();
     let mut this_u = last_u;
@@ -104,7 +125,17 @@ fn make_ramp(stops: &[ColorStop]) -> impl Iterator<Item = u32> + '_ {
         let c = if du < 1e-9 {
             this_c
         } else {
-            last_c.lerp(this_c, (u - last_u) / du, HueDirection::default())
+            match interpolation_alpha_space {
+                InterpolationAlphaSpace::Premultiplied => {
+                    last_c.lerp(this_c, (u - last_u) / du, HueDirection::default())
+                }
+                InterpolationAlphaSpace::Unpremultiplied => {
+                    AlphaColor::<Srgb>::new(std::array::from_fn(|i| {
+                        last_c.components[i]
+                            + (this_c.components[i] - last_c.components[i]) * ((u - last_u) / du)
+                    }))
+                }
+            }
         };
         c.premultiply().to_rgba8().to_u32()
     })
