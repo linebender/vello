@@ -126,12 +126,14 @@ impl Encoding {
                         draw_data_offset: offset,
                         stops,
                         extend,
+                        interpolation_alpha_space,
                     } => {
                         let stops = stops.start + stops_base..stops.end + stops_base;
                         Patch::Ramp {
                             draw_data_offset: offset + offsets.draw_data,
                             stops,
                             extend: *extend,
+                            interpolation_alpha_space: *interpolation_alpha_space,
                         }
                     }
                     Patch::GlyphRun { index } => Patch::GlyphRun {
@@ -286,65 +288,60 @@ impl Encoding {
                 };
                 self.encode_color(color);
             }
-            BrushRef::Gradient(gradient) => {
-                if gradient.interpolation_alpha_space != InterpolationAlphaSpace::Premultiplied {
-                    unimplemented!(
-                        "We don't yet support gradient interpolation which isn't premultiplied, found {:?}.",
-                        gradient.interpolation_alpha_space
-                    )
+            BrushRef::Gradient(gradient) => match gradient.kind {
+                GradientKind::Linear(LinearGradientPosition { start, end }) => {
+                    self.encode_linear_gradient(
+                        DrawLinearGradient {
+                            index: 0,
+                            p0: point_to_f32(start),
+                            p1: point_to_f32(end),
+                        },
+                        gradient.stops.iter().copied(),
+                        alpha,
+                        gradient.extend,
+                        gradient.interpolation_alpha_space,
+                    );
                 }
-                match gradient.kind {
-                    GradientKind::Linear(LinearGradientPosition { start, end }) => {
-                        self.encode_linear_gradient(
-                            DrawLinearGradient {
-                                index: 0,
-                                p0: point_to_f32(start),
-                                p1: point_to_f32(end),
-                            },
-                            gradient.stops.iter().copied(),
-                            alpha,
-                            gradient.extend,
-                        );
-                    }
-                    GradientKind::Radial(RadialGradientPosition {
-                        start_center,
-                        start_radius,
-                        end_center,
-                        end_radius,
-                    }) => {
-                        self.encode_radial_gradient(
-                            DrawRadialGradient {
-                                index: 0,
-                                p0: point_to_f32(start_center),
-                                p1: point_to_f32(end_center),
-                                r0: start_radius,
-                                r1: end_radius,
-                            },
-                            gradient.stops.iter().copied(),
-                            alpha,
-                            gradient.extend,
-                        );
-                    }
-                    GradientKind::Sweep(SweepGradientPosition {
-                        center,
-                        start_angle,
-                        end_angle,
-                    }) => {
-                        use core::f32::consts::TAU;
-                        self.encode_sweep_gradient(
-                            DrawSweepGradient {
-                                index: 0,
-                                p0: point_to_f32(center),
-                                t0: start_angle / TAU,
-                                t1: end_angle / TAU,
-                            },
-                            gradient.stops.iter().copied(),
-                            alpha,
-                            gradient.extend,
-                        );
-                    }
+                GradientKind::Radial(RadialGradientPosition {
+                    start_center,
+                    start_radius,
+                    end_center,
+                    end_radius,
+                }) => {
+                    self.encode_radial_gradient(
+                        DrawRadialGradient {
+                            index: 0,
+                            p0: point_to_f32(start_center),
+                            p1: point_to_f32(end_center),
+                            r0: start_radius,
+                            r1: end_radius,
+                        },
+                        gradient.stops.iter().copied(),
+                        alpha,
+                        gradient.extend,
+                        gradient.interpolation_alpha_space,
+                    );
                 }
-            }
+                GradientKind::Sweep(SweepGradientPosition {
+                    center,
+                    start_angle,
+                    end_angle,
+                }) => {
+                    use core::f32::consts::TAU;
+                    self.encode_sweep_gradient(
+                        DrawSweepGradient {
+                            index: 0,
+                            p0: point_to_f32(center),
+                            t0: start_angle / TAU,
+                            t1: end_angle / TAU,
+                        },
+                        gradient.stops.iter().copied(),
+                        alpha,
+                        gradient.extend,
+                        gradient.interpolation_alpha_space,
+                    );
+                }
+            },
             BrushRef::Image(image) => {
                 self.encode_image(image, alpha);
             }
@@ -366,8 +363,9 @@ impl Encoding {
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
         extend: Extend,
+        interpolation_alpha_space: InterpolationAlphaSpace,
     ) {
-        match self.add_ramp(color_stops, alpha, extend) {
+        match self.add_ramp(color_stops, alpha, extend, interpolation_alpha_space) {
             RampStops::Empty => self.encode_color(palette::css::TRANSPARENT),
             RampStops::One(color) => {
                 self.encode_color(color);
@@ -387,6 +385,7 @@ impl Encoding {
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
         extend: Extend,
+        interpolation_alpha_space: InterpolationAlphaSpace,
     ) {
         // Match Skia's epsilon for radii comparison
         const SKIA_EPSILON: f32 = 1.0 / (1 << 12) as f32;
@@ -394,7 +393,7 @@ impl Encoding {
             self.encode_color(palette::css::TRANSPARENT);
             return;
         }
-        match self.add_ramp(color_stops, alpha, extend) {
+        match self.add_ramp(color_stops, alpha, extend, interpolation_alpha_space) {
             RampStops::Empty => self.encode_color(palette::css::TRANSPARENT),
             RampStops::One(color) => self.encode_color(color),
             RampStops::Many => {
@@ -412,13 +411,14 @@ impl Encoding {
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
         extend: Extend,
+        interpolation_alpha_space: InterpolationAlphaSpace,
     ) {
         const SKIA_DEGENERATE_THRESHOLD: f32 = 1.0 / (1 << 15) as f32;
         if (gradient.t0 - gradient.t1).abs() < SKIA_DEGENERATE_THRESHOLD {
             self.encode_color(palette::css::TRANSPARENT);
             return;
         }
-        match self.add_ramp(color_stops, alpha, extend) {
+        match self.add_ramp(color_stops, alpha, extend, interpolation_alpha_space) {
             RampStops::Empty => self.encode_color(palette::css::TRANSPARENT),
             RampStops::One(color) => self.encode_color(color),
             RampStops::Many => {
@@ -521,6 +521,7 @@ impl Encoding {
         color_stops: impl Iterator<Item = ColorStop>,
         alpha: f32,
         extend: Extend,
+        interpolation_alpha_space: InterpolationAlphaSpace,
     ) -> RampStops {
         let offset = self.draw_data.len();
         let stops_start = self.resources.color_stops.len();
@@ -540,6 +541,7 @@ impl Encoding {
                     draw_data_offset: offset,
                     stops: stops_start..stops_end,
                     extend,
+                    interpolation_alpha_space,
                 });
                 RampStops::Many
             }
