@@ -130,10 +130,7 @@ fn make_ramp(
                     last_c.lerp(this_c, (u - last_u) / du, HueDirection::default())
                 }
                 InterpolationAlphaSpace::Unpremultiplied => {
-                    AlphaColor::<Srgb>::new(std::array::from_fn(|i| {
-                        last_c.components[i]
-                            + (this_c.components[i] - last_c.components[i]) * ((u - last_u) / du)
-                    }))
+                    last_c + (this_c - last_c) * ((u - last_u) / du)
                 }
             }
         };
