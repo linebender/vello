@@ -3,6 +3,7 @@
 
 //! Recording API for caching sparse strips
 
+use crate::filter_effects::Filter;
 #[cfg(feature = "text")]
 use crate::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
@@ -99,6 +100,8 @@ pub struct PushLayerCommand {
     pub opacity: Option<f32>,
     /// Mask.
     pub mask: Option<Mask>,
+    /// Filter system.
+    pub filter: Option<Filter>,
 }
 
 /// Individual rendering commands that can be recorded.
@@ -409,6 +412,7 @@ impl<'a> Recorder<'a> {
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
         self.recording
             .add_command(RenderCommand::PushLayer(PushLayerCommand {
@@ -416,12 +420,18 @@ impl<'a> Recorder<'a> {
                 blend_mode,
                 opacity,
                 mask,
+                filter,
             }));
     }
 
     /// Push a new clip layer.
     pub fn push_clip_layer(&mut self, clip_path: &BezPath) {
-        self.push_layer(Some(clip_path), None, None, None);
+        self.push_layer(Some(clip_path), None, None, None, None);
+    }
+
+    /// Push a new filter layer.
+    pub fn push_filter_layer(&mut self, filter: Filter) {
+        self.push_layer(None, None, None, None, Some(filter));
     }
 
     /// Pop the last pushed layer.
