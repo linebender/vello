@@ -18,6 +18,7 @@ use alloc::vec::Vec;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
+use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use vello_common::mask::Mask;
 #[cfg(feature = "text")]
@@ -287,7 +288,15 @@ impl RenderContext {
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
+        if let Some(filter) = filter {
+            // TODO: Implement filter integration
+            // For now, we'll ignore the filter parameter
+            // This should be properly implemented when filter support is added
+            let _ = filter;
+        }
+
         let mask = mask.and_then(|m| {
             if m.width() != self.width || m.height() != self.height {
                 None
@@ -312,17 +321,17 @@ impl RenderContext {
 
     /// Push a new clip layer.
     pub fn push_clip_layer(&mut self, path: &BezPath) {
-        self.push_layer(Some(path), None, None, None);
+        self.push_layer(Some(path), None, None, None, None);
     }
 
     /// Push a new blend layer.
     pub fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        self.push_layer(None, Some(blend_mode), None, None);
+        self.push_layer(None, Some(blend_mode), None, None, None);
     }
 
     /// Push a new opacity layer.
     pub fn push_opacity_layer(&mut self, opacity: f32) {
-        self.push_layer(None, None, Some(opacity), None);
+        self.push_layer(None, None, Some(opacity), None, None);
     }
 
     /// Set the aliasing threshold.
@@ -346,7 +355,7 @@ impl RenderContext {
     /// it will be ignored. In addition to that, the mask will not be affected by the current
     /// transformation matrix in place.
     pub fn push_mask_layer(&mut self, mask: Mask) {
-        self.push_layer(None, None, None, Some(mask));
+        self.push_layer(None, None, None, Some(mask), None);
     }
 
     /// Pop the last-pushed layer.
@@ -487,6 +496,21 @@ impl RenderContext {
     /// Return the render settings used by the `RenderContext`.
     pub fn render_settings(&self) -> &RenderSettings {
         &self.render_settings
+    }
+
+    /// Apply filter to the current paint (affects next drawn element)
+    pub fn set_filter_effect(&mut self, _filter: Filter) {
+        unimplemented!("Filter effects integration with CPU RenderContext")
+    }
+
+    /// Push a filter layer that affects all subsequent drawing operations
+    pub fn push_filter_layer(&mut self, _filter: Filter) {
+        unimplemented!("Filter layer integration with CPU RenderContext")
+    }
+
+    /// Pop the current filter layer
+    pub fn pop_filter_layer(&mut self) {
+        unimplemented!("Filter layer pop integration with CPU RenderContext")
     }
 }
 
@@ -744,8 +768,15 @@ impl Recordable for RenderContext {
                     blend_mode,
                     opacity,
                     mask,
+                    filter,
                 }) => {
-                    self.push_layer(clip_path.as_ref(), *blend_mode, *opacity, mask.clone());
+                    self.push_layer(
+                        clip_path.as_ref(),
+                        *blend_mode,
+                        *opacity,
+                        mask.clone(),
+                        filter.clone(),
+                    );
                 }
                 RenderCommand::PopLayer => {
                     self.pop_layer();
