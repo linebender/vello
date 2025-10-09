@@ -33,6 +33,7 @@ fn main() {
     let mut line_buf = vec![];
     let mut tiles = Tiles::new(Level::new());
     let mut strip_buf = vec![];
+    let mut pmt_buf = vec![];
     let mut alpha_buf = vec![];
     let mut wide = Wide::<MODE_CPU>::new(args.width, args.height);
 
@@ -79,6 +80,7 @@ fn main() {
             Level::new(),
             &tiles,
             &mut strip_buf,
+            &mut pmt_buf,
             &mut alpha_buf,
             args.fill_rule,
             None,

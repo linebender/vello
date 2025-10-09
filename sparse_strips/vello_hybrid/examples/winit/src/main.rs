@@ -22,6 +22,8 @@ use winit::{
     window::{Window, WindowId},
 };
 
+use futures_intrusive::channel::shared::oneshot_channel;
+
 const ZOOM_STEP: f64 = 0.1;
 
 struct App<'s> {
@@ -306,8 +308,57 @@ impl ApplicationHandler for App<'_> {
                     )
                     .unwrap();
 
+                let renderer = self.renderers[surface.dev_id].as_mut().unwrap();
+                let source_buffer = renderer.get_stitch_indicator_buffer();
+                let buffer_size = source_buffer.size();
+
+                let staging_buffer = device_handle.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Stitch Indicator Readback Buffer"),
+                    size: buffer_size,
+                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+
+                encoder.copy_buffer_to_buffer(
+                    source_buffer,
+                    0, // source offset
+                    &staging_buffer,
+                    0, // destination offset
+                    buffer_size,
+                );
+
                 device_handle.queue.submit([encoder.finish()]);
                 surface_texture.present();
+
+                let buffer_slice = staging_buffer.slice(..);
+                let (sender, receiver) = oneshot_channel();
+                buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                    sender.send(result).unwrap();
+                });
+
+                let _ = device_handle.device.poll(wgpu::PollType::Wait);
+
+                // if let Some(Ok(())) = pollster::block_on(receiver.receive()) {
+                //     let data = buffer_slice.get_mapped_range();
+                //     let u32_data: &[u32] = bytemuck::cast_slice(&data);
+                //     let num_to_print = u32_data.len().min(256);
+                //     println!("--- Readback Buffer (First {} u32s) ---", num_to_print);
+                //     for (i, val) in u32_data.iter().take(num_to_print).enumerate() {
+                //         println!("{}: {:<10} ", i, val)
+                //     }
+                //     println!("\n--- End of Readback ---");
+                // }
+
+                // if let Some(Ok(())) = pollster::block_on(receiver.receive()) {
+                //     let data = buffer_slice.get_mapped_range();
+                //     let f32_data: &[f32] = bytemuck::cast_slice(&data);
+                //     let num_to_print = f32_data.len().min(128);
+                //     println!("--- Readback Buffer (First {} f32s) ---", num_to_print);
+                //     for (i, val) in f32_data.iter().take(num_to_print).enumerate() {
+                //         println!("{}: {:<10.4} ", i, val);
+                //     }
+                //     println!("\n--- End of Readback ---");
+                // }
 
                 device_handle.device.poll(wgpu::PollType::Poll).unwrap();
             }

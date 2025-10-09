@@ -147,6 +147,7 @@ impl DataItem {
     /// Get the alpha buffer and rendered strips.
     pub fn strips(&self) -> (Vec<u8>, Vec<Strip>) {
         let mut strip_buf = vec![];
+        let mut pmt_buf = vec![];
         let mut alpha_buf = vec![];
         let lines = self.lines();
         let tiles = self.sorted_tiles();
@@ -155,6 +156,7 @@ impl DataItem {
             Level::fallback(),
             &tiles,
             &mut strip_buf,
+            &mut pmt_buf,
             &mut alpha_buf,
             Fill::NonZero,
             None,

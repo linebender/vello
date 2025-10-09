@@ -17,6 +17,7 @@ pub fn render_strips(c: &mut Criterion) {
 
             g.bench_function(format!("{}_{}", $item.name.clone(), $suffix), |b| {
                 let mut strip_buf = vec![];
+                let mut pmt_buf = vec![];
                 let mut alpha_buf = vec![];
 
                 b.iter(|| {
@@ -27,6 +28,7 @@ pub fn render_strips(c: &mut Criterion) {
                         $level,
                         &tiles,
                         &mut strip_buf,
+                        &mut pmt_buf,
                         &mut alpha_buf,
                         Fill::NonZero,
                         None,

@@ -22,6 +22,7 @@ use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, mem, num::NonZeroU64};
 use wgpu::Extent3d;
+use std::println;
 
 use crate::AtlasConfig;
 use crate::multi_atlas::AtlasId;
@@ -32,7 +33,7 @@ use crate::{
     render::{
         Config,
         common::{
-            GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
+            ComputeConfig, GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
             GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
             pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
@@ -50,6 +51,7 @@ use vello_common::{
     paint::ImageSource,
     peniko,
     pixmap::Pixmap,
+    strip::PreMergeTile,
     tile::Tile,
 };
 use wgpu::{
@@ -99,6 +101,11 @@ impl Renderer {
         Self::new_with(device, render_target_config, RenderSettings::default())
     }
 
+    /// TODO
+    pub fn get_stitch_indicator_buffer(&self) -> &wgpu::Buffer {
+        &self.programs.resources.stitch_indicator_buffer
+    }
+
     /// Creates a new renderer with specific settings.
     pub fn new_with(
         device: &Device,
@@ -146,12 +153,41 @@ impl Renderer {
         self.programs.prepare(
             device,
             queue,
+            &scene.strip_storage.pre_merge_tiles,
             &mut self.gradient_cache,
             &self.encoded_paints,
             &scene.strip_storage.alphas,
             render_size,
             &self.paint_idxs,
         );
+
+        const BLOCK_DIM: u32 = 256;
+        {
+            let tile_count = scene.strip_storage.pre_merge_tiles.len() as u32;
+            println!("PMT Size {}\n", tile_count);
+            println!("Alpha Size {}\n", scene.strip_storage.alphas.len());
+            let workgroup_x = (tile_count + BLOCK_DIM - 1) / BLOCK_DIM;
+
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Merge Compute Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.programs.merge_pipeline);
+            compute_pass.set_bind_group(0, &self.programs.resources.merge_bind_group, &[]);
+            compute_pass.dispatch_workgroups(workgroup_x, 1, 1);
+        }
+        {
+            let end_tile_count = (scene.strip_storage.alphas.len() / 16) as u32;
+            let workgroup_x = (end_tile_count + BLOCK_DIM - 1) / BLOCK_DIM;
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Stitch Compute Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.programs.stitch_pipeline);
+            compute_pass.set_bind_group(0, &self.programs.resources.merge_bind_group, &[]);
+            compute_pass.dispatch_workgroups(workgroup_x, 1, 1);
+        }
+
         let mut junk = RendererContext {
             programs: &mut self.programs,
             device,
@@ -447,10 +483,19 @@ struct Programs {
     gradient_bind_group_layout: BindGroupLayout,
     /// Bind group layout for atlas textures
     atlas_bind_group_layout: BindGroupLayout,
+    /// Bind group layout for merge and stitch shaders
+    merge_bind_group_layout: BindGroupLayout,
+
     /// Pipeline for clearing slots in slot textures.
     clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
     atlas_clear_pipeline: RenderPipeline,
+
+    /// Merge compute pipeline
+    merge_pipeline: wgpu::ComputePipeline,
+    /// Stitch compute pipeline
+    stitch_pipeline: wgpu::ComputePipeline,
+
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
     /// Dimensions of the rendering target
@@ -487,6 +532,16 @@ struct GpuResources {
     view_config_buffer: Buffer,
     /// Config buffer for rendering wide tile commands into a slot texture.
     slot_config_buffer: Buffer,
+    /// Config buffer for Stitch and Merge compute shaders.
+    compute_config_buffer: Buffer,
+
+    // Merge and stitch
+    premerge_tile_buffer: Buffer,
+    stitch_indicator_buffer: Buffer,
+    stitch_loc_buffer: Buffer,
+    part_indicator_buffer: Buffer,
+    part_acc_buffer: Buffer,
+    part_loc_buffer: Buffer,
 
     /// Buffer for slot indices used in `clear_slots`
     clear_slot_indices_buffer: Buffer,
@@ -497,6 +552,8 @@ struct GpuResources {
 
     /// Bind group for clear slots operation
     clear_bind_group: BindGroup,
+
+    merge_bind_group: BindGroup,
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
@@ -633,6 +690,93 @@ impl Programs {
                 }],
             });
 
+        let merge_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Merge/Stitch Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0, // config
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1, // pmt_in
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2, // stitch_indicator
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3, // part_indicator
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4, // stitch_loc
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5, // part_acc
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6, // part_loc
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7, // output (alphas texture)
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::Rgba32Uint,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
         let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Strip Shader"),
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::RENDER_STRIPS.into()),
@@ -642,6 +786,9 @@ impl Programs {
             label: Some("Clear Slots Shader"),
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::CLEAR_SLOTS.into()),
         });
+
+        let merge_shader =
+            device.create_shader_module(wgpu::include_wgsl!("../shaders/merge.wgsl"));
 
         let strip_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -767,6 +914,31 @@ impl Programs {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
+        });
+
+        let merge_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Merge/Stitch Pipeline Layout"),
+                bind_group_layouts: &[&merge_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let merge_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Merge Pipeline"),
+            layout: Some(&merge_pipeline_layout),
+            module: &merge_shader,
+            entry_point: Some("merge"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
+        let stitch_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Stitch Pipeline"),
+            layout: Some(&merge_pipeline_layout),
+            module: &merge_shader,
+            entry_point: Some("stitch"),
+            compilation_options: Default::default(),
             cache: None,
         });
 
@@ -896,7 +1068,54 @@ impl Programs {
             &slot_texture_views,
         );
 
-        let resources = GpuResources {
+        let compute_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Compute Config Buffer"),
+            contents: bytemuck::bytes_of(&ComputeConfig {
+                pmt_count: 0,
+                end_tile_count: 0,
+                c: 0,
+                d: 0,
+            }),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let premerge_tile_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Pre-merge Tile Buffer"),
+            size: 128,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let stitch_indicator_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Stitch Indicator Buffer"),
+            size: 128,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let stitch_loc_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Stitch Location Buffer"),
+            size: 128,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let part_indicator_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Partition Indicator Buffer"),
+            size: 128,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let part_acc_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Partition Accumulator Buffer"),
+            size: 128,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let part_loc_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Partition Location Buffer"),
+            size: 128,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
+        let mut resources = GpuResources {
             strips_buffer: Self::create_strips_buffer(device, 0),
             clear_slot_indices_buffer,
             slot_texture_views,
@@ -912,13 +1131,35 @@ impl Programs {
             gradient_texture,
             gradient_bind_group,
             view_config_buffer,
+            compute_config_buffer,
+            premerge_tile_buffer,
+            stitch_indicator_buffer,
+            stitch_loc_buffer,
+            part_indicator_buffer,
+            part_acc_buffer,
+            part_loc_buffer,
+            merge_bind_group: Self::create_placeholder_bind_group(device, &merge_bind_group_layout),
         };
+
+        resources.merge_bind_group = Self::create_merge_bind_group(
+            device,
+            &merge_bind_group_layout,
+            &resources.compute_config_buffer,
+            &resources.premerge_tile_buffer,
+            &resources.stitch_indicator_buffer,
+            &resources.part_indicator_buffer,
+            &resources.stitch_loc_buffer,
+            &resources.part_acc_buffer,
+            &resources.part_loc_buffer,
+            &resources.alphas_texture,
+        );
 
         Self {
             strip_pipeline,
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
+            merge_bind_group_layout,
             atlas_bind_group_layout,
             resources,
             alpha_data,
@@ -929,7 +1170,108 @@ impl Programs {
             },
             clear_pipeline,
             atlas_clear_pipeline,
+            merge_pipeline,
+            stitch_pipeline,
         }
+    }
+
+    fn create_placeholder_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout
+) -> wgpu::BindGroup {
+    // Create dummy resources that match the binding types
+    let dummy_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Dummy Uniform"),
+        size: 16,
+        usage: wgpu::BufferUsages::UNIFORM,
+        mapped_at_creation: false,
+    });
+    let dummy_storage_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Dummy Storage"),
+        size: 16,
+        usage: wgpu::BufferUsages::STORAGE,
+        mapped_at_creation: false,
+    });
+    let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Dummy Texture"),
+        size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba32Uint,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+        view_formats: &[],
+    });
+    let dummy_texture_view = dummy_texture.create_view(&Default::default());
+
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Placeholder Merge Bind Group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: dummy_uniform_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: dummy_storage_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: dummy_storage_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 3, resource: dummy_storage_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 4, resource: dummy_storage_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 5, resource: dummy_storage_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 6, resource: dummy_storage_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(&dummy_texture_view) },
+        ],
+    })
+}
+
+    fn create_merge_bind_group(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        config: &wgpu::Buffer,
+        pmt: &wgpu::Buffer,
+        stitch_indicator: &wgpu::Buffer,
+        part_indicator: &wgpu::Buffer,
+        stitch_loc: &wgpu::Buffer,
+        part_acc: &wgpu::Buffer,
+        part_loc: &wgpu::Buffer,
+        alphas: &wgpu::Texture,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Merge/Stitch Bind Group"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: config.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: pmt.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: stitch_indicator.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: part_indicator.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: stitch_loc.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: part_acc.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: part_loc.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(
+                        &alphas.create_view(&Default::default()),
+                    ),
+                },
+            ],
+        })
     }
 
     fn create_strips_buffer(device: &Device, required_strips_size: u64) -> Buffer {
@@ -979,7 +1321,9 @@ impl Programs {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba32Uint,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         })
     }
@@ -1172,18 +1516,99 @@ impl Programs {
         &mut self,
         device: &Device,
         queue: &Queue,
+        pmt: &[PreMergeTile],
         gradient_cache: &mut GradientRampCache,
         encoded_paints: &[GpuEncodedPaint],
         alphas: &[u8],
         new_render_size: &RenderSize,
         paint_idxs: &[u32],
     ) {
+        let mut new_bg = false;
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas);
+        new_bg |= self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas);
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
         self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
 
-        self.upload_alpha_texture(queue, alphas);
+        new_bg |= Self::maybe_resize_buffer(
+            device,
+            &mut self.resources.premerge_tile_buffer,
+            pmt.len() as u64 * std::mem::size_of::<PreMergeTile>() as u64,
+            "PreMergeTile Buffer",
+        );
+
+        let end_tiles = (alphas.len() / 16) as u64;
+        new_bg |= Self::maybe_resize_buffer(
+            device,
+            &mut self.resources.stitch_indicator_buffer,
+            end_tiles * 4,
+            "StitchIndicator",
+        );
+
+        new_bg |= Self::maybe_resize_buffer(
+            device,
+            &mut self.resources.stitch_loc_buffer,
+            end_tiles * 64,
+            "StitchLoc",
+        );
+
+        const BLOCK_DIM: u64 = 256;
+        let num_partitions = (pmt.len() as u64 + BLOCK_DIM - 1) / BLOCK_DIM;
+        new_bg |= Self::maybe_resize_buffer(
+            device,
+            &mut self.resources.part_indicator_buffer,
+            num_partitions * 4,
+            "PartIndicator",
+        );
+        new_bg |= Self::maybe_resize_buffer(
+            device,
+            &mut self.resources.part_acc_buffer,
+            num_partitions * 32,
+            "PartAcc",
+        );
+        new_bg |= Self::maybe_resize_buffer(
+            device,
+            &mut self.resources.part_loc_buffer,
+            num_partitions * 64,
+            "PartLoc",
+        );
+
+        if new_bg {
+            self.resources.merge_bind_group = Self::create_merge_bind_group(
+                device,
+                &self.merge_bind_group_layout,
+                &self.resources.compute_config_buffer,
+                &self.resources.premerge_tile_buffer,
+                &self.resources.stitch_indicator_buffer,
+                &self.resources.part_indicator_buffer,
+                &self.resources.stitch_loc_buffer,
+                &self.resources.part_acc_buffer,
+                &self.resources.part_loc_buffer,
+                &self.resources.alphas_texture,
+            );
+        }
+
+        //TODO maybe_update_compute_config_buffer
+        queue.write_buffer(
+            &self.resources.compute_config_buffer,
+            0,
+            bytemuck::bytes_of(&ComputeConfig {
+                pmt_count: pmt.len() as u32,
+                end_tile_count: alphas.len() as u32 / 16,
+                c: 0,
+                d: 0,
+            }),
+        );
+
+        if !pmt.is_empty() {
+            queue.write_buffer(
+                &self.resources.premerge_tile_buffer,
+                0,
+                bytemuck::cast_slice(pmt),
+            );
+        }
+
+
+        //self.upload_alpha_texture(queue, alphas); //delete this when alpha_buff is removed
         self.upload_encoded_paints_texture(queue, encoded_paints);
 
         if gradient_cache.has_changed() {
@@ -1199,7 +1624,7 @@ impl Programs {
         device: &Device,
         max_texture_dimension_2d: u32,
         alphas: &[u8],
-    ) {
+    ) -> bool {
         let required_alpha_height = u32::try_from(alphas.len())
             .unwrap()
             // There are 16 1-byte alpha values per texel.
@@ -1239,7 +1664,9 @@ impl Programs {
                 &self.resources.view_config_buffer,
                 &self.resources.slot_texture_views,
             );
+            return true
         }
+        false
     }
 
     /// Update the encoded paints texture size if needed.
@@ -1342,6 +1769,26 @@ impl Programs {
             buffer.copy_from_slice(bytemuck::bytes_of(&config));
 
             self.render_size = new_render_size.clone();
+        }
+    }
+
+    fn maybe_resize_buffer(
+        device: &Device,
+        buffer: &mut Buffer,
+        required_size: u64,
+        label: &'static str,
+    ) -> bool {
+        if required_size > buffer.size() {
+            let new_size = (required_size + 15) & !15;
+            *buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: new_size,
+                usage: buffer.usage(),
+                mapped_at_creation: false,
+            });
+            true
+        } else {
+            false
         }
     }
 

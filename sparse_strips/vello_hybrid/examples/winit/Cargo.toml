@@ -16,3 +16,5 @@ vello_common = { workspace = true }
 vello_hybrid = { workspace = true }
 vello_example_scenes = { workspace = true }
 pollster = { workspace = true }
+futures-intrusive = "0.5"
+bytemuck = { version = "1.15", features = ["derive"] }

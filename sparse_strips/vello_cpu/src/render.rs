@@ -27,7 +27,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
-use vello_common::strip::Strip;
+use vello_common::strip::{PreMergeTile, Strip};
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 #[cfg(feature = "text")]
 use vello_common::{
@@ -691,8 +691,8 @@ impl Recordable for RenderContext {
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        let (cached_strips, cached_alphas) = recording.get_cached_strips();
-        let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
+        let (cached_strips, cached_pmt, cached_alphas) = recording.get_cached_strips();
+        let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_pmt, cached_alphas);
 
         // Use pre-calculated strip start indices from when we generated the cache.
         let strip_start_indices = recording.get_strip_start_indices();
@@ -910,18 +910,23 @@ impl RenderContext {
     fn prepare_cached_strips(
         &mut self,
         cached_strips: &[Strip],
+        cached_pmt: &[PreMergeTile],
         cached_alphas: &[u8],
     ) -> Vec<Strip> {
         // Calculate offset for alpha indices based on current dispatcher's alpha buffer size.
         let alpha_offset = {
             let storage = self.dispatcher.strip_storage_mut();
             let offset = storage.alphas.len() as u32;
-            // Extend the dispatcher's alpha buffer with cached alphas.
-            storage.alphas.extend(cached_alphas);
+            storage.alphas.extend_from_slice(cached_alphas);
+            storage.pre_merge_tiles.extend(cached_pmt.iter().map(|pmt| {
+                let mut adjusted_pmt = *pmt;
+                adjusted_pmt.alpha_index += offset;
+                adjusted_pmt
+            }));
 
             offset
         };
-        // Create adjusted strips with corrected alpha indices.
+
         cached_strips
             .iter()
             .map(move |strip| {

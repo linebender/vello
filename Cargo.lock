@@ -3922,6 +3922,8 @@ dependencies = [
 name = "vello_hybrid_winit"
 version = "0.0.0"
 dependencies = [
+ "bytemuck",
+ "futures-intrusive",
  "pollster",
  "vello_common",
  "vello_example_scenes",

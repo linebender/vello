@@ -11,7 +11,7 @@ use crate::paint::PaintType;
 #[cfg(feature = "text")]
 use crate::peniko::FontData;
 use crate::peniko::{BlendMode, Fill};
-use crate::strip::Strip;
+use crate::strip::{PreMergeTile, Strip};
 use crate::strip_generator::StripStorage;
 use alloc::vec::Vec;
 
@@ -57,6 +57,10 @@ impl CachedStrips {
     /// Get strips as slice.
     pub fn strips(&self) -> &[Strip] {
         &self.strip_storage.strips
+    }
+
+    pub fn pre_merge_tiles(&self) -> &[PreMergeTile] {
+        &self.strip_storage.pre_merge_tiles
     }
 
     /// Get alphas as slice
@@ -177,8 +181,12 @@ impl Recording {
     }
 
     /// Get cached strips.
-    pub fn get_cached_strips(&self) -> (&[Strip], &[u8]) {
-        (self.cached_strips.strips(), self.cached_strips.alphas())
+    pub fn get_cached_strips(&self) -> (&[Strip], &[PreMergeTile], &[u8]) {
+        (
+            self.cached_strips.strips(),
+            self.cached_strips.pre_merge_tiles(),
+            self.cached_strips.alphas(),
+        )
     }
 
     /// Takes cached strip buffers.

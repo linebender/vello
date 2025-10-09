@@ -44,6 +44,20 @@ pub struct Config {
     pub alphas_tex_width_bits: u32,
 }
 
+/// Configuration for the Merge and Stitch compute shaders
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct ComputeConfig {
+    /// PreMergeTileCount; 1:1 with tiles
+    pub pmt_count: u32,
+    /// The total number writing tiles. alpha_buffer.len() / (tile::WIDTH * tile::HEIGHT)
+    pub end_tile_count: u32,
+    /// Placeholder
+    pub c: u32,
+    /// Placeholder
+    pub d: u32,
+}
+
 /// Represents a GPU strip for rendering.
 ///
 /// This struct corresponds to the `StripInstance` struct in the shader.
