@@ -24,7 +24,6 @@ ordered-channel = { workspace = true, optional = true, features = ["crossbeam-ch
 rayon = { workspace = true, optional = true }
 thread_local = { workspace = true, optional = true }
 
-
 [features]
 default = ["std", "png", "text"]
 # Get floating point functions from the standard library (likely using your target’s libc).
