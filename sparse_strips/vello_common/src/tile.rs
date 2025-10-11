@@ -75,8 +75,8 @@ impl Tile {
         Self::new_const(
             // Make sure that x and y stay in range when multiplying
             // with the tile width and height during strips generation.
-            x.min(u16::MAX / Tile::WIDTH),
-            y.min(u16::MAX / Tile::HEIGHT),
+            x.min(u16::MAX / Self::WIDTH),
+            y.min(u16::MAX / Self::HEIGHT),
             line_idx,
             winding,
         )
