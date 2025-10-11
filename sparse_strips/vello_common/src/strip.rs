@@ -133,7 +133,7 @@ fn render_impl<S: Simd>(
     let mut accumulated_winding = f32x4::splat(s, 0.0);
 
     /// A special tile to keep the logic below simple.
-    const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, false);
+    const SENTINEL: Tile = Tile::new_const(u16::MAX, u16::MAX, 0, false);
 
     // The strip we're building.
     let mut strip = Strip::new(
@@ -214,8 +214,8 @@ fn render_impl<S: Simd>(
         // Push out the strip if we're moving to a next strip.
         if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
             debug_assert_eq!(
-                (prev_tile.x + 1) * Tile::WIDTH - strip.x,
-                ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT)) as u16,
+                (prev_tile.x as u32 + 1) * Tile::WIDTH as u32 - strip.x as u32,
+                ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT)) as u32,
                 "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
             );
             strip_buf.push(strip);

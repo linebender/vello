@@ -277,14 +277,17 @@ impl<const MODE: u8> Wide<MODE> {
             let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
             // Can potentially be 0 if strip only changes winding without covering pixels
             let strip_width = next_col.saturating_sub(col) as u16;
-            let x1 = x0 + strip_width;
+            let x1 = x0.saturating_add(strip_width);
 
             // Calculate which wide tiles this strip intersects
             let wtile_x0 = (x0 / WideTile::WIDTH).max(bbox.x0());
             // It's possible that a strip extends into a new wide tile, but we don't actually
             // have as many wide tiles (e.g. because the pixmap width is only 512, but
             // strip ends at 513), so take the minimum between the rounded values and `width_tiles`.
-            let wtile_x1 = x1.div_ceil(WideTile::WIDTH).min(bbox.x1());
+            let wtile_x1 = x1
+                .div_ceil(WideTile::WIDTH)
+                .min(bbox.x1())
+                .min(u16::MAX / WideTile::WIDTH);
 
             // Adjust column starting position if needed to respect clip boundaries
             let mut x = x0;
@@ -321,16 +324,24 @@ impl<const MODE: u8> Wide<MODE> {
             if active_fill && strip_y == next_strip.strip_y() {
                 // Clamp the fill to the clip bounding box
                 x = x1.max(bbox.x0() * WideTile::WIDTH);
-                let x2 = next_strip
-                    .x
-                    .min(self.width.next_multiple_of(WideTile::WIDTH));
+                let x2 = next_strip.x.min(
+                    self.width
+                        .checked_next_multiple_of(WideTile::WIDTH)
+                        .unwrap_or(u16::MAX),
+                );
                 let wfxt0 = (x1 / WideTile::WIDTH).max(bbox.x0());
-                let wfxt1 = x2.div_ceil(WideTile::WIDTH).min(bbox.x1());
+                let wfxt1 = x2
+                    .div_ceil(WideTile::WIDTH)
+                    .min(bbox.x1())
+                    .min(u16::MAX / WideTile::WIDTH);
 
                 // Generate fill commands for each wide tile in the fill region
                 for wtile_x in wfxt0..wfxt1 {
                     let x_wtile_rel = x % WideTile::WIDTH;
-                    let width = x2.min((wtile_x + 1) * WideTile::WIDTH) - x;
+                    let width = x2.min(
+                        (wtile_x.checked_add(1).unwrap_or(u16::MAX / WideTile::WIDTH))
+                            * WideTile::WIDTH,
+                    ) - x;
                     x += width;
                     self.get_mut(wtile_x, strip_y)
                         .fill(x_wtile_rel, width, paint.clone());

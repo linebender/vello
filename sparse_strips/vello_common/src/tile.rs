@@ -71,7 +71,19 @@ impl Tile {
     ///
     /// `line_idx` must be smaller than [`MAX_LINES_PER_PATH`].
     #[inline]
-    pub const fn new(x: u16, y: u16, line_idx: u32, winding: bool) -> Self {
+    pub fn new(x: u16, y: u16, line_idx: u32, winding: bool) -> Self {
+        Self::new_const(
+            // Make sure that x and y stay in range when multiplying
+            // with the tile width and height during strips generation.
+            x.min(u16::MAX / Tile::WIDTH),
+            y.min(u16::MAX / Tile::HEIGHT),
+            line_idx,
+            winding,
+        )
+    }
+
+    #[inline]
+    pub(crate) const fn new_const(x: u16, y: u16, line_idx: u32, winding: bool) -> Self {
         #[cfg(debug_assertions)]
         if line_idx >= MAX_LINES_PER_PATH {
             panic!("Max. number of lines per path exceeded.");
