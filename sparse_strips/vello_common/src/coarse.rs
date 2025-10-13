@@ -287,7 +287,7 @@ impl<const MODE: u8> Wide<MODE> {
             let wtile_x1 = x1
                 .div_ceil(WideTile::WIDTH)
                 .min(bbox.x1())
-                .min(u16::MAX / WideTile::WIDTH);
+                .min(WideTile::MAX_WIDE_TILE_COORD);
 
             // Adjust column starting position if needed to respect clip boundaries
             let mut x = x0;
@@ -333,13 +333,15 @@ impl<const MODE: u8> Wide<MODE> {
                 let wfxt1 = x2
                     .div_ceil(WideTile::WIDTH)
                     .min(bbox.x1())
-                    .min(u16::MAX / WideTile::WIDTH);
+                    .min(WideTile::MAX_WIDE_TILE_COORD);
 
                 // Generate fill commands for each wide tile in the fill region
                 for wtile_x in wfxt0..wfxt1 {
                     let x_wtile_rel = x % WideTile::WIDTH;
                     let width = x2.min(
-                        (wtile_x.checked_add(1).unwrap_or(u16::MAX / WideTile::WIDTH))
+                        (wtile_x
+                            .checked_add(1)
+                            .unwrap_or(WideTile::MAX_WIDE_TILE_COORD))
                             * WideTile::WIDTH,
                     ) - x;
                     x += width;
@@ -799,6 +801,8 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
 impl WideTile {
     /// The width of a wide tile in pixels.
     pub const WIDTH: u16 = 256;
+    /// The maximum coordinate of a wide tile.
+    pub const MAX_WIDE_TILE_COORD: u16 = u16::MAX / Self::WIDTH;
 }
 
 impl WideTile<MODE_CPU> {
