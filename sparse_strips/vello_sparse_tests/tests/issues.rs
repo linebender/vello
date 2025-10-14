@@ -451,3 +451,8 @@ fn basic_alpha_compositing(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.9));
     ctx.fill_rect(&Rect::new(30.0, 30.0, 90.0, 90.0));
 }
+
+#[vello_test(no_ref)]
+fn large_dimensions(ctx: &mut impl Renderer) {
+    ctx.fill_rect(&Rect::new(0.0, 0.0, u16::MAX as f64 + 10.0, 8.0));
+}

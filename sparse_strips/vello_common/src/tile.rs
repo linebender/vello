@@ -68,10 +68,23 @@ impl Tile {
     pub const HEIGHT: u16 = 4;
 
     /// Create a new tile.
+    /// `x` and `y` will be clamped to the largest possible coordinate if they are too large.
     ///
     /// `line_idx` must be smaller than [`MAX_LINES_PER_PATH`].
     #[inline]
-    pub const fn new(x: u16, y: u16, line_idx: u32, winding: bool) -> Self {
+    pub fn new_clamped(x: u16, y: u16, line_idx: u32, winding: bool) -> Self {
+        Self::new(
+            // Make sure that x and y stay in range when multiplying
+            // with the tile width and height during strips generation.
+            x.min(u16::MAX / Self::WIDTH),
+            y.min(u16::MAX / Self::HEIGHT),
+            line_idx,
+            winding,
+        )
+    }
+
+    #[inline]
+    pub(crate) const fn new(x: u16, y: u16, line_idx: u32, winding: bool) -> Self {
         #[cfg(debug_assertions)]
         if line_idx >= MAX_LINES_PER_PATH {
             panic!("Max. number of lines per path exceeded.");
@@ -277,7 +290,7 @@ impl Tiles {
                 for y_idx in y_top_tiles..y_bottom_tiles {
                     let y = f32::from(y_idx);
 
-                    let tile = Tile::new(x, y_idx, line_idx, y >= line_top_y);
+                    let tile = Tile::new_clamped(x, y_idx, line_idx, y >= line_top_y);
                     self.tile_buf.push(tile);
                 }
             } else {
@@ -315,7 +328,7 @@ impl Tiles {
                     for x_idx in
                         line_row_left_x as u16..=(line_row_right_x as u16).min(tile_columns - 1)
                     {
-                        let tile = Tile::new(
+                        let tile = Tile::new_clamped(
                             x_idx,
                             y_idx,
                             line_idx,
@@ -386,7 +399,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles(&[line], 100, 100);
 
-        assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, true)]);
+        assert_eq!(tiles.tile_buf, [Tile::new_clamped(0, 0, 0, true)]);
     }
 
     #[test]
@@ -403,9 +416,9 @@ mod tests {
         assert_eq!(
             tiles.tile_buf,
             [
-                Tile::new(0, 0, 0, false),
-                Tile::new(1, 0, 0, false),
-                Tile::new(2, 0, 0, false),
+                Tile::new_clamped(0, 0, 0, false),
+                Tile::new_clamped(1, 0, 0, false),
+                Tile::new_clamped(2, 0, 0, false),
             ]
         );
     }
@@ -424,9 +437,9 @@ mod tests {
         assert_eq!(
             tiles.tile_buf,
             [
-                Tile::new(0, 0, 0, false),
-                Tile::new(0, 1, 0, true),
-                Tile::new(0, 2, 0, true),
+                Tile::new_clamped(0, 0, 0, false),
+                Tile::new_clamped(0, 1, 0, true),
+                Tile::new_clamped(0, 2, 0, true),
             ]
         );
     }
@@ -445,11 +458,11 @@ mod tests {
         assert_eq!(
             tiles.tile_buf,
             [
-                Tile::new(0, 0, 0, false),
-                Tile::new(1, 0, 0, false),
-                Tile::new(1, 1, 0, true),
-                Tile::new(2, 1, 0, false),
-                Tile::new(2, 2, 0, true),
+                Tile::new_clamped(0, 0, 0, false),
+                Tile::new_clamped(1, 0, 0, false),
+                Tile::new_clamped(1, 1, 0, true),
+                Tile::new_clamped(2, 1, 0, false),
+                Tile::new_clamped(2, 2, 0, true),
             ]
         );
     }
@@ -468,11 +481,11 @@ mod tests {
         assert_eq!(
             tiles.tile_buf,
             [
-                Tile::new(0, 0, 0, false),
-                Tile::new(1, 0, 0, false),
-                Tile::new(1, 1, 0, true),
-                Tile::new(2, 1, 0, false),
-                Tile::new(2, 2, 0, true),
+                Tile::new_clamped(0, 0, 0, false),
+                Tile::new_clamped(1, 0, 0, false),
+                Tile::new_clamped(1, 1, 0, true),
+                Tile::new_clamped(2, 1, 0, false),
+                Tile::new_clamped(2, 2, 0, true),
             ]
         );
     }
@@ -491,11 +504,11 @@ mod tests {
         assert_eq!(
             tiles.tile_buf,
             [
-                Tile::new(2, 1, 0, false),
-                Tile::new(3, 1, 0, false),
-                Tile::new(0, 2, 0, false),
-                Tile::new(1, 2, 0, false),
-                Tile::new(2, 2, 0, true),
+                Tile::new_clamped(2, 1, 0, false),
+                Tile::new_clamped(3, 1, 0, false),
+                Tile::new_clamped(0, 2, 0, false),
+                Tile::new_clamped(1, 2, 0, false),
+                Tile::new_clamped(2, 2, 0, true),
             ]
         );
     }
@@ -514,11 +527,11 @@ mod tests {
         assert_eq!(
             tiles.tile_buf,
             [
-                Tile::new(2, 1, 0, false),
-                Tile::new(3, 1, 0, false),
-                Tile::new(0, 2, 0, false),
-                Tile::new(1, 2, 0, false),
-                Tile::new(2, 2, 0, true),
+                Tile::new_clamped(2, 1, 0, false),
+                Tile::new_clamped(3, 1, 0, false),
+                Tile::new_clamped(0, 2, 0, false),
+                Tile::new_clamped(1, 2, 0, false),
+                Tile::new_clamped(2, 2, 0, true),
             ]
         );
     }
@@ -540,7 +553,10 @@ mod tests {
 
         assert_eq!(
             tiles.tile_buf,
-            [Tile::new(0, 0, 0, false), Tile::new(0, 0, 1, false),]
+            [
+                Tile::new_clamped(0, 0, 0, false),
+                Tile::new_clamped(0, 0, 1, false),
+            ]
         );
     }
 
