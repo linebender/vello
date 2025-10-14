@@ -12,7 +12,6 @@ use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
 use crate::peniko::{ImageQuality, ImageSampler};
 use alloc::boxed::Box;
-#[cfg(feature = "text")]
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -21,7 +20,6 @@ use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use vello_common::mask::Mask;
-#[cfg(feature = "text")]
 use vello_common::paint::ImageSource;
 use vello_common::paint::{Image, Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
