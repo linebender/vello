@@ -562,3 +562,17 @@ fn image_with_multiple_clip_layers(ctx: &mut impl Renderer) {
     ctx.pop_layer();
     ctx.pop_layer();
 }
+
+#[vello_test(skip_hybrid)]
+fn draw_pixmap_simple(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_10x10(ctx);
+    let pixmap = match image_source {
+        ImageSource::Pixmap(p) => p,
+        ImageSource::OpaqueId(_) => {
+            unimplemented!()
+        }
+    };
+
+    ctx.set_transform(Affine::translate((10.0, 10.0)) * Affine::scale(8.0));
+    ctx.draw_pixmap(pixmap, ImageQuality::High, 1.0);
+}

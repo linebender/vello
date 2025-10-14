@@ -10,6 +10,7 @@ use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
+use crate::peniko::{ImageQuality, ImageSampler};
 use alloc::boxed::Box;
 #[cfg(feature = "text")]
 use alloc::sync::Arc;
@@ -22,7 +23,7 @@ use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use vello_common::mask::Mask;
 #[cfg(feature = "text")]
 use vello_common::paint::ImageSource;
-use vello_common::paint::{Paint, PaintType};
+use vello_common::paint::{Image, Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::pixmap::Pixmap;
@@ -167,6 +168,35 @@ impl RenderContext {
                 self.transform * self.paint_transform,
             ),
         }
+    }
+
+    /// Draw an image into the pixmap. This is a convenience method that is functionally
+    /// equivalent to drawing with the same size as the image and applying a pattern fill.
+    ///
+    /// By default, the image will be positioned with the top-left corner at the point (0, 0)
+    /// and the width and height set to the natural dimensions of the image. The positioning and
+    /// scaling of the image can be changed by applying a transform to the render context.
+    pub fn draw_pixmap(&mut self, pixmap: Arc<Pixmap>, image_quality: ImageQuality, alpha: f32) {
+        let (width, height) = (pixmap.width(), pixmap.height());
+        let image = Image {
+            image: ImageSource::Pixmap(pixmap),
+            sampler: ImageSampler {
+                x_extend: Default::default(),
+                y_extend: Default::default(),
+                quality: image_quality,
+                alpha,
+            },
+        };
+
+        let paint = image.encode_into(&mut self.encoded_paints, self.transform);
+        self.rect_to_temp_path(&Rect::new(0.0, 0.0, width as f64, height as f64));
+        self.dispatcher.fill_path(
+            &self.temp_path,
+            self.fill_rule,
+            self.transform,
+            paint,
+            self.aliasing_threshold,
+        );
     }
 
     /// Fill a path.

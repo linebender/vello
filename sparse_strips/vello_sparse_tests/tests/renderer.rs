@@ -11,6 +11,7 @@ use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{Recordable, Recorder, Recording};
+use vello_cpu::peniko::ImageQuality;
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
 use vello_hybrid::Scene;
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -31,6 +32,7 @@ pub(crate) trait Renderer: Sized {
     fn fill_rect(&mut self, rect: &Rect);
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
     fn stroke_rect(&mut self, rect: &Rect);
+    fn draw_pixmap(&mut self, pixmap: Arc<Pixmap>, quality: ImageQuality, alpha: f32);
     fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
     fn push_layer(
         &mut self,
@@ -97,6 +99,10 @@ impl Renderer for RenderContext {
 
     fn stroke_rect(&mut self, rect: &Rect) {
         Self::stroke_rect(self, rect);
+    }
+
+    fn draw_pixmap(&mut self, pixmap: Arc<Pixmap>, quality: ImageQuality, alpha: f32) {
+        Self::draw_pixmap(self, pixmap, quality, alpha);
     }
 
     fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
@@ -285,6 +291,10 @@ impl Renderer for HybridRenderer {
 
     fn stroke_rect(&mut self, rect: &Rect) {
         self.scene.stroke_rect(rect);
+    }
+
+    fn draw_pixmap(&mut self, _: Arc<Pixmap>, _: ImageQuality, _: f32) {
+        unimplemented!()
     }
 
     fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
@@ -569,6 +579,10 @@ impl Renderer for HybridRenderer {
 
     fn stroke_rect(&mut self, rect: &Rect) {
         self.scene.stroke_rect(rect);
+    }
+
+    fn draw_pixmap(&mut self, _: Arc<Pixmap>, _: ImageQuality, _: f32) {
+        unimplemented!()
     }
 
     fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
