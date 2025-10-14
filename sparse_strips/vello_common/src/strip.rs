@@ -133,7 +133,7 @@ fn render_impl<S: Simd>(
     let mut accumulated_winding = f32x4::splat(s, 0.0);
 
     /// A special tile to keep the logic below simple.
-    const SENTINEL: Tile = Tile::new_const(u16::MAX, u16::MAX, 0, false);
+    const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, false);
 
     // The strip we're building.
     let mut strip = Strip::new(
