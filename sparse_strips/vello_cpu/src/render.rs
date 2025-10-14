@@ -171,7 +171,7 @@ impl RenderContext {
     }
 
     /// Draw an image into the pixmap. This is a convenience method that is functionally
-    /// equivalent to drawing with the same size as the image and applying a pattern fill.
+    /// equivalent to drawing a rectangle with the same size as the image and applying a pattern fill.
     ///
     /// By default, the image will be positioned with the top-left corner at the point (0, 0)
     /// and the width and height set to the natural dimensions of the image. The positioning and
