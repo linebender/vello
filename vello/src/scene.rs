@@ -715,7 +715,7 @@ impl<'a> DrawGlyphs<'a> {
                     let image = ImageBrush::new(image).multiply_alpha(self.brush_alpha);
                     // Split into multiple statements because rustfmt breaks
                     let transform =
-                        run_transform.then_translate(Vec2::new(glyph.x.into(), glyph.y.into()));
+                        run_transform.pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()));
 
                     // Logic copied from Skia without examination or careful understanding:
                     // https://github.com/google/skia/blob/61ac357e8e3338b90fb84983100d90768230797f/src/ports/SkTypeface_fontations.cpp#L664

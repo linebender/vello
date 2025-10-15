@@ -15,6 +15,10 @@ You can find its changes [documented below](#060---2025-10-03).
 
 This release has an [MSRV][] of 1.86.
 
+### Fixed
+
+- Bitmap emoji displayed at an incorrect position when scaled. ([#1273][] by [@ArthurCose][])
+
 ## [0.6.0][] - 2025-10-03
 
 This release has an [MSRV][] of 1.86.
@@ -259,6 +263,7 @@ This release has an [MSRV][] of 1.75.
 - Initial release
 
 [@raphlinus]: https://github.com/raphlinus
+[@ArthurCose]: https://github.com/ArthurCose
 [@armansito]: https://github.com/armansito
 [@cfagot]: https://github.com/cfagot
 [@DasLixou]: https://github.com/DasLixou
@@ -368,6 +373,7 @@ This release has an [MSRV][] of 1.75.
 [#1192]: https://github.com/linebender/vello/pull/1192
 [#1224]: https://github.com/linebender/vello/pull/1224
 [#1229]: https://github.com/linebender/vello/pull/1229
+[#1273]: https://github.com/linebender/vello/pull/1273
 
 <!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.5.0...HEAD
