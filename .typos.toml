@@ -10,6 +10,7 @@
 [default.extend-identifiers]
 thm = "thm"
 wdth = "wdth"
+ArthurCose = "ArthurCose"
 
 # Match Inside a Word - Case Insensitive
 [default.extend-words]
