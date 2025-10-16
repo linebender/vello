@@ -47,6 +47,7 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10) release.
 
+[Unreleased]: https://github.com/linebender/fearless_simd/compare/sparse-strips-v0.0.4...HEAD
 [0.0.4]: https://github.com/linebender/vello/compare/sparse-stips-v0.0.3...sparse-strips-v0.0.4
 [0.0.3]: https://github.com/linebender/vello/compare/sparse-stips-v0.0.2...sparse-strips-v0.0.3
 [0.0.2]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.1...sparse-stips-v0.0.2
