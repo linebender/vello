@@ -3834,7 +3834,7 @@ dependencies = [
 
 [[package]]
 name = "vello_common"
-version = "0.0.1"
+version = "0.0.4"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -3850,7 +3850,7 @@ dependencies = [
 
 [[package]]
 name = "vello_cpu"
-version = "0.0.1"
+version = "0.0.4"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
@@ -3902,7 +3902,7 @@ version = "0.6.0"
 
 [[package]]
 name = "vello_hybrid"
-version = "0.6.0"
+version = "0.0.4"
 dependencies = [
  "bytemuck",
  "guillotiere",

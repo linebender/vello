@@ -119,7 +119,7 @@ fearless_simd = { version = "0.3.0", default-features = false }
 
 # The below crates are experimental!
 vello_api = { path = "sparse_strips/vello_api", default-features = false }
-vello_common = { version = "0.0.1", path = "sparse_strips/vello_common", default-features = false }
+vello_common = { version = "0.0.4", path = "sparse_strips/vello_common", default-features = false }
 vello_cpu = { path = "sparse_strips/vello_cpu" }
 vello_hybrid = { path = "sparse_strips/vello_hybrid" }
 vello_sparse_shaders = { path = "sparse_strips/vello_sparse_shaders" }
