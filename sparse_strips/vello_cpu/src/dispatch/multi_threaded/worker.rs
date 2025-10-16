@@ -61,6 +61,7 @@ impl Worker {
                     transform,
                     paint,
                     fill_rule,
+                    blend_mode,
                     aliasing_threshold,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
@@ -79,6 +80,7 @@ impl Worker {
                     let coarse_command = CoarseTaskType::RenderPath {
                         thread_id: self.thread_id,
                         strips: start..end,
+                        blend_mode,
                         paint,
                     };
 
@@ -91,6 +93,7 @@ impl Worker {
                     path_range,
                     transform,
                     paint,
+                    blend_mode,
                     stroke,
                     aliasing_threshold,
                 } => {
@@ -110,6 +113,7 @@ impl Worker {
                     let coarse_command = CoarseTaskType::RenderPath {
                         thread_id: self.thread_id,
                         strips: start..end,
+                        blend_mode,
                         paint,
                     };
 
@@ -169,11 +173,13 @@ impl Worker {
                     strip_buf,
                     paint,
                     thread_idx,
+                    blend_mode,
                 } => {
                     let coarse_command = CoarseTaskType::RenderWideCommand {
                         thread_id: thread_idx,
                         strips: strip_buf,
                         paint,
+                        blend_mode,
                     };
 
                     render_task

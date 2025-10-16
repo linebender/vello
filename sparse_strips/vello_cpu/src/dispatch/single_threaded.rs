@@ -96,6 +96,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         fill_rule: Fill,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
@@ -108,7 +109,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             &mut self.strip_storage,
         );
 
-        wide.generate(&self.strip_storage.strips, paint, 0);
+        wide.generate(&self.strip_storage.strips, paint, blend_mode, 0);
     }
 
     fn stroke_path(
@@ -117,6 +118,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         stroke: &Stroke,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
@@ -129,7 +131,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             &mut self.strip_storage,
         );
 
-        wide.generate(&self.strip_storage.strips, paint, 0);
+        wide.generate(&self.strip_storage.strips, paint, blend_mode, 0);
     }
 
     fn push_layer(
@@ -187,8 +189,8 @@ impl Dispatcher for SingleThreadedDispatcher {
         }
     }
 
-    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint) {
-        self.wide.generate(strip_buf, paint, 0);
+    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint, blend_mode: BlendMode) {
+        self.wide.generate(strip_buf, paint, blend_mode, 0);
     }
 
     fn strip_storage_mut(&mut self) -> &mut StripStorage {
@@ -213,6 +215,7 @@ mod tests {
             Fill::NonZero,
             Affine::IDENTITY,
             Paint::Solid(PremulColor::from_alpha_color(BLUE)),
+            BlendMode::default(),
             None,
         );
 

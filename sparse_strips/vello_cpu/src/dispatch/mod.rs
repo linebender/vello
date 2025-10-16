@@ -18,13 +18,14 @@ use vello_common::strip_generator::StripStorage;
 
 pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn wide(&self) -> &Wide;
-    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint);
+    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint, blend_mode: BlendMode);
     fn fill_path(
         &mut self,
         path: &BezPath,
         fill_rule: Fill,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     );
     fn stroke_path(
@@ -33,6 +34,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         stroke: &Stroke,
         transform: Affine,
         paint: Paint,
+        blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     );
     fn push_layer(

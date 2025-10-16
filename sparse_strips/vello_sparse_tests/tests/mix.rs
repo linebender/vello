@@ -267,3 +267,33 @@ fn mix_modes_non_gradient_test_matrix(ctx: &mut impl Renderer) {
         }
     }
 }
+
+fn mix_non_isolated(ctx: &mut impl Renderer, mix: Mix) {
+    // Just to isolate from the white background.
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
+
+    let rect1 = Rect::new(10.5, 10.5, 70.5, 70.5);
+    ctx.set_paint(BLUE.with_alpha(0.5));
+    ctx.fill_rect(&rect1);
+    ctx.set_blend_mode(BlendMode::new(mix, Compose::SrcOver));
+    let rect2 = Rect::new(30.5, 30.5, 90.5, 90.5);
+    ctx.set_paint(LIME.with_alpha(0.5));
+    ctx.fill_rect(&rect2);
+
+    ctx.pop_layer();
+}
+
+#[vello_test]
+fn mix_non_isolated_difference(ctx: &mut impl Renderer) {
+    mix_non_isolated(ctx, Mix::Difference);
+}
+
+#[vello_test]
+fn mix_non_isolated_soft_light(ctx: &mut impl Renderer) {
+    mix_non_isolated(ctx, Mix::SoftLight);
+}
+
+#[vello_test]
+fn mix_non_isolated_color_dodge(ctx: &mut impl Renderer) {
+    mix_non_isolated(ctx, Mix::ColorDodge);
+}
