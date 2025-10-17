@@ -3944,7 +3944,7 @@ dependencies = [
 
 [[package]]
 name = "vello_sparse_shaders"
-version = "0.0.1"
+version = "0.0.4"
 dependencies = [
  "naga",
 ]
