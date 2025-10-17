@@ -1,6 +1,6 @@
 [package]
 name = "vello_hybrid"
-version.workspace = true
+version = "0.0.4"
 description = "A hybrid CPU/GPU renderer for Vello, balancing computation between CPU and GPU for efficiency."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
@@ -8,11 +8,12 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-# Prevent accidental publishing until the initial release
-publish = false
 
-[lints]
-workspace = true
+[package.metadata.docs.rs]
+all-features = true
+# There are no platform specific docs.
+default-target = "x86_64-unknown-linux-gnu"
+targets = []
 
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
@@ -23,7 +24,6 @@ vello_sparse_shaders = { workspace = true, optional = true }
 log = { workspace = true }
 guillotiere = "0.6.2"
 hashbrown = "0.15"
-
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "0.3.77", optional = true }
@@ -40,10 +40,6 @@ web-sys = { version = "0.3.77", features = [
     "WebGlVertexArrayObject",
 ], optional = true }
 
-[[example]]
-name = "render_to_file"
-required-features = ["wgpu"]
-
 [dev-dependencies]
 png = { workspace = true }
 pollster = { workspace = true }
@@ -59,3 +55,10 @@ wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
 # with the features which you need enabled.
 wgpu_default = ["wgpu", "wgpu/default"]
 webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_sparse_shaders", "vello_sparse_shaders/glsl"]
+
+[lints]
+workspace = true
+
+[[example]]
+name = "render_to_file"
+required-features = ["wgpu"]
