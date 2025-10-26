@@ -46,6 +46,7 @@ pub(crate) trait Renderer: Sized {
     fn push_mask_layer(&mut self, mask: Mask);
     fn pop_layer(&mut self);
     fn set_stroke(&mut self, stroke: Stroke);
+    fn set_mask(&mut self, mask: Option<Mask>);
     fn set_paint(&mut self, paint: impl Into<PaintType>);
     fn set_paint_transform(&mut self, affine: Affine);
     fn set_fill_rule(&mut self, fill_rule: Fill);
@@ -139,6 +140,10 @@ impl Renderer for RenderContext {
 
     fn set_stroke(&mut self, stroke: Stroke) {
         Self::set_stroke(self, stroke);
+    }
+
+    fn set_mask(&mut self, mask: Option<Mask>) {
+        Self::set_mask(self, mask);
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
@@ -325,6 +330,10 @@ impl Renderer for HybridRenderer {
 
     fn set_stroke(&mut self, stroke: Stroke) {
         self.scene.set_stroke(stroke);
+    }
+
+    fn set_mask(&mut self, _: Option<Mask>) {
+        unimplemented!()
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
@@ -609,6 +618,10 @@ impl Renderer for HybridRenderer {
 
     fn set_stroke(&mut self, stroke: Stroke) {
         self.scene.set_stroke(stroke);
+    }
+
+    fn set_mask(&mut self, _: Option<Mask>) {
+        unimplemented!()
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
