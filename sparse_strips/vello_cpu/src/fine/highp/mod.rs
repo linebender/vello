@@ -1,10 +1,12 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::filter;
 use crate::fine::FineKernel;
-use crate::fine::{COLOR_COMPONENTS, Painter};
+use crate::fine::{COLOR_COMPONENTS, Painter, ScratchBuf};
 use crate::peniko::BlendMode;
 use crate::region::Region;
+use alloc::vec::Vec;
 use vello_common::fearless_simd::*;
 use vello_common::paint::PremulColor;
 use vello_common::tile::Tile;
@@ -52,6 +54,35 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 }
             },
         );
+    }
+
+    #[inline(always)]
+    fn unpack(simd: S, region: &mut Region<'_>, blend_buf: &mut [Self::Numeric]) {
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                for y in 0..Tile::HEIGHT {
+                    for (x, pixel) in region.row_mut(y).chunks_exact(COLOR_COMPONENTS).enumerate() {
+                        let idx =
+                            COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
+                        let start = &mut blend_buf[idx..];
+                        // Convert from u8 to f32 (reverse of pack)
+                        start[0] = pixel[0] as f32 / 255.0;
+                        start[1] = pixel[1] as f32 / 255.0;
+                        start[2] = pixel[2] as f32 / 255.0;
+                        start[3] = pixel[3] as f32 / 255.0;
+                    }
+                }
+            },
+        );
+    }
+
+    fn apply_filter_to_layer(
+        layer: &mut Vec<ScratchBuf<Self::Numeric>>,
+        wtile_bbox: vello_common::coarse::Bbox,
+        filter: &vello_common::filter_effects::Filter,
+    ) {
+        filter::apply_filter_f32(filter, layer, wtile_bbox);
     }
 
     // Not having this tanks performance for some reason.

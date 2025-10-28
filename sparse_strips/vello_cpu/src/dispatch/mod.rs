@@ -11,6 +11,7 @@ use crate::peniko::{BlendMode, Fill};
 use core::fmt::Debug;
 use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
+use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
@@ -44,6 +45,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     );
     fn pop_layer(&mut self);
     fn reset(&mut self);
@@ -57,4 +59,5 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         encoded_paints: &[EncodedPaint],
     );
     fn strip_storage_mut(&mut self) -> &mut StripStorage;
+    fn has_filters(&self) -> bool;
 }

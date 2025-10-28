@@ -24,8 +24,10 @@ use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
+use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
+use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
 
@@ -101,6 +103,10 @@ pub(crate) struct MultiThreadedDispatcher {
     flushed: bool,
     // So that we can reuse memory allocations across different runs.
     allocations: Allocations,
+    /// The next layer ID to use.
+    layer_id_next: u32,
+    /// Render graph for layers with filters.
+    render_graph: RenderGraph,
 }
 
 impl MultiThreadedDispatcher {
@@ -148,6 +154,8 @@ impl MultiThreadedDispatcher {
             level,
             alpha_storage,
             num_threads,
+            layer_id_next: 0,
+            render_graph: RenderGraph::new(),
         };
 
         dispatcher.init();
@@ -293,10 +301,12 @@ impl MultiThreadedDispatcher {
                                 thread_id,
                             } => self.wide.generate(&strips, paint.clone(), thread_id),
                             CoarseTaskType::PushLayer {
+                                layer_id,
                                 thread_id,
                                 clip_path,
                                 blend_mode,
                                 mask,
+                                filter,
                                 opacity,
                             } => {
                                 let clip_path = clip_path.map(|strip_range| {
@@ -304,10 +314,20 @@ impl MultiThreadedDispatcher {
                                         [strip_range.start as usize..strip_range.end as usize]
                                 });
 
-                                self.wide
-                                    .push_layer(clip_path, blend_mode, mask, opacity, thread_id);
+                                // Convert Option<u32> to LayerId (use the value directly)
+                                let layer_id = layer_id.unwrap_or(0);
+                                self.wide.push_layer(
+                                    layer_id,
+                                    clip_path,
+                                    blend_mode,
+                                    mask,
+                                    opacity,
+                                    filter,
+                                    &mut self.render_graph,
+                                    thread_id,
+                                );
                             }
-                            CoarseTaskType::PopLayer => self.wide.pop_layer(),
+                            CoarseTaskType::PopLayer => self.wide.pop_layer(&mut self.render_graph),
                         }
                     }
 
@@ -429,7 +449,16 @@ impl Dispatcher for MultiThreadedDispatcher {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
+        let layer_id = if filter.is_some() {
+            let layer_id = self.layer_id_next;
+            self.layer_id_next += 1;
+            Some(layer_id)
+        } else {
+            None
+        };
+
         let mapped_clip = clip_path.map(|c| {
             let start = self.allocation_group.path.len() as u32;
             self.allocation_group.path.extend(c);
@@ -438,10 +467,12 @@ impl Dispatcher for MultiThreadedDispatcher {
         });
 
         self.register_task(RenderTaskType::PushLayer {
+            layer_id,
             clip_path: mapped_clip,
             blend_mode,
             opacity,
             mask,
+            filter,
             fill_rule,
             aliasing_threshold,
         });
@@ -543,6 +574,11 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn strip_storage_mut(&mut self) -> &mut StripStorage {
         &mut self.strip_storage
+    }
+
+    // TODO: Add filter graph support
+    fn has_filters(&self) -> bool {
+        false
     }
 }
 
@@ -666,10 +702,12 @@ pub(crate) enum RenderTaskType {
         aliasing_threshold: Option<u8>,
     },
     PushLayer {
+        layer_id: Option<u32>,
         clip_path: Option<(Range<u32>, Affine)>,
         blend_mode: BlendMode,
         opacity: f32,
         mask: Option<Mask>,
+        filter: Option<Filter>,
         fill_rule: Fill,
         aliasing_threshold: Option<u8>,
     },
@@ -694,9 +732,11 @@ pub(crate) enum CoarseTaskType {
     },
     PushLayer {
         thread_id: u8,
+        layer_id: Option<u32>,
         clip_path: Option<Range<u32>>,
         blend_mode: BlendMode,
         mask: Option<Mask>,
+        filter: Option<Filter>,
         opacity: f32,
     },
     PopLayer,

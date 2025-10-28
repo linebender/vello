@@ -119,10 +119,12 @@ impl Worker {
                         .push(coarse_command);
                 }
                 RenderTaskType::PushLayer {
+                    layer_id,
                     clip_path,
                     blend_mode,
                     opacity,
                     mask,
+                    filter,
                     fill_rule,
                     aliasing_threshold,
                 } => {
@@ -148,9 +150,11 @@ impl Worker {
 
                     let coarse_command = CoarseTaskType::PushLayer {
                         thread_id: self.thread_id,
+                        layer_id,
                         clip_path: clip,
                         blend_mode,
                         mask,
+                        filter,
                         opacity,
                     };
 

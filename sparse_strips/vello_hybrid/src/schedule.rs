@@ -182,7 +182,7 @@ use alloc::vec::Vec;
 use vello_common::coarse::MODE_HYBRID;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
-    coarse::{Cmd, WideTile},
+    coarse::{Cmd, LayerKind, WideTile},
     encode::EncodedPaint,
     paint::{ImageSource, Paint},
     tile::Tile,
@@ -298,8 +298,8 @@ impl<'a> AnnotatedCmd<'a> {
     fn as_cmd<'b: 'a>(&'b self) -> Option<&'a Cmd> {
         match self {
             AnnotatedCmd::IdentityBorrowed(cmd) => Some(cmd),
-            AnnotatedCmd::PushBufWithTemporarySlot => Some(&Cmd::PushBuf),
-            AnnotatedCmd::PushBuf => Some(&Cmd::PushBuf),
+            AnnotatedCmd::PushBufWithTemporarySlot => Some(&Cmd::PushBuf(LayerKind::Regular(0))),
+            AnnotatedCmd::PushBuf => Some(&Cmd::PushBuf(LayerKind::Regular(0))),
             AnnotatedCmd::SrcOverNormalBlend => Some(&Cmd::Blend(BlendMode {
                 mix: Mix::Normal,
                 compose: Compose::SrcOver,
@@ -645,7 +645,8 @@ impl Scheduler {
                             .paint(payload, paint),
                     );
                 }
-                Cmd::PushBuf => {
+                Cmd::PushBuf(_layer_id) => {
+                    // TODO: Handle layer_id for filter effects when implemented.
                     // `wgpu` does not allow reading/writing from the same slot texture. This means
                     // that to represent the binary function `Blend(src_tile, dest_tile)` we need
                     // both slots being blended to be on the same texture. This is accomplished as
@@ -1069,7 +1070,8 @@ fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
     annotated_commands.push(AnnotatedCmd::PushBuf);
     for cmd in cmds {
         match cmd {
-            Cmd::PushBuf => {
+            Cmd::PushBuf(_layer_id) => {
+                // TODO: Handle layer_id for filter effects when implemented.
                 pointer_to_push_buf_stack.push(annotated_commands.len());
             }
             Cmd::PopBuf => {

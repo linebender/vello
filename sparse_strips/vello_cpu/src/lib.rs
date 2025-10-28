@@ -113,8 +113,11 @@ extern crate std;
 mod render;
 
 mod dispatch;
+mod filter;
+mod filters;
 #[doc(hidden)]
 pub mod fine;
+mod layer_manager;
 #[doc(hidden)]
 pub mod region;
 mod util;

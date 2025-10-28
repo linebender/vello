@@ -138,6 +138,7 @@ fn complex_composed_layers(ctx: &mut impl Renderer) {
         }),
         None,
         None,
+        None,
     );
 
     ctx.set_paint(Color::from_rgb8(240, 240, 240));
@@ -154,7 +155,7 @@ fn complex_composed_layers(ctx: &mut impl Renderer) {
     ctx.fill_path(&Circle::new(Point::new(70.0, 70.0), 25.0).to_path(0.1));
 
     // Layer 1: Simulate clip to center area using compositing
-    ctx.push_layer(None, None, None, None);
+    ctx.push_layer(None, None, None, None, None);
     {
         // Draw the "clip" shape first
         ctx.set_paint(Color::WHITE);
@@ -166,16 +167,17 @@ fn complex_composed_layers(ctx: &mut impl Renderer) {
             Some(BlendMode::new(Mix::Normal, Compose::SrcIn)),
             None,
             None,
+            None,
         );
         {
             // Layer 2: Semi-transparent purple overlay
-            ctx.push_layer(None, None, Some(0.7), None);
+            ctx.push_layer(None, None, Some(0.7), None, None);
             ctx.set_paint(PURPLE);
             ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
             ctx.pop_layer();
 
             // Layer 3: XOR blend mode with smaller clip simulation
-            ctx.push_layer(None, None, None, None);
+            ctx.push_layer(None, None, None, None, None);
             {
                 // Draw the "clip" rectangle
                 ctx.set_paint(Color::WHITE);
@@ -187,11 +189,13 @@ fn complex_composed_layers(ctx: &mut impl Renderer) {
                     Some(BlendMode::new(Mix::Normal, Compose::SrcIn)),
                     None,
                     None,
+                    None,
                 );
                 {
                     ctx.push_layer(
                         None,
                         Some(BlendMode::new(Mix::Normal, Compose::Xor)),
+                        None,
                         None,
                         None,
                     );
@@ -209,10 +213,11 @@ fn complex_composed_layers(ctx: &mut impl Renderer) {
             ctx.pop_layer();
 
             // Layer 4: Nested opacity with Plus blend
-            ctx.push_layer(None, None, Some(0.5), None);
+            ctx.push_layer(None, None, Some(0.5), None, None);
             ctx.push_layer(
                 None,
                 Some(BlendMode::new(Mix::Normal, Compose::Plus)),
+                None,
                 None,
                 None,
             );
@@ -221,7 +226,7 @@ fn complex_composed_layers(ctx: &mut impl Renderer) {
                 ctx.fill_path(&Circle::new(Point::new(50.0, 60.0), 15.0).to_path(0.1));
 
                 // Layer 5: "Clip" simulation with SrcIn
-                ctx.push_layer(None, None, None, None);
+                ctx.push_layer(None, None, None, None, None);
                 {
                     ctx.set_paint(Color::WHITE);
                     ctx.fill_path(&Circle::new(Point::new(50.0, 50.0), 30.0).to_path(0.1));
@@ -232,11 +237,13 @@ fn complex_composed_layers(ctx: &mut impl Renderer) {
                         Some(BlendMode::new(Mix::Normal, Compose::SrcIn)),
                         None,
                         None,
+                        None,
                     );
                     {
                         ctx.push_layer(
                             None,
                             Some(BlendMode::new(Mix::Normal, Compose::SrcIn)),
+                            None,
                             None,
                             None,
                         );
@@ -257,6 +264,7 @@ fn complex_composed_layers(ctx: &mut impl Renderer) {
             ctx.push_layer(
                 None,
                 Some(BlendMode::new(Mix::Normal, Compose::DestOut)),
+                None,
                 None,
                 None,
             );

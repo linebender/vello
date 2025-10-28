@@ -5,16 +5,19 @@ mod compose;
 mod gradient;
 mod image;
 
+use crate::filter;
 use crate::fine::lowp::image::BilinearImagePainter;
-use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
+use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE, ScratchBuf};
 use crate::fine::{FineKernel, highp, u8_to_f32};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use crate::util::Div255Ext;
+use alloc::vec::Vec;
 use bytemuck::cast_slice;
 use vello_common::coarse::WideTile;
 use vello_common::encode::{EncodedGradient, EncodedImage};
 use vello_common::fearless_simd::*;
+use vello_common::filter_effects::Filter;
 use vello_common::paint::PremulColor;
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
@@ -48,6 +51,24 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                 },
             );
         }
+    }
+
+    #[inline(always)]
+    fn unpack(simd: S, region: &mut Region<'_>, blend_buf: &mut [Self::Numeric]) {
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                unpack(region, blend_buf);
+            },
+        );
+    }
+
+    fn apply_filter_to_layer(
+        layer: &mut Vec<ScratchBuf<Self::Numeric>>,
+        wtile_bbox: vello_common::coarse::Bbox,
+        filter: &Filter,
+    ) {
+        filter::apply_filter_u8(filter, layer, wtile_bbox);
     }
 
     fn copy_solid(simd: S, dest: &mut [Self::Numeric], src: [Self::Numeric; 4]) {
@@ -410,6 +431,16 @@ fn pack(region: &mut Region<'_>, blend_buf: &[u8]) {
         {
             let idx = COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
             pixel.copy_from_slice(&blend_buf[idx..][..COLOR_COMPONENTS]);
+        }
+    }
+}
+
+#[inline(always)]
+fn unpack(region: &mut Region<'_>, blend_buf: &mut [u8]) {
+    for y in 0..Tile::HEIGHT {
+        for (x, pixel) in region.row_mut(y).chunks_exact(COLOR_COMPONENTS).enumerate() {
+            let idx = COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
+            blend_buf[idx..][..COLOR_COMPONENTS].copy_from_slice(pixel);
         }
     }
 }

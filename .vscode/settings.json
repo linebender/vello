@@ -19,6 +19,7 @@
     "msaa16",
     "msaa"
   ],
+  "rust-analyzer.checkOnSave": false,
   // These settings can be set to get Rust-analyzer working for Android compilation
   // (unfortunately you need to do the variable expansion manually, because 
   // rust-analyzer doesn't do this for us)

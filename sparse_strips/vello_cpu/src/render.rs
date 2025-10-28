@@ -18,6 +18,7 @@ use alloc::vec::Vec;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
+use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use vello_common::mask::Mask;
 #[cfg(feature = "text")]
@@ -49,6 +50,7 @@ pub struct RenderContext {
     pub(crate) temp_path: BezPath,
     pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
+    pub(crate) current_filter: Option<Filter>,
     #[cfg_attr(
         not(feature = "text"),
         allow(dead_code, reason = "used when the `text` feature is enabled")
@@ -147,6 +149,7 @@ impl RenderContext {
             stroke,
             temp_path,
             encoded_paints,
+            current_filter: None,
             #[cfg(feature = "text")]
             glyph_caches: Some(Default::default()),
         }
@@ -171,14 +174,28 @@ impl RenderContext {
 
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
-        let paint = self.encode_current_paint();
-        self.dispatcher.fill_path(
-            path,
-            self.fill_rule,
-            self.transform,
-            paint,
-            self.aliasing_threshold,
-        );
+        // Apply per-element filter if set
+        if let Some(filter) = self.current_filter.take() {
+            self.push_filter_layer(filter);
+            let paint = self.encode_current_paint();
+            self.dispatcher.fill_path(
+                path,
+                self.fill_rule,
+                self.transform,
+                paint,
+                self.aliasing_threshold,
+            );
+            self.pop_filter_layer();
+        } else {
+            let paint = self.encode_current_paint();
+            self.dispatcher.fill_path(
+                path,
+                self.fill_rule,
+                self.transform,
+                paint,
+                self.aliasing_threshold,
+            );
+        }
     }
 
     /// Stroke a path.
@@ -195,15 +212,30 @@ impl RenderContext {
 
     /// Fill a rectangle.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        self.rect_to_temp_path(rect);
-        let paint = self.encode_current_paint();
-        self.dispatcher.fill_path(
-            &self.temp_path,
-            self.fill_rule,
-            self.transform,
-            paint,
-            self.aliasing_threshold,
-        );
+        // Apply per-element filter if set
+        if let Some(filter) = self.current_filter.take() {
+            self.push_filter_layer(filter);
+            self.rect_to_temp_path(rect);
+            let paint = self.encode_current_paint();
+            self.dispatcher.fill_path(
+                &self.temp_path,
+                self.fill_rule,
+                self.transform,
+                paint,
+                self.aliasing_threshold,
+            );
+            self.pop_filter_layer();
+        } else {
+            self.rect_to_temp_path(rect);
+            let paint = self.encode_current_paint();
+            self.dispatcher.fill_path(
+                &self.temp_path,
+                self.fill_rule,
+                self.transform,
+                paint,
+                self.aliasing_threshold,
+            );
+        }
     }
 
     fn rect_to_temp_path(&mut self, rect: &Rect) {
@@ -287,6 +319,7 @@ impl RenderContext {
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
         let mask = mask.and_then(|m| {
             if m.width() != self.width || m.height() != self.height {
@@ -307,22 +340,23 @@ impl RenderContext {
             opacity,
             self.aliasing_threshold,
             mask,
+            filter,
         );
     }
 
     /// Push a new clip layer.
     pub fn push_clip_layer(&mut self, path: &BezPath) {
-        self.push_layer(Some(path), None, None, None);
+        self.push_layer(Some(path), None, None, None, None);
     }
 
     /// Push a new blend layer.
     pub fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        self.push_layer(None, Some(blend_mode), None, None);
+        self.push_layer(None, Some(blend_mode), None, None, None);
     }
 
     /// Push a new opacity layer.
     pub fn push_opacity_layer(&mut self, opacity: f32) {
-        self.push_layer(None, None, Some(opacity), None);
+        self.push_layer(None, None, Some(opacity), None, None);
     }
 
     /// Set the aliasing threshold.
@@ -346,7 +380,7 @@ impl RenderContext {
     /// it will be ignored. In addition to that, the mask will not be affected by the current
     /// transformation matrix in place.
     pub fn push_mask_layer(&mut self, mask: Mask) {
-        self.push_layer(None, None, None, Some(mask));
+        self.push_layer(None, None, None, Some(mask), None);
     }
 
     /// Pop the last-pushed layer.
@@ -487,6 +521,24 @@ impl RenderContext {
     /// Return the render settings used by the `RenderContext`.
     pub fn render_settings(&self) -> &RenderSettings {
         &self.render_settings
+    }
+
+    /// Apply filter to the current paint (affects next drawn element).
+    ///
+    /// This sets a filter that will be applied to the next drawn element.
+    /// To apply a filter to multiple elements, use `push_filter_layer` instead.
+    pub fn set_filter_effect(&mut self, filter: Filter) {
+        self.current_filter = Some(filter);
+    }
+
+    /// Push a filter layer that affects all subsequent drawing operations.
+    pub fn push_filter_layer(&mut self, filter: Filter) {
+        self.push_layer(None, None, None, None, Some(filter));
+    }
+
+    /// Pop the current filter layer.
+    pub fn pop_filter_layer(&mut self) {
+        self.pop_layer();
     }
 }
 
@@ -744,8 +796,15 @@ impl Recordable for RenderContext {
                     blend_mode,
                     opacity,
                     mask,
+                    filter,
                 }) => {
-                    self.push_layer(clip_path.as_ref(), *blend_mode, *opacity, mask.clone());
+                    self.push_layer(
+                        clip_path.as_ref(),
+                        *blend_mode,
+                        *opacity,
+                        mask.clone(),
+                        filter.clone(),
+                    );
                 }
                 RenderCommand::PopLayer => {
                     self.pop_layer();

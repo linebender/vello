@@ -15,6 +15,7 @@ use vello_common::coarse::{Cmd, WideTile};
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
+use vello_common::filter_effects::Filter;
 use vello_common::paint::{ImageSource, Paint, PremulColor};
 use vello_common::tile::Tile;
 
@@ -44,16 +45,42 @@ pub type ScratchBuf<F> = [F; SCRATCH_BUF_SIZE];
 pub trait Numeric: Copy + Default + Clone + Debug + PartialEq + Send + Sync + 'static {
     const ZERO: Self;
     const ONE: Self;
+
+    /// Convert to f32 for intermediate calculations.
+    fn to_f32(self) -> f32;
+
+    /// Convert from f32, clamping to valid range.
+    fn from_f32(val: f32) -> Self;
 }
 
 impl Numeric for f32 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
+
+    #[inline(always)]
+    fn to_f32(self) -> f32 {
+        self
+    }
+
+    #[inline(always)]
+    fn from_f32(val: f32) -> Self {
+        val
+    }
 }
 
 impl Numeric for u8 {
     const ZERO: Self = 0;
     const ONE: Self = 255;
+
+    #[inline(always)]
+    fn to_f32(self) -> f32 {
+        self as f32
+    }
+
+    #[inline(always)]
+    fn from_f32(val: f32) -> Self {
+        val.round().clamp(0.0, 255.0) as Self
+    }
 }
 
 pub trait NumericVec<S: Simd>: Copy + Clone + Send + Sync {
@@ -160,6 +187,18 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     fn extract_color(color: PremulColor) -> [Self::Numeric; 4];
     /// Pack the blend buf into the given region.
     fn pack(simd: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]);
+    /// Unpack the region back into the blend buf (reverse of pack).
+    fn unpack(simd: S, region: &mut Region<'_>, blend_buf: &mut [Self::Numeric]);
+
+    /// Apply a filter to a layer.
+    ///
+    /// This is used for applying filters to whole layers, which is necessary for
+    /// spatial filters (like blur) that need to access neighboring pixels.
+    fn apply_filter_to_layer(
+        layer: &mut Vec<ScratchBuf<Self::Numeric>>,
+        wtile_bbox: vello_common::coarse::Bbox,
+        filter: &vello_common::filter_effects::Filter,
+    );
     /// Repeatedly copy the solid color into the target buffer.
     fn copy_solid(simd: S, target: &mut [Self::Numeric], color: [Self::Numeric; 4]);
     /// Return the painter used for painting gradients.
@@ -323,6 +362,43 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         T::pack(self.simd, region, blend_buf);
     }
 
+    pub fn unpack(&mut self, region: &mut Region<'_>) {
+        let blend_buf = self.blend_buf.last_mut().unwrap();
+
+        T::unpack(self.simd, region, blend_buf);
+    }
+
+    /// Apply a filter to a layer.
+    ///
+    /// This applies the filter using the kernel's implementation, mutating the layer in place.
+    pub fn apply_filter_to_layer(
+        &self,
+        layer: &mut Vec<ScratchBuf<T::Numeric>>,
+        wtile_bbox: vello_common::coarse::Bbox,
+        filter: &Filter,
+    ) {
+        // Apply the filter using the FineKernel's implementation
+        T::apply_filter_to_layer(layer, wtile_bbox, filter);
+    }
+
+    /// Copy filtered layer content from a layer tile into current blend buffer.
+    ///
+    /// This is called after `PushBuf` to replace the fill commands with the
+    /// pre-rendered and filtered layer content.
+    pub fn copy_from_layer_buffer(&mut self, layer_tile: &ScratchBuf<T::Numeric>) {
+        let current_buf = self.blend_buf.last_mut().unwrap();
+        current_buf.copy_from_slice(layer_tile);
+    }
+
+    /// Pack the current blend buffer into a layer tile.
+    ///
+    /// This is the opposite of `copy_from_layer_buffer` - it saves the current
+    /// blend buffer state into a layer for later use or filtering.
+    pub fn pack_into_layer(&self, layer_tile: &mut ScratchBuf<T::Numeric>) {
+        let current_buf = self.blend_buf.last().unwrap();
+        layer_tile.copy_from_slice(current_buf);
+    }
+
     pub(crate) fn run_cmd(&mut self, cmd: &Cmd, alphas: &[u8], paints: &[EncodedPaint]) {
         match cmd {
             Cmd::Fill(f) => {
@@ -347,7 +423,23 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     Some(&alphas[s.alpha_idx..]),
                 );
             }
-            Cmd::PushBuf => {
+            Cmd::Filter(_filter, _) => {
+                // TODO: Implement filter application
+                //
+                // Filters like Gaussian blur require access to neighboring pixels, which
+                // presents a challenge in the tile-based architecture where each tile is
+                // processed independently. Full implementation requires one of:
+                //
+                // 1. Layer-level filtering: Apply the filter to the entire layer buffer
+                //    after all tiles are rendered but before composition
+                // 2. Cross-tile filtering: Implement logic to access neighboring tiles
+                //    during processing
+                //
+                // The infrastructure is in place (commands, API, filter implementations),
+                // but the actual application requires architectural changes to handle
+                // cross-tile dependencies.
+            }
+            Cmd::PushBuf(_layer_kind) => {
                 self.blend_buf.push([T::Numeric::ZERO; SCRATCH_BUF_SIZE]);
             }
             Cmd::PopBuf => {
@@ -610,7 +702,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         }
     }
 
-    fn blend(&mut self, blend_mode: BlendMode) {
+    pub(crate) fn blend(&mut self, blend_mode: BlendMode) {
         let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
 

@@ -153,7 +153,7 @@ fn render_group(ctx: &mut RenderContext, sctx: &mut SVGContext, group: &usvg::Gr
         })
     };
 
-    ctx.push_layer(clip_path.as_ref(), None, None, None);
+    ctx.push_layer(clip_path.as_ref(), None, None, None, None);
 
     sctx.push_transform(&convert_transform(&group.transform()));
 
