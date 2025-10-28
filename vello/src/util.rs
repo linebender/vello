@@ -262,7 +262,12 @@ pub fn block_on_wgpu<F: Future>(device: &Device, fut: F) -> F::Output {
     loop {
         match fut.as_mut().poll(&mut context) {
             std::task::Poll::Pending => {
-                device.poll(wgpu::PollType::Wait).unwrap();
+                device
+                    .poll(wgpu::PollType::Wait {
+                        submission_index: None,
+                        timeout: None,
+                    })
+                    .unwrap();
             }
             std::task::Poll::Ready(item) => break item,
         }
