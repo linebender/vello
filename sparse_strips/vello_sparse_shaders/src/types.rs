@@ -31,18 +31,18 @@ impl ReflectionMap {
         let mut uniforms = BTreeMap::default();
 
         for (glsl_name, texture_handles) in info.texture_mapping {
-            if let Ok(wgsl_var) = global_vars.try_get(texture_handles.texture) {
-                if let Some(wgsl_name) = &wgsl_var.name {
-                    texture_mapping.insert(wgsl_name.clone(), glsl_name);
-                }
+            if let Ok(wgsl_var) = global_vars.try_get(texture_handles.texture)
+                && let Some(wgsl_name) = &wgsl_var.name
+            {
+                texture_mapping.insert(wgsl_name.clone(), glsl_name);
             }
         }
 
         for (handle, glsl_name) in info.uniforms {
-            if let Ok(wgsl_var) = global_vars.try_get(handle) {
-                if let Some(wgsl_name) = &wgsl_var.name {
-                    uniforms.insert(wgsl_name.clone(), glsl_name);
-                }
+            if let Ok(wgsl_var) = global_vars.try_get(handle)
+                && let Some(wgsl_name) = &wgsl_var.name
+            {
+                uniforms.insert(wgsl_name.clone(), glsl_name);
             }
         }
 

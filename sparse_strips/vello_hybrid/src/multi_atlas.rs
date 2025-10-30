@@ -169,14 +169,14 @@ impl MultiAtlasManager {
             }
         }
 
-        if let Some(idx) = best_atlas_idx {
-            if let Some(allocation) = self.atlases[idx].allocate(width, height) {
-                let atlas_id = self.atlases[idx].id;
-                return Ok(AtlasAllocation {
-                    atlas_id,
-                    allocation,
-                });
-            }
+        if let Some(idx) = best_atlas_idx
+            && let Some(allocation) = self.atlases[idx].allocate(width, height)
+        {
+            let atlas_id = self.atlases[idx].id;
+            return Ok(AtlasAllocation {
+                atlas_id,
+                allocation,
+            });
         }
 
         // Fallback to first-fit if least-used didn't work
@@ -366,12 +366,6 @@ impl AtlasId {
     }
 }
 
-impl Default for AllocationStrategy {
-    fn default() -> Self {
-        Self::FirstFit
-    }
-}
-
 /// Usage statistics for an atlas.
 #[derive(Debug, Clone)]
 pub(crate) struct AtlasUsageStats {
@@ -439,9 +433,10 @@ impl Default for AtlasConfig {
 }
 
 /// Strategy for allocating images across multiple atlases.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AllocationStrategy {
     /// Try atlases in order until one has space.
+    #[default]
     FirstFit,
     /// Choose the atlas with the smallest remaining space that can fit the image.
     BestFit,

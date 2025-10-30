@@ -663,7 +663,7 @@ impl Scheduler {
                     {
                         let tos: &mut TileEl = state.stack.last_mut().unwrap();
                         if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
-                            let next_round = depth % 2 == 0;
+                            let next_round = depth.is_multiple_of(2);
                             let el_round = tos.round + usize::from(next_round);
                             let draw = self.draw_mut(el_round, temp_slot.get_texture());
                             draw.push(
@@ -722,7 +722,7 @@ impl Scheduler {
                 Cmd::PopBuf => {
                     let tos = state.stack.pop().unwrap();
                     let nos = state.stack.last_mut().unwrap();
-                    let next_round = depth % 2 == 0 && depth > 2;
+                    let next_round = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
                     nos.round = round;
                     // free slot after draw
@@ -749,7 +749,7 @@ impl Scheduler {
 
                     // Basically if we are writing onto the even texture, we need to go up a round
                     // to target it.
-                    let next_round = depth % 2 == 0 && depth > 2;
+                    let next_round = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
                     if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
                         let draw = self.draw_mut(round, nos.dest_slot.get_texture());
@@ -789,7 +789,7 @@ impl Scheduler {
                     let tos = &state.stack[depth - 1];
                     let nos = &state.stack[depth - 2];
 
-                    let next_round = depth % 2 == 0 && depth > 2;
+                    let next_round = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
                     // If nos has a temporary slot, copy it to `dest_slot` first
@@ -842,7 +842,7 @@ impl Scheduler {
                     let tos = state.stack.last().unwrap();
                     let nos = &state.stack[state.stack.len() - 2];
 
-                    let next_round: bool = depth % 2 == 0 && depth > 2;
+                    let next_round: bool = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
                     if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {

@@ -266,13 +266,12 @@ impl Scene {
         self.encoding.encode_transform(t);
         self.encoding.encode_fill_style(style);
         if self.encoding.encode_shape(shape, true) {
-            if let Some(brush_transform) = brush_transform {
-                if self
+            if let Some(brush_transform) = brush_transform
+                && self
                     .encoding
                     .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
-                {
-                    self.encoding.swap_last_path_tags();
-                }
+            {
+                self.encoding.swap_last_path_tags();
             }
             self.encoding.encode_brush(brush, 1.0);
             #[cfg(feature = "bump_estimate")]
@@ -346,13 +345,12 @@ impl Scene {
                     .encode_path_elements(dashed.into_iter(), false)
             };
             if encode_result {
-                if let Some(brush_transform) = brush_transform {
-                    if self
+                if let Some(brush_transform) = brush_transform
+                    && self
                         .encoding
                         .encode_transform(Transform::from_kurbo(&(transform * brush_transform)))
-                    {
-                        self.encoding.swap_last_path_tags();
-                    }
+                {
+                    self.encoding.swap_last_path_tags();
                 }
                 self.encoding.encode_brush(brush, 1.0);
             }
