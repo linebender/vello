@@ -190,12 +190,10 @@ mod fill {
         src: T,
         blend_mode: BlendMode,
     ) {
-        let mask = f32x16::splat(simd, 1.0);
-
         for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
             let bg_v = f32x16::from_slice(simd, next_dest);
             let src_c = blend::mix(next_src, bg_v, blend_mode);
-            let res = blend_mode.compose(simd, src_c, bg_v, mask);
+            let res = blend_mode.compose(simd, src_c, bg_v, None);
             next_dest.copy_from_slice(&res.val);
         }
     }
@@ -284,7 +282,7 @@ mod alpha_fill {
                     let masks = extract_masks(simd, next_mask);
                     let bg = f32x16::from_slice(simd, next_dest);
                     let src_c = blend::mix(next_src, bg, blend_mode);
-                    let res = blend_mode.compose(simd, src_c, bg, masks);
+                    let res = blend_mode.compose(simd, src_c, bg, Some(masks));
                     next_dest.copy_from_slice(&res.val);
                 }
             },

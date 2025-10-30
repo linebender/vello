@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::renderer::Renderer;
-use vello_common::color::palette::css::{BLUE, GREEN, PURPLE, RED, YELLOW};
+use vello_common::color::palette::css::{BLUE, GREEN, LIME, PURPLE, RED, YELLOW};
 use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
 use vello_dev_macros::vello_test;
@@ -402,4 +402,84 @@ fn mix_compose_combined_test_matrix(ctx: &mut impl Renderer) {
             ctx.pop_layer();
         }
     }
+}
+
+fn compose_non_isolated(ctx: &mut impl Renderer, compose: Compose) {
+    // Just to isolate from the white background.
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
+
+    let rect1 = Rect::new(10.5, 10.5, 70.5, 70.5);
+    ctx.set_paint(BLUE.with_alpha(0.5));
+    ctx.fill_rect(&rect1);
+    ctx.set_blend_mode(BlendMode::new(Mix::Normal, compose));
+    let rect2 = Rect::new(30.5, 30.5, 90.5, 90.5);
+    ctx.set_paint(LIME.with_alpha(0.5));
+    ctx.fill_rect(&rect2);
+
+    ctx.pop_layer();
+}
+
+#[vello_test]
+fn compose_non_isolated_src_over(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::SrcOver);
+}
+
+#[vello_test]
+fn compose_non_isolated_xor(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::Xor);
+}
+
+#[vello_test]
+fn compose_non_isolated_clear(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::Clear);
+}
+
+#[vello_test]
+fn compose_non_isolated_copy(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::Copy);
+}
+
+#[vello_test]
+fn compose_non_isolated_dest(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::Dest);
+}
+
+#[vello_test]
+fn compose_non_isolated_dest_over(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::DestOver);
+}
+
+#[vello_test]
+fn compose_non_isolated_src_in(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::SrcIn);
+}
+
+#[vello_test]
+fn compose_non_isolated_src_out(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::SrcOut);
+}
+
+#[vello_test]
+fn compose_non_isolated_dest_in(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::DestIn);
+}
+
+#[vello_test]
+fn compose_non_isolated_dest_out(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::DestOut);
+}
+
+#[vello_test]
+fn compose_non_isolated_src_atop(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::SrcAtop);
+}
+
+#[vello_test]
+fn compose_non_isolated_dest_atop(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::DestAtop);
+}
+
+#[vello_test]
+fn compose_non_isolated_plus(ctx: &mut impl Renderer) {
+    compose_non_isolated(ctx, Compose::Plus);
 }
