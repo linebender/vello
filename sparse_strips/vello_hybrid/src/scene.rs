@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
+use vello_common::filter_effects::Filter;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
@@ -259,6 +260,7 @@ impl Scene {
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
         let clip = if let Some(c) = clip_path {
             self.strip_generator.generate_filled_path(
@@ -279,6 +281,13 @@ impl Scene {
             unimplemented!()
         }
 
+        // TODO: Implement filter integration
+        if let Some(filter) = filter {
+            // For now, we'll ignore the filter parameter
+            // This should be properly implemented when filter support is added
+            let _ = filter;
+        }
+
         self.wide.push_layer(
             clip,
             blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
@@ -290,7 +299,12 @@ impl Scene {
 
     /// Push a new clip layer.
     pub fn push_clip_layer(&mut self, path: &BezPath) {
-        self.push_layer(Some(path), None, None, None);
+        self.push_layer(Some(path), None, None, None, None);
+    }
+
+    /// Push a new filter layer.
+    pub fn push_filter_layer(&mut self, filter: Filter) {
+        self.push_layer(None, None, None, None, Some(filter));
     }
 
     /// Pop the last pushed layer.
@@ -375,6 +389,11 @@ impl Scene {
     /// Get the height of the render context.
     pub fn height(&self) -> u16 {
         self.height
+    }
+
+    /// Apply filter to the current paint (affects next drawn element)
+    pub fn set_filter_effect(&mut self, _filter: Filter) {
+        unimplemented!("Filter effects integration with Scene")
     }
 }
 
@@ -485,8 +504,15 @@ impl Recordable for Scene {
                     blend_mode,
                     opacity,
                     mask,
+                    filter,
                 }) => {
-                    self.push_layer(clip_path.as_ref(), *blend_mode, *opacity, mask.clone());
+                    self.push_layer(
+                        clip_path.as_ref(),
+                        *blend_mode,
+                        *opacity,
+                        mask.clone(),
+                        filter.clone(),
+                    );
                 }
                 RenderCommand::PopLayer => {
                     self.pop_layer();
