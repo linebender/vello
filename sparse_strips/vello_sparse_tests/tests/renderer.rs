@@ -448,10 +448,7 @@ impl Renderer for HybridRenderer {
                 }
             });
         self.device
-            .poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            })
+            .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
 
         // Read back the pixel data
