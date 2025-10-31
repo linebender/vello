@@ -41,10 +41,12 @@ pub(crate) trait Renderer: Sized {
     );
     fn flush(&mut self);
     fn push_clip_layer(&mut self, path: &BezPath);
+    fn push_clip_path(&mut self, path: &BezPath);
     fn push_blend_layer(&mut self, blend_mode: BlendMode);
     fn push_opacity_layer(&mut self, opacity: f32);
     fn push_mask_layer(&mut self, mask: Mask);
     fn pop_layer(&mut self);
+    fn pop_clip_path(&mut self);
     fn set_stroke(&mut self, stroke: Stroke);
     fn set_paint(&mut self, paint: impl Into<PaintType>);
     fn set_paint_transform(&mut self, affine: Affine);
@@ -122,6 +124,10 @@ impl Renderer for RenderContext {
         Self::push_clip_layer(self, path);
     }
 
+    fn push_clip_path(&mut self, path: &BezPath) {
+        Self::push_clip_path(self, path);
+    }
+
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
         Self::push_blend_layer(self, blend_mode);
     }
@@ -136,6 +142,10 @@ impl Renderer for RenderContext {
 
     fn pop_layer(&mut self) {
         Self::pop_layer(self);
+    }
+
+    fn pop_clip_path(&mut self) {
+        Self::pop_clip_path(self);
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
@@ -312,6 +322,10 @@ impl Renderer for HybridRenderer {
         self.scene.push_clip_layer(path);
     }
 
+    fn push_clip_path(&mut self, path: &BezPath) {
+        self.scene.push_clip_path(path);
+    }
+
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
         self.scene.push_layer(None, Some(blend_mode), None, None);
     }
@@ -326,6 +340,10 @@ impl Renderer for HybridRenderer {
 
     fn pop_layer(&mut self) {
         self.scene.pop_layer();
+    }
+
+    fn pop_clip_path(&mut self) {
+        self.scene.pop_clip_path();
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
@@ -590,6 +608,10 @@ impl Renderer for HybridRenderer {
         self.scene.glyph_run(font)
     }
 
+    fn push_clip_path(&mut self, path: &BezPath) {
+        self.scene.push_clip_path(path);
+    }
+
     fn push_layer(
         &mut self,
         clip: Option<&BezPath>,
@@ -620,6 +642,10 @@ impl Renderer for HybridRenderer {
 
     fn pop_layer(&mut self) {
         self.scene.pop_layer();
+    }
+
+    fn pop_clip_path(&mut self) {
+        self.scene.pop_clip_path();
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {

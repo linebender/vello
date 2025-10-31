@@ -37,6 +37,14 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
     );
+    fn push_clip_path(
+        &mut self,
+        path: &BezPath,
+        fill_rule: Fill,
+        transform: Affine,
+        aliasing_threshold: Option<u8>,
+    );
+    fn pop_clip_path(&mut self);
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,

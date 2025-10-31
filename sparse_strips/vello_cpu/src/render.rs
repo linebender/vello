@@ -446,6 +446,21 @@ impl RenderContext {
         self.blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
     }
 
+    /// Push a new clip path to the clip stack.
+    pub fn push_clip_path(&mut self, path: &BezPath) {
+        self.dispatcher.push_clip_path(
+            path,
+            self.fill_rule,
+            self.transform,
+            self.aliasing_threshold,
+        );
+    }
+
+    /// Pop a clip path from the clip stack.
+    pub fn pop_clip_path(&mut self) {
+        self.dispatcher.pop_clip_path();
+    }
+
     /// Flush any pending operations.
     ///
     /// This is a no-op when using the single-threaded render mode, and can be ignored.
@@ -818,6 +833,7 @@ impl RenderContext {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -828,6 +844,7 @@ impl RenderContext {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -839,6 +856,7 @@ impl RenderContext {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -850,6 +868,7 @@ impl RenderContext {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -861,6 +880,7 @@ impl RenderContext {
                         *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -872,6 +892,7 @@ impl RenderContext {
                         *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
