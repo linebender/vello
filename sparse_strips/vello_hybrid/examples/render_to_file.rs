@@ -141,7 +141,12 @@ async fn run() {
                 panic!("Failed to map texture for reading");
             }
         });
-    device.poll(wgpu::PollType::Wait).unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        })
+        .unwrap();
 
     // Read back the pixel data
     let mut img_data = Vec::with_capacity(usize::from(width) * usize::from(height));

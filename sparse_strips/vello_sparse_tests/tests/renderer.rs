@@ -447,7 +447,12 @@ impl Renderer for HybridRenderer {
                     panic!("Failed to map texture for reading");
                 }
             });
-        self.device.poll(wgpu::PollType::Wait).unwrap();
+        self.device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .unwrap();
 
         // Read back the pixel data
         for (row, buf) in texture_copy_buffer

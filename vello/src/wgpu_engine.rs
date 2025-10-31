@@ -755,15 +755,15 @@ impl WgpuEngine {
         profiler.resolve_queries(&mut encoder);
         queue.submit(Some(encoder.finish()));
         for id in free_bufs {
-            if let Some(buf) = self.bind_map.buf_map.remove(&id) {
-                if let MaterializedBuffer::Gpu(gpu_buf) = buf.buffer {
-                    let props = BufferProperties {
-                        size: gpu_buf.size(),
-                        usages: gpu_buf.usage(),
-                        name: buf.label,
-                    };
-                    self.pool.bufs.entry(props).or_default().push(gpu_buf);
-                }
+            if let Some(buf) = self.bind_map.buf_map.remove(&id)
+                && let MaterializedBuffer::Gpu(gpu_buf) = buf.buffer
+            {
+                let props = BufferProperties {
+                    size: gpu_buf.size(),
+                    usages: gpu_buf.usage(),
+                    name: buf.label,
+                };
+                self.pool.bufs.entry(props).or_default().push(gpu_buf);
             }
         }
         for id in free_images {
@@ -984,10 +984,10 @@ impl ResourcePool {
             usages: usage,
             name,
         };
-        if let Some(buf_vec) = self.bufs.get_mut(&props) {
-            if let Some(buf) = buf_vec.pop() {
-                return buf;
-            }
+        if let Some(buf_vec) = self.bufs.get_mut(&props)
+            && let Some(buf) = buf_vec.pop()
+        {
+            return buf;
         }
         device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(name),
@@ -1060,10 +1060,10 @@ impl<'a> TransientBindMap<'a> {
         queue: &Queue,
         buf: &BufferProxy,
     ) {
-        if !self.bufs.contains_key(&buf.id) {
-            if let Some(b) = bind_map.buf_map.get_mut(&buf.id) {
-                b.upload_if_needed(buf, device, queue, pool);
-            }
+        if !self.bufs.contains_key(&buf.id)
+            && let Some(b) = bind_map.buf_map.get_mut(&buf.id)
+        {
+            b.upload_if_needed(buf, device, queue, pool);
         }
     }
 

@@ -150,10 +150,10 @@ impl ShaderInfo {
             };
             if let naga::TypeInner::Image { class, .. } = &binding_ty {
                 resource.ty = BindType::ImageRead;
-                if let ImageClass::Storage { access, .. } = class {
-                    if access.contains(StorageAccess::STORE) {
-                        resource.ty = BindType::Image;
-                    }
+                if let ImageClass::Storage { access, .. } = class
+                    && access.contains(StorageAccess::STORE)
+                {
+                    resource.ty = BindType::Image;
                 }
             } else {
                 resource.ty = BindType::BufReadOnly;
