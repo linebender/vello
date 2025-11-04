@@ -12,6 +12,9 @@ use crate::peniko::color::PremulRgba8;
 #[cfg(feature = "png")]
 extern crate std;
 
+/// Alpha value for full opacity.
+const ALPHA_OPAQUE: u8 = 255;
+
 /// A pixmap of premultiplied RGBA8 values backed by [`u8`][core::u8].
 #[derive(Debug, Clone)]
 pub struct Pixmap {
@@ -263,23 +266,86 @@ impl Pixmap {
     ///
     /// The pixels are in row-major order.
     pub fn take_unpremultiplied(self) -> Vec<Rgba8> {
-        self.buf
-            .into_iter()
-            .map(|PremulRgba8 { r, g, b, a }| {
+        let mut container = self.buf;
+        // We temporarily break the rule that PremulRgba8 represents a "packed pre-multiplied sRGB color".
+        // This is safe because it differs from Rgba8 only by type, and we cast it to Rgba8 at the end.
+        // This allows in-place conversion without copying the entire image and lets us skip
+        // fully transparent or fully opaque pixels.
+        for premul_rgba8 in &mut container {
+            let PremulRgba8 { r, g, b, a } = *premul_rgba8;
+
+            // True for 1..=254, false for 0 (alpha transparent) and 255 (alpha opaque).
+            // Using wrapping_sub(1) allows a single comparison instead of two separate checks.
+            if a.wrapping_sub(1) < ALPHA_OPAQUE - 1 {
                 let alpha = 255.0 / f32::from(a);
-                if a != 0 {
-                    #[expect(clippy::cast_possible_truncation, reason = "deliberate quantization")]
-                    let unpremultiply = |component| (f32::from(component) * alpha + 0.5) as u8;
-                    Rgba8 {
-                        r: unpremultiply(r),
-                        g: unpremultiply(g),
-                        b: unpremultiply(b),
-                        a,
-                    }
-                } else {
-                    Rgba8 { r, g, b, a }
+                #[expect(clippy::cast_possible_truncation, reason = "deliberate quantization")]
+                let unpremultiply = |component| (f32::from(component) * alpha + 0.5) as u8;
+                *premul_rgba8 = PremulRgba8 {
+                    r: unpremultiply(r),
+                    g: unpremultiply(g),
+                    b: unpremultiply(b),
+                    a,
                 }
+            }
+        }
+        bytemuck::cast_vec::<PremulRgba8, Rgba8>(container)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use peniko::color::{PremulColor, PremulRgba8, Srgb};
+
+    #[test]
+    fn test_take_unpremultiplied_all_cases() {
+        let pixels = vec![
+            // Fully transparent
+            PremulRgba8 {
+                r: 100,
+                g: 150,
+                b: 200,
+                a: 0,
+            },
+            // Half transparent
+            PremulRgba8 {
+                r: 64,
+                g: 32,
+                b: 16,
+                a: 128,
+            },
+            // Fully opaque
+            PremulRgba8 {
+                r: 50,
+                g: 100,
+                b: 150,
+                a: ALPHA_OPAQUE,
+            },
+            PremulRgba8 {
+                r: 10,
+                g: 20,
+                b: 30,
+                a: 64,
+            },
+            PremulRgba8 {
+                r: 200,
+                g: 180,
+                b: 160,
+                a: 192,
+            },
+        ];
+
+        let pixmap = Pixmap::from_parts(pixels.clone(), 5, 1);
+        let result = pixmap.take_unpremultiplied();
+        let expected = pixels
+            .into_iter()
+            .map(|premul_rgba| {
+                PremulColor::<Srgb>::from(premul_rgba)
+                    .un_premultiply()
+                    .to_rgba8()
             })
-            .collect()
+            .collect::<Vec<_>>();
+
+        assert_eq!(result, expected);
     }
 }
