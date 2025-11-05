@@ -40,7 +40,7 @@ pub struct Encoding {
     pub transforms: Vec<Transform>,
     /// The style stream
     pub styles: Vec<Style>,
-    /// Winding information for subpaths of filled shapes
+    /// Winding information for filled shapes
     pub path_windings: Vec<f32>,
     /// Late bound resource data.
     pub resources: Resources,
@@ -263,7 +263,7 @@ impl Encoding {
         )
     }
 
-    /// Returns an encoder for encoding a filled path with winding data for expansion.
+    /// Returns an encoder for encoding a shape with winding data for expansion.
     pub fn encode_winding_path(&mut self, is_fill: bool) -> WindingPathEncoder<'_> {
         WindingPathEncoder::new(
             &mut self.path_tags,

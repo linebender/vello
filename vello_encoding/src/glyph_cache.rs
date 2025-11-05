@@ -179,6 +179,7 @@ impl GlyphCacheSession<'_> {
         encoding_ptr.reset();
         let is_fill = match &self.style {
             Style::Fill(fill) => {
+                // since embolden is a property of a glyph run, we always encode a fill style with embolden
                 encoding_ptr.encode_fill_style_embolden(*fill, self.embolden_fill_style);
                 true
             }
@@ -191,6 +192,8 @@ impl GlyphCacheSession<'_> {
         };
         use skrifa::outline::DrawSettings;
         let fill_style = self.embolden_fill_style;
+        // only using a winding path encoder if the embolden is not zero
+        // this is because the winding information is only used when adding an embolden
         if fill_style.embolden != Vec2::ZERO {
             let mut path = encoding_ptr.encode_winding_path(is_fill);
             let draw_settings = if key.hint {

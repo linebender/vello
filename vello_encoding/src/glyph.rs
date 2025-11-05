@@ -30,7 +30,7 @@ pub struct GlyphRun {
     pub glyph_transform: Option<Transform>,
     /// Size of the font in pixels per em.
     pub font_size: f32,
-    /// The style to use when emboldening with embolden in em.
+    /// The style to use when emboldening.
     pub embolden_style: EmboldenStyle,
     /// True if hinting is enabled.
     pub hint: bool,

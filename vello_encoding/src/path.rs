@@ -3,7 +3,7 @@
 
 use bytemuck::{Pod, Zeroable};
 use peniko::Fill;
-use peniko::kurbo::{Cap, Join, Point, Shape, Stroke, Vec2};
+use peniko::kurbo::{Cap, Join, Shape, Stroke, Vec2};
 
 use super::Monoid;
 
@@ -48,10 +48,16 @@ pub struct Style {
     /// Encodes the stroke width. This field is ignored for fills.
     pub line_width: f32,
 
-    /// Encodes the embolden amount (for fonts). This value is added to the stroke width during
-    /// stroke expansion for fonts. For stroke styles, this is added to the stroke width.
-    /// For fill styles, this is used to create a synthetic stroke of this width.
+    /// Encodes the embolden amount for the x axis.
+    /// The actual offset applied depends on the tangent angle of each path segment.
+    /// For stroke styles, this adjusts the stroke width based on the tangent direction.
+    /// For fill styles, this is used to offset the paths based on their tangent direction.
     pub embolden_x: f32,
+
+    /// Encodes the embolden amount for the y axis.
+    /// The actual offset applied depends on the tangent angle of each path segment.
+    /// For stroke styles, this adjusts the stroke width based on the tangent direction.
+    /// For fill styles, this is used to offset the paths based on their tangent direction.
     pub embolden_y: f32,
 }
 
@@ -901,22 +907,15 @@ impl skrifa::outline::OutlinePen for PathEncoder<'_> {
     }
 }
 
-/// Encoder for path segments with winding information.
 pub struct WindingPathEncoder<'a> {
-    /// The underlying path encoder
     encoder: PathEncoder<'a>,
     path_windings: &'a mut Vec<f32>,
-    /// Collects points from all subpaths for a single winding calculation
-    all_glyph_points: Vec<Point>,
-    /// Tracks current subpath points
-    current_subpath: Vec<Point>,
-    /// Tracks if a subpath is in progress
-    in_subpath: bool,
-    winding_stored: bool,
+    area: f32,
+    prev_x: f32,
+    prev_y: f32,
 }
 
 impl<'a> WindingPathEncoder<'a> {
-    /// Creates a new winding path encoder.
     pub fn new(
         tags: &'a mut Vec<PathTag>,
         data: &'a mut Vec<u32>,
@@ -928,123 +927,51 @@ impl<'a> WindingPathEncoder<'a> {
         Self {
             encoder: PathEncoder::new(tags, data, n_segments, n_paths, is_fill),
             path_windings,
-            current_subpath: Vec::new(),
-            all_glyph_points: Vec::new(),
-            in_subpath: false,
-            winding_stored: false,
+            area: 0.0,
+            prev_x: 0.0,
+            prev_y: 0.0,
         }
     }
 
     pub fn move_to(&mut self, x: f32, y: f32) {
-        if self.in_subpath && !self.current_subpath.is_empty() {
-            self.all_glyph_points
-                .extend_from_slice(&self.current_subpath);
-        }
-
-        self.current_subpath.clear();
-        self.current_subpath.push(Point::new(x as f64, y as f64));
-        self.in_subpath = true;
-
+        self.prev_x = x;
+        self.prev_y = y;
         self.encoder.move_to(x, y);
     }
 
     pub fn line_to(&mut self, x: f32, y: f32) {
-        if self.in_subpath {
-            self.current_subpath.push(Point::new(x as f64, y as f64));
-        }
-
+        self.area += (y - self.prev_y) * (x + self.prev_x);
+        self.prev_x = x;
+        self.prev_y = y;
         self.encoder.line_to(x, y);
     }
 
     pub fn quad_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32) {
-        if self.in_subpath {
-            self.current_subpath.push(Point::new(x2 as f64, y2 as f64));
-        }
-
+        self.area += (y2 - self.prev_y) * (x2 + self.prev_x);
+        self.prev_x = x2;
+        self.prev_y = y2;
         self.encoder.quad_to(x1, y1, x2, y2);
     }
 
     pub fn cubic_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) {
-        if self.in_subpath {
-            self.current_subpath.push(Point::new(x3 as f64, y3 as f64));
-        }
-
+        self.area += (y3 - self.prev_y) * (x3 + self.prev_x);
+        self.prev_x = x3;
+        self.prev_y = y3;
         self.encoder.cubic_to(x1, y1, x2, y2, x3, y3);
     }
 
     pub fn close(&mut self) {
-        if self.in_subpath && !self.current_subpath.is_empty() {
-            self.all_glyph_points
-                .extend_from_slice(&self.current_subpath);
-        }
-
-        self.in_subpath = false;
-        self.current_subpath.clear();
-
         self.encoder.close(true);
     }
 
-    pub fn shape(&mut self, shape: &impl Shape) {
-        self.path_elements(shape.path_elements(0.1));
-    }
-
-    pub fn path_elements(&mut self, path: impl Iterator<Item = peniko::kurbo::PathEl>) {
-        use peniko::kurbo::PathEl;
-        for el in path {
-            match el {
-                PathEl::MoveTo(p0) => self.move_to(p0.x as f32, p0.y as f32),
-                PathEl::LineTo(p0) => self.line_to(p0.x as f32, p0.y as f32),
-                PathEl::QuadTo(p0, p1) => {
-                    self.quad_to(p0.x as f32, p0.y as f32, p1.x as f32, p1.y as f32);
-                }
-                PathEl::CurveTo(p0, p1, p2) => self.cubic_to(
-                    p0.x as f32,
-                    p0.y as f32,
-                    p1.x as f32,
-                    p1.y as f32,
-                    p2.x as f32,
-                    p2.y as f32,
-                ),
-                PathEl::ClosePath => self.close(),
-            }
+    pub fn finish(self, insert_path_marker: bool) -> u32 {
+        self.path_windings
+            .push(if self.area > 0.0 { 1.0 } else { -1.0 });
+        if let Some(tag) = self.encoder.tags.last_mut() {
+            tag.set_winding_incr();
         }
-    }
-
-    pub fn finish(mut self, insert_path_marker: bool) -> u32 {
-        if self.in_subpath && !self.current_subpath.is_empty() {
-            self.all_glyph_points
-                .extend_from_slice(&self.current_subpath);
-        }
-
-        // compute a single winding for the entire glyph/path
-        if !self.all_glyph_points.is_empty() && !self.winding_stored {
-            let winding = compute_winding(&self.all_glyph_points);
-            let winding_sign = if winding == 0 { -1.0 } else { 1.0 };
-
-            self.path_windings.push(winding_sign);
-            if let Some(tag) = self.encoder.tags.last_mut() {
-                tag.set_winding_incr();
-            }
-
-            self.winding_stored = true;
-        }
-
         self.encoder.finish(insert_path_marker)
     }
-}
-
-fn compute_winding(points: &[Point]) -> u8 {
-    if points.is_empty() {
-        return 0;
-    }
-    let mut area = 0.;
-    let last = points.len() - 1;
-    let mut prev = points[last];
-    for cur in points[0..=last].iter() {
-        area += (cur.y - prev.y) * (cur.x + prev.x);
-        prev = *cur;
-    }
-    if area > 0. { 1 } else { 0 }
 }
 
 impl skrifa::outline::OutlinePen for WindingPathEncoder<'_> {

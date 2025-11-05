@@ -486,11 +486,9 @@ impl<'a> DrawGlyphs<'a> {
 
     /// Sets the amount of emboldening to apply.
     ///
-    /// The value represents the amount to embolden in em units.
-    /// A value of 0.0 means no emboldening (the default).
-    /// Typical values range from 0.01 to 0.1.
+    /// The value represents the amount to embolden along the x and y axes.
     ///
-    /// The default value is 0.0 (no emboldening).
+    /// The default value is (0.0, 0.0) (no emboldening).
     #[must_use]
     pub fn embolden(mut self, amount: Vec2) -> Self {
         self.run.embolden_style.embolden = amount;
