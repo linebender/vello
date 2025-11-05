@@ -173,6 +173,7 @@ impl SimpleText {
         scene
             .draw_glyphs(font)
             .font_size(size)
+            .embolden(vello::kurbo::Vec2::new(2., 0.))
             .transform(transform)
             .glyph_transform(glyph_transform)
             .normalized_coords(bytemuck::cast_slice(var_loc.coords()))

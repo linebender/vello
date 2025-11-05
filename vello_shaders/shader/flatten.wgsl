@@ -329,7 +329,8 @@ fn flatten_euler(
     cubic: CubicPoints,
     path_ix: u32,
     local_to_device: Transform,
-    offset: f32,
+    start_offset: f32,
+    end_offset: f32,
     start_p: vec2f,
     end_p: vec2f,
 ) {
@@ -341,7 +342,7 @@ fn flatten_euler(
     var transform: Transform;
     var t_start = start_p;
     var t_end = end_p;
-    if offset == 0. {
+    if start_offset == 0. && end_offset == 0. {
         let t = local_to_device;
         p0 = transform_apply(t, cubic.p0);
         p1 = transform_apply(t, cubic.p1);
@@ -407,8 +408,14 @@ fn flatten_euler(
             let es = es_seg_from_params(this_p0, this_pq1.point, euler_params);
             let k0 = es.params.k0 - 0.5 * es.params.k1;
             let k1 = es.params.k1;
-            let normalized_offset = offset / cubic_params.chord_len;
-            let dist_scaled = normalized_offset * es.params.ch;
+            let normalized_offset_start = start_offset / cubic_params.chord_len;
+            let normalized_offset_end = end_offset / cubic_params.chord_len;
+            let t_ratio_start = t0;
+            let normalized_offset_at_start = normalized_offset_start * (1.0 - t_ratio_start) + normalized_offset_end * t_ratio_start;
+            let t_ratio_end = t1;
+            let normalized_offset_at_end = normalized_offset_start * (1.0 - t_ratio_end) + normalized_offset_end * t_ratio_end;
+            let normalized_offset_avg = 0.5 * (normalized_offset_at_start + normalized_offset_at_end);
+            let dist_scaled = normalized_offset_avg * es.params.ch;
             let scale_multiplier = sqrt(0.125 * scale * cubic_params.chord_len / (es.params.ch * tol));
             var a = 0.0;
             var b = 0.0;
@@ -417,7 +424,7 @@ fn flatten_euler(
             var n_frac: f32;
             var robust = ESPC_ROBUST_NORMAL;
             if abs(k1) < K1_THRESH {
-                let k = es.params.k0;
+                let k = k0 + 0.5 * k1;
                 n_frac = sqrt(abs(k * (k * dist_scaled + 1.0)));
                 robust = ESPC_ROBUST_LOW_K1;
             } else if abs(dist_scaled) < DIST_THRESH {
@@ -459,10 +466,11 @@ fn flatten_euler(
                         }
                         s = (inv - b) / a;
                     }
-                    lp1 = es_seg_eval_with_offset(es, s, normalized_offset);
+                    let normalized_offset_t = normalized_offset_start * (1.0 - s) + normalized_offset_end * s;
+                    lp1 = es_seg_eval_with_offset(es, s, normalized_offset_t);
                 }
-                let l0 = select(lp1, lp0, offset >= 0.);
-                let l1 = select(lp0, lp1, offset >= 0.);
+                let l0 = select(lp1, lp0, start_offset >= 0.);
+                let l1 = select(lp0, lp1, start_offset >= 0.);
                 output_line_with_transform(path_ix, l0, l1, transform);
                 lp0 = lp1;
             }
@@ -816,7 +824,7 @@ fn read_neighboring_segment(ix: u32) -> NeighboringSegment {
     return NeighboringSegment(do_join, tangent);
 }
 
-fn extract_embolden(embolden: vec2f, tangent: vec2f) -> f32 {
+fn project_abs(embolden: vec2f, tangent: vec2f) -> f32 {
     let tan_n = normalize(tangent);
     return embolden.x * abs(tan_n.y) + embolden.y * abs(tan_n.x);
 
@@ -864,7 +872,7 @@ fn main(
             let linewidth = bitcast<f32>(scene[config.style_base + style_ix + 1u]);
             // Read embolden value from style - used for font outlines
             let embolden_x = bitcast<f32>(scene[config.style_base + style_ix + 2u]);
-            let embolden_y = bitcast<f32>(scene[config.style_base + style_ix + 2u]);
+            let embolden_y = bitcast<f32>(scene[config.style_base + style_ix + 3u]);
             let embolden = vec2(embolden_x, embolden_y);
 
             let is_open = (tag.tag_byte & PATH_TAG_SEG_TYPE) != PATH_TAG_LINETO;
@@ -872,10 +880,10 @@ fn main(
                 if is_open {
                     // Draw start cap
                     let tangent = pts.p3 - pts.p0;
-                    let embolden = extract_embolden(embolden, tangent);
+                    let embolden = project_abs(embolden, tangent);
                     let offset = 0.5 * (linewidth + embolden);
                     let offset_tangent = offset * normalize(tangent);
-                    let n = offset_tangent.yx * vec2f(-1., 1.);
+                    let n = vec2(-offset_tangent.y, offset_tangent.x);
                     draw_cap(path_ix, (style_flags & STYLE_FLAGS_START_CAP_MASK) >> 2u,
                              pts.p0, pts.p0 - n, pts.p0 + n, -offset_tangent, transform);
                 } else {
@@ -897,22 +905,22 @@ fn main(
                     tan_next = vec2(TANGENT_THRESH, 0.);
                 }
 
-                let start_embolden = extract_embolden(embolden, tan_start);
+                let start_embolden = project_abs(embolden, tan_start);
                 let start_offset = 0.5 * (linewidth + start_embolden);
                 let n_start = start_offset * normalize(vec2(-tan_start.y, tan_start.x));
 
-                let prev_embolden = extract_embolden(embolden, tan_prev);
+                let prev_embolden = project_abs(embolden, tan_prev);
                 let prev_offset = 0.5 * (linewidth + prev_embolden);
                 let offset_tangent = prev_offset * normalize(tan_prev);
-                let n_prev = offset_tangent.yx * vec2f(-1., 1.);
+                let n_prev = vec2(-offset_tangent.y, offset_tangent.x);
 
-                let next_embolden = extract_embolden(embolden, tan_next);
+                let next_embolden = project_abs(embolden, tan_next);
                 let next_offset = 0.5 * (linewidth + next_embolden);
-                let n_next = next_offset * normalize(tan_next).yx * vec2f(-1., 1.);
+                let n_next = next_offset * normalize(vec2(-tan_next.y, tan_next.x));
 
                 // Render offset curves
-                flatten_euler(pts, path_ix, transform, start_offset, pts.p0 + n_start, pts.p3 + n_prev);
-                flatten_euler(pts, path_ix, transform, -start_offset, pts.p0 - n_start, pts.p3 - n_prev);
+                flatten_euler(pts, path_ix, transform, start_offset, prev_offset, pts.p0 + n_start, pts.p3 + n_prev);
+                flatten_euler(pts, path_ix, transform, -start_offset, -prev_offset, pts.p0 - n_start, pts.p3 - n_prev);
 
                 if neighbor.do_join {
                     draw_join(path_ix, style_flags, pts.p3, tan_prev, tan_next,
@@ -925,10 +933,10 @@ fn main(
             }
         } else {
             let embolden_x = bitcast<f32>(scene[config.style_base + style_ix + 2u]);
-            let embolden_y = bitcast<f32>(scene[config.style_base + style_ix + 2u]);
+            let embolden_y = bitcast<f32>(scene[config.style_base + style_ix + 3u]);
             let embolden = vec2(embolden_x, embolden_y);
 
-            if (embolden_x != 0.0 && embolden_y != 0.0) && !is_stroke_cap_marker  {
+            if (embolden_x != 0.0 || embolden_y != 0.0) && !is_stroke_cap_marker  {
                 let sign = bitcast<f32>(scene[config.winding_base + winding_ix]);
 
                 var tan_start = cubic_start_tangent(pts.p0, pts.p1, pts.p2, pts.p3) * sign;
@@ -940,13 +948,13 @@ fn main(
                     tan_prev = vec2(TANGENT_THRESH, 0.);
                 }
 
-                let start_embolden = extract_embolden(embolden, tan_start);
+                let start_embolden = project_abs(embolden, tan_start);
                 let n_start = -start_embolden * normalize(vec2(-tan_start.y, tan_start.x));
 
-                let prev_embolden = extract_embolden(embolden, tan_prev);
+                let prev_embolden = project_abs(embolden, tan_prev);
                 var n_prev = -prev_embolden * normalize(vec2(-tan_prev.y, tan_prev.x));
 
-                flatten_euler(pts, path_ix, transform, -start_embolden * sign, pts.p0 + n_start, pts.p3 + n_prev);
+                flatten_euler(pts, path_ix, transform, -start_embolden * sign, -prev_embolden * sign, pts.p0 + n_start, pts.p3 + n_prev);
 
                 let neighbor = read_neighboring_segment(ix + 1);
                 if neighbor.do_join {
@@ -954,7 +962,7 @@ fn main(
                     if dot(tan_next, tan_next) < TANGENT_THRESH * TANGENT_THRESH {
                         tan_next = vec2(TANGENT_THRESH, 0.);
                     }
-                    let next_embolden = extract_embolden(embolden, tan_next);
+                    let next_embolden = project_abs(embolden, tan_next);
                     var n_next = -next_embolden * normalize(vec2(-tan_next.y, tan_next.x));
                     if sign < 0 {
                         // this is necessary to preserve the winding direction
@@ -971,7 +979,7 @@ fn main(
                     draw_join(path_ix, style_flags, pts.p3, tan_prev, tan_next, -n_prev, -n_next, transform, true);
                 }
             } else if (embolden_x == 0. && embolden_y == 0.) {
-                flatten_euler(pts, path_ix, transform, 0., pts.p0, pts.p3);
+                flatten_euler(pts, path_ix, transform, 0., 0., pts.p0, pts.p3);
             }
         }
 
