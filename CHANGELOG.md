@@ -15,6 +15,10 @@ You can find its changes [documented below](#060---2025-10-03).
 
 This release has an [MSRV][] of 1.88.
 
+### Changed
+
+- Breaking change: wgpu has been updated to wgpu 26. ([#1280][] by [@theoparis][])  
+
 ### Fixed
 
 - Bitmap emoji displayed at an incorrect position when scaled. ([#1273][] by [@ArthurCose][])
@@ -278,7 +282,8 @@ This release has an [MSRV][] of 1.75.
 [@simbleau]: https://github.com/simbleau
 [@songhuaixu]: https://github.com/songhuaixu
 [@StT191]: https://github.com/StT191
-[@TheNachoBIT]: https://github.com/TheNachoBIT
+[@TheNachoBIT]: https://github.com/TheNachoB
+[@theoparis]: https://github.com/theoparis
 [@timtom-dev]: https://github.com/timtom-dev
 [@tomcur]: https://github.com/tomcur
 [@TrueDoctor]: https://github.com/TrueDoctor
@@ -374,6 +379,7 @@ This release has an [MSRV][] of 1.75.
 [#1224]: https://github.com/linebender/vello/pull/1224
 [#1229]: https://github.com/linebender/vello/pull/1229
 [#1273]: https://github.com/linebender/vello/pull/1273
+[#1280]: https://github.com/linebender/vello/pull/1280
 
 <!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.5.0...HEAD
