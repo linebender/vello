@@ -932,7 +932,7 @@ dependencies = [
 [[package]]
 name = "fearless_simd"
 version = "0.3.0"
-source = "git+https://github.com/linebender/fearless_simd#deab67c89f9373df47cbd279d15300784f46217b"
+source = "git+https://github.com/valadaptive/fearless_simd?branch=more-avx2#b29bf2ad1409c26fb226d197a3368c3a85d8973d"
 dependencies = [
  "bytemuck",
  "libm",
