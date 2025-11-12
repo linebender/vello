@@ -12,6 +12,7 @@ pub mod simple;
 pub mod svg;
 pub mod text;
 
+use vello_common::filter_effects::Filter;
 pub use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_common::kurbo::Affine;
 pub use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
@@ -58,6 +59,7 @@ pub trait RenderingContext: Sized {
         blend_mode: Option<BlendMode>,
         alpha: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     );
     /// Pop the current layer.
     fn pop_layer(&mut self);
@@ -121,8 +123,9 @@ impl RenderingContext for RenderContext {
         blend_mode: Option<BlendMode>,
         alpha: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
-        self.push_layer(clip, blend_mode, alpha, mask);
+        self.push_layer(clip, blend_mode, alpha, mask, filter);
     }
 
     fn pop_layer(&mut self) {
@@ -199,8 +202,9 @@ impl RenderingContext for Scene {
         blend_mode: Option<BlendMode>,
         alpha: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
-        self.push_layer(clip, blend_mode, alpha, mask);
+        self.push_layer(clip, blend_mode, alpha, mask, filter);
     }
 
     fn pop_layer(&mut self) {
