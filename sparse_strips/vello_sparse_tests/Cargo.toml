@@ -27,6 +27,7 @@ oxipng = { workspace = true, features = ["freestanding", "parallel"] }
 image = { workspace = true, features = ["png"] }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
+fearless_simd = { workspace = true, features = ["force_support_fallback"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-test = "0.3.50"

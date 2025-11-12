@@ -18,6 +18,7 @@ parley = { version = "0.5.0", default-features = true }
 rand = { workspace = true }
 smallvec = { workspace = true }
 usvg = { workspace = true }
+fearless_simd = { workspace = true, features = ["force_support_fallback"] }
 
 [features]
 

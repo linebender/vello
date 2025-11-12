@@ -82,7 +82,7 @@ pub struct RenderSettings {
 impl Default for RenderSettings {
     fn default() -> Self {
         Self {
-            level: Level::try_detect().unwrap_or(Level::fallback()),
+            level: Level::try_detect().unwrap_or(Level::baseline()),
             #[cfg(feature = "multithreading")]
             num_threads: (std::thread::available_parallelism()
                 .unwrap()
@@ -1000,7 +1000,7 @@ mod tests {
 
         let mut pixmap = Pixmap::new(200, 200);
         let settings = RenderSettings {
-            level: Level::try_detect().unwrap_or(Level::fallback()),
+            level: Level::try_detect().unwrap_or(Level::baseline()),
             num_threads: 1,
             render_mode: RenderMode::OptimizeQuality,
         };

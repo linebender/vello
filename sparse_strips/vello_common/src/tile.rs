@@ -357,7 +357,7 @@ mod tests {
             p1: Point { x: 9.0, y: -1.0 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line], 100, 100);
 
         assert!(tiles.is_empty());
@@ -370,7 +370,7 @@ mod tests {
             p1: Point { x: 103.0, y: 20.0 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line], 100, 100);
 
         assert!(tiles.is_empty());
@@ -383,7 +383,7 @@ mod tests {
             p1: Point { x: 35.0, y: 105.0 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line], 100, 100);
 
         assert!(tiles.is_empty());
@@ -396,7 +396,7 @@ mod tests {
             p1: Point { x: 2.0, y: 1.0 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line], 100, 100);
 
         assert_eq!(tiles.tile_buf, [Tile::new_clamped(0, 0, 0, true)]);
@@ -409,7 +409,7 @@ mod tests {
             p1: Point { x: 8.5, y: 1.0 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -430,7 +430,7 @@ mod tests {
             p1: Point { x: 1.0, y: 8.5 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -451,7 +451,7 @@ mod tests {
             p1: Point { x: 11.0, y: 8.5 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -474,7 +474,7 @@ mod tests {
             p1: Point { x: 1.0, y: 1.0 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -497,7 +497,7 @@ mod tests {
             p1: Point { x: 14.0, y: 6.0 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -520,7 +520,7 @@ mod tests {
             p1: Point { x: 2.0, y: 11.0 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line], 100, 100);
         tiles.sort_tiles();
 
@@ -548,7 +548,7 @@ mod tests {
             p1: Point { x: 0.0, y: 1.0 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line_1, line_2], 100, 100);
 
         assert_eq!(
@@ -568,7 +568,7 @@ mod tests {
             p1: Point { x: 224.0, y: 388.0 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&[line], 600, 600);
     }
 
@@ -577,14 +577,14 @@ mod tests {
         let path = BezPath::from_svg("M261,0 L78848,0 L78848,4 L261,4 Z").unwrap();
         let mut line_buf = vec![];
         fill(
-            Level::try_detect().unwrap_or(Level::fallback()),
+            Level::try_detect().unwrap_or(Level::baseline()),
             &path,
             Affine::IDENTITY,
             &mut line_buf,
             &mut FlattenCtx::default(),
         );
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
         tiles.make_tiles(&line_buf, 10, 10);
         assert_eq!(tiles.tile_buf[0].x, 4);
         assert_eq!(tiles.tile_buf[1].x, 4);

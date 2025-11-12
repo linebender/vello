@@ -249,9 +249,20 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 use crate::util::{
                     check_ref, get_ctx
                 };
+                use crate::renderer::CpuRenderArgs;
                 use vello_cpu::{RenderContext, RenderMode};
 
-                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level, #render_mode);
+                let mut ctx = get_ctx::<RenderContext>(
+                    #width,
+                    #height,
+                    #transparent,
+                    CpuRenderArgs {
+                        num_threads: #num_threads,
+                        level: #level,
+                        render_mode:
+                        #render_mode,
+                    }
+                );
                 #input_fn_name(&mut ctx);
                 ctx.flush();
                 if !#no_ref {
@@ -437,7 +448,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, ());
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
@@ -455,7 +466,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, ());
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
