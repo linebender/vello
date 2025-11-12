@@ -555,7 +555,7 @@ pub(crate) struct HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRenderer = Scene;
 
-    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
+    fn new(width: u16, height: u16, _args: ()) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
 

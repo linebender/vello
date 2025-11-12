@@ -28,6 +28,10 @@ smallvec = { workspace = true }
 libm = { version = "0.2.15", optional = true }
 log = { workspace = true }
 
+[dev-dependencies]
+# We use Level::fallback() in tests
+fearless_simd = { workspace = true, features = ["force_support_fallback"] }
+
 [features]
 default = ["std", "png", "text"]
 # Enable using SIMD instructions for rendering
