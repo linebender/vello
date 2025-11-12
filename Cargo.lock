@@ -3942,6 +3942,7 @@ name = "vello_hybrid"
 version = "0.0.4"
 dependencies = [
  "bytemuck",
+ "fearless_simd",
  "guillotiere",
  "hashbrown 0.15.5",
  "js-sys",

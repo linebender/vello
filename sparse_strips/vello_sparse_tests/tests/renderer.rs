@@ -553,19 +553,12 @@ pub(crate) struct HybridRenderer {
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 impl Renderer for HybridRenderer {
+    type Args = ();
     type GlyphRenderer = Scene;
 
     fn new(width: u16, height: u16, _args: ()) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
-
-        if num_threads != 0 {
-            panic!("hybrid renderer doesn't support multi-threading");
-        }
-
-        if !matches!(level, Level::Fallback(_)) {
-            panic!("hybrid renderer doesn't support SIMD");
-        }
 
         let scene = Scene::new(width, height);
 
