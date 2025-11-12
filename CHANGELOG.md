@@ -17,7 +17,7 @@ This release has an [MSRV][] of 1.88.
 
 ### Changed
 
-- Breaking change: wgpu has been updated to wgpu 26. ([#1280][] by [@theoparis][])  
+- Breaking change: wgpu has been updated to wgpu 27. ([#1280][] by [@theoparis][])  
 
 ### Fixed
 
