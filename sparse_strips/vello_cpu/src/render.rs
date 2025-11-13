@@ -24,7 +24,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::ImageSource;
 use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
+use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
 use vello_common::strip::Strip;
@@ -141,7 +141,7 @@ impl RenderContext {
             dispatcher,
             transform,
             aliasing_threshold,
-            blend_mode: BlendMode::new(Mix::Normal, Compose::SrcOver),
+            blend_mode: BlendMode::default(),
             paint,
             render_settings: settings,
             paint_transform,
@@ -303,7 +303,7 @@ impl RenderContext {
             }
         });
 
-        let blend_mode = blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver));
+        let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
 
         self.dispatcher.push_layer(
@@ -443,7 +443,7 @@ impl RenderContext {
         self.reset_paint_transform();
         #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();
-        self.blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
+        self.blend_mode = BlendMode::default();
     }
 
     /// Flush any pending operations.
