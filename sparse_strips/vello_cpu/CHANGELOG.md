@@ -15,7 +15,7 @@ You can find its changes [documented below](#004---2025-10-17).
 
 This release has an [MSRV][] of 1.88.
 
-### Changes
+### Added
 - The `RenderContext` now has a `set_blend_mode` (and a corresponding `blend_mode` 
   getter method) that can be used to support non-isolated blending ([#1159][] by [@LaurenzV])
 
