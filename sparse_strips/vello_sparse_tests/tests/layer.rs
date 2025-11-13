@@ -21,6 +21,7 @@ fn layer_multiple_properties_1(ctx: &mut impl Renderer) {
         Some(BlendMode::new(Mix::Lighten, Compose::SrcOver)),
         Some(0.78),
         Some(mask),
+        None,
     );
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));

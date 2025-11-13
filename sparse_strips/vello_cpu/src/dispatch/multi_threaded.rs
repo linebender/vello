@@ -24,8 +24,10 @@ use thread_local::ThreadLocal;
 use vello_common::coarse::{Cmd, MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
+use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
+use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
 
@@ -101,6 +103,8 @@ pub(crate) struct MultiThreadedDispatcher {
     flushed: bool,
     // So that we can reuse memory allocations across different runs.
     allocations: Allocations,
+    /// Render graph (unused in multi-threaded, only needed for API compatibility with Wide).
+    render_graph: RenderGraph,
 }
 
 impl MultiThreadedDispatcher {
@@ -148,6 +152,7 @@ impl MultiThreadedDispatcher {
             level,
             alpha_storage,
             num_threads,
+            render_graph: RenderGraph::new(),
         };
 
         dispatcher.init();
@@ -309,10 +314,19 @@ impl MultiThreadedDispatcher {
                                         [strip_range.start as usize..strip_range.end as usize]
                                 });
 
-                                self.wide
-                                    .push_layer(clip_path, blend_mode, mask, opacity, thread_id);
+                                // layer_id 0 and filter None since filters aren't supported
+                                self.wide.push_layer(
+                                    0,
+                                    clip_path,
+                                    blend_mode,
+                                    mask,
+                                    opacity,
+                                    None,
+                                    &mut self.render_graph,
+                                    thread_id,
+                                );
                             }
-                            CoarseTaskType::PopLayer => self.wide.pop_layer(),
+                            CoarseTaskType::PopLayer => self.wide.pop_layer(&mut self.render_graph),
                         }
                     }
 
@@ -438,7 +452,15 @@ impl Dispatcher for MultiThreadedDispatcher {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
+        // TODO: Implement filter support in multi-threaded dispatcher.
+        // The single-threaded dispatcher has full support via LayerManager and render graph execution,
+        // but multi-threaded needs additional infrastructure for cross-thread layer coordination.
+        if filter.is_some() {
+            unimplemented!("Filter effects are not yet supported in multi-threaded rendering");
+        }
+
         let mapped_clip = clip_path.map(|c| {
             let start = self.allocation_group.path.len() as u32;
             self.allocation_group.path.extend(c);

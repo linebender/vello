@@ -5,38 +5,83 @@ use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
 use crate::kurbo::{Affine, BezPath, Stroke};
+use crate::layer_manager::LayerManager;
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
-use vello_common::coarse::{MODE_CPU, Wide};
+use vello_common::coarse::{Bbox, Cmd, LayerKind, MODE_CPU, Wide};
+use vello_common::color::palette::css::TRANSPARENT;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
+use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
-use vello_common::paint::Paint;
+use vello_common::paint::{Paint, PremulColor};
+use vello_common::pixmap::Pixmap;
+use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
 
+/// Single-threaded implementation of the rendering dispatcher.
+///
+/// This dispatcher handles the entire rendering pipeline on a single thread,
+/// including path rasterization, layer composition, and filter effects.
+/// It maintains the coarse tile grid (`Wide`), strip generation for paths,
+/// and the render graph for managing layer dependencies and filter effects.
 #[derive(Debug)]
 pub(crate) struct SingleThreadedDispatcher {
+    /// Coarse tile grid containing rendering commands for each wide tile.
     wide: Wide,
+    /// Generator for converting paths into coverage strips.
     strip_generator: StripGenerator,
+    /// Storage for alpha coverage data from strip generation.
     strip_storage: StripStorage,
+    /// SIMD level for fearless SIMD dispatch.
     level: Level,
+    /// Counter for generating unique layer IDs.
+    layer_id_next: u32,
+    /// Dependency graph tracking layer relationships and filter effects.
+    render_graph: RenderGraph,
 }
 
 impl SingleThreadedDispatcher {
+    /// Creates a new single-threaded dispatcher for the given dimensions.
+    ///
+    /// # Arguments
+    /// * `width` - Width of the rendering surface in pixels.
+    /// * `height` - Height of the rendering surface in pixels.
+    /// * `level` - SIMD level to use for rasterization.
+    ///
+    /// # Notes
+    /// The root layer (`layer_id` 0) is created immediately and must be node 0
+    /// in the render graph for proper rendering order.
     pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
         let wide = Wide::<MODE_CPU>::new(width, height);
         let strip_generator = StripGenerator::new(width, height, level);
         let strip_storage = StripStorage::default();
+        let mut render_graph = RenderGraph::new();
+
+        // Create root node (layer_id 0) as the first node (will be node 0).
+        // This ensures the root layer is always rendered last in the execution order.
+        let wtile_bbox = Bbox::new([0, 0, wide.width_tiles(), wide.height_tiles()]);
+        let root_node = render_graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox,
+        });
+        assert_eq!(root_node, 0, "Root node must be node 0");
 
         Self {
             wide,
             strip_generator,
             strip_storage,
             level,
+            layer_id_next: 0,
+            render_graph,
         }
     }
 
+    /// Rasterizes the scene using f32 precision (high quality).
+    ///
+    /// This dispatches to the appropriate SIMD implementation based on the
+    /// configured level, using f32 for intermediate calculations.
     fn rasterize_f32(
         &self,
         buffer: &mut [u8],
@@ -47,6 +92,10 @@ impl SingleThreadedDispatcher {
         dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height, encoded_paints));
     }
 
+    /// Rasterizes the scene using u8 precision (fast).
+    ///
+    /// This dispatches to the appropriate SIMD implementation based on the
+    /// configured level, using u8 for intermediate calculations to maximize speed.
     fn rasterize_u8(
         &self,
         buffer: &mut [u8],
@@ -57,7 +106,211 @@ impl SingleThreadedDispatcher {
         dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints));
     }
 
+    /// Core rasterization dispatcher that chooses between simple and filter-aware paths.
+    ///
+    /// # Type Parameters
+    /// * `S` - SIMD implementation to use.
+    /// * `F` - Fine rasterization kernel (determines precision).
+    ///
+    /// If the scene contains filter effects, uses the filter-aware path which maintains
+    /// intermediate layer buffers. Otherwise, uses the simpler direct rasterization path.
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
+        &self,
+        simd: S,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
+        let mut layer_manager = LayerManager::new();
+
+        if self.has_filters() {
+            // Use filter-aware path that maintains layer buffers for filter effects.
+            self.rasterize_with_filters::<S, F>(
+                simd,
+                buffer,
+                width,
+                height,
+                encoded_paints,
+                &mut layer_manager,
+            );
+        } else {
+            // Use simple direct rasterization for scenes without filters.
+            self.rasterize_simple::<S, F>(simd, buffer, width, height, encoded_paints);
+        }
+    }
+
+    /// Rasterizes a scene with filter effects using dependency-ordered execution.
+    ///
+    /// This processes the render graph in topological order, ensuring that filtered
+    /// layers are rendered into intermediate buffers before being composed. Each
+    /// filter layer is rendered to its own pixmap, the filter is applied, and then
+    /// the result is stored in the layer manager for use by dependent layers.
+    ///
+    /// # Render Graph Execution
+    /// - `FilterLayer` nodes: Render to intermediate buffer, apply filter, store result.
+    /// - `RootLayer` node: Final composition to output buffer.
+    fn rasterize_with_filters<S: Simd, F: FineKernel<S>>(
+        &self,
+        simd: S,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint],
+        layer_manager: &mut LayerManager,
+    ) {
+        let mut fine = Fine::<S, F>::new(simd);
+
+        // Process nodes in dependency order (filtered layers before their consumers).
+        for node_id in self.render_graph.execution_order() {
+            let node = &self.render_graph.nodes[node_id];
+
+            match &node.kind {
+                RenderNodeKind::FilterLayer {
+                    layer_id,
+                    filter,
+                    wtile_bbox,
+                } => {
+                    // Allocate intermediate buffer for this filtered layer.
+                    let bbox_width = wtile_bbox.width();
+                    let bbox_height = wtile_bbox.height();
+                    let mut pixmap = Pixmap::new(bbox_width, bbox_height);
+                    let mut regions =
+                        Regions::new(bbox_width, bbox_height, pixmap.data_as_u8_slice_mut());
+
+                    // Render each tile in the layer's bounding box.
+                    regions.update_regions(|region| {
+                        // Convert region-local coords to global wtile coords.
+                        let x = wtile_bbox.x0() + region.x;
+                        let y = wtile_bbox.y0() + region.y;
+
+                        self.process_layer_tile(
+                            &mut fine,
+                            x,
+                            y,
+                            *layer_id,
+                            PremulColor::from_alpha_color(TRANSPARENT),
+                            layer_manager,
+                            encoded_paints,
+                        );
+
+                        assert_eq!(
+                            fine.blend_buf.len(),
+                            1,
+                            "blend buffer should contain exactly one layer after tile processing"
+                        );
+
+                        fine.pack(region);
+                    });
+
+                    // Apply the filter effect to the completed layer.
+                    fine.filter_layer(&mut pixmap, filter, layer_manager);
+
+                    // Store the filtered result for use by dependent layers.
+                    layer_manager.register_layer(*layer_id, *wtile_bbox, pixmap);
+                }
+                RenderNodeKind::RootLayer {
+                    layer_id,
+                    wtile_bbox: _,
+                } => {
+                    // Final composition directly to output buffer.
+                    let mut regions = Regions::new(width, height, buffer);
+                    regions.update_regions(|region| {
+                        // Use the background color from the wide tile.
+                        let bg = self.wide.get(region.x, region.y).bg;
+                        self.process_layer_tile(
+                            &mut fine,
+                            region.x,
+                            region.y,
+                            *layer_id,
+                            bg,
+                            layer_manager,
+                            encoded_paints,
+                        );
+
+                        assert_eq!(
+                            fine.blend_buf.len(),
+                            1,
+                            "blend buffer should contain exactly one layer after tile processing"
+                        );
+
+                        fine.pack(region);
+                    });
+                }
+            }
+        }
+    }
+
+    /// Processes all rendering commands for a single layer within a specific tile.
+    ///
+    /// This handles the complex logic of composing filtered layers by:
+    /// 1. Running normal rendering commands in sequence.
+    /// 2. When encountering a filtered layer reference, compositing its pre-rendered
+    ///    content from the layer manager.
+    /// 3. Skipping the filtered layer's internal commands (already rendered separately).
+    ///
+    /// # Arguments
+    /// * `fine` - The fine rasterizer instance.
+    /// * `x`, `y` - Wide tile coordinates.
+    /// * `layer_id` - The layer being processed.
+    /// * `clear_color` - Initial color for the tile.
+    /// * `layer_manager` - Storage for filtered layer buffers.
+    /// * `encoded_paints` - Paint definitions for the scene.
+    fn process_layer_tile<S: Simd, F: FineKernel<S>>(
+        &self,
+        fine: &mut Fine<S, F>,
+        x: u16,
+        y: u16,
+        layer_id: u32,
+        clear_color: PremulColor,
+        layer_manager: &mut LayerManager,
+        encoded_paints: &[EncodedPaint],
+    ) {
+        let wtile = self.wide.get(x, y);
+        fine.set_coords(x, y);
+        fine.clear(clear_color);
+
+        // Process all commands in this layer's render range.
+        if let Some(ranges) = wtile.layer_cmd_ranges.get(&layer_id) {
+            let mut cmd_idx = ranges.render_range.start;
+            while cmd_idx < ranges.render_range.end {
+                let cmd = &wtile.cmds[cmd_idx];
+                fine.run_cmd(cmd, &self.strip_storage.alphas, encoded_paints);
+
+                // Special handling for filtered layer composition.
+                if let Cmd::PushBuf(LayerKind::Filtered(filtered_layer_id)) = cmd {
+                    // Check if the next command is a clip for this filtered layer.
+                    let next_cmd = &wtile.cmds[cmd_idx + 1];
+                    if let Cmd::PushBuf(LayerKind::Clip(_)) = next_cmd {
+                        fine.run_cmd(next_cmd, &self.strip_storage.alphas, encoded_paints);
+                        cmd_idx += 1;
+                    }
+
+                    // Composite the filtered layer's content from the layer manager.
+                    if let Some(mut region) =
+                        layer_manager.layer_tile_region_mut(*filtered_layer_id, x, y)
+                    {
+                        fine.unpack(&mut region);
+                    }
+
+                    // Skip past the filtered layer's internal commands.
+                    // (they were already rendered when the FilterLayer node was processed).
+                    if let Some(filtered_ranges) = wtile.layer_cmd_ranges.get(filtered_layer_id) {
+                        cmd_idx = filtered_ranges.render_range.end.max(cmd_idx + 1);
+                    }
+                } else {
+                    cmd_idx += 1;
+                }
+            }
+        }
+    }
+
+    /// Simple rasterization path for scenes without filter effects.
+    ///
+    /// This directly processes each tile's commands without maintaining intermediate
+    /// layer buffers. All rendering happens in a single pass directly to the output buffer.
+    /// This is more efficient than the filter-aware path when no filters are present.
+    fn rasterize_simple<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
         buffer: &mut [u8],
@@ -75,6 +328,7 @@ impl SingleThreadedDispatcher {
             let wtile = self.wide.get(x, y);
             fine.set_coords(x, y);
 
+            // Clear to background and process all commands in order.
             fine.clear(wtile.bg);
             for cmd in &wtile.cmds {
                 fine.run_cmd(cmd, &self.strip_storage.alphas, encoded_paints);
@@ -82,6 +336,11 @@ impl SingleThreadedDispatcher {
 
             fine.pack(region);
         });
+    }
+
+    /// Returns true if the scene contains any filter effects.
+    fn has_filters(&self) -> bool {
+        self.render_graph.has_filters()
     }
 }
 
@@ -101,6 +360,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         let wide = &mut self.wide;
 
+        // Convert path to coverage strips.
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
@@ -109,6 +369,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             &mut self.strip_storage,
         );
 
+        // Generate coarse-level commands from strips (layer_id 0 = root layer).
         wide.generate(&self.strip_storage.strips, paint, blend_mode, 0);
     }
 
@@ -123,6 +384,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         let wide = &mut self.wide;
 
+        // Convert stroked path to coverage strips.
         self.strip_generator.generate_stroked_path(
             path,
             stroke,
@@ -131,6 +393,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             &mut self.strip_storage,
         );
 
+        // Generate coarse-level commands from strips (layer_id 0 = root layer).
         wide.generate(&self.strip_storage.strips, paint, blend_mode, 0);
     }
 
@@ -143,7 +406,12 @@ impl Dispatcher for SingleThreadedDispatcher {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
+        // Allocate a new unique layer ID.
+        self.layer_id_next += 1;
+
+        // Generate clip coverage if a clip path is provided.
         let clip = if let Some(c) = clip_path {
             self.strip_generator.generate_filled_path(
                 c,
@@ -158,20 +426,45 @@ impl Dispatcher for SingleThreadedDispatcher {
             None
         };
 
-        self.wide.push_layer(clip, blend_mode, mask, opacity, 0);
+        // Push the layer onto the coarse tile stack and update render graph.
+        self.wide.push_layer(
+            self.layer_id_next,
+            clip,
+            blend_mode,
+            mask,
+            opacity,
+            filter,
+            &mut self.render_graph,
+            0,
+        );
     }
 
     fn pop_layer(&mut self) {
-        self.wide.pop_layer();
+        // Pop the current layer and update render graph.
+        self.wide.pop_layer(&mut self.render_graph);
     }
 
     fn reset(&mut self) {
+        // Clear all rendering state to prepare for a new scene.
         self.wide.reset();
         self.strip_generator.reset();
         self.strip_storage.clear();
+        self.render_graph = RenderGraph::new();
+
+        // Recreate root node as node 0 (required for proper execution order).
+        let root_node = self.render_graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: Bbox::new([0, 0, self.wide.width_tiles(), self.wide.height_tiles()]),
+        });
+        assert_eq!(root_node, 0, "Root node must be node 0");
+
+        // Reset layer ID counter.
+        self.layer_id_next = 0;
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self) {
+        // No-op for single-threaded dispatcher (no work queue to flush).
+    }
 
     fn rasterize(
         &self,
@@ -181,15 +474,21 @@ impl Dispatcher for SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
+        // Select precision based on render mode.
         match render_mode {
-            RenderMode::OptimizeSpeed => self.rasterize_u8(buffer, width, height, encoded_paints),
+            RenderMode::OptimizeSpeed => {
+                // Use u8 precision for faster rendering.
+                self.rasterize_u8(buffer, width, height, encoded_paints);
+            }
             RenderMode::OptimizeQuality => {
+                // Use f32 precision for higher quality.
                 self.rasterize_f32(buffer, width, height, encoded_paints);
             }
         }
     }
 
     fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint, blend_mode: BlendMode) {
+        // Generate coarse-level commands from pre-computed strips (layer_id 0 = root layer).
         self.wide.generate(strip_buf, paint, blend_mode, 0);
     }
 
@@ -206,10 +505,15 @@ mod tests {
     use vello_common::kurbo::Shape;
     use vello_common::paint::PremulColor;
 
+    /// Verifies that `reset()` properly clears all internal buffers and state.
+    ///
+    /// This is important to ensure that a dispatcher can be reused for multiple
+    /// rendering passes without accumulating stale data from previous frames.
     #[test]
     fn buffers_cleared_on_reset() {
         let mut dispatcher = SingleThreadedDispatcher::new(100, 100, Level::new());
 
+        // Render a simple shape to populate internal buffers.
         dispatcher.fill_path(
             &Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1),
             Fill::NonZero,
@@ -225,8 +529,9 @@ mod tests {
 
         dispatcher.reset();
 
-        // Verify buffers are cleared.
+        // Verify all buffers are cleared.
         assert!(dispatcher.strip_storage.alphas.is_empty());
         assert!(dispatcher.wide.get(0, 0).cmds.is_empty());
+        assert_eq!(dispatcher.layer_id_next, 0);
     }
 }

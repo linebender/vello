@@ -355,6 +355,7 @@ fn clip_clear(ctx: &mut impl Renderer) {
         Some(Compose::Clear.into()),
         None,
         None,
+        None,
     );
     ctx.pop_layer();
 }
@@ -425,7 +426,7 @@ fn tile_clamped_off_by_one(ctx: &mut impl Renderer) {
     let rect = Rect::new(0.0, 0.0, 556.0, 8.0);
 
     ctx.set_paint(BLACK);
-    ctx.push_layer(Some(&rect.to_path(0.1)), None, None, None);
+    ctx.push_layer(Some(&rect.to_path(0.1)), None, None, None, None);
     ctx.fill_path(&rect.to_path(0.1));
     ctx.pop_layer();
 }

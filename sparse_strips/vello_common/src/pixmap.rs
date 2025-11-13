@@ -13,7 +13,7 @@ use crate::peniko::color::PremulRgba8;
 extern crate std;
 
 /// A pixmap of premultiplied RGBA8 values backed by [`u8`][core::u8].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Pixmap {
     /// Width of the pixmap in pixels.  
     width: u16,
@@ -248,6 +248,27 @@ impl Pixmap {
     #[inline(always)]
     pub fn sample_idx(&self, idx: u32) -> PremulRgba8 {
         self.buf[idx as usize]
+    }
+
+    /// Set a pixel in the pixmap at the given coordinates.
+    ///
+    /// The pixel data should be [premultiplied RGBA8][PremulRgba8]. The coordinate system has
+    /// its origin at the top-left corner, with `x` increasing to the right and `y` increasing
+    /// downward.
+    #[inline(always)]
+    pub fn set_pixel(&mut self, x: u16, y: u16, pixel: PremulRgba8) {
+        let idx = self.width as usize * y as usize + x as usize;
+        self.buf[idx] = pixel;
+    }
+
+    /// Set a pixel at a pre-calculated index.
+    ///
+    /// The index should be calculated as `y * width + x`, assuming row-major order (pixels are
+    /// stored left-to-right, top-to-bottom). This method is useful when you need to set many
+    /// pixels and want to avoid redundant index calculations for better performance.
+    #[inline(always)]
+    pub fn set_pixel_idx(&mut self, idx: u32, pixel: PremulRgba8) {
+        self.buf[idx as usize] = pixel;
     }
 
     /// Consume the pixmap, returning the data as the underlying [`Vec`] of premultiplied RGBA8.

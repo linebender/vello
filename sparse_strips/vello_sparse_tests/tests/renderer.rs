@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
+use vello_common::filter_effects::Filter;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
@@ -38,12 +39,14 @@ pub(crate) trait Renderer: Sized {
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     );
     fn flush(&mut self);
     fn push_clip_layer(&mut self, path: &BezPath);
     fn push_blend_layer(&mut self, blend_mode: BlendMode);
     fn push_opacity_layer(&mut self, opacity: f32);
     fn push_mask_layer(&mut self, mask: Mask);
+    fn push_filter_layer(&mut self, filter: Filter);
     fn pop_layer(&mut self);
     fn set_stroke(&mut self, stroke: Stroke);
     fn set_paint(&mut self, paint: impl Into<PaintType>);
@@ -52,6 +55,8 @@ pub(crate) trait Renderer: Sized {
     fn set_transform(&mut self, transform: Affine);
     fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>);
     fn set_blend_mode(&mut self, blend_mode: BlendMode);
+    fn set_filter_effect(&mut self, filter: Filter);
+    fn reset_filter_effect(&mut self);
     fn render_to_pixmap(&self, pixmap: &mut Pixmap);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
@@ -110,8 +115,9 @@ impl Renderer for RenderContext {
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
-        Self::push_layer(self, clip_path, blend_mode, opacity, mask);
+        Self::push_layer(self, clip_path, blend_mode, opacity, mask, filter);
     }
 
     fn flush(&mut self) {
@@ -132,6 +138,10 @@ impl Renderer for RenderContext {
 
     fn push_mask_layer(&mut self, mask: Mask) {
         Self::push_mask_layer(self, mask);
+    }
+
+    fn push_filter_layer(&mut self, filter: Filter) {
+        Self::push_filter_layer(self, filter);
     }
 
     fn pop_layer(&mut self) {
@@ -164,6 +174,14 @@ impl Renderer for RenderContext {
 
     fn set_blend_mode(&mut self, blend_mode: BlendMode) {
         Self::set_blend_mode(self, blend_mode);
+    }
+
+    fn set_filter_effect(&mut self, filter: Filter) {
+        Self::set_filter_effect(self, filter);
+    }
+
+    fn reset_filter_effect(&mut self) {
+        Self::reset_filter_effect(self);
     }
 
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
@@ -302,8 +320,10 @@ impl Renderer for HybridRenderer {
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
-        self.scene.push_layer(clip, blend_mode, opacity, mask);
+        self.scene
+            .push_layer(clip, blend_mode, opacity, mask, filter);
     }
 
     fn flush(&mut self) {}
@@ -313,15 +333,20 @@ impl Renderer for HybridRenderer {
     }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        self.scene.push_layer(None, Some(blend_mode), None, None);
+        self.scene
+            .push_layer(None, Some(blend_mode), None, None, None);
     }
 
     fn push_opacity_layer(&mut self, opacity: f32) {
-        self.scene.push_layer(None, None, Some(opacity), None);
+        self.scene.push_layer(None, None, Some(opacity), None, None);
     }
 
     fn push_mask_layer(&mut self, _: Mask) {
         unimplemented!()
+    }
+
+    fn push_filter_layer(&mut self, filter: Filter) {
+        self.scene.push_filter_layer(filter);
     }
 
     fn pop_layer(&mut self) {
@@ -359,6 +384,14 @@ impl Renderer for HybridRenderer {
 
     fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
         self.scene.set_aliasing_threshold(aliasing_threshold);
+    }
+
+    fn set_filter_effect(&mut self, filter: Filter) {
+        self.scene.set_filter_effect(filter);
+    }
+
+    fn reset_filter_effect(&mut self) {
+        self.scene.reset_filter_effect();
     }
 
     // This method creates device resources every time it is called. This does not matter much for
@@ -596,8 +629,10 @@ impl Renderer for HybridRenderer {
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
-        self.scene.push_layer(clip, blend_mode, opacity, mask);
+        self.scene
+            .push_layer(clip, blend_mode, opacity, mask, filter);
     }
 
     fn flush(&mut self) {}
@@ -607,15 +642,19 @@ impl Renderer for HybridRenderer {
     }
 
     fn push_blend_layer(&mut self, mode: BlendMode) {
-        self.scene.push_layer(None, Some(mode), None, None);
+        self.scene.push_layer(None, Some(mode), None, None, None);
     }
 
     fn push_opacity_layer(&mut self, opacity: f32) {
-        self.scene.push_layer(None, None, Some(opacity), None);
+        self.scene.push_layer(None, None, Some(opacity), None, None);
     }
 
     fn push_mask_layer(&mut self, _: Mask) {
         unimplemented!()
+    }
+
+    fn push_filter_layer(&mut self, filter: Filter) {
+        self.scene.push_filter_layer(filter);
     }
 
     fn pop_layer(&mut self) {
@@ -649,6 +688,14 @@ impl Renderer for HybridRenderer {
 
     fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
         self.scene.set_aliasing_threshold(aliasing_threshold);
+    }
+
+    fn set_filter_effect(&mut self, filter: Filter) {
+        self.scene.set_filter_effect(filter);
+    }
+
+    fn reset_filter_effect(&mut self) {
+        self.scene.reset_filter_effect();
     }
 
     // vello_hybrid WebGL renderer backend.
