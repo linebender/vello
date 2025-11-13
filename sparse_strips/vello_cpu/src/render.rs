@@ -141,7 +141,7 @@ impl RenderContext {
             dispatcher,
             transform,
             aliasing_threshold,
-            blend_mode: BlendMode::new(Mix::Normal, Compose::SrcOver),
+            blend_mode: BlendMode::default(),
             paint,
             render_settings: settings,
             paint_transform,
@@ -303,7 +303,7 @@ impl RenderContext {
             }
         });
 
-        let blend_mode = blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver));
+        let blend_mode = blend_mode.unwrap_or(BlendMode::default());
         let opacity = opacity.unwrap_or(1.0);
 
         self.dispatcher.push_layer(
@@ -443,7 +443,7 @@ impl RenderContext {
         self.reset_paint_transform();
         #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();
-        self.blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
+        self.blend_mode = BlendMode::default();
     }
 
     /// Flush any pending operations.
