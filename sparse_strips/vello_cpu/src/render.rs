@@ -24,7 +24,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::ImageSource;
 use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
+use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
 use vello_common::strip::Strip;
@@ -303,7 +303,7 @@ impl RenderContext {
             }
         });
 
-        let blend_mode = blend_mode.unwrap_or(BlendMode::default());
+        let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
 
         self.dispatcher.push_layer(
