@@ -3,45 +3,71 @@
 
 //! Considerations for Vello API; use cases, required features, etc.
 //!
-//! In scope:
+//! # Scope
 //!
 //! - Fill/Stroke paths.
+//! - Transforms applied to fills/strokes and their contents.
 //! - Draw images/gradients; images must be pre-uploaded, maybe gradients too.
+//!   - What does it mean to pre-upload gradients?
+//!   - Error handling for missing/dead image resources.
 //! - Filter effects, a core required set and support for externally registered effects.
 //!   Externally registered effects *should* be able to:
-//!     - Have a `static` identifier (this allows a third-party filter effect library)
-//!     - Support detecting whether or not they're available, somehow.
-//!     - Have runtime configuration options, ideally type-checked.
-//!     - All of this suggests that using [`TypeId`](core::any::TypeId)s and a trait for validation is the way.
-//! - Blurred rounded rectangles (we should maybe test it against the actual blurring)
+//!   - Have a `static` identifier (this allows a third-party filter effect library)
+//!   - Support detecting whether or not they're available, somehow.
+//!   - Have runtime configuration options, ideally type-checked.
+//!   - All of this suggests that using [`TypeId`](core::any::TypeId)s and a trait for validation is the way.
+//! - Blurred rounded rectangles (we should maybe test it against the actual blurring?)
 //! - Image atlasing, i.e. drawing from a subregion of a registered image.
 //!   - Needed for atlas based glyph rendering
 //! - Split the renderer and the "scene".
 //! - Layers. These need:
-//!   - A "clip path" (this being optional, i.e. falling back to the viewport is useful)
+//!   - A "clip path" (this being optional, i.e. falling back to the viewport, is useful)
 //!   - A blend mode.
 //!   - An opacity.
 //!   - Being non-isolated.
 //!   - Filters
 //! - Downcasting, for renderer-specific options (e.g. [`set_aliasing_threshold`]).
 //! - Cached intermediates for subpaths (i.e. for glyph caching if outlines are drawn "inline").
-//!   - Support for applying a transform to this cache, including recalculation if needed.
-//! - Transforms.
+//!   - Support for applying a translation to this cache, including recalculation if needed.
+//!   - Need for care when:
+//!     - Translating, so that things work out with wide tiles.
+//!     - Scaling, so that the right caches are kept
+//!     - Subpixel translations (e.g. for unhinted glyphs, probably want 4 horizontal and zero vertical subpixels for each glyph)
+//!     - Translating previously off-screen items to be on-screen.
+//!   - Is it sound to support changing the paint?
+//! - Some sort of reset mechanism?
+//! - Clip optimisation (which is equivalent to non-isolated `Normal` blending)
 //!
 //! Medium Scope:
 //!
-//! - "Upload" CPU images "immediately", or at least from a value.
-//!   - This importantly means that we also need to support cleanup.
+//! - "Upload" CPU images "immediately", i.e. I have a CPU texture, and want to display it on-screen.
+//!   - This needs to support cleanup.
+//!   - Is there any sense in which it makes sense to support uploading images asynchronously?
+//!     - Answer: Yes, if we ever get a "remote" backend.
+//!       This would be atomically async, i.e. the "content generator" would be uploading a complete image, but with lower priority.
+//!       GPUs are already effectively a remote backend, but we can't make any specific task "lower priority".
+//!       Imagined use cases:
+//!         - Farming off massive render to server? Seems more likely that you'd also prepare the scene on that server.
+//!         - Local machine not powerful enough to do even simple render - would it be powerful enough to play a livestream?
+//!         - Remote machine generating commands to be rendered by a thin client; e.g. a remote (sandboxed?) browser.
+//!     - Answer: Progressive enhancement also demands this, i.e. for slowly downloading images.
+//!       That's a different kind of async, though, not atomically async.
 //! - There are arguments for supporting "global"/`static` image ids, like filters.
 //! - Mipmaps, both explicit and automatic.
 //! - Output image from one render "pass" and use it in another.
 //!   This should work "immediately".
 //!   Again, this needs support for cleanup.
-//! - Download image back to the CPU. This must be "async".
+//! - Download render results back to the CPU. This must be "async".
 //!   - We should think about how this interacts with tests.
 //! - Masks: How do they work?
 //!   - Do we want to support rendering *something* in 1 channel?
 //!   - What about RGB-only?
+//! - Portability between renderers, especially of (image) resources.
+//! - Interaction with multi-threading.
+//!   - Should be possible to make scenes on multiple threads
+//!   - Anything which is ambiguous should require an explicit happens-before ordering
+//!     (e.g. thread 1: render to A; thread 2: render to A; thread 3: use A in render)
+//!   - Dispatch of all "fine" rasterisation maybe happens on one thread (e.g. so we can have a single wgpu `submit` call)?
 //!
 //! As yet undetermined:
 //!
@@ -52,6 +78,7 @@
 //! - Rendering "over" a previous image.
 //!   Support for such invalidation might be valuable for external textures.
 //! - Per-path blendmodes.
+//! - Interaction with compositor layers; this could *feasibly* be explicitly out-of-scope.
 //!
 //! Out of scope:
 //!
@@ -61,6 +88,19 @@
 //! - Registering custom filter effects.
 //! - Drive a GPU surface (i.e. output to a buffer).
 //!   Note that we *do* need to not *block* this.
+//!
+//! # Image Resources
+//!
+//! The classes of image resources are:
+//!
+//! - Render outputs.
+//! - Input (CPU) images.
+//! - External textures.
+//!
+//! Do we want to allow rendering output to a subset of an input image?
+//! Servo wants to be able to render more content to a render output, which ideally we'd support in a memory-efficient way.
+//! Is that backend specific? The question becomes how is multithreading handled.
+//! Explicit usages for the textures?
 //!
 //! [`set_aliasing_threshold`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.set_aliasing_threshold
 
