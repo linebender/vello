@@ -7,3 +7,5 @@
 
 #![forbid(unsafe_code)]
 #![no_std]
+
+mod design;
