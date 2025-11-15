@@ -18,14 +18,14 @@
 //!   - All of this suggests that using [`TypeId`](core::any::TypeId)s and a trait for validation is the way.
 //! - Blurred rounded rectangles (we should maybe test it against the actual blurring?)
 //! - Image atlasing, i.e. drawing from a subregion of a registered image.
-//!   - Needed for atlas based glyph rendering
+//!   - "Needed" for atlas based glyph rendering.
 //! - Split the renderer and the "scene".
 //! - Layers. These need:
-//!   - A "clip path" (this being optional, i.e. falling back to the viewport, is useful)
+//!   - A "clip path" (this being optional, i.e. falling back to the viewport, is useful).
 //!   - A blend mode.
 //!   - An opacity.
 //!   - Being non-isolated.
-//!   - Filters
+//!   - Filters.
 //! - Downcasting, for renderer-specific options (e.g. [`set_aliasing_threshold`]).
 //! - Cached intermediates for subpaths (i.e. for glyph caching if outlines are drawn "inline").
 //!   - Support for applying a translation to this cache, including recalculation if needed.
@@ -37,6 +37,7 @@
 //!   - Is it sound to support changing the paint?
 //! - Some sort of reset mechanism?
 //! - Clip optimisation (which is equivalent to non-isolated `Normal` blending)
+//! - No per-operation allocations.
 //!
 //! Medium Scope:
 //!
@@ -68,6 +69,8 @@
 //!   - Anything which is ambiguous should require an explicit happens-before ordering
 //!     (e.g. thread 1: render to A; thread 2: render to A; thread 3: use A in render)
 //!   - Dispatch of all "fine" rasterisation maybe happens on one thread (e.g. so we can have a single wgpu `submit` call)?
+//!   - Reasoning: Multi-threaded dispatch/splitout must be explicit.
+//! - Minimal per-frame allocations
 //!
 //! As yet undetermined:
 //!
@@ -79,6 +82,7 @@
 //!   Support for such invalidation might be valuable for external textures.
 //! - Per-path blendmodes.
 //! - Interaction with compositor layers; this could *feasibly* be explicitly out-of-scope.
+//! - No per-operation dynamic dispatch.
 //!
 //! Out of scope:
 //!
