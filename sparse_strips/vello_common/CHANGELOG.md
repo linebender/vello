@@ -15,9 +15,22 @@ You can find its changes [documented below](#004---2025-10-17).
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+- A new module `clip` has been added allowing for the possibility
+  to intersect two strips to create a new strip representing their
+  intersection ([#1203][] by [@LaurenzV])
+- An `extend` method has been added to `StripStorage` to extends
+  its alphas/strips from another `StripStorage` ([#1203][] by [@LaurenzV])
+
 ### Changed
 - `WideTile::generate` now takes an additional `BlendMode` as a parameter ([#1159][] by [@LaurenzV])
 - `CmdFill` and `CmdAlphaFill` now store a `BlendMode` instead of `Option<BlendMode>` ([#1159][] by [@LaurenzV])
+- `Strip` now implements `PartialEq` and `Eq` ([#1203][] by [@LaurenzV])
+- `Strip` now has a `is_sentinel` method ([#1203][] by [@LaurenzV])
+- `StripStorage` now implements `PartialEq` and `Eq` ([#1203][] by [@LaurenzV])
+- The `generate_filled_path` method of `StripGenerator` now takes
+  an optional clip path as input ([#1203][] by [@LaurenzV])
+- A new trait for approximate integer division by 255 has been added ([#1203][] by [@LaurenzV])
 
 ## [0.0.4][] - 2025-10-17
 
@@ -54,6 +67,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@LaurenzV]: https://github.com/LaurenzV
 
 [#1159]: https://github.com/linebender/vello/pull/1159
+[#1203]: https://github.com/linebender/vello/pull/1203
 
 [Unreleased]: https://github.com/linebender/fearless_simd/compare/sparse-strips-v0.0.4...HEAD
 [0.0.4]: https://github.com/linebender/vello/compare/sparse-stips-v0.0.3...sparse-strips-v0.0.4
