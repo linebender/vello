@@ -3,8 +3,9 @@
 
 use crate::fine::Splat4thExt;
 use crate::peniko::{BlendMode, Compose};
-use crate::util::{Div255Ext, NormalizedMulExt};
+use crate::util::NormalizedMulExt;
 use vello_common::fearless_simd::*;
+use vello_common::util::Div255Ext;
 
 pub(crate) trait ComposeExt {
     fn compose<S: Simd>(

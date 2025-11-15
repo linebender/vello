@@ -10,7 +10,7 @@ use crate::tile::Tile;
 use crate::util::normalized_mul_u8x16;
 use alloc::vec;
 use alloc::vec::Vec;
-use fearless_simd::{Level, Simd, SimdBase, simd_dispatch, u8x16};
+use fearless_simd::{Level, Simd, SimdBase, dispatch, u8x16};
 use peniko::Fill;
 
 #[derive(Debug)]
@@ -142,15 +142,8 @@ pub fn intersect(
     path_2: PathDataRef<'_>,
     target: &mut StripStorage,
 ) {
-    intersect_dispatch(level, path_1, path_2, target);
+    dispatch!(level, simd => intersect_impl(simd, path_1, path_2, target));
 }
-
-simd_dispatch!(fn intersect_dispatch(
-    level,
-    path_1: PathDataRef<'_>,
-    path_2: PathDataRef<'_>,
-    target: &mut StripStorage,
-) = intersect_impl);
 
 /// The implementation of the clipping algorithm using sparse strips. Conceptually, it is relatively
 /// simple: We iterate over each strip and fill region of the two paths in lock step and determine
