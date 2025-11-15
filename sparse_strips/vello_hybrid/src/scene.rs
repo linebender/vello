@@ -47,7 +47,7 @@ pub struct RenderSettings {
 impl Default for RenderSettings {
     fn default() -> Self {
         Self {
-            level: Level::try_detect().unwrap_or(Level::fallback()),
+            level: Level::try_detect().unwrap_or(Level::baseline()),
             atlas_config: AtlasConfig::default(),
         }
     }
