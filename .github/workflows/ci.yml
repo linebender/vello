@@ -62,6 +62,7 @@ name: CI
 on:
   pull_request:
   merge_group:
+  workflow_dispatch:
   # We run on push, even though the commit is the same as when we ran in merge_group.
   # This allows the cache to be primed.
   # See https://github.com/orgs/community/discussions/66430
