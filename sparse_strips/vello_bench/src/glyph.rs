@@ -132,6 +132,7 @@ impl GlyphRenderer for GlyphBenchRenderer {
                     glyph.transform,
                     Some(128),
                     &mut self.strip_storage,
+                    None,
                 );
             }
             GlyphType::Bitmap(_) => {}
