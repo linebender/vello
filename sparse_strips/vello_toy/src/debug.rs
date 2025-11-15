@@ -93,6 +93,7 @@ fn main() {
             BLACK.into(),
             BlendMode::new(Mix::Normal, Compose::SrcOver),
             0,
+            None,
         );
     }
 

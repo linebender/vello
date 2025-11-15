@@ -68,6 +68,7 @@ impl Worker {
                     fill_rule,
                     blend_mode,
                     aliasing_threshold,
+                    mask,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
                     let path = &render_task.allocation_group.path
@@ -88,6 +89,7 @@ impl Worker {
                         strips: start..end,
                         blend_mode,
                         paint,
+                        mask,
                     };
 
                     render_task
@@ -102,6 +104,7 @@ impl Worker {
                     blend_mode,
                     stroke,
                     aliasing_threshold,
+                    mask,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
                     let path = &render_task.allocation_group.path
@@ -122,6 +125,7 @@ impl Worker {
                         strips: start..end,
                         blend_mode,
                         paint,
+                        mask,
                     };
 
                     render_task
@@ -188,6 +192,7 @@ impl Worker {
                         strips: strip_buf,
                         paint,
                         blend_mode,
+                        mask: None,
                     };
 
                     render_task

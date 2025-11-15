@@ -10,10 +10,13 @@ use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
 use crate::fine::{FineKernel, highp, u8_to_f32};
 use crate::peniko::BlendMode;
 use crate::region::Region;
+use crate::util::scalar::div_255;
 use bytemuck::cast_slice;
+use core::iter;
 use vello_common::coarse::WideTile;
 use vello_common::encode::{EncodedGradient, EncodedImage};
 use vello_common::fearless_simd::*;
+use vello_common::mask::Mask;
 use vello_common::paint::PremulColor;
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
@@ -121,7 +124,14 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         alphas: Option<&[u8]>,
     ) {
         if let Some(alphas) = alphas {
-            alpha_fill::alpha_composite_solid(simd, dest, src, alphas);
+            alpha_fill::alpha_composite_solid(
+                simd,
+                dest,
+                src,
+                alphas
+                    .chunks_exact(8)
+                    .map(|d| [d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]]),
+            );
         } else {
             fill::alpha_composite_solid(simd, dest, src);
         }
@@ -136,7 +146,14 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         let src_iter = src.chunks_exact(32).map(|el| u8x32::from_slice(simd, el));
 
         if let Some(alphas) = alphas {
-            alpha_fill::alpha_composite(simd, dest, src_iter, alphas);
+            alpha_fill::alpha_composite(
+                simd,
+                dest,
+                src_iter,
+                alphas
+                    .chunks_exact(8)
+                    .map(|d| [d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]]),
+            );
         } else {
             fill::alpha_composite(simd, dest, src_iter);
         }
@@ -145,14 +162,67 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     fn blend(
         simd: S,
         dest: &mut [Self::Numeric],
+        mut start_x: u16,
+        start_y: u16,
         src: impl Iterator<Item = Self::Composite>,
         blend_mode: BlendMode,
         alphas: Option<&[u8]>,
+        mask: Option<&Mask>,
     ) {
-        if let Some(alphas) = alphas {
-            alpha_fill::blend(simd, dest, src, blend_mode, alphas);
-        } else {
-            fill::blend(simd, dest, src, blend_mode);
+        let alpha_iter = alphas.map(|a| {
+            a.chunks_exact(8)
+                .map(|d| [d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]])
+        });
+
+        let mask_iter = mask.map(|m| {
+            iter::from_fn(|| {
+                let sample = |x: u16, y: u16| {
+                    if x < m.width() && y < m.height() {
+                        m.sample(x, y)
+                    } else {
+                        255
+                    }
+                };
+
+                let samples = [
+                    sample(start_x, start_y),
+                    sample(start_x, start_y + 1),
+                    sample(start_x, start_y + 2),
+                    sample(start_x, start_y + 3),
+                    sample(start_x + 1, start_y),
+                    sample(start_x + 1, start_y + 1),
+                    sample(start_x + 1, start_y + 2),
+                    sample(start_x + 1, start_y + 3),
+                ];
+
+                start_x += 2;
+
+                Some(samples)
+            })
+        });
+
+        match (alpha_iter, mask_iter) {
+            (Some(alpha_iter), Some(mut mask_iter)) => {
+                let iter = alpha_iter.map(|a1| {
+                    let a2 = mask_iter.next().unwrap();
+                    [
+                        div_255(a1[0] as u16 * a2[0] as u16) as u8,
+                        div_255(a1[1] as u16 * a2[1] as u16) as u8,
+                        div_255(a1[2] as u16 * a2[2] as u16) as u8,
+                        div_255(a1[3] as u16 * a2[3] as u16) as u8,
+                        div_255(a1[4] as u16 * a2[4] as u16) as u8,
+                        div_255(a1[5] as u16 * a2[5] as u16) as u8,
+                        div_255(a1[6] as u16 * a2[6] as u16) as u8,
+                        div_255(a1[7] as u16 * a2[7] as u16) as u8,
+                    ]
+                });
+                alpha_fill::blend(simd, dest, src, blend_mode, iter);
+            }
+            (None, Some(mask_iter)) => alpha_fill::blend(simd, dest, src, blend_mode, mask_iter),
+            (Some(alpha_iter), None) => alpha_fill::blend(simd, dest, src, blend_mode, alpha_iter),
+            (None, None) => {
+                fill::blend(simd, dest, src, blend_mode);
+            }
         }
     }
 }
@@ -253,7 +323,7 @@ mod alpha_fill {
         dest: &mut [u8],
         src: T,
         blend_mode: BlendMode,
-        alphas: &[u8],
+        alphas: impl Iterator<Item = [u8; 8]>,
     ) {
         simd.vectorize(
             #[inline(always)]
@@ -261,10 +331,8 @@ mod alpha_fill {
                 #[expect(deprecated, reason = "Provided by the user, need to handle correctly.")]
                 let default_mix = matches!(blend_mode.mix, Mix::Normal | Mix::Clip);
 
-                for ((next_bg, next_mask), next_src) in dest
-                    .chunks_exact_mut(32)
-                    .zip(alphas.chunks_exact(8))
-                    .zip(src)
+                for ((next_bg, next_mask), next_src) in
+                    dest.chunks_exact_mut(32).zip(alphas).zip(src)
                 {
                     let bg_v = u8x32::from_slice(simd, next_bg);
                     let src_c = if default_mix {
@@ -272,7 +340,7 @@ mod alpha_fill {
                     } else {
                         mix(next_src, bg_v, blend_mode)
                     };
-                    let masks = extract_masks(simd, next_mask);
+                    let masks = extract_masks(simd, &next_mask);
                     let res = blend_mode.compose(simd, src_c, bg_v, Some(masks));
 
                     next_bg.copy_from_slice(&res.val);
@@ -286,7 +354,7 @@ mod alpha_fill {
         s: S,
         dest: &mut [u8],
         src: [u8; 4],
-        alphas: &[u8],
+        alphas: impl Iterator<Item = [u8; 8]>,
     ) {
         s.vectorize(
             #[inline(always)]
@@ -295,8 +363,8 @@ mod alpha_fill {
                 let src_c = u32x8::splat(s, u32::from_ne_bytes(src)).reinterpret_u8();
                 let one = u8x32::splat(s, 255);
 
-                for (next_bg, next_mask) in dest.chunks_exact_mut(32).zip(alphas.chunks_exact(8)) {
-                    alpha_composite_inner(s, next_bg, next_mask, src_c, src_a, one);
+                for (next_bg, next_mask) in dest.chunks_exact_mut(32).zip(alphas) {
+                    alpha_composite_inner(s, next_bg, &next_mask, src_c, src_a, one);
                 }
             },
         );
@@ -307,20 +375,18 @@ mod alpha_fill {
         simd: S,
         dest: &mut [u8],
         src: T,
-        alphas: &[u8],
+        alphas: impl Iterator<Item = [u8; 8]>,
     ) {
         simd.vectorize(
             #[inline(always)]
             || {
                 let one = u8x32::splat(simd, 255);
 
-                for ((next_dest, next_mask), next_src) in dest
-                    .chunks_exact_mut(32)
-                    .zip(alphas.chunks_exact(8))
-                    .zip(src)
+                for ((next_dest, next_mask), next_src) in
+                    dest.chunks_exact_mut(32).zip(alphas).zip(src)
                 {
                     let src_a = next_src.splat_4th();
-                    alpha_composite_inner(simd, next_dest, next_mask, next_src, src_a, one);
+                    alpha_composite_inner(simd, next_dest, &next_mask, next_src, src_a, one);
                 }
             },
         );
@@ -330,7 +396,7 @@ mod alpha_fill {
     fn alpha_composite_inner<S: Simd>(
         s: S,
         dest: &mut [u8],
-        masks: &[u8],
+        masks: &[u8; 8],
         src_c: u8x32<S>,
         src_a: u8x32<S>,
         one: u8x32<S>,
@@ -383,7 +449,7 @@ fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32
 }
 
 #[inline(always)]
-fn extract_masks<S: Simd>(simd: S, masks: &[u8]) -> u8x32<S> {
+fn extract_masks<S: Simd>(simd: S, masks: &[u8; 8]) -> u8x32<S> {
     let m1 =
         u32x4::splat(simd, u32::from_ne_bytes(masks[0..4].try_into().unwrap())).reinterpret_u8();
     let m2 =
