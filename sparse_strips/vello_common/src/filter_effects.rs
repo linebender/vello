@@ -273,9 +273,17 @@ pub enum FilterFunction {
     ///
     /// Applies a Gaussian blur to the input image. Larger radius values
     /// produce more blur. The blur is applied equally in all directions.
+    ///
+    /// Note: Per the W3C Filter Effects specification, this `radius` parameter
+    /// represents the standard deviation (σ) of the Gaussian function, not the
+    /// effective blur range. The effective blur range is approximately 3× this value.
     Blur {
-        /// Blur radius in pixels. Must be non-negative.
+        /// Standard deviation of the Gaussian blur in pixels. Must be non-negative.
         /// A value of 0 means no blur.
+        ///
+        /// Despite being called "radius" (to match CSS filter syntax), this is
+        /// actually the standard deviation. The visible blur effect extends
+        /// approximately 3 times this value in each direction.
         radius: f32,
     },
     // ============================================================
@@ -399,11 +407,21 @@ pub enum FilterPrimitive {
     },
     /// Gaussian blur filter.
     ///
-    /// Applies a Gaussian blur using the specified standard deviation.
-    /// The blur radius is approximately 3 × `std_deviation`.
+    /// Applies a Gaussian blur using the specified standard deviation (σ).
+    /// The effective blur range (distance over which pixels are sampled) is
+    /// approximately 3 × `std_deviation`, as this captures ~99.7% of the
+    /// Gaussian distribution.
     GaussianBlur {
         /// Standard deviation for the blur kernel. Larger values create more blur.
         /// Must be non-negative. A value of 0 means no blur.
+        ///
+        /// This directly corresponds to the σ (sigma) parameter in the Gaussian
+        /// function. The visible blur effect extends approximately 3σ in each direction.
+        ///
+        /// TODO: Per the W3C specification, this should support separate x and y values.
+        /// The spec allows `stdDeviation` to be either one number (applied to both axes)
+        /// or two numbers (first for x-axis, second for y-axis). Currently only uniform
+        /// blur is supported. Consider changing to `(f32, f32)` or a dedicated type.
         std_deviation: f32,
         /// Edge mode determining how pixels beyond the input bounds are handled.
         edge_mode: EdgeMode,

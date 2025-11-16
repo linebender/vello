@@ -11,6 +11,12 @@
 //! using variance analysis. Each 2× decimation applies a \[1,3,3,1\]/8 binomial filter
 //! (adding variance = 3.0), then downsamples, reducing the remaining blur work needed.
 //! This exploits the variance additivity property: `σ²_total = σ²_downsample + σ²_blur`.
+//!
+//! **Variance Addition Reference**: The convolution of two Gaussians with variances σ₁²
+//! and σ₂² produces a Gaussian with variance σ₁² + σ₂². This fundamental property comes
+//! from probability theory and applies to Gaussian convolution in image processing. See:
+//! - Torralba & Freeman, "Foundations of Computer Vision" (MIT Press), Section 2.2:
+//!   <https://visionbook.mit.edu/blurring_2.html#properties-of-the-continuous-gaussian>
 
 use super::FilterEffect;
 use crate::layer_manager::LayerManager;
@@ -23,9 +29,10 @@ use vello_common::peniko::kurbo::common::FloatFuncs as _;
 use vello_common::pixmap::Pixmap;
 
 /// Maximum size of the Gaussian kernel (must be odd).
-/// Kernels larger than this are truncated. In practice, large blurs use multi-scale
-/// decimation, so this limit only applies to the reduced blur at coarsest resolution.
-pub(crate) const MAX_KERNEL_SIZE: usize = 17;
+/// The multi-scale decimation algorithm guarantees that kernel size never exceeds this value.
+/// Decimation stops when remaining variance ≤ 4.0 (σ ≤ 2.0), which produces kernels of size
+/// at most 13 (radius = ceil(3σ) = 6, size = 1 + 2×6 = 13).
+pub(crate) const MAX_KERNEL_SIZE: usize = 13;
 
 pub(crate) struct GaussianBlur {
     std_deviation: f32,
@@ -111,6 +118,10 @@ pub(crate) fn plan_decimated_blur(std_deviation: f32) -> (usize, [f32; MAX_KERNE
     // Compute decimation plan using variance analysis.
     // Variance (σ²) has the additive property: applying two blurs sequentially
     // adds their variances together. We use this to decompose the blur.
+    //
+    // Mathematical Foundation: From probability theory, convolving two Gaussians
+    // G(σ₁) ⊗ G(σ₂) = G(√(σ₁² + σ₂²)). This means variance is additive: σ²_total = σ²_1 + σ²_2.
+    // Rearranging: σ²_2 = σ²_total - σ²_1, allowing us to decompose the target blur.
     let variance = std_deviation * std_deviation;
     let mut n_decimations = 0;
     let mut remaining_variance = variance;
@@ -142,7 +153,6 @@ pub(crate) fn compute_gaussian_kernel(std_deviation: f32) -> ([f32; MAX_KERNEL_S
     // Beyond ±3σ, the Gaussian values are negligible (<0.3%).
     let radius = (3.0 * std_deviation).ceil() as usize;
     let kernel_size = 1 + radius * 2;
-    let kernel_size = kernel_size.min(MAX_KERNEL_SIZE);
 
     let mut kernel = [0.0; MAX_KERNEL_SIZE];
     // Compute Gaussian weights using the formula: G(x) = exp(-x² / (2σ²))
@@ -220,7 +230,6 @@ pub(crate) fn apply_blur(
         }
     }
 
-    // Final dimensions should match original
     debug_assert_eq!(
         (src_width, src_height),
         (width, height),
@@ -595,6 +604,7 @@ fn extend(coord: i32, size: u16, edge_mode: EdgeMode) -> u16 {
 ///
 /// Computes `(p0 + 3×p1 + 3×p2 + p3) / 8` using efficient integer arithmetic (right shift).
 /// This binomial pattern approximates a Gaussian and contributes variance=0.75 to the blur.
+/// Adds 4 before the shift to implement round-to-nearest instead of floor division.
 #[inline(always)]
 fn decimate_weighted(
     p0: PremulRgba8,
@@ -602,10 +612,10 @@ fn decimate_weighted(
     p2: PremulRgba8,
     p3: PremulRgba8,
 ) -> PremulRgba8 {
-    let r = ((p0.r as u32 + p1.r as u32 * 3 + p2.r as u32 * 3 + p3.r as u32) >> 3) as u8;
-    let g = ((p0.g as u32 + p1.g as u32 * 3 + p2.g as u32 * 3 + p3.g as u32) >> 3) as u8;
-    let b = ((p0.b as u32 + p1.b as u32 * 3 + p2.b as u32 * 3 + p3.b as u32) >> 3) as u8;
-    let a = ((p0.a as u32 + p1.a as u32 * 3 + p2.a as u32 * 3 + p3.a as u32) >> 3) as u8;
+    let r = ((p0.r as u32 + p1.r as u32 * 3 + p2.r as u32 * 3 + p3.r as u32 + 4) >> 3) as u8;
+    let g = ((p0.g as u32 + p1.g as u32 * 3 + p2.g as u32 * 3 + p3.g as u32 + 4) >> 3) as u8;
+    let b = ((p0.b as u32 + p1.b as u32 * 3 + p2.b as u32 * 3 + p3.b as u32 + 4) >> 3) as u8;
+    let a = ((p0.a as u32 + p1.a as u32 * 3 + p2.a as u32 * 3 + p3.a as u32 + 4) >> 3) as u8;
     PremulRgba8 { r, g, b, a }
 }
 
@@ -613,12 +623,13 @@ fn decimate_weighted(
 ///
 /// Used for upsampling to generate the second of two output pixels.
 /// Favors the right/next pixel (p1) with 75% weight.
+/// Adds 2 before the shift to implement round-to-nearest instead of floor division.
 #[inline(always)]
 fn interpolate_25_75(p0: PremulRgba8, p1: PremulRgba8) -> PremulRgba8 {
-    let r = ((p0.r as u32 + p1.r as u32 * 3) >> 2) as u8;
-    let g = ((p0.g as u32 + p1.g as u32 * 3) >> 2) as u8;
-    let b = ((p0.b as u32 + p1.b as u32 * 3) >> 2) as u8;
-    let a = ((p0.a as u32 + p1.a as u32 * 3) >> 2) as u8;
+    let r = ((p0.r as u32 + p1.r as u32 * 3 + 2) >> 2) as u8;
+    let g = ((p0.g as u32 + p1.g as u32 * 3 + 2) >> 2) as u8;
+    let b = ((p0.b as u32 + p1.b as u32 * 3 + 2) >> 2) as u8;
+    let a = ((p0.a as u32 + p1.a as u32 * 3 + 2) >> 2) as u8;
     PremulRgba8 { r, g, b, a }
 }
 
@@ -626,11 +637,12 @@ fn interpolate_25_75(p0: PremulRgba8, p1: PremulRgba8) -> PremulRgba8 {
 ///
 /// Computes `0.75×p0 + 0.25×p1` using efficient integer arithmetic.
 /// Used during upsampling for positions closer to the first pixel.
+/// Adds 2 before the shift to implement round-to-nearest instead of floor division.
 #[inline(always)]
 fn interpolate_75_25(p0: PremulRgba8, p1: PremulRgba8) -> PremulRgba8 {
-    let r = ((p0.r as u32 * 3 + p1.r as u32) >> 2) as u8;
-    let g = ((p0.g as u32 * 3 + p1.g as u32) >> 2) as u8;
-    let b = ((p0.b as u32 * 3 + p1.b as u32) >> 2) as u8;
-    let a = ((p0.a as u32 * 3 + p1.a as u32) >> 2) as u8;
+    let r = ((p0.r as u32 * 3 + p1.r as u32 + 2) >> 2) as u8;
+    let g = ((p0.g as u32 * 3 + p1.g as u32 + 2) >> 2) as u8;
+    let b = ((p0.b as u32 * 3 + p1.b as u32 + 2) >> 2) as u8;
+    let a = ((p0.a as u32 * 3 + p1.a as u32 + 2) >> 2) as u8;
     PremulRgba8 { r, g, b, a }
 }
