@@ -193,10 +193,23 @@ impl Dispatcher for SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
+        // Only u8 pipeline enabled
+        #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
+        {
+            let _ = render_mode;
+            self.rasterize_u8(buffer, width, height, encoded_paints);
+        }
+        // Only f32 pipeline enabled
+        #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
+        {
+            let _ = render_mode;
+            self.rasterize_f32(buffer, width, height, encoded_paints);
+        }
+
+        // Both pipelines enabled
+        #[cfg(all(feature = "f32_pipeline", feature = "u8_pipeline"))]
         match render_mode {
-            #[cfg(feature = "u8_pipeline")]
             RenderMode::OptimizeSpeed => self.rasterize_u8(buffer, width, height, encoded_paints),
-            #[cfg(feature = "f32_pipeline")]
             RenderMode::OptimizeQuality => {
                 self.rasterize_f32(buffer, width, height, encoded_paints);
             }

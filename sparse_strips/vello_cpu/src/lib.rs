@@ -132,11 +132,8 @@ pub use vello_common::{color, kurbo, peniko};
 #[derive(Copy, Clone, Debug, Default)]
 pub enum RenderMode {
     /// Optimize speed (by performing calculations with u8/16).
-    #[cfg(feature = "u8_pipeline")]
-    #[cfg_attr(feature = "u8_pipeline", default)]
+    #[default]
     OptimizeSpeed,
     /// Optimize quality (by performing calculations with f32).
-    #[cfg(feature = "f32_pipeline")]
-    #[cfg_attr(not(feature = "u8_pipeline"), default)]
     OptimizeQuality,
 }
