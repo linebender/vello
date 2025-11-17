@@ -82,7 +82,7 @@ impl Tile {
         y: u16,
         line_idx: u32,
         winding: bool,
-        intersection_data: u32,
+        intersection_mask: u32,
     ) -> Self {
         Self::new(
             // Make sure that x and y stay in range when multiplying
@@ -91,13 +91,13 @@ impl Tile {
             y.min(u16::MAX / Self::HEIGHT),
             line_idx,
             winding,
-            intersection_data,
+            intersection_mask,
         )
     }
 
     /// The base tile constructor
     #[inline]
-    pub const fn new(x: u16, y: u16, line_idx: u32, winding: bool, intersection_data: u32) -> Self {
+    pub const fn new(x: u16, y: u16, line_idx: u32, winding: bool, intersection_mask: u32) -> Self {
         #[cfg(debug_assertions)]
         if line_idx >= MAX_LINES_PER_PATH {
             panic!("Max. number of lines per path exceeded.");
@@ -106,7 +106,7 @@ impl Tile {
             x,
             y,
             packed_winding_line_idx: ((winding as u32) << 31)
-                | (intersection_data << 26)
+                | (intersection_mask << 26)
                 | line_idx,
         }
     }
@@ -153,38 +153,38 @@ impl Tile {
     ///   - Bit 3 (mask `0b01000`): Intersects right edge
     /// - **Bit 4 (mask `0b10000`):** Does this tile have one unique intersection?
     #[inline]
-    pub const fn intersection_data(&self) -> u32 {
+    pub const fn intersection_mask(&self) -> u32 {
         (self.packed_winding_line_idx >> 26) & 0b11111
     }
 
     /// Whether the line intersects the top edge of the tile.
     #[inline]
     pub const fn intersects_top(&self) -> bool {
-        (self.intersection_data() & 0b0001) != 0
+        (self.intersection_mask() & 0b0001) != 0
     }
 
     /// Whether the line intersects the bottom edge of the tile.
     #[inline]
     pub const fn intersects_bottom(&self) -> bool {
-        (self.intersection_data() & 0b0010) != 0
+        (self.intersection_mask() & 0b0010) != 0
     }
 
     /// Whether the line intersects the left edge of the tile.
     #[inline]
     pub const fn intersects_left(&self) -> bool {
-        (self.intersection_data() & 0b0100) != 0
+        (self.intersection_mask() & 0b0100) != 0
     }
 
     /// Whether the line intersects the right edge of the tile.
     #[inline]
     pub const fn intersects_right(&self) -> bool {
-        (self.intersection_data() & 0b1000) != 0
+        (self.intersection_mask() & 0b1000) != 0
     }
 
     /// Whether the line's start point (p0) is inside the tile.
     #[inline]
     pub const fn perfect_intersection(&self) -> bool {
-        (self.intersection_data() & 0b10000) != 0
+        (self.intersection_mask() & 0b10000) != 0
     }
 
     /// Return the `u64` representation of this tile.
@@ -293,7 +293,7 @@ impl Tiles {
     // TODO: Tiles are clamped to the left edge of the viewport, but lines fully to the left of the
     // viewport are not culled yet. These lines impact winding, and would need forwarding of
     // winding to the strip generation stage.
-    pub fn make_tiles<const gen_int_mask: bool>(
+    pub fn make_tiles<const GEN_INT_MASK: bool>(
         &mut self,
         lines: &[Line],
         width: u16,
@@ -392,16 +392,20 @@ impl Tiles {
                         let y = f32::from(y_top_tiles);
                         // A vertical line is never considered as intersecting horizontal edges,
                         // so line start/end is always a single unique intersection.
-                        let is_start_or_end =
-                            (y_top_tiles as i32) == p0_tile_y || (y_top_tiles as i32) == p1_tile_y;
-                        let intersection_data = 0b10 | (is_start_or_end as u32) << 4;
+                        let intersection_mask = if GEN_INT_MASK {
+                            let is_start_or_end = (y_top_tiles as i32) == p0_tile_y
+                                || (y_top_tiles as i32) == p1_tile_y;
+                            0b10 | (is_start_or_end as u32) << 4
+                        } else {
+                            0
+                        };
 
                         let tile = Tile::new_clamped(
                             x,
                             y_top_tiles,
                             line_idx,
                             y >= line_top_y,
-                            intersection_data,
+                            intersection_mask,
                         );
                         self.tile_buf.push(tile);
                     }
@@ -420,24 +424,30 @@ impl Tiles {
                     if y_start < y_end_idx {
                         let y_last = y_end_idx - 1;
                         for y_idx in y_start..y_last {
+                            let intersection_mask = if GEN_INT_MASK { 0b11 } else { 0 };
                             let tile = Tile::new_clamped(
                                 x,
                                 y_idx,
                                 line_idx,
                                 f32::from(y_idx) >= line_top_y,
-                                0b11,
+                                intersection_mask,
                             );
                             self.tile_buf.push(tile);
                         }
 
-                        let is_end_tile = ((y_last as i32) == p1_tile_y) as u32;
-                        let intersection_data = 0b1 | ((1 ^ is_end_tile) << 1) | (is_end_tile << 4);
+                        let intersection_mask = if GEN_INT_MASK {
+                            let is_end_tile = ((y_last as i32) == p1_tile_y) as u32;
+                            0b1 | ((1 ^ is_end_tile) << 1) | (is_end_tile << 4)
+                        } else {
+                            0
+                        };
+
                         let tile = Tile::new_clamped(
                             x,
                             y_last,
                             line_idx,
                             f32::from(y_last) >= line_top_y,
-                            intersection_data,
+                            intersection_mask,
                         );
                         self.tile_buf.push(tile);
                     }
@@ -447,15 +457,20 @@ impl Tiles {
                     // it gets handled by the middle logic above.
                     if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
                         let y = f32::from(y_end_idx);
-                        let is_start_or_end =
-                            (y_end_idx as i32) == p0_tile_y || (y_end_idx as i32) == p1_tile_y;
-                        let intersection_data = 0b1 | (is_start_or_end as u32) << 4;
+                        let intersection_mask = if GEN_INT_MASK {
+                            let is_start_or_end =
+                                (y_end_idx as i32) == p0_tile_y || (y_end_idx as i32) == p1_tile_y;
+                            0b1 | (is_start_or_end as u32) << 4
+                        } else {
+                            0
+                        };
+
                         let tile = Tile::new_clamped(
                             x,
                             y_end_idx,
                             line_idx,
                             y >= line_top_y,
-                            intersection_data,
+                            intersection_mask,
                         );
                         self.tile_buf.push(tile);
                     }
@@ -495,61 +510,67 @@ impl Tiles {
 
                         // Row start, but not necessarily the cannonical start of a row.
                         if x_start <= x_end {
-                            // Check if we are the row start/end unculled.
-                            let unc_row_start = (x_start as i32 == cannonical_x_start) as u32;
-                            let unc_row_end = (x_start == cannonical_x_end) as u32;
-                            let cannonical_row_start =
-                                (dx_dir & unc_row_start) | (not_dx_dir & unc_row_end);
-                            let cannonical_row_end =
-                                (not_dx_dir & unc_row_start) | (dx_dir & unc_row_end);
-                            let start_tile = is_start_tile(x_start, y_idx) as u32;
-                            let end_tile = is_end_tile(x_start, y_idx) as u32;
+                            let intersection_mask = if GEN_INT_MASK {
+                                // Check if we are the row start/end unculled.
+                                let unc_row_start = (x_start as i32 == cannonical_x_start) as u32;
+                                let unc_row_end = (x_start == cannonical_x_end) as u32;
+                                let cannonical_row_start =
+                                    (dx_dir & unc_row_start) | (not_dx_dir & unc_row_end);
+                                let cannonical_row_end =
+                                    (not_dx_dir & unc_row_start) | (dx_dir & unc_row_end);
+                                let start_tile = is_start_tile(x_start, y_idx) as u32;
+                                let end_tile = is_end_tile(x_start, y_idx) as u32;
 
-                            // Entrant
-                            let vert_entrant = cannonical_row_start & (1 ^ start_tile);
-                            let hor_entrant = 1 ^ cannonical_row_start;
+                                // Entrant
+                                let vert_entrant = cannonical_row_start & (1 ^ start_tile);
+                                let hor_entrant = 1 ^ cannonical_row_start;
 
-                            let mut intersection_data = vert_entrant;
-                            intersection_data |= hor_entrant << not_dx_dir << 2;
+                                let mut data = vert_entrant;
+                                data |= hor_entrant << not_dx_dir << 2;
 
-                            // Exit
-                            let vert_exit = cannonical_row_end & (1 ^ end_tile);
-                            let hor_exit = 1 ^ cannonical_row_end;
-                            intersection_data |= vert_exit << 1;
-                            intersection_data |= hor_exit << dx_dir << 2;
+                                // Exit
+                                let vert_exit = cannonical_row_end & (1 ^ end_tile);
+                                let hor_exit = 1 ^ cannonical_row_end;
+                                data |= vert_exit << 1;
+                                data |= hor_exit << dx_dir << 2;
 
-                            // Check if the line passes through any of the four corners of this tile.
-                            // It passes through a corner if the x-intersection with the top or bottom
-                            // edge equals either the left (x_start) or right (x_start + 1) tile boundary.
-                            let x_start_f = x_start as f32;
-                            let x_right_f = x_start_f + 1.0;
+                                // Check if the line passes through any of the four corners of this tile.
+                                // It passes through a corner if the x-intersection with the top or bottom
+                                // edge equals either the left (x_start) or right (x_start + 1) tile boundary.
+                                let x_start_f = x_start as f32;
+                                let x_right_f = x_start_f + 1.0;
 
-                            let top_corner =
-                                (line_row_top_x == x_start_f || line_row_top_x == x_right_f) as u32;
-                            let bottom_corner = (line_row_bottom_x == x_start_f
-                                || line_row_bottom_x == x_right_f)
-                                as u32;
+                                let top_corner = (line_row_top_x == x_start_f
+                                    || line_row_top_x == x_right_f)
+                                    as u32;
+                                let bottom_corner = (line_row_bottom_x == x_start_f
+                                    || line_row_bottom_x == x_right_f)
+                                    as u32;
 
-                            // Perfect bit is set if we hit exactly one corner,
-                            // or if it's a start/end tile.
-                            let perfect_bit = (top_corner ^ bottom_corner) | start_tile | end_tile;
+                                // Perfect bit is set if we hit exactly one corner,
+                                // or if it's a start/end tile.
+                                let perfect_bit =
+                                    (top_corner ^ bottom_corner) | start_tile | end_tile;
 
-                            intersection_data |= perfect_bit << 4;
+                                data | (perfect_bit << 4)
+                            } else {
+                                0
+                            };
 
                             let tile = Tile::new(
                                 x_start,
                                 y_idx,
                                 line_idx,
                                 y >= line_top_y && (dx_dir != 0 || x_start == x_end),
-                                intersection_data,
+                                intersection_mask,
                             );
                             self.tile_buf.push(tile);
                         }
 
                         // Middle
                         for x_idx in x_start + 1..x_end {
-                            let intersection_data = 0b1100; // RL
-                            let tile = Tile::new(x_idx, y_idx, line_idx, false, intersection_data);
+                            let intersection_mask = if GEN_INT_MASK { 0b1100 } else { 0 }; // RL
+                            let tile = Tile::new(x_idx, y_idx, line_idx, false, intersection_mask);
                             self.tile_buf.push(tile);
                         }
 
@@ -558,42 +579,48 @@ impl Tiles {
                         // so there is no ambiguity as to whether this is the start or end of a row
                         // except from culling.
                         if x_start < x_end {
-                            // Note: must be lt for clipping instead of neq.
-                            let unc_row_end = (x_end == cannonical_x_end) as u32;
-                            let cannonical_row_start = not_dx_dir & unc_row_end;
-                            let cannonical_row_end = dx_dir & unc_row_end;
-                            let start_tile = is_start_tile(x_end, y_idx) as u32;
-                            let end_tile = is_end_tile(x_end, y_idx) as u32;
+                            let intersection_mask = if GEN_INT_MASK {
+                                // Note: must be lt for clipping instead of neq.
+                                let unc_row_end = (x_end == cannonical_x_end) as u32;
+                                let cannonical_row_start = not_dx_dir & unc_row_end;
+                                let cannonical_row_end = dx_dir & unc_row_end;
+                                let start_tile = is_start_tile(x_end, y_idx) as u32;
+                                let end_tile = is_end_tile(x_end, y_idx) as u32;
 
-                            // Entrant
-                            let vert_entrant = cannonical_row_start & (1 ^ start_tile);
-                            let hor_entrant = 1 ^ cannonical_row_start;
-                            let mut intersection_data = vert_entrant;
-                            intersection_data |= hor_entrant << not_dx_dir << 2;
+                                // Entrant
+                                let vert_entrant = cannonical_row_start & (1 ^ start_tile);
+                                let hor_entrant = 1 ^ cannonical_row_start;
+                                let mut data = vert_entrant;
+                                data |= hor_entrant << not_dx_dir << 2;
 
-                            // Exit
-                            let vert_exit = cannonical_row_end & (1 ^ end_tile);
-                            let hor_exit = 1 ^ cannonical_row_end;
-                            intersection_data |= vert_exit << 1;
-                            intersection_data |= hor_exit << dx_dir << 2;
+                                // Exit
+                                let vert_exit = cannonical_row_end & (1 ^ end_tile);
+                                let hor_exit = 1 ^ cannonical_row_end;
+                                data |= vert_exit << 1;
+                                data |= hor_exit << dx_dir << 2;
 
-                            // Perfect_bit
-                            let x_end_f = x_end as f32;
-                            let x_right_f = x_end_f + 1.0;
-                            let top_corner =
-                                (line_row_top_x == x_end_f || line_row_top_x == x_right_f) as u32;
-                            let bottom_corner = (line_row_bottom_x == x_end_f
-                                || line_row_bottom_x == x_right_f)
-                                as u32;
-                            let perfect_bit = (top_corner ^ bottom_corner) | start_tile | end_tile;
-                            intersection_data |= perfect_bit << 4;
+                                // Perfect_bit
+                                let x_end_f = x_end as f32;
+                                let x_right_f = x_end_f + 1.0;
+                                let top_corner = (line_row_top_x == x_end_f
+                                    || line_row_top_x == x_right_f)
+                                    as u32;
+                                let bottom_corner = (line_row_bottom_x == x_end_f
+                                    || line_row_bottom_x == x_right_f)
+                                    as u32;
+                                let perfect_bit =
+                                    (top_corner ^ bottom_corner) | start_tile | end_tile;
+                                data | (perfect_bit << 4)
+                            } else {
+                                0
+                            };
 
                             let tile = Tile::new(
                                 x_end,
                                 y_idx,
                                 line_idx,
                                 y >= line_top_y && not_dx_dir != 0,
-                                intersection_data,
+                                intersection_mask,
                             );
                             self.tile_buf.push(tile);
                         }
@@ -1429,7 +1456,7 @@ mod tests {
     }
 
     #[test]
-    fn intersection_data_diagonal_cross_corner() {
+    fn diagonal_cross_corner() {
         let lines = [Line {
             p0: Point { x: 3.0, y: 5.0 },
             p1: Point { x: 5.0, y: 3.0 },
