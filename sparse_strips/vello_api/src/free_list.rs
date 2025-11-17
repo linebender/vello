@@ -8,13 +8,18 @@
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-struct FreeListItem {
+pub struct FreeListMember<T> {
+    pub link: FreeListLink,
+    pub value: T,
+}
+
+pub struct FreeListLink {
     root_index: Arc<AtomicU32>,
     next_free: AtomicU32,
     index: u32,
 }
 
-impl FreeListItem {
+impl FreeListLink {
     fn free(&self) {
         self.root_index
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |previous_next| {

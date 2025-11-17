@@ -1,6 +1,8 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Texture types used in Vello API.
+
 use alloc::sync::Arc;
 use bitflags::bitflags;
 use core::{any::Any, fmt::Debug};
