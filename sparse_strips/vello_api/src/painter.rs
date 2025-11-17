@@ -34,7 +34,7 @@ pub trait PaintScene: Any {
 
     // Copied without analysis from Vello Sparse Tests.
     fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape);
-    fn stroke_path(&mut self, transform: Affine, stroke_params: Stroke, path: impl Shape);
+    fn stroke_path(&mut self, transform: Affine, stroke_params: &Stroke, path: impl Shape);
     fn draw_prepared_path(
         &mut self,
         path_set: PreparedPaths,

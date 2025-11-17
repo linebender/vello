@@ -5,8 +5,6 @@
 // The `fill_path_cache` API could potentially stall some of those,
 // but otherwise the critical sections are small.
 
-use alloc::boxed::Box;
-
 use crate::{
     DownloadId, PaintScene, SceneOptions,
     prepared::{PreparePaths, PreparedPaths},

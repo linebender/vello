@@ -12,12 +12,12 @@ extern crate alloc;
 
 mod design;
 mod download;
-mod free_list;
 mod painter;
 mod renderer;
 
 pub mod baseline;
 pub mod dynamic;
+pub mod free_list;
 pub mod prepared;
 pub mod texture;
 

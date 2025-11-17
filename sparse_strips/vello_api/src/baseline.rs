@@ -35,8 +35,34 @@ impl BaselinePreparePaths {
         self.meta.clear();
     }
 
-    pub fn apply<P: PaintScene>(&mut self, painter: P, path: PreparedPathIndex) {
-        todo!()
+    // TODO: Proper error kind
+    pub fn apply<P: PaintScene>(
+        &self,
+        mut painter: P,
+        path: PreparedPathIndex,
+        x_offset: i32,
+        y_offset: i32,
+    ) -> Result<(), ()> {
+        let idx = usize::try_from(path.0).map_err(drop)?;
+        let path_details = self.meta.get(idx).ok_or(())?;
+        // Overflow: Impossible if previous line succeeded, as overflow would require entire memory to be full!
+        let next_path_details = self.meta.get(idx + 1);
+        let path_range_end =
+            next_path_details.map_or(self.path_elements.len(), |it| it.start_index);
+
+        let path = &self.path_elements[path_details.start_index..path_range_end];
+        let transform = path_details
+            .transform
+            .then_translate((x_offset as f64, y_offset as f64).into());
+        match &path_details.operation {
+            Operation::Stroke(stroke) => {
+                painter.stroke_path(transform, &stroke.clone(), path);
+            }
+            Operation::Fill(fill_rule) => {
+                painter.fill_path(transform, *fill_rule, path);
+            }
+        }
+        Ok(())
     }
 }
 
