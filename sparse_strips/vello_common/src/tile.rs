@@ -293,7 +293,12 @@ impl Tiles {
     // TODO: Tiles are clamped to the left edge of the viewport, but lines fully to the left of the
     // viewport are not culled yet. These lines impact winding, and would need forwarding of
     // winding to the strip generation stage.
-    pub fn make_tiles(&mut self, lines: &[Line], width: u16, height: u16) {
+    pub fn make_tiles<const gen_int_mask: bool>(
+        &mut self,
+        lines: &[Line],
+        width: u16,
+        height: u16,
+    ) {
         self.reset();
 
         if width == 0 || height == 0 {
@@ -620,14 +625,16 @@ mod tests {
     use fearless_simd::Level;
     use std::vec;
 
+    const GEN_INT_MASK: bool = true;
+
     const P: u32 = 0b10000;
     const R: u32 = 0b01000;
     const L: u32 = 0b00100;
     const B: u32 = 0b00010;
     const T: u32 = 0b00001;
 
-    const VIEW_HEIGHT: u16 = 100;
-    const F_V_HEIGHT: f32 = VIEW_HEIGHT as f32;
+    const VIEW_DIM: u16 = 100;
+    const F_V_DIM: f32 = VIEW_DIM as f32;
 
     //==============================================================================================
     // Culled Lines
@@ -644,21 +651,39 @@ mod tests {
                 p1: Point { x: 3.0, y: -1.0 },
             },
             Line {
-                p0: Point { x: 101.0, y: 50.0 },
-                p1: Point { x: 103.0, y: 70.0 },
+                p0: Point {
+                    x: F_V_DIM + 1.0,
+                    y: 50.0,
+                },
+                p1: Point {
+                    x: F_V_DIM + 3.0,
+                    y: 70.0,
+                },
             },
             Line {
-                p0: Point { x: 1.0, y: 101.0 },
-                p1: Point { x: 3.0, y: 107.0 },
+                p0: Point {
+                    x: 1.0,
+                    y: F_V_DIM + 1.0,
+                },
+                p1: Point {
+                    x: 3.0,
+                    y: F_V_DIM + 7.0,
+                },
             },
             Line {
-                p0: Point { x: 1.0, y: 101.0 },
-                p1: Point { x: 3.0, y: 113.0 },
+                p0: Point {
+                    x: 1.0,
+                    y: F_V_DIM + 1.0,
+                },
+                p1: Point {
+                    x: 3.0,
+                    y: F_V_DIM + 13.0,
+                },
             },
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
         assert!(tiles.is_empty());
     }
@@ -685,7 +710,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -703,21 +728,39 @@ mod tests {
     fn sloped_line_crossing_bot() {
         let lines = [
             Line {
-                p0: Point { x: 5.0, y: 103.0 },
-                p1: Point { x: 6.0, y: 98.0 },
+                p0: Point {
+                    x: 5.0,
+                    y: F_V_DIM + 3.0,
+                },
+                p1: Point {
+                    x: 6.0,
+                    y: F_V_DIM - 2.0,
+                },
             },
             Line {
-                p0: Point { x: 10.0, y: 101.0 },
-                p1: Point { x: 9.0, y: 99.0 },
+                p0: Point {
+                    x: 10.0,
+                    y: F_V_DIM + 1.0,
+                },
+                p1: Point {
+                    x: 9.0,
+                    y: F_V_DIM - 1.0,
+                },
             },
             Line {
-                p0: Point { x: 2.0, y: 98.0 },
-                p1: Point { x: 3.0, y: 103.0 },
+                p0: Point {
+                    x: 2.0,
+                    y: F_V_DIM - 2.0,
+                },
+                p1: Point {
+                    x: 3.0,
+                    y: F_V_DIM + 3.0,
+                },
             },
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -744,7 +787,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -763,17 +806,23 @@ mod tests {
     fn sloped_line_crossing_bot_multi_tile() {
         let lines = [
             Line {
-                p0: Point { x: 12.0, y: 110.0 },
+                p0: Point {
+                    x: 12.0,
+                    y: F_V_DIM + 10.0,
+                },
                 p1: Point { x: 2.0, y: 94.0 },
             },
             Line {
-                p0: Point { x: 1.5, y: 105.0 },
+                p0: Point {
+                    x: 1.5,
+                    y: F_V_DIM + 5.0,
+                },
                 p1: Point { x: 3.5, y: 94.0 },
             },
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -793,16 +842,22 @@ mod tests {
         let lines = [
             Line {
                 p0: Point { x: 97.0, y: 1.0 },
-                p1: Point { x: 101.0, y: 2.0 },
+                p1: Point {
+                    x: F_V_DIM + 1.0,
+                    y: 2.0,
+                },
             },
             Line {
                 p0: Point { x: 93.0, y: 1.0 },
-                p1: Point { x: 105.0, y: 2.0 },
+                p1: Point {
+                    x: F_V_DIM + 5.0,
+                    y: 2.0,
+                },
             },
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -829,7 +884,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -850,7 +905,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
         assert!(tiles.is_empty());
     }
@@ -858,12 +913,18 @@ mod tests {
     #[test]
     fn horizontal_line_below_viewport() {
         let lines = [Line {
-            p0: Point { x: 10.0, y: 105.0 },
-            p1: Point { x: 90.0, y: 105.0 },
+            p0: Point {
+                x: 10.0,
+                y: F_V_DIM + 5.0,
+            },
+            p1: Point {
+                x: 90.0,
+                y: F_V_DIM + 5.0,
+            },
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
         assert!(tiles.is_empty());
     }
@@ -876,7 +937,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         let expected = [
@@ -895,8 +956,9 @@ mod tests {
             p1: Point { x: 25.0, y: 10.0 },
         }];
 
+        // Note: This test uses a width of 20, not VIEW_DIM (100)
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 20, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, 20, VIEW_DIM);
         tiles.sort_tiles();
 
         let expected = [
@@ -917,17 +979,17 @@ mod tests {
             Line {
                 p0: Point {
                     x: 1.0,
-                    y: F_V_HEIGHT + 1.0,
+                    y: F_V_DIM + 1.0,
                 },
                 p1: Point {
                     x: 1.0,
-                    y: F_V_HEIGHT + 5.0,
+                    y: F_V_DIM + 5.0,
                 },
             },
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, VIEW_HEIGHT);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
         assert_eq!(tiles.tile_buf, []);
     }
@@ -945,7 +1007,7 @@ mod tests {
         );
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&line_buf, 10, 10);
+        tiles.make_tiles::<GEN_INT_MASK>(&line_buf, 10, 10);
         assert!(tiles.is_empty());
     }
 
@@ -967,7 +1029,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -988,27 +1050,27 @@ mod tests {
             Line {
                 p0: Point {
                     x: 1.0,
-                    y: F_V_HEIGHT - 1.0,
+                    y: F_V_DIM - 1.0,
                 },
                 p1: Point {
                     x: 1.0,
-                    y: F_V_HEIGHT + 5.0,
+                    y: F_V_DIM + 5.0,
                 },
             },
             Line {
                 p0: Point {
                     x: 1.0,
-                    y: F_V_HEIGHT - 5.0,
+                    y: F_V_DIM - 5.0,
                 },
                 p1: Point {
                     x: 1.0,
-                    y: F_V_HEIGHT + 5.0,
+                    y: F_V_DIM + 5.0,
                 },
             },
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, VIEW_HEIGHT);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1029,7 +1091,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
         assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, true, L | T)]);
     }
@@ -1038,17 +1100,17 @@ mod tests {
     fn clip_bottom_right_corner() {
         let lines = [Line {
             p0: Point {
-                x: F_V_HEIGHT + 1.0,
-                y: F_V_HEIGHT - 2.0,
+                x: F_V_DIM + 1.0,
+                y: F_V_DIM - 2.0,
             },
             p1: Point {
-                x: F_V_HEIGHT - 2.0,
-                y: F_V_HEIGHT + 1.0,
+                x: F_V_DIM - 2.0,
+                y: F_V_DIM + 1.0,
             },
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
         assert_eq!(tiles.tile_buf, [Tile::new(24, 24, 0, false, R | B)]);
     }
@@ -1064,7 +1126,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1085,7 +1147,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1106,7 +1168,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1128,7 +1190,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1149,7 +1211,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1171,7 +1233,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1193,7 +1255,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1215,7 +1277,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1235,7 +1297,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1258,7 +1320,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1281,7 +1343,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1304,7 +1366,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1327,7 +1389,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         // geometrically identical to above
@@ -1357,7 +1419,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
         // Both lines are entirely within tile (0,0).
         assert_eq!(
@@ -1374,7 +1436,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         assert_eq!(
@@ -1395,7 +1457,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         let expected = [
@@ -1415,7 +1477,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         let expected = [
@@ -1435,7 +1497,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         let expected = [
@@ -1454,7 +1516,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         let expected = [
@@ -1473,7 +1535,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         let expected = [
@@ -1494,7 +1556,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         let expected = [
@@ -1515,7 +1577,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         let expected = [
@@ -1538,7 +1600,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, false, 0)]);
     }
@@ -1551,7 +1613,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, false, 0)]);
     }
@@ -1564,7 +1626,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, true, 0)]);
     }
@@ -1577,7 +1639,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [
             Tile::new(0, 0, 0, false, P | R),
@@ -1601,7 +1663,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [Tile::new(0, 0, 0, false, 0), Tile::new(0, 0, 1, false, 0)];
 
@@ -1622,7 +1684,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&lines, 100, 100);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [Tile::new(0, 0, 0, true, 0), Tile::new(0, 0, 1, true, 0)];
 
@@ -1641,6 +1703,6 @@ mod tests {
         };
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles(&[line], 600, 600);
+        tiles.make_tiles::<GEN_INT_MASK>(&[line], 600, 600);
     }
 }
