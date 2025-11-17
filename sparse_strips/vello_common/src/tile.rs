@@ -345,25 +345,34 @@ impl Tiles {
             let line_bottom_y_ceil = line_bottom_y.ceil();
             let y_bottom_tiles = (line_bottom_y_ceil as u16).min(tile_rows);
 
+            // If y_top_tiles == y_bottom_tiles, then the line is either completely above or below
+            // the viewport OR it is perfectly horizontal and aligned to the tile grid, contributing
+            // no winding. In either case, it should be culled.
+            if y_top_tiles >= y_bottom_tiles {
+                // Technically, the `>` part of the `>=` is uneccessary due to clamping, but this
+                // gives stronger signal
+                continue;
+            }
+
             // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
             let p0_tile_x = line_top_x.floor() as i32;
             let p0_tile_y = line_top_y.floor() as i32;
             let p1_tile_x = line_bottom_x.floor() as i32;
 
-            // Because our vertical loop is exclusive, tiles which result from an endpoint touching
-            // the exact bottom edge of a tile do not get produced. This exclusive behavior is
-            // correct, the line is not actually crossing, and producing an empty tile breaks the
-            // rendering. However, a side effect of this is that the bottommost tile produced by
-            // this case will not count itself as end_tile. This in turn results in recording a
-            // bottom edge crossing. In isolation, this is fine, but another linesegment may match
-            // that endpoint. If that is the case, if that linesegment traverses downwards, then,
-            // its top edge starting point will not be an intersection. Because it is not an
-            // intersection, the rasterizing algorithm will use the raw point, which can potentially
-            // lead to a watertightness difference.
+            // Because our vertical loop is exclusive, an exact bottom edge touch does not produce
+            // an additional tile. This exclusive behavior is correct, the line is not actually
+            // crossing, and producing an empty tile would incorrectly increment winding. However, a
+            // side effect of this is that the bottommost tile produced by this case will not count
+            // itself as end_tile. This in turn results in recording a bottom edge crossing. In
+            // isolation, this is fine, but another line may match that endpoint. If that is
+            // the case and that line traverses downwards, then its top edge starting point
+            // will not be an intersection. Because it is not an intersection, the rasterizing
+            // algorithm will use the raw point, which can potentially lead to a watertightness
+            // difference with the point calculated by the top tile.
             //
-            // The solution, here and in the general case, is to check whether the bottommost point
-            // in the line is perfectly axis-aligned, and if that is true, to adjust the location
-            // of the bottom tile, such that the bottom point is not considered an intersection.
+            // The solution is to check whether the bottommost point in the line is perfectly
+            // axis-aligned, and if that is true, to adjust the location of the bottom tile, such
+            // that a bottom touch is not considered an intersection.
             let p1_tile_y = if line_bottom_y == line_bottom_y_ceil {
                 line_bottom_y as i32 - 1
             } else {
@@ -375,85 +384,80 @@ impl Tiles {
             if not_same_tile {
                 // For ease of logic, special-case purely vertical tiles.
                 if line_left_x == line_right_x {
-                    // If we're here (not_same), and we have the same top and bottom tile, they must
-                    // have been culled, so exit.
-                    if y_top_tiles < y_bottom_tiles {
-                        let x = (line_left_x as u16).min(tile_columns.saturating_sub(1));
+                    let x = (line_left_x as u16).min(tile_columns.saturating_sub(1));
 
-                        // Row Start, not culled.
-                        let is_start_culled = line_top_y < 0.0;
-                        if !is_start_culled {
-                            let y = f32::from(y_top_tiles);
-                            // A vertical line is never considered as intersecting horizontal edges,
-                            // so line start/end is always a single unique intersection.
-                            let is_start_or_end = (y_top_tiles as i32) == p0_tile_y
-                                || (y_top_tiles as i32) == p1_tile_y;
-                            let intersection_data = 2 | (is_start_or_end as u32) << 4;
+                    // Row Start, not culled.
+                    let is_start_culled = line_top_y < 0.0;
+                    if !is_start_culled {
+                        let y = f32::from(y_top_tiles);
+                        // A vertical line is never considered as intersecting horizontal edges,
+                        // so line start/end is always a single unique intersection.
+                        let is_start_or_end =
+                            (y_top_tiles as i32) == p0_tile_y || (y_top_tiles as i32) == p1_tile_y;
+                        let intersection_data = 0b10 | (is_start_or_end as u32) << 4;
 
+                        let tile = Tile::new_clamped(
+                            x,
+                            y_top_tiles,
+                            line_idx,
+                            y >= line_top_y,
+                            intersection_data,
+                        );
+                        self.tile_buf.push(tile);
+                    }
+
+                    // Middle
+                    // If the start was culled, the first tile inside the viewport is a middle
+                    let y_start = if is_start_culled {
+                        y_top_tiles
+                    } else {
+                        y_top_tiles + 1
+                    };
+                    let line_bottom_floor = line_bottom_y.floor();
+                    let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
+
+                    // Perfect touching B case
+                    if y_start < y_end_idx {
+                        let y_last = y_end_idx - 1;
+                        for y_idx in y_start..y_last {
                             let tile = Tile::new_clamped(
                                 x,
-                                y_top_tiles,
+                                y_idx,
                                 line_idx,
-                                y >= line_top_y,
-                                intersection_data,
+                                f32::from(y_idx) >= line_top_y,
+                                0b11,
                             );
                             self.tile_buf.push(tile);
                         }
 
-                        // Middle
-                        // If the start was culled, the first tile inside the viewport is a middle
-                        let y_start = if is_start_culled {
-                            y_top_tiles
-                        } else {
-                            y_top_tiles + 1
-                        };
-                        let line_bottom_floor = line_bottom_y.floor();
-                        let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
+                        let is_end_tile = ((y_last as i32) == p1_tile_y) as u32;
+                        let intersection_data = 0b1 | ((1 ^ is_end_tile) << 1) | (is_end_tile << 4);
+                        let tile = Tile::new_clamped(
+                            x,
+                            y_last,
+                            line_idx,
+                            f32::from(y_last) >= line_top_y,
+                            intersection_data,
+                        );
+                        self.tile_buf.push(tile);
+                    }
 
-                        // Perfect touching B case
-                        if y_start < y_end_idx {
-                            let y_last = y_end_idx - 1;
-                            for y_idx in y_start..y_last {
-                                let tile = Tile::new_clamped(
-                                    x,
-                                    y_idx,
-                                    line_idx,
-                                    f32::from(y_idx) >= line_top_y,
-                                    0b11,
-                                );
-                                self.tile_buf.push(tile);
-                            }
-
-                            let is_end_tile = ((y_last as i32) == p1_tile_y) as u32;
-                            let intersection_data =
-                                0b1 | ((1 ^ is_end_tile) << 1) | (is_end_tile << 4);
-                            let tile = Tile::new_clamped(
-                                x,
-                                y_last,
-                                line_idx,
-                                f32::from(y_last) >= line_top_y,
-                                intersection_data,
-                            );
-                            self.tile_buf.push(tile);
-                        }
-
-                        // Row End, handle the final tile (y_end_idx), but *only* if the line does
-                        // not perfectly end on the top edge of the tile. In the case that it does,
-                        // it gets handled by the middle logic above.
-                        if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
-                            let y = f32::from(y_end_idx);
-                            let is_start_or_end =
-                                (y_end_idx as i32) == p0_tile_y || (y_end_idx as i32) == p1_tile_y;
-                            let intersection_data = 1 | (is_start_or_end as u32) << 4;
-                            let tile = Tile::new_clamped(
-                                x,
-                                y_end_idx,
-                                line_idx,
-                                y >= line_top_y,
-                                intersection_data,
-                            );
-                            self.tile_buf.push(tile);
-                        }
+                    // Row End, handle the final tile (y_end_idx), but *only* if the line does
+                    // not perfectly end on the top edge of the tile. In the case that it does,
+                    // it gets handled by the middle logic above.
+                    if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
+                        let y = f32::from(y_end_idx);
+                        let is_start_or_end =
+                            (y_end_idx as i32) == p0_tile_y || (y_end_idx as i32) == p1_tile_y;
+                        let intersection_data = 0b1 | (is_start_or_end as u32) << 4;
+                        let tile = Tile::new_clamped(
+                            x,
+                            y_end_idx,
+                            line_idx,
+                            y >= line_top_y,
+                            intersection_data,
+                        );
+                        self.tile_buf.push(tile);
                     }
                 } else {
                     let dx = p1_x - p0_x;
@@ -532,7 +536,7 @@ impl Tiles {
 
                             intersection_data |= perfect_bit << 4;
 
-                            let tile = Tile::new_clamped(
+                            let tile = Tile::new(
                                 x_start,
                                 y_idx,
                                 line_idx,
@@ -545,8 +549,7 @@ impl Tiles {
                         // Middle
                         for x_idx in x_start + 1..x_end {
                             let intersection_data = 0b1100; // RL
-                            let tile =
-                                Tile::new_clamped(x_idx, y_idx, line_idx, false, intersection_data);
+                            let tile = Tile::new(x_idx, y_idx, line_idx, false, intersection_data);
                             self.tile_buf.push(tile);
                         }
 
@@ -585,7 +588,7 @@ impl Tiles {
                             let perfect_bit = (top_corner ^ bottom_corner) | start_tile | end_tile;
                             intersection_data |= perfect_bit << 4;
 
-                            let tile = Tile::new_clamped(
+                            let tile = Tile::new(
                                 x_end,
                                 y_idx,
                                 line_idx,
@@ -598,20 +601,17 @@ impl Tiles {
                 }
             } else {
                 // Case: Line is fully contained within a single tile.
-                // Must exactly match the general case
-                if y_top_tiles < y_bottom_tiles {
-                    let y = f32::from(y_top_tiles);
-                    let line_row_top_y = line_top_y.max(y).min(y + 1.);
-                    let line_row_bottom_y = line_bottom_y.max(y).min(y + 1.);
-                    let x_slope = (p1_x - p0_x) / (p1_y - p0_y);
-                    let line_row_top_x = p0_x + ((line_row_top_y) - p0_y) * x_slope;
-                    let line_row_bottom_x = p0_x + (line_row_bottom_y - p0_y) * x_slope;
-                    let x_idx = (f32::min(line_row_top_x, line_row_bottom_x).max(line_left_x)
-                        as u16)
-                        .min(tile_columns + 1);
-                    let tile = Tile::new_clamped(x_idx, y_top_tiles, line_idx, y >= line_top_y, 0);
-                    self.tile_buf.push(tile);
-                }
+                // TODO: Must exactly match the general case? Or can be simplified?
+                let y = f32::from(y_top_tiles);
+                let line_row_top_y = line_top_y.max(y).min(y + 1.);
+                let line_row_bottom_y = line_bottom_y.max(y).min(y + 1.);
+                let x_slope = (p1_x - p0_x) / (p1_y - p0_y);
+                let line_row_top_x = p0_x + ((line_row_top_y) - p0_y) * x_slope;
+                let line_row_bottom_x = p0_x + (line_row_bottom_y - p0_y) * x_slope;
+                let x_idx = (f32::min(line_row_top_x, line_row_bottom_x).max(line_left_x) as u16)
+                    .min(tile_columns + 1);
+                let tile = Tile::new_clamped(x_idx, y_top_tiles, line_idx, y >= line_top_y, 0);
+                self.tile_buf.push(tile);
             }
         }
     }
