@@ -3,7 +3,7 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
-use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
+use crate::fine::{Fine, FineKernel};
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::layer_manager::LayerManager;
 use crate::peniko::{BlendMode, Fill};
@@ -12,7 +12,7 @@ use vello_common::clip::ClipContext;
 use vello_common::coarse::{Cmd, LayerKind, MODE_CPU, Wide, WideTilesBbox};
 use vello_common::color::palette::css::TRANSPARENT;
 use vello_common::encode::EncodedPaint;
-use vello_common::fearless_simd::{Level, Simd, dispatch};
+use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::{Paint, PremulColor};
@@ -87,6 +87,7 @@ impl SingleThreadedDispatcher {
     ///
     /// This dispatches to the appropriate SIMD implementation based on the
     /// configured level, using f32 for intermediate calculations.
+    #[cfg(feature = "f32_pipeline")]
     fn rasterize_f32(
         &self,
         buffer: &mut [u8],
@@ -94,6 +95,8 @@ impl SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
+        use crate::fine::F32Kernel;
+        use vello_common::fearless_simd::dispatch;
         dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height, encoded_paints));
     }
 
@@ -101,6 +104,7 @@ impl SingleThreadedDispatcher {
     ///
     /// This dispatches to the appropriate SIMD implementation based on the
     /// configured level, using u8 for intermediate calculations to maximize speed.
+    #[cfg(feature = "u8_pipeline")]
     fn rasterize_u8(
         &self,
         buffer: &mut [u8],
@@ -108,6 +112,8 @@ impl SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
+        use crate::fine::U8Kernel;
+        use vello_common::fearless_simd::dispatch;
         dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints));
     }
 
@@ -526,7 +532,22 @@ impl Dispatcher for SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
-        // Select precision based on render mode.
+        // If only the u8 pipeline is enabled, then use it
+        #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
+        {
+            let _ = render_mode;
+            self.rasterize_u8(buffer, width, height, encoded_paints);
+        }
+
+        // If only the f32 pipeline is enabled, then use it
+        #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
+        {
+            let _ = render_mode;
+            self.rasterize_f32(buffer, width, height, encoded_paints);
+        }
+
+        // If both pipelines are enabled, select precision based on render mode parameter.
+        #[cfg(all(feature = "u8_pipeline", feature = "f32_pipeline"))]
         match render_mode {
             RenderMode::OptimizeSpeed => {
                 // Use u8 precision for faster rendering.
@@ -536,6 +557,13 @@ impl Dispatcher for SingleThreadedDispatcher {
                 // Use f32 precision for higher quality.
                 self.rasterize_f32(buffer, width, height, encoded_paints);
             }
+        }
+
+        #[cfg(all(not(feature = "u8_pipeline"), not(feature = "f32_pipeline")))]
+        {
+            // This case never gets hit because there is a compile_error in the root.
+            // But have this code disables some warnings and makes the compile error easier to read
+            let _ = (buffer, render_mode, width, height, encoded_paints);
         }
     }
 
