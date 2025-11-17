@@ -13,10 +13,9 @@
 //! Each layer maintains its own bounding box in wide tile coordinates, allowing
 //! efficient memory usage for layers that don't span the entire render target.
 
-use alloc::collections::BTreeMap;
-
 use crate::region::Region;
-use vello_common::coarse::Bbox;
+use hashbrown::HashMap;
+use vello_common::coarse::WideTilesBbox;
 use vello_common::pixmap::Pixmap;
 
 /// Manages persistent layer storage for filter effects.
@@ -28,7 +27,7 @@ pub struct LayerManager {
     /// Map of layer ID to (Pixmap, wtile bounding box).
     /// The Pixmap contains the layer's pixel data, and the Bbox defines which
     /// wide tiles this layer occupies (in wide tile coordinates).
-    layers: BTreeMap<u32, (Pixmap, Bbox)>,
+    layers: HashMap<u32, (Pixmap, WideTilesBbox)>,
     /// Next available layer ID for automatic allocation.
     next_id: u32,
     /// Reusable scratch buffer for filter operations that need temporary storage.
@@ -44,7 +43,7 @@ impl Default for LayerManager {
     /// Layer IDs start from 1 (ID 0 is reserved for internal use).
     fn default() -> Self {
         Self {
-            layers: BTreeMap::new(),
+            layers: HashMap::new(),
             next_id: 1,
             scratch_buffer: None,
         }
@@ -72,11 +71,7 @@ impl LayerManager {
     ///   the region of the layer that contains valid pixel data, enabling efficient memory
     ///   usage for layers that don't span the entire render target.
     /// - `pixmap`: The pixel data for this layer in row-major RGBA8 format.
-    pub fn register_layer(&mut self, layer_id: u32, wtile_bbox: Bbox, pixmap: Pixmap) {
-        if self.layers.contains_key(&layer_id) {
-            return;
-        }
-
+    pub fn register_layer(&mut self, layer_id: u32, wtile_bbox: WideTilesBbox, pixmap: Pixmap) {
         self.layers.insert(layer_id, (pixmap, wtile_bbox));
 
         if layer_id >= self.next_id {

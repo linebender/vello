@@ -9,7 +9,7 @@ use crate::layer_manager::LayerManager;
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
 use vello_common::clip::ClipContext;
-use vello_common::coarse::{Bbox, Cmd, LayerKind, MODE_CPU, Wide};
+use vello_common::coarse::{Cmd, LayerKind, MODE_CPU, Wide, WideTilesBbox};
 use vello_common::color::palette::css::TRANSPARENT;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
@@ -65,7 +65,7 @@ impl SingleThreadedDispatcher {
 
         // Create root node (layer_id 0) as the first node (will be node 0).
         // This ensures the root layer is always rendered last in the execution order.
-        let wtile_bbox = Bbox::new([0, 0, wide.width_tiles(), wide.height_tiles()]);
+        let wtile_bbox = WideTilesBbox::new([0, 0, wide.width_tiles(), wide.height_tiles()]);
         let root_node = render_graph.add_node(RenderNodeKind::RootLayer {
             layer_id: 0,
             wtile_bbox,
@@ -177,9 +177,11 @@ impl SingleThreadedDispatcher {
                     wtile_bbox,
                 } => {
                     // Allocate intermediate buffer for this filtered layer.
-                    let bbox_width = wtile_bbox.width();
-                    let bbox_height = wtile_bbox.height();
+                    let bbox_width = wtile_bbox.width_px();
+                    let bbox_height = wtile_bbox.height_px();
                     let mut pixmap = Pixmap::new(bbox_width, bbox_height);
+                    // TODO: Re-use this allocation by adding a .configure() or similar method
+                    // to avoid allocating the internal Vec<Region> on every filtered layer.
                     let mut regions =
                         Regions::new(bbox_width, bbox_height, pixmap.data_as_u8_slice_mut());
 
@@ -199,7 +201,7 @@ impl SingleThreadedDispatcher {
                             encoded_paints,
                         );
 
-                        assert_eq!(
+                        debug_assert_eq!(
                             fine.blend_buf.len(),
                             1,
                             "blend buffer should contain exactly one layer after tile processing"
@@ -233,7 +235,7 @@ impl SingleThreadedDispatcher {
                             encoded_paints,
                         );
 
-                        assert_eq!(
+                        debug_assert_eq!(
                             fine.blend_buf.len(),
                             1,
                             "blend buffer should contain exactly one layer after tile processing"
@@ -276,36 +278,36 @@ impl SingleThreadedDispatcher {
         fine.clear(clear_color);
 
         // Process all commands in this layer's render range.
-        if let Some(ranges) = wtile.layer_cmd_ranges.get(&layer_id) {
-            let mut cmd_idx = ranges.render_range.start;
-            while cmd_idx < ranges.render_range.end {
-                let cmd = &wtile.cmds[cmd_idx];
-                fine.run_cmd(cmd, &self.strip_storage.alphas, encoded_paints);
+        // Invariant: tiles within a layer's bbox must have commands for that layer.
+        let ranges = wtile.layer_cmd_ranges.get(&layer_id).unwrap();
 
-                // Special handling for filtered layer composition.
-                if let Cmd::PushBuf(LayerKind::Filtered(filtered_layer_id)) = cmd {
-                    // Check if the next command is a clip for this filtered layer.
-                    let next_cmd = &wtile.cmds[cmd_idx + 1];
-                    if let Cmd::PushBuf(LayerKind::Clip(_)) = next_cmd {
-                        fine.run_cmd(next_cmd, &self.strip_storage.alphas, encoded_paints);
-                        cmd_idx += 1;
-                    }
+        let mut cmd_idx = ranges.render_range.start;
+        while cmd_idx < ranges.render_range.end {
+            let cmd = &wtile.cmds[cmd_idx];
+            fine.run_cmd(cmd, &self.strip_storage.alphas, encoded_paints);
 
-                    // Composite the filtered layer's content from the layer manager.
-                    if let Some(mut region) =
-                        layer_manager.layer_tile_region_mut(*filtered_layer_id, x, y)
-                    {
-                        fine.unpack(&mut region);
-                    }
-
-                    // Skip past the filtered layer's internal commands.
-                    // (they were already rendered when the FilterLayer node was processed).
-                    if let Some(filtered_ranges) = wtile.layer_cmd_ranges.get(filtered_layer_id) {
-                        cmd_idx = filtered_ranges.render_range.end.max(cmd_idx + 1);
-                    }
-                } else {
+            // Special handling for filtered layer composition.
+            if let Cmd::PushBuf(LayerKind::Filtered(child_layer_id)) = cmd {
+                // Check if the next command is a clip for this filtered layer.
+                let next_cmd = &wtile.cmds[cmd_idx + 1];
+                if let Cmd::PushBuf(LayerKind::Clip(_)) = next_cmd {
+                    fine.run_cmd(next_cmd, &self.strip_storage.alphas, encoded_paints);
                     cmd_idx += 1;
                 }
+
+                // Composite the filtered layer's content from the layer manager.
+                if let Some(mut region) = layer_manager.layer_tile_region_mut(*child_layer_id, x, y)
+                {
+                    fine.unpack(&mut region);
+                }
+
+                // Skip past the filtered layer's internal commands.
+                // (they were already rendered when the FilterLayer node was processed).
+                // Invariant: PushBuf(Filtered) command must have corresponding layer_cmd_ranges entry.
+                let filtered_ranges = wtile.layer_cmd_ranges.get(child_layer_id).unwrap();
+                cmd_idx = filtered_ranges.render_range.end.max(cmd_idx + 1);
+            } else {
+                cmd_idx += 1;
             }
         }
     }
@@ -458,14 +460,19 @@ impl Dispatcher for SingleThreadedDispatcher {
         self.clip_context.reset();
         self.strip_generator.reset();
         self.strip_storage.clear();
-        self.render_graph = RenderGraph::new();
+        self.render_graph.clear();
 
         // Recreate root node as node 0 (required for proper execution order).
         let root_node = self.render_graph.add_node(RenderNodeKind::RootLayer {
             layer_id: 0,
-            wtile_bbox: Bbox::new([0, 0, self.wide.width_tiles(), self.wide.height_tiles()]),
+            wtile_bbox: WideTilesBbox::new([
+                0,
+                0,
+                self.wide.width_tiles(),
+                self.wide.height_tiles(),
+            ]),
         });
-        assert_eq!(root_node, 0, "Root node must be node 0");
+        debug_assert_eq!(root_node, 0, "Root node must be node 0");
 
         // Reset layer ID counter.
         self.layer_id_next = 0;

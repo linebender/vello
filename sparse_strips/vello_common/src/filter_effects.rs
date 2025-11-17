@@ -50,10 +50,11 @@
 
 use crate::color::{AlphaColor, Srgb};
 use crate::kurbo::Rect;
-use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
+use smallvec::SmallVec;
 
 /// The main filter system.
 ///
@@ -62,7 +63,7 @@ use peniko::kurbo::common::FloatFuncs as _;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Filter {
     /// Filter graph defining the effect pipeline.
-    pub graph: FilterGraph,
+    pub graph: Arc<FilterGraph>,
     /// Optional bounds restricting where the filter applies.
     /// If `None`, the filter applies to the entire filtered element.
     pub bounds: Option<Rect>,
@@ -74,8 +75,6 @@ impl Filter {
     /// Converts a high-level CSS-style filter function into a filter graph.
     /// Use this for simple effects like blur, brightness, etc.
     pub fn from_function(function: FilterFunction) -> Self {
-        let mut graph = FilterGraph::new();
-
         // Convert function to primitive
         let primitive = match function {
             FilterFunction::Blur { radius } => FilterPrimitive::GaussianBlur {
@@ -85,13 +84,7 @@ impl Filter {
             _ => unimplemented!("Filter function {:?} not supported", function),
         };
 
-        let filter_id = graph.add(primitive, None);
-        graph.set_output(filter_id);
-
-        Self {
-            graph,
-            bounds: None,
-        }
+        Self::from_primitive(primitive)
     }
 
     /// Create a filter system from a filter primitive.
@@ -104,7 +97,7 @@ impl Filter {
         graph.set_output(filter_id);
 
         Self {
-            graph,
+            graph: Arc::new(graph),
             bounds: None,
         }
     }
@@ -142,6 +135,7 @@ pub struct BoundsExpansion {
 
 impl BoundsExpansion {
     /// Create a zero expansion (no change).
+    #[inline]
     pub const fn zero() -> Self {
         Self {
             left: 0,
@@ -152,6 +146,7 @@ impl BoundsExpansion {
     }
 
     /// Create a uniform expansion in all directions.
+    #[inline]
     pub fn uniform(radius: u16) -> Self {
         Self {
             left: radius,
@@ -163,6 +158,7 @@ impl BoundsExpansion {
 
     /// Combine two expansions by taking the maximum in each direction.
     /// Used when composing multiple filters.
+    #[inline]
     pub fn max(&self, other: &Self) -> Self {
         Self {
             left: self.left.max(other.left),
@@ -180,14 +176,11 @@ impl BoundsExpansion {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FilterGraph {
     /// All filter primitives in the graph, stored in insertion order.
-    pub primitives: Vec<FilterPrimitive>,
-    /// Connections between filter primitives, mapping each filter to its inputs.
-    /// If a filter is not in this map, it implicitly uses `SourceGraphic` as input.
-    pub connections: BTreeMap<FilterId, FilterInputs>,
+    pub primitives: SmallVec<[FilterPrimitive; 1]>,
     /// The final output filter ID whose result is the output of this graph.
     pub output: FilterId,
     /// Next available filter ID (monotonically increasing counter).
-    next_id: u32,
+    next_id: u16,
     /// Accumulated bounds expansion from all primitives in the graph.
     /// This is the maximum expansion needed by any primitive, updated
     /// incrementally as primitives are added.
@@ -204,8 +197,7 @@ impl FilterGraph {
     /// Create a new empty filter graph.
     pub fn new() -> Self {
         Self {
-            primitives: Vec::new(),
-            connections: BTreeMap::new(),
+            primitives: SmallVec::new(),
             output: FilterId(0),
             next_id: 0,
             expansion: BoundsExpansion::zero(),
@@ -216,7 +208,7 @@ impl FilterGraph {
     ///
     /// Returns a `FilterId` that can be referenced by other primitives.
     /// Automatically updates the accumulated bounds expansion based on the primitive's requirements.
-    pub fn add(&mut self, primitive: FilterPrimitive, inputs: Option<FilterInputs>) -> FilterId {
+    pub fn add(&mut self, primitive: FilterPrimitive, _inputs: Option<FilterInputs>) -> FilterId {
         let id = FilterId(self.next_id);
         self.next_id += 1;
 
@@ -225,10 +217,6 @@ impl FilterGraph {
         self.expansion = self.expansion.max(&primitive_expansion);
 
         self.primitives.push(primitive);
-
-        if let Some(inputs) = inputs {
-            self.connections.insert(id, inputs);
-        }
 
         id
     }
@@ -286,9 +274,11 @@ pub enum FilterFunction {
         /// approximately 3 times this value in each direction.
         radius: f32,
     },
+    //
     // ============================================================
     // TODO: The following filter functions are not yet implemented
     // ============================================================
+    //
     /// Brightness adjustment.
     ///
     /// Adjusts the brightness of the input image using a linear multiplier.
@@ -446,9 +436,11 @@ pub enum FilterPrimitive {
         /// Default is `EdgeMode::None` per SVG spec.
         edge_mode: EdgeMode,
     },
+    //
     // ============================================================
     // TODO: The following filter primitives are not yet implemented
     // ============================================================
+    //
     /// Matrix-based color transformation.
     ///
     /// Applies a 4x5 matrix transformation to colors, allowing arbitrary
@@ -628,7 +620,7 @@ impl FilterPrimitive {
 
 /// Unique identifier for a filter primitive in the graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FilterId(pub u32);
+pub struct FilterId(pub u16);
 
 /// Input connections for a filter primitive.
 #[derive(Debug, Clone, PartialEq)]

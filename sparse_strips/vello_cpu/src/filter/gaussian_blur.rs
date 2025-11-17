@@ -84,20 +84,7 @@ impl FilterEffect for GaussianBlur {
     fn execute_highp(&self, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
         // TODO: Currently only lowp is implemented and used for highp as well.
         // This needs to be updated to use proper high-precision arithmetic.
-
-        // No blur if std_deviation is zero or negative
-        if self.std_deviation <= 0.0 {
-            return;
-        }
-
-        let scratch = layer_manager.get_scratch_buffer(pixmap.width(), pixmap.height());
-        apply_blur(
-            pixmap,
-            scratch,
-            self.n_decimations,
-            &self.kernel[..self.kernel_size],
-            self.edge_mode,
-        );
+        Self::execute_lowp(self, pixmap, layer_manager);
     }
 }
 

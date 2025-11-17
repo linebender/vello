@@ -70,42 +70,16 @@ pub trait Numeric: Copy + Default + Clone + Debug + PartialEq + Send + Sync + 's
 
     /// The maximum opacity value for this numeric type (1.0 for f32, 255 for u8).
     const ONE: Self;
-
-    /// Convert to f32 for intermediate calculations.
-    fn to_f32(self) -> f32;
-
-    /// Convert from f32, clamping to the valid range for this type.
-    fn from_f32(val: f32) -> Self;
 }
 
 impl Numeric for f32 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
-
-    #[inline(always)]
-    fn to_f32(self) -> f32 {
-        self
-    }
-
-    #[inline(always)]
-    fn from_f32(val: f32) -> Self {
-        val
-    }
 }
 
 impl Numeric for u8 {
     const ZERO: Self = 0;
     const ONE: Self = 255;
-
-    #[inline(always)]
-    fn to_f32(self) -> f32 {
-        self as f32
-    }
-
-    #[inline(always)]
-    fn from_f32(val: f32) -> Self {
-        val.round().clamp(0.0, 255.0) as Self
-    }
 }
 
 /// Trait for SIMD vector types that can convert between f32 and u8 representations.

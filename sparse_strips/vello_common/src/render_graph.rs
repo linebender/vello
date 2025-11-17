@@ -51,11 +51,11 @@
 //! infrastructure could potentially be extended to handle the internal DAG structure within
 //! individual filter effects, not just layer-to-layer dependencies.
 
-use crate::coarse::Bbox;
+use crate::coarse::WideTilesBbox;
 use crate::filter_effects::Filter;
-use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
+use hashbrown::HashMap;
 
 /// A render graph containing nodes and edges representing the rendering pipeline.
 ///
@@ -76,6 +76,9 @@ pub struct RenderGraph {
     /// The root layer node ID, tracked separately since it's never popped.
     /// This is appended to the execution order when iterating.
     root_node: Option<NodeId>,
+    /// Flag indicating whether the graph contains any filter layers.
+    /// Set to true when a `FilterLayer` node is added.
+    has_filters: bool,
 }
 
 /// The type of dependency between nodes.
@@ -109,7 +112,25 @@ impl RenderGraph {
             next_node_id: 0,
             node_execution_order: Vec::new(),
             root_node: None,
+            has_filters: false,
         }
+    }
+
+    /// Clears the render graph state while preserving allocated capacity.
+    ///
+    /// This resets the graph to an empty state (equivalent to [`new`](Self::new))
+    /// but reuses the existing memory allocations, avoiding the need to reallocate
+    /// when building a new scene.
+    ///
+    /// After calling `clear()`, the graph will have no nodes or edges, and counters
+    /// will be reset to their initial state.
+    pub fn clear(&mut self) {
+        self.nodes.clear();
+        self.edges.clear();
+        self.next_node_id = 0;
+        self.node_execution_order.clear();
+        self.root_node = None;
+        self.has_filters = false;
     }
 
     /// Add a node to the graph and return its ID.
@@ -123,6 +144,11 @@ impl RenderGraph {
         // Track root node separately since it's never popped and executes last
         if matches!(kind, RenderNodeKind::RootLayer { .. }) {
             self.root_node = Some(id);
+        }
+
+        // Track if we have any filters to avoid scanning nodes later
+        if matches!(kind, RenderNodeKind::FilterLayer { .. }) {
+            self.has_filters = true;
         }
 
         self.nodes.push(RenderNode { id, kind });
@@ -162,10 +188,10 @@ impl RenderGraph {
     /// Returns `true` if any layers have filter effects that need processing.
     /// This is useful for determining whether to use the multi-pass rendering
     /// pipeline (with filter support) or a simpler single-pass approach.
+    ///
+    /// This is set when filter nodes are added.
     pub fn has_filters(&self) -> bool {
-        self.nodes
-            .iter()
-            .any(|node| matches!(node.kind, RenderNodeKind::FilterLayer { .. }))
+        self.has_filters
     }
 
     /// Get an iterator over nodes in execution order.
@@ -194,12 +220,16 @@ impl RenderGraph {
     /// # Panics
     ///
     /// Panics if the graph contains a cycle, which should never happen in a valid render graph.
+    #[allow(
+        dead_code,
+        reason = "we don't use currently topological sort but will in the future"
+    )]
     pub fn topological_sort(&self) -> Vec<NodeId> {
         // Track how many incoming edges each node has (dependencies it's waiting for)
         let mut in_degree = vec![0; self.nodes.len()];
 
         // Map each node to its dependents (nodes that depend on it)
-        let mut adj_list: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
+        let mut adj_list: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
 
         // Build adjacency list and count incoming edges for each node
         for edge in &self.edges {
@@ -276,7 +306,7 @@ pub enum RenderNodeKind {
         /// ID of the root layer.
         layer_id: LayerId,
         /// Bounding box in wide tile coordinates covered by this layer.
-        wtile_bbox: Bbox,
+        wtile_bbox: WideTilesBbox,
     },
     /// A layer with filter effects applied.
     ///
@@ -289,7 +319,7 @@ pub enum RenderNodeKind {
         /// The filter effect to apply.
         filter: Filter,
         /// Bounding box in wide tile coordinates containing geometry for this layer.
-        wtile_bbox: Bbox,
+        wtile_bbox: WideTilesBbox,
     },
 }
 

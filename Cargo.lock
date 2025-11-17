@@ -3891,6 +3891,7 @@ version = "0.0.4"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
+ "hashbrown 0.15.5",
  "ordered-channel",
  "rayon",
  "thread_local",

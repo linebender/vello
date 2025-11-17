@@ -313,7 +313,8 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
     let overlap = 2.;
     let between = 6.;
 
-    // Test 1
+    // Test 1: Gaussian blur and drop shadow filters both applied at depth 3 within nested layers.
+    // Tests that multiple different filters work correctly when deeply nested in layer hierarchy.
     let mut x = 4.;
     let mut y = 4.;
     let mut left = x;
@@ -357,7 +358,8 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
         ctx.pop_layer();
     }
 
-    // Test 2
+    // Test 2: Drop shadow filter at depth 0, gaussian blur at depth 1, followed by nested layers.
+    // Tests multiple filters at different depths with mixed layer types.
     x += spacing;
     left = x;
     top = y;
@@ -400,7 +402,8 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
         ctx.pop_layer();
     }
 
-    // Test 3
+    // Test 3: Gaussian blur filter at depth 0 with deeply nested plain layers inside.
+    // Tests that filter applied to outermost layer correctly affects all nested content.
     x += spacing;
     left = x;
     top = y;
@@ -443,7 +446,8 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
         ctx.pop_layer();
     }
 
-    // Test 4
+    // Test 4: Drop shadow filter with circular clip path.
+    // Tests filter interaction with clipping (circular mask).
     x = 4.;
     y += spacing;
     left = x;
@@ -494,7 +498,8 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
         ctx.pop_layer();
     }
 
-    // Test 5
+    // Test 5: Drop shadow filter with quadrilateral clip path.
+    // Tests filter interaction with clipping (complex polygon mask).
     x += spacing;
     left = x;
     top = y;
@@ -549,7 +554,8 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
         ctx.pop_layer();
     }
 
-    // Test 6
+    // Test 6: Gaussian blur filter with circular clip path.
+    // Tests gaussian blur interaction with clipping (different filter type than Test 4).
     x += spacing;
     left = x;
     top = y;
@@ -599,7 +605,8 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
         ctx.pop_layer();
     }
 
-    // Test 7
+    // Test 7: Filters nested within layer with opacity (0.5).
+    // Tests that filters correctly interact with opacity settings.
     x = 4.;
     y += spacing;
     left = x;
@@ -645,7 +652,8 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
         ctx.pop_layer();
     }
 
-    // Test 8
+    // Test 8: Gaussian blur filter with DestOut blend mode.
+    // Tests filter interaction with non-standard blend modes.
     x += spacing;
     left = x;
     top = y;
@@ -694,7 +702,8 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
         ctx.pop_layer();
     }
 
-    // Test 9
+    // Test 9: Five levels of nested gaussian blur filters.
+    // Tests deeply nested filter layers and their cumulative effect.
     x += spacing;
     left = x;
     top = y;

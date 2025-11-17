@@ -57,35 +57,37 @@ pub(crate) trait FilterEffect {
 /// Currently only supports filter graphs with a single primitive.
 /// Multi-primitive filter graphs are not yet implemented.
 pub(crate) fn filter_lowp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
-    // Currently only single-primitive filters are supported
-    if filter.graph.primitives.len() == 1 {
-        match &filter.graph.primitives[0] {
-            FilterPrimitive::Flood { color } => {
-                let flood = Flood::new(*color);
-                flood.execute_lowp(pixmap, layer_manager);
-            }
-            FilterPrimitive::GaussianBlur {
-                std_deviation,
-                edge_mode,
-            } => {
-                let blur = GaussianBlur::new(*std_deviation, *edge_mode);
-                blur.execute_lowp(pixmap, layer_manager);
-            }
-            FilterPrimitive::DropShadow {
-                dx,
-                dy,
-                std_deviation,
-                color,
-                edge_mode,
-            } => {
-                let drop_shadow = DropShadow::new(*dx, *dy, *std_deviation, *edge_mode, *color);
-                drop_shadow.execute_lowp(pixmap, layer_manager);
-            }
-            _ => {
-                // Other primitives like Blend, ColorMatrix, ComponentTransfer, etc.
-                // are not yet implemented
-                unimplemented!("Other filter primitives not yet implemented");
-            }
+    // Multi-primitive filter graphs are not yet implemented.
+    if filter.graph.primitives.len() != 1 {
+        unimplemented!("Multi-primitive filter graphs are not yet supported");
+    }
+
+    match &filter.graph.primitives[0] {
+        FilterPrimitive::Flood { color } => {
+            let flood = Flood::new(*color);
+            flood.execute_lowp(pixmap, layer_manager);
+        }
+        FilterPrimitive::GaussianBlur {
+            std_deviation,
+            edge_mode,
+        } => {
+            let blur = GaussianBlur::new(*std_deviation, *edge_mode);
+            blur.execute_lowp(pixmap, layer_manager);
+        }
+        FilterPrimitive::DropShadow {
+            dx,
+            dy,
+            std_deviation,
+            color,
+            edge_mode,
+        } => {
+            let drop_shadow = DropShadow::new(*dx, *dy, *std_deviation, *edge_mode, *color);
+            drop_shadow.execute_lowp(pixmap, layer_manager);
+        }
+        _ => {
+            // Other primitives like Blend, ColorMatrix, ComponentTransfer, etc.
+            // are not yet implemented
+            unimplemented!("Other filter primitives not yet implemented");
         }
     }
 }
@@ -104,35 +106,37 @@ pub(crate) fn filter_lowp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: &
 /// Currently only supports filter graphs with a single primitive.
 /// Multi-primitive filter graphs are not yet implemented.
 pub(crate) fn filter_highp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
-    // Currently only single-primitive filters are supported
-    if filter.graph.primitives.len() == 1 {
-        match &filter.graph.primitives[0] {
-            FilterPrimitive::Flood { color } => {
-                let flood = Flood::new(*color);
-                flood.execute_highp(pixmap, layer_manager);
-            }
-            FilterPrimitive::GaussianBlur {
-                std_deviation,
-                edge_mode,
-            } => {
-                let blur = GaussianBlur::new(*std_deviation, *edge_mode);
-                blur.execute_highp(pixmap, layer_manager);
-            }
-            FilterPrimitive::DropShadow {
-                dx,
-                dy,
-                std_deviation,
-                color,
-                edge_mode,
-            } => {
-                let drop_shadow = DropShadow::new(*dx, *dy, *std_deviation, *edge_mode, *color);
-                drop_shadow.execute_highp(pixmap, layer_manager);
-            }
-            _ => {
-                // Other primitives like Blend, ColorMatrix, ComponentTransfer, etc.
-                // are not yet implemented
-                unimplemented!("Other filter primitives not yet implemented");
-            }
+    // Multi-primitive filter graphs are not yet implemented.
+    if filter.graph.primitives.len() != 1 {
+        unimplemented!("Multi-primitive filter graphs are not yet supported");
+    }
+
+    match &filter.graph.primitives[0] {
+        FilterPrimitive::Flood { color } => {
+            let flood = Flood::new(*color);
+            flood.execute_highp(pixmap, layer_manager);
+        }
+        FilterPrimitive::GaussianBlur {
+            std_deviation,
+            edge_mode,
+        } => {
+            let blur = GaussianBlur::new(*std_deviation, *edge_mode);
+            blur.execute_highp(pixmap, layer_manager);
+        }
+        FilterPrimitive::DropShadow {
+            dx,
+            dy,
+            std_deviation,
+            color,
+            edge_mode,
+        } => {
+            let drop_shadow = DropShadow::new(*dx, *dy, *std_deviation, *edge_mode, *color);
+            drop_shadow.execute_highp(pixmap, layer_manager);
+        }
+        _ => {
+            // Other primitives like Blend, ColorMatrix, ComponentTransfer, etc.
+            // are not yet implemented
+            unimplemented!("Other filter primitives not yet implemented");
         }
     }
 }

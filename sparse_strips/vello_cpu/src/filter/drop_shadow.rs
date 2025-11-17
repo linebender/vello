@@ -86,29 +86,16 @@ impl FilterEffect for DropShadow {
     fn execute_highp(&self, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
         // TODO: Currently only lowp is implemented and used for highp as well.
         // This needs to be updated to use proper high-precision arithmetic.
-
-        apply_drop_shadow(
-            pixmap,
-            self.dx,
-            self.dy,
-            self.std_deviation,
-            self.n_decimations,
-            &self.kernel[..self.kernel_size],
-            self.color,
-            self.edge_mode,
-            layer_manager,
-        );
+        Self::execute_lowp(self, pixmap, layer_manager);
     }
 }
 
 /// Apply drop shadow effect.
 ///
 /// This is the main entry point that splits the drop shadow operation into well-defined steps:
-/// 1. Extract alpha (implicit in clone)
-/// 2. Offset the alpha
-/// 3. Blur the offset alpha
-/// 4. Apply shadow color
-/// 5. Composite with original
+/// 1. Offset the shadow pixels
+/// 2. Blur the already-offset shadow
+/// 3. Apply shadow color and composite with original
 fn apply_drop_shadow(
     pixmap: &mut Pixmap,
     dx: f32,

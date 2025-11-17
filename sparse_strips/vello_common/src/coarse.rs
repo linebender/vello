@@ -10,13 +10,15 @@ use crate::paint::{Paint, PremulColor};
 use crate::peniko::{BlendMode, Compose, Mix};
 use crate::render_graph::{DependencyKind, LayerId, RenderGraph, RenderNodeKind};
 use crate::{strip::Strip, tile::Tile};
-use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::{boxed::Box, vec::Vec};
 use core::ops::Range;
+use hashbrown::HashMap;
 
 #[derive(Debug)]
 struct Layer {
+    /// The layer's ID.
+    layer_id: LayerId,
     /// Whether the layer has a clip associated with it.
     clip: bool,
     /// The blend mode with which this layer should be blended into
@@ -30,11 +32,9 @@ struct Layer {
     mask: Option<Mask>,
     /// A filter effect to apply to the layer before other operations.
     filter: Option<Filter>,
-    /// The layer Id of the layer.
-    layer_id: LayerId,
     /// Bounding box of wide tiles containing geometry.
     /// Starts with inverted bounds, shrinks to actual content during drawing.
-    wtile_bbox: Bbox,
+    wtile_bbox: WideTilesBbox,
 }
 
 impl Layer {
@@ -80,7 +80,7 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
 #[derive(Debug)]
 struct Clip {
     /// The intersected bounding box after clip
-    pub clip_bbox: Bbox,
+    pub clip_bbox: WideTilesBbox,
     /// The rendered path in sparse strip representation
     pub strips: Box<[Strip]>,
     #[cfg(feature = "multithreading")]
@@ -92,81 +92,82 @@ struct Clip {
 /// The coordinates are stored as `[x0, y0, x1, y1]` in wide tile coordinates,
 /// where `(x0, y0)` is the top-left corner and `(x1, y1)` is the bottom-right corner.
 #[derive(Debug, Clone, Copy)]
-pub struct Bbox {
+pub struct WideTilesBbox {
     /// The bounding box coordinates.
     pub bbox: [u16; 4],
 }
 
-impl Bbox {
+impl WideTilesBbox {
     /// Create a new bounding box.
     pub fn new(bbox: [u16; 4]) -> Self {
         Self { bbox }
     }
 
     /// Get the x0 coordinate of the bounding box.
-    #[inline]
+    #[inline(always)]
     pub fn x0(&self) -> u16 {
         self.bbox[0]
     }
 
     /// Get the y0 coordinate of the bounding box.
-    #[inline]
+    #[inline(always)]
     pub fn y0(&self) -> u16 {
         self.bbox[1]
     }
 
     /// Get the x1 coordinate of the bounding box.
-    #[inline]
+    #[inline(always)]
     pub fn x1(&self) -> u16 {
         self.bbox[2]
     }
 
     /// Get the y1 coordinate of the bounding box.
-    #[inline]
+    #[inline(always)]
     pub fn y1(&self) -> u16 {
         self.bbox[3]
     }
 
     /// Get the width of the bounding box (x1 - x0).
-    #[inline]
+    #[inline(always)]
     pub fn width_tiles(&self) -> u16 {
         self.x1().saturating_sub(self.x0())
     }
 
     /// Get the width of the bounding box in pixels.
-    #[inline]
-    pub fn width(&self) -> u16 {
+    #[inline(always)]
+    pub fn width_px(&self) -> u16 {
         self.width_tiles() * WideTile::WIDTH
     }
 
     /// Get the height of the bounding box (y1 - y0).
-    #[inline]
+    #[inline(always)]
     pub fn height_tiles(&self) -> u16 {
         self.y1().saturating_sub(self.y0())
     }
 
     /// Get the height of the bounding box in pixels.
-    #[inline]
-    pub fn height(&self) -> u16 {
+    #[inline(always)]
+    pub fn height_px(&self) -> u16 {
         self.height_tiles() * Tile::HEIGHT
     }
 
     /// Check if a point (x, y) is contained within this bounding box.
     ///
     /// Returns `true` if x0 <= x < x1 and y0 <= y < y1.
-    #[inline]
+    #[inline(always)]
     pub fn contains(&self, x: u16, y: u16) -> bool {
-        x >= self.x0() && x < self.x1() && y >= self.y0() && y < self.y1()
+        let [x0, y0, x1, y1] = self.bbox;
+        (x >= x0) & (x < x1) & (y >= y0) & (y < y1)
     }
 
     /// Create an empty bounding box (zero area).
-    #[inline]
+    #[inline(always)]
     pub(crate) fn empty() -> Self {
         Self::new([0, 0, 0, 0])
     }
 
     /// Calculate the intersection of this bounding box with another.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn intersect(self, other: Self) -> Self {
         Self::new([
             self.x0().max(other.x0()),
@@ -177,8 +178,8 @@ impl Bbox {
     }
 
     /// Update this bounding box to include another bounding box (union in place).
-    #[inline]
-    pub(crate) fn include_bbox(&mut self, other: Self) {
+    #[inline(always)]
+    pub(crate) fn union(&mut self, other: Self) {
         if !other.is_inverted() {
             if self.is_inverted() {
                 // If self is empty, just copy other
@@ -194,19 +195,19 @@ impl Bbox {
     }
 
     /// Create an inverted bounding box for incremental updates.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn inverted() -> Self {
         Self::new([u16::MAX, u16::MAX, 0, 0])
     }
 
     /// Check if the bbox is still in its inverted state (no updates yet).
-    #[inline]
+    #[inline(always)]
     pub(crate) fn is_inverted(self) -> bool {
-        self.bbox[0] == u16::MAX
+        self.bbox[0] == u16::MAX && self.bbox[1] == u16::MAX
     }
 
     /// Update the bbox to include the given tile coordinates.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn include_tile(&mut self, wtile_x: u16, wtile_y: u16) {
         self.bbox[0] = self.bbox[0].min(wtile_x);
         self.bbox[1] = self.bbox[1].min(wtile_y);
@@ -218,7 +219,7 @@ impl Bbox {
     ///
     /// Multiplies each coordinate by the corresponding scale factor to convert
     /// from one coordinate system to another.
-    #[inline]
+    #[inline(always)]
     pub fn scale(&self, scale_x: u16, scale_y: u16) -> [u32; 4] {
         [
             u32::from(self.x0()) * u32::from(scale_x),
@@ -308,11 +309,11 @@ impl<const MODE: u8> Wide<MODE> {
         for tile in &mut self.tiles {
             tile.bg = PremulColor::from_alpha_color(TRANSPARENT);
             tile.cmds.clear();
-            tile.layer_ids.resize(1, LayerKind::Regular(0));
+            tile.layer_ids.truncate(1);
         }
         self.layer_stack.clear();
         self.clip_stack.clear();
-        self.filter_node_stack.resize(1, 0);
+        self.filter_node_stack.truncate(1);
     }
 
     /// Return the number of horizontal tiles.
@@ -356,8 +357,9 @@ impl<const MODE: u8> Wide<MODE> {
     }
 
     /// Get the current layer Id.
+    #[inline(always)]
     pub fn get_current_layer_id(&self) -> LayerId {
-        self.layer_stack.last().map(|l| l.layer_id).unwrap_or(0)
+        self.layer_stack.last().map_or(0, |l| l.layer_id)
     }
 
     /// Update the bounding box of the current layer to include the given tile.
@@ -559,7 +561,7 @@ impl<const MODE: u8> Wide<MODE> {
                 layer_id,
                 filter: filter.clone(),
                 // Bounding box starts inverted and will be updated in pop_layer with actual bounds
-                wtile_bbox: Bbox::inverted(),
+                wtile_bbox: WideTilesBbox::inverted(),
             });
 
             // Connect to parent node if there is one
@@ -575,8 +577,11 @@ impl<const MODE: u8> Wide<MODE> {
             self.filter_node_stack.push(child_node);
         }
 
-        // Determine layer kind before moving filter
-        let has_filter = filter.is_some();
+        let layer_kind = if filter.is_some() {
+            LayerKind::Filtered(layer_id)
+        } else {
+            LayerKind::Regular(layer_id)
+        };
 
         let layer = Layer {
             layer_id,
@@ -585,20 +590,20 @@ impl<const MODE: u8> Wide<MODE> {
             opacity,
             mask,
             filter,
-            wtile_bbox: Bbox::inverted(),
+            wtile_bbox: WideTilesBbox::inverted(),
         };
 
-        let needs_buf = layer.needs_buf();
-
-        // Determine layer kind based on whether it has a filter
-        let layer_kind = if has_filter {
-            LayerKind::Filtered(layer_id)
-        } else {
-            LayerKind::Regular(layer_id)
-        };
-
-        // In case we do blending, masking or opacity, push one buffer per wide tile.
-        if needs_buf {
+        // In case we do blending, masking, opacity, or filtering, push one buffer per wide tile.
+        //
+        // Layers require buffers for different reasons:
+        // - Blending, opacity, and masking: Need to composite results with the backdrop
+        // - Filtering: Content must be rendered to a buffer before applying filter effects
+        //
+        // The layer_kind parameter distinguishes how buffers are managed:
+        // - Regular layers use the local blend_buf stack
+        // - Filtered layers are materialized in persistent layer storage for filter processing
+        // - Clip layers have special handling for clipping operations
+        if layer.needs_buf() {
             for x in 0..self.width_tiles() {
                 for y in 0..self.height_tiles() {
                     self.get_mut(x, y).push_buf(layer_kind);
@@ -619,12 +624,18 @@ impl<const MODE: u8> Wide<MODE> {
 
     /// Pop a previously pushed layer.
     ///
-    /// If `graph` is Some, completes render graph nodes for filter effects.
+    /// This method finalizes the layer by:
+    /// - Expanding the bounding box if filter effects are present
+    /// - Updating the parent layer's bounding box to include this layer's bounds
+    /// - Completing render graph nodes for filter effects
+    /// - Generating filter commands for each tile
+    /// - Popping any associated clip
+    /// - Applying mask, opacity, and blend mode operations if needed
     pub fn pop_layer(&mut self, render_graph: &mut RenderGraph) {
         // This method basically unwinds everything we did in `push_layer`.
         let mut layer = self.layer_stack.pop().unwrap();
 
-        if let Some(filter) = &layer.filter {
+        if let Some(filter) = layer.filter.clone() {
             let expansion = filter.bounds_expansion();
             let expanded_bbox = layer.wtile_bbox.expand_by_pixels(
                 expansion.left,
@@ -636,38 +647,33 @@ impl<const MODE: u8> Wide<MODE> {
             );
             let clip_bbox = self.get_bbox();
             layer.wtile_bbox = expanded_bbox.intersect(clip_bbox);
+
+            // Update render graph node with final bounding box
+            if let Some(node_id) = self.filter_node_stack.pop() {
+                // Update the render graph node with this layer's bbox
+                if let Some(node) = render_graph.nodes.get_mut(node_id)
+                    && let RenderNodeKind::FilterLayer { wtile_bbox, .. } = &mut node.kind
+                {
+                    *wtile_bbox = layer.wtile_bbox;
+                }
+                // Record this node in execution order (children before parents)
+                render_graph.record_node_for_execution(node_id);
+            }
+
+            // Generate filter commands for each tile (used for non-graph path rendering)
+            // Apply filter BEFORE clipping (per SVG spec: filter → clip → mask → opacity → blend)
+            for x in 0..self.width_tiles() {
+                for y in 0..self.height_tiles() {
+                    self.get_mut(x, y).filter(layer.layer_id, filter.clone());
+                }
+            }
         }
 
         // Union this layer's bbox into the parent layer's bbox.
         // This ensures the parent knows about all tiles used by this child layer,
         // which is important for filter effects that may expand beyond the original content bounds.
         if let Some(parent_layer) = self.layer_stack.last_mut() {
-            parent_layer.wtile_bbox.include_bbox(layer.wtile_bbox);
-        }
-
-        // Update render graph node with final bounding box
-        if layer.filter.is_some()
-            && let Some(node_id) = self.filter_node_stack.pop()
-        {
-            // Update the render graph node with this layer's bbox
-            if let Some(node) = render_graph.nodes.get_mut(node_id)
-                && let RenderNodeKind::FilterLayer { wtile_bbox, .. } = &mut node.kind
-            {
-                *wtile_bbox = layer.wtile_bbox;
-            }
-            // Record this node in execution order (children before parents)
-            render_graph.record_node_for_execution(node_id);
-        }
-
-        // Generate filter commands for each tile (used for non-graph path rendering)
-        // Apply filter BEFORE clipping (per SVG spec: filter → clip → mask → opacity → blend)
-        if let Some(filter) = layer.filter.clone() {
-            let layer_id = layer.layer_id;
-            for x in 0..self.width_tiles() {
-                for y in 0..self.height_tiles() {
-                    self.get_mut(x, y).filter(layer_id, filter.clone());
-                }
-            }
+            parent_layer.wtile_bbox.union(layer.wtile_bbox);
         }
 
         if layer.clip {
@@ -715,7 +721,7 @@ impl<const MODE: u8> Wide<MODE> {
 
         // Calculate the bounding box of the clip path in strip coordinates
         let path_bbox = if n_strips <= 1 {
-            Bbox::empty()
+            WideTilesBbox::empty()
         } else {
             // Calculate the y range from first to last strip in wide tile coordinates
             let wtile_y0 = strips[0].strip_y();
@@ -733,7 +739,7 @@ impl<const MODE: u8> Wide<MODE> {
                 wtile_x0 = wtile_x0.min(x / WideTile::WIDTH);
                 wtile_x1 = wtile_x1.max((x + width).div_ceil(WideTile::WIDTH));
             }
-            Bbox::new([wtile_x0, wtile_y0, wtile_x1, wtile_y1])
+            WideTilesBbox::new([wtile_x0, wtile_y0, wtile_x1, wtile_y1])
         };
 
         let parent_bbox = self.get_bbox();
@@ -822,12 +828,12 @@ impl<const MODE: u8> Wide<MODE> {
     }
 
     /// Get the bounding box of the current clip region or the entire viewport if no clip regions are active.
-    fn get_bbox(&self) -> Bbox {
+    fn get_bbox(&self) -> WideTilesBbox {
         if let Some(top) = self.clip_stack.last() {
             top.clip_bbox
         } else {
             // Convert pixel dimensions to wide tile coordinates
-            Bbox::new([0, 0, self.width_tiles(), self.height_tiles()])
+            WideTilesBbox::new([0, 0, self.width_tiles(), self.height_tiles()])
         }
     }
 
@@ -1056,7 +1062,7 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     /// The number of pushed buffers.
     pub n_bufs: usize,
     /// Maps layer Id to command ranges for this tile.
-    pub layer_cmd_ranges: BTreeMap<LayerId, LayerCommandRanges>,
+    pub layer_cmd_ranges: HashMap<LayerId, LayerCommandRanges>,
     /// Vector of layer IDs this tile participates in.
     pub layer_ids: Vec<LayerKind>,
 }
@@ -1085,7 +1091,7 @@ impl WideTile<MODE_HYBRID> {
 impl<const MODE: u8> WideTile<MODE> {
     /// Create a new wide tile.
     fn new_internal(x: u16, y: u16) -> Self {
-        let mut layer_cmd_ranges = BTreeMap::new();
+        let mut layer_cmd_ranges = HashMap::new();
         layer_cmd_ranges.insert(0, LayerCommandRanges::default());
         Self {
             x,
@@ -1241,12 +1247,14 @@ impl<const MODE: u8> WideTile<MODE> {
                 top_layer,
                 LayerCommandRanges {
                     full_range: self.cmds.len()..self.cmds.len() + 1,
+                    // Start with empty render_range; will be updated by `record_fill_cmd` and `pop_buf`.
                     render_range: self.cmds.len() + 1..self.cmds.len() + 1,
                 },
             );
         } else if matches!(layer_kind, LayerKind::Clip(_)) {
             self.layer_cmd_ranges.entry(top_layer).and_modify(|ranges| {
                 ranges.full_range.end = self.cmds.len() + 1;
+                // Start with empty render_range; will be updated by `record_fill_cmd` and `pop_buf`.
                 ranges.render_range = self.cmds.len() + 1..self.cmds.len() + 1;
             });
         }
@@ -1339,13 +1347,6 @@ impl LayerKind {
         match self {
             Self::Regular(id) | Self::Filtered(id) | Self::Clip(id) => *id,
         }
-    }
-
-    /// Check if this is a filtered layer.
-    ///
-    /// Returns `true` only for `LayerKind::Filtered` variants.
-    pub fn is_filtered(&self) -> bool {
-        matches!(self, Self::Filtered(_))
     }
 }
 
@@ -1507,6 +1508,7 @@ pub struct LayerCommandRanges {
 
 impl LayerCommandRanges {
     /// Clear the full range and render range.
+    #[inline]
     pub fn clear(&mut self) {
         self.full_range = 0..0;
         self.render_range = 0..0;

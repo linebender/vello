@@ -24,10 +24,9 @@ This release has an [MSRV][] of 1.88.
   - New filter API methods on `RenderContext`:
     - `set_filter_effect()` - Set a filter to be applied to subsequent drawing operations
     - `push_filter_layer()` - Create a new layer with a filter effect
-    - `pop_filter_layer()` - Complete and apply the filter to the current layer
   - `FilterEffect` trait providing both u8 and f32 precision variants for rendering 
   across different backends.
-  - Gaussian Blur filter with configurable standard deviation and edge modes (None, Clamp, Wrap).
+  - Gaussian Blur filter with configurable standard deviation and edge modes (`None`, `Mirror`, `Wrap`, `Duplicate`).
     Uses an optimized decimated blur algorithm with automatic downsampling for performance.
   - Drop Shadow filter with customizable offset, blur radius, and shadow color.
   - Flood filter for solid color fills.
