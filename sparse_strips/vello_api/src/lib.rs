@@ -10,25 +10,42 @@
 
 use core::{
     any::Any,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{self, Ordering},
 };
 
-use alloc::{boxed::Box, sync::Arc};
-use bitflags::bitflags;
+use crate::{
+    prepared::{PreparePaths, PreparedPaths},
+    texture::{Texture, TextureDescriptor},
+};
+use alloc::sync::Arc;
 use peniko::Color;
 
 extern crate alloc;
 
 mod design;
+mod free_list;
+pub mod prepared;
+pub mod texture;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DownloadId(u64);
 
 impl DownloadId {
     pub fn next() -> Self {
-        static DOWNLOAD_IDS: AtomicU64 = AtomicU64::new(0);
-        // Overflow: u64 starting at 0 incremented by 1 at a time, so cannot overflow.
-        Self(DOWNLOAD_IDS.fetch_add(1, Ordering::Relaxed))
+        #[cfg(target_has_atomic = "64")]
+        {
+            // Overflow: u64 starting at 0 incremented by 1 at a time, so cannot overflow.
+            static DOWNLOAD_IDS: atomic::AtomicU64 = atomic::AtomicU64::new(0);
+            Self(DOWNLOAD_IDS.fetch_add(1, Ordering::Relaxed))
+        }
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            // Overflow: We expect running this code on 32-bit targets to be rare enough in practise
+            // that we don't handle overflow.
+            // Overflow could only really happen in practise if you are "racing" two renderers.
+            static DOWNLOAD_IDS: atomic::AtomicU32 = atomic::AtomicU32::new(0);
+            Self(DOWNLOAD_IDS.fetch_add(1, Ordering::Relaxed).into())
+        }
     }
 }
 
@@ -63,12 +80,13 @@ pub trait Renderer {
     type ScenePainter: PaintScene + 'static;
 
     // TODO: Not complete.
-    type PathPreparer: 'static;
+    type PathPreparer: PreparePaths;
 
     /// Create a texture for use in renders with this device.
     ///
     /// Cleanup is handled through `Drop`.
     fn create_texture(descriptor: TextureDescriptor) -> Texture;
+
     // fn create_mask(descriptor: MaskOperation) -> Mask;
     // fn mask_from_scene(from: &Texture, to: &Scene, MaskDescriptor { subset_rect,  });
 
@@ -77,7 +95,15 @@ pub trait Renderer {
 
     fn queue_download(&mut self, texture: &Texture) -> DownloadId;
 
-    fn upload_image(to: &Texture, data: peniko::ImageData) -> Texture;
+    fn directly_upload_image(
+        data: peniko::ImageData,
+        region: Option<(u16, u16, u16, u16)>,
+    ) -> Result<Texture, ()>;
+    fn upload_image(
+        to: &Texture,
+        data: peniko::ImageData,
+        region: Option<(u16, u16, u16, u16)>,
+    ) -> Result<(), ()>;
 
     /// API for efficient glyph rendering.
     // Needs: Shape, Transform, Bounds, Fill or Stroke
@@ -90,7 +116,8 @@ pub trait Renderer {
     // We need to think about how we make it practical to actually get the integer translations,
     // because of "composition".
     fn prepare_paths(&mut self) -> Self::PathPreparer;
-    fn finalise_prepared_paths(&mut self) -> PreparedPaths;
+    fn take_prepared_paths(&mut self, from: PreparedPaths) -> Self::PathPreparer;
+    fn finalise_prepared_paths(&mut self, from: Self::PathPreparer) -> PreparedPaths;
 }
 
 pub trait AnyScenePainter: Any {}
@@ -102,73 +129,4 @@ impl<T: Renderer + Any> AnyRenderer for T {}
 pub trait PaintScene {}
 pub struct ExampleImplementation<'a> {
     val: &'a str,
-}
-
-impl<'a> ExampleImplementation<'a> {
-    pub fn new(/* No Width/Height arguments*/ name: &'a str) -> Self {
-        ExampleImplementation { val: name }
-    }
-
-    pub fn create_texture(descriptor: TextureDescriptor) -> Texture {
-        Texture {
-            value: Arc::new(()),
-            descriptor,
-        }
-    }
-
-    /// Prepare to render to a `Texture`.
-    pub fn prepare_render(to: &Texture, rect: (u16, u16, u16, u16)) -> Result<(), ()> {
-        Ok(())
-    }
-
-    /// Queue the previously prepared render to be rendered in the next.
-    pub fn queue_render(&mut self, to: &Texture) {}
-    pub fn queue_download(&mut self, texture: &Texture) -> DownloadId {
-        DownloadId::next()
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct TextureDescriptor {
-    // TODO: Maybe a better type is `atomicow::CowArc<'static, str>`
-    pub label: Option<&'static str>,
-    pub width: u16,
-    pub height: u16,
-    pub usages: TextureUsages,
-    // TODO: Format? Premultiplication? Hdr? Bitdepth?
-}
-
-pub struct Texture {
-    value: Arc<dyn Any + Send + Sync>,
-    descriptor: TextureDescriptor,
-}
-
-pub struct PreparedPaths {
-    value: Arc<dyn Any + Send + Sync>,
-}
-
-pub trait TextureInnerMarker {}
-
-bitflags! {
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-    pub struct TextureUsages: u32 {
-        /// This texture can be used as the target in a `prepare_render` operation.
-        const RENDER_TARGET = 1 << 0;
-        /// This texture can be the target of an "upload image" operation.
-        const UPLOAD_TARGET = 1 << 1;
-        /// This texture can be the source for a "download" operation.
-        const DOWNLOAD_SRC = 1 << 2;
-        /// This texture (or a subset of it) can be used for painting.
-        const TEXTURE_BINDING = 1 << 3;
-        // TODO: Does this make sense to support/require this?
-        // /// A subset of this texture can be rendered to.
-        // const PARTIAL_RENDER_TARGET = 1<<4;
-
-        /// The usages for an external texture representing a GPU surface.
-        const SURFACE = Self::RENDER_TARGET.bits();
-        /// The usages for an uploaded texture.
-        const UPLOAD = Self::UPLOAD_TARGET.bits() | Self::TEXTURE_BINDING.bits();
-        /// The usages for a texture which we want to queue for download.
-        const DOWNLOAD = Self::RENDER_TARGET.bits() | Self::DOWNLOAD_SRC.bits();
-    }
 }

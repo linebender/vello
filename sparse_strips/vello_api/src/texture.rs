@@ -1,0 +1,61 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+use alloc::sync::Arc;
+use bitflags::bitflags;
+use core::{any::Any, fmt::Debug};
+
+#[derive(Copy, Clone, Debug)]
+pub struct TextureDescriptor {
+    // TODO: Maybe a better type is `atomicow::CowArc<'static, str>`
+    pub label: Option<&'static str>,
+    pub width: u16,
+    pub height: u16,
+    pub usages: TextureUsages,
+    // TODO: Format? Premultiplication? Hdr?
+}
+
+#[derive(Clone, Debug)]
+pub struct Texture {
+    value: Arc<dyn InnerTexture>,
+    // TODO: Is it actually valuable to keep the descriptor around?
+    descriptor: TextureDescriptor,
+}
+
+impl Texture {
+    pub fn create(value: Arc<dyn InnerTexture>, descriptor: TextureDescriptor) -> Self {
+        Self { value, descriptor }
+    }
+    pub fn inner(&self) -> &Arc<dyn InnerTexture> {
+        &self.value
+    }
+    pub fn descriptor(&self) -> &TextureDescriptor {
+        &self.descriptor
+    }
+}
+
+pub trait InnerTexture: Any + Send + Sync + Debug {}
+
+bitflags! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    pub struct TextureUsages: u32 {
+        /// This texture can be used as the target in a `prepare_render` operation.
+        const RENDER_TARGET = 1 << 0;
+        /// This texture can be the target of an "upload image" operation.
+        const UPLOAD_TARGET = 1 << 1;
+        /// This texture can be the source for a "download" operation.
+        const DOWNLOAD_SRC = 1 << 2;
+        /// This texture (or a subset of it) can be used for painting.
+        const TEXTURE_BINDING = 1 << 3;
+        // TODO: Does this make sense to support/require this?
+        // /// A subset of this texture can be rendered to.
+        // const PARTIAL_RENDER_TARGET = 1<<4;
+
+        /// The usages for an external texture representing a GPU surface.
+        const SURFACE = Self::RENDER_TARGET.bits();
+        /// The usages for an uploaded texture.
+        const UPLOAD = Self::UPLOAD_TARGET.bits() | Self::TEXTURE_BINDING.bits();
+        /// The usages for a texture which we want to queue for download.
+        const DOWNLOAD = Self::RENDER_TARGET.bits() | Self::DOWNLOAD_SRC.bits();
+    }
+}
