@@ -16,6 +16,7 @@
 use super::FilterEffect;
 use super::gaussian_blur::{MAX_KERNEL_SIZE, apply_blur, plan_decimated_blur};
 use crate::layer_manager::LayerManager;
+use vello_common::color::palette::css::TRANSPARENT;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter_effects::EdgeMode;
 use vello_common::peniko::color::PremulRgba8;
@@ -29,6 +30,8 @@ pub(crate) struct DropShadow {
     pub color: AlphaColor<Srgb>,
     /// Standard deviation for the blur (for reference/debugging).
     std_deviation: f32,
+    /// Edge mode for blur sampling.
+    edge_mode: EdgeMode,
     /// Number of 2x2 decimation levels to use (0 means direct convolution).
     n_decimations: usize,
     /// Pre-computed Gaussian kernel weights for the reduced blur.
@@ -42,7 +45,13 @@ impl DropShadow {
     /// Create a new drop shadow filter with the specified parameters.
     ///
     /// This precomputes the blur decimation plan and kernel for optimal performance.
-    pub(crate) fn new(dx: f32, dy: f32, std_deviation: f32, color: AlphaColor<Srgb>) -> Self {
+    pub(crate) fn new(
+        dx: f32,
+        dy: f32,
+        std_deviation: f32,
+        edge_mode: EdgeMode,
+        color: AlphaColor<Srgb>,
+    ) -> Self {
         // Precompute blur plan (same logic as GaussianBlur::new)
         let (n_decimations, kernel, kernel_size) = plan_decimated_blur(std_deviation);
 
@@ -51,6 +60,7 @@ impl DropShadow {
             dy,
             color,
             std_deviation,
+            edge_mode,
             n_decimations,
             kernel,
             kernel_size,
@@ -68,6 +78,7 @@ impl FilterEffect for DropShadow {
             self.n_decimations,
             &self.kernel[..self.kernel_size],
             self.color,
+            self.edge_mode,
             layer_manager,
         );
     }
@@ -84,6 +95,7 @@ impl FilterEffect for DropShadow {
             self.n_decimations,
             &self.kernel[..self.kernel_size],
             self.color,
+            self.edge_mode,
             layer_manager,
         );
     }
@@ -91,8 +103,12 @@ impl FilterEffect for DropShadow {
 
 /// Apply drop shadow effect.
 ///
-/// This is the main entry point that splits the drop shadow operation into
-/// well-defined steps following the pattern from `gaussian_blur.rs`.
+/// This is the main entry point that splits the drop shadow operation into well-defined steps:
+/// 1. Extract alpha (implicit in clone)
+/// 2. Offset the alpha
+/// 3. Blur the offset alpha
+/// 4. Apply shadow color
+/// 5. Composite with original
 fn apply_drop_shadow(
     pixmap: &mut Pixmap,
     dx: f32,
@@ -101,12 +117,16 @@ fn apply_drop_shadow(
     n_decimations: usize,
     kernel: &[f32],
     color: AlphaColor<Srgb>,
+    edge_mode: EdgeMode,
     layer_manager: &mut LayerManager,
 ) {
     // Clone pixmap to create shadow buffer
     let mut shadow_pixmap = pixmap.clone();
 
-    // Blur the shadow (without offsetting yet)
+    // Step 1: Offset the shadow pixels
+    offset_pixels(&mut shadow_pixmap, dx, dy);
+
+    // Step 2: Blur the already-offset shadow
     if std_deviation > 0.0 {
         let scratch =
             layer_manager.get_scratch_buffer(shadow_pixmap.width(), shadow_pixmap.height());
@@ -115,40 +135,164 @@ fn apply_drop_shadow(
             scratch,
             n_decimations,
             kernel,
-            EdgeMode::None,
+            edge_mode,
         );
     }
 
-    // Apply offset, shadow color, and composite with original (fused loop)
-    compose_shadow(&shadow_pixmap, pixmap, color, dx, dy);
+    // Step 3: Apply shadow color and composite with original
+    compose_shadow_direct(&shadow_pixmap, pixmap, color);
 }
 
-/// Apply shadow color, offset, and composite with original in a single pass.
+/// Shift all pixels in a pixmap by the given offset.
 ///
-/// This fuses three operations for better performance:
-/// 1. Applies spatial offset to the shadow (via coordinate transformation during sampling)
-/// 2. Applies shadow color to the blurred alpha channel
-/// 3. Composites the colored shadow with the original image
+/// This implements the offset operation in-place by copying pixels to their new positions.
+/// The iteration order is carefully chosen based on shift direction to avoid overwriting
+/// source pixels before they're read. Areas that become exposed (due to the shift) are
+/// filled with transparent black. Pixels that would move outside the bounds are discarded.
+fn offset_pixels(pixmap: &mut Pixmap, dx: f32, dy: f32) {
+    let dx_pixels = dx.round() as i32;
+    let dy_pixels = dy.round() as i32;
+
+    // Early return if no offset
+    if dx_pixels == 0 && dy_pixels == 0 {
+        return;
+    }
+
+    let width = pixmap.width();
+    let height = pixmap.height();
+    let transparent = TRANSPARENT.premultiply().to_rgba8();
+
+    // Process pixels in the correct order to avoid overwriting source data.
+    // Key insight: iterate away from the direction of movement.
+    // This allows us to move pixels in-place without a temporary buffer.
+    //
+    // Use match to eliminate Box<dyn Iterator> allocation overhead and enable
+    // better compiler optimization through static dispatch.
+    match (dx_pixels >= 0, dy_pixels >= 0) {
+        (true, true) => {
+            // Shift right+down: iterate bottom-to-top, right-to-left
+            for y in (0..height).rev() {
+                for x in (0..width).rev() {
+                    process_offset_pixel(
+                        pixmap,
+                        x,
+                        y,
+                        dx_pixels,
+                        dy_pixels,
+                        width,
+                        height,
+                        transparent,
+                    );
+                }
+            }
+        }
+        (true, false) => {
+            // Shift right+up: iterate top-to-bottom, right-to-left
+            for y in 0..height {
+                for x in (0..width).rev() {
+                    process_offset_pixel(
+                        pixmap,
+                        x,
+                        y,
+                        dx_pixels,
+                        dy_pixels,
+                        width,
+                        height,
+                        transparent,
+                    );
+                }
+            }
+        }
+        (false, true) => {
+            // Shift left+down: iterate bottom-to-top, left-to-right
+            for y in (0..height).rev() {
+                for x in 0..width {
+                    process_offset_pixel(
+                        pixmap,
+                        x,
+                        y,
+                        dx_pixels,
+                        dy_pixels,
+                        width,
+                        height,
+                        transparent,
+                    );
+                }
+            }
+        }
+        (false, false) => {
+            // Shift left+up: iterate top-to-bottom, left-to-right
+            for y in 0..height {
+                for x in 0..width {
+                    process_offset_pixel(
+                        pixmap,
+                        x,
+                        y,
+                        dx_pixels,
+                        dy_pixels,
+                        width,
+                        height,
+                        transparent,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Process a single pixel during offset operation.
 ///
-/// This loop fusion eliminates two full iterations and avoids creating intermediate
-/// buffers for offset and colored shadow pixels.
-fn compose_shadow(src: &Pixmap, dst: &mut Pixmap, color: AlphaColor<Srgb>, dx: f32, dy: f32) {
+/// This moves the pixel to its new position (if in bounds) and clears the source
+/// position if it's in the exposed region.
+#[inline(always)]
+fn process_offset_pixel(
+    pixmap: &mut Pixmap,
+    x: u16,
+    y: u16,
+    dx_pixels: i32,
+    dy_pixels: i32,
+    width: u16,
+    height: u16,
+    transparent: PremulRgba8,
+) {
+    let new_x = x as i32 + dx_pixels;
+    let new_y = y as i32 + dy_pixels;
+
+    if new_x >= 0 && new_x < width as i32 && new_y >= 0 && new_y < height as i32 {
+        let pixel = pixmap.sample(x, y);
+        pixmap.set_pixel(new_x as u16, new_y as u16, pixel);
+    }
+
+    // Clear the source pixel if it's in the exposed region
+    let should_clear = (dx_pixels > 0 && x < dx_pixels as u16)
+        || (dx_pixels < 0 && x >= (width as i32 + dx_pixels) as u16)
+        || (dy_pixels > 0 && y < dy_pixels as u16)
+        || (dy_pixels < 0 && y >= (height as i32 + dy_pixels) as u16);
+
+    if should_clear {
+        pixmap.set_pixel(x, y, transparent);
+    }
+}
+
+/// Apply shadow color and composite with original.
+///
+/// The shadow has already been offset and blurred, so this simply applies
+/// the shadow color to the alpha channel and composites using source-over.
+fn compose_shadow_direct(shadow: &Pixmap, dst: &mut Pixmap, color: AlphaColor<Srgb>) {
     let width = dst.width();
     let height = dst.height();
 
-    // Precompute offset in pixels and shadow color components
-    let dx_pixels = dx.round() as i32;
-    let dy_pixels = dy.round() as i32;
+    // Precompute shadow color components
     let shadow_r = (color.components[0] * 255.0).round() as u8;
     let shadow_g = (color.components[1] * 255.0).round() as u8;
     let shadow_b = (color.components[2] * 255.0).round() as u8;
 
     for y in 0..height {
         for x in 0..width {
-            // Sample alpha with offset and bounds checking
-            let alpha = sample_alpha_with_offset(src, x, y, dx_pixels, dy_pixels);
+            // Sample alpha directly (shadow is already offset)
+            let alpha = shadow.sample(x, y).a;
 
-            // Apply shadow color on-the-fly
+            // Apply shadow color to alpha
             let shadow_alpha = (u8_to_norm(alpha) * color.components[3]).min(1.0);
             let final_alpha = norm_to_u8(shadow_alpha);
 
@@ -163,30 +307,12 @@ fn compose_shadow(src: &Pixmap, dst: &mut Pixmap, color: AlphaColor<Srgb>, dx: f
                 a: final_alpha,
             };
 
-            // Read original and composite immediately
+            // Read original and composite: original over shadow
             let original_pixel = dst.sample(x, y);
             let result = compose_src_over(original_pixel, colored_shadow);
 
             dst.set_pixel(x, y, result);
         }
-    }
-}
-
-/// Sample alpha channel with spatial offset and bounds checking.
-///
-/// Returns 0 (transparent) if the offset position is out of bounds.
-/// This is useful for filter effects that need to sample from offset positions.
-#[inline]
-fn sample_alpha_with_offset(pixmap: &Pixmap, x: u16, y: u16, dx: i32, dy: i32) -> u8 {
-    let shadow_x = x as i32 - dx;
-    let shadow_y = y as i32 - dy;
-    let width = pixmap.width();
-    let height = pixmap.height();
-
-    if shadow_x >= 0 && shadow_x < width as i32 && shadow_y >= 0 && shadow_y < height as i32 {
-        pixmap.sample(shadow_x as u16, shadow_y as u16).a
-    } else {
-        0
     }
 }
 

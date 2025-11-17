@@ -111,6 +111,134 @@ fn filter_drop_shadow(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+/// Test drop shadow on a simple rectangle.
+/// Verifies the offset pixel optimization works correctly with different offsets.
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_drop_shadow_corners(ctx: &mut impl Renderer) {
+    // Layout parameters
+    let margin = 8.0;
+    let size = 20.0;
+    let shadow_offset = 6.0;
+    let shadow_blur = 2.0;
+
+    // Calculate positions for 3x3 grid
+    let left = margin;
+    let center_x = (100.0 - size) / 2.0;
+    let right = 100.0 - margin - size;
+
+    let top = margin;
+    let center_y = (100.0 - size) / 2.0;
+    let bottom = 100.0 - margin - size;
+
+    ctx.set_paint(ROYAL_BLUE);
+
+    // Top-left corner: shadow to upper-left
+    let filter_tl = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: -shadow_offset,
+        dy: -shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_tl);
+    ctx.fill_rect(&Rect::new(left, top, left + size, top + size));
+
+    // Top center: shadow upward (dy only)
+    let filter_tc = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: 0.0,
+        dy: -shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_tc);
+    ctx.fill_rect(&Rect::new(center_x, top, center_x + size, top + size));
+
+    // Top-right corner: shadow to upper-right
+    let filter_tr = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: shadow_offset,
+        dy: -shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_tr);
+    ctx.fill_rect(&Rect::new(right, top, right + size, top + size));
+
+    // Left center: shadow leftward (dx only)
+    let filter_lc = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: -shadow_offset,
+        dy: 0.0,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_lc);
+    ctx.fill_rect(&Rect::new(left, center_y, left + size, center_y + size));
+
+    // Center: shadow downward-right
+    let filter_c = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: shadow_offset,
+        dy: shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_c);
+    ctx.fill_rect(&Rect::new(
+        center_x,
+        center_y,
+        center_x + size,
+        center_y + size,
+    ));
+
+    // Right center: shadow rightward (dx only)
+    let filter_rc = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: shadow_offset,
+        dy: 0.0,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_rc);
+    ctx.fill_rect(&Rect::new(right, center_y, right + size, center_y + size));
+
+    // Bottom-left corner: shadow to lower-left
+    let filter_bl = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: -shadow_offset,
+        dy: shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_bl);
+    ctx.fill_rect(&Rect::new(left, bottom, left + size, bottom + size));
+
+    // Bottom center: shadow downward (dy only)
+    let filter_bc = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: 0.0,
+        dy: shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_bc);
+    ctx.fill_rect(&Rect::new(center_x, bottom, center_x + size, bottom + size));
+
+    // Bottom-right corner: shadow to lower-right
+    let filter_br = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: shadow_offset,
+        dy: shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_br);
+    ctx.fill_rect(&Rect::new(right, bottom, right + size, bottom + size));
+
+    ctx.reset_filter_effect();
+}
+
 /// Test `set_filter_effect` and `reset_filter_effect` API.
 /// Applies filters to individual draw calls without creating layers.
 #[vello_test(skip_hybrid, skip_multithreaded)]

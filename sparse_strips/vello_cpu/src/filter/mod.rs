@@ -76,9 +76,9 @@ pub(crate) fn filter_lowp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: &
                 dy,
                 std_deviation,
                 color,
-                edge_mode: _,
+                edge_mode,
             } => {
-                let drop_shadow = DropShadow::new(*dx, *dy, *std_deviation, *color);
+                let drop_shadow = DropShadow::new(*dx, *dy, *std_deviation, *edge_mode, *color);
                 drop_shadow.execute_lowp(pixmap, layer_manager);
             }
             _ => {
@@ -123,9 +123,9 @@ pub(crate) fn filter_highp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: 
                 dy,
                 std_deviation,
                 color,
-                edge_mode: _,
+                edge_mode,
             } => {
-                let drop_shadow = DropShadow::new(*dx, *dy, *std_deviation, *color);
+                let drop_shadow = DropShadow::new(*dx, *dy, *std_deviation, *edge_mode, *color);
                 drop_shadow.execute_highp(pixmap, layer_manager);
             }
             _ => {
