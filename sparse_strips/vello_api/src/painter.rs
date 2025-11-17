@@ -4,11 +4,14 @@
 use core::any::Any;
 
 use peniko::{
-    BlendMode, Color, Fill,
-    kurbo::{Affine, BezPath, Rect, Stroke},
+    BlendMode, Brush, Color, Fill, ImageBrush,
+    kurbo::{Affine, BezPath, Rect, Shape, Stroke},
 };
 
-use crate::prepared::{PreparedPathIndex, PreparedPaths};
+use crate::{
+    prepared::{PreparedPathIndex, PreparedPaths},
+    texture::TextureAccess,
+};
 
 #[derive(Debug)]
 pub struct SceneOptions {
@@ -26,12 +29,12 @@ pub struct SceneOptions {
 }
 
 pub trait PaintScene: Any {
-    fn fill_path(&mut self, path: &BezPath);
-    fn stroke_path(&mut self, path: &BezPath);
-    // fn fill_rect(&mut self, rect: &Rect);
-    // TODO: Rework:
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
-    // fn stroke_rect(&mut self, rect: &Rect);
+    fn width(&self) -> u16;
+    fn height(&self) -> u16;
+
+    // Copied without analysis from Vello Sparse Tests.
+    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape);
+    fn stroke_path(&mut self, transform: Affine, stroke_params: Stroke, path: impl Shape);
     fn draw_prepared_path(
         &mut self,
         path_set: PreparedPaths,
@@ -39,33 +42,57 @@ pub trait PaintScene: Any {
         x_offset: i32,
         y_offset: i32,
     );
-    // TODO: Something using prepared glyphs
-    // fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
-    fn push_layer(
-        &mut self,
-        clip_path: Option<&BezPath>,
-        blend_mode: Option<BlendMode>,
-        opacity: Option<f32>,
-        // mask: Option<Mask>,
-    );
-    // TODO: Semantics?
-    fn flush(&mut self);
-    // TODO: Why are there so many kinds of layers?
-    // fn push_clip_layer(&mut self, path: &BezPath);
-    // fn push_blend_layer(&mut self, blend_mode: BlendMode);
-    // fn push_opacity_layer(&mut self, opacity: f32);
-    // fn push_mask_layer(&mut self, mask: Mask);
-    fn pop_layer(&mut self);
 
-    fn set_stroke(&mut self, stroke: Stroke);
-    // fn set_paint(&mut self, paint: impl Into<PaintType>);
-    // fn set_paint_transform(&mut self, affine: Affine);
-    fn set_fill_rule(&mut self, fill_rule: Fill);
-    fn set_transform(&mut self, transform: Affine);
+    fn set_brush(
+        &mut self,
+        brush: impl Into<Brush<ImageBrush<TextureAccess>>>,
+        transform: Affine,
+        paint_transform: Affine,
+    );
+    fn set_blurred_rounded_rect_brush(
+        &mut self,
+        transform: Affine,
+        paint_transform: Affine,
+        rect: &Rect,
+        radius: f32,
+        std_dev: f32,
+    );
+    fn set_solid_brush(&mut self, color: Color) {
+        self.set_brush(Brush::Solid(color), Affine::IDENTITY, Affine::IDENTITY);
+    }
+
+    fn fill_blurred_rounded_rect(
+        &mut self,
+        transform: Affine,
+        rect: &Rect,
+        radius: f32,
+        std_dev: f32,
+    ) {
+        self.set_blurred_rounded_rect_brush(transform, Affine::IDENTITY, rect, radius, std_dev);
+        // The impulse response of a gaussian filter is infinite.
+        // For performance reason we cut off the filter at some extent where the response is close to zero.
+        let kernel_size = (2.5 * std_dev) as f64;
+
+        let shape: Rect = rect.inflate(kernel_size, kernel_size);
+        self.fill_path(transform, Fill::EvenOdd, shape);
+    }
+
     // This can be accessed through downcasting:
     // fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>);
     // TODO: What does this mean?
     fn set_blend_mode(&mut self, blend_mode: BlendMode);
-    fn width(&self) -> u16;
-    fn height(&self) -> u16;
+
+    fn push_layer(
+        &mut self,
+        clip_path: Option<impl Shape>,
+        blend_mode: Option<BlendMode>,
+        opacity: Option<f32>,
+        // mask: Option<Mask>,
+    );
+    // TODO: Why are there so many kinds of layers?
+    fn push_clip_layer(&mut self, path: &BezPath);
+    // fn push_blend_layer(&mut self, blend_mode: BlendMode);
+    // fn push_opacity_layer(&mut self, opacity: f32);
+    // fn push_mask_layer(&mut self, mask: Mask);
+    fn pop_layer(&mut self);
 }
