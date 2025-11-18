@@ -33,7 +33,7 @@ pub trait Renderer: Send {
     /// Create a texture for use in renders with this device.
     ///
     /// Cleanup is handled through `Drop`.
-    fn create_texture(descriptor: TextureDescriptor) -> Texture;
+    fn create_texture(&mut self, descriptor: TextureDescriptor) -> Texture;
 
     // fn create_mask(descriptor: MaskOperation) -> Mask;
     // fn mask_from_scene(from: &Texture, to: &Scene, MaskDescriptor { subset_rect,  });
@@ -45,6 +45,7 @@ pub trait Renderer: Send {
 
     // TODO: Better error kinds.
     fn upload_image(
+        &mut self,
         to: &Texture,
         data: peniko::ImageData,
         region: Option<(u16, u16, u16, u16)>,

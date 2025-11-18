@@ -19,17 +19,17 @@ pub struct TextureDescriptor {
 
 #[derive(Clone, Debug)]
 pub struct Texture {
-    value: Arc<dyn InnerTexture>,
+    handle: Arc<dyn InnerTexture>,
     // TODO: Is it actually valuable to keep the descriptor around?
     descriptor: TextureDescriptor,
 }
 
 impl Texture {
-    pub fn create(value: Arc<dyn InnerTexture>, descriptor: TextureDescriptor) -> Self {
-        Self { value, descriptor }
+    pub fn create(handle: Arc<dyn InnerTexture>, descriptor: TextureDescriptor) -> Self {
+        Self { handle, descriptor }
     }
-    pub fn inner(&self) -> &Arc<dyn InnerTexture> {
-        &self.value
+    pub fn handle(&self) -> &Arc<dyn InnerTexture> {
+        &self.handle
     }
     pub fn descriptor(&self) -> &TextureDescriptor {
         &self.descriptor

@@ -1,17 +1,20 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use core::any::Any;
 use std::sync::Arc;
 
 use vello_api::{
     PaintScene, Renderer,
     baseline::BaselinePreparePaths,
     free_list,
-    texture::{self, Texture, TextureUsages},
+    texture::{self, InnerTexture, Texture, TextureUsages},
 };
 use vello_common::{
+    encode::{EncodedImage, EncodedPaint},
     kurbo::{self, Affine, Shape},
-    peniko::{self, BlendMode, Brush, Fill, ImageBrush, ImageData},
+    paint::{ImageId, ImageSource},
+    peniko::{BlendMode, Brush, Fill, ImageBrush, ImageData},
     pixmap::Pixmap,
 };
 
@@ -27,8 +30,23 @@ impl Renderer for VelloCPU {
 
     type PathPreparer = BaselinePreparePaths;
 
-    fn create_texture(descriptor: texture::TextureDescriptor) -> Texture {
-        if descriptor.usages.contains(TextureUsages::UPLOAD_TARGET) {}
+    fn create_texture(&mut self, descriptor: texture::TextureDescriptor) -> Texture {
+        // TODO: What do we need to do with the usages?
+
+        // let download_src = descriptor.usages.contains(TextureUsages::DOWNLOAD_SRC);
+        // let upload_target = descriptor.usages.contains(TextureUsages::UPLOAD_TARGET);
+        // let texture_binding = descriptor.usages.contains(TextureUsages::TEXTURE_BINDING);
+        // let render_target = descriptor.usages.contains(TextureUsages::RENDER_TARGET);
+        let texture = StoredTexture {
+            // Can we avoid filling this pixmap immediately in some cases, e.g. for textures
+            // we optimistically think will be uploaded to?
+            pixmap: Arc::new(Pixmap::new(descriptor.width, descriptor.height)),
+        };
+
+        let handle = self
+            .textures
+            .insert(texture, |_, cleanup| TextureId { cleanup });
+        Texture::create(handle, descriptor)
     }
 
     fn create_scene(
@@ -42,6 +60,7 @@ impl Renderer for VelloCPU {
             (to.descriptor().width, to.descriptor().height)
         };
 
+        // TODO: Cache the contexts internally, so that we don't reallocate here?
         let context = RenderContext::new_with(width, height, self.default_render_settings);
         CPUScenePainter {
             render_context: context,
@@ -50,8 +69,31 @@ impl Renderer for VelloCPU {
     }
 
     fn queue_render(&mut self, mut from: Self::ScenePainter) {
-        // TODO: Cache the contexts internally, so that we don't.
+        for encoded_paint in &mut from.render_context.encoded_paints {
+            if let EncodedPaint::Image(EncodedImage {
+                source: ref mut source @ ImageSource::OpaqueId(id),
+                ..
+            }) = *encoded_paint
+            {
+                // Back-associate each texture with the actual pixmap.
+                let idx = usize::try_from(id.as_u32())
+                    .expect("Value was originally created from a usize.");
+                let pixmap = self.textures.index_mut(idx);
+                *source = ImageSource::Pixmap(pixmap.pixmap.clone());
+            }
+        }
+
         from.render_context.flush();
+        // Note that this will panic if the target is used in the rendering.
+        // The exact place that error is handled is tbd.
+        let texture = self.textures.get_mut(
+            &(&**from.target.handle() as &dyn InnerTexture as &dyn Any)
+                .downcast_ref::<TextureId>()
+                .unwrap()
+                .cleanup,
+        );
+        let pixmap = Arc::get_mut(&mut texture.pixmap).unwrap();
+        from.render_context.render_to_pixmap(pixmap);
     }
 
     fn queue_download(&mut self, texture: &Texture) -> vello_api::DownloadId {
@@ -59,6 +101,7 @@ impl Renderer for VelloCPU {
     }
 
     fn upload_image(
+        &mut self,
         to: &Texture,
         data: ImageData,
         region: Option<(u16, u16, u16, u16)>,
@@ -110,7 +153,20 @@ impl PaintScene for CPUScenePainter {
         let brush = match brush.into() {
             Brush::Solid(alpha_color) => Brush::Solid(alpha_color),
             Brush::Gradient(gradient) => Brush::Gradient(gradient),
-            Brush::Image(_) => todo!(),
+            Brush::Image(brush) => {
+                // TODO: Make this read more easily.
+                let image_index = (&**brush.image.handle() as &dyn InnerTexture as &dyn Any)
+                    .downcast_ref::<TextureId>()
+                    .unwrap()
+                    .cleanup
+                    .raw_idx()
+                    .try_into()
+                    .expect("We don't expect there to be more than u32::MAX scenes");
+                Brush::Image(ImageBrush {
+                    image: ImageSource::OpaqueId(ImageId::new(image_index)),
+                    sampler: brush.sampler,
+                })
+            }
         };
         self.render_context.set_paint(brush);
     }
@@ -179,7 +235,10 @@ struct TextureId {
 
 impl vello_api::texture::InnerTexture for TextureId {}
 
-enum StoredTexture {
-    Pixmap(Arc<Pixmap>),
-    Unfilled(u16, u16),
+struct StoredTexture {
+    /// This `Arc`s is very carefully managed to be used with [`Arc::get_mut`]
+    /// when rendering to the texture.
+    ///
+    /// As such, to avoid panicks we *cannot* let them leak.
+    pixmap: Arc<Pixmap>,
 }

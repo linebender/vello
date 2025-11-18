@@ -35,6 +35,10 @@ pub trait PreparePaths<Scene: PaintScene>: Any {
         index: PreparedPathIndex,
         x_offset: i32,
         y_offset: i32,
+        // Error case for if:
+        // - The `Scene` type doesn't line up
+        //
+        // Anything else?
     ) -> Result<(), ()>;
 }
 

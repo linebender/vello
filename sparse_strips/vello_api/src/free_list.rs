@@ -57,7 +57,7 @@ impl<T, Handle> ResourceVec<T, Handle> {
         let handle_slot = &mut self.associated_handles[index];
 
         let previously = data_slot.replace(value);
-        handle_slot.insert(Arc::downgrade(&handle));
+        *handle_slot = Some(Arc::downgrade(&handle));
         debug_assert!(
             previously.is_none(),
             "Index should only be in `free_indices` if it has been deallocated."
@@ -88,6 +88,8 @@ impl<T, Handle> ResourceVec<T, Handle> {
                 && handle.strong_count() == 0
             {
                 debug_assert!(self.data[idx].is_some());
+                // TODO: Callback instead? Because these also represent "atlas members".
+                // That is, this trait turns things into.
                 *item = None;
                 self.data[idx] = None;
                 self.free_indices.push(idx);
@@ -101,6 +103,12 @@ impl<T, Handle> ResourceVec<T, Handle> {
     pub fn get(&self, handle: &ResourceVecMember) -> &T {
         self.data[handle.index].as_ref().unwrap()
     }
+    pub fn index_mut(&mut self, index: usize) -> &mut T {
+        self.data[index].as_mut().unwrap()
+    }
+    pub fn index_ref(&self, index: usize) -> &T {
+        self.data[index].as_ref().unwrap()
+    }
 }
 
 impl<T, Metadata> Default for ResourceVec<T, Metadata> {
@@ -113,6 +121,12 @@ impl<T, Metadata> Default for ResourceVec<T, Metadata> {
 pub struct ResourceVecMember {
     meta: Arc<ResourceVecMetadata>,
     index: usize,
+}
+
+impl ResourceVecMember {
+    pub fn raw_idx(&self) -> usize {
+        self.index
+    }
 }
 
 /// Stores the range within the vector where "free" elements can possibly be found.
