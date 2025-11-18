@@ -1,23 +1,34 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use vello_api::{PaintScene, Renderer, baseline::BaselinePreparePaths, texture::Texture};
+use std::sync::Arc;
+
+use vello_api::{
+    PaintScene, Renderer,
+    baseline::BaselinePreparePaths,
+    free_list,
+    texture::{self, Texture, TextureUsages},
+};
 use vello_common::{
     kurbo::{self, Affine, Shape},
-    peniko::{BlendMode, Brush, Fill, ImageBrush, ImageData},
+    peniko::{self, BlendMode, Brush, Fill, ImageBrush, ImageData},
+    pixmap::Pixmap,
 };
 
-use crate::RenderContext;
+use crate::{RenderContext, RenderSettings};
 
-pub struct VelloCPU;
+pub struct VelloCPU {
+    default_render_settings: RenderSettings,
+    textures: free_list::ResourceVec<StoredTexture, TextureId>,
+}
 
 impl Renderer for VelloCPU {
     type ScenePainter = CPUScenePainter;
 
     type PathPreparer = BaselinePreparePaths;
 
-    fn create_texture(descriptor: vello_api::texture::TextureDescriptor) -> Texture {
-        todo!()
+    fn create_texture(descriptor: texture::TextureDescriptor) -> Texture {
+        if descriptor.usages.contains(TextureUsages::UPLOAD_TARGET) {}
     }
 
     fn create_scene(
@@ -31,8 +42,7 @@ impl Renderer for VelloCPU {
             (to.descriptor().width, to.descriptor().height)
         };
 
-        // TODO: Cache the contexts internally.
-        let context = RenderContext::new(width, height);
+        let context = RenderContext::new_with(width, height, self.default_render_settings);
         CPUScenePainter {
             render_context: context,
             target: to.clone(),
@@ -40,6 +50,7 @@ impl Renderer for VelloCPU {
     }
 
     fn queue_render(&mut self, mut from: Self::ScenePainter) {
+        // TODO: Cache the contexts internally, so that we don't.
         from.render_context.flush();
     }
 
@@ -159,4 +170,16 @@ impl PaintScene for CPUScenePainter {
     fn pop_layer(&mut self) {
         self.render_context.pop_layer();
     }
+}
+
+#[derive(Debug)]
+struct TextureId {
+    cleanup: free_list::ResourceVecMember,
+}
+
+impl vello_api::texture::InnerTexture for TextureId {}
+
+enum StoredTexture {
+    Pixmap(Arc<Pixmap>),
+    Unfilled(u16, u16),
 }

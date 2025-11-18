@@ -5,39 +5,48 @@
 //!
 //! # Scope
 //!
-//! - Fill/Stroke paths.
-//! - Transforms applied to fills/strokes and their contents.
+//! ## Still TO-DO
+//!
 //! - Draw images/gradients; images must be pre-uploaded, maybe gradients too.
 //!   - What does it mean to pre-upload gradients?
-//!   - Error handling for missing/dead image resources.
+//!   - Error handling for missing/dead image resources. ✓, impossible to be missing, by using handles.
 //! - Filter effects, a core required set and support for externally registered effects.
 //!   Externally registered effects *should* be able to:
 //!   - Have a `static` identifier (this allows a third-party filter effect library)
 //!   - Support detecting whether or not they're available, somehow.
 //!   - Have runtime configuration options, ideally type-checked.
 //!   - All of this suggests that using [`TypeId`](core::any::TypeId)s and a trait for validation is the way.
-//! - Blurred rounded rectangles (we should maybe test it against the actual blurring?)
 //! - Image atlasing, i.e. drawing from a subregion of a registered image.
 //!   - "Needed" for atlas based glyph rendering.
-//! - Split the renderer and the "scene".
-//! - Layers. These need:
-//!   - A "clip path" (this being optional, i.e. falling back to the viewport, is useful).
-//!   - A blend mode.
-//!   - An opacity.
+//!   - Quite hard because of mipmaps, might need to be pre-registered.
+//! - Layers
 //!   - Being non-isolated.
 //!   - Filters.
-//! - Downcasting, for renderer-specific options (e.g. [`set_aliasing_threshold`]).
-//! - Cached intermediates for subpaths (i.e. for glyph caching if outlines are drawn "inline").
-//!   - Support for applying a translation to this cache, including recalculation if needed.
+//! - Downcasting, for renderer-specific options (e.g. [`set_aliasing_threshold`]). (Maybe works, but untested)
+//! - Prepared Paths:
+//!   - Translation
+//! - Clip optimisation (which is equivalent to non-isolated `Normal` blending), ✓-ish
+//!
+//! ## "Completed"
+//!
+//! - Fill/Stroke paths. ✓
+//! - Transforms applied to fills/strokes and their contents. ✓
+//! - Blurred rounded rectangles (we should maybe test it against the actual blurring?) ✓
+//! - Split the renderer and the "scene". ✓
+//! - Layers. These need:
+//!   - A "clip path" (this being optional, i.e. falling back to the viewport, is useful). ✓
+//!   - A blend mode. ✓
+//!   - An opacity. ✓
+//! - Cached intermediates for subpaths (i.e. for glyph caching if outlines are drawn "inline"). ✓
+//!   - Support for applying a translation to this cache, including recalculation if needed. ✓, current design makes recalculation never needed
 //!   - Need for care when:
-//!     - Translating, so that things work out with wide tiles.
-//!     - Scaling, so that the right caches are kept
-//!     - Subpixel translations (e.g. for unhinted glyphs, probably want 4 horizontal and zero vertical subpixels for each glyph)
-//!     - Translating previously off-screen items to be on-screen.
-//!   - Is it sound to support changing the paint?
-//! - Some sort of reset mechanism?
-//! - Clip optimisation (which is equivalent to non-isolated `Normal` blending)
-//! - No per-operation allocations.
+//!     - Scaling, so that the right caches are kept. ✓, responsibility of consumer, i.e. Parley Draw
+//!     - Subpixel translations (e.g. for unhinted glyphs, probably want 4 horizontal and zero vertical subpixels for each glyph). ✓, responsibility of consumer, i.e. Parley Draw
+//!     - Translating previously off-screen items to be on-screen. ✓, API leaves this unsupported/unrepresentable
+//!   - Is it sound to support changing the paint? ✓, has no paint information
+//! - Some sort of reset mechanism? ✓-ish, re-use handled by the "renderer".
+//!
+//! - No per-operation allocations. ✓
 //!
 //! Medium Scope:
 //!
@@ -78,11 +87,11 @@
 //!   - What are the use cases for this?
 //! - Precision, in intermediate calculations and similar.
 //! - Rendering color space/HDR/Tonemapping.
-//! - Rendering "over" a previous image.
+//! - Rendering "over" a previous image. ✓
 //!   Support for such invalidation might be valuable for external textures.
 //! - Per-path blendmodes.
 //! - Interaction with compositor layers; this could *feasibly* be explicitly out-of-scope.
-//! - No per-operation dynamic dispatch.
+//! - No per-operation dynamic dispatch. (Impossible?)
 //!
 //! Out of scope:
 //!
@@ -105,6 +114,8 @@
 //! Servo wants to be able to render more content to a render output, which ideally we'd support in a memory-efficient way.
 //! Is that backend specific? The question becomes how is multithreading handled.
 //! Explicit usages for the textures?
+//!
+//! Main thing
 //!
 //! [`set_aliasing_threshold`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.set_aliasing_threshold
 

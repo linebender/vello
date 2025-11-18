@@ -7,7 +7,7 @@
 
 use crate::{
     DownloadId, PaintScene, SceneOptions,
-    prepared::{PreparePaths, PreparedPaths},
+    prepared::PreparePaths,
     texture::{Texture, TextureDescriptor},
 };
 

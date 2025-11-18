@@ -3,7 +3,7 @@
 
 use core::any::Any;
 
-use peniko::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
+use peniko::kurbo::{Affine, Rect, Shape, Stroke};
 use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
 
 use crate::texture::Texture;

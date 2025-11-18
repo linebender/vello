@@ -3,7 +3,6 @@
 
 //! Prepared paths are versions of.
 
-use alloc::sync::Arc;
 use core::{any::Any, fmt::Debug};
 use peniko::{
     Fill,
@@ -11,24 +10,6 @@ use peniko::{
 };
 
 use crate::PaintScene;
-
-pub struct PreparedPaths {
-    value: Arc<dyn InnerPathAccessor>,
-}
-
-impl PreparedPaths {
-    pub fn create(value: Arc<dyn InnerPathAccessor>) -> Self {
-        Self { value }
-    }
-    pub fn handle(&self) -> &Arc<dyn InnerPathAccessor> {
-        &self.value
-    }
-}
-
-pub trait InnerPathAccessor: Any + Send + Sync + Debug {
-    // TODO: What is the use case for this?
-    fn path_count(&self) -> Option<u16>;
-}
 
 #[derive(Copy, Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct PreparedPathIndex(pub u64);

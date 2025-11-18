@@ -11,7 +11,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug)]
 pub struct ResourceVec<T, Handle> {
-    data: Vec<Option<(T, Weak<Handle>)>>,
+    data: Vec<Option<T>>,
+    associated_handles: Vec<Option<Weak<Handle>>>,
     metadata: Arc<ResourceVecMetadata>,
     // TODO: Consider limiting the size of the vector to reduce the memory usage of this?
     free_indices: Vec<usize>,
@@ -21,6 +22,7 @@ impl<T, Handle> ResourceVec<T, Handle> {
     pub fn new() -> Self {
         Self {
             data: vec![],
+            associated_handles: vec![],
             metadata: Arc::new(ResourceVecMetadata {
                 // There aren't any free items to start with, so don't bother.
                 first_free: AtomicUsize::new(usize::MAX),
@@ -37,8 +39,10 @@ impl<T, Handle> ResourceVec<T, Handle> {
         // "more likely" to be at the end of the list. This should mean that "thrashing"
         // allocations shouldn't
         let index = self.free_indices.pop().unwrap_or_else(|| {
+            debug_assert_eq!(self.data.len(), self.associated_handles.len());
             let idx = self.data.len();
             self.data.push(None);
+            self.associated_handles.push(None);
             idx
         });
         let metadata = ResourceVecMember {
@@ -49,8 +53,11 @@ impl<T, Handle> ResourceVec<T, Handle> {
         let handle = create_handle(&mut value, metadata);
         let handle = Arc::new(handle);
 
-        let slot = &mut self.data[index];
-        let previously = slot.replace((value, Arc::downgrade(&handle)));
+        let data_slot = &mut self.data[index];
+        let handle_slot = &mut self.associated_handles[index];
+
+        let previously = data_slot.replace(value);
+        handle_slot.insert(Arc::downgrade(&handle));
         debug_assert!(
             previously.is_none(),
             "Index should only be in `free_indices` if it has been deallocated."
@@ -71,21 +78,28 @@ impl<T, Handle> ResourceVec<T, Handle> {
             return;
         }
         // If `first_relevant_index` is zero, we skip 0, so we do always visit the `first_relevant_index`.
-        for (idx, item) in self.data.iter_mut().enumerate().skip(first_relevant_index) {
-            if let Some((_, handle)) = item
+        for (idx, item) in self
+            .associated_handles
+            .iter_mut()
+            .enumerate()
+            .skip(first_relevant_index)
+        {
+            if let Some(handle) = item
                 && handle.strong_count() == 0
             {
+                debug_assert!(self.data[idx].is_some());
                 *item = None;
+                self.data[idx] = None;
                 self.free_indices.push(idx);
             }
         }
     }
 
     pub fn get_mut(&mut self, handle: &ResourceVecMember) -> &mut T {
-        &mut self.data[handle.index].as_mut().unwrap().0
+        self.data[handle.index].as_mut().unwrap()
     }
     pub fn get(&self, handle: &ResourceVecMember) -> &T {
-        &self.data[handle.index].as_ref().unwrap().0
+        self.data[handle.index].as_ref().unwrap()
     }
 }
 
