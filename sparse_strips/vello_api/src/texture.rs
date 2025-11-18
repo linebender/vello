@@ -61,17 +61,3 @@ bitflags! {
         const DOWNLOAD = Self::RENDER_TARGET.bits() | Self::DOWNLOAD_SRC.bits();
     }
 }
-
-pub struct TextureAccess {
-    pub texture: Texture,
-    pub region: Option<(u16, u16, u16, u16)>,
-}
-
-impl TextureAccess {
-    pub fn all(texture: Texture) -> Self {
-        Self {
-            texture,
-            region: None,
-        }
-    }
-}

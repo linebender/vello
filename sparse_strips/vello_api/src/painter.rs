@@ -3,15 +3,10 @@
 
 use core::any::Any;
 
-use peniko::{
-    BlendMode, Brush, Color, Fill, ImageBrush,
-    kurbo::{Affine, BezPath, Rect, Shape, Stroke},
-};
+use peniko::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
+use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
 
-use crate::{
-    prepared::{PreparedPathIndex, PreparedPaths},
-    texture::TextureAccess,
-};
+use crate::texture::Texture;
 
 #[derive(Debug)]
 pub struct SceneOptions {
@@ -35,17 +30,10 @@ pub trait PaintScene: Any {
     // Copied without analysis from Vello Sparse Tests.
     fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape);
     fn stroke_path(&mut self, transform: Affine, stroke_params: &Stroke, path: impl Shape);
-    fn draw_prepared_path(
-        &mut self,
-        path_set: PreparedPaths,
-        index: PreparedPathIndex,
-        x_offset: i32,
-        y_offset: i32,
-    );
 
     fn set_brush(
         &mut self,
-        brush: impl Into<Brush<ImageBrush<TextureAccess>>>,
+        brush: impl Into<Brush<ImageBrush<Texture>>>,
         transform: Affine,
         paint_transform: Affine,
     );

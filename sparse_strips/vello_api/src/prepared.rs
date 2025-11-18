@@ -10,6 +10,8 @@ use peniko::{
     kurbo::{Affine, Shape, Stroke},
 };
 
+use crate::PaintScene;
+
 pub struct PreparedPaths {
     value: Arc<dyn InnerPathAccessor>,
 }
@@ -32,7 +34,7 @@ pub trait InnerPathAccessor: Any + Send + Sync + Debug {
 pub struct PreparedPathIndex(pub u64);
 
 // We require the "Any" supertrait to allow end-users to downcast to a specific implementation.
-pub trait PreparePaths: Any {
+pub trait PreparePaths<Scene: PaintScene>: Any {
     fn prepare_fill(
         &mut self,
         fill_rule: Fill,
@@ -46,6 +48,13 @@ pub trait PreparePaths: Any {
         meta: PreparedPathMeta,
         stroke: &impl Shape,
     ) -> PreparedPathIndex;
+    fn draw_into(
+        &self,
+        scene: &mut Scene,
+        index: PreparedPathIndex,
+        x_offset: i32,
+        y_offset: i32,
+    ) -> Result<(), ()>;
 }
 
 pub struct PreparedPathMeta {

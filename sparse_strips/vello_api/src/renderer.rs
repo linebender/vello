@@ -28,7 +28,7 @@ pub trait Renderer: Send {
     type ScenePainter: PaintScene;
 
     // TODO: Not complete.
-    type PathPreparer: PreparePaths;
+    type PathPreparer: PreparePaths<Self::ScenePainter>;
 
     /// Create a texture for use in renders with this device.
     ///
@@ -43,6 +43,7 @@ pub trait Renderer: Send {
 
     fn queue_download(&mut self, texture: &Texture) -> DownloadId;
 
+    // TODO: Better error kinds.
     fn upload_image(
         to: &Texture,
         data: peniko::ImageData,
@@ -59,13 +60,5 @@ pub trait Renderer: Send {
     // There is no possible error case.
     // We need to think about how we make it practical to actually get the integer translations,
     // because of "composition".
-    ///
-    /// Cleanup is handled through `Drop`
-    fn create_path_cache(&mut self) -> PreparedPaths;
-    // Errors if the cache isn't from this renderer.
-    fn fill_path_cache<R>(
-        &mut self,
-        cache: &PreparedPaths,
-        f: impl FnOnce(&mut Self::PathPreparer) -> R,
-    ) -> Result<R, ()>;
+    fn create_path_cache(&mut self) -> Self::PathPreparer;
 }
