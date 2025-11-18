@@ -3,7 +3,7 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
-use crate::fine::{F32Kernel, Fine, FineKernel, U8Kernel};
+use crate::fine::{Fine, FineKernel};
 use crate::kurbo::{Affine, BezPath, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
@@ -41,6 +41,7 @@ impl SingleThreadedDispatcher {
         }
     }
 
+    #[cfg(feature = "f32_pipeline")]
     fn rasterize_f32(
         &self,
         buffer: &mut [u8],
@@ -48,9 +49,11 @@ impl SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
+        use crate::fine::F32Kernel;
         dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height, encoded_paints));
     }
 
+    #[cfg(feature = "u8_pipeline")]
     fn rasterize_u8(
         &self,
         buffer: &mut [u8],
@@ -58,6 +61,7 @@ impl SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
+        use crate::fine::U8Kernel;
         dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints));
     }
 
@@ -189,6 +193,21 @@ impl Dispatcher for SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
+        // Only u8 pipeline enabled
+        #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
+        {
+            let _ = render_mode;
+            self.rasterize_u8(buffer, width, height, encoded_paints);
+        }
+        // Only f32 pipeline enabled
+        #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
+        {
+            let _ = render_mode;
+            self.rasterize_f32(buffer, width, height, encoded_paints);
+        }
+
+        // Both pipelines enabled
+        #[cfg(all(feature = "f32_pipeline", feature = "u8_pipeline"))]
         match render_mode {
             RenderMode::OptimizeSpeed => self.rasterize_u8(buffer, width, height, encoded_paints),
             RenderMode::OptimizeQuality => {
