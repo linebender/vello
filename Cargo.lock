@@ -3895,6 +3895,7 @@ dependencies = [
  "ordered-channel",
  "rayon",
  "thread_local",
+ "vello_api",
  "vello_common",
 ]
 

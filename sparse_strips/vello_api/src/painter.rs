@@ -8,21 +8,6 @@ use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
 
 use crate::texture::Texture;
 
-#[derive(Debug)]
-pub struct SceneOptions {
-    /// The target area within the Texture to render to.
-    ///
-    /// If `None`, will render to the whole texture.
-    /// Format: (x0, y0, width, height).
-    pub target: Option<(u16, u16, u16, u16)>,
-    /// The color which the texture will be cleared to before drawing.
-    ///
-    /// If this is `None`, the previous content will be retained.
-    /// This is useful for use cases such as the web's `CanvasRenderingContext2D`,
-    /// which doesn't have automatic clearing.
-    pub clear_color: Option<Color>,
-}
-
 pub trait PaintScene: Any {
     fn width(&self) -> u16;
     fn height(&self) -> u16;
@@ -72,15 +57,37 @@ pub trait PaintScene: Any {
 
     fn push_layer(
         &mut self,
+        clip_transform: Affine,
         clip_path: Option<impl Shape>,
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         // mask: Option<Mask>,
     );
     // TODO: Why are there so many kinds of layers?
-    fn push_clip_layer(&mut self, path: &BezPath);
+    fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape);
     // fn push_blend_layer(&mut self, blend_mode: BlendMode);
     // fn push_opacity_layer(&mut self, opacity: f32);
     // fn push_mask_layer(&mut self, mask: Mask);
     fn pop_layer(&mut self);
+}
+
+#[derive(Debug)]
+pub struct SceneOptions {
+    /// The target area within the Texture to render to.
+    ///
+    /// If `None`, will render to the whole texture.
+    /// Format: (x0, y0, width, height).
+    pub target: Option<(u16, u16, u16, u16)>,
+    /// The color which the texture will be cleared to before drawing.
+    ///
+    /// If this is `None`, the previous content will be retained.
+    /// This is useful for use cases such as the web's `CanvasRenderingContext2D`,
+    /// which doesn't have automatic clearing.
+    pub clear_color: Option<Color>,
+}
+
+impl SceneOptions {
+    pub fn size(&self) -> Option<(u16, u16)> {
+        self.target.map(|(_, _, width, height)| (width, height))
+    }
 }

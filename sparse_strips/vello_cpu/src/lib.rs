@@ -112,11 +112,14 @@ extern crate std;
 
 mod render;
 
+pub mod api;
+
 mod dispatch;
 #[doc(hidden)]
 pub mod fine;
 #[doc(hidden)]
 pub mod region;
+
 mod util;
 
 pub use render::{RenderContext, RenderSettings};
