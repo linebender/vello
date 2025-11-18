@@ -8,7 +8,7 @@ use vello_api::{
     PaintScene, Renderer,
     baseline::BaselinePreparePaths,
     free_list,
-    texture::{self, InnerTexture, Texture, TextureUsages},
+    texture::{self, InnerTexture, Texture},
 };
 use vello_common::{
     encode::{EncodedImage, EncodedPaint},
@@ -97,7 +97,7 @@ impl Renderer for VelloCPU {
     }
 
     fn queue_download(&mut self, texture: &Texture) -> vello_api::DownloadId {
-        todo!()
+        todo!("Reason about how exact download API will work.")
     }
 
     fn upload_image(
@@ -106,7 +106,10 @@ impl Renderer for VelloCPU {
         data: ImageData,
         region: Option<(u16, u16, u16, u16)>,
     ) -> Result<(), ()> {
-        todo!()
+        // This is "trivially" fixable.
+        todo!(
+            "TODO: Copy the pixels from data into the relevant pixmap, using something *like* from_peniko_image."
+        )
     }
 
     fn create_path_cache(&mut self) -> Self::PathPreparer {
@@ -179,7 +182,10 @@ impl PaintScene for CPUScenePainter {
         radius: f32,
         std_dev: f32,
     ) {
-        unimplemented!()
+        // This is "trivially" fixable.
+        unimplemented!(
+            "Vello CPU doesn't expose drawing a blurred rounded rectangle in custom shapes yet."
+        )
     }
 
     fn fill_blurred_rounded_rect(
