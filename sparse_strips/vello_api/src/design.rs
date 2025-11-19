@@ -5,6 +5,8 @@
 //!
 //! # Scope
 //!
+//! Concretely, the issue with the current version is that it conflates the "low-level" underlying texture handle.
+//!
 //! ## Still TO-DO
 //!
 //! - Draw images/gradients; images must be pre-uploaded, maybe gradients too.

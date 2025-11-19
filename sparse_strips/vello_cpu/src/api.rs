@@ -1,14 +1,13 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use core::any::Any;
 use std::sync::Arc;
 
+use hashbrown::HashMap;
 use vello_api::{
     PaintScene, Renderer,
     baseline::BaselinePreparePaths,
-    free_list,
-    texture::{self, InnerTexture, Texture},
+    texture::{self, TextureId},
 };
 use vello_common::{
     encode::{EncodedImage, EncodedPaint},
@@ -22,7 +21,7 @@ use crate::{RenderContext, RenderSettings};
 
 pub struct VelloCPU {
     default_render_settings: RenderSettings,
-    textures: free_list::ResourceVec<StoredTexture, TextureId>,
+    textures: HashMap<TextureId, StoredTexture>,
 }
 
 impl Renderer for VelloCPU {
@@ -30,7 +29,7 @@ impl Renderer for VelloCPU {
 
     type PathPreparer = BaselinePreparePaths;
 
-    fn create_texture(&mut self, descriptor: texture::TextureDescriptor) -> Texture {
+    fn create_texture(&mut self, descriptor: texture::TextureDescriptor) -> TextureId {
         // TODO: What do we need to do with the usages?
 
         // let download_src = descriptor.usages.contains(TextureUsages::DOWNLOAD_SRC);
@@ -41,31 +40,40 @@ impl Renderer for VelloCPU {
             // Can we avoid filling this pixmap immediately in some cases, e.g. for textures
             // we optimistically think will be uploaded to?
             pixmap: Arc::new(Pixmap::new(descriptor.width, descriptor.height)),
+            descriptor,
         };
 
-        let handle = self
-            .textures
-            .insert(texture, |_, cleanup| TextureId { cleanup });
-        Texture::create(handle, descriptor)
+        let id = TextureId::next();
+        self.textures.insert(id, texture);
+        id
+    }
+
+    fn release_texture(&mut self, texture: TextureId) -> Result<(), ()> {
+        self.textures.remove(&texture).ok_or(())?;
+        Ok(())
     }
 
     fn create_scene(
         &mut self,
-        to: &Texture,
+        to: &TextureId,
         options: vello_api::SceneOptions,
-    ) -> Self::ScenePainter {
+    ) -> Result<Self::ScenePainter, ()> {
+        let target_texture = self.textures.get(to).ok_or(())?;
         let (width, height) = if let Some(size) = options.size() {
             size
         } else {
-            (to.descriptor().width, to.descriptor().height)
+            (
+                target_texture.descriptor.width,
+                target_texture.descriptor.height,
+            )
         };
 
         // TODO: Cache the contexts internally, so that we don't reallocate here?
         let context = RenderContext::new_with(width, height, self.default_render_settings);
-        CPUScenePainter {
+        Ok(CPUScenePainter {
             render_context: context,
-            target: to.clone(),
-        }
+            target: *to,
+        })
     }
 
     fn queue_render(&mut self, mut from: Self::ScenePainter) {
@@ -76,9 +84,11 @@ impl Renderer for VelloCPU {
             }) = *encoded_paint
             {
                 // Back-associate each texture with the actual pixmap.
-                let idx = usize::try_from(id.as_u32())
-                    .expect("Value was originally created from a usize.");
-                let pixmap = self.textures.index_mut(idx);
+                let idx = u64::from(id.as_u32());
+                let pixmap = self
+                    .textures
+                    .get_mut(&TextureId::from_raw(idx))
+                    .expect("todo: handle this case, where the texture passed to 'set_brush' isn't from this renderer.");
                 *source = ImageSource::Pixmap(pixmap.pixmap.clone());
             }
         }
@@ -86,23 +96,18 @@ impl Renderer for VelloCPU {
         from.render_context.flush();
         // Note that this will panic if the target is used in the rendering.
         // The exact place that error is handled is tbd.
-        let texture = self.textures.get_mut(
-            &(&**from.target.handle() as &dyn InnerTexture as &dyn Any)
-                .downcast_ref::<TextureId>()
-                .unwrap()
-                .cleanup,
-        );
+        let texture = self.textures.get_mut(&from.target).unwrap();
         let pixmap = Arc::get_mut(&mut texture.pixmap).unwrap();
         from.render_context.render_to_pixmap(pixmap);
     }
 
-    fn queue_download(&mut self, texture: &Texture) -> vello_api::DownloadId {
+    fn queue_download(&mut self, texture: &TextureId) -> vello_api::DownloadId {
         todo!("Reason about how exact download API will work.")
     }
 
     fn upload_image(
         &mut self,
-        to: &Texture,
+        to: &TextureId,
         data: ImageData,
         region: Option<(u16, u16, u16, u16)>,
     ) -> Result<(), ()> {
@@ -119,7 +124,7 @@ impl Renderer for VelloCPU {
 
 pub struct CPUScenePainter {
     render_context: RenderContext,
-    target: Texture,
+    target: TextureId,
 }
 
 impl PaintScene for CPUScenePainter {
@@ -146,7 +151,7 @@ impl PaintScene for CPUScenePainter {
 
     fn set_brush(
         &mut self,
-        brush: impl Into<Brush<ImageBrush<Texture>>>,
+        brush: impl Into<Brush<ImageBrush<TextureId>>>,
         // The transform should be the same as for the following path.
         _: Affine,
         paint_transform: Affine,
@@ -158,13 +163,7 @@ impl PaintScene for CPUScenePainter {
             Brush::Gradient(gradient) => Brush::Gradient(gradient),
             Brush::Image(brush) => {
                 // TODO: Make this read more easily.
-                let image_index = (&**brush.image.handle() as &dyn InnerTexture as &dyn Any)
-                    .downcast_ref::<TextureId>()
-                    .unwrap()
-                    .cleanup
-                    .raw_idx()
-                    .try_into()
-                    .expect("We don't expect there to be more than u32::MAX scenes");
+                let image_index = brush.image.to_raw().try_into().expect("Handle this.");
                 Brush::Image(ImageBrush {
                     image: ImageSource::OpaqueId(ImageId::new(image_index)),
                     sampler: brush.sampler,
@@ -234,17 +233,11 @@ impl PaintScene for CPUScenePainter {
     }
 }
 
-#[derive(Debug)]
-struct TextureId {
-    cleanup: free_list::ResourceVecMember,
-}
-
-impl vello_api::texture::InnerTexture for TextureId {}
-
 struct StoredTexture {
     /// This `Arc`s is very carefully managed to be used with [`Arc::get_mut`]
     /// when rendering to the texture.
     ///
     /// As such, to avoid panicks we *cannot* let them leak.
     pixmap: Arc<Pixmap>,
+    descriptor: texture::TextureDescriptor,
 }

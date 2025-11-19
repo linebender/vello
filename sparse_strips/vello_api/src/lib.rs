@@ -17,7 +17,6 @@ mod renderer;
 
 pub mod baseline;
 pub mod dynamic;
-pub mod free_list;
 pub mod prepared;
 pub mod texture;
 

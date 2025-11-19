@@ -6,7 +6,7 @@ use core::any::Any;
 use peniko::kurbo::{Affine, Rect, Shape, Stroke};
 use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
 
-use crate::texture::Texture;
+use crate::texture::TextureId;
 
 pub trait PaintScene: Any {
     fn width(&self) -> u16;
@@ -18,7 +18,7 @@ pub trait PaintScene: Any {
 
     fn set_brush(
         &mut self,
-        brush: impl Into<Brush<ImageBrush<Texture>>>,
+        brush: impl Into<Brush<ImageBrush<TextureId>>>,
         transform: Affine,
         paint_transform: Affine,
     );

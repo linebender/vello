@@ -3,7 +3,6 @@
 
 //! Texture types used in Vello API.
 
-use alloc::sync::Arc;
 use bitflags::bitflags;
 use core::{any::Any, fmt::Debug};
 
@@ -17,26 +16,35 @@ pub struct TextureDescriptor {
     // TODO: Format? Premultiplication? Hdr?
 }
 
-#[derive(Clone, Debug)]
-pub struct Texture {
-    handle: Arc<dyn InnerTexture>,
-    // TODO: Is it actually valuable to keep the descriptor around?
-    descriptor: TextureDescriptor,
-}
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TextureId(u64);
 
-impl Texture {
-    pub fn create(handle: Arc<dyn InnerTexture>, descriptor: TextureDescriptor) -> Self {
-        Self { handle, descriptor }
-    }
-    pub fn handle(&self) -> &Arc<dyn InnerTexture> {
-        &self.handle
-    }
-    pub fn descriptor(&self) -> &TextureDescriptor {
-        &self.descriptor
-    }
-}
+impl TextureId {
+    pub fn next() -> Self {
+        #[cfg(target_has_atomic = "64")]
+        {
+            use core::sync::atomic::{self, Ordering};
 
-pub trait InnerTexture: Any + Send + Sync + Debug {}
+            // Overflow: u64 starting at 0 incremented by 1 at a time, so cannot overflow.
+            static DOWNLOAD_IDS: atomic::AtomicU64 = atomic::AtomicU64::new(0);
+            Self(DOWNLOAD_IDS.fetch_add(1, Ordering::Relaxed))
+        }
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            // Overflow: We expect running this code on 32-bit targets to be rare enough in practise
+            // that we don't handle overflow.
+            static DOWNLOAD_IDS: atomic::AtomicU32 = atomic::AtomicU32::new(0);
+            Self(DOWNLOAD_IDS.fetch_add(1, Ordering::Relaxed).into())
+        }
+    }
+    pub fn to_raw(&self) -> u64 {
+        self.0
+    }
+    pub fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+    // TODO: Do we want a `from_raw`?
+}
 
 bitflags! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

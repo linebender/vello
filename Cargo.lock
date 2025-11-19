@@ -1348,6 +1348,8 @@ version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d"
 dependencies = [
+ "allocator-api2",
+ "equivalent",
  "foldhash 0.2.0",
 ]
 
@@ -3876,7 +3878,7 @@ version = "0.0.4"
 dependencies = [
  "bytemuck",
  "fearless_simd",
- "hashbrown 0.15.5",
+ "hashbrown 0.16.0",
  "libm",
  "log",
  "peniko 0.5.0",
@@ -3892,6 +3894,7 @@ version = "0.0.4"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
+ "hashbrown 0.16.0",
  "ordered-channel",
  "rayon",
  "thread_local",

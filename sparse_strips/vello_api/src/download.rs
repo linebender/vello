@@ -20,7 +20,8 @@ impl DownloadId {
         {
             // Overflow: We expect running this code on 32-bit targets to be rare enough in practise
             // that we don't handle overflow.
-            // Overflow could only really happen in practise if you are "racing" two renderers.
+            // Overflow could only really "matter" in practise if you are running two
+            // renderers, where one is moving significantly faster than the other.
             static DOWNLOAD_IDS: atomic::AtomicU32 = atomic::AtomicU32::new(0);
             Self(DOWNLOAD_IDS.fetch_add(1, Ordering::Relaxed).into())
         }

@@ -24,6 +24,7 @@ ordered-channel = { workspace = true, optional = true, features = ["crossbeam-ch
 rayon = { workspace = true, optional = true }
 thread_local = { workspace = true, optional = true }
 vello_api = { workspace = true }
+hashbrown = "0.16.0"
 
 [features]
 default = ["std", "png", "text"]

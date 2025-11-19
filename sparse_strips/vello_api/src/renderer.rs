@@ -8,7 +8,7 @@
 use crate::{
     DownloadId, PaintScene, SceneOptions,
     prepared::PreparePaths,
-    texture::{Texture, TextureDescriptor},
+    texture::{TextureDescriptor, TextureId},
 };
 
 // TODO: Maybe?
@@ -31,22 +31,27 @@ pub trait Renderer: Send {
     type PathPreparer: PreparePaths<Self::ScenePainter>;
 
     /// Create a texture for use in renders with this device.
-    ///
-    /// Cleanup is handled through `Drop`.
-    fn create_texture(&mut self, descriptor: TextureDescriptor) -> Texture;
+    // TODO: Do we want this to be a generational index instead?
+    fn create_texture(&mut self, descriptor: TextureDescriptor) -> TextureId;
+    // Error if the texture was already freed/not associated with this renderer.
+    fn release_texture(&mut self, texture: TextureId) -> Result<(), ()>;
 
     // fn create_mask(descriptor: MaskOperation) -> Mask;
     // fn mask_from_scene(from: &Texture, to: &Scene, MaskDescriptor { subset_rect,  });
 
-    fn create_scene(&mut self, to: &Texture, options: SceneOptions) -> Self::ScenePainter;
+    fn create_scene(
+        &mut self,
+        to: &TextureId,
+        options: SceneOptions,
+    ) -> Result<Self::ScenePainter, ()>;
     fn queue_render(&mut self, from: Self::ScenePainter);
 
-    fn queue_download(&mut self, texture: &Texture) -> DownloadId;
+    fn queue_download(&mut self, texture: &TextureId) -> DownloadId;
 
     // TODO: Better error kinds.
     fn upload_image(
         &mut self,
-        to: &Texture,
+        to: &TextureId,
         data: peniko::ImageData,
         region: Option<(u16, u16, u16, u16)>,
     ) -> Result<(), ()>;
