@@ -13,7 +13,7 @@ use vello_common::{
     encode::{EncodedImage, EncodedPaint},
     kurbo::{self, Affine, Shape},
     paint::{ImageId, ImageSource},
-    peniko::{self, BlendMode, Brush, Fill, ImageBrush, ImageData},
+    peniko::{BlendMode, Brush, Fill, ImageBrush, ImageData},
     pixmap::Pixmap,
 };
 
@@ -116,6 +116,8 @@ impl Renderer for VelloCPU {
         let texture = self.textures.get_mut(&from.target).unwrap();
         let pixmap = Arc::get_mut(&mut texture.pixmap).unwrap();
         from.render_context.render_to_pixmap(pixmap);
+        // We will drop `from`, which includes dropping the pixmap references.
+        // TODO: We almost certainly want to keep the render context around.
     }
 
     fn queue_download(&mut self, texture: &TextureId) -> vello_api::DownloadId {

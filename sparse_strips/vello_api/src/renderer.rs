@@ -1,15 +1,16 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
-// This API has been designed so that it can be `Arc<Mutex>`ed.
-//
-// The `fill_path_cache` API could potentially stall some of those,
-// but otherwise the critical sections are small.
 
 use crate::{
     DownloadId, PaintScene, SceneOptions,
     prepared::PreparePaths,
     texture::{TextureDescriptor, TextureId},
 };
+
+// This API has been designed so that it can be `Arc<Mutex>`ed.
+//
+// The `fill_path_cache` API could potentially stall some of those,
+// but otherwise the critical sections are reasonably small.
 
 // TODO: Maybe?
 // pub enum MaskOperation {
