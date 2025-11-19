@@ -27,6 +27,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         paint: Paint,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     );
     fn stroke_path(
         &mut self,
@@ -36,6 +37,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         paint: Paint,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     );
     fn push_clip_path(
         &mut self,

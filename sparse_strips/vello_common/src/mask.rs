@@ -5,14 +5,18 @@
 
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 
-/// A mask.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Mask {
-    data: Arc<[u8]>,
+#[derive(Debug, PartialEq, Eq)]
+struct MaskRepr {
+    data: Vec<u8>,
     width: u16,
     height: u16,
 }
+
+/// A mask.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mask(Arc<MaskRepr>);
 
 impl Mask {
     /// Create a new alpha mask from the pixmap.
@@ -25,55 +29,85 @@ impl Mask {
         Self::new_with(pixmap, false)
     }
 
+    /// Create a new mask from the given alpha data.
+    ///
+    /// The `data` vector must be of length `width * height` exactly.
+    ///
+    /// The pixels are in row-major order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `data` vector is not of length `width * height`.
+    pub fn from_parts(data: Vec<u8>, width: u16, height: u16) -> Self {
+        assert_eq!(
+            data.len(),
+            usize::from(width) * usize::from(height),
+            "Expected `data` to have length of exactly `width * height`"
+        );
+
+        Self(Arc::new(MaskRepr {
+            data,
+            width,
+            height,
+        }))
+    }
+
     fn new_with(pixmap: &Pixmap, alpha_mask: bool) -> Self {
-        let data = Arc::from_iter(pixmap.data().iter().map(|pixel| {
-            if alpha_mask {
-                pixel.a
-            } else {
-                let r = f32::from(pixel.r) / 255.;
-                let g = f32::from(pixel.g) / 255.;
-                let b = f32::from(pixel.b) / 255.;
+        let data = pixmap
+            .data()
+            .iter()
+            .map(|pixel| {
+                if alpha_mask {
+                    pixel.a
+                } else {
+                    let r = f32::from(pixel.r) / 255.;
+                    let g = f32::from(pixel.g) / 255.;
+                    let b = f32::from(pixel.b) / 255.;
 
-                // See CSS Masking Module Level 1 § 7.10.1
-                // <https://www.w3.org/TR/css-masking-1/#MaskValues>
-                // and Filter Effects Module Level 1 § 9.6
-                // <https://www.w3.org/TR/filter-effects-1/#elementdef-fecolormatrix>.
-                // Note r, g and b are premultiplied by alpha.
-                let luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
-                #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow")]
-                {
-                    (luma * 255.0 + 0.5) as u8
+                    // See CSS Masking Module Level 1 § 7.10.1
+                    // <https://www.w3.org/TR/css-masking-1/#MaskValues>
+                    // and Filter Effects Module Level 1 § 9.6
+                    // <https://www.w3.org/TR/filter-effects-1/#elementdef-fecolormatrix>.
+                    // Note r, g and b are premultiplied by alpha.
+                    let luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
+                    #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow")]
+                    {
+                        (luma * 255.0 + 0.5) as u8
+                    }
                 }
-            }
-        }));
+            })
+            .collect::<Vec<u8>>();
 
-        Self {
+        Self(Arc::new(MaskRepr {
             data,
             width: pixmap.width(),
             height: pixmap.height(),
-        }
+        }))
     }
 
     /// Return the width of the mask.
+    #[inline]
     pub fn width(&self) -> u16 {
-        self.width
+        self.0.width
     }
 
     /// Return the height of the mask.
+    #[inline]
     pub fn height(&self) -> u16 {
-        self.height
+        self.0.height
     }
 
     /// Sample the value at a specific location.
     ///
     /// This function might panic or yield a wrong result if the location
     /// is out-of-bounds.
+    #[inline(always)]
     pub fn sample(&self, x: u16, y: u16) -> u8 {
         debug_assert!(
-            x < self.width && y < self.height,
+            x < self.0.width && y < self.0.height,
             "cannot sample mask outside of its range"
         );
 
-        self.data[y as usize * self.width as usize + x as usize]
+        self.0.data[y as usize * self.0.width as usize + x as usize]
     }
 }

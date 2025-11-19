@@ -6,6 +6,7 @@ use crate::fine::{COLOR_COMPONENTS, Painter};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use vello_common::fearless_simd::*;
+use vello_common::mask::Mask;
 use vello_common::paint::PremulColor;
 use vello_common::tile::Tile;
 
@@ -99,7 +100,12 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         alphas: Option<&[u8]>,
     ) {
         if let Some(alphas) = alphas {
-            alpha_fill::alpha_composite_solid(simd, dest, src, alphas);
+            alpha_fill::alpha_composite_solid(
+                simd,
+                dest,
+                src,
+                alphas.chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]),
+            );
         } else {
             fill::alpha_composite_solid(simd, dest, src);
         }
@@ -116,7 +122,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 simd,
                 dest,
                 src.chunks_exact(16).map(|el| f32x16::from_slice(simd, el)),
-                alphas,
+                alphas.chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]),
             );
         } else {
             fill::alpha_composite_arbitrary(
@@ -130,14 +136,56 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     fn blend(
         simd: S,
         dest: &mut [Self::Numeric],
+        mut start_x: u16,
+        start_y: u16,
         src: impl Iterator<Item = Self::Composite>,
         blend_mode: BlendMode,
         alphas: Option<&[u8]>,
+        mask: Option<&Mask>,
     ) {
-        if let Some(alphas) = alphas {
-            alpha_fill::blend(simd, dest, src, alphas, blend_mode);
-        } else {
-            fill::blend(simd, dest, src, blend_mode);
+        let alpha_iter = alphas.map(|a| a.chunks_exact(4).map(|d| [d[0], d[1], d[2], d[3]]));
+
+        let mask_iter = mask.map(|m| {
+            core::iter::from_fn(|| {
+                let sample = |x: u16, y: u16| {
+                    if x < m.width() && y < m.height() {
+                        m.sample(x, y)
+                    } else {
+                        255
+                    }
+                };
+
+                let samples = [
+                    sample(start_x, start_y),
+                    sample(start_x, start_y + 1),
+                    sample(start_x, start_y + 2),
+                    sample(start_x, start_y + 3),
+                ];
+
+                start_x += 1;
+
+                Some(samples)
+            })
+        });
+
+        match (alpha_iter, mask_iter) {
+            (Some(alpha_iter), Some(mut mask_iter)) => {
+                let iter = alpha_iter.map(|a1| {
+                    let a2 = mask_iter.next().unwrap();
+                    [
+                        ((a1[0] as u16 * a2[0] as u16) / 255) as u8,
+                        ((a1[1] as u16 * a2[1] as u16) / 255) as u8,
+                        ((a1[2] as u16 * a2[2] as u16) / 255) as u8,
+                        ((a1[3] as u16 * a2[3] as u16) / 255) as u8,
+                    ]
+                });
+                alpha_fill::blend(simd, dest, src, iter, blend_mode);
+            }
+            (None, Some(mask_iter)) => alpha_fill::blend(simd, dest, src, mask_iter, blend_mode),
+            (Some(alpha_iter), None) => alpha_fill::blend(simd, dest, src, alpha_iter, blend_mode),
+            (None, None) => {
+                fill::blend(simd, dest, src, blend_mode);
+            }
         }
     }
 }
@@ -223,7 +271,7 @@ mod alpha_fill {
         s: S,
         dest: &mut [f32],
         src: [f32; 4],
-        alphas: &[u8],
+        alphas: impl Iterator<Item = [u8; 4]>,
     ) {
         s.vectorize(
             #[inline(always)]
@@ -232,33 +280,29 @@ mod alpha_fill {
                 let src_c = f32x16::block_splat(src.simd_into(s));
                 let one = f32x16::splat(s, 1.0);
 
-                for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas.chunks_exact(4))
-                {
-                    alpha_composite_inner(s, next_dest, next_mask, src_c, src_a, one);
+                for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas) {
+                    alpha_composite_inner(s, next_dest, &next_mask, src_c, src_a, one);
                 }
             },
         );
     }
 
-    #[inline(always)]
     pub(super) fn alpha_composite_arbitrary<S: Simd, T: Iterator<Item = f32x16<S>>>(
         simd: S,
         dest: &mut [f32],
         src: T,
-        alphas: &[u8],
+        alphas: impl Iterator<Item = [u8; 4]>,
     ) {
         simd.vectorize(
             #[inline(always)]
             || {
                 let one = f32x16::splat(simd, 1.0);
 
-                for ((next_dest, next_mask), next_src) in dest
-                    .chunks_exact_mut(16)
-                    .zip(alphas.chunks_exact(4))
-                    .zip(src)
+                for ((next_dest, next_mask), next_src) in
+                    dest.chunks_exact_mut(16).zip(alphas).zip(src)
                 {
                     let src_a = next_src.splat_4th();
-                    alpha_composite_inner(simd, next_dest, next_mask, next_src, src_a, one);
+                    alpha_composite_inner(simd, next_dest, &next_mask, next_src, src_a, one);
                 }
             },
         );
@@ -268,18 +312,16 @@ mod alpha_fill {
         simd: S,
         dest: &mut [f32],
         src: T,
-        alphas: &[u8],
+        alphas: impl Iterator<Item = [u8; 4]>,
         blend_mode: BlendMode,
     ) {
         simd.vectorize(
             #[inline(always)]
             || {
-                for ((next_dest, next_mask), next_src) in dest
-                    .chunks_exact_mut(16)
-                    .zip(alphas.chunks_exact(4))
-                    .zip(src)
+                for ((next_dest, next_mask), next_src) in
+                    dest.chunks_exact_mut(16).zip(alphas).zip(src)
                 {
-                    let masks = extract_masks(simd, next_mask);
+                    let masks = extract_masks(simd, &next_mask);
                     let bg = f32x16::from_slice(simd, next_dest);
                     let src_c = blend::mix(next_src, bg, blend_mode);
                     let res = blend_mode.compose(simd, src_c, bg, Some(masks));
@@ -293,7 +335,7 @@ mod alpha_fill {
     fn alpha_composite_inner<S: Simd>(
         s: S,
         dest: &mut [f32],
-        masks: &[u8],
+        masks: &[u8; 4],
         src_c: f32x16<S>,
         src_a: f32x16<S>,
         one: f32x16<S>,
@@ -309,7 +351,7 @@ mod alpha_fill {
 }
 
 #[inline(always)]
-fn extract_masks<S: Simd>(simd: S, masks: &[u8]) -> f32x16<S> {
+fn extract_masks<S: Simd>(simd: S, masks: &[u8; 4]) -> f32x16<S> {
     let mut base_mask = [
         masks[0] as f32,
         masks[1] as f32,
