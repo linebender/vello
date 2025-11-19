@@ -5,16 +5,19 @@
 
 use crate::color::palette::css::TRANSPARENT;
 use crate::filter_effects::Filter;
+use crate::kurbo::Affine;
 use crate::mask::Mask;
 use crate::paint::{Paint, PremulColor};
 use crate::peniko::{BlendMode, Compose, Mix};
 use crate::render_graph::{DependencyKind, LayerId, RenderGraph, RenderNodeKind};
+use crate::util::extract_scales;
 use crate::{strip::Strip, tile::Tile};
 use alloc::vec;
 use alloc::{boxed::Box, vec::Vec};
 use core::ops::Range;
 use hashbrown::HashMap;
-
+#[cfg(not(feature = "std"))]
+use peniko::kurbo::common::FloatFuncs as _;
 #[derive(Debug)]
 struct Layer {
     /// The layer's ID.
@@ -510,6 +513,9 @@ impl<const MODE: u8> Wide<MODE> {
                         paint.clone(),
                         current_layer_id,
                     );
+                    // TODO: This bbox update might be redundant since filled regions are always
+                    // bounded by strip regions (which already update the bbox). Consider removing
+                    // this in a follow-up with proper benchmarks to verify correctness.
                     self.update_current_layer_bbox(wtile_x, strip_y);
                 }
             }
@@ -530,6 +536,7 @@ impl<const MODE: u8> Wide<MODE> {
         mask: Option<Mask>,
         opacity: f32,
         filter: Option<Filter>,
+        transform: Affine,
         render_graph: &mut RenderGraph,
         thread_idx: u8,
     ) {
@@ -562,6 +569,7 @@ impl<const MODE: u8> Wide<MODE> {
                 filter: filter.clone(),
                 // Bounding box starts inverted and will be updated in pop_layer with actual bounds
                 wtile_bbox: WideTilesBbox::inverted(),
+                transform,
             });
 
             // Connect to parent node if there is one
@@ -577,15 +585,23 @@ impl<const MODE: u8> Wide<MODE> {
             self.filter_node_stack.push(child_node);
         }
 
-        let layer_kind = if filter.is_some() {
+        let has_filter = filter.is_some();
+        let has_clip = clip_path.is_some();
+        let layer_kind = if has_filter {
             LayerKind::Filtered(layer_id)
         } else {
             LayerKind::Regular(layer_id)
         };
 
+        // Filtered layers with clipping require special handling: normally, tiles with
+        // zero-winding clips suppress all drawing. However, filters need the full layer
+        // content rendered (including zero-clipped areas) before applying the clip as a mask.
+        // When this flag is true, we generate explicit drawing commands instead of just counters.
+        let in_clipped_filter_layer = has_filter && has_clip;
+
         let layer = Layer {
             layer_id,
-            clip: clip_path.is_some(),
+            clip: has_clip,
             blend_mode,
             opacity,
             mask,
@@ -606,7 +622,11 @@ impl<const MODE: u8> Wide<MODE> {
         if layer.needs_buf() {
             for x in 0..self.width_tiles() {
                 for y in 0..self.height_tiles() {
-                    self.get_mut(x, y).push_buf(layer_kind);
+                    let tile = self.get_mut(x, y);
+                    tile.push_buf(layer_kind);
+                    // Mark tiles that are in a clipped filter layer so they generate
+                    // explicit clip commands for proper filter processing.
+                    tile.in_clipped_filter_layer = in_clipped_filter_layer;
                 }
             }
         }
@@ -636,25 +656,34 @@ impl<const MODE: u8> Wide<MODE> {
         let mut layer = self.layer_stack.pop().unwrap();
 
         if let Some(filter) = layer.filter.clone() {
-            let expansion = filter.bounds_expansion();
-            let expanded_bbox = layer.wtile_bbox.expand_by_pixels(
-                expansion.left,
-                expansion.top,
-                expansion.right,
-                expansion.bottom,
-                self.width_tiles(),
-                self.height_tiles(),
-            );
-            let clip_bbox = self.get_bbox();
-            layer.wtile_bbox = expanded_bbox.intersect(clip_bbox);
-
             // Update render graph node with final bounding box
             if let Some(node_id) = self.filter_node_stack.pop() {
-                // Update the render graph node with this layer's bbox
+                // Get the transform from the FilterLayer node and scale the expansion by it
                 if let Some(node) = render_graph.nodes.get_mut(node_id)
-                    && let RenderNodeKind::FilterLayer { wtile_bbox, .. } = &mut node.kind
+                    && let RenderNodeKind::FilterLayer {
+                        wtile_bbox,
+                        transform,
+                        ..
+                    } = &mut node.kind
                 {
-                    *wtile_bbox = layer.wtile_bbox;
+                    // Calculate expansion in user space, then scale by transform to get pixel-space expansion
+                    // This ensures scaled filters (e.g., zoomed drop shadows) have correct bounds
+                    let expansion = filter.bounds_expansion();
+                    let (scale_x, scale_y) = extract_scales(transform);
+                    let expanded_bbox = layer.wtile_bbox.expand_by_pixels(
+                        (expansion.left as f32 * scale_x).ceil() as u16,
+                        (expansion.top as f32 * scale_y).ceil() as u16,
+                        (expansion.right as f32 * scale_x).ceil() as u16,
+                        (expansion.bottom as f32 * scale_y).ceil() as u16,
+                        self.width_tiles(),
+                        self.height_tiles(),
+                    );
+                    let clip_bbox = self.get_bbox();
+                    let final_bbox = expanded_bbox.intersect(clip_bbox);
+
+                    // Update both the local layer and the render graph node
+                    layer.wtile_bbox = final_bbox;
+                    *wtile_bbox = final_bbox;
                 }
                 // Record this node in execution order (children before parents)
                 render_graph.record_node_for_execution(node_id);
@@ -763,7 +792,7 @@ impl<const MODE: u8> Wide<MODE> {
             // These wide tiles are all zero-winding (outside the path)
             while cur_wtile_y < strip_y.min(clip_bbox.y1()) {
                 for wtile_x in cur_wtile_x..clip_bbox.x1() {
-                    self.get_mut(wtile_x, cur_wtile_y).push_zero_clip();
+                    self.get_mut(wtile_x, cur_wtile_y).push_zero_clip(layer_id);
                 }
                 // Reset x to the left edge of the clip bounding box
                 cur_wtile_x = clip_bbox.x0();
@@ -786,7 +815,7 @@ impl<const MODE: u8> Wide<MODE> {
                 let is_inside = strip.fill_gap();
                 if !is_inside {
                     for wtile_x in cur_wtile_x..wtile_x_clamped {
-                        self.get_mut(wtile_x, cur_wtile_y).push_zero_clip();
+                        self.get_mut(wtile_x, cur_wtile_y).push_zero_clip(layer_id);
                     }
                 }
                 // If winding is nonzero, then wide tiles covered entirely
@@ -810,7 +839,7 @@ impl<const MODE: u8> Wide<MODE> {
         // Process any remaining wide tiles in the bounding box (all zero-winding)
         while cur_wtile_y < clip_bbox.y1() {
             for wtile_x in cur_wtile_x..clip_bbox.x1() {
-                self.get_mut(wtile_x, cur_wtile_y).push_zero_clip();
+                self.get_mut(wtile_x, cur_wtile_y).push_zero_clip(layer_id);
             }
             cur_wtile_x = clip_bbox.x0();
             cur_wtile_y += 1;
@@ -1061,6 +1090,10 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     pub n_clip: usize,
     /// The number of pushed buffers.
     pub n_bufs: usize,
+    /// True when this tile is in a filtered layer with clipping applied.
+    /// When set, clip operations generate explicit commands instead of just
+    /// tracking counters, allowing filters to process clipped content correctly.
+    pub in_clipped_filter_layer: bool,
     /// Maps layer Id to command ranges for this tile.
     pub layer_cmd_ranges: HashMap<LayerId, LayerCommandRanges>,
     /// Vector of layer IDs this tile participates in.
@@ -1101,11 +1134,17 @@ impl<const MODE: u8> WideTile<MODE> {
             n_zero_clip: 0,
             n_clip: 0,
             n_bufs: 0,
+            in_clipped_filter_layer: false,
             layer_cmd_ranges,
             layer_ids: vec![LayerKind::Regular(0)],
         }
     }
 
+    /// Fill a rectangular region with a paint.
+    ///
+    /// Generates fill commands unless the tile is in a zero-clip region (fully clipped out).
+    /// For clipped filter layers, commands are always generated since filters need the full
+    /// layer content rendered before applying the clip as a mask.
     pub(crate) fn fill(
         &mut self,
         x: u16,
@@ -1114,7 +1153,7 @@ impl<const MODE: u8> WideTile<MODE> {
         paint: Paint,
         current_layer_id: LayerId,
     ) {
-        if !self.is_zero_clip() {
+        if !self.is_zero_clip() || self.in_clipped_filter_layer {
             match MODE {
                 MODE_CPU => {
                     let bg = if let Paint::Solid(s) = &paint {
@@ -1170,36 +1209,62 @@ impl<const MODE: u8> WideTile<MODE> {
         }
     }
 
+    /// Fill a region using an alpha mask from a strip.
+    ///
+    /// Generates alpha fill commands unless the tile is in a zero-clip region (fully clipped out).
+    /// For clipped filter layers, commands are always generated since filters need the full
+    /// layer content rendered before applying the clip as a mask.
     pub(crate) fn strip(&mut self, cmd_strip: CmdAlphaFill, current_layer_id: LayerId) {
-        if !self.is_zero_clip() {
+        if !self.is_zero_clip() || self.in_clipped_filter_layer {
             self.record_fill_cmd(current_layer_id, self.cmds.len());
             self.cmds.push(Cmd::AlphaFill(cmd_strip));
         }
     }
 
     /// Adds a new clip region to the current wide tile.
+    ///
+    /// Pushes a clip buffer unless the tile is in a zero-clip region (fully clipped out).
+    /// For clipped filter layers, clip buffers are always pushed since filters need explicit
+    /// clip state to process the full layer before applying the clip as a mask.
     pub fn push_clip(&mut self, layer_id: LayerId) {
-        if !self.is_zero_clip() {
+        if !self.is_zero_clip() || self.in_clipped_filter_layer {
             self.push_buf(LayerKind::Clip(layer_id));
             self.n_clip += 1;
         }
     }
 
     /// Removes the most recently added clip region from the current wide tile.
+    ///
+    /// Pops a clip buffer unless the tile is in a zero-clip region (fully clipped out).
+    /// For clipped filter layers, clip buffers are always popped since filters need explicit
+    /// clip state to process the full layer before applying the clip as a mask.
     pub fn pop_clip(&mut self) {
-        if !self.is_zero_clip() {
+        if !self.is_zero_clip() || self.in_clipped_filter_layer {
             self.pop_buf();
             self.n_clip -= 1;
         }
     }
 
     /// Adds a zero-winding clip region to the stack.
-    pub fn push_zero_clip(&mut self) {
+    ///
+    /// Zero-winding clips represent tiles completely outside the clip path.
+    /// Normally these just increment a counter to suppress drawing, but for
+    /// clipped filter layers we generate explicit commands so filters can
+    /// process the entire layer before applying the clip as a mask.
+    pub fn push_zero_clip(&mut self, layer_id: LayerId) {
+        if self.in_clipped_filter_layer {
+            // Generate explicit command for filter processing
+            self.cmds.push(Cmd::PushZeroClip(layer_id));
+        }
         self.n_zero_clip += 1;
     }
 
     /// Removes the most recently added zero-winding clip region.
     pub fn pop_zero_clip(&mut self) {
+        if self.in_clipped_filter_layer {
+            // Generate explicit command for filter processing
+            self.cmds.push(Cmd::PopZeroClip);
+        }
         self.n_zero_clip -= 1;
     }
 
@@ -1210,14 +1275,14 @@ impl<const MODE: u8> WideTile<MODE> {
 
     /// Applies a clip strip operation with the given parameters.
     pub fn clip_strip(&mut self, cmd_clip_strip: CmdClipAlphaFill) {
-        if !self.is_zero_clip() && !matches!(self.cmds.last(), Some(Cmd::PushBuf(_))) {
+        if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(_))) {
             self.cmds.push(Cmd::ClipStrip(cmd_clip_strip));
         }
     }
 
     /// Applies a clip fill operation at the specified position and width.
     pub fn clip_fill(&mut self, x: u32, width: u32) {
-        if !self.is_zero_clip() && !matches!(self.cmds.last(), Some(Cmd::PushBuf(_))) {
+        if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(_))) {
             self.cmds.push(Cmd::ClipFill(CmdClipFill { x, width }));
         }
     }
@@ -1296,7 +1361,7 @@ impl<const MODE: u8> WideTile<MODE> {
         self.n_bufs -= 1;
     }
 
-    /// Apply an opacity to the whole buffer.
+    /// Apply an opacity to the whole buffe            r.
     pub fn opacity(&mut self, opacity: f32) {
         if opacity != 1.0 {
             self.cmds.push(Cmd::Opacity(opacity));
@@ -1378,6 +1443,14 @@ pub enum Cmd {
     /// This command will blend the contents of the current buffer within the clip fill region
     /// into the previous buffer in the stack, with an additional alpha mask.
     ClipStrip(CmdClipAlphaFill),
+    /// Marks entry into a zero-winding clip region for a clipped filter layer.
+    ///
+    /// Zero-winding clips represent tiles completely outside the clip path. For clipped
+    /// filter layers, this command allows the filter to process the full layer content
+    /// before applying the clip as a mask (per SVG spec: filter → clip → mask → blend).
+    PushZeroClip(LayerId),
+    /// Marks exit from a zero-winding clip region for a clipped filter layer.
+    PopZeroClip,
     /// Apply a filter effect to a layer's contents.
     ///
     /// This command applies a filter (e.g., blur, drop shadow) to the specified layer's
@@ -1520,6 +1593,7 @@ mod tests {
     use crate::coarse::{LayerKind, MODE_CPU, Wide, WideTile};
     use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
+    use crate::kurbo::Affine;
     use crate::paint::{Paint, PremulColor};
     use crate::peniko::{BlendMode, Compose, Mix};
     use crate::render_graph::RenderGraph;
@@ -1618,6 +1692,7 @@ mod tests {
             None,
             0.5,
             None,
+            Affine::IDENTITY,
             &mut render_graph,
             0,
         );
@@ -1634,6 +1709,7 @@ mod tests {
             None,
             0.09,
             None,
+            Affine::IDENTITY,
             &mut render_graph,
             0,
         );

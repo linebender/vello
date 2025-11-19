@@ -41,14 +41,7 @@ impl FilterEffect for Flood {
         };
 
         // Fill ALL pixels with flood color (entire subregion)
-        let width = pixmap.width();
-        let height = pixmap.height();
-
-        for y in 0..height {
-            for x in 0..width {
-                pixmap.set_pixel(x, y, flood_color);
-            }
-        }
+        pixmap.data_mut().fill(flood_color);
     }
 
     fn execute_highp(&self, pixmap: &mut Pixmap, _layer_manager: &mut LayerManager) {
@@ -66,13 +59,6 @@ impl FilterEffect for Flood {
         };
 
         // Fill ALL pixels with flood color (entire subregion)
-        let width = pixmap.width();
-        let height = pixmap.height();
-
-        for y in 0..height {
-            for x in 0..width {
-                pixmap.set_pixel(x, y, flood_color);
-            }
-        }
+        pixmap.data_mut().fill(flood_color);
     }
 }

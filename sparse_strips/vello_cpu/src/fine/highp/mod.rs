@@ -21,6 +21,7 @@ use crate::peniko::BlendMode;
 use crate::region::Region;
 use vello_common::fearless_simd::*;
 use vello_common::filter_effects::Filter;
+use vello_common::kurbo::Affine;
 use vello_common::paint::PremulColor;
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
@@ -105,8 +106,13 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     /// Applies a filter effect to a rendered layer.
     ///
     /// Delegates to the f32-specific filter implementation.
-    fn filter_layer(pixmap: &mut Pixmap, filter: &Filter, layer_manager: &mut LayerManager) {
-        filter_highp(filter, pixmap, layer_manager);
+    fn filter_layer(
+        pixmap: &mut Pixmap,
+        filter: &Filter,
+        layer_manager: &mut LayerManager,
+        transform: Affine,
+    ) {
+        filter_highp(filter, pixmap, layer_manager, transform);
     }
 
     /// Fills a buffer with a solid color using SIMD operations.

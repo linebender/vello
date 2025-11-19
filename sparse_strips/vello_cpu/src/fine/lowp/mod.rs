@@ -24,6 +24,7 @@ use vello_common::coarse::WideTile;
 use vello_common::encode::{EncodedGradient, EncodedImage};
 use vello_common::fearless_simd::*;
 use vello_common::filter_effects::Filter;
+use vello_common::kurbo::Affine;
 use vello_common::paint::PremulColor;
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
@@ -81,8 +82,13 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     /// Applies a filter effect to a rendered layer.
     ///
     /// Delegates to the u8-specific filter implementation.
-    fn filter_layer(pixmap: &mut Pixmap, filter: &Filter, layer_manager: &mut LayerManager) {
-        filter_lowp(filter, pixmap, layer_manager);
+    fn filter_layer(
+        pixmap: &mut Pixmap,
+        filter: &Filter,
+        layer_manager: &mut LayerManager,
+        transform: Affine,
+    ) {
+        filter_lowp(filter, pixmap, layer_manager, transform);
     }
 
     /// Fills a buffer with a solid color using SIMD operations.

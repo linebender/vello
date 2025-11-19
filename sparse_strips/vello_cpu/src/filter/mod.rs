@@ -18,7 +18,9 @@ pub(crate) use gaussian_blur::GaussianBlur;
 
 use crate::layer_manager::LayerManager;
 use vello_common::filter_effects::{Filter, FilterPrimitive};
+use vello_common::kurbo::Affine;
 use vello_common::pixmap::Pixmap;
+use vello_common::util::extract_scales;
 
 /// Trait for filter effects that can be applied to layers.
 ///
@@ -52,11 +54,17 @@ pub(crate) trait FilterEffect {
 /// * `filter` - The filter containing the graph of primitives to apply
 /// * `pixmap` - The target pixmap containing rendering metadata
 /// * `layer_manager` - Manager for allocating and accessing intermediate layers
+/// * `transform` - The transformation matrix to extract scale from for filter parameters
 ///
 /// # Limitations
 /// Currently only supports filter graphs with a single primitive.
 /// Multi-primitive filter graphs are not yet implemented.
-pub(crate) fn filter_lowp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
+pub(crate) fn filter_lowp(
+    filter: &Filter,
+    pixmap: &mut Pixmap,
+    layer_manager: &mut LayerManager,
+    transform: Affine,
+) {
     // Multi-primitive filter graphs are not yet implemented.
     if filter.graph.primitives.len() != 1 {
         unimplemented!("Multi-primitive filter graphs are not yet supported");
@@ -71,7 +79,14 @@ pub(crate) fn filter_lowp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: &
             std_deviation,
             edge_mode,
         } => {
-            let blur = GaussianBlur::new(*std_deviation, *edge_mode);
+            // Scale the blur radius by the uniform scale factor using SVD
+            let (scale_x, scale_y) = extract_scales(&transform);
+            let uniform_scale = (scale_x + scale_y) / 2.0;
+            // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
+            // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
+            // and allow blur to scale independently along each axis.
+            let scaled_std_dev = std_deviation * uniform_scale;
+            let blur = GaussianBlur::new(scaled_std_dev, *edge_mode);
             blur.execute_lowp(pixmap, layer_manager);
         }
         FilterPrimitive::DropShadow {
@@ -81,7 +96,19 @@ pub(crate) fn filter_lowp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: &
             color,
             edge_mode,
         } => {
-            let drop_shadow = DropShadow::new(*dx, *dy, *std_deviation, *edge_mode, *color);
+            // Scale both the shadow offset and blur radius using SVD
+            let (scale_x, scale_y) = extract_scales(&transform);
+            let uniform_scale = (scale_x + scale_y) / 2.0;
+
+            let scaled_dx = dx * scale_x;
+            let scaled_dy = dy * scale_y;
+            // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
+            // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
+            // and allow blur to scale independently along each axis.
+            let scaled_std_dev = std_deviation * uniform_scale;
+
+            let drop_shadow =
+                DropShadow::new(scaled_dx, scaled_dy, scaled_std_dev, *edge_mode, *color);
             drop_shadow.execute_lowp(pixmap, layer_manager);
         }
         _ => {
@@ -101,11 +128,17 @@ pub(crate) fn filter_lowp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: &
 /// * `filter` - The filter containing the graph of primitives to apply
 /// * `pixmap` - The target pixmap containing rendering metadata
 /// * `layer_manager` - Manager for allocating and accessing intermediate layers
+/// * `transform` - The transformation matrix to extract scale from for filter parameters
 ///
 /// # Limitations
 /// Currently only supports filter graphs with a single primitive.
 /// Multi-primitive filter graphs are not yet implemented.
-pub(crate) fn filter_highp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
+pub(crate) fn filter_highp(
+    filter: &Filter,
+    pixmap: &mut Pixmap,
+    layer_manager: &mut LayerManager,
+    transform: Affine,
+) {
     // Multi-primitive filter graphs are not yet implemented.
     if filter.graph.primitives.len() != 1 {
         unimplemented!("Multi-primitive filter graphs are not yet supported");
@@ -120,7 +153,14 @@ pub(crate) fn filter_highp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: 
             std_deviation,
             edge_mode,
         } => {
-            let blur = GaussianBlur::new(*std_deviation, *edge_mode);
+            // Scale the blur radius by the uniform scale factor using SVD
+            let (scale_x, scale_y) = extract_scales(&transform);
+            let uniform_scale = (scale_x + scale_y) / 2.0;
+            // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
+            // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
+            // and allow blur to scale independently along each axis.
+            let scaled_std_dev = std_deviation * uniform_scale;
+            let blur = GaussianBlur::new(scaled_std_dev, *edge_mode);
             blur.execute_highp(pixmap, layer_manager);
         }
         FilterPrimitive::DropShadow {
@@ -130,7 +170,19 @@ pub(crate) fn filter_highp(filter: &Filter, pixmap: &mut Pixmap, layer_manager: 
             color,
             edge_mode,
         } => {
-            let drop_shadow = DropShadow::new(*dx, *dy, *std_deviation, *edge_mode, *color);
+            // Scale both the shadow offset and blur radius using SVD
+            let (scale_x, scale_y) = extract_scales(&transform);
+            let uniform_scale = (scale_x + scale_y) / 2.0;
+
+            let scaled_dx = dx * scale_x;
+            let scaled_dy = dy * scale_y;
+            // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
+            // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
+            // and allow blur to scale independently along each axis.
+            let scaled_std_dev = std_deviation * uniform_scale;
+
+            let drop_shadow =
+                DropShadow::new(scaled_dx, scaled_dy, scaled_std_dev, *edge_mode, *color);
             drop_shadow.execute_highp(pixmap, layer_manager);
         }
         _ => {

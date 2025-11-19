@@ -53,6 +53,7 @@
 
 use crate::coarse::WideTilesBbox;
 use crate::filter_effects::Filter;
+use crate::kurbo::Affine;
 use alloc::vec;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
@@ -320,6 +321,9 @@ pub enum RenderNodeKind {
         filter: Filter,
         /// Bounding box in wide tile coordinates containing geometry for this layer.
         wtile_bbox: WideTilesBbox,
+        /// Transform that was active when the layer was created.
+        /// Used to scale filter parameters based on the current scale/zoom level.
+        transform: Affine,
     },
 }
 

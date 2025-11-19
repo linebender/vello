@@ -175,6 +175,7 @@ impl SingleThreadedDispatcher {
                     layer_id,
                     filter,
                     wtile_bbox,
+                    transform,
                 } => {
                     // Allocate intermediate buffer for this filtered layer.
                     let bbox_width = wtile_bbox.width_px();
@@ -211,7 +212,7 @@ impl SingleThreadedDispatcher {
                     });
 
                     // Apply the filter effect to the completed layer.
-                    fine.filter_layer(&mut pixmap, filter, layer_manager);
+                    fine.filter_layer(&mut pixmap, filter, layer_manager, *transform);
 
                     // Store the filtered result for use by dependent layers.
                     layer_manager.register_layer(*layer_id, *wtile_bbox, pixmap);
@@ -273,7 +274,7 @@ impl SingleThreadedDispatcher {
         layer_manager: &mut LayerManager,
         encoded_paints: &[EncodedPaint],
     ) {
-        let wtile = self.wide.get(x, y);
+        let wtile = &self.wide.get(x, y);
         fine.set_coords(x, y);
         fine.clear(clear_color);
 
@@ -283,28 +284,55 @@ impl SingleThreadedDispatcher {
 
         let mut cmd_idx = ranges.render_range.start;
         while cmd_idx < ranges.render_range.end {
-            let cmd = &wtile.cmds[cmd_idx];
+            let cmd: &Cmd = &wtile.cmds[cmd_idx];
+
             fine.run_cmd(cmd, &self.strip_storage.alphas, encoded_paints);
 
             // Special handling for filtered layer composition.
+            // Filtered layers have already been rendered and stored in layer_manager.
+            // Here we composite them into the current buffer, with special handling for clipping.
             if let Cmd::PushBuf(LayerKind::Filtered(child_layer_id)) = cmd {
-                // Check if the next command is a clip for this filtered layer.
-                let next_cmd = &wtile.cmds[cmd_idx + 1];
-                if let Cmd::PushBuf(LayerKind::Clip(_)) = next_cmd {
-                    fine.run_cmd(next_cmd, &self.strip_storage.alphas, encoded_paints);
-                    cmd_idx += 1;
-                }
-
-                // Composite the filtered layer's content from the layer manager.
-                if let Some(mut region) = layer_manager.layer_tile_region_mut(*child_layer_id, x, y)
-                {
-                    fine.unpack(&mut region);
-                }
-
-                // Skip past the filtered layer's internal commands.
-                // (they were already rendered when the FilterLayer node was processed).
                 // Invariant: PushBuf(Filtered) command must have corresponding layer_cmd_ranges entry.
                 let filtered_ranges = wtile.layer_cmd_ranges.get(child_layer_id).unwrap();
+
+                // Check what comes after the filtered layer push to determine clipping state
+                match wtile.cmds.get(cmd_idx + 1) {
+                    // Zero-clip region: tile is completely outside the clip path.
+                    // The layer was already rendered for filtering, but we skip compositing
+                    // since this tile is entirely clipped out.
+                    // (PushZeroClip only appears for clipped filter layers)
+                    Some(Cmd::PushZeroClip(id)) if *id == *child_layer_id => {
+                        cmd_idx += 1; // Skip the PushZeroClip command
+                    }
+
+                    // Partial clip: push the clip buffer, then composite the filtered layer
+                    Some(Cmd::PushBuf(LayerKind::Clip(_))) => {
+                        fine.run_cmd(
+                            &wtile.cmds[cmd_idx + 1],
+                            &self.strip_storage.alphas,
+                            encoded_paints,
+                        );
+                        cmd_idx += 1;
+
+                        if let Some(mut region) =
+                            layer_manager.layer_tile_region_mut(*child_layer_id, x, y)
+                        {
+                            fine.unpack(&mut region);
+                        }
+                    }
+
+                    // No clip or fully inside clip: composite the filtered layer directly
+                    _ => {
+                        if let Some(mut region) =
+                            layer_manager.layer_tile_region_mut(*child_layer_id, x, y)
+                        {
+                            fine.unpack(&mut region);
+                        }
+                    }
+                }
+
+                // Skip past the filtered layer's internal commands, as they were already
+                // rendered when the FilterLayer node was processed earlier.
                 cmd_idx = filtered_ranges.render_range.end.max(cmd_idx + 1);
             } else {
                 cmd_idx += 1;
@@ -410,7 +438,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         &mut self,
         clip_path: Option<&BezPath>,
         fill_rule: Fill,
-        clip_transform: Affine,
+        transform: Affine,
         blend_mode: BlendMode,
         opacity: f32,
         aliasing_threshold: Option<u8>,
@@ -425,7 +453,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             self.strip_generator.generate_filled_path(
                 c,
                 fill_rule,
-                clip_transform,
+                transform,
                 aliasing_threshold,
                 &mut self.strip_storage,
                 self.clip_context.get(),
@@ -444,6 +472,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             mask,
             opacity,
             filter,
+            transform,
             &mut self.render_graph,
             0,
         );
@@ -461,6 +490,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         self.strip_generator.reset();
         self.strip_storage.clear();
         self.render_graph.clear();
+        self.layer_id_next = 0;
 
         // Recreate root node as node 0 (required for proper execution order).
         let root_node = self.render_graph.add_node(RenderNodeKind::RootLayer {

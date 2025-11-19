@@ -330,6 +330,8 @@ impl MultiThreadedDispatcher {
                                     mask,
                                     opacity,
                                     None,
+                                    // Transform can be IDENTITY because filters aren't supported in multi-threaded mode
+                                    Affine::IDENTITY,
                                     &mut self.render_graph,
                                     thread_id,
                                 );

@@ -361,6 +361,7 @@ impl Scene {
             None,
             opacity.unwrap_or(1.),
             None,
+            self.transform,
             &mut self.render_graph,
             0,
         );

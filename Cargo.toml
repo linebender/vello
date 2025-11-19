@@ -18,6 +18,7 @@ members = [
     "sparse_strips/vello_common",
     "sparse_strips/vello_cpu",
     "sparse_strips/vello_cpu/examples/wasm_cpu",
+    "sparse_strips/vello_cpu/examples/winit",
     "sparse_strips/vello_hybrid",
     "sparse_strips/vello_sparse_shaders",
     "sparse_strips/vello_hybrid/examples/native_webgl",

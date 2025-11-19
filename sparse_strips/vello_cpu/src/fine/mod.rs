@@ -33,9 +33,8 @@ use vello_common::fearless_simd::{
     Simd, SimdBase, SimdFloat, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4, u32x8,
 };
 use vello_common::filter_effects::Filter;
+use vello_common::kurbo::Affine;
 use vello_common::paint::{ImageSource, Paint, PremulColor};
-#[cfg(not(feature = "std"))]
-use vello_common::peniko::kurbo::common::FloatFuncs as _;
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::Splat4thExt;
 use vello_common::tile::Tile;
@@ -235,7 +234,16 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     /// This is used for applying filters to whole layers, which is necessary for
     /// spatial filters (like blur) that need to access neighboring pixels. The filter
     /// is applied in-place to the provided pixmap.
-    fn filter_layer(pixmap: &mut Pixmap, filter: &Filter, layer_manager: &mut LayerManager);
+    ///
+    /// The transform parameter is used to scale filter parameters based on the current
+    /// transformation matrix (e.g., zoom level), ensuring filters look consistent
+    /// regardless of scale.
+    fn filter_layer(
+        pixmap: &mut Pixmap,
+        filter: &Filter,
+        layer_manager: &mut LayerManager,
+        transform: Affine,
+    );
 
     /// Fill the target buffer with a solid color.
     ///
@@ -484,8 +492,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         pixmap: &mut Pixmap,
         filter: &Filter,
         layer_manager: &mut LayerManager,
+        transform: Affine,
     ) {
-        T::filter_layer(pixmap, filter, layer_manager);
+        T::filter_layer(pixmap, filter, layer_manager, transform);
     }
 
     /// Execute a rendering command on the current tile.
@@ -590,6 +599,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         )),
                     );
                 }
+            }
+            Cmd::PushZeroClip(_) | Cmd::PopZeroClip => {
+                // These commands are handled by the dispatcher and should not reach fine rasterization
             }
         }
     }

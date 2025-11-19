@@ -6,16 +6,15 @@
 use crate::util::circular_star;
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
 use vello_common::color::AlphaColor;
-use vello_common::filter_effects::*;
-use vello_common::kurbo::Rect;
-use vello_cpu::color::palette::css::{REBECCA_PURPLE, WHITE};
-use vello_cpu::kurbo::Affine;
-use vello_cpu::{
-    Mask, Pixmap, RenderContext,
-    color::palette::css::{PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET},
-    kurbo::{BezPath, Circle, Point, Shape as _},
-    peniko::{BlendMode, Compose, Mix},
+use vello_common::color::palette::css::{
+    PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET, WHITE,
 };
+use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
+use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape};
+use vello_common::mask::Mask;
+use vello_common::peniko::{BlendMode, Compose, Mix};
+use vello_common::pixmap::Pixmap;
+use vello_cpu::RenderContext;
 use vello_dev_macros::vello_test;
 
 /// Test flood filter filling a star shape with solid color using a mask.

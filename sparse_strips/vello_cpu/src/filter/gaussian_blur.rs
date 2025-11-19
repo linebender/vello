@@ -442,7 +442,7 @@ pub(crate) fn upscale(
     let dst_width = src_width * 2;
     let dst_height = src_height * 2;
     upscale_x(src, src_width, src_height, edge_mode);
-    upscale_y(src, src_width, src_height, edge_mode);
+    upscale_y(src, dst_width, src_height, edge_mode);
     (dst_width, dst_height)
 }
 
