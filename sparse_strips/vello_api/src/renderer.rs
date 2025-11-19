@@ -31,10 +31,10 @@ pub trait Renderer: Send {
     type PathPreparer: PreparePaths<Self::ScenePainter>;
 
     /// Create a texture for use in renders with this device.
-    // TODO: Do we want this to be a generational index instead?
     fn create_texture(&mut self, descriptor: TextureDescriptor) -> TextureId;
+
     // Error if the texture was already freed/not associated with this renderer.
-    fn release_texture(&mut self, texture: TextureId) -> Result<(), ()>;
+    fn free_texture(&mut self, texture: TextureId) -> Result<(), ()>;
 
     // fn create_mask(descriptor: MaskOperation) -> Mask;
     // fn mask_from_scene(from: &Texture, to: &Scene, MaskDescriptor { subset_rect,  });
@@ -46,15 +46,10 @@ pub trait Renderer: Send {
     ) -> Result<Self::ScenePainter, ()>;
     fn queue_render(&mut self, from: Self::ScenePainter);
 
-    fn queue_download(&mut self, texture: &TextureId) -> DownloadId;
+    fn queue_download(&mut self, of: &TextureId) -> DownloadId;
 
     // TODO: Better error kinds.
-    fn upload_image(
-        &mut self,
-        to: &TextureId,
-        data: peniko::ImageData,
-        region: Option<(u16, u16, u16, u16)>,
-    ) -> Result<(), ()>;
+    fn upload_image(&mut self, to: &TextureId, data: &peniko::ImageData) -> Result<(), ()>;
 
     /// API for efficient glyph rendering.
     // Needs: Shape, Transform, Bounds, Fill or Stroke

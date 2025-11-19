@@ -31,6 +31,7 @@ pub trait PaintScene: Any {
         std_dev: f32,
     );
     fn set_solid_brush(&mut self, color: Color) {
+        // The transform doesn't matter for a solid color brush.
         self.set_brush(Brush::Solid(color), Affine::IDENTITY, Affine::IDENTITY);
     }
 

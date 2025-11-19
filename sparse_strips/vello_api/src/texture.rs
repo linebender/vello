@@ -4,7 +4,7 @@
 //! Texture types used in Vello API.
 
 use bitflags::bitflags;
-use core::{any::Any, fmt::Debug};
+use core::fmt::Debug;
 
 #[derive(Copy, Clone, Debug)]
 pub struct TextureDescriptor {
@@ -14,29 +14,13 @@ pub struct TextureDescriptor {
     pub height: u16,
     pub usages: TextureUsages,
     // TODO: Format? Premultiplication? Hdr?
+    // TODO: Explicit atlasing?
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TextureId(u64);
 
 impl TextureId {
-    pub fn next() -> Self {
-        #[cfg(target_has_atomic = "64")]
-        {
-            use core::sync::atomic::{self, Ordering};
-
-            // Overflow: u64 starting at 0 incremented by 1 at a time, so cannot overflow.
-            static DOWNLOAD_IDS: atomic::AtomicU64 = atomic::AtomicU64::new(0);
-            Self(DOWNLOAD_IDS.fetch_add(1, Ordering::Relaxed))
-        }
-        #[cfg(not(target_has_atomic = "64"))]
-        {
-            // Overflow: We expect running this code on 32-bit targets to be rare enough in practise
-            // that we don't handle overflow.
-            static DOWNLOAD_IDS: atomic::AtomicU32 = atomic::AtomicU32::new(0);
-            Self(DOWNLOAD_IDS.fetch_add(1, Ordering::Relaxed).into())
-        }
-    }
     pub fn to_raw(&self) -> u64 {
         self.0
     }

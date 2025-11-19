@@ -7,26 +7,42 @@ use hashbrown::HashMap;
 use vello_api::{
     PaintScene, Renderer,
     baseline::BaselinePreparePaths,
-    texture::{self, TextureId},
+    texture::{self, TextureId, TextureUsages},
 };
 use vello_common::{
     encode::{EncodedImage, EncodedPaint},
     kurbo::{self, Affine, Shape},
     paint::{ImageId, ImageSource},
-    peniko::{BlendMode, Brush, Fill, ImageBrush, ImageData},
+    peniko::{self, BlendMode, Brush, Fill, ImageBrush, ImageData},
     pixmap::Pixmap,
 };
 
 use crate::{RenderContext, RenderSettings};
 
+#[derive(Debug)]
 pub struct VelloCPU {
     default_render_settings: RenderSettings,
+    // TODO: Evaluate whether to use generational(?) indexing instead of a HashMap
+    texture_id_source: u64,
     textures: HashMap<TextureId, StoredTexture>,
+}
+
+impl VelloCPU {
+    pub fn new(default_render_settings: RenderSettings) -> Self {
+        Self {
+            default_render_settings,
+            textures: HashMap::new(),
+            texture_id_source: 0,
+        }
+    }
+
+    pub fn read_texture(&self, texture: &TextureId) -> Result<&Pixmap, ()> {
+        Ok(&self.textures.get(texture).ok_or(())?.pixmap)
+    }
 }
 
 impl Renderer for VelloCPU {
     type ScenePainter = CPUScenePainter;
-
     type PathPreparer = BaselinePreparePaths;
 
     fn create_texture(&mut self, descriptor: texture::TextureDescriptor) -> TextureId {
@@ -43,12 +59,13 @@ impl Renderer for VelloCPU {
             descriptor,
         };
 
-        let id = TextureId::next();
+        let id = TextureId::from_raw(self.texture_id_source);
+        self.texture_id_source += 1;
         self.textures.insert(id, texture);
         id
     }
 
-    fn release_texture(&mut self, texture: TextureId) -> Result<(), ()> {
+    fn free_texture(&mut self, texture: TextureId) -> Result<(), ()> {
         self.textures.remove(&texture).ok_or(())?;
         Ok(())
     }
@@ -105,16 +122,26 @@ impl Renderer for VelloCPU {
         todo!("Reason about how exact download API will work.")
     }
 
-    fn upload_image(
-        &mut self,
-        to: &TextureId,
-        data: ImageData,
-        region: Option<(u16, u16, u16, u16)>,
-    ) -> Result<(), ()> {
-        // This is "trivially" fixable.
-        todo!(
-            "TODO: Copy the pixels from data into the relevant pixmap, using something *like* from_peniko_image."
-        )
+    fn upload_image(&mut self, to: &TextureId, data: &ImageData) -> Result<(), ()> {
+        let source = self.textures.get_mut(to).ok_or(())?;
+        if data.height != u32::from(source.descriptor.height)
+            || data.width != u32::from(source.descriptor.width)
+        {
+            return Err(());
+        }
+        if !source
+            .descriptor
+            .usages
+            .contains(TextureUsages::UPLOAD_TARGET)
+        {
+            return Err(());
+        }
+        let target = Arc::get_mut(&mut source.pixmap)
+            .expect("Pixmap shouldn't be shared except whilst referenced.");
+        // TODO: Reuse the allocation of `buf` in `target`
+        let data = Pixmap::from_peniko_image_data(data);
+        *target = data;
+        Ok(())
     }
 
     fn create_path_cache(&mut self) -> Self::PathPreparer {
@@ -233,6 +260,7 @@ impl PaintScene for CPUScenePainter {
     }
 }
 
+#[derive(Debug)]
 struct StoredTexture {
     /// This `Arc`s is very carefully managed to be used with [`Arc::get_mut`]
     /// when rendering to the texture.
