@@ -602,6 +602,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             }
             Cmd::PushZeroClip(_) | Cmd::PopZeroClip => {
                 // These commands are handled by the dispatcher and should not reach fine rasterization
+                unreachable!();
             }
         }
     }

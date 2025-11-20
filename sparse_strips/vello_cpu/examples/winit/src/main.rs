@@ -28,6 +28,8 @@ use winit::{
 };
 
 const ZOOM_STEP: f64 = 0.1;
+const ROTATION_STEP: f64 = 0.1;
+const SHEAR_STEP: f64 = 0.05;
 
 struct App {
     scenes: Box<[AnyScene<RenderContext>]>,
@@ -42,6 +44,13 @@ struct App {
     frame_count: u32,
     fps_update_time: Instant,
     accumulated_frame_time: f64,
+    rotating: bool,
+    rotation_speed: f64,
+    shearing: bool,
+    shear_speed: f64,
+    shear_amplitude: f64,
+    current_shear: f64,
+    shear_direction: f64,
 }
 
 fn main() {
@@ -114,6 +123,16 @@ fn main() {
         frame_count: 0,
         fps_update_time: now,
         accumulated_frame_time: 0.0,
+        rotating: false,
+        rotation_speed: 1.0,
+        shearing: false,
+        // shear rate (units of tan(angle)) per second
+        shear_speed: 0.8,
+        // maximum |shear| to oscillate between
+        shear_amplitude: 0.35,
+        current_shear: 0.0,
+        // 1 for increasing toward +amplitude, -1 toward -amplitude
+        shear_direction: 1.0,
     };
 
     let event_loop = EventLoop::new().unwrap();
@@ -230,7 +249,34 @@ impl ApplicationHandler for App {
                     event_loop.exit();
                 }
                 Key::Character(ch) => {
-                    if let Some(scene) = self.scenes.get_mut(self.current_scene)
+                    if ch.as_str() == "R" {
+                        // Toggle continuous rotation around the window center
+                        self.rotating = !self.rotating;
+                        window.request_redraw();
+                    } else if ch.as_str() == "S" {
+                        // Toggle shear oscillation around the window center
+                        self.shearing = !self.shearing;
+                        window.request_redraw();
+                    } else if ch.as_str() == "r" {
+                        // Single-step rotation around the window center
+                        let center = Point {
+                            x: 0.5 * self.pixmap.width() as f64,
+                            y: 0.5 * self.pixmap.height() as f64,
+                        };
+                        self.transform = self.transform.then_rotate_about(ROTATION_STEP, center);
+                        window.request_redraw();
+                    } else if ch.as_str() == "s" {
+                        // Single-step shear about the window center in X
+                        let center = Point {
+                            x: 0.5 * self.pixmap.width() as f64,
+                            y: 0.5 * self.pixmap.height() as f64,
+                        };
+                        let about_center = Affine::translate((-center.x, -center.y))
+                            * Affine::skew(SHEAR_STEP, 0.0)
+                            * Affine::translate((center.x, center.y));
+                        self.transform *= about_center;
+                        window.request_redraw();
+                    } else if let Some(scene) = self.scenes.get_mut(self.current_scene)
                         && scene.handle_key(ch.as_str())
                     {
                         window.request_redraw();
@@ -297,6 +343,10 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 // Measure frame time
                 let now = Instant::now();
+                let delta_s = self
+                    .last_frame_time
+                    .map(|t| now.duration_since(t).as_secs_f64())
+                    .unwrap_or(0.0);
                 if let Some(last_time) = self.last_frame_time {
                     let frame_time = now.duration_since(last_time).as_secs_f64() * 1000.0; // Convert to milliseconds
                     self.accumulated_frame_time += frame_time;
@@ -320,6 +370,46 @@ impl ApplicationHandler for App {
                 }
                 self.last_frame_time = Some(now);
 
+                // Apply rotation animation if enabled
+                if self.rotating && delta_s > 0.0 {
+                    let center = Point {
+                        x: 0.5 * self.pixmap.width() as f64,
+                        y: 0.5 * self.pixmap.height() as f64,
+                    };
+                    let angle = self.rotation_speed * delta_s;
+                    self.transform = self.transform.then_rotate_about(angle, center);
+                }
+
+                // Apply shear oscillation if enabled (bounded back-and-forth)
+                if self.shearing && delta_s > 0.0 {
+                    let old = self.current_shear;
+                    let mut new = old + self.shear_speed * delta_s * self.shear_direction;
+
+                    if self.shear_direction > 0.0 && new > self.shear_amplitude {
+                        let overshoot = new - self.shear_amplitude;
+                        new = self.shear_amplitude - overshoot;
+                        self.shear_direction = -1.0;
+                    } else if self.shear_direction < 0.0 && new < -self.shear_amplitude {
+                        let overshoot = -self.shear_amplitude - new;
+                        new = -self.shear_amplitude + overshoot;
+                        self.shear_direction = 1.0;
+                    }
+
+                    let delta_shear = new - old;
+                    if delta_shear.abs() > 0.0 {
+                        let center = Point {
+                            x: 0.5 * self.pixmap.width() as f64,
+                            y: 0.5 * self.pixmap.height() as f64,
+                        };
+                        // Shear about window center in X; Y shear remains 0.0
+                        let about_center = Affine::translate((-center.x, -center.y))
+                            * Affine::skew(delta_shear, 0.0)
+                            * Affine::translate((center.x, center.y));
+                        self.transform *= about_center;
+                        self.current_shear = new;
+                    }
+                }
+
                 // Render the scene
                 self.renderer.reset();
 
@@ -341,7 +431,9 @@ impl ApplicationHandler for App {
                 buffer.present().unwrap();
 
                 // Request continuous redraw for FPS measurement
-                // window.request_redraw();
+                if self.rotating || self.shearing {
+                    window.request_redraw();
+                }
             }
             _ => {}
         }

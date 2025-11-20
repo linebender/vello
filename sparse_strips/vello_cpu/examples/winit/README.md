@@ -20,6 +20,8 @@ cargo run -p vello_cpu_winit --release
 
 - **Left/Right Arrow**: Switch between scenes
 - **Space**: Reset view transform
+- **Shift+R**: Toggle continuous rotation around window center
+- **Shift+S**: Toggle continuous shear oscillation (back-and-forth)
 - **Left Mouse Button + Drag**: Pan the scene
 - **Mouse Wheel**: Zoom in/out (centered at cursor)
 - **Pinch Gesture**: Zoom on touchpad
