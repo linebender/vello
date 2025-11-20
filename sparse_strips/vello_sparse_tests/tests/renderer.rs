@@ -259,7 +259,6 @@ impl Renderer for HybridRenderer {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create renderer and render the scene to the texture
