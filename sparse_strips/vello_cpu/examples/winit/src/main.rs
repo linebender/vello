@@ -21,7 +21,7 @@ use vello_example_scenes::image::ImageScene;
 use vello_example_scenes::{AnyScene, get_example_scenes};
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{Key, NamedKey},
     window::{Window, WindowId},
@@ -51,6 +51,7 @@ struct App {
     shear_amplitude: f64,
     current_shear: f64,
     shear_direction: f64,
+    modifiers: Modifiers,
 }
 
 fn main() {
@@ -133,6 +134,7 @@ fn main() {
         current_shear: 0.0,
         // 1 for increasing toward +amplitude, -1 toward -amplitude
         shear_direction: 1.0,
+        modifiers: Modifiers::default(),
     };
 
     let event_loop = EventLoop::new().unwrap();
@@ -216,6 +218,9 @@ impl ApplicationHandler for App {
 
                 window.request_redraw();
             }
+            WindowEvent::ModifiersChanged(new_modifiers) => {
+                self.modifiers = new_modifiers;
+            }
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -224,66 +229,94 @@ impl ApplicationHandler for App {
                         ..
                     },
                 ..
-            } => match logical_key {
-                Key::Named(NamedKey::ArrowRight) => {
-                    println!("ArrowRight");
-                    self.current_scene = (self.current_scene + 1) % self.scenes.len();
-                    self.transform = Affine::IDENTITY;
-                    window.request_redraw();
-                }
-                Key::Named(NamedKey::ArrowLeft) => {
-                    self.current_scene = if self.current_scene == 0 {
-                        self.scenes.len() - 1
-                    } else {
-                        self.current_scene - 1
-                    };
-                    self.transform = Affine::IDENTITY;
-                    window.request_redraw();
-                }
-                Key::Named(NamedKey::Space) => {
-                    // Reset transform on spacebar
-                    self.transform = Affine::IDENTITY;
-                    window.request_redraw();
-                }
-                Key::Named(NamedKey::Escape) => {
-                    event_loop.exit();
-                }
-                Key::Character(ch) => {
-                    if ch.as_str() == "R" {
-                        // Toggle continuous rotation around the window center
-                        self.rotating = !self.rotating;
-                        window.request_redraw();
-                    } else if ch.as_str() == "S" {
-                        // Toggle shear oscillation around the window center
-                        self.shearing = !self.shearing;
-                        window.request_redraw();
-                    } else if ch.as_str() == "r" {
-                        // Single-step rotation around the window center
-                        let center = Point {
-                            x: 0.5 * self.pixmap.width() as f64,
-                            y: 0.5 * self.pixmap.height() as f64,
-                        };
-                        self.transform = self.transform.then_rotate_about(ROTATION_STEP, center);
-                        window.request_redraw();
-                    } else if ch.as_str() == "s" {
-                        // Single-step shear about the window center in X
-                        let center = Point {
-                            x: 0.5 * self.pixmap.width() as f64,
-                            y: 0.5 * self.pixmap.height() as f64,
-                        };
-                        let about_center = Affine::translate((-center.x, -center.y))
-                            * Affine::skew(SHEAR_STEP, 0.0)
-                            * Affine::translate((center.x, center.y));
-                        self.transform *= about_center;
-                        window.request_redraw();
-                    } else if let Some(scene) = self.scenes.get_mut(self.current_scene)
-                        && scene.handle_key(ch.as_str())
-                    {
+            } => {
+                let is_cmd = self.modifiers.state().super_key();
+                match logical_key {
+                    Key::Named(NamedKey::ArrowRight) => {
+                        println!("ArrowRight");
+                        self.current_scene = (self.current_scene + 1) % self.scenes.len();
+                        self.transform = Affine::IDENTITY;
                         window.request_redraw();
                     }
+                    Key::Named(NamedKey::ArrowLeft) => {
+                        self.current_scene = if self.current_scene == 0 {
+                            self.scenes.len() - 1
+                        } else {
+                            self.current_scene - 1
+                        };
+                        self.transform = Affine::IDENTITY;
+                        window.request_redraw();
+                    }
+                    Key::Named(NamedKey::Space) => {
+                        // Reset transform on spacebar
+                        self.transform = Affine::IDENTITY;
+                        window.request_redraw();
+                    }
+                    Key::Named(NamedKey::Escape) => {
+                        event_loop.exit();
+                    }
+                    Key::Character(ch) => {
+                        if ch.as_str() == "r" {
+                            if is_cmd {
+                                // Cmd+r: Toggle continuous rotation around the window center
+                                self.rotating = !self.rotating;
+                                window.request_redraw();
+                            } else {
+                                // r: Single-step rotation around the window center
+                                let center = Point {
+                                    x: 0.5 * self.pixmap.width() as f64,
+                                    y: 0.5 * self.pixmap.height() as f64,
+                                };
+                                self.transform =
+                                    self.transform.then_rotate_about(ROTATION_STEP, center);
+                                window.request_redraw();
+                            }
+                        } else if ch.as_str() == "R" {
+                            // R: Counter-rotation step (opposite direction of r)
+                            let center = Point {
+                                x: 0.5 * self.pixmap.width() as f64,
+                                y: 0.5 * self.pixmap.height() as f64,
+                            };
+                            self.transform =
+                                self.transform.then_rotate_about(-ROTATION_STEP, center);
+                            window.request_redraw();
+                        } else if ch.as_str() == "s" {
+                            if is_cmd {
+                                // Cmd+s: Toggle shear oscillation around the window center
+                                self.shearing = !self.shearing;
+                                window.request_redraw();
+                            } else {
+                                // s: Single-step shear about the window center in X
+                                let center = Point {
+                                    x: 0.5 * self.pixmap.width() as f64,
+                                    y: 0.5 * self.pixmap.height() as f64,
+                                };
+                                let about_center = Affine::translate((-center.x, -center.y))
+                                    * Affine::skew(SHEAR_STEP, 0.0)
+                                    * Affine::translate((center.x, center.y));
+                                self.transform *= about_center;
+                                window.request_redraw();
+                            }
+                        } else if ch.as_str() == "S" {
+                            // S: Counter-shear step (opposite direction of s)
+                            let center = Point {
+                                x: 0.5 * self.pixmap.width() as f64,
+                                y: 0.5 * self.pixmap.height() as f64,
+                            };
+                            let about_center = Affine::translate((-center.x, -center.y))
+                                * Affine::skew(-SHEAR_STEP, 0.0)
+                                * Affine::translate((center.x, center.y));
+                            self.transform *= about_center;
+                            window.request_redraw();
+                        } else if let Some(scene) = self.scenes.get_mut(self.current_scene)
+                            && scene.handle_key(ch.as_str())
+                        {
+                            window.request_redraw();
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
                     self.mouse_down = state == ElementState::Pressed;

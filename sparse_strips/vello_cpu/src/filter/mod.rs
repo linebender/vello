@@ -18,7 +18,7 @@ pub(crate) use gaussian_blur::GaussianBlur;
 
 use crate::layer_manager::LayerManager;
 use vello_common::filter_effects::{Filter, FilterPrimitive};
-use vello_common::kurbo::Affine;
+use vello_common::kurbo::{Affine, Vec2};
 use vello_common::pixmap::Pixmap;
 use vello_common::util::extract_scales;
 
@@ -79,13 +79,7 @@ pub(crate) fn filter_lowp(
             std_deviation,
             edge_mode,
         } => {
-            // Scale the blur radius by the uniform scale factor using SVD
-            let (scale_x, scale_y) = extract_scales(&transform);
-            let uniform_scale = (scale_x + scale_y) / 2.0;
-            // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
-            // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
-            // and allow blur to scale independently along each axis.
-            let scaled_std_dev = std_deviation * uniform_scale;
+            let scaled_std_dev = transform_blur_params(*std_deviation, &transform);
             let blur = GaussianBlur::new(scaled_std_dev, *edge_mode);
             blur.execute_lowp(pixmap, layer_manager);
         }
@@ -96,17 +90,8 @@ pub(crate) fn filter_lowp(
             color,
             edge_mode,
         } => {
-            // Scale both the shadow offset and blur radius using SVD
-            let (scale_x, scale_y) = extract_scales(&transform);
-            let uniform_scale = (scale_x + scale_y) / 2.0;
-
-            let scaled_dx = dx * scale_x;
-            let scaled_dy = dy * scale_y;
-            // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
-            // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
-            // and allow blur to scale independently along each axis.
-            let scaled_std_dev = std_deviation * uniform_scale;
-
+            let (scaled_dx, scaled_dy, scaled_std_dev) =
+                transform_shadow_params(*dx, *dy, *std_deviation, &transform);
             let drop_shadow =
                 DropShadow::new(scaled_dx, scaled_dy, scaled_std_dev, *edge_mode, *color);
             drop_shadow.execute_lowp(pixmap, layer_manager);
@@ -153,13 +138,7 @@ pub(crate) fn filter_highp(
             std_deviation,
             edge_mode,
         } => {
-            // Scale the blur radius by the uniform scale factor using SVD
-            let (scale_x, scale_y) = extract_scales(&transform);
-            let uniform_scale = (scale_x + scale_y) / 2.0;
-            // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
-            // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
-            // and allow blur to scale independently along each axis.
-            let scaled_std_dev = std_deviation * uniform_scale;
+            let scaled_std_dev = transform_blur_params(*std_deviation, &transform);
             let blur = GaussianBlur::new(scaled_std_dev, *edge_mode);
             blur.execute_highp(pixmap, layer_manager);
         }
@@ -170,17 +149,8 @@ pub(crate) fn filter_highp(
             color,
             edge_mode,
         } => {
-            // Scale both the shadow offset and blur radius using SVD
-            let (scale_x, scale_y) = extract_scales(&transform);
-            let uniform_scale = (scale_x + scale_y) / 2.0;
-
-            let scaled_dx = dx * scale_x;
-            let scaled_dy = dy * scale_y;
-            // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
-            // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
-            // and allow blur to scale independently along each axis.
-            let scaled_std_dev = std_deviation * uniform_scale;
-
+            let (scaled_dx, scaled_dy, scaled_std_dev) =
+                transform_shadow_params(*dx, *dy, *std_deviation, &transform);
             let drop_shadow =
                 DropShadow::new(scaled_dx, scaled_dy, scaled_std_dev, *edge_mode, *color);
             drop_shadow.execute_highp(pixmap, layer_manager);
@@ -191,4 +161,58 @@ pub(crate) fn filter_highp(
             unimplemented!("Other filter primitives not yet implemented");
         }
     }
+}
+
+/// Scale a blur's standard deviation uniformly based on the transformation.
+///
+/// Extracts the scale factors from the transformation matrix using SVD and
+/// averages them to get a uniform scale factor for the blur radius.
+///
+/// # Arguments
+/// * `std_deviation` - The blur standard deviation in user space
+/// * `transform` - The transformation matrix to extract scale from
+///
+/// # Returns
+/// The scaled standard deviation in device space
+fn transform_blur_params(std_deviation: f32, transform: &Affine) -> f32 {
+    let (scale_x, scale_y) = extract_scales(transform);
+    let uniform_scale = (scale_x + scale_y) / 2.0;
+    // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
+    // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
+    // and allow blur to scale independently along each axis.
+    std_deviation * uniform_scale
+}
+
+/// Transform a drop shadow's offset and standard deviation using the affine transformation.
+///
+/// Applies the full linear transformation (rotation, scale, and shear) to the offset vector,
+/// and scales the blur standard deviation uniformly.
+///
+/// # Arguments
+/// * `dx` - Horizontal offset in user space
+/// * `dy` - Vertical offset in user space
+/// * `std_deviation` - Blur standard deviation in user space
+/// * `transform` - The transformation matrix to apply
+///
+/// # Returns
+/// A tuple of (`scaled_dx`, `scaled_dy`, `scaled_std_dev`) in device space
+fn transform_shadow_params(
+    dx: f32,
+    dy: f32,
+    std_deviation: f32,
+    transform: &Affine,
+) -> (f32, f32, f32) {
+    // Transform the offset vector by the full transformation matrix
+    // to correctly handle rotation, scale, and shear.
+    // We use the linear part only (no translation) since this is a vector offset.
+    let offset = Vec2::new(dx as f64, dy as f64);
+    let [a, b, c, d, _, _] = transform.as_coeffs();
+    let transformed_offset = Vec2::new(a * offset.x + c * offset.y, b * offset.x + d * offset.y);
+    let scaled_dx = transformed_offset.x as f32;
+    let scaled_dy = transformed_offset.y as f32;
+
+    // Scale the blur radius uniformly
+    let scaled_std_dev = transform_blur_params(std_deviation, transform);
+
+    (scaled_dx, scaled_dy, scaled_std_dev)
 }

@@ -655,7 +655,7 @@ impl<const MODE: u8> Wide<MODE> {
         // This method basically unwinds everything we did in `push_layer`.
         let mut layer = self.layer_stack.pop().unwrap();
 
-        if let Some(filter) = layer.filter.clone() {
+        if let Some(filter) = &layer.filter {
             // Update render graph node with final bounding box
             if let Some(node_id) = self.filter_node_stack.pop() {
                 // Get the transform from the FilterLayer node and scale the expansion by it
@@ -1274,6 +1274,10 @@ impl<const MODE: u8> WideTile<MODE> {
     }
 
     /// Applies a clip strip operation with the given parameters.
+    ///
+    /// Note: Unlike content operations (`strip`, `push_clip`, etc.), clip operations don't need
+    /// the `|| self.in_clipped_filter_layer` check. Filter effects need full layer *content*
+    /// rendered (even in zero-clip areas).
     pub fn clip_strip(&mut self, cmd_clip_strip: CmdClipAlphaFill) {
         if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(_))) {
             self.cmds.push(Cmd::ClipStrip(cmd_clip_strip));
@@ -1361,7 +1365,7 @@ impl<const MODE: u8> WideTile<MODE> {
         self.n_bufs -= 1;
     }
 
-    /// Apply an opacity to the whole buffe            r.
+    /// Apply an opacity to the whole buffer.
     pub fn opacity(&mut self, opacity: f32) {
         if opacity != 1.0 {
             self.cmds.push(Cmd::Opacity(opacity));
