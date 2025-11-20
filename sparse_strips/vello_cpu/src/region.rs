@@ -6,6 +6,7 @@
 use crate::fine::COLOR_COMPONENTS;
 use alloc::vec::Vec;
 use vello_common::coarse::WideTile;
+use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
 
 #[derive(Debug)]
@@ -113,6 +114,76 @@ impl<'a> Region<'a> {
             width,
             height,
         }
+    }
+
+    /// Extracts a `Region` from a pixmap at the specified tile coordinates.
+    ///
+    /// The region corresponds to a wide tile area (`WideTile::WIDTH` × `Tile::HEIGHT` pixels),
+    /// starting at pixel coordinates `(tile_x * WideTile::WIDTH, tile_y * Tile::HEIGHT)`.
+    /// Regions at the right or bottom edges may be smaller if they extend beyond the pixmap bounds.
+    ///
+    /// Returns `None` if the tile coordinates are completely outside the pixmap bounds.
+    ///
+    /// # Arguments
+    /// * `pixmap` - The pixmap to extract from
+    /// * `tile_x` - Tile column index (in tile units, not pixels)
+    /// * `tile_y` - Tile row index (in tile units, not pixels)
+    pub(crate) fn from_pixmap_tile(
+        pixmap: &'a mut Pixmap,
+        tile_x: u16,
+        tile_y: u16,
+    ) -> Option<Self> {
+        let pixmap_width = pixmap.width();
+        let pixmap_height = pixmap.height();
+
+        // Calculate pixel coordinates for this tile
+        let base_x = tile_x * WideTile::WIDTH;
+        let base_y = tile_y * Tile::HEIGHT;
+
+        // Check bounds
+        if base_x >= pixmap_width || base_y >= pixmap_height {
+            return None;
+        }
+
+        // Calculate actual region dimensions (might be smaller at edges)
+        let region_width = WideTile::WIDTH.min(pixmap_width - base_x);
+        let region_height = Tile::HEIGHT.min(pixmap_height - base_y);
+
+        // Get mutable access to the pixmap's buffer
+        let buffer = pixmap.data_as_u8_slice_mut();
+
+        // Split buffer into row slices for this tile
+        let row_stride = pixmap_width as usize * COLOR_COMPONENTS;
+        let start_offset = (base_y as usize * row_stride) + (base_x as usize * COLOR_COMPONENTS);
+        let region_width_bytes = region_width as usize * COLOR_COMPONENTS;
+
+        // Skip to the start of our tile region
+        let tile_buffer = &mut buffer[start_offset..];
+
+        // Extract individual row slices using safe split operations
+        let mut areas: [&mut [u8]; Tile::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
+
+        // Use split_at_mut to safely extract each row
+        let mut remaining = tile_buffer;
+        for (i, area) in areas.iter_mut().take(region_height as usize).enumerate() {
+            if i > 0 {
+                // Skip rows we've already processed (advance by stride - region_width_bytes)
+                let skip = row_stride - region_width_bytes;
+                remaining = &mut remaining[skip..];
+            }
+
+            let (row, rest) = remaining.split_at_mut(region_width_bytes.min(remaining.len()));
+            *area = row;
+            remaining = rest;
+        }
+
+        Some(Self::new(
+            areas,
+            tile_x,
+            tile_y,
+            region_width,
+            region_height,
+        ))
     }
 
     pub(crate) fn row_mut(&mut self, y: u16) -> &mut [u8] {

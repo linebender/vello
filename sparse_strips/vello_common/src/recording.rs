@@ -3,6 +3,7 @@
 
 //! Recording API for caching sparse strips
 
+use crate::filter_effects::Filter;
 #[cfg(feature = "text")]
 use crate::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
@@ -99,6 +100,8 @@ pub struct PushLayerCommand {
     pub opacity: Option<f32>,
     /// Mask.
     pub mask: Option<Mask>,
+    /// Filter.
+    pub filter: Option<Filter>,
 }
 
 /// Individual rendering commands that can be recorded.
@@ -128,6 +131,10 @@ pub enum RenderCommand {
     SetPaintTransform(Affine),
     /// Reset the paint transform.
     ResetPaintTransform,
+    /// Set the current filter effect.
+    SetFilterEffect(Filter),
+    /// Reset the current filter effect.
+    ResetFilterEffect,
     /// Render a fill outline glyph.
     #[cfg(feature = "text")]
     FillOutlineGlyph((BezPath, Affine)),
@@ -402,6 +409,17 @@ impl<'a> Recorder<'a> {
             .add_command(RenderCommand::ResetPaintTransform);
     }
 
+    /// Set the current filter effect.
+    pub fn set_filter_effect(&mut self, filter: Filter) {
+        self.recording
+            .add_command(RenderCommand::SetFilterEffect(filter));
+    }
+
+    /// Reset the current filter effect.
+    pub fn reset_filter_effect(&mut self) {
+        self.recording.add_command(RenderCommand::ResetFilterEffect);
+    }
+
     /// Push a new layer with the given properties.
     pub fn push_layer(
         &mut self,
@@ -409,6 +427,7 @@ impl<'a> Recorder<'a> {
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
         self.recording
             .add_command(RenderCommand::PushLayer(PushLayerCommand {
@@ -416,12 +435,18 @@ impl<'a> Recorder<'a> {
                 blend_mode,
                 opacity,
                 mask,
+                filter,
             }));
     }
 
     /// Push a new clip layer.
     pub fn push_clip_layer(&mut self, clip_path: &BezPath) {
-        self.push_layer(Some(clip_path), None, None, None);
+        self.push_layer(Some(clip_path), None, None, None, None);
+    }
+
+    /// Push a new filter layer.
+    pub fn push_filter_layer(&mut self, filter: Filter) {
+        self.push_layer(None, None, None, None, Some(filter));
     }
 
     /// Pop the last pushed layer.
@@ -437,7 +462,7 @@ impl<'a> Recorder<'a> {
 }
 
 #[cfg(feature = "text")]
-impl<'a> GlyphRenderer for Recorder<'a> {
+impl GlyphRenderer for Recorder<'_> {
     fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
         match glyph.glyph_type {
             GlyphType::Outline(outline_glyph) => {

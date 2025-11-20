@@ -1,0 +1,17 @@
+[package]
+name = "vello_cpu_winit"
+description = "An example showing Vello CPU using winit."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+winit = { workspace = true }
+vello_common = { workspace = true }
+vello_cpu = { workspace = true, features = ["multithreading"] }
+vello_example_scenes = { workspace = true, features = ["cpu"] }
+softbuffer = "0.4.6"
