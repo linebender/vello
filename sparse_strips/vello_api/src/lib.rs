@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! A stub crate.
+//!
 //! Planned to provide an abstraction between different renderers in the future.
 //! This abstraction is not yet designed.
 
@@ -18,6 +19,7 @@ mod renderer;
 pub mod baseline;
 pub mod dynamic;
 pub mod prepared;
+pub mod recording;
 pub mod texture;
 
 pub use self::download::DownloadId;

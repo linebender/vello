@@ -1,12 +1,12 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use hashbrown::HashMap;
 use vello_api::{
     PaintScene, Renderer,
-    baseline::BaselinePreparePaths,
+    baseline::{BaselinePainter, BaselinePreparePaths},
     texture::{self, TextureId, TextureUsages},
 };
 use vello_common::{
@@ -44,6 +44,8 @@ impl VelloCPU {
 impl Renderer for VelloCPU {
     type ScenePainter = CPUScenePainter;
     type PathPreparer = BaselinePreparePaths;
+    type Recording = BaselinePainter<BaselinePreparePaths>;
+    type TransformedRecording = BaselinePainter<BaselinePreparePaths>;
 
     fn create_texture(&mut self, descriptor: texture::TextureDescriptor) -> TextureId {
         // TODO: What do we need to do with the usages?
@@ -110,6 +112,7 @@ impl Renderer for VelloCPU {
             }
         }
 
+        // There are reasonable arguments to delay this for as long as possible.
         from.render_context.flush();
         // Note that this will panic if the target is used in the rendering.
         // The exact place that error is handled is tbd.
@@ -148,6 +151,31 @@ impl Renderer for VelloCPU {
 
     fn create_path_cache(&mut self) -> Self::PathPreparer {
         BaselinePreparePaths::new()
+    }
+
+    fn create_offset_recording(
+        &mut self,
+        width: u16,
+        height: u16,
+        origin_x_offset: i32,
+        origin_y_offset: i32,
+    ) -> Self::Recording {
+        let mut rec = BaselinePainter::default();
+        rec.set_dimensions(width, height);
+        rec.set_origin_offset(origin_x_offset, origin_y_offset);
+        rec
+    }
+    fn create_transformed_recording(
+        &mut self,
+        width: u16,
+        height: u16,
+        origin_x_offset: i32,
+        origin_y_offset: i32,
+    ) -> Self::TransformedRecording {
+        let mut rec = BaselinePainter::default();
+        rec.set_dimensions(width, height);
+        rec.set_origin_offset(origin_x_offset, origin_y_offset);
+        rec
     }
 }
 
@@ -267,7 +295,7 @@ struct StoredTexture {
     /// This `Arc`s is very carefully managed to be used with [`Arc::get_mut`]
     /// when rendering to the texture.
     ///
-    /// As such, to avoid panicks we *cannot* let them leak.
+    /// As such, to avoid panicks we *cannot* let them be accessed externally.
     pixmap: Arc<Pixmap>,
     descriptor: texture::TextureDescriptor,
 }

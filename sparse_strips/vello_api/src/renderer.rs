@@ -1,9 +1,12 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use core::any::Any;
+
 use crate::{
     DownloadId, PaintScene, SceneOptions,
-    prepared::PreparePaths,
+    prepared::PreparePathsDirect,
+    recording::{RecordScene, TransformedRecording},
     texture::{TextureDescriptor, TextureId},
 };
 
@@ -20,7 +23,7 @@ use crate::{
 // }
 
 // A 2d renderer, which can be used to schedule the renders of multiple scenes.
-pub trait Renderer: Send {
+pub trait Renderer: Send + Any {
     /// The `ScenePainter` is the encoder for rendering commands.
     ///
     /// *Ideally*, we'd allow this to borrow shared resources from
@@ -29,13 +32,19 @@ pub trait Renderer: Send {
     type ScenePainter: PaintScene;
 
     // TODO: Not complete.
-    type PathPreparer: PreparePaths<Self::ScenePainter>;
+    type PathPreparer: PreparePathsDirect<Self::ScenePainter>;
+
+    type Recording: RecordScene<Self::ScenePainter>;
+
+    type TransformedRecording: TransformedRecording<Self::ScenePainter>;
 
     /// Create a texture for use in renders with this device.
     fn create_texture(&mut self, descriptor: TextureDescriptor) -> TextureId;
 
     // Error if the texture was already freed/not associated with this renderer.
     fn free_texture(&mut self, texture: TextureId) -> Result<(), ()>;
+    // TODO: Texture resizing? Reasonable reasons to not do that include cannot resize wgpu textures
+    // Also what does that mean for existing content, etc.
 
     // fn create_mask(descriptor: MaskOperation) -> Mask;
     // fn mask_from_scene(from: &Texture, to: &Scene, MaskDescriptor { subset_rect,  });
@@ -47,6 +56,7 @@ pub trait Renderer: Send {
     ) -> Result<Self::ScenePainter, ()>;
     fn queue_render(&mut self, from: Self::ScenePainter);
 
+    // This method doesn't *necessarily* belong here.
     fn queue_download(&mut self, of: &TextureId) -> DownloadId;
 
     // TODO: Better error kinds.
@@ -63,4 +73,20 @@ pub trait Renderer: Send {
     // We need to think about how we make it practical to actually get the integer translations,
     // because of "composition".
     fn create_path_cache(&mut self) -> Self::PathPreparer;
+
+    fn create_offset_recording(
+        &mut self,
+        width: u16,
+        height: u16,
+        origin_x_offset: i32,
+        origin_y_offset: i32,
+    ) -> Self::Recording;
+
+    fn create_transformed_recording(
+        &mut self,
+        width: u16,
+        height: u16,
+        x_offset: i32,
+        y_offset: i32,
+    ) -> Self::TransformedRecording;
 }
