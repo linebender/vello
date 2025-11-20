@@ -3955,6 +3955,7 @@ dependencies = [
  "pollster",
  "roxmltree",
  "thiserror 2.0.16",
+ "vello_api",
  "vello_common",
  "vello_sparse_shaders",
  "web-sys",
