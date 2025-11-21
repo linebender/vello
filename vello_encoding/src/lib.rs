@@ -63,8 +63,8 @@ pub use mask::{make_mask_lut, make_mask_lut_16};
 pub use math::Transform;
 pub use monoid::Monoid;
 pub use path::{
-    Cubic, LineSoup, Path, PathBbox, PathEncoder, PathMonoid, PathSegment, PathSegmentType,
-    PathTag, SegmentCount, Style, Tile,
+    Cubic, EmboldenStyle, LineSoup, Path, PathBbox, PathEncoder, PathMonoid, PathSegment,
+    PathSegmentType, PathTag, SegmentCount, Style, Tile,
 };
 pub use ramp_cache::Ramps;
 pub use resolve::{Layout, Patch, Resolver, resolve_solid_paths_only};
