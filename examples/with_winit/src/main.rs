@@ -6,10 +6,10 @@
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_env = "ohos")))]
     {
         with_winit::main()
     }
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_env = "ohos"))]
     unreachable!()
 }

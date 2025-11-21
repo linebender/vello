@@ -15,4 +15,4 @@ workspace = true
 vello = { version = "0.6.0", path = "../../vello" }
 anyhow = "1.0.98"
 pollster = "0.4.0"
-winit = "0.30.10"
+winit = { workspace = true }
