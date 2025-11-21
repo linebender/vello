@@ -3,7 +3,7 @@
 
 //! Utility functions shared across different tests.
 
-use crate::renderer::Renderer;
+use crate::renderer::{LegacyRenderer, Renderer};
 use image::{Rgba, RgbaImage, load_from_memory};
 use skrifa::MetadataProvider;
 use skrifa::raw::FileRef;
@@ -16,7 +16,8 @@ use vello_common::glyph::Glyph;
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{Level, RenderMode};
+use vello_cpu::api::VelloCPU;
+use vello_cpu::{Level, RenderMode, RenderSettings};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
@@ -51,7 +52,54 @@ macro_rules! load_image {
     }};
 }
 
-pub(crate) fn get_ctx<T: Renderer>(
+pub(crate) fn get_cpu_renderer(num_threads: u16, level: &str, render_mode: RenderMode) -> VelloCPU {
+    let level = match level {
+        #[cfg(target_arch = "aarch64")]
+        "neon" => Level::Neon(
+            Level::try_detect()
+                .unwrap_or(Level::fallback())
+                .as_neon()
+                .expect("neon should be available"),
+        ),
+        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+        "wasm_simd128" => Level::WasmSimd128(
+            Level::try_detect()
+                .unwrap_or(Level::fallback())
+                .as_wasm_simd128()
+                .expect("wasm simd128 should be available"),
+        ),
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        "sse42" => {
+            if std::arch::is_x86_feature_detected!("sse4.2") {
+                Level::Sse4_2(unsafe { vello_common::fearless_simd::Sse4_2::new_unchecked() })
+            } else {
+                panic!("sse4.2 feature not detected");
+            }
+        }
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        "avx2" => {
+            if std::arch::is_x86_feature_detected!("avx2")
+                && std::arch::is_x86_feature_detected!("fma")
+            {
+                Level::Avx2(unsafe { vello_common::fearless_simd::Avx2::new_unchecked() })
+            } else {
+                panic!("avx2 or fma feature not detected");
+            }
+        }
+        "fallback" => Level::fallback(),
+        _ => panic!("unknown level: {level}"),
+    };
+
+    let ctx = VelloCPU::new(RenderSettings {
+        level,
+        num_threads,
+        render_mode,
+    });
+
+    ctx
+}
+
+pub(crate) fn get_ctx<T: LegacyRenderer>(
     width: u16,
     height: u16,
     transparent: bool,
@@ -108,7 +156,7 @@ pub(crate) fn get_ctx<T: Renderer>(
     ctx
 }
 
-pub(crate) fn render_pixmap(ctx: &impl Renderer) -> Pixmap {
+pub(crate) fn render_pixmap(ctx: &impl LegacyRenderer) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
     ctx.render_to_pixmap(&mut pixmap);
     pixmap
@@ -280,8 +328,9 @@ pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[track_caller]
 pub(crate) fn check_ref(
-    ctx: &impl Renderer,
+    pixmap: Pixmap,
     // The name of the test.
     test_name: &str,
     // The name of the specific instance of the test that is being run
@@ -295,8 +344,6 @@ pub(crate) fn check_ref(
     is_reference: bool,
     _: &[u8],
 ) {
-    let pixmap = render_pixmap(ctx);
-
     let encoded_image = pixmap.into_png().unwrap();
     let ref_path = REFS_PATH.join(format!("{test_name}.png"));
 
@@ -344,7 +391,7 @@ pub(crate) fn check_ref(
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn check_ref(
-    ctx: &impl Renderer,
+    pixmap: Pixmap,
     _test_name: &str,
     // The name of the specific instance of the test that is being run
     // (e.g. test_gpu, test_cpu_u8, etc.)
@@ -358,7 +405,6 @@ pub(crate) fn check_ref(
 ) {
     assert!(!is_reference, "WASM cannot create new reference images");
 
-    let pixmap = render_pixmap(ctx);
     let encoded_image = pixmap.into_png().unwrap();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 

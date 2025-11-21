@@ -11,10 +11,10 @@ use vello_common::kurbo::{Affine, Rect};
 use vello_common::recording::Recording;
 use vello_dev_macros::vello_test;
 
-use crate::renderer::Renderer;
+use crate::renderer::{LegacyRenderer, Renderer};
 
-#[vello_test]
-fn recording_basic(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn recording_basic(ctx: &mut impl LegacyRenderer) {
     ctx.set_paint(GREEN);
     ctx.fill_rect(&Rect::new(12.0, 12.0, 48.0, 48.0));
     ctx.set_paint(FUCHSIA);
@@ -48,8 +48,8 @@ fn recording_basic(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording2);
 }
 
-#[vello_test]
-fn recording_incremental_build(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn recording_incremental_build(ctx: &mut impl LegacyRenderer) {
     let mut recording = Recording::new();
 
     ctx.record(&mut recording, |ctx| {
@@ -79,8 +79,8 @@ fn recording_incremental_build(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording);
 }
 
-#[vello_test(width = 300, height = 70)]
-fn recording_glyphs(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 300, height = 70)]
+fn recording_glyphs(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -98,8 +98,8 @@ fn recording_glyphs(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording);
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyph_recording_outside_transform(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 300, height = 70)]
+fn glyph_recording_outside_transform(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -119,8 +119,8 @@ fn glyph_recording_outside_transform(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording);
 }
 
-#[vello_test(width = 50, height = 50)]
-fn recording_is_executed_at_recorded_transform(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 50, height = 50)]
+fn recording_is_executed_at_recorded_transform(ctx: &mut impl LegacyRenderer) {
     ctx.set_transform(Affine::translate((10., 10.)));
 
     let mut recording = Recording::new();
@@ -135,8 +135,8 @@ fn recording_is_executed_at_recorded_transform(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording);
 }
 
-#[vello_test(width = 300, height = 100)]
-fn recording_mixed_with_direct_drawing(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 300, height = 100)]
+fn recording_mixed_with_direct_drawing(ctx: &mut impl LegacyRenderer) {
     let mut recording = Recording::new();
     // Record a rectangle on the left.
     ctx.set_transform(Affine::translate((20.0, 30.0)));
@@ -172,8 +172,8 @@ fn recording_mixed_with_direct_drawing(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording);
 }
 
-#[vello_test(width = 100, height = 100)]
-fn recording_can_be_repeatedly_executed_in_layers(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 100, height = 100)]
+fn recording_can_be_repeatedly_executed_in_layers(ctx: &mut impl LegacyRenderer) {
     let mut recording = Recording::new();
     ctx.set_paint(DARK_TURQUOISE);
     ctx.record(&mut recording, |ctx| {
@@ -189,8 +189,8 @@ fn recording_can_be_repeatedly_executed_in_layers(ctx: &mut impl Renderer) {
     }
 }
 
-#[vello_test(width = 100, height = 100)]
-fn recording_can_be_cleared(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 100, height = 100)]
+fn recording_can_be_cleared(ctx: &mut impl LegacyRenderer) {
     let mut recording = Recording::new();
     ctx.set_transform(Affine::translate((10., 10.)));
     ctx.record(&mut recording, |ctx| {
@@ -215,8 +215,8 @@ fn recording_can_be_cleared(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording);
 }
 
-#[vello_test(width = 50, height = 50)]
-fn recording_is_executed_with_multiple_transforms(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 50, height = 50)]
+fn recording_is_executed_with_multiple_transforms(ctx: &mut impl LegacyRenderer) {
     ctx.set_transform(Affine::translate((15., 15.)));
 
     let font_size: f32 = 10_f32;
@@ -251,8 +251,8 @@ fn recording_is_executed_with_multiple_transforms(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording);
 }
 
-#[vello_test(width = 20, height = 20, no_ref)]
-fn recording_handles_completely_offscreen_content(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 20, height = 20, no_ref)]
+fn recording_handles_completely_offscreen_content(ctx: &mut impl LegacyRenderer) {
     let mut recording = Recording::new();
     ctx.record(&mut recording, |ctx| {
         ctx.set_paint(ORCHID);

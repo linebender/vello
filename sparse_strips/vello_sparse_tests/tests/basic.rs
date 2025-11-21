@@ -3,7 +3,7 @@
 
 //! Tests for basic functionality.
 
-use crate::renderer::Renderer;
+use crate::renderer::{LegacyRenderer, Renderer};
 use crate::util::{circular_star, crossed_line_star, miter_stroke_2};
 use std::f64::consts::PI;
 use vello_common::color::palette::css::{
@@ -389,8 +389,8 @@ fn oversized_star(ctx: &mut impl Renderer) {
     ctx.stroke_path(&star_path);
 }
 
-#[vello_test(width = 100, height = 100)]
-fn no_anti_aliasing(ctx: &mut impl Renderer) {
+#[vello_test(width = 100, height = 100, legacy)]
+fn no_anti_aliasing(ctx: &mut impl LegacyRenderer) {
     let rect = Rect::new(30.0, 30.0, 70.0, 70.0);
     ctx.set_aliasing_threshold(Some(128));
 
@@ -402,8 +402,8 @@ fn no_anti_aliasing(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[vello_test(width = 100, height = 100)]
-fn no_anti_aliasing_clip_path(ctx: &mut impl Renderer) {
+#[vello_test(width = 100, height = 100, legacy)]
+fn no_anti_aliasing_clip_path(ctx: &mut impl LegacyRenderer) {
     ctx.set_aliasing_threshold(Some(128));
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
     let star_path = crossed_line_star();

@@ -11,9 +11,9 @@ use vello_api::{
 };
 use vello_common::{
     encode::{EncodedImage, EncodedPaint},
-    kurbo::{self, Affine, Shape},
+    kurbo::{self, Affine, Rect, Shape},
     paint::{ImageId, ImageSource},
-    peniko::{BlendMode, Brush, Fill, ImageBrush, ImageData},
+    peniko::{BlendMode, Brush, Color, Fill, ImageBrush, ImageData},
     pixmap::Pixmap,
 };
 
@@ -89,10 +89,21 @@ impl Renderer for VelloCPU {
 
         // TODO: Cache the contexts internally, so that we don't reallocate here?
         let context = RenderContext::new_with(width, height, self.default_render_settings);
-        Ok(CPUScenePainter {
+        let mut painter = CPUScenePainter {
             render_context: context,
             target: *to,
-        })
+        };
+        if let Some(clear_color) = options.clear_color {
+            painter.set_solid_brush(clear_color);
+            painter.fill_path_new(
+                Affine::IDENTITY,
+                Fill::EvenOdd,
+                Rect::new(0., 0., width as f64, height as f64),
+            );
+            // Restores the default, as some tests rely on this.
+            painter.set_fill_rule(Fill::NonZero);
+        }
+        Ok(painter)
     }
 
     fn queue_render(&mut self, mut from: Self::ScenePainter) {
@@ -194,14 +205,19 @@ impl PaintScene for CPUScenePainter {
         self.render_context.height()
     }
 
-    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape) {
+    fn fill_path_new(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape) {
         self.render_context.set_transform(transform);
         self.render_context.set_fill_rule(fill_rule);
         // TODO: Tweak inner `fill_path` API to either take a `Shape` or an &[PathEl]
         self.render_context.fill_path(&path.to_path(0.1));
     }
 
-    fn stroke_path(&mut self, transform: Affine, stroke_params: &kurbo::Stroke, path: impl Shape) {
+    fn stroke_path_new(
+        &mut self,
+        transform: Affine,
+        stroke_params: &kurbo::Stroke,
+        path: impl Shape,
+    ) {
         self.render_context.set_transform(transform);
         self.render_context.set_stroke(stroke_params.clone());
         self.render_context.stroke_path(&path.to_path(0.1));
@@ -235,6 +251,7 @@ impl PaintScene for CPUScenePainter {
         &mut self,
         transform: Affine,
         paint_transform: Affine,
+        color: Color,
         rect: &kurbo::Rect,
         radius: f32,
         std_dev: f32,
@@ -245,13 +262,15 @@ impl PaintScene for CPUScenePainter {
         )
     }
 
-    fn fill_blurred_rounded_rect(
+    fn fill_blurred_rounded_rect_new(
         &mut self,
         transform: Affine,
+        color: Color,
         rect: &kurbo::Rect,
         radius: f32,
         std_dev: f32,
     ) {
+        self.render_context.set_paint(color);
         self.render_context.set_transform(transform);
         self.render_context
             .fill_blurred_rounded_rect(rect, radius, std_dev);
@@ -261,7 +280,7 @@ impl PaintScene for CPUScenePainter {
         self.render_context.set_blend_mode(blend_mode);
     }
 
-    fn push_layer(
+    fn push_layer_new(
         &mut self,
         clip_transform: Affine,
         clip_path: Option<impl Shape>,
@@ -278,7 +297,7 @@ impl PaintScene for CPUScenePainter {
         );
     }
 
-    fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape) {
+    fn push_clip_layer_new(&mut self, clip_transform: Affine, path: impl Shape) {
         self.render_context.set_transform(clip_transform);
         self.render_context.push_clip_layer(
             // TODO: Not allocate
@@ -288,6 +307,53 @@ impl PaintScene for CPUScenePainter {
 
     fn pop_layer(&mut self) {
         self.render_context.pop_layer();
+    }
+
+    // Legacy Methods:
+
+    fn read_stateful_transform(&self) -> Affine {
+        *self.render_context.transform()
+    }
+
+    fn read_stateful_paint_transform(&self) -> Affine {
+        *self.render_context.paint_transform()
+    }
+
+    fn read_stateful_fill_rule(&self) -> Fill {
+        *self.render_context.fill_rule()
+    }
+
+    fn read_stateful_stroke(&self) -> kurbo::Stroke {
+        self.render_context.stroke.clone()
+    }
+
+    fn set_stroke(&mut self, stroke: kurbo::Stroke) {
+        self.render_context.set_stroke(stroke);
+    }
+
+    fn set_paint_transform(&mut self, affine: Affine) {
+        self.render_context.set_paint_transform(affine);
+    }
+
+    fn set_fill_rule(&mut self, fill_rule: Fill) {
+        self.render_context.set_fill_rule(fill_rule);
+    }
+
+    fn set_transform(&mut self, transform: Affine) {
+        self.render_context.set_transform(transform);
+    }
+
+    fn push_clip_path(&mut self, path: &kurbo::BezPath) {
+        self.render_context.push_clip_path(path);
+    }
+
+    fn pop_clip_path(&mut self) {
+        self.render_context.pop_clip_path();
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, rect: &kurbo::Rect, radius: f32, std_dev: f32) {
+        self.render_context
+            .fill_blurred_rounded_rect(rect, radius, std_dev);
     }
 }
 

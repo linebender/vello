@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 use peniko::{
-    BlendMode, Brush, Fill, ImageBrush,
+    BlendMode, Brush, Color, Fill, ImageBrush,
     kurbo::{self, Affine, Shape},
 };
 
@@ -73,11 +73,16 @@ impl<P: PreparePaths> PaintScene for BaselinePainter<P> {
         self.height
     }
 
-    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape) {
+    fn fill_path_new(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape) {
         todo!()
     }
 
-    fn stroke_path(&mut self, transform: Affine, stroke_params: &kurbo::Stroke, path: impl Shape) {
+    fn stroke_path_new(
+        &mut self,
+        transform: Affine,
+        stroke_params: &kurbo::Stroke,
+        path: impl Shape,
+    ) {
         todo!()
     }
 
@@ -94,6 +99,7 @@ impl<P: PreparePaths> PaintScene for BaselinePainter<P> {
         &mut self,
         transform: Affine,
         paint_transform: Affine,
+        color: Color,
         rect: &kurbo::Rect,
         radius: f32,
         std_dev: f32,
@@ -105,7 +111,7 @@ impl<P: PreparePaths> PaintScene for BaselinePainter<P> {
         todo!()
     }
 
-    fn push_layer(
+    fn push_layer_new(
         &mut self,
         clip_transform: Affine,
         clip_path: Option<impl Shape>,
@@ -116,11 +122,55 @@ impl<P: PreparePaths> PaintScene for BaselinePainter<P> {
         todo!()
     }
 
-    fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape) {
+    fn push_clip_layer_new(&mut self, clip_transform: Affine, path: impl Shape) {
         todo!()
     }
 
     fn pop_layer(&mut self) {
+        todo!()
+    }
+
+    fn read_stateful_transform(&self) -> Affine {
+        todo!()
+    }
+
+    fn read_stateful_paint_transform(&self) -> Affine {
+        todo!()
+    }
+
+    fn read_stateful_fill_rule(&self) -> Fill {
+        todo!()
+    }
+
+    fn read_stateful_stroke(&self) -> kurbo::Stroke {
+        todo!()
+    }
+
+    fn set_stroke(&mut self, stroke: kurbo::Stroke) {
+        todo!()
+    }
+
+    fn set_paint_transform(&mut self, affine: Affine) {
+        todo!()
+    }
+
+    fn set_fill_rule(&mut self, fill_rule: Fill) {
+        todo!()
+    }
+
+    fn set_transform(&mut self, transform: Affine) {
+        todo!()
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, rect: &kurbo::Rect, radius: f32, std_dev: f32) {
+        todo!()
+    }
+
+    fn push_clip_path(&mut self, path: &kurbo::BezPath) {
+        todo!()
+    }
+
+    fn pop_clip_path(&mut self) {
         todo!()
     }
 }

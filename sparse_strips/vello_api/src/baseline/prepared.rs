@@ -123,10 +123,10 @@ impl<P: PaintScene> TransformablePreparedPaths<P> for BaselinePreparePaths {
         let transform = transform * path_details.transform;
         match &path_details.operation {
             Operation::Stroke(stroke) => {
-                scene.stroke_path(transform, &stroke.clone(), shape);
+                scene.stroke_path_new(transform, &stroke.clone(), shape);
             }
             Operation::Fill(fill_rule) => {
-                scene.fill_path(transform, *fill_rule, shape);
+                scene.fill_path_new(transform, *fill_rule, shape);
             }
         }
         Ok(())

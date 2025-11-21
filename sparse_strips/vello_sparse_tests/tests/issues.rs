@@ -3,7 +3,7 @@
 
 //! Tests for GitHub issues.
 
-use crate::renderer::Renderer;
+use crate::renderer::{LegacyRenderer, Renderer};
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::peniko::{Color, ColorStop, Fill, Gradient, InterpolationAlphaSpace};
@@ -334,9 +334,9 @@ fn gradient_radial_outside(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0., 0., 100., 50.));
 }
 
-#[vello_test(no_ref)]
+#[vello_test(no_ref, legacy)]
 /// <https://github.com/linebender/vello/issues/1113>
-fn do_not_panic_on_multiple_flushes(ctx: &mut impl Renderer) {
+fn do_not_panic_on_multiple_flushes(ctx: &mut impl LegacyRenderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
     ctx.flush();
     ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
@@ -440,7 +440,6 @@ fn clip_wrong_command(ctx: &mut impl Renderer) {
     ctx.fill_path(&Rect::new(0.0, 0.0, 595.0, 808.0).to_path(0.1));
     ctx.pop_layer();
     ctx.pop_layer();
-    ctx.flush();
 }
 
 /// See <https://github.com/linebender/vello/issues/1219>

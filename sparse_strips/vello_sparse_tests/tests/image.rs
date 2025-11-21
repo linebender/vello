@@ -3,7 +3,7 @@
 
 use crate::gradient::tan_45;
 use crate::load_image;
-use crate::renderer::Renderer;
+use crate::renderer::LegacyRenderer;
 use crate::util::crossed_line_star;
 use std::f64::consts::PI;
 use std::sync::Arc;
@@ -15,37 +15,37 @@ use vello_common::peniko::ImageSampler;
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_dev_macros::vello_test;
 
-fn rgb_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
+fn rgb_img_10x10(ctx: &mut impl LegacyRenderer) -> ImageSource {
     ctx.get_image_source(load_image!("rgb_image_10x10"))
 }
 
-fn rgb_img_10x10_alpha_multiplied(ctx: &mut impl Renderer, alpha: u8) -> ImageSource {
+fn rgb_img_10x10_alpha_multiplied(ctx: &mut impl LegacyRenderer, alpha: u8) -> ImageSource {
     let mut pix = load_image!("rgb_image_10x10");
     Arc::make_mut(&mut pix).multiply_alpha(alpha);
     ctx.get_image_source(pix)
 }
 
-fn rgb_img_2x2(ctx: &mut impl Renderer) -> ImageSource {
+fn rgb_img_2x2(ctx: &mut impl LegacyRenderer) -> ImageSource {
     ctx.get_image_source(load_image!("rgb_image_2x2"))
 }
 
-fn rgb_img_2x3(ctx: &mut impl Renderer) -> ImageSource {
+fn rgb_img_2x3(ctx: &mut impl LegacyRenderer) -> ImageSource {
     ctx.get_image_source(load_image!("rgb_image_2x3"))
 }
 
-fn rgba_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
+fn rgba_img_10x10(ctx: &mut impl LegacyRenderer) -> ImageSource {
     ctx.get_image_source(load_image!("rgba_image_10x10"))
 }
 
-fn luma_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
+fn luma_img_10x10(ctx: &mut impl LegacyRenderer) -> ImageSource {
     ctx.get_image_source(load_image!("luma_image_10x10"))
 }
 
-fn lumaa_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
+fn lumaa_img_10x10(ctx: &mut impl LegacyRenderer) -> ImageSource {
     ctx.get_image_source(load_image!("lumaa_image_10x10"))
 }
 
-fn repeat(ctx: &mut impl Renderer, x_extend: Extend, y_extend: Extend) {
+fn repeat(ctx: &mut impl LegacyRenderer, x_extend: Extend, y_extend: Extend) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     let image_source = rgb_img_10x10(ctx);
 
@@ -62,32 +62,32 @@ fn repeat(ctx: &mut impl Renderer, x_extend: Extend, y_extend: Extend) {
     ctx.fill_rect(&rect);
 }
 
-#[vello_test]
-fn image_reflect_x_pad_y(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_reflect_x_pad_y(ctx: &mut impl LegacyRenderer) {
     repeat(ctx, Extend::Reflect, Extend::Pad);
 }
 
-#[vello_test]
-fn image_pad_x_repeat_y(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_pad_x_repeat_y(ctx: &mut impl LegacyRenderer) {
     repeat(ctx, Extend::Pad, Extend::Repeat);
 }
 
-#[vello_test]
-fn image_reflect_x_reflect_y(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_reflect_x_reflect_y(ctx: &mut impl LegacyRenderer) {
     repeat(ctx, Extend::Reflect, Extend::Reflect);
 }
 
-#[vello_test]
-fn image_repeat_x_repeat_y(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_repeat_x_repeat_y(ctx: &mut impl LegacyRenderer) {
     repeat(ctx, Extend::Repeat, Extend::Repeat);
 }
 
-#[vello_test]
-fn image_pad_x_pad_y(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_pad_x_pad_y(ctx: &mut impl LegacyRenderer) {
     repeat(ctx, Extend::Pad, Extend::Pad);
 }
 
-fn transform(ctx: &mut impl Renderer, transform: Affine, l: f64, t: f64, r: f64, b: f64) {
+fn transform(ctx: &mut impl LegacyRenderer, transform: Affine, l: f64, t: f64, r: f64, b: f64) {
     let rect = Rect::new(l, t, r, b);
     let image_source = rgb_img_10x10(ctx);
 
@@ -106,23 +106,23 @@ fn transform(ctx: &mut impl Renderer, transform: Affine, l: f64, t: f64, r: f64,
     ctx.fill_rect(&rect);
 }
 
-#[vello_test]
-fn image_with_transform_identity(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_transform_identity(ctx: &mut impl LegacyRenderer) {
     transform(ctx, Affine::IDENTITY, 25.0, 25.0, 75.0, 75.0);
 }
 
-#[vello_test]
-fn image_with_transform_translate(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_transform_translate(ctx: &mut impl LegacyRenderer) {
     transform(ctx, Affine::translate((25.0, 25.0)), 0.0, 0.0, 50.0, 50.0);
 }
 
-#[vello_test]
-fn image_with_transform_scale(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_transform_scale(ctx: &mut impl LegacyRenderer) {
     transform(ctx, Affine::scale(2.0), 12.5, 12.5, 37.5, 37.5);
 }
 
-#[vello_test]
-fn image_with_transform_negative_scale(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_transform_negative_scale(ctx: &mut impl LegacyRenderer) {
     transform(
         ctx,
         Affine::translate((100.0, 100.0)) * Affine::scale(-2.0),
@@ -133,8 +133,8 @@ fn image_with_transform_negative_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_with_transform_scale_and_translate(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_transform_scale_and_translate(ctx: &mut impl LegacyRenderer) {
     transform(
         ctx,
         Affine::new([2.0, 0.0, 0.0, 2.0, 25.0, 25.0]),
@@ -145,8 +145,8 @@ fn image_with_transform_scale_and_translate(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(ignore = "fails in Windows CI for some reason.")]
-fn image_with_transform_rotate_1(ctx: &mut impl Renderer) {
+#[vello_test(legacy, ignore = "fails in Windows CI for some reason.")]
+fn image_with_transform_rotate_1(ctx: &mut impl LegacyRenderer) {
     transform(
         ctx,
         Affine::rotate_about(PI / 4.0, Point::new(50.0, 50.0)),
@@ -157,8 +157,8 @@ fn image_with_transform_rotate_1(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(ignore = "fails in Windows CI for some reason.")]
-fn image_with_transform_rotate_2(ctx: &mut impl Renderer) {
+#[vello_test(legacy, ignore = "fails in Windows CI for some reason.")]
+fn image_with_transform_rotate_2(ctx: &mut impl LegacyRenderer) {
     transform(
         ctx,
         Affine::rotate_about(-PI / 4.0, Point::new(50.0, 50.0)),
@@ -169,8 +169,8 @@ fn image_with_transform_rotate_2(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_with_transform_scaling_non_uniform(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_transform_scaling_non_uniform(ctx: &mut impl LegacyRenderer) {
     transform(
         ctx,
         Affine::scale_non_uniform(1.0, 2.0),
@@ -181,8 +181,8 @@ fn image_with_transform_scaling_non_uniform(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_with_transform_skew_x_1(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_transform_skew_x_1(ctx: &mut impl LegacyRenderer) {
     transform(
         ctx,
         Affine::translate((-50.0, 0.0)) * Affine::skew(tan_45(), 0.0),
@@ -193,8 +193,8 @@ fn image_with_transform_skew_x_1(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_with_transform_skew_x_2(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_transform_skew_x_2(ctx: &mut impl LegacyRenderer) {
     transform(
         ctx,
         Affine::translate((50.0, 0.0)) * Affine::skew(-tan_45(), 0.0),
@@ -205,8 +205,8 @@ fn image_with_transform_skew_x_2(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_with_transform_skew_y_1(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_transform_skew_y_1(ctx: &mut impl LegacyRenderer) {
     transform(
         ctx,
         Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45()),
@@ -217,8 +217,8 @@ fn image_with_transform_skew_y_1(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_with_transform_skew_y_2(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_transform_skew_y_2(ctx: &mut impl LegacyRenderer) {
     transform(
         ctx,
         Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45()),
@@ -229,8 +229,8 @@ fn image_with_transform_skew_y_2(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_complex_shape(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_complex_shape(ctx: &mut impl LegacyRenderer) {
     let path = crossed_line_star();
     let image_source = rgb_img_10x10(ctx);
 
@@ -248,8 +248,8 @@ fn image_complex_shape(ctx: &mut impl Renderer) {
     ctx.fill_path(&path);
 }
 
-#[vello_test]
-fn image_global_alpha(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_global_alpha(ctx: &mut impl LegacyRenderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
     let image = Image {
@@ -266,8 +266,8 @@ fn image_global_alpha(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[vello_test]
-fn image_with_opacity(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_opacity(ctx: &mut impl LegacyRenderer) {
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
 
@@ -292,7 +292,7 @@ fn image_with_opacity(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-fn image_format(ctx: &mut impl Renderer, image_source: ImageSource) {
+fn image_format(ctx: &mut impl LegacyRenderer, image_source: ImageSource) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 
     let image = Image {
@@ -309,32 +309,32 @@ fn image_format(ctx: &mut impl Renderer, image_source: ImageSource) {
     ctx.fill_rect(&rect);
 }
 
-#[vello_test]
-fn image_rgb_image(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_rgb_image(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_10x10(ctx);
     image_format(ctx, image_source);
 }
 
-#[vello_test]
-fn image_rgba_image(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_rgba_image(ctx: &mut impl LegacyRenderer) {
     let image_source = rgba_img_10x10(ctx);
     image_format(ctx, image_source);
 }
 
-#[vello_test]
-fn image_luma_image(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_luma_image(ctx: &mut impl LegacyRenderer) {
     let image_source = luma_img_10x10(ctx);
     image_format(ctx, image_source);
 }
 
-#[vello_test]
-fn image_lumaa_image(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_lumaa_image(ctx: &mut impl LegacyRenderer) {
     let image_source = lumaa_img_10x10(ctx);
     image_format(ctx, image_source);
 }
 
 fn quality(
-    ctx: &mut impl Renderer,
+    ctx: &mut impl LegacyRenderer,
     transform: Affine,
     image_source: ImageSource,
     quality: ImageQuality,
@@ -359,8 +359,8 @@ fn quality(
 
 // Outputs of those tests were compared against Blend2D and tiny-skia.
 
-#[vello_test]
-fn image_bilinear_identity(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_bilinear_identity(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -371,8 +371,8 @@ fn image_bilinear_identity(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_bilinear_2x_scale(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_bilinear_2x_scale(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -383,8 +383,8 @@ fn image_bilinear_2x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_bilinear_5x_scale(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_bilinear_5x_scale(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -395,8 +395,8 @@ fn image_bilinear_5x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_bilinear_10x_scale(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_bilinear_10x_scale(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -407,8 +407,8 @@ fn image_bilinear_10x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_bilinear_with_rotation(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_bilinear_with_rotation(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -419,8 +419,8 @@ fn image_bilinear_with_rotation(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_bilinear_with_translation(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_bilinear_with_translation(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -431,8 +431,8 @@ fn image_bilinear_with_translation(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_bilinear_10x_scale_2(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_bilinear_10x_scale_2(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x3(ctx);
     quality(
         ctx,
@@ -451,8 +451,8 @@ fn image_bilinear_10x_scale_2(ctx: &mut impl Renderer) {
 //
 // We also ported the cubic polynomials directly from current Skia, while tiny-skia (seems?) to use
 // either an outdated version or a slightly adapted one.
-#[vello_test]
-fn image_bicubic_identity(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_bicubic_identity(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -463,8 +463,8 @@ fn image_bicubic_identity(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 3)]
-fn image_bicubic_2x_scale(ctx: &mut impl Renderer) {
+#[vello_test(legacy, hybrid_tolerance = 3)]
+fn image_bicubic_2x_scale(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -475,8 +475,8 @@ fn image_bicubic_2x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 5)]
-fn image_bicubic_5x_scale(ctx: &mut impl Renderer) {
+#[vello_test(legacy, hybrid_tolerance = 5)]
+fn image_bicubic_5x_scale(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -487,8 +487,8 @@ fn image_bicubic_5x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 7)]
-fn image_bicubic_10x_scale(ctx: &mut impl Renderer) {
+#[vello_test(legacy, hybrid_tolerance = 7)]
+fn image_bicubic_10x_scale(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -499,8 +499,8 @@ fn image_bicubic_10x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 7)]
-fn image_bicubic_with_rotation(ctx: &mut impl Renderer) {
+#[vello_test(legacy, hybrid_tolerance = 7)]
+fn image_bicubic_with_rotation(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -511,8 +511,8 @@ fn image_bicubic_with_rotation(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 5)]
-fn image_bicubic_with_translation(ctx: &mut impl Renderer) {
+#[vello_test(legacy, hybrid_tolerance = 5)]
+fn image_bicubic_with_translation(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
         ctx,
@@ -523,8 +523,8 @@ fn image_bicubic_with_translation(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(hybrid_tolerance = 7)]
-fn image_bicubic_10x_scale_2(ctx: &mut impl Renderer) {
+#[vello_test(legacy, hybrid_tolerance = 7)]
+fn image_bicubic_10x_scale_2(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x3(ctx);
     quality(
         ctx,
@@ -535,8 +535,8 @@ fn image_bicubic_10x_scale_2(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
-fn image_with_multiple_clip_layers(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn image_with_multiple_clip_layers(ctx: &mut impl LegacyRenderer) {
     let image_source = rgb_img_2x2(ctx);
     let image_rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     let clipped_area1 = Rect::new(20.0, 20.0, 80.0, 80.0);

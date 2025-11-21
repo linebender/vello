@@ -11,7 +11,7 @@ use vello_common::{
     encode::{EncodedImage, EncodedPaint},
     kurbo::{self, Affine, Shape},
     paint::{ImageId, ImageSource},
-    peniko::{BlendMode, Brush, Fill, ImageBrush, ImageData},
+    peniko::{BlendMode, Brush, Color, Fill, ImageBrush, ImageData},
     pixmap::Pixmap,
 };
 use wgpu::{
@@ -443,14 +443,19 @@ impl PaintScene for HybridScenePainter {
         self.scene.height()
     }
 
-    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape) {
+    fn fill_path_new(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape) {
         self.scene.set_transform(transform);
         self.scene.set_fill_rule(fill_rule);
         // TODO: Tweak inner `fill_path` API to either take a `Shape` or an &[PathEl]
         self.scene.fill_path(&path.to_path(0.1));
     }
 
-    fn stroke_path(&mut self, transform: Affine, stroke_params: &kurbo::Stroke, path: impl Shape) {
+    fn stroke_path_new(
+        &mut self,
+        transform: Affine,
+        stroke_params: &kurbo::Stroke,
+        path: impl Shape,
+    ) {
         self.scene.set_transform(transform);
         self.scene.set_stroke(stroke_params.clone());
         self.scene.stroke_path(&path.to_path(0.1));
@@ -463,7 +468,7 @@ impl PaintScene for HybridScenePainter {
         _: Affine,
         paint_transform: Affine,
     ) {
-        // self.render_context.set_transform(transform);
+        // self.scene.set_transform(transform);
         self.scene.set_paint_transform(paint_transform);
         let brush = match brush.into() {
             Brush::Solid(alpha_color) => Brush::Solid(alpha_color),
@@ -484,6 +489,7 @@ impl PaintScene for HybridScenePainter {
         &mut self,
         transform: Affine,
         paint_transform: Affine,
+        color: Color,
         rect: &kurbo::Rect,
         radius: f32,
         std_dev: f32,
@@ -495,7 +501,7 @@ impl PaintScene for HybridScenePainter {
         self.scene.set_blend_mode(blend_mode);
     }
 
-    fn push_layer(
+    fn push_layer_new(
         &mut self,
         clip_transform: Affine,
         clip_path: Option<impl Shape>,
@@ -512,7 +518,7 @@ impl PaintScene for HybridScenePainter {
         );
     }
 
-    fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape) {
+    fn push_clip_layer_new(&mut self, clip_transform: Affine, path: impl Shape) {
         self.scene.set_transform(clip_transform);
         self.scene.push_clip_layer(
             // TODO: Not allocate
@@ -522,6 +528,50 @@ impl PaintScene for HybridScenePainter {
 
     fn pop_layer(&mut self) {
         self.scene.pop_layer();
+    }
+
+    fn read_stateful_transform(&self) -> Affine {
+        self.scene.transform
+    }
+
+    fn read_stateful_paint_transform(&self) -> Affine {
+        self.scene.paint_transform
+    }
+
+    fn read_stateful_fill_rule(&self) -> Fill {
+        self.scene.fill_rule
+    }
+
+    fn read_stateful_stroke(&self) -> kurbo::Stroke {
+        self.scene.stroke.clone()
+    }
+
+    fn set_stroke(&mut self, stroke: kurbo::Stroke) {
+        self.scene.set_stroke(stroke);
+    }
+
+    fn set_paint_transform(&mut self, affine: Affine) {
+        self.scene.set_paint_transform(affine);
+    }
+
+    fn set_fill_rule(&mut self, fill_rule: Fill) {
+        self.scene.set_fill_rule(fill_rule);
+    }
+
+    fn set_transform(&mut self, transform: Affine) {
+        self.scene.set_transform(transform);
+    }
+
+    fn push_clip_path(&mut self, path: &kurbo::BezPath) {
+        self.scene.push_clip_path(path);
+    }
+
+    fn pop_clip_path(&mut self) {
+        self.scene.pop_clip_path();
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, rect: &kurbo::Rect, radius: f32, std_dev: f32) {
+        unimplemented!()
     }
 }
 

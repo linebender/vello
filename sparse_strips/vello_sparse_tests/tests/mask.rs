@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::renderer::Renderer;
+use crate::renderer::{LegacyRenderer, Renderer};
 use smallvec::smallvec;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
@@ -57,7 +57,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     }
 }
 
-fn mask(ctx: &mut impl Renderer, alpha_mask: bool) {
+fn mask(ctx: &mut impl LegacyRenderer, alpha_mask: bool) {
     let mask = example_mask(alpha_mask);
 
     ctx.set_paint(BLACK);
@@ -68,12 +68,12 @@ fn mask(ctx: &mut impl Renderer, alpha_mask: bool) {
     ctx.pop_layer();
 }
 
-#[vello_test]
-fn mask_alpha(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn mask_alpha(ctx: &mut impl LegacyRenderer) {
     mask(ctx, true);
 }
 
-#[vello_test]
-fn mask_luminance(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn mask_luminance(ctx: &mut impl LegacyRenderer) {
     mask(ctx, false);
 }

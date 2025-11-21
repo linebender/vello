@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Tests for glyph rendering.
+//!
+//! Currently these use the legacy testing infrastructure,
+//! as our architecture for glyph drawing is changing.
 
-use crate::renderer::Renderer;
+use crate::renderer::LegacyRenderer;
 #[cfg(target_os = "macos")]
 use crate::util::layout_glyphs_apple_color_emoji;
 use crate::util::{layout_glyphs_noto_cbtf, layout_glyphs_noto_colr, layout_glyphs_roboto};
@@ -15,8 +18,8 @@ use vello_common::kurbo::Affine;
 use vello_common::peniko::{Blob, FontData};
 use vello_dev_macros::vello_test;
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_filled(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 300, height = 70)]
+fn glyphs_filled(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -28,8 +31,8 @@ fn glyphs_filled(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_filled_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 300, height = 70)]
+fn glyphs_filled_unhinted(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -41,8 +44,8 @@ fn glyphs_filled_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_stroked(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 300, height = 70)]
+fn glyphs_stroked(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -54,8 +57,8 @@ fn glyphs_stroked(ctx: &mut impl Renderer) {
         .stroke_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_stroked_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 300, height = 70)]
+fn glyphs_stroked_unhinted(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -67,8 +70,8 @@ fn glyphs_stroked_unhinted(ctx: &mut impl Renderer) {
         .stroke_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_skewed(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 300, height = 70)]
+fn glyphs_skewed(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -81,8 +84,8 @@ fn glyphs_skewed(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_skewed_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 300, height = 70)]
+fn glyphs_skewed_unhinted(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -95,8 +98,8 @@ fn glyphs_skewed_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 75)]
-fn glyphs_skewed_long(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 250, height = 75)]
+fn glyphs_skewed_long(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 20_f32;
     let (font, glyphs) = layout_glyphs_roboto(
         "Lorem ipsum dolor sit amet,\nconsectetur adipiscing elit.\nSed ornare arcu lectus.",
@@ -112,8 +115,8 @@ fn glyphs_skewed_long(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 75)]
-fn glyphs_skewed_long_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 250, height = 75)]
+fn glyphs_skewed_long_unhinted(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 20_f32;
     let (font, glyphs) = layout_glyphs_roboto(
         "Lorem ipsum dolor sit amet,\nconsectetur adipiscing elit.\nSed ornare arcu lectus.",
@@ -129,8 +132,8 @@ fn glyphs_skewed_long_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_skewed_unskewed(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 150, height = 125)]
+fn glyphs_skewed_unskewed(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -146,8 +149,8 @@ fn glyphs_skewed_unskewed(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_skewed_unskewed_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 150, height = 125)]
+fn glyphs_skewed_unskewed_unhinted(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -163,8 +166,8 @@ fn glyphs_skewed_unskewed_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_scaled(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 150, height = 125)]
+fn glyphs_scaled(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -176,8 +179,8 @@ fn glyphs_scaled(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_scaled_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 150, height = 125)]
+fn glyphs_scaled_unhinted(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -189,8 +192,8 @@ fn glyphs_scaled_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_glyph_transform(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 150, height = 125)]
+fn glyphs_glyph_transform(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -203,8 +206,8 @@ fn glyphs_glyph_transform(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 150, height = 125)]
+fn glyphs_glyph_transform_unhinted(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -217,8 +220,8 @@ fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 60, height = 12)]
-fn glyphs_small(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 60, height = 12)]
+fn glyphs_small(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 10_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -230,8 +233,8 @@ fn glyphs_small(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 60, height = 12)]
-fn glyphs_small_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 60, height = 12)]
+fn glyphs_small_unhinted(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 10_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -243,8 +246,8 @@ fn glyphs_small_unhinted(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 70, skip_hybrid)]
-fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 250, height = 70, skip_hybrid)]
+fn glyphs_bitmap_noto(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size);
 
@@ -254,8 +257,8 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
-fn glyphs_colr_noto(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
+fn glyphs_colr_noto(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
 
@@ -266,8 +269,8 @@ fn glyphs_colr_noto(ctx: &mut impl Renderer) {
 }
 
 #[cfg(target_os = "macos")]
-#[vello_test(width = 200, height = 70, skip_hybrid, cpu_u8_tolerance = 2)]
-fn glyphs_bitmap_apple(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 200, height = 70, skip_hybrid, cpu_u8_tolerance = 2)]
+fn glyphs_bitmap_apple(ctx: &mut impl LegacyRenderer) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_apple_color_emoji("✅👀🎉🤠", font_size);
 
@@ -277,8 +280,8 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 400, height = 960, skip_hybrid, diff_pixels = 50)]
-fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 400, height = 960, skip_hybrid, diff_pixels = 50)]
+fn glyphs_colr_test_glyphs(ctx: &mut impl LegacyRenderer) {
     const TEST_FONT: &[u8] =
         include_bytes!("../../../examples/assets/colr_test_glyphs/test_glyphs-glyf_colr_1.ttf");
     let font = FontData::new(Blob::new(Arc::new(TEST_FONT)), 0);

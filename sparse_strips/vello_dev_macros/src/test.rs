@@ -41,6 +41,8 @@ struct Arguments {
     no_ref: bool,
     /// A reason for ignoring a test.
     ignore_reason: Option<String>,
+    /// Whether to use the "legacy" test infrastructure.
+    legacy: bool,
 }
 
 impl Default for Arguments {
@@ -57,6 +59,7 @@ impl Default for Arguments {
             no_ref: false,
             diff_pixels: 0,
             ignore_reason: None,
+            legacy: false,
         }
     }
 }
@@ -148,6 +151,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         ignore_reason,
         no_ref,
         diff_pixels,
+        legacy,
     } = parse_args(&attrs);
 
     // Wasm doesn't have access to the filesystem. For wasm, inline the snapshot bytes into the
@@ -241,21 +245,61 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             (quote! {}, quote! { #[test] })
         };
 
-        quote! {
-            #cfg_attr
-            #ignore_snippet
-            #test_attr
-            fn #fn_name() {
-                use crate::util::{
-                    check_ref, get_ctx
-                };
-                use vello_cpu::{RenderContext, RenderMode};
+        if legacy {
+            quote! {
+                #cfg_attr
+                #ignore_snippet
+                #test_attr
+                fn #fn_name() {
+                    use crate::util::{
+                        check_ref, get_ctx, render_pixmap
+                    };
+                    use vello_cpu::{RenderContext, RenderMode};
 
-                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level, #render_mode);
-                #input_fn_name(&mut ctx);
-                ctx.flush();
-                if !#no_ref {
-                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #reference_image_name);
+                    let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level, #render_mode);
+                    #input_fn_name(&mut ctx);
+                    ctx.flush();
+                    if !#no_ref {
+                        let pixmap = render_pixmap(&ctx);
+                        check_ref(pixmap, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #reference_image_name);
+                    }
+                }
+            }
+        } else {
+            quote! {
+                #cfg_attr
+                #ignore_snippet
+                #test_attr
+                fn #fn_name() {
+                    use crate::util::{
+                        get_cpu_renderer, check_ref
+                    };
+                    use vello_cpu::{RenderContext, RenderMode};
+                    use vello_api::texture::{TextureDescriptor, TextureUsages};
+                    use vello_api::{SceneOptions, Renderer as _};
+                    use vello_api::peniko::Color;
+
+                    let mut renderer = get_cpu_renderer(#num_threads, #level, #render_mode);
+
+                    let render_target = renderer.create_texture(TextureDescriptor {
+                        width: #width,
+                        height: #height,
+                        usages: TextureUsages::RENDER_TARGET | TextureUsages::DOWNLOAD_SRC,
+                        label: None
+                    });
+                    let mut scene = renderer.create_scene(
+                        &render_target,
+                        SceneOptions {
+                            clear_color: (!#transparent).then_some(Color::WHITE),
+                            target: None
+                        },
+                    ).unwrap();
+                    #input_fn_name(&mut scene);
+                    renderer.queue_render(scene);
+                    if !#no_ref {
+                        let pixmap = renderer.read_texture(&render_target).unwrap().clone();
+                        check_ref(pixmap, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #reference_image_name);
+                    }
                 }
             }
         }
@@ -401,6 +445,49 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         quote! { RenderMode::OptimizeQuality },
     );
 
+    let hybrid_snippets = if legacy {
+        quote!(
+            #ignore_hybrid
+            #[test]
+            fn #hybrid_fn_name() {
+                use crate::util::{
+                    check_ref, get_ctx, render_pixmap
+                };
+                use crate::renderer::HybridRenderer;
+                use vello_cpu::RenderMode;
+
+                let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+                #input_fn_name(&mut ctx);
+                ctx.flush();
+                if !#no_ref {
+                    let pixmap = render_pixmap(&ctx);
+                    check_ref(pixmap, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+                }
+            }
+
+            #ignore_hybrid_webgl
+            #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+            #[wasm_bindgen_test::wasm_bindgen_test]
+            async fn #webgl_fn_name() {
+                use crate::util::{
+                    check_ref, get_ctx, render_pixmap
+                };
+                use crate::renderer::HybridRenderer;
+                use vello_cpu::RenderMode;
+
+                let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+                #input_fn_name(&mut ctx);
+                ctx.flush();
+                if !#no_ref {
+                    let pixmap = render_pixmap(&ctx);
+                    check_ref(pixmap, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+                }
+            }
+        )
+    } else {
+        quote!()
+    };
+
     let expanded = quote! {
         #input_fn
 
@@ -428,40 +515,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
 
         #multi_threaded_snippet
 
-        #ignore_hybrid
-        #[test]
-        fn #hybrid_fn_name() {
-            use crate::util::{
-                check_ref, get_ctx
-            };
-            use crate::renderer::HybridRenderer;
-            use vello_cpu::RenderMode;
-
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
-            #input_fn_name(&mut ctx);
-            ctx.flush();
-            if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
-            }
-        }
-
-        #ignore_hybrid_webgl
-        #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-        #[wasm_bindgen_test::wasm_bindgen_test]
-        async fn #webgl_fn_name() {
-            use crate::util::{
-                check_ref, get_ctx
-            };
-            use crate::renderer::HybridRenderer;
-            use vello_cpu::RenderMode;
-
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
-            #input_fn_name(&mut ctx);
-            ctx.flush();
-            if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
-            }
-        }
+        #hybrid_snippets
     };
 
     expanded.into()
@@ -510,6 +564,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                         args.skip_multithreaded = true;
                         args.skip_hybrid = true;
                     }
+                    "legacy" => args.legacy = true,
                     _ => panic!("unknown flag attribute {flag_str}"),
                 }
             }

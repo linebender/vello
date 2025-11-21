@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::mask::example_mask;
-use crate::renderer::Renderer;
+use crate::renderer::LegacyRenderer;
 use crate::util::crossed_line_star;
 use vello_common::color::palette::css::{BLUE, RED};
 use vello_common::kurbo::Rect;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_dev_macros::vello_test;
 
-#[vello_test(cpu_u8_tolerance = 1)]
-fn layer_multiple_properties_1(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1)]
+fn layer_multiple_properties_1(ctx: &mut impl LegacyRenderer) {
     let mask = example_mask(true);
     let star = crossed_line_star();
 

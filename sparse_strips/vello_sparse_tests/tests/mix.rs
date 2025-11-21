@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::load_image;
-use crate::renderer::Renderer;
+use crate::renderer::{LegacyRenderer, Renderer};
 use smallvec::smallvec;
 use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, ORANGE, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
@@ -14,13 +14,13 @@ use vello_common::peniko::{
 use vello_cpu::peniko::{ImageSampler, LinearGradientPosition};
 use vello_dev_macros::vello_test;
 
-fn cowboy_img(ctx: &mut impl Renderer) -> ImageSource {
+fn cowboy_img(ctx: &mut impl LegacyRenderer) -> ImageSource {
     ctx.get_image_source(load_image!("cowboy"))
 }
 
 // The outputs have been compared visually with tiny-skia, and except for two cases (where tiny-skia
 // is wrong), the overall visual effect looks the same.
-fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
+fn mix(ctx: &mut impl LegacyRenderer, blend_mode: BlendMode) {
     let rect = Rect::new(0.0, 0.0, 80.0, 80.0);
 
     let gradient = Gradient {
@@ -73,33 +73,33 @@ fn mix(ctx: &mut impl Renderer, blend_mode: BlendMode) {
     ctx.pop_layer();
 }
 
-#[vello_test(hybrid_tolerance = 1)]
-fn mix_normal(ctx: &mut impl Renderer) {
+#[vello_test(legacy, hybrid_tolerance = 1)]
+fn mix_normal(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Normal, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
-fn mix_multiply(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
+fn mix_multiply(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Multiply, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
-fn mix_screen(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1)]
+fn mix_screen(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Screen, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
-fn mix_darken(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
+fn mix_darken(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Darken, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
-fn mix_lighten(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
+fn mix_lighten(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Lighten, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 4, hybrid_tolerance = 5)]
-fn mix_color_dodge(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 4, hybrid_tolerance = 5)]
+fn mix_color_dodge(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::ColorDodge, Compose::SrcOver));
 }
 
@@ -112,58 +112,58 @@ fn mix_color_dodge(ctx: &mut impl Renderer) {
 //  f32:  1.0 - ((1.0 - 0.8784314) / 0.125) = 0.027451038 (RGB value of around 7)
 //  u8/u16:  255 - (((255 - 224) * 255) / 31) = 0
 // And therefore a very large difference for that one component.
-#[vello_test(cpu_u8_tolerance = 5, hybrid_tolerance = 1)]
-fn mix_color_burn(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 5, hybrid_tolerance = 1)]
+fn mix_color_burn(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::ColorBurn, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
-fn mix_hard_light(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
+fn mix_hard_light(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::HardLight, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
-fn mix_soft_light(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1)]
+fn mix_soft_light(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::SoftLight, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
-fn mix_difference(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1)]
+fn mix_difference(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Difference, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
-fn mix_exclusion(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1)]
+fn mix_exclusion(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Exclusion, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
-fn mix_overlay(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
+fn mix_overlay(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Overlay, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
-fn mix_hue(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1)]
+fn mix_hue(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Hue, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1)]
-fn mix_saturation(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1)]
+fn mix_saturation(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Saturation, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 2, hybrid_tolerance = 1)]
-fn mix_color(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 2, hybrid_tolerance = 1)]
+fn mix_color(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Color, Compose::SrcOver));
 }
 
-#[vello_test(cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
-fn mix_luminosity(ctx: &mut impl Renderer) {
+#[vello_test(legacy, cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
+fn mix_luminosity(ctx: &mut impl LegacyRenderer) {
     mix(ctx, BlendMode::new(Mix::Luminosity, Compose::SrcOver));
 }
 
-#[vello_test(transparent)]
-fn mix_with_transparent_bg(ctx: &mut impl Renderer) {
+#[vello_test(legacy, transparent)]
+fn mix_with_transparent_bg(ctx: &mut impl LegacyRenderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     ctx.set_paint(AlphaColor::<Srgb>::from_rgba8(0, 0, 128, 128));
     ctx.fill_rect(&rect);
@@ -173,7 +173,7 @@ fn mix_with_transparent_bg(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-fn mix_solid(ctx: &mut impl Renderer, mix: Mix) {
+fn mix_solid(ctx: &mut impl LegacyRenderer, mix: Mix) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     ctx.set_paint(AlphaColor::<Srgb>::from_rgba8(122, 85, 73, 255));
     ctx.fill_rect(&rect);
@@ -187,21 +187,21 @@ fn mix_solid(ctx: &mut impl Renderer, mix: Mix) {
 // The below 2 test cases yield different results than in tiny-skia, but I checked by converting
 // the test case into SVG and viewing it in Chrome, and our version should be right.
 // Color of rectangle should be (106, 106, 0).
-#[vello_test]
-fn mix_color_with_solid(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn mix_color_with_solid(ctx: &mut impl LegacyRenderer) {
     mix_solid(ctx, Mix::Color);
 }
 
 // Color of rectangle should be (213, 52, 0).
-#[vello_test]
-fn mix_saturation_with_solid(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn mix_saturation_with_solid(ctx: &mut impl LegacyRenderer) {
     mix_solid(ctx, Mix::Saturation);
 }
 
 // Currently `vello_hybrid` does not support gradients. This test ensure mix is tested in
 // `vello_hybrid` by using solid colors.
-#[vello_test(width = 80, height = 160)]
-fn mix_modes_non_gradient_test_matrix(ctx: &mut impl Renderer) {
+#[vello_test(legacy, width = 80, height = 160)]
+fn mix_modes_non_gradient_test_matrix(ctx: &mut impl LegacyRenderer) {
     let mix_modes = [
         Mix::Normal,
         Mix::Multiply,
@@ -268,7 +268,7 @@ fn mix_modes_non_gradient_test_matrix(ctx: &mut impl Renderer) {
     }
 }
 
-fn mix_non_isolated(ctx: &mut impl Renderer, mix: Mix) {
+fn mix_non_isolated(ctx: &mut impl LegacyRenderer, mix: Mix) {
     // Just to isolate from the white background.
     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
 
@@ -283,17 +283,17 @@ fn mix_non_isolated(ctx: &mut impl Renderer, mix: Mix) {
     ctx.pop_layer();
 }
 
-#[vello_test]
-fn mix_non_isolated_difference(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn mix_non_isolated_difference(ctx: &mut impl LegacyRenderer) {
     mix_non_isolated(ctx, Mix::Difference);
 }
 
-#[vello_test]
-fn mix_non_isolated_soft_light(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn mix_non_isolated_soft_light(ctx: &mut impl LegacyRenderer) {
     mix_non_isolated(ctx, Mix::SoftLight);
 }
 
-#[vello_test]
-fn mix_non_isolated_color_dodge(ctx: &mut impl Renderer) {
+#[vello_test(legacy)]
+fn mix_non_isolated_color_dodge(ctx: &mut impl LegacyRenderer) {
     mix_non_isolated(ctx, Mix::ColorDodge);
 }
