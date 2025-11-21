@@ -21,10 +21,10 @@ pub struct TextureDescriptor {
 pub struct TextureId(u64);
 
 impl TextureId {
-    pub fn to_raw(&self) -> u64 {
+    pub const fn to_raw(&self) -> u64 {
         self.0
     }
-    pub fn from_raw(raw: u64) -> Self {
+    pub const fn from_raw(raw: u64) -> Self {
         Self(raw)
     }
     // TODO: Do we want a `from_raw`?

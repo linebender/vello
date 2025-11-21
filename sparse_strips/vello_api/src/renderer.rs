@@ -23,7 +23,7 @@ use crate::{
 // }
 
 // A 2d renderer, which can be used to schedule the renders of multiple scenes.
-pub trait Renderer: Send + Any {
+pub trait Renderer: Any {
     /// The `ScenePainter` is the encoder for rendering commands.
     ///
     /// *Ideally*, we'd allow this to borrow shared resources from

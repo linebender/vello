@@ -227,11 +227,11 @@ impl LegacyRenderer for HybridRenderer {
 
     fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         if num_threads != 0 {
-            panic!("hybrid Legacyrenderer doesn't support multi-threading");
+            panic!("hybrid renderer doesn't support multi-threading");
         }
 
         if !matches!(level, Level::Fallback(_)) {
-            panic!("hybrid Legacyrenderer doesn't support SIMD");
+            panic!("hybrid renderer doesn't support SIMD");
         }
 
         let scene = Scene::new(width, height);
@@ -267,7 +267,7 @@ impl LegacyRenderer for HybridRenderer {
         });
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Create Legacyrenderer and render the scene to the texture
+        // Create renderer and render the scene to the texture
         let renderer = vello_hybrid::Renderer::new(
             &device,
             &vello_hybrid::RenderTargetConfig {
@@ -534,7 +534,7 @@ impl LegacyRenderer for HybridRenderer {
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
-    Legacyrenderer: RefCell<vello_hybrid::WebGlRenderer>,
+    renderer: RefCell<vello_hybrid::WebGlRenderer>,
     gl: WebGl2RenderingContext,
 }
 
@@ -547,11 +547,11 @@ impl LegacyRenderer for HybridRenderer {
         use web_sys::HtmlCanvasElement;
 
         if num_threads != 0 {
-            panic!("hybrid Legacyrenderer doesn't support multi-threading");
+            panic!("hybrid renderer doesn't support multi-threading");
         }
 
         if !matches!(level, Level::Fallback(_)) {
-            panic!("hybrid Legacyrenderer doesn't support SIMD");
+            panic!("hybrid renderer doesn't support SIMD");
         }
 
         let scene = Scene::new(width, height);
@@ -569,7 +569,7 @@ impl LegacyRenderer for HybridRenderer {
         canvas.set_width(width.into());
         canvas.set_height(height.into());
 
-        let Legacyrenderer = vello_hybrid::WebGlRenderer::new(&canvas);
+        let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
 
         let gl = canvas
             .get_context("webgl2")
@@ -580,7 +580,7 @@ impl LegacyRenderer for HybridRenderer {
 
         Self {
             scene,
-            Legacyrenderer: RefCell::new(renderer),
+            renderer: RefCell::new(renderer),
             gl,
         }
     }
@@ -682,7 +682,7 @@ impl LegacyRenderer for HybridRenderer {
         self.scene.set_aliasing_threshold(aliasing_threshold);
     }
 
-    // vello_hybrid WebGL Legacyrenderer backend.
+    // vello_hybrid WebGL renderer backend.
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         use web_sys::WebGl2RenderingContext;
 

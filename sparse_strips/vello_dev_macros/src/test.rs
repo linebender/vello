@@ -274,7 +274,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                     use crate::util::{
                         get_cpu_renderer, check_ref
                     };
-                    use vello_cpu::{RenderContext, RenderMode};
+                    use vello_cpu::RenderMode;
                     use vello_api::texture::{TextureDescriptor, TextureUsages};
                     use vello_api::{SceneOptions, Renderer as _};
                     use vello_api::peniko::Color;
@@ -485,7 +485,44 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             }
         )
     } else {
-        quote!()
+        quote!(
+            // #ignore_hybrid
+            // #[test]
+            // fn #hybrid_fn_name() {
+            //     use crate::util::{
+            //         check_ref, get_ctx, render_pixmap
+            //     };
+            //     use crate::renderer::HybridRenderer;
+            //     use vello_cpu::RenderMode;
+
+            //     let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+            //     #input_fn_name(&mut ctx);
+            //     ctx.flush();
+            //     if !#no_ref {
+            //         let pixmap = render_pixmap(&ctx);
+            //         check_ref(pixmap, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+            //     }
+            // }
+
+            // #ignore_hybrid_webgl
+            // #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+            // #[wasm_bindgen_test::wasm_bindgen_test]
+            // async fn #webgl_fn_name() {
+            //     use crate::util::{
+            //         check_ref, get_ctx, render_pixmap
+            //     };
+            //     use crate::renderer::HybridRenderer;
+            //     use vello_cpu::RenderMode;
+
+            //     let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+            //     #input_fn_name(&mut ctx);
+            //     ctx.flush();
+            //     if !#no_ref {
+            //         let pixmap = render_pixmap(&ctx);
+            //         check_ref(pixmap, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+            //     }
+            // }
+        )
     };
 
     let expanded = quote! {

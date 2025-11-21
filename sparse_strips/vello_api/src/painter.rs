@@ -186,6 +186,8 @@ pub struct SceneOptions {
     ///
     /// If `None`, will render to the whole texture.
     /// Format: (x0, y0, width, height).
+    // TODO: This is currently extremely underutilised - it's only used for
+    // resizing the canvas in webgl.
     pub target: Option<(u16, u16, u16, u16)>,
     /// The color which the texture will be cleared to before drawing.
     ///
