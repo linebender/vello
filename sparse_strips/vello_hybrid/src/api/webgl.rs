@@ -3,12 +3,14 @@
 
 use hashbrown::HashMap;
 use vello_api::{
-    Renderer,
+    PaintScene, Renderer,
     baseline::{BaselinePainter, BaselinePreparePaths},
+    peniko::Fill,
     texture::{self, TextureId, TextureUsages},
 };
 use vello_common::{
     encode::{EncodedImage, EncodedPaint},
+    kurbo::{Affine, Rect},
     paint::{ImageId, ImageSource},
     peniko::ImageData,
     pixmap::Pixmap,
@@ -99,8 +101,8 @@ impl Renderer for VelloHybridWebgl {
         options: vello_api::SceneOptions,
     ) -> Result<Self::ScenePainter, ()> {
         assert_eq!(
-            to.to_raw(),
-            0,
+            *to,
+            Self::CANVAS_TEXTURE_ID,
             "Can only render to `CANVAS_TEXTURE_ID` in the WebGL renderer."
         );
         let (width, height) = if let Some(size) = options.size() {
@@ -113,11 +115,19 @@ impl Renderer for VelloHybridWebgl {
 
         // TODO: Handle options.clear_color (i.e. by encoding a texture write)
         // TODO: Cache the contexts internally, so that we don't reallocate here?
-        let context = Scene::new_with(width, height, self.default_render_settings);
-        Ok(HybridScenePainter {
-            scene: context,
-            target: *to,
-        })
+        let scene = Scene::new_with(width, height, self.default_render_settings);
+        let mut painter = HybridScenePainter { scene, target: *to };
+        if let Some(clear_color) = options.clear_color {
+            painter.set_solid_brush(clear_color);
+            painter.fill_path_new(
+                Affine::IDENTITY,
+                Fill::EvenOdd,
+                Rect::new(0., 0., width as f64, height as f64),
+            );
+            // Restores the default, as some tests rely on this.
+            painter.set_fill_rule(Fill::NonZero);
+        }
+        Ok(painter)
     }
 
     fn queue_render(&mut self, mut from: Self::ScenePainter) {

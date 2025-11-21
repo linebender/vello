@@ -10,6 +10,7 @@ use skrifa::raw::FileRef;
 use smallvec::smallvec;
 use std::cmp::max;
 use std::sync::Arc;
+use vello_api::texture::TextureId;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
 use vello_common::glyph::Glyph;
@@ -18,6 +19,8 @@ use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::api::VelloCPU;
 use vello_cpu::{Level, RenderMode, RenderSettings};
+use vello_hybrid::AtlasConfig;
+use vello_hybrid::api::VelloHybrid;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
@@ -95,6 +98,192 @@ pub(crate) fn get_cpu_renderer(num_threads: u16, level: &str, render_mode: Rende
         num_threads,
         render_mode,
     })
+}
+
+pub(crate) fn get_native_hybrid_renderer(
+    width: u16,
+    height: u16,
+) -> (vello_hybrid::api::VelloHybrid, wgpu::Device, wgpu::Queue) {
+    // Initialize wgpu device and queue for GPU rendering
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        force_fallback_adapter: false,
+        compatible_surface: None,
+    }))
+    .expect("Failed to find an appropriate adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("Device"),
+        required_features: wgpu::Features::empty(),
+        ..Default::default()
+    }))
+    .expect("Failed to create device");
+
+    let level = Level::fallback();
+    // Create renderer and render the scene to the texture
+    let renderer = VelloHybrid::new(
+        &device,
+        &queue,
+        &vello_hybrid::RenderTargetConfig {
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            width: width.into(),
+            height: height.into(),
+        },
+        vello_hybrid::RenderSettings {
+            level,
+            atlas_config: AtlasConfig::default(),
+        },
+    );
+
+    (renderer, device, queue)
+}
+
+pub(crate) fn render_native_hybrid_to_pixmap(
+    renderer: &mut VelloHybrid,
+    texture: &TextureId,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    width: u16,
+    height: u16,
+) -> Pixmap {
+    // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
+    // tests are run in parallel (likely related to the number of device resources being
+    // requested simultaneously). This is "fixed" by putting a mutex around this method,
+    // ensuring only one set of device resources is alive at the same time. This slows down
+    // testing when `cargo test` is used.
+    //
+    // Testing with `cargo nextest` (as on CI) is not meaningfully slowed down. `nextest` runs
+    // each test in its own process (<https://nexte.st/docs/design/why-process-per-test/>),
+    // meaning there is no contention on this mutex.
+    let _guard = {
+        use std::sync::Mutex;
+        static M: Mutex<()> = Mutex::new(());
+        M.lock().unwrap()
+    };
+
+    // Copy texture to buffer
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Vello Render To Buffer"),
+    });
+    let texture = renderer.wgpu_texture(texture).unwrap();
+
+    // Create a buffer to copy the texture data
+    let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
+    let texture_copy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Output Buffer"),
+        size: u64::from(bytes_per_row) * u64::from(height),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &texture_copy_buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: None,
+            },
+        },
+        wgpu::Extent3d {
+            width: width.into(),
+            height: height.into(),
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit([encoder.finish()]);
+
+    // Map the buffer for reading
+    texture_copy_buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            if result.is_err() {
+                panic!("Failed to map texture for reading");
+            }
+        });
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+
+    let mut pixmap = Pixmap::new(width, height);
+    // Read back the pixel data
+    for (row, buf) in texture_copy_buffer
+        .slice(..)
+        .get_mapped_range()
+        .chunks_exact(bytes_per_row as usize)
+        .zip(
+            pixmap
+                .data_as_u8_slice_mut()
+                .chunks_exact_mut(width as usize * 4),
+        )
+    {
+        buf.copy_from_slice(&row[0..width as usize * 4]);
+    }
+    texture_copy_buffer.unmap();
+    pixmap
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+pub(crate) fn get_web_hybrid_renderer(
+    width: u16,
+    height: u16,
+) -> vello_hybrid::api::VelloHybridWebgl {
+    use vello_hybrid::{AtlasConfig, RenderSettings, api::VelloHybridWebgl};
+    use wasm_bindgen::JsCast;
+    use web_sys::HtmlCanvasElement;
+
+    let level = Level::fallback();
+
+    // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
+    // the pixmap for diff checking.
+    let document = web_sys::window().unwrap().document().unwrap();
+
+    let canvas = document
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into::<HtmlCanvasElement>()
+        .unwrap();
+
+    canvas.set_width(width.into());
+    canvas.set_height(height.into());
+
+    VelloHybridWebgl::new(
+        &canvas,
+        RenderSettings {
+            level,
+            atlas_config: AtlasConfig::default(),
+        },
+    )
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+pub(crate) fn read_canvas_to_pixmap(
+    from: &mut vello_hybrid::api::VelloHybridWebgl,
+    width: u16,
+    height: u16,
+) -> Pixmap {
+    use web_sys::WebGl2RenderingContext;
+
+    let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
+    let gl = from.gl_context();
+    gl.read_pixels_with_opt_u8_array(
+        0,
+        0,
+        width.into(),
+        height.into(),
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        Some(&mut pixels),
+    )
+    .unwrap();
+    let mut pixmap = Pixmap::new(width, height);
+    let pixmap_data = pixmap.data_as_u8_slice_mut();
+    pixmap_data.copy_from_slice(&pixels);
+    pixmap
 }
 
 pub(crate) fn get_ctx<T: LegacyRenderer>(

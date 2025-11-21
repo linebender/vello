@@ -477,7 +477,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
 
                 let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
                 #input_fn_name(&mut ctx);
-                ctx.flush();
+                                ctx.flush();
                 if !#no_ref {
                     let pixmap = render_pixmap(&ctx);
                     check_ref(pixmap, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
@@ -486,42 +486,66 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         )
     } else {
         quote!(
-            // #ignore_hybrid
-            // #[test]
-            // fn #hybrid_fn_name() {
-            //     use crate::util::{
-            //         check_ref, get_ctx, render_pixmap
-            //     };
-            //     use crate::renderer::HybridRenderer;
-            //     use vello_cpu::RenderMode;
+            #ignore_hybrid
+            #[test]
+            fn #hybrid_fn_name() {
+                use crate::util::{
+                    check_ref, get_native_hybrid_renderer, render_native_hybrid_to_pixmap
+                };
+                use crate::renderer::HybridRenderer;
+                use vello_api::{Renderer as _, SceneOptions};
+                use vello_api::texture::{TextureUsages, TextureDescriptor};
+                use vello_api::peniko::Color;
 
-            //     let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
-            //     #input_fn_name(&mut ctx);
-            //     ctx.flush();
-            //     if !#no_ref {
-            //         let pixmap = render_pixmap(&ctx);
-            //         check_ref(pixmap, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
-            //     }
-            // }
+                let (mut renderer, device, queue) = get_native_hybrid_renderer(#width, #height);
+                let render_target = renderer.create_texture(TextureDescriptor {
+                        width: #width,
+                        height: #height,
+                        usages: TextureUsages::RENDER_TARGET | TextureUsages::DOWNLOAD_SRC,
+                        label: None
+                    });
+                let mut scene = renderer.create_scene(
+                    &render_target,
+                    SceneOptions {
+                            clear_color: (!#transparent).then_some(Color::WHITE),
+                            target: None
+                    }
+                ).unwrap();
+                #input_fn_name(&mut scene);
+                renderer.queue_render(scene);
+                if !#no_ref {
+                    let pixmap = render_native_hybrid_to_pixmap(&mut renderer, &render_target, &device, &queue, #width, #height);
+                    check_ref(pixmap, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+                }
+            }
 
-            // #ignore_hybrid_webgl
-            // #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-            // #[wasm_bindgen_test::wasm_bindgen_test]
-            // async fn #webgl_fn_name() {
-            //     use crate::util::{
-            //         check_ref, get_ctx, render_pixmap
-            //     };
-            //     use crate::renderer::HybridRenderer;
-            //     use vello_cpu::RenderMode;
+            #ignore_hybrid_webgl
+            #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+            #[wasm_bindgen_test::wasm_bindgen_test]
+            async fn #webgl_fn_name() {
+                use crate::util::{
+                    check_ref, get_web_hybrid_renderer, read_canvas_to_pixmap
+                };
+                use crate::renderer::HybridRenderer;
+                use vello_api::{Renderer as _, SceneOptions};
+                use vello_hybrid::api::VelloHybridWebgl;
+                use vello_api::peniko::Color;
 
-            //     let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
-            //     #input_fn_name(&mut ctx);
-            //     ctx.flush();
-            //     if !#no_ref {
-            //         let pixmap = render_pixmap(&ctx);
-            //         check_ref(pixmap, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
-            //     }
-            // }
+                let mut renderer = get_web_hybrid_renderer(#width, #height);
+                let mut scene = renderer.create_scene(
+                    &VelloHybridWebgl::CANVAS_TEXTURE_ID,
+                    SceneOptions {
+                            clear_color: (!#transparent).then_some(Color::WHITE),
+                            target: None
+                    }
+                ).unwrap();
+                #input_fn_name(&mut scene);
+                renderer.queue_render(scene);
+                if !#no_ref {
+                    let pixmap = read_canvas_to_pixmap(&mut renderer, #width, #height);
+                    check_ref(pixmap, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+                }
+            }
         )
     };
 
