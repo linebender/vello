@@ -112,7 +112,8 @@ impl Renderer for VelloCPU {
             }
         }
 
-        // There are reasonable arguments to delay this for as long as possible.
+        // TODO: We should possibly delay this flush even further, i.e. truly "queue" this render
+        // to happen in a multi-threaded way.
         from.render_context.flush();
         // Note that this will panic if the target is used in the rendering.
         // The exact place that error is handled is tbd.
@@ -143,7 +144,7 @@ impl Renderer for VelloCPU {
         }
         let target = Arc::get_mut(&mut source.pixmap)
             .expect("Pixmap shouldn't be shared except whilst referenced.");
-        // TODO: Reuse the allocation of `buf` in `target`
+        // TODO: Reuse the internal allocation of `buf` in `target`
         let data = Pixmap::from_peniko_image_data(data);
         *target = data;
         Ok(())

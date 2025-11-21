@@ -1,13 +1,11 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use alloc::sync::Arc;
-
 use hashbrown::HashMap;
 use vello_api::{
     PaintScene, Renderer,
     baseline::{BaselinePainter, BaselinePreparePaths},
-    texture::{self, TextureId, TextureUsages},
+    texture::{self, TextureDescriptor, TextureId, TextureUsages},
 };
 use vello_common::{
     encode::{EncodedImage, EncodedPaint},
@@ -17,7 +15,7 @@ use vello_common::{
     pixmap::Pixmap,
 };
 use wgpu::{
-    Device, Extent3d, Features, Queue, Texture, TextureView,
+    Device, Extent3d, Features, Origin3d, Queue, TexelCopyTextureInfo, TextureView,
     wgt::{CommandEncoderDescriptor, TextureViewDescriptor},
 };
 
@@ -36,7 +34,7 @@ pub struct VelloHybrid {
 }
 
 impl VelloHybrid {
-    pub const REQUIRED_FEATURES: Features = Features::empty();
+    pub const REQUIRED_DEVICE_FEATURES: Features = Features::empty();
     pub fn new(
         device: &Device,
         queue: &Queue,
@@ -55,6 +53,53 @@ impl VelloHybrid {
             format: render_target_config.format,
         }
     }
+    // Minimal API to access the image data. This is not intended for long-term use.
+    pub fn wgpu_texture(&self, texture: &TextureId) -> Result<&wgpu::Texture, ()> {
+        Ok(self
+            .textures
+            .get(texture)
+            // TODO: Correct error type.
+            .ok_or(())?
+            .texture
+            .as_ref()
+            .ok_or(())?
+            .view
+            .texture())
+    }
+    // For use as a `Surface`, or similar.
+    pub fn add_external_texture(
+        &mut self,
+        view: &wgpu::TextureView,
+        usages: TextureUsages,
+    ) -> Result<TextureId, ()> {
+        let required_usages = translate_usages(usages);
+        if !view.texture().usage().contains(required_usages) {
+            // TODO: Better error kind.
+            return Err(());
+        }
+
+        let texture = Some(RenderTargetTexture {
+            view: view.clone(),
+            atlas_up_to_date: false,
+        });
+        let texture = StoredTexture {
+            // Can we avoid filling this pixmap immediately in some cases, e.g. for textures
+            // we optimistically think will be uploaded to?
+            image_id: None,
+            texture,
+            descriptor: TextureDescriptor {
+                label: Some("ExternalRenderTarget"),
+                width: view.texture().width().try_into().expect("Absurd."),
+                height: view.texture().height().try_into().expect("Absurd."),
+                usages,
+            },
+        };
+
+        let id = TextureId::from_raw(self.texture_id_source);
+        self.texture_id_source += 1;
+        self.textures.insert(id, texture);
+        Ok(id)
+    }
 }
 
 impl Renderer for VelloHybrid {
@@ -67,24 +112,14 @@ impl Renderer for VelloHybrid {
     fn create_texture(&mut self, descriptor: texture::TextureDescriptor) -> TextureId {
         // TODO: What do we need to do with the usages?
 
-        let download_src = descriptor.usages.contains(TextureUsages::DOWNLOAD_SRC);
-        let upload_target = descriptor.usages.contains(TextureUsages::UPLOAD_TARGET);
-        let texture_binding = descriptor.usages.contains(TextureUsages::TEXTURE_BINDING);
-        let render_target = descriptor.usages.contains(TextureUsages::RENDER_TARGET);
-        let texture = if render_target {
-            let mut wgpu_usages = wgpu::TextureUsages::RENDER_ATTACHMENT;
-            if texture_binding {
-                // Currently, all of our rendering happens in the atlas.
-                // Ideally, we'd just bind this texture directly, so we need to copy it into the atlas in just-in-time manner.
-                // However, currently we don't do that, so we need to copy this into the atlas.
-                wgpu_usages |= wgpu::TextureUsages::COPY_SRC;
-            }
-            if upload_target {
-                wgpu_usages |= wgpu::TextureUsages::COPY_DST;
-            }
-            if download_src {
-                wgpu_usages |= wgpu::TextureUsages::COPY_SRC;
-            }
+        // We need an explicit texture if we expect to.
+        let texture = if descriptor.usages.contains(TextureUsages::RENDER_TARGET)
+            || descriptor.usages.contains(TextureUsages::DOWNLOAD_SRC)
+        {
+            // TODO: Warn if this is "download"-only, or "render_target" only?
+            // For the former, there's no reason to actually perform the rendering, and for the latter,
+            // you need to use the `add_external_texture`.
+            let wgpu_usages = translate_usages(descriptor.usages);
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: descriptor.label,
                 size: Extent3d {
@@ -98,7 +133,7 @@ impl Renderer for VelloHybrid {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: self.format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                usage: wgpu_usages,
                 view_formats: &[],
             });
             Some(RenderTargetTexture {
@@ -126,7 +161,17 @@ impl Renderer for VelloHybrid {
     }
 
     fn free_texture(&mut self, texture: TextureId) -> Result<(), ()> {
-        self.textures.remove(&texture).ok_or(())?;
+        let val = self.textures.remove(&texture).ok_or(())?;
+        if let Some(image_id) = val.image_id {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("Vello Hybrid Dealloc"),
+                });
+            self.renderer
+                .destroy_image(&self.device, &self.queue, &mut encoder, image_id);
+            self.queue.submit([encoder.finish()]);
+        }
         Ok(())
     }
 
@@ -145,6 +190,7 @@ impl Renderer for VelloHybrid {
             )
         };
 
+        // TODO: Handle options.clear_color (i.e. by encoding a texture write)
         // TODO: Cache the contexts internally, so that we don't reallocate here?
         let context = Scene::new_with(width, height, self.default_render_settings);
         Ok(HybridScenePainter {
@@ -158,10 +204,9 @@ impl Renderer for VelloHybrid {
         // - e.g. if we know that the previous submission has finished, there's value in submitting semi-eagerly)
         // However, we need to submit immediately because `render` internally uses `write_buffer`. Those operations
         // occur at the start of any submit calls, rather than being explicitly added to an encoder.
-        // Therefore, if we  didn't submit eagerly, "newer" renders (or buffer uploads).
-        // We submit the encoder immediately, which shouldn't be necessary, but is due to `render`'s internal use of
-        // `write_texture`/`write_buffer`.
-        // TODO: Fix that.
+        // Therefore, if we  didn't submit eagerly, "newer" renders (or buffer uploads) would be able to overwrite the
+        // rendering of "past" renders.
+        // TODO: Fix that, i.e. by avoiding `write_buffer`/manually mapping.
         let mut encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor {
@@ -184,6 +229,7 @@ impl Renderer for VelloHybrid {
                 {
                     // Luckily, the same thing doesn't apply as for `upload_image`
                     // as this method doesn't use `write_texture` to the atlas textures.
+                    // (As instead it's a `render_pass` operation)
                     if let Some(old_id) = wgpu_texture.image_id {
                         self.renderer.destroy_image(
                             &self.device,
@@ -222,8 +268,7 @@ impl Renderer for VelloHybrid {
             .as_mut()
             .expect("A `RENDER_TARGET` is always created with a corresponding wgpu texture.");
 
-        // Note that this will panic if the target is used in the rendering.
-        // The exact place that error is handled is tbd.
+        // TODO: This size isn't right, we need to use the size in the `SceneOptions` (if we decide to keep that...)
         self.renderer
             .render(
                 &from.scene,
@@ -237,6 +282,7 @@ impl Renderer for VelloHybrid {
                 &wgpu_texture.view,
             )
             .expect("Better error handling.");
+        // If this texture will be used for render.
         wgpu_texture.atlas_up_to_date = false;
         // TODO: Do we need to reset the scene here?
         // That is, should we be taking ownership in this function?
@@ -265,35 +311,65 @@ impl Renderer for VelloHybrid {
         {
             return Err(());
         }
-        // TODO: Again, we should actually be maintaining a persistent encoder here.
-        // However, we submit immediately because `upload_image` uses Queue::write_texture, which doesn't do what we want.
+        // TODO: Determine whether we can/should do the BGRA->RGBA swizzle/premultiplication on the GPU
+        // as we copy from staging memory.
+        let pixmap = Pixmap::from_peniko_image_data(data);
+        // TODO: Again (see `queue_render`), we should actually be maintaining a persistent encoder here.
+        // However, we submit immediately because `upload_image` uses `Queue::write_texture`, which doesn't
+        // operate correctly in the encoder.
         let mut encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("Vello Hybrid Internal Upload"),
             });
-        if let Some(old_id) = source.image_id {
-            let mut destroy_encoder =
-                self.device
-                    .create_command_encoder(&CommandEncoderDescriptor {
-                        label: Some("Vello Hybrid Internal Upload"),
-                    });
-            self.renderer
-                .destroy_image(&self.device, &self.queue, &mut destroy_encoder, old_id);
-            // We need to make sure that the slot clearing which this scheduled is executed before
-            // the `write_texture`s which `upload_image` does.
-            // Unfortunately, the only way to achieve this is to submit this in yet another submission.
-            // See comment at the start of queue_render for more context.
-            // We expect to change this in the future (by avoiding `queue.write_texture` and friends)
-            self.queue.submit([destroy_encoder.finish()]);
+        if let Some(texture) = source.texture.as_mut() {
+            // TODO: This also should use an explicit staging buffer/copy command.
+            self.queue.write_texture(
+                TexelCopyTextureInfo {
+                    aspect: wgpu::TextureAspect::All,
+                    mip_level: 0,
+                    origin: Origin3d::ZERO,
+                    texture: texture.view.texture(),
+                },
+                bytemuck::cast_slice(pixmap.data()),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    // 4 bytes per RGBA8 pixel
+                    bytes_per_row: Some(data.width << 2),
+                    rows_per_image: Some(data.height),
+                },
+                Extent3d {
+                    width: data.width,
+                    height: data.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            texture.atlas_up_to_date = false;
+        } else {
+            if let Some(old_id) = source.image_id {
+                let mut destroy_encoder =
+                    self.device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Vello Hybrid Internal Upload"),
+                        });
+                self.renderer.destroy_image(
+                    &self.device,
+                    &self.queue,
+                    &mut destroy_encoder,
+                    old_id,
+                );
+                // We need to make sure that the slot clearing which this scheduled is executed before
+                // the `write_texture`s which `upload_image` does.
+                // Unfortunately, the only way to achieve this is to submit this in yet another submission.
+                // See comment at the start of queue_render for more context.
+                // We expect to change this in the future (by avoiding `queue.write_texture` and friends)
+                self.queue.submit([destroy_encoder.finish()]);
+            }
+            let image_id =
+                self.renderer
+                    .upload_image(&self.device, &self.queue, &mut encoder, &pixmap);
+            source.image_id = Some(image_id);
         }
-        // TODO: Determine whether we can/should do the swizzle/premultiplication on the GPU
-        // as we copy from staging memory.
-        let pixmap = Pixmap::from_peniko_image_data(data);
-        let image_id = self
-            .renderer
-            .upload_image(&self.device, &self.queue, &mut encoder, &pixmap);
-        source.image_id = Some(image_id);
         self.queue.submit([encoder.finish()]);
         Ok(())
     }
@@ -328,6 +404,31 @@ impl Renderer for VelloHybrid {
     }
 }
 
+fn translate_usages(usages: TextureUsages) -> wgpu::TextureUsages {
+    let download_src = usages.contains(TextureUsages::DOWNLOAD_SRC);
+    let upload_target = usages.contains(TextureUsages::UPLOAD_TARGET);
+    let texture_binding = usages.contains(TextureUsages::TEXTURE_BINDING);
+    let render_target = usages.contains(TextureUsages::RENDER_TARGET);
+    let mut wgpu_usages = wgpu::TextureUsages::empty();
+    if render_target {
+        wgpu_usages |= wgpu::TextureUsages::RENDER_ATTACHMENT;
+    }
+    if texture_binding {
+        // Currently, all of our rendering happens in the atlas.
+        // Ideally, we'd just bind this texture directly, so we need to copy it into the atlas in just-in-time manner.
+        // However, currently we don't do that, so we need to copy this into the atlas.
+        wgpu_usages |= wgpu::TextureUsages::COPY_SRC;
+    }
+    if upload_target {
+        wgpu_usages |= wgpu::TextureUsages::COPY_DST;
+    }
+    if download_src {
+        wgpu_usages |= wgpu::TextureUsages::COPY_SRC;
+    }
+    wgpu_usages
+}
+
+#[derive(Debug)]
 pub struct HybridScenePainter {
     scene: Scene,
     target: TextureId,
