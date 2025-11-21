@@ -11,7 +11,7 @@ use vello_common::kurbo::{Affine, Rect};
 use vello_common::recording::Recording;
 use vello_dev_macros::vello_test;
 
-use crate::renderer::{LegacyRenderer, Renderer};
+use crate::renderer::LegacyRenderer;
 
 #[vello_test(legacy)]
 fn recording_basic(ctx: &mut impl LegacyRenderer) {

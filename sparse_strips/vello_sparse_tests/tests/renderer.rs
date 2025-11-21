@@ -27,9 +27,12 @@ pub(crate) trait LegacyRenderer: Sized {
         render_mode: RenderMode,
     ) -> Self;
     fn fill_path(&mut self, path: &BezPath);
+    #[expect(dead_code, reason = "Legacy")]
     fn stroke_path(&mut self, path: &BezPath);
     fn fill_rect(&mut self, rect: &Rect);
+    #[expect(dead_code, reason = "Legacy")]
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
+    #[expect(dead_code, reason = "Legacy")]
     fn stroke_rect(&mut self, rect: &Rect);
     fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
     fn push_layer(
@@ -41,12 +44,15 @@ pub(crate) trait LegacyRenderer: Sized {
     );
     fn flush(&mut self);
     fn push_clip_layer(&mut self, path: &BezPath);
+    #[expect(dead_code, reason = "Legacy")]
     fn push_clip_path(&mut self, path: &BezPath);
     fn push_blend_layer(&mut self, blend_mode: BlendMode);
     fn push_opacity_layer(&mut self, opacity: f32);
     fn push_mask_layer(&mut self, mask: Mask);
     fn pop_layer(&mut self);
+    #[expect(dead_code, reason = "Legacy")]
     fn pop_clip_path(&mut self);
+    #[expect(dead_code, reason = "Legacy")]
     fn set_stroke(&mut self, stroke: Stroke);
     fn set_paint(&mut self, paint: impl Into<PaintType>);
     fn set_paint_transform(&mut self, affine: Affine);

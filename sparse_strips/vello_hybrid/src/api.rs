@@ -1,6 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+#![expect(missing_docs, reason = "This code is incomplete.")]
+#![expect(clippy::result_unit_err, reason = "This code is incomplete.")]
+
 use hashbrown::HashMap;
 use vello_api::{
     PaintScene, Renderer,
@@ -256,6 +259,7 @@ impl Renderer for VelloHybrid {
         }
 
         let texture = self.textures.get_mut(&from.target).unwrap();
+        #[expect(clippy::todo, reason = "Still applies.")]
         if !texture
             .descriptor
             .usages
@@ -291,10 +295,6 @@ impl Renderer for VelloHybrid {
         self.queue.submit([encoder.finish()]);
 
         // TODO: We almost certainly want to keep the scene around.
-    }
-
-    fn queue_download(&mut self, texture: &TextureId) -> vello_api::DownloadId {
-        todo!("Reason about how exact download API will work.")
     }
 
     fn upload_image(&mut self, to: &TextureId, data: &ImageData) -> Result<(), ()> {
@@ -487,12 +487,12 @@ impl PaintScene for HybridScenePainter {
 
     fn set_blurred_rounded_rect_brush(
         &mut self,
-        transform: Affine,
-        paint_transform: Affine,
-        color: Color,
-        rect: &kurbo::Rect,
-        radius: f32,
-        std_dev: f32,
+        _transform: Affine,
+        _paint_transform: Affine,
+        _color: Color,
+        _rect: &kurbo::Rect,
+        _radius: f32,
+        _std_dev: f32,
     ) {
         unimplemented!("Vello Hybrid doesn't expose drawing blurred rounded rectangles yet.")
     }
@@ -570,7 +570,7 @@ impl PaintScene for HybridScenePainter {
         self.scene.pop_clip_path();
     }
 
-    fn fill_blurred_rounded_rect(&mut self, rect: &kurbo::Rect, radius: f32, std_dev: f32) {
+    fn fill_blurred_rounded_rect(&mut self, _rect: &kurbo::Rect, _radius: f32, _std_dev: f32) {
         unimplemented!()
     }
 }

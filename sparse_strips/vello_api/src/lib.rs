@@ -8,6 +8,8 @@
 
 #![forbid(unsafe_code)]
 #![no_std]
+#![expect(missing_docs, reason = "This code is very experimental.")]
+#![expect(clippy::result_unit_err, reason = "This code is very experimental.")]
 
 extern crate alloc;
 

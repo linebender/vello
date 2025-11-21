@@ -1,5 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
+#![expect(missing_docs, reason = "This code is incomplete.")]
+#![expect(clippy::result_unit_err, reason = "This code is incomplete.")]
 
 use alloc::sync::Arc;
 
@@ -135,10 +137,6 @@ impl Renderer for VelloCPU {
         // TODO: We almost certainly want to keep the render context around.
     }
 
-    fn queue_download(&mut self, texture: &TextureId) -> vello_api::DownloadId {
-        todo!("Reason about how exact download API will work.")
-    }
-
     fn upload_image(&mut self, to: &TextureId, data: &ImageData) -> Result<(), ()> {
         let source = self.textures.get_mut(to).ok_or(())?;
         if data.height != u32::from(source.descriptor.height)
@@ -191,6 +189,7 @@ impl Renderer for VelloCPU {
     }
 }
 
+#[derive(Debug)]
 pub struct CPUScenePainter {
     render_context: RenderContext,
     target: TextureId,
@@ -249,12 +248,12 @@ impl PaintScene for CPUScenePainter {
 
     fn set_blurred_rounded_rect_brush(
         &mut self,
-        transform: Affine,
-        paint_transform: Affine,
-        color: Color,
-        rect: &kurbo::Rect,
-        radius: f32,
-        std_dev: f32,
+        _transform: Affine,
+        _paint_transform: Affine,
+        _color: Color,
+        _rect: &kurbo::Rect,
+        _radius: f32,
+        _std_dev: f32,
     ) {
         // This is "trivially" fixable.
         unimplemented!(

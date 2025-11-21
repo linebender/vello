@@ -60,6 +60,7 @@ pub trait TransformablePreparedPaths<Scene: PaintScene>: PreparePathsDirect<Scen
     ) -> Result<(), ()>;
 }
 
+#[derive(Debug)]
 pub struct PreparedPathMeta {
     pub transform: Affine,
     pub width: u16,

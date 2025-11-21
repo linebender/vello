@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Versions of the APIs in Vello API which are portable to all rendering APIs.
+#![expect(clippy::todo, unused_variables, reason = "This code is incomplete.")]
 
 mod painter;
 mod prepared;

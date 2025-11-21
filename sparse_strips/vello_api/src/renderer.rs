@@ -4,7 +4,7 @@
 use core::any::Any;
 
 use crate::{
-    DownloadId, PaintScene, SceneOptions,
+    PaintScene, SceneOptions,
     prepared::PreparePathsDirect,
     recording::{RecordScene, TransformedRecording},
     texture::{TextureDescriptor, TextureId},
@@ -56,8 +56,8 @@ pub trait Renderer: Send + Any {
     ) -> Result<Self::ScenePainter, ()>;
     fn queue_render(&mut self, from: Self::ScenePainter);
 
-    // This method doesn't *necessarily* belong here.
-    fn queue_download(&mut self, of: &TextureId) -> DownloadId;
+    // TODO: Reason about how we want downloads to work.
+    // fn queue_download(&mut self, of: &TextureId) -> DownloadId;
 
     // TODO: Better error kinds.
     fn upload_image(&mut self, to: &TextureId, data: &peniko::ImageData) -> Result<(), ()>;

@@ -3,7 +3,7 @@
 
 //! Utility functions shared across different tests.
 
-use crate::renderer::{LegacyRenderer, Renderer};
+use crate::renderer::LegacyRenderer;
 use image::{Rgba, RgbaImage, load_from_memory};
 use skrifa::MetadataProvider;
 use skrifa::raw::FileRef;
@@ -90,13 +90,11 @@ pub(crate) fn get_cpu_renderer(num_threads: u16, level: &str, render_mode: Rende
         _ => panic!("unknown level: {level}"),
     };
 
-    let ctx = VelloCPU::new(RenderSettings {
+    VelloCPU::new(RenderSettings {
         level,
         num_threads,
         render_mode,
-    });
-
-    ctx
+    })
 }
 
 pub(crate) fn get_ctx<T: LegacyRenderer>(
