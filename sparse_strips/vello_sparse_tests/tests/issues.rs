@@ -405,7 +405,7 @@ fn gradient_color_alpha_unmul(ctx: &mut impl Renderer) {
 #[test]
 fn multi_threading_oob_access() {
     let settings = RenderSettings {
-        level: Level::try_detect().unwrap_or(Level::fallback()),
+        level: Level::try_detect().unwrap_or(Level::baseline()),
         num_threads: 4,
         render_mode: RenderMode::OptimizeQuality,
     };

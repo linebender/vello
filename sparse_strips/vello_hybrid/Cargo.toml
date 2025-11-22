@@ -41,6 +41,8 @@ web-sys = { version = "0.3.77", features = [
 ], optional = true }
 
 [dev-dependencies]
+# We use Level::fallback() in tests
+fearless_simd = { workspace = true, features = ["force_support_fallback"] }
 png = { workspace = true }
 pollster = { workspace = true }
 vello_common = { workspace = true, features = ["pico_svg"] }
