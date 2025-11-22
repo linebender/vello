@@ -54,9 +54,14 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
 
 impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
     fn paint_u8(&mut self, buf: &mut [u8]) {
-        for chunk in buf.chunks_exact_mut(64) {
-            chunk.copy_from_slice(&self.next().unwrap().val);
-        }
+        self.simd.vectorize(
+            #[inline(always)]
+            || {
+                for chunk in buf.chunks_exact_mut(64) {
+                    chunk.copy_from_slice(&self.next().unwrap().val);
+                }
+            },
+        );
     }
 
     fn paint_f32(&mut self, _: &mut [f32]) {

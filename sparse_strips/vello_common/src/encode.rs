@@ -967,9 +967,11 @@ impl<T: FromF32Color> GradientLut<T> {
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
         let lut_size = determine_lut_size(ranges);
 
-        // Add a bit of padding since we always process in blocks of 4, even though less might be
-        // needed.
-        let mut lut = vec![[T::ZERO, T::ZERO, T::ZERO, T::ZERO]; lut_size + 3];
+        // Add a bit of padding since we always process in blocks of 4, and we store an extra
+        // transparent color at the end. It'll be used in cases where a gradient's t value at a
+        // given pixel is undefined, as is the case for some radial gradients.
+        let padded_lut_size = (lut_size + 1).div_ceil(4) * 4;
+        let mut lut = vec![[T::ZERO; 4]; padded_lut_size];
 
         // Calculate how many indices are covered by each range.
         let ramps = {
@@ -1028,8 +1030,10 @@ impl<T: FromF32Color> GradientLut<T> {
             });
         }
 
-        // Due to SIMD we worked in blocks of 4, so we need to truncate to the actual length.
-        lut.truncate(lut_size);
+        // Due to SIMD we worked in blocks of 4, so we need to truncate to the
+        // actual length, plus one extra for the transparent color at the end.
+        lut.truncate(lut_size + 1);
+        lut[lut_size] = [T::ZERO; 4];
 
         Self { lut, scale }
     }
@@ -1044,6 +1048,13 @@ impl<T: FromF32Color> GradientLut<T> {
     #[inline(always)]
     pub fn lut(&self) -> &[[T; 4]] {
         &self.lut
+    }
+
+    /// Return the index of the transparent color stored at the end of the
+    /// table, used if a gradient's t value is undefined.
+    #[inline(always)]
+    pub fn transparent_index(&self) -> usize {
+        self.lut.len() - 1
     }
 
     /// Get the scale factor by which to scale the parametric value to
