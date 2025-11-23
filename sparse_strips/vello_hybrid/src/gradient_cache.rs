@@ -81,9 +81,8 @@ impl GradientRampCache {
 
         // Generate new gradient LUT.
         let lut_start = self.luts.len() as u32 / BYTES_PER_TEXEL;
-        dispatch!(self.level, simd => generate_gradient_lut_impl(simd, gradient, &mut self.luts));
-        let lut_end = self.luts.len() as u32 / BYTES_PER_TEXEL;
-        let width = lut_end - lut_start;
+        let width = dispatch!(self.level, simd => generate_gradient_lut_impl(simd, gradient, &mut self.luts))
+            as u32;
         let cached_ramp = CachedRamp { width, lut_start };
         self.has_changed = true;
         self.cache
@@ -272,11 +271,12 @@ fn generate_gradient_lut_impl<S: Simd>(
     simd: S,
     gradient: &vello_common::encode::EncodedGradient,
     output: &mut Vec<u8>,
-) {
+) -> usize {
     let lut = gradient.u8_lut(simd);
     let bytes: &[u8] = bytemuck::cast_slice(lut.lut());
     output.reserve(bytes.len());
     output.extend_from_slice(bytes);
+    lut.width()
 }
 
 #[cfg(test)]
