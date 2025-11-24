@@ -214,6 +214,10 @@ impl SingleThreadedDispatcher {
                     // Apply the filter effect to the completed layer.
                     fine.filter_layer(&mut pixmap, filter, layer_manager, *transform);
 
+                    // Save the filtered pixmap to disk for debugging.
+                    #[cfg(feature = "debug-filters")]
+                    save_filtered_layer_debug(&pixmap, *layer_id);
+
                     // Store the filtered result for use by dependent layers.
                     layer_manager.register_layer(*layer_id, *wtile_bbox, pixmap);
                 }
@@ -562,6 +566,21 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn pop_clip_path(&mut self) {
         self.clip_context.pop_clip();
+    }
+}
+
+/// Saves a filtered pixmap to disk for debugging purposes.
+/// Only available with the `debug-filters` feature.
+#[cfg(feature = "debug-filters")]
+fn save_filtered_layer_debug(pixmap: &Pixmap, layer_id: u32) {
+    use std::path::PathBuf;
+
+    let diffs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs");
+    let _ = std::fs::create_dir_all(&diffs_path);
+    let filename = diffs_path.join(alloc::format!("filtered_layer_{}.png", layer_id));
+
+    if let Ok(png_data) = pixmap.clone().into_png() {
+        let _ = std::fs::write(&filename, &png_data);
     }
 }
 

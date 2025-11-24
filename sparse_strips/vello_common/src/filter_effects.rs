@@ -49,11 +49,9 @@
 //! - `DiffuseLighting`, `SpecularLighting` - Lighting effects
 
 use crate::color::{AlphaColor, Srgb};
-use crate::kurbo::Rect;
+use crate::kurbo::{Affine, Rect};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-#[cfg(not(feature = "std"))]
-use peniko::kurbo::common::FloatFuncs as _;
 use smallvec::SmallVec;
 
 /// The main filter system.
@@ -64,9 +62,10 @@ use smallvec::SmallVec;
 pub struct Filter {
     /// Filter graph defining the effect pipeline.
     pub graph: Arc<FilterGraph>,
-    /// Optional bounds restricting where the filter applies.
-    /// If `None`, the filter applies to the entire filtered element.
-    pub bounds: Option<Rect>,
+    // TODO: Add bounds restricting where the filter applies.
+    // Optional bounds restricting where the filter applies.
+    // If `None`, the filter applies to the entire filtered element.
+    // pub bounds: Option<Rect>,
 }
 
 impl Filter {
@@ -98,74 +97,31 @@ impl Filter {
 
         Self {
             graph: Arc::new(graph),
-            bounds: None,
         }
     }
 
-    /// Calculate the total bounds expansion for this filter in pixels.
+    /// Calculate the bounds expansion for this filter in pixel/device space.
     ///
-    /// Returns how many extra pixels are needed around the filtered region
-    /// to correctly compute the filter effect. For example, a blur filter
-    /// needs to sample beyond the original bounds to avoid edge artifacts.
+    /// Returns a `Rect` representing how many extra pixels are needed around the
+    /// filtered region to correctly compute the filter effect. For example, a blur
+    /// filter needs to sample beyond the original bounds to avoid edge artifacts.
     ///
-    /// This value is cached and computed incrementally as primitives are added
-    /// to the filter graph.
-    pub fn bounds_expansion(&self) -> BoundsExpansion {
-        self.graph.bounds_expansion()
-    }
-}
+    /// The expansion accounts for the transform (rotation, scale, and shear) to compute
+    /// the correct axis-aligned bounding box expansion in device space.
+    ///
+    /// The returned rect is centered at origin:
+    /// - x0: negative left expansion (in pixels)
+    /// - y0: negative top expansion (in pixels)
+    /// - x1: positive right expansion (in pixels)
+    /// - y1: positive bottom expansion (in pixels)
+    ///
+    /// # Arguments
+    /// * `transform` - The transform applied to this filter layer
+    pub fn bounds_expansion(&self, transform: &Affine) -> Rect {
+        let [a, b, c, d, _e, _f] = transform.as_coeffs();
+        let linear_only = Affine::new([a, b, c, d, 0.0, 0.0]);
 
-/// Describes how many pixels a filter expands the required processing region
-/// in each direction.
-///
-/// Filters like blur need to sample pixels beyond the original bounds to produce
-/// correct results. This struct describes the padding needed in each direction.
-/// All values are non-negative.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BoundsExpansion {
-    /// Extra pixels needed to the left of the original bounds.
-    pub left: u16,
-    /// Extra pixels needed above the original bounds.
-    pub top: u16,
-    /// Extra pixels needed to the right of the original bounds.
-    pub right: u16,
-    /// Extra pixels needed below the original bounds.
-    pub bottom: u16,
-}
-
-impl BoundsExpansion {
-    /// Create a zero expansion (no change).
-    #[inline]
-    pub const fn zero() -> Self {
-        Self {
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-        }
-    }
-
-    /// Create a uniform expansion in all directions.
-    #[inline]
-    pub fn uniform(radius: u16) -> Self {
-        Self {
-            left: radius,
-            top: radius,
-            right: radius,
-            bottom: radius,
-        }
-    }
-
-    /// Combine two expansions by taking the maximum in each direction.
-    /// Used when composing multiple filters.
-    #[inline]
-    pub fn max(&self, other: &Self) -> Self {
-        Self {
-            left: self.left.max(other.left),
-            top: self.top.max(other.top),
-            right: self.right.max(other.right),
-            bottom: self.bottom.max(other.bottom),
-        }
+        self.graph.bounds_expansion(&linear_only)
     }
 }
 
@@ -181,10 +137,10 @@ pub struct FilterGraph {
     pub output: FilterId,
     /// Next available filter ID (monotonically increasing counter).
     next_id: u16,
-    /// Accumulated bounds expansion from all primitives in the graph.
-    /// This is the maximum expansion needed by any primitive, updated
-    /// incrementally as primitives are added.
-    expansion: BoundsExpansion,
+    /// Accumulated bounds expansion from all primitives in the graph, cached in user space.
+    /// This is the axis-aligned bounding box of the expansion region (centered at origin),
+    /// which can be transformed to device space when needed.
+    expansion_rect: Rect,
 }
 
 impl Default for FilterGraph {
@@ -200,7 +156,7 @@ impl FilterGraph {
             primitives: SmallVec::new(),
             output: FilterId(0),
             next_id: 0,
-            expansion: BoundsExpansion::zero(),
+            expansion_rect: Rect::ZERO,
         }
     }
 
@@ -212,9 +168,9 @@ impl FilterGraph {
         let id = FilterId(self.next_id);
         self.next_id += 1;
 
-        // Update accumulated expansion
-        let primitive_expansion = primitive.bounds_expansion();
-        self.expansion = self.expansion.max(&primitive_expansion);
+        // Update accumulated expansion by taking the union of rects
+        let primitive_rect = primitive.expansion_rect();
+        self.expansion_rect = self.expansion_rect.union(primitive_rect);
 
         self.primitives.push(primitive);
 
@@ -228,10 +184,18 @@ impl FilterGraph {
 
     /// Get the accumulated bounds expansion for all primitives in this graph.
     ///
-    /// This returns the maximum expansion required by any primitive in the graph,
-    /// representing the worst-case padding needed to render all filter effects correctly.
-    pub fn bounds_expansion(&self) -> BoundsExpansion {
-        self.expansion
+    /// This returns the expansion required by all primitives in the graph,
+    /// representing the padding needed to render all filter effects correctly.
+    ///
+    /// The expansion accounts for the transform (rotation, scale, and shear) to compute
+    /// the correct axis-aligned bounding box expansion in device space.
+    ///
+    /// # Arguments
+    /// * `transform` - The transform applied to this filter layer
+    pub fn bounds_expansion(&self, transform: &Affine) -> Rect {
+        // Transform the cached expansion rect to device space
+        // transform_rect_bbox computes the axis-aligned bounding box of the transformed rect
+        transform.transform_rect_bbox(self.expansion_rect)
     }
 }
 
@@ -584,17 +548,26 @@ pub enum FilterPrimitive {
 }
 
 impl FilterPrimitive {
-    /// Calculate how many extra pixels are needed in each direction to correctly apply this filter.
+    /// Calculate the bounds expansion as a `Rect` in user space.
     ///
-    /// Returns the expansion required in the processing region to avoid edge artifacts.
+    /// Returns a rectangle centered at the origin representing how much the filter
+    /// expands the processing region in each direction. The rect coordinates are:
+    /// - x0: negative left expansion
+    /// - y0: negative top expansion
+    /// - x1: positive right expansion
+    /// - y1: positive bottom expansion
+    ///
+    /// A `Rect::ZERO` means no expansion. This representation allows the expansion
+    /// to be correctly transformed (including rotation) using standard rect transforms.
+    ///
     /// For example, a blur filter needs additional pixels around the edges (3*sigma).
-    /// Most filters that don't sample neighboring pixels return zero expansion.
-    pub fn bounds_expansion(&self) -> BoundsExpansion {
+    /// Most filters that don't sample neighboring pixels return `Rect::ZERO`.
+    pub fn expansion_rect(&self) -> Rect {
         match self {
             Self::GaussianBlur { std_deviation, .. } => {
                 // Gaussian blur expands uniformly by 3*sigma (covers 99.7% of distribution)
-                let radius = (std_deviation * 3.0).ceil() as u16;
-                BoundsExpansion::uniform(radius)
+                let radius = (*std_deviation * 3.0) as f64;
+                Rect::new(-radius, -radius, radius, radius)
             }
             Self::DropShadow {
                 std_deviation,
@@ -603,17 +576,20 @@ impl FilterPrimitive {
                 ..
             } => {
                 // Drop shadow = blur + offset + composite with original
-                // Need space for blur AND the offset direction
-                let blur_radius = std_deviation * 3.0;
-                BoundsExpansion {
-                    left: (blur_radius + (-dx).max(0.0)).ceil() as u16,
-                    top: (blur_radius + (-dy).max(0.0)).ceil() as u16,
-                    right: (blur_radius + (*dx).max(0.0)).ceil() as u16,
-                    bottom: (blur_radius + (*dy).max(0.0)).ceil() as u16,
-                }
+                // The expansion rect encompasses both the blur and the offset
+                let blur_radius = (*std_deviation * 3.0) as f64;
+                let dx = *dx as f64;
+                let dy = *dy as f64;
+
+                Rect::new(
+                    -(blur_radius + (-dx).max(0.0)),
+                    -(blur_radius + (-dy).max(0.0)),
+                    blur_radius + dx.max(0.0),
+                    blur_radius + dy.max(0.0),
+                )
             }
             // Most other filters don't expand bounds
-            _ => BoundsExpansion::zero(),
+            _ => Rect::ZERO,
         }
     }
 }

@@ -45,6 +45,10 @@ multithreading = [
 # Add support for text rendering
 text = ["vello_common/text"]
 
+# Debug features (development only)
+# Save filtered layers to disk for debugging
+debug-filters = ["std", "png"]
+
 [lints]
 workspace = true
 
