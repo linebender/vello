@@ -77,7 +77,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let extend = self.gradient.extend;
-        let pos = f32x8::from_slice(self.simd, self.t_vals.next().unwrap());
+        let pos = f32x8::from_slice(self.simd, self.t_vals.next()?);
         let t_vals = apply_extend(pos, extend);
 
         let indices = (t_vals * self.scale_factor).cvt_u32();
