@@ -1036,12 +1036,8 @@ impl<T: FromF32Color> GradientLut<T> {
 
                 // Make sure not to overwrite any extra transparent color at the end (it's not
                 // counted in `lut_size`)
-                let lut = &mut lut[idx..lut_size];
-                if lut.len() >= 4 {
-                    lut[..4].copy_from_slice(&rs);
-                } else {
-                    lut.copy_from_slice(&rs[..lut.len()]);
-                }
+                let lut = &mut lut[idx..(idx + 4).min(lut_size)];
+                lut.copy_from_slice(&rs[..lut.len().min(4)]);
             });
         }
 
