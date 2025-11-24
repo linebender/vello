@@ -45,25 +45,18 @@ pub(crate) struct GradientPainter<'a, S: Simd> {
     gradient: &'a EncodedGradient,
     lut: &'a GradientLut<f32>,
     t_vals: ChunksExact<'a, f32>,
-    has_undefined: bool,
     scale_factor: f32x8<S>,
     simd: S,
 }
 
 impl<'a, S: Simd> GradientPainter<'a, S> {
-    pub(crate) fn new(
-        simd: S,
-        gradient: &'a EncodedGradient,
-        has_undefined: bool,
-        t_vals: &'a [f32],
-    ) -> Self {
+    pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
         let lut = gradient.f32_lut(simd);
         let scale_factor = f32x8::splat(simd, lut.scale_factor());
 
         Self {
             gradient,
             scale_factor,
-            has_undefined,
             lut,
             t_vals: t_vals.chunks_exact(8),
             simd,
@@ -83,14 +76,11 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
         let indices = (t_vals * self.scale_factor).cvt_u32();
 
         // Clear NaNs.
-        let indices = if self.has_undefined {
+        let indices = if let Some(transparent_index) = self.lut.transparent_index() {
             self.simd.select_u32x8(
                 pos.simd_eq(pos),
                 indices,
-                u32x8::splat(
-                    self.simd,
-                    self.lut.transparent_index().unwrap_or_default() as u32,
-                ),
+                u32x8::splat(self.simd, transparent_index as u32),
             )
         } else {
             indices
