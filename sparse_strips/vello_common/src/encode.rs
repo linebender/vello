@@ -1034,18 +1034,15 @@ impl<T: FromF32Color> GradientLut<T> {
                 let (r3, r4) = simd.split_f32x8(im2);
                 let rs = [r1, r2, r3, r4].map(T::from_f32);
 
-                let lut = &mut lut[idx..];
+                // Make sure not to overwrite any extra transparent color at the end (it's not
+                // counted in `lut_size`)
+                let lut = &mut lut[idx..lut_size];
                 if lut.len() >= 4 {
                     lut[..4].copy_from_slice(&rs);
                 } else {
                     lut.copy_from_slice(&rs[..lut.len()]);
                 }
             });
-        }
-
-        // We probably overwrote the last entry in the loop above.
-        if has_undefined {
-            lut[lut_size] = [T::ZERO; 4];
         }
 
         Self {
