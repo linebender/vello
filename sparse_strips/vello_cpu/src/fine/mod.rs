@@ -260,7 +260,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
-            || GradientPainter::new(simd, gradient, false, t_vals),
+            || GradientPainter::new(simd, gradient, t_vals),
         )
     }
 
@@ -268,6 +268,9 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ///
     /// Similar to `gradient_painter`, but with support for masking undefined locations
     /// (used for radial gradients that may have mathematically undefined regions).
+    ///
+    /// This is intentionally a duplicate of the default [`FineKernel::gradient_painter`]
+    /// implementation--the `U8Kernel` overrides that method, but not this one.
     fn gradient_painter_with_undefined<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
@@ -275,7 +278,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
-            || GradientPainter::new(simd, gradient, true, t_vals),
+            || GradientPainter::new(simd, gradient, t_vals),
         )
     }
     /// Create a painter for rendering axis-aligned nearest-neighbor images.

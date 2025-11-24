@@ -371,7 +371,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 t_value,
                 linear_gradient.extend_mode,
                 linear_gradient.gradient_start,
-                linear_gradient.texture_width
+                linear_gradient.texture_width,
+                true
             );
             final_color = alpha * gradient_color;
         } else if paint_type == PAINT_TYPE_RADIAL_GRADIENT {
@@ -391,18 +392,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             
             // For radial gradient, calculate distance from center
             let gradient_result = calculate_radial_gradient(grad_pos, radial_gradient);
-            if gradient_result.is_valid {
-                let gradient_color = sample_gradient_lut(
-                    gradient_result.t_value, 
-                    radial_gradient.extend_mode, 
-                    radial_gradient.gradient_start, 
-                    radial_gradient.texture_width
-                );
-                final_color = alpha * gradient_color;
-            } else {
-                // Invalid gradient region - render as transparent
-                final_color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-            }
+            let gradient_color = sample_gradient_lut(
+                gradient_result.t_value, 
+                radial_gradient.extend_mode, 
+                radial_gradient.gradient_start, 
+                radial_gradient.texture_width,
+                gradient_result.is_valid
+            );
+            final_color = alpha * gradient_color;
         } else if paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             let paint_tex_idx = in.paint & PAINT_TEXTURE_INDEX_MASK;
             let sweep_gradient = unpack_sweep_gradient(paint_tex_idx);
@@ -427,7 +424,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 t_value,
                 sweep_gradient.extend_mode,
                 sweep_gradient.gradient_start,
-                sweep_gradient.texture_width
+                sweep_gradient.texture_width,
+                true
             );
             final_color = alpha * gradient_color;
         }
@@ -981,11 +979,11 @@ fn xy_to_unit_angle(x: f32, y: f32) -> f32 {
 }
 
 // Sample from the gradient texture at calculated position.
-fn sample_gradient_lut(t_value: f32, extend_mode: u32, gradient_start: u32, texture_width: u32) -> vec4<f32> {
+fn sample_gradient_lut(t_value: f32, extend_mode: u32, gradient_start: u32, texture_width: u32, is_valid: bool) -> vec4<f32> {
     // Apply extend mode to t_value
     let clamped_t = extend_mode_normalized(t_value, extend_mode);
     // Convert t_value to texture coordinate
-    let t_offset = u32(clamped_t * f32(texture_width - 1u));
+    let t_offset = select(texture_width, u32(clamped_t * f32(texture_width - 1u)), is_valid);
     // Calculate absolute position in flat gradient texture
     let flat_coord = gradient_start + t_offset;
     // Convert flat coordinate to 2D texture coordinate
