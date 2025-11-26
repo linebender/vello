@@ -12,6 +12,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+bitflags = "2.10.0"
 bytemuck = { workspace = true, features = [] }
 peniko = { workspace = true, features = ["bytemuck"] }
 png = { workspace = true, optional = true }
