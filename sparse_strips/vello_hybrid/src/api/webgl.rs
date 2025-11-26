@@ -119,13 +119,11 @@ impl Renderer for VelloHybridWebgl {
         let mut painter = HybridScenePainter { scene, target: *to };
         if let Some(clear_color) = options.clear_color {
             painter.set_solid_brush(clear_color);
-            painter.fill_path_new(
+            painter.fill_path(
                 Affine::IDENTITY,
                 Fill::EvenOdd,
                 Rect::new(0., 0., width as f64, height as f64),
             );
-            // Restores the default, as some tests rely on this.
-            painter.set_fill_rule(Fill::NonZero);
         }
         Ok(painter)
     }
