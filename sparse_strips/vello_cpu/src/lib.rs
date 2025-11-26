@@ -112,6 +112,8 @@ extern crate std;
 
 mod render;
 
+pub mod api;
+
 mod dispatch;
 mod filter;
 #[doc(hidden)]
@@ -120,6 +122,7 @@ pub mod fine;
 pub mod layer_manager;
 #[doc(hidden)]
 pub mod region;
+
 mod util;
 
 pub use render::{RenderContext, RenderSettings};
