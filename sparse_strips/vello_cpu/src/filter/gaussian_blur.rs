@@ -139,7 +139,7 @@ pub(crate) fn compute_gaussian_kernel(std_deviation: f32) -> ([f32; MAX_KERNEL_S
     // Use radius = 3σ to capture 99.7% of the Gaussian distribution.
     // Beyond ±3σ, the Gaussian values are negligible (<0.3%).
     let radius = (3.0 * std_deviation).ceil() as usize;
-    let kernel_size = 1 + radius * 2;
+    let kernel_size = (1 + radius * 2).min(MAX_KERNEL_SIZE);
 
     let mut kernel = [0.0; MAX_KERNEL_SIZE];
     // Compute Gaussian weights using the formula: G(x) = exp(-x² / (2σ²))
@@ -632,4 +632,607 @@ fn interpolate_75_25(p0: PremulRgba8, p1: PremulRgba8) -> PremulRgba8 {
     let b = ((p0.b as u32 * 3 + p1.b as u32 + 2) >> 2) as u8;
     let a = ((p0.a as u32 * 3 + p1.a as u32 + 2) >> 2) as u8;
     PremulRgba8 { r, g, b, a }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test Gaussian kernel computation for small σ.
+    #[test]
+    fn test_gaussian_kernel_small_sigma() {
+        let (kernel, size) = compute_gaussian_kernel(1.0);
+        // For σ=1.0, radius = ceil(3.0) = 3, size = 2*3+1 = 7
+        assert_eq!(size, 7);
+
+        // Kernel should be symmetric
+        for i in 0..size / 2 {
+            assert!((kernel[i] - kernel[size - 1 - i]).abs() < 1e-6);
+        }
+
+        // Kernel should sum to 1.0 (normalized)
+        let sum: f32 = kernel.iter().take(size).sum();
+        assert!((sum - 1.0).abs() < 1e-6);
+
+        // Center should be the largest weight
+        let center_idx = size / 2;
+        for i in 0..size {
+            if i != center_idx {
+                assert!(kernel[center_idx] >= kernel[i]);
+            }
+        }
+    }
+
+    /// Test Gaussian kernel computation for very small σ (near-zero).
+    #[test]
+    fn test_gaussian_kernel_very_small_sigma() {
+        let (kernel, size) = compute_gaussian_kernel(0.1);
+        // For σ=0.1, radius = ceil(0.3) = 1, size = 3
+        assert_eq!(size, 3);
+        // Should sum to 1.0
+        let sum: f32 = kernel.iter().take(size).sum();
+        assert!((sum - 1.0).abs() < 1e-6);
+        // Center weight should be dominant for very small σ
+        assert!(kernel[1] > 0.9); // Center is highly weighted
+    }
+
+    /// Test Gaussian kernel for fractional σ.
+    #[test]
+    fn test_gaussian_kernel_fractional_sigma() {
+        let (kernel, size) = compute_gaussian_kernel(0.5);
+        // For σ=0.5, radius = ceil(1.5) = 2, size = 5
+        assert_eq!(size, 5);
+
+        // Should still sum to 1.0
+        let sum: f32 = kernel.iter().take(size).sum();
+        assert!((sum - 1.0).abs() < 1e-6);
+    }
+
+    /// Test decimation plan for small blur (no decimation).
+    #[test]
+    fn test_plan_no_decimation() {
+        let (n_decimations, _kernel, _size) = plan_decimated_blur(1.0);
+        // σ=1.0 → variance=1.0, should not decimate
+        assert_eq!(n_decimations, 0);
+    }
+
+    /// Test decimation plan for medium blur (some decimation).
+    #[test]
+    fn test_plan_with_decimation() {
+        let (n_decimations, _kernel, _size) = plan_decimated_blur(5.0);
+        // σ=5.0 → variance=25.0, should decimate
+        assert_eq!(n_decimations, 2);
+    }
+
+    /// Test decimation plan at boundary (σ=2.0).
+    #[test]
+    fn test_plan_decimation_boundary() {
+        let (n_decimations, _kernel, _size) = plan_decimated_blur(2.0);
+        // σ=2.0 → variance=4.0, right at the boundary
+        assert_eq!(n_decimations, 0);
+    }
+
+    /// Test decimation plan for negative σ (invalid, should return identity).
+    #[test]
+    fn test_plan_negative_sigma() {
+        let (n_decimations, kernel, size) = plan_decimated_blur(-1.0);
+        assert_eq!(n_decimations, 0);
+        assert_eq!(size, 1);
+        assert!((kernel[0] - 1.0).abs() < 1e-6);
+    }
+
+    /// Test edge extension with Duplicate mode.
+    #[test]
+    fn test_extend_duplicate() {
+        let size = 10;
+
+        // In-bounds coordinate
+        assert_eq!(extend(5, size, EdgeMode::Duplicate), 5);
+
+        // Below bounds: clamp to 0
+        assert_eq!(extend(-1, size, EdgeMode::Duplicate), 0);
+        assert_eq!(extend(-10, size, EdgeMode::Duplicate), 0);
+
+        // Above bounds: clamp to size-1
+        assert_eq!(extend(10, size, EdgeMode::Duplicate), 9);
+        assert_eq!(extend(20, size, EdgeMode::Duplicate), 9);
+    }
+
+    /// Test edge extension with Wrap mode.
+    #[test]
+    fn test_extend_wrap() {
+        let size = 10;
+
+        // In-bounds: identity
+        assert_eq!(extend(5, size, EdgeMode::Wrap), 5);
+
+        // Above bounds: wrap around
+        assert_eq!(extend(10, size, EdgeMode::Wrap), 0);
+        assert_eq!(extend(11, size, EdgeMode::Wrap), 1);
+        assert_eq!(extend(25, size, EdgeMode::Wrap), 5);
+
+        // Below bounds: wrap from end
+        assert_eq!(extend(-1, size, EdgeMode::Wrap), 9);
+        assert_eq!(extend(-2, size, EdgeMode::Wrap), 8);
+    }
+
+    /// Test edge extension with Mirror mode.
+    #[test]
+    fn test_extend_mirror() {
+        let size = 10;
+
+        // In-bounds: identity
+        assert_eq!(extend(5, size, EdgeMode::Mirror), 5);
+
+        // Just past boundary: mirror back
+        // For coord=10: period=20, c=10, c>=10 so c = 20-10-1 = 9
+        assert_eq!(extend(10, size, EdgeMode::Mirror), 9);
+        // For coord=11: period=20, c=11, c>=10 so c = 20-11-1 = 8
+        assert_eq!(extend(11, size, EdgeMode::Mirror), 8);
+
+        // Full reflection cycle (period = 2*size = 20)
+        // For coord=19: c=19, c>=10 so c = 20-19-1 = 0
+        assert_eq!(extend(19, size, EdgeMode::Mirror), 0);
+        // For coord=20: c=20%20=0, c<10 so c=0
+        assert_eq!(extend(20, size, EdgeMode::Mirror), 0);
+
+        // Negative coordinates
+        // For coord=-1: c=-1%20=-1, c<0 so c+=20 → c=19, c>=10 so c=20-19-1=0
+        assert_eq!(extend(-1, size, EdgeMode::Mirror), 0);
+        // For coord=-2: c=-2%20=-2, c<0 so c+=20 → c=18, c>=10 so c=20-18-1=1
+        assert_eq!(extend(-2, size, EdgeMode::Mirror), 1);
+    }
+
+    /// Test edge extension with None mode (coordinate should pass through).
+    #[test]
+    fn test_extend_none() {
+        let size = 10;
+        // None mode just passes the coordinate as u16
+        assert_eq!(extend(5, size, EdgeMode::None), 5);
+        assert_eq!(extend(9, size, EdgeMode::None), 9);
+        assert_eq!(extend(10, size, EdgeMode::None), 10);
+        assert_eq!(extend(11, size, EdgeMode::None), 11);
+    }
+
+    /// Test [1,3,3,1]/8 decimation weights.
+    #[test]
+    fn test_decimate_weighted() {
+        let p0 = PremulRgba8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
+        let p1 = PremulRgba8 {
+            r: 8,
+            g: 8,
+            b: 8,
+            a: 8,
+        };
+        let p2 = PremulRgba8 {
+            r: 8,
+            g: 8,
+            b: 8,
+            a: 8,
+        };
+        let p3 = PremulRgba8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
+
+        // (0 + 3*8 + 3*8 + 0 + 4) / 8 = (48 + 4) / 8 = 52 / 8 = 6.5 → 6 (rounds down)
+        let result = decimate_weighted(p0, p1, p2, p3);
+        assert_eq!(result.r, 6);
+        assert_eq!(result.g, 6);
+        assert_eq!(result.b, 6);
+        assert_eq!(result.a, 6);
+    }
+
+    /// Test [1,3,3,1]/8 with all same values (should be identity).
+    #[test]
+    fn test_decimate_weighted_uniform() {
+        let p = PremulRgba8 {
+            r: 100,
+            g: 150,
+            b: 200,
+            a: 255,
+        };
+        let result = decimate_weighted(p, p, p, p);
+        // All same: (100 + 300 + 300 + 100 + 4) / 8 = 804/8 = 100.5 → 100 (rounds down)
+        assert_eq!(result.r, 100);
+        assert_eq!(result.g, 150);
+        assert_eq!(result.b, 200);
+        assert_eq!(result.a, 255);
+    }
+
+    /// Test [0.25, 0.75] interpolation.
+    #[test]
+    fn test_interpolate_25_75() {
+        let p0 = PremulRgba8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
+        let p1 = PremulRgba8 {
+            r: 100,
+            g: 100,
+            b: 100,
+            a: 100,
+        };
+
+        // (0 + 300 + 2) / 4 = 302 / 4 = 75.5 → 75 (rounds down)
+        let result = interpolate_25_75(p0, p1);
+        assert_eq!(result.r, 75);
+        assert_eq!(result.g, 75);
+        assert_eq!(result.b, 75);
+        assert_eq!(result.a, 75);
+    }
+
+    /// Test [0.75, 0.25] interpolation.
+    #[test]
+    fn test_interpolate_75_25() {
+        let p0 = PremulRgba8 {
+            r: 100,
+            g: 100,
+            b: 100,
+            a: 100,
+        };
+        let p1 = PremulRgba8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
+
+        // (300 + 0 + 2) / 4 = 302 / 4 = 75.5 → 75 (rounds down)
+        let result = interpolate_75_25(p0, p1);
+        assert_eq!(result.r, 75);
+        assert_eq!(result.g, 75);
+        assert_eq!(result.b, 75);
+        assert_eq!(result.a, 75);
+    }
+
+    /// Test interpolation symmetry.
+    #[test]
+    fn test_interpolation_symmetry() {
+        let p0 = PremulRgba8 {
+            r: 50,
+            g: 100,
+            b: 150,
+            a: 200,
+        };
+        let p1 = PremulRgba8 {
+            r: 200,
+            g: 150,
+            b: 100,
+            a: 50,
+        };
+
+        let r1 = interpolate_25_75(p0, p1);
+        let r2 = interpolate_75_25(p1, p0);
+
+        // Should be symmetric
+        assert!((r1.r as i32 - r2.r as i32).abs() <= 0);
+        assert!((r1.g as i32 - r2.g as i32).abs() <= 0);
+        assert!((r1.b as i32 - r2.b as i32).abs() <= 0);
+        assert!((r1.a as i32 - r2.a as i32).abs() <= 0);
+    }
+
+    /// Test that very small image sizes don't panic.
+    #[test]
+    fn test_small_image_sizes() {
+        let mut pixmap = Pixmap::new(1, 1);
+        let (n_decimations, kernel, kernel_size) = plan_decimated_blur(2.0);
+
+        // Should not panic
+        let result = std::panic::catch_unwind(move || {
+            let mut scratch = Pixmap::new(1, 1);
+            apply_blur(
+                &mut pixmap,
+                &mut scratch,
+                n_decimations,
+                &kernel[..kernel_size],
+                EdgeMode::None,
+            );
+        });
+
+        assert!(result.is_ok());
+    }
+
+    /// Test downscale with odd dimensions.
+    #[test]
+    fn test_downscale_odd_dimensions() {
+        let mut pixmap = Pixmap::new(5, 5);
+        // Fill with white
+        for y in 0..5 {
+            for x in 0..5 {
+                pixmap.set_pixel(
+                    x,
+                    y,
+                    PremulRgba8 {
+                        r: 255,
+                        g: 255,
+                        b: 255,
+                        a: 255,
+                    },
+                );
+            }
+        }
+
+        let (new_width, new_height) = downscale(&mut pixmap, 5, 5, EdgeMode::Duplicate);
+        // 5 / 2 = 2.5 → ceil = 3
+        assert_eq!(new_width, 3);
+        assert_eq!(new_height, 3);
+    }
+
+    /// Test upscale dimensions.
+    #[test]
+    fn test_upscale_dimensions() {
+        let mut pixmap = Pixmap::new(6, 6);
+        let (new_width, new_height) = upscale(&mut pixmap, 3, 3, EdgeMode::Duplicate);
+        // 3 * 2 = 6
+        assert_eq!(new_width, 6);
+        assert_eq!(new_height, 6);
+    }
+
+    /// Test that horizontal convolution preserves uniform colors.
+    #[test]
+    fn test_convolve_x_uniform() {
+        let mut src = Pixmap::new(5, 3);
+        let mut dst = Pixmap::new(5, 3);
+        // Fill with uniform gray
+        src.data_mut().fill(PremulRgba8 {
+            r: 128,
+            g: 128,
+            b: 128,
+            a: 255,
+        });
+
+        let (kernel, kernel_size) = compute_gaussian_kernel(1.0);
+        convolve_x(
+            &src,
+            &mut dst,
+            5,
+            3,
+            &kernel[..kernel_size],
+            kernel_size / 2,
+            EdgeMode::Duplicate,
+        );
+
+        // Uniform input should produce uniform output
+        for y in 0..3 {
+            for x in 0..5 {
+                let pixel = dst.sample(x, y);
+                assert_eq!(
+                    pixel,
+                    PremulRgba8 {
+                        r: 128,
+                        g: 128,
+                        b: 128,
+                        a: 255,
+                    }
+                );
+            }
+        }
+    }
+
+    /// Test that vertical convolution preserves uniform colors.
+    #[test]
+    fn test_convolve_y_uniform() {
+        let mut src = Pixmap::new(3, 5);
+        let mut dst = Pixmap::new(3, 5);
+        // Fill with uniform gray
+        src.data_mut().fill(PremulRgba8 {
+            r: 128,
+            g: 128,
+            b: 128,
+            a: 255,
+        });
+
+        let (kernel, kernel_size) = compute_gaussian_kernel(1.0);
+        convolve_y(
+            &src,
+            &mut dst,
+            3,
+            5,
+            &kernel[..kernel_size],
+            kernel_size / 2,
+            EdgeMode::Duplicate,
+        );
+
+        // Uniform input should produce uniform output
+        for y in 0..5 {
+            for x in 0..3 {
+                let pixel = dst.sample(x, y);
+                assert_eq!(
+                    pixel,
+                    PremulRgba8 {
+                        r: 128,
+                        g: 128,
+                        b: 128,
+                        a: 255,
+                    }
+                );
+            }
+        }
+    }
+
+    /// Test that convolution with identity kernel is a no-op.
+    #[test]
+    fn test_convolve_identity_kernel() {
+        let mut src = Pixmap::new(3, 3);
+        let mut dst = Pixmap::new(3, 3);
+        src.set_pixel(
+            1,
+            1,
+            PremulRgba8 {
+                r: 255,
+                g: 100,
+                b: 50,
+                a: 200,
+            },
+        );
+
+        let kernel = [1.0]; // Identity kernel
+        convolve_x(&src, &mut dst, 3, 3, &kernel, 0, EdgeMode::None);
+
+        // Should be unchanged
+        assert_eq!(dst.sample(1, 1), src.sample(1, 1));
+    }
+
+    /// Test that large sigma values are clamped to `MAX_KERNEL_SIZE`.
+    #[test]
+    fn test_large_sigma_clamped_to_max() {
+        let (kernel, kernel_size) = compute_gaussian_kernel(100.0);
+        // For σ=100, radius = ceil(300) = 300, size would be 601
+        // But it should be clamped to MAX_KERNEL_SIZE
+        assert_eq!(kernel_size, MAX_KERNEL_SIZE);
+
+        // The clamped kernel should still sum to 1.0 (normalized)
+        let sum: f32 = kernel.iter().take(kernel_size).sum();
+        assert!((sum - 1.0).abs() < 1e-6);
+    }
+
+    /// Test that decimation prevents kernel from exceeding `MAX_KERNEL_SIZE`.
+    #[test]
+    fn test_decimation_reduces_kernel_size() {
+        let (n_decimations, _kernel, kernel_size) = plan_decimated_blur(100.0);
+        assert_eq!(kernel_size, 9);
+        assert_eq!(n_decimations, 6, "Large sigma should trigger decimation");
+    }
+
+    /// Test sampling behavior at exact boundaries for each edge mode.
+    #[test]
+    fn test_sample_x_at_boundaries() {
+        let mut pixmap = Pixmap::new(3, 1);
+        pixmap.set_pixel(
+            0,
+            0,
+            PremulRgba8 {
+                r: 10,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        );
+        pixmap.set_pixel(
+            1,
+            0,
+            PremulRgba8 {
+                r: 20,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        );
+        pixmap.set_pixel(
+            2,
+            0,
+            PremulRgba8 {
+                r: 30,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        );
+
+        // Test left boundary with Duplicate
+        let mut p = sample_x(&pixmap, -1, 0, 3, EdgeMode::Duplicate);
+        assert_eq!(p.r, 10); // Should clamp to first pixel
+
+        // Test right boundary with Duplicate
+        p = sample_x(&pixmap, 3, 0, 3, EdgeMode::Duplicate);
+        assert_eq!(p.r, 30); // Should clamp to last pixel
+
+        // Test with None mode (should return transparent black)
+        p = sample_x(&pixmap, -1, 0, 3, EdgeMode::None);
+        assert_eq!(p.a, 0);
+    }
+
+    /// Test sampling behavior at exact boundaries for vertical sampling.
+    #[test]
+    fn test_sample_y_at_boundaries() {
+        let mut pixmap = Pixmap::new(1, 3);
+        pixmap.set_pixel(
+            0,
+            0,
+            PremulRgba8 {
+                r: 10,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        );
+        pixmap.set_pixel(
+            0,
+            1,
+            PremulRgba8 {
+                r: 20,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        );
+        pixmap.set_pixel(
+            0,
+            2,
+            PremulRgba8 {
+                r: 30,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        );
+
+        // Test top boundary with Duplicate
+        let mut p = sample_y(&pixmap, 0, -1, 3, EdgeMode::Duplicate);
+        assert_eq!(p.r, 10); // Should clamp to first pixel
+
+        // Test bottom boundary with Duplicate
+        p = sample_y(&pixmap, 0, 3, 3, EdgeMode::Duplicate);
+        assert_eq!(p.r, 30); // Should clamp to last pixel
+
+        // Test with None mode (should return transparent black)
+        p = sample_y(&pixmap, 0, -1, 3, EdgeMode::None);
+        assert_eq!(p.a, 0);
+    }
+
+    /// Test that kernel normalization is precise for various sigma values.
+    #[test]
+    fn test_kernel_normalization_precision() {
+        for sigma in [0.1, 0.5, 1.0, 2.0, 5.0, 10.0] {
+            let (kernel, kernel_size) = compute_gaussian_kernel(sigma);
+            let sum: f32 = kernel.iter().take(kernel_size).sum();
+            assert!(
+                (sum - 1.0).abs() < 1e-6,
+                "Kernel for σ={} not normalized: sum={}",
+                sigma,
+                sum
+            );
+        }
+    }
+
+    /// Test that downscale → upscale preserves dimensions.
+    #[test]
+    fn test_downscale_upscale_roundtrip() {
+        let mut pixmap = Pixmap::new(8, 8);
+        // Fill with a pattern
+        pixmap.data_mut().fill(PremulRgba8 {
+            r: 128,
+            g: 128,
+            b: 128,
+            a: 255,
+        });
+
+        let (w1, h1) = downscale(&mut pixmap, 8, 8, EdgeMode::Duplicate);
+        assert_eq!(w1, 4);
+        assert_eq!(h1, 4);
+
+        let (w2, h2) = upscale(&mut pixmap, w1, h1, EdgeMode::Duplicate);
+        assert_eq!(w2, 8);
+        assert_eq!(h2, 8);
+    }
 }

@@ -339,3 +339,268 @@ pub type LayerId = u32;
 /// Node IDs are assigned sequentially as nodes are added during scene encoding.
 /// They are used to reference nodes when adding edges and during execution order traversal.
 pub type NodeId = usize;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::color::AlphaColor;
+
+    #[test]
+    fn new_creates_empty_graph() {
+        let graph = RenderGraph::new();
+        assert_eq!(graph.nodes.len(), 0);
+        assert_eq!(graph.edges.len(), 0);
+        assert!(!graph.has_filters());
+        assert!(graph.root_node.is_none());
+    }
+
+    #[test]
+    fn clear_resets_to_empty_state() {
+        let mut graph = RenderGraph::new();
+        graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: dummy_bbox(),
+        });
+        graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 1,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+        graph.record_node_for_execution(1);
+
+        graph.clear();
+
+        assert_eq!(graph.nodes.len(), 0);
+        assert_eq!(graph.edges.len(), 0);
+        assert_eq!(graph.next_node_id, 0);
+        assert!(graph.root_node.is_none());
+        assert!(!graph.has_filters());
+        assert_eq!(graph.execution_order().count(), 0);
+    }
+
+    #[test]
+    fn clear_preserves_capacity() {
+        let mut graph = RenderGraph::new();
+        let from = graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: dummy_bbox(),
+        });
+        let to = graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 1,
+            wtile_bbox: dummy_bbox(),
+        });
+        graph.add_edge(from, to, DependencyKind::Sequential { layer_id: 1 });
+
+        let nodes_capacity = graph.nodes.capacity();
+        let edges_capacity = graph.edges.capacity();
+
+        graph.clear();
+
+        assert!(graph.nodes.capacity() >= nodes_capacity);
+        assert!(graph.edges.capacity() >= edges_capacity);
+    }
+
+    #[test]
+    fn add_node_returns_sequential_ids() {
+        let mut graph = RenderGraph::new();
+        let id0 = graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: dummy_bbox(),
+        });
+        let id1 = graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 1,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+
+        assert_eq!(id0, 0);
+        assert_eq!(id1, 1);
+    }
+
+    #[test]
+    fn add_node_tracks_root() {
+        let mut graph = RenderGraph::new();
+        let root_id = graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: dummy_bbox(),
+        });
+
+        assert_eq!(graph.root_node, Some(root_id));
+    }
+
+    #[test]
+    fn add_node_filter_sets_has_filters() {
+        let mut graph = RenderGraph::new();
+
+        graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 1,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+
+        assert!(graph.has_filters());
+    }
+
+    #[test]
+    fn add_node_root_does_not_set_has_filters() {
+        let mut graph = RenderGraph::new();
+
+        graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: dummy_bbox(),
+        });
+
+        assert!(!graph.has_filters());
+    }
+
+    #[test]
+    fn add_edge_creates_dependency() {
+        let mut graph = RenderGraph::new();
+        let from = graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 1,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+        let to = graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: dummy_bbox(),
+        });
+
+        graph.add_edge(from, to, DependencyKind::Sequential { layer_id: 1 });
+
+        assert_eq!(graph.edges.len(), 1);
+        assert_eq!(graph.edges[0].from, from);
+        assert_eq!(graph.edges[0].to, to);
+    }
+
+    #[test]
+    fn add_edge_multiple_from_same_node() {
+        let mut graph = RenderGraph::new();
+        let from = graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 1,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+        let to1 = graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 2,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+        let to2 = graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: dummy_bbox(),
+        });
+
+        graph.add_edge(from, to1, DependencyKind::Sequential { layer_id: 1 });
+        graph.add_edge(from, to2, DependencyKind::Sequential { layer_id: 1 });
+
+        assert_eq!(graph.edges.len(), 2);
+    }
+
+    #[test]
+    fn execution_order_includes_recorded_nodes() {
+        let mut graph = RenderGraph::new();
+        let filter = graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 1,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+
+        graph.record_node_for_execution(filter);
+
+        let order: Vec<_> = graph.execution_order().collect();
+        assert_eq!(order, vec![filter]);
+    }
+
+    #[test]
+    fn execution_order_includes_only_root_when_present() {
+        let mut graph = RenderGraph::new();
+        let root = graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: dummy_bbox(),
+        });
+
+        let order: Vec<_> = graph.execution_order().collect();
+        assert_eq!(order, vec![root]);
+    }
+
+    #[test]
+    fn execution_order_root_comes_last() {
+        let mut graph = RenderGraph::new();
+        let filter1 = graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 1,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+        let filter2 = graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 2,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+        let root = graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: dummy_bbox(),
+        });
+
+        graph.record_node_for_execution(filter2);
+        graph.record_node_for_execution(filter1);
+
+        let order: Vec<_> = graph.execution_order().collect();
+        assert_eq!(order, vec![filter2, filter1, root]);
+    }
+
+    #[test]
+    fn topological_sort_diamond_dependency() {
+        let mut graph = RenderGraph::new();
+        let bottom = graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 3,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+        let left = graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 1,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+        let right = graph.add_node(RenderNodeKind::FilterLayer {
+            layer_id: 2,
+            filter: dummy_filter(),
+            wtile_bbox: dummy_bbox(),
+            transform: Affine::IDENTITY,
+        });
+        let top = graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: dummy_bbox(),
+        });
+
+        // Diamond: bottom -> left -> top, bottom -> right -> top
+        graph.add_edge(bottom, left, DependencyKind::Sequential { layer_id: 3 });
+        graph.add_edge(bottom, right, DependencyKind::Sequential { layer_id: 3 });
+        graph.add_edge(left, top, DependencyKind::Sequential { layer_id: 1 });
+        graph.add_edge(right, top, DependencyKind::Sequential { layer_id: 2 });
+
+        let sorted = graph.topological_sort();
+        assert_eq!(sorted, vec![bottom, right, left, top]);
+    }
+
+    fn dummy_filter() -> Filter {
+        Filter::from_primitive(crate::filter_effects::FilterPrimitive::Flood {
+            color: AlphaColor::from_rgba8(0, 0, 0, 255),
+        })
+    }
+
+    fn dummy_bbox() -> WideTilesBbox {
+        WideTilesBbox::new([0, 0, 0, 0])
+    }
+}
