@@ -62,3 +62,72 @@ impl FilterEffect for Flood {
         pixmap.data_mut().fill(flood_color);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layer_manager::LayerManager;
+    use vello_common::color::Srgb;
+
+    /// Test flood with semi-transparent color - verifies correct premultiplication.
+    #[test]
+    fn test_flood_semi_transparent_lowp() {
+        let mut pixmap = Pixmap::new(2, 2);
+        let mut layer_manager = LayerManager::new();
+
+        // Semi-transparent white (50% alpha)
+        let color = AlphaColor {
+            components: [1.0, 1.0, 1.0, 0.5],
+            cs: std::marker::PhantomData::<Srgb>,
+        };
+        let flood = Flood::new(color);
+        flood.execute_lowp(&mut pixmap, &mut layer_manager);
+
+        // RGB should be premultiplied by alpha: 255 * 0.5 = 127-128
+        for y in 0..2 {
+            for x in 0..2 {
+                let pixel = pixmap.sample(x, y);
+                assert_eq!(
+                    pixel,
+                    PremulRgba8 {
+                        r: 127,
+                        g: 127,
+                        b: 127,
+                        a: 127
+                    }
+                );
+            }
+        }
+    }
+
+    /// Test flood highp with semi-transparent color - verifies correct premultiplication.
+    #[test]
+    fn test_flood_semi_transparent_highp() {
+        let mut pixmap = Pixmap::new(2, 2);
+        let mut layer_manager = LayerManager::new();
+
+        // Semi-transparent white (50% alpha)
+        let color = AlphaColor {
+            components: [1.0, 1.0, 1.0, 0.5],
+            cs: std::marker::PhantomData::<Srgb>,
+        };
+        let flood = Flood::new(color);
+        flood.execute_highp(&mut pixmap, &mut layer_manager);
+
+        // RGB should be premultiplied by alpha: 255 * 0.5 = 127-128
+        for y in 0..2 {
+            for x in 0..2 {
+                let pixel = pixmap.sample(x, y);
+                assert_eq!(
+                    pixel,
+                    PremulRgba8 {
+                        r: 127,
+                        g: 127,
+                        b: 127,
+                        a: 127
+                    }
+                );
+            }
+        }
+    }
+}

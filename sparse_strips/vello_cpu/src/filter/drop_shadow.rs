@@ -340,3 +340,254 @@ fn u8_to_norm(value: u8) -> f32 {
 fn norm_to_u8(value: f32) -> u8 {
     (value * 255.0).round() as u8
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vello_common::color::Srgb;
+
+    /// Test `u8_to_norm` conversion.
+    #[test]
+    fn test_u8_to_norm() {
+        assert_eq!(u8_to_norm(0), 0.0);
+        assert!((u8_to_norm(255) - 1.0).abs() < 1e-6);
+    }
+
+    /// Test `norm_to_u8` conversion.
+    #[test]
+    fn test_norm_to_u8() {
+        assert_eq!(norm_to_u8(0.0), 0);
+        assert_eq!(norm_to_u8(1.0), 255);
+        assert_eq!(norm_to_u8(0.5), 128); // 0.5 * 255 = 127.5 → 128
+    }
+
+    /// Test round-trip conversion u8 → norm → u8.
+    #[test]
+    fn test_conversion_roundtrip() {
+        for value in [0, 1, 50, 127, 128, 200, 254, 255] {
+            let normalized = u8_to_norm(value);
+            let back = norm_to_u8(normalized);
+            assert_eq!(back, value);
+        }
+    }
+
+    /// Test Porter-Duff source-over with fully opaque source.
+    #[test]
+    fn test_compose_src_over_opaque_source() {
+        let src = PremulRgba8 {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        }; // Opaque red
+        let dst = PremulRgba8 {
+            r: 0,
+            g: 255,
+            b: 0,
+            a: 255,
+        }; // Opaque green
+
+        let result = compose_src_over(src, dst);
+        // Opaque source should completely cover destination
+        assert_eq!(result.r, 255);
+        assert_eq!(result.g, 0);
+        assert_eq!(result.b, 0);
+        assert_eq!(result.a, 255);
+    }
+
+    /// Test Porter-Duff source-over with transparent source.
+    #[test]
+    fn test_compose_src_over_transparent_source() {
+        let src = PremulRgba8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
+        let dst = PremulRgba8 {
+            r: 0,
+            g: 255,
+            b: 0,
+            a: 255,
+        };
+
+        let result = compose_src_over(src, dst);
+        // Transparent source should leave destination unchanged
+        assert_eq!(result.r, 0);
+        assert_eq!(result.g, 255);
+        assert_eq!(result.b, 0);
+        assert_eq!(result.a, 255);
+    }
+
+    /// Test Porter-Duff source-over with semi-transparent source.
+    #[test]
+    fn test_compose_src_over_semi_transparent() {
+        let src = PremulRgba8 {
+            r: 128,
+            g: 0,
+            b: 0,
+            a: 128,
+        }; // 50% red (premul)
+        let dst = PremulRgba8 {
+            r: 0,
+            g: 128,
+            b: 0,
+            a: 128,
+        }; // 50% green (premul)
+
+        let result = compose_src_over(src, dst);
+        // Result should blend src + dst*(1-src_alpha)
+        // r: 128 + 0*(1-0.5) = 128
+        // g: 0 + 128*0.5 = 64
+        // a: 128 + 128*0.5 = 192
+        assert_eq!(
+            result,
+            PremulRgba8 {
+                r: 128,
+                g: 64,
+                b: 0,
+                a: 192,
+            }
+        );
+    }
+
+    /// Test `offset_pixels` with positive offset (right and down).
+    #[test]
+    fn test_offset_pixels_positive() {
+        let mut pixmap = Pixmap::new(4, 4);
+        // Set center pixel to white
+        pixmap.set_pixel(
+            1,
+            1,
+            PremulRgba8 {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+        );
+
+        offset_pixels(&mut pixmap, 1.0, 1.0);
+
+        // White pixel should have moved from (1,1) to (2,2)
+        let moved = pixmap.sample(2, 2);
+        assert_eq!(moved.a, 255);
+
+        // Original position should be cleared (in exposed region)
+        let cleared = pixmap.sample(1, 1);
+        assert_eq!(cleared.a, 0);
+    }
+
+    /// Test `offset_pixels` with negative offset (left and up).
+    #[test]
+    fn test_offset_pixels_negative() {
+        let mut pixmap = Pixmap::new(4, 4);
+        // Set pixel at (2,2) to white
+        pixmap.set_pixel(
+            2,
+            2,
+            PremulRgba8 {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+        );
+
+        offset_pixels(&mut pixmap, -1.0, -1.0);
+
+        // White pixel should have moved from (2,2) to (1,1)
+        let moved = pixmap.sample(1, 1);
+        assert_eq!(moved.a, 255);
+
+        // Original position should be cleared (in exposed region)
+        let cleared = pixmap.sample(2, 2);
+        assert_eq!(cleared.a, 0);
+    }
+
+    /// Test `offset_pixels` with fractional offset (should round).
+    #[test]
+    fn test_offset_pixels_fractional() {
+        let mut pixmap = Pixmap::new(4, 4);
+        pixmap.set_pixel(
+            1,
+            1,
+            PremulRgba8 {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+        );
+
+        // 0.6 rounds to 1, -0.4 rounds to 0
+        offset_pixels(&mut pixmap, 0.6, -0.4);
+
+        // Should move by (1, 0): from (1,1) to (2,1)
+        let moved = pixmap.sample(2, 1);
+        assert_eq!(moved.a, 255);
+    }
+
+    /// Test `offset_pixels` with out-of-bounds offset (should clip).
+    #[test]
+    fn test_offset_pixels_out_of_bounds() {
+        let mut pixmap = Pixmap::new(4, 4);
+        pixmap.set_pixel(
+            1,
+            1,
+            PremulRgba8 {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+        );
+
+        // Large offset that moves pixel outside bounds
+        offset_pixels(&mut pixmap, 10.0, 10.0);
+
+        // Pixel moves outside, so (1,1) should be cleared
+        let cleared = pixmap.sample(1, 1);
+        assert_eq!(cleared.a, 0);
+
+        // All pixels should be cleared (entire image is exposed region)
+        for y in 0..4 {
+            for x in 0..4 {
+                assert_eq!(pixmap.sample(x, y).a, 0);
+            }
+        }
+    }
+
+    /// Test `compose_shadow_direct` applies color correctly.
+    #[test]
+    fn test_compose_shadow_color() {
+        let mut shadow_pixmap = Pixmap::new(2, 2);
+        let mut dst_pixmap = Pixmap::new(2, 2);
+
+        // Shadow has alpha=255 at (0,0)
+        shadow_pixmap.set_pixel(
+            0,
+            0,
+            PremulRgba8 {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        );
+
+        let shadow_color = AlphaColor {
+            components: [1.0, 0.0, 0.0, 1.0], // Red
+            cs: std::marker::PhantomData::<Srgb>,
+        };
+
+        compose_shadow_direct(&shadow_pixmap, &mut dst_pixmap, shadow_color);
+
+        // Shadow at (0,0) should be red
+        let result = dst_pixmap.sample(0, 0);
+        assert_eq!(result.r, 255);
+        assert_eq!(result.g, 0);
+        assert_eq!(result.b, 0);
+        assert_eq!(result.a, 255);
+    }
+}
