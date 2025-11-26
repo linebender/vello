@@ -9,4 +9,4 @@ trivial-copy-size-limit = 16
 
 # END LINEBENDER LINT SET
 
-doc-valid-idents = ["MotionMark", "WebGPU", "PostScript", ".."]
+doc-valid-idents = ["MotionMark", "WebGPU", "PostScript", "ClearType", ".."]
