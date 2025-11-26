@@ -87,50 +87,7 @@ impl ImageSource {
     ///
     /// This panics if `image` has a `width` or `height` greater than `u16::MAX`.
     pub fn from_peniko_image_data(image: &peniko::ImageData) -> Self {
-        // TODO: how do we deal with `peniko::ImageFormat` growing? See also
-        // <https://github.com/linebender/vello/pull/996#discussion_r2080510863>.
-        let do_alpha_multiply = image.alpha_type != peniko::ImageAlphaType::AlphaPremultiplied;
-
-        assert!(
-            image.width <= u16::MAX as u32 && image.height <= u16::MAX as u32,
-            "The image is too big. Its width and height can be no larger than {} pixels.",
-            u16::MAX,
-        );
-        let width = image.width.try_into().unwrap();
-        let height = image.height.try_into().unwrap();
-
-        // TODO: SIMD
-        #[expect(clippy::cast_possible_truncation, reason = "This cannot overflow.")]
-        let pixels = image
-            .data
-            .data()
-            .chunks_exact(4)
-            .map(|pixel| {
-                let rgba: [u8; 4] = match image.format {
-                    peniko::ImageFormat::Rgba8 => pixel.try_into().unwrap(),
-                    peniko::ImageFormat::Bgra8 => [pixel[2], pixel[1], pixel[0], pixel[3]],
-                    format => unimplemented!("Unsupported image format: {format:?}"),
-                };
-                let alpha = u16::from(rgba[3]);
-                let multiply = |component| ((alpha * u16::from(component)) / 255) as u8;
-                if do_alpha_multiply {
-                    PremulRgba8 {
-                        r: multiply(rgba[0]),
-                        g: multiply(rgba[1]),
-                        b: multiply(rgba[2]),
-                        a: rgba[3],
-                    }
-                } else {
-                    PremulRgba8 {
-                        r: rgba[0],
-                        g: rgba[1],
-                        b: rgba[2],
-                        a: rgba[3],
-                    }
-                }
-            })
-            .collect();
-        let pixmap = Pixmap::from_parts(pixels, width, height);
+        let pixmap = Pixmap::from_peniko_image_data(image);
 
         Self::Pixmap(Arc::new(pixmap))
     }
