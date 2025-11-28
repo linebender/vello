@@ -7,8 +7,7 @@ use core::any::Any;
 
 use crate::{
     PaintScene, SceneOptions,
-    prepared::PreparePathsDirect,
-    recording::{RecordScene, TransformedRecording},
+    path_set::PathSet,
     texture::{TextureDescriptor, TextureId},
 };
 
@@ -78,17 +77,7 @@ use crate::{
 /// The reason to do things that way is to make `Arc<dyn AnyRenderer>` clearly first-class (even if you're internally downcasting to convert into generics?)
 pub trait Renderer: Any {
     /// The `ScenePainter` is the encoder for rendering commands.
-    ///
-    /// *Ideally*, we'd allow this to borrow shared resources from
-    /// the renderer (not exclusively).
-    /// However, the lifetimes of that with `AnyRenderer` get messy fast.
     type ScenePainter: PaintScene;
-
-    // TODO: Not complete.
-    type PathPreparer: PreparePathsDirect<Self::ScenePainter>;
-
-    type Recording: RecordScene<Self::ScenePainter>;
-    type TransformedRecording: TransformedRecording<Self::ScenePainter>;
 
     /// Create a texture for use in renders with this device.
     fn create_texture(&mut self, descriptor: TextureDescriptor) -> TextureId;
@@ -99,7 +88,7 @@ pub trait Renderer: Any {
     // Also what does that mean for existing content, etc.
 
     // fn create_mask(descriptor: MaskOperation) -> Mask;
-    // fn mask_from_scene(from: &Texture, to: &Scene, MaskDescriptor { subset_rect,  });
+    // fn mask_from_scene(from: &Texture, to: &Scene, MaskDescriptor { subset_rect });
 
     fn create_scene(
         &mut self,
@@ -110,35 +99,12 @@ pub trait Renderer: Any {
 
     // TODO: Reason about how we want downloads to work.
     // fn queue_download(&mut self, of: &TextureId) -> DownloadId;
+    fn cache_paths(&mut self, paths: &mut PathSet) -> PathGroup;
+    fn free_paths(&mut self, group: PathGroup);
 
     // TODO: Better error kinds.
     fn upload_image(&mut self, to: &TextureId, data: &peniko::ImageData) -> Result<(), ()>;
-
-    /// API for efficient glyph rendering.
-    // Needs: Shape, Transform, Bounds, Fill or Stroke
-    // To render, needs integer translation, paint information.
-    // As this is specialised to glyph drawing, I think that a batched API makes sense,
-    // i.e. you start a `PathSet`, add several paths to it, then free them all at once.
-    // That strategy has several advantages:
-    // You gain support for "batched allocations", without fragmentation.
-    // There is no possible error case.
-    // We need to think about how we make it practical to actually get the integer translations,
-    // because of "composition".
-    fn create_path_cache(&mut self) -> Self::PathPreparer;
-
-    fn create_offset_recording(
-        &mut self,
-        width: u16,
-        height: u16,
-        origin_x_offset: i32,
-        origin_y_offset: i32,
-    ) -> Self::Recording;
-
-    fn create_transformed_recording(
-        &mut self,
-        width: u16,
-        height: u16,
-        x_offset: i32,
-        y_offset: i32,
-    ) -> Self::TransformedRecording;
 }
+
+#[derive(Debug)]
+pub struct PathGroup(pub u32);
