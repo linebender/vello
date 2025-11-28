@@ -4,7 +4,6 @@
 use hashbrown::HashMap;
 use vello_api::{
     PaintScene, Renderer,
-    baseline::{BaselinePainter, BaselinePreparePaths},
     peniko::Fill,
     texture::{self, TextureDescriptor, TextureId, TextureUsages},
 };
@@ -104,10 +103,6 @@ impl VelloHybrid {
 
 impl Renderer for VelloHybrid {
     type ScenePainter = HybridScenePainter;
-    // TODO: Obviously, a sparse strip native path caching would be ideal.
-    type PathPreparer = BaselinePreparePaths;
-    type Recording = BaselinePainter<BaselinePreparePaths>;
-    type TransformedRecording = BaselinePainter<BaselinePreparePaths>;
 
     fn create_texture(&mut self, descriptor: texture::TextureDescriptor) -> TextureId {
         // We need an explicit texture if we expect to download from it or render to it.
@@ -371,35 +366,6 @@ impl Renderer for VelloHybrid {
         }
         self.queue.submit([encoder.finish()]);
         Ok(())
-    }
-
-    fn create_path_cache(&mut self) -> Self::PathPreparer {
-        BaselinePreparePaths::new()
-    }
-
-    fn create_offset_recording(
-        &mut self,
-        width: u16,
-        height: u16,
-        origin_x_offset: i32,
-        origin_y_offset: i32,
-    ) -> Self::Recording {
-        let mut rec = BaselinePainter::default();
-        rec.set_dimensions(width, height);
-        rec.set_origin_offset(origin_x_offset, origin_y_offset);
-        rec
-    }
-    fn create_transformed_recording(
-        &mut self,
-        width: u16,
-        height: u16,
-        origin_x_offset: i32,
-        origin_y_offset: i32,
-    ) -> Self::TransformedRecording {
-        let mut rec = BaselinePainter::default();
-        rec.set_dimensions(width, height);
-        rec.set_origin_offset(origin_x_offset, origin_y_offset);
-        rec
     }
 }
 

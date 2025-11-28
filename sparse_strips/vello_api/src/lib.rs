@@ -72,17 +72,14 @@
 extern crate alloc;
 
 mod design;
-mod download;
 mod painter;
 mod renderer;
 
-pub mod baseline;
 pub mod dynamic;
-pub mod prepared;
+pub mod path_set;
 pub mod recording;
 pub mod texture;
 
-pub use self::download::DownloadId;
 pub use self::painter::{PaintScene, SceneOptions};
 pub use self::renderer::Renderer;
 
