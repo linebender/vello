@@ -457,8 +457,13 @@ impl RenderContext {
 
     // TODO: Add explanation on how this differs to layer masks.
     /// Set the mask to use for path-painting operations.
-    pub fn set_mask(&mut self, mask: Option<Mask>) {
-        self.mask = mask;
+    pub fn set_mask(&mut self, mask: Mask) {
+        self.mask = Some(mask);
+    }
+
+    /// Reset the mask that is used for path-painting operations.
+    pub fn reset_mask(&mut self) {
+        self.mask = None;
     }
 
     /// Get the current fill rule.
