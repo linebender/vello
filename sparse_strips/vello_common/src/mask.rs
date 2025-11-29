@@ -103,11 +103,12 @@ impl Mask {
     /// is out-of-bounds.
     #[inline(always)]
     pub fn sample(&self, x: u16, y: u16) -> u8 {
+        let repr = &*self.0;
         debug_assert!(
-            x < self.0.width && y < self.0.height,
+            x < repr.width && y < repr.height,
             "cannot sample mask outside of its range"
         );
 
-        self.0.data[y as usize * self.0.width as usize + x as usize]
+        repr.data[y as usize * repr.width as usize + x as usize]
     }
 }
