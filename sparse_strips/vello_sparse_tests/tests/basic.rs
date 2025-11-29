@@ -6,6 +6,7 @@
 use crate::renderer::Renderer;
 use crate::util::{circular_star, crossed_line_star, miter_stroke_2};
 use std::f64::consts::PI;
+use vello_common::coarse::Cmd;
 use vello_common::color::palette::css::{
     BEIGE, BLUE, DARK_BLUE, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, TRANSPARENT,
 };
@@ -433,4 +434,15 @@ fn stroke_scaled(ctx: &mut impl Renderer) {
     ctx.set_stroke(stroke);
     ctx.set_paint(LIME);
     ctx.stroke_path(&path);
+}
+
+// Just so we can more closely observe changes in their size.
+// We have this test here instead of in `vello_common` because
+// the vello_common tests seemingly are not run for 32-bit in CI.
+#[test]
+fn test_cmd_size() {
+    #[cfg(target_pointer_width = "64")]
+    assert_eq!(std::mem::size_of::<Cmd>(), 56);
+    #[cfg(target_pointer_width = "32")]
+    assert_eq!(std::mem::size_of::<Cmd>(), 56);
 }

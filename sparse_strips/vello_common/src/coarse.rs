@@ -1739,13 +1739,4 @@ mod tests {
         assert_eq!(wide.layer_stack.len(), 0);
         assert_eq!(wide.clip_stack.len(), 0);
     }
-
-    // Just so we can more closely observe changes in thir size.
-    #[test]
-    fn test_cmd_size() {
-        #[cfg(target_pointer_width = "64")]
-        assert_eq!(std::mem::size_of::<Cmd>(), 56);
-        #[cfg(target_pointer_width = "32")]
-        assert_eq!(std::mem::size_of::<Cmd>(), 56);
-    }
 }
