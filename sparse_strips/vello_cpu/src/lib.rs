@@ -86,12 +86,12 @@
 //! Additionally, some algorithms we use aren't final, and will be replaced with higher-performance variants.
 //!
 //! ## Implementation
-//! 
+//!
 //! If you want to gain a better understanding of Vello CPU and the
 //! sparse strips paradigm, you can take a look at the [accompanying
-//! master's thesis](https://ethz.ch/content/dam/ethz/special-interest/infk/inst-pls/plf-dam/documents/StudentProjects/MasterTheses/2025-Laurenz-Thesis.pdf) 
-//! that was written on the topic. Note that parts of the descriptions might 
-//! become outdated as the implementation changes, but it should give a good 
+//! master's thesis](https://ethz.ch/content/dam/ethz/special-interest/infk/inst-pls/plf-dam/documents/StudentProjects/MasterTheses/2025-Laurenz-Thesis.pdf)
+//! that was written on the topic. Note that parts of the descriptions might
+//! become outdated as the implementation changes, but it should give a good
 //! overview nevertheless.
 // LINEBENDER LINT SET - lib.rs - v3
 // See https://linebender.org/wiki/canonical-lints/
