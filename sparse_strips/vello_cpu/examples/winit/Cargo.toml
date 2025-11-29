@@ -9,6 +9,10 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+debug = ["vello_common/debug"]
+debug-filters = ["vello_cpu/debug-filters"]
+
 [dependencies]
 winit = { workspace = true }
 vello_common = { workspace = true }
