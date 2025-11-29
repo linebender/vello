@@ -990,8 +990,7 @@ dependencies = [
 [[package]]
 name = "fearless_simd"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fb2907d1f08b2b316b9223ced5b0e89d87028ba8deae9764741dba8ff7f3903"
+source = "git+https://github.com/valadaptive/fearless_simd?branch=more-avx2#b29bf2ad1409c26fb226d197a3368c3a85d8973d"
 dependencies = [
  "bytemuck",
  "libm",
@@ -3969,6 +3968,7 @@ name = "vello_bench"
 version = "0.0.0"
 dependencies = [
  "criterion",
+ "fearless_simd",
  "parley",
  "rand",
  "smallvec",
@@ -4063,6 +4063,7 @@ name = "vello_hybrid"
 version = "0.0.4"
 dependencies = [
  "bytemuck",
+ "fearless_simd",
  "guillotiere",
  "hashbrown 0.15.5",
  "js-sys",
@@ -4112,6 +4113,7 @@ name = "vello_sparse_tests"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
+ "fearless_simd",
  "image",
  "oxipng",
  "pollster",

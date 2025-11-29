@@ -16,7 +16,6 @@ use vello_common::glyph::Glyph;
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{Level, RenderMode};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
@@ -51,52 +50,8 @@ macro_rules! load_image {
     }};
 }
 
-pub(crate) fn get_ctx<T: Renderer>(
-    width: u16,
-    height: u16,
-    transparent: bool,
-    num_threads: u16,
-    level: &str,
-    render_mode: RenderMode,
-) -> T {
-    let level = match level {
-        #[cfg(target_arch = "aarch64")]
-        "neon" => Level::Neon(
-            Level::try_detect()
-                .unwrap_or(Level::fallback())
-                .as_neon()
-                .expect("neon should be available"),
-        ),
-        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-        "wasm_simd128" => Level::WasmSimd128(
-            Level::try_detect()
-                .unwrap_or(Level::fallback())
-                .as_wasm_simd128()
-                .expect("wasm simd128 should be available"),
-        ),
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        "sse42" => {
-            if std::arch::is_x86_feature_detected!("sse4.2") {
-                Level::Sse4_2(unsafe { vello_common::fearless_simd::Sse4_2::new_unchecked() })
-            } else {
-                panic!("sse4.2 feature not detected");
-            }
-        }
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        "avx2" => {
-            if std::arch::is_x86_feature_detected!("avx2")
-                && std::arch::is_x86_feature_detected!("fma")
-            {
-                Level::Avx2(unsafe { vello_common::fearless_simd::Avx2::new_unchecked() })
-            } else {
-                panic!("avx2 or fma feature not detected");
-            }
-        }
-        "fallback" => Level::fallback(),
-        _ => panic!("unknown level: {level}"),
-    };
-
-    let mut ctx = T::new(width, height, num_threads, level, render_mode);
+pub(crate) fn get_ctx<T: Renderer>(width: u16, height: u16, transparent: bool, args: T::Args) -> T {
+    let mut ctx = T::new(width, height, args);
 
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);

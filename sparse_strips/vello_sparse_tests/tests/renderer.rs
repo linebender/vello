@@ -18,15 +18,10 @@ use vello_hybrid::Scene;
 use web_sys::WebGl2RenderingContext;
 
 pub(crate) trait Renderer: Sized {
+    type Args;
     type GlyphRenderer: GlyphRenderer;
 
-    fn new(
-        width: u16,
-        height: u16,
-        num_threads: u16,
-        level: Level,
-        render_mode: RenderMode,
-    ) -> Self;
+    fn new(width: u16, height: u16, args: Self::Args) -> Self;
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
     fn fill_rect(&mut self, rect: &Rect);
@@ -69,20 +64,68 @@ pub(crate) trait Renderer: Sized {
     fn execute_recording(&mut self, recording: &Recording);
 }
 
+pub(crate) struct CpuRenderArgs {
+    pub num_threads: u16,
+    pub level: &'static str,
+    pub render_mode: RenderMode,
+}
+
 impl Renderer for RenderContext {
+    type Args = CpuRenderArgs;
     type GlyphRenderer = Self;
 
-    fn new(
-        width: u16,
-        height: u16,
-        num_threads: u16,
-        level: Level,
-        render_mode: RenderMode,
-    ) -> Self {
+    fn new(width: u16, height: u16, args: CpuRenderArgs) -> Self {
+        let level = match args.level {
+            #[cfg(target_arch = "aarch64")]
+            "neon" => Level::Neon(
+                Level::try_detect()
+                    .unwrap_or(Level::fallback())
+                    .as_neon()
+                    .expect("neon should be available"),
+            ),
+            #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+            "wasm_simd128" => Level::WasmSimd128(
+                Level::try_detect()
+                    .unwrap_or(Level::fallback())
+                    .as_wasm_simd128()
+                    .expect("wasm simd128 should be available"),
+            ),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            "sse42" => {
+                if std::arch::is_x86_feature_detected!("sse4.2") {
+                    #[cfg(not(all(target_feature = "avx2", target_feature = "fma")))]
+                    {
+                        Level::Sse4_2(unsafe {
+                            vello_common::fearless_simd::Sse4_2::new_unchecked()
+                        })
+                    }
+
+                    #[cfg(all(target_feature = "avx2", target_feature = "fma"))]
+                    {
+                        panic!("sse4.2 feature not compiled in")
+                    }
+                } else {
+                    panic!("sse4.2 feature not detected");
+                }
+            }
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            "avx2" => {
+                if std::arch::is_x86_feature_detected!("avx2")
+                    && std::arch::is_x86_feature_detected!("fma")
+                {
+                    Level::Avx2(unsafe { vello_common::fearless_simd::Avx2::new_unchecked() })
+                } else {
+                    panic!("avx2 or fma feature not detected");
+                }
+            }
+            "fallback" => Level::fallback(),
+            _ => panic!("unknown level: {}", args.level),
+        };
+
         let settings = RenderSettings {
             level,
-            num_threads,
-            render_mode,
+            num_threads: args.num_threads,
+            render_mode: args.render_mode,
         };
 
         Self::new_with(width, height, settings)
@@ -240,17 +283,10 @@ pub(crate) struct HybridRenderer {
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl Renderer for HybridRenderer {
+    type Args = ();
     type GlyphRenderer = Scene;
 
-    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
-        if num_threads != 0 {
-            panic!("hybrid renderer doesn't support multi-threading");
-        }
-
-        if !matches!(level, Level::Fallback(_)) {
-            panic!("hybrid renderer doesn't support SIMD");
-        }
-
+    fn new(width: u16, height: u16, _args: ()) -> Self {
         let scene = Scene::new(width, height);
         // Initialize wgpu device and queue for GPU rendering
         let instance = wgpu::Instance::default();
@@ -577,19 +613,12 @@ pub(crate) struct HybridRenderer {
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 impl Renderer for HybridRenderer {
+    type Args = ();
     type GlyphRenderer = Scene;
 
-    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
+    fn new(width: u16, height: u16, _args: ()) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
-
-        if num_threads != 0 {
-            panic!("hybrid renderer doesn't support multi-threading");
-        }
-
-        if !matches!(level, Level::Fallback(_)) {
-            panic!("hybrid renderer doesn't support SIMD");
-        }
 
         let scene = Scene::new(width, height);
 
