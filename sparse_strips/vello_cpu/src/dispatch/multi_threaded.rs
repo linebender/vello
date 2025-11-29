@@ -295,21 +295,28 @@ impl MultiThreadedDispatcher {
                                 paint,
                                 blend_mode,
                                 thread_id,
+                                mask,
                             } => self.wide.generate(
                                 &task.allocation_group.strips
                                     [strip_range.start as usize..strip_range.end as usize],
                                 paint.clone(),
                                 blend_mode,
                                 thread_id,
+                                mask,
                             ),
                             CoarseTaskType::RenderWideCommand {
                                 strips,
                                 blend_mode,
                                 paint,
                                 thread_id,
-                            } => self
-                                .wide
-                                .generate(&strips, paint.clone(), blend_mode, thread_id),
+                                mask,
+                            } => self.wide.generate(
+                                &strips,
+                                paint.clone(),
+                                blend_mode,
+                                thread_id,
+                                mask,
+                            ),
                             CoarseTaskType::PushLayer {
                                 thread_id,
                                 clip_path,
@@ -417,6 +424,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -428,6 +436,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             fill_rule,
             blend_mode,
             aliasing_threshold,
+            mask,
         });
     }
 
@@ -439,6 +448,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -450,6 +460,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             stroke: stroke.clone(),
             blend_mode,
             aliasing_threshold,
+            mask,
         });
     }
 
@@ -725,6 +736,7 @@ pub(crate) enum RenderTaskType {
         fill_rule: Fill,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     },
     WideCommand {
         strip_buf: Box<[Strip]>,
@@ -739,6 +751,7 @@ pub(crate) enum RenderTaskType {
         stroke: Stroke,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     },
     PushLayer {
         clip_path: Option<(Range<u32>, Affine)>,
@@ -762,12 +775,14 @@ pub(crate) enum CoarseTaskType {
         strips: Range<u32>,
         blend_mode: BlendMode,
         paint: Paint,
+        mask: Option<Mask>,
     },
     RenderWideCommand {
         thread_id: u8,
         strips: Box<[Strip]>,
         paint: Paint,
         blend_mode: BlendMode,
+        mask: Option<Mask>,
     },
     PushLayer {
         thread_id: u8,
@@ -844,6 +859,7 @@ mod tests {
                 Affine::IDENTITY,
                 Paint::Solid(PremulColor::from_alpha_color(BLUE)),
                 BlendMode::default(),
+                None,
                 None,
             );
             dispatcher.flush();

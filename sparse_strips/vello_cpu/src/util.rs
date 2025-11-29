@@ -7,11 +7,6 @@ use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32};
 use vello_common::math::FloatExt;
 use vello_common::util::Div255Ext;
 
-#[allow(
-    dead_code,
-    reason = "this is not used because the division by 255 is now done with SIMD, but\
-we still keep it around to document its properties."
-)]
 pub(crate) mod scalar {
     /// Perform an approximate division by 255.
     ///

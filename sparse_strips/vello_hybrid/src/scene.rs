@@ -228,7 +228,7 @@ impl Scene {
             &mut self.strip_storage,
             self.clip_context.get(),
         );
-        wide.generate(&self.strip_storage.strips, paint, self.blend_mode, 0);
+        wide.generate(&self.strip_storage.strips, paint, self.blend_mode, 0, None);
     }
 
     // TODO: Explain how this is different to `push_clip_layer`.
@@ -285,7 +285,7 @@ impl Scene {
             self.clip_context.get(),
         );
 
-        wide.generate(&self.strip_storage.strips, paint, self.blend_mode, 0);
+        wide.generate(&self.strip_storage.strips, paint, self.blend_mode, 0, None);
     }
 
     /// Set the aliasing threshold.
@@ -740,8 +740,13 @@ impl Scene {
             "Invalid strip range: start={start}, end={end}, count={count}"
         );
         let paint = self.encode_current_paint();
-        self.wide
-            .generate(&adjusted_strips[start..end], paint, self.blend_mode, 0);
+        self.wide.generate(
+            &adjusted_strips[start..end],
+            paint,
+            self.blend_mode,
+            0,
+            None,
+        );
     }
 
     /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.

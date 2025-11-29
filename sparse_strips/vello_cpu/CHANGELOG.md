@@ -30,6 +30,9 @@ This release has an [MSRV][] of 1.88.
     Uses an optimized decimated blur algorithm with automatic downsampling for performance.
   - Drop Shadow filter with customizable offset, blur radius, and shadow color.
   - Flood filter for solid color fills.
+  - Added a `set_mask` method to make it possible to mask rendered
+    paths without inducing layer isolation ([#1237][] by [@LaurenzV])
+
 
 
 ### Known Limitations
@@ -75,6 +78,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 
 [#1159]: https://github.com/linebender/vello/pull/1159
 [#1203]: https://github.com/linebender/vello/pull/1203
+[#1237]: https://github.com/linebender/vello/pull/1237
 [#1286]: https://github.com/linebender/vello/pull/1286
 [Unreleased]: https://github.com/linebender/fearless_simd/compare/sparse-strips-v0.0.4...HEAD
 [0.0.4]: https://github.com/linebender/vello/compare/sparse-stips-v0.0.3...sparse-strips-v0.0.4

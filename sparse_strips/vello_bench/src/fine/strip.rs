@@ -58,6 +58,7 @@ fn strip_single<S: Simd, N: FineKernel<S>>(
             default_blend(),
             encoded_paints,
             Some(&alphas),
+            None,
         );
 
         std::hint::black_box(&fine);
