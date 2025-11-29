@@ -229,9 +229,12 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         let alpha_iter = alphas.map(|a| a.chunks_exact(4).map(|d| [d[0], d[1], d[2], d[3]]));
 
         let mask_iter = mask.map(|m| {
-            core::iter::from_fn(|| {
+            let width = m.width();
+            let height = m.height();
+            
+            core::iter::from_fn(move || {
                 let sample = |x: u16, y: u16| {
-                    if x < m.width() && y < m.height() {
+                    if x < width && y < height {
                         m.sample(x, y)
                     } else {
                         255
