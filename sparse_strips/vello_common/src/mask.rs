@@ -42,7 +42,7 @@ impl Mask {
         assert_eq!(
             data.len(),
             usize::from(width) * usize::from(height),
-            "Expected `data` to have length of exactly `width * height`"
+            "`data` should have `width * height` length"
         );
 
         Self(Arc::new(MaskRepr {
