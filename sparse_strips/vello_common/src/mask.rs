@@ -89,13 +89,13 @@ impl Mask {
     }
 
     /// Return the width of the mask.
-    #[inline]
+    #[inline(always)]
     pub fn width(&self) -> u16 {
         self.0.width
     }
 
     /// Return the height of the mask.
-    #[inline]
+    #[inline(always)]
     pub fn height(&self) -> u16 {
         self.0.height
     }
