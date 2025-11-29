@@ -442,8 +442,15 @@ fn stroke_scaled(ctx: &mut impl Renderer) {
 #[vello_test(no_ref)]
 fn test_cmd_size(_: &mut impl Renderer) {
     #[cfg(target_pointer_width = "64")]
-    assert_eq!(size_of::<Cmd>(), 56, "size of a command didn't match the expected value");
+    assert_eq!(
+        size_of::<Cmd>(),
+        56,
+        "size of a command didn't match the expected value"
+    );
     #[cfg(target_pointer_width = "32")]
-    panic!("test");
-    // assert_eq!(size_of::<Cmd>(), 56, "size of a command didn't match the expected value");
+    assert_eq!(
+        size_of::<Cmd>(),
+        56,
+        "size of a command didn't match the expected value"
+    );
 }
