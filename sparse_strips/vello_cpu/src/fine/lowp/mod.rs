@@ -190,9 +190,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                 simd,
                 dest,
                 src,
-                alphas
-                    .chunks_exact(8)
-                    .map(|d| [d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]]),
+                bytemuck::cast_slice::<u8, [u8; 8]>(alphas).iter().copied(),
             );
         } else {
             fill::alpha_composite_solid(simd, dest, src);
@@ -217,9 +215,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                 simd,
                 dest,
                 src_iter,
-                alphas
-                    .chunks_exact(8)
-                    .map(|d| [d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]]),
+                bytemuck::cast_slice::<u8, [u8; 8]>(alphas).iter().copied(),
             );
         } else {
             fill::alpha_composite(simd, dest, src_iter);
@@ -241,8 +237,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         mask: Option<&Mask>,
     ) {
         let alpha_iter = alphas.map(|a| {
-            a.chunks_exact(8)
-                .map(|d| [d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]])
+            bytemuck::cast_slice::<u8, [u8; 8]>(a).iter().copied()
         });
 
         let mask_iter = mask.map(|m| {

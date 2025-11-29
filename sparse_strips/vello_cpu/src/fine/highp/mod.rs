@@ -178,7 +178,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 simd,
                 dest,
                 src,
-                alphas.chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]),
+                bytemuck::cast_slice::<u8, [u8; 4]>(alphas).iter().copied()
             );
         } else {
             fill::alpha_composite_solid(simd, dest, src);
@@ -226,7 +226,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         alphas: Option<&[u8]>,
         mask: Option<&Mask>,
     ) {
-        let alpha_iter = alphas.map(|a| a.chunks_exact(4).map(|d| [d[0], d[1], d[2], d[3]]));
+        let alpha_iter = alphas.map(|a| bytemuck::cast_slice::<u8, [u8; 4]>(a).iter().copied());
 
         let mask_iter = mask.map(|m| {
             let width = m.width();
