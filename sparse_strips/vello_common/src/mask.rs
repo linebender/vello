@@ -14,7 +14,6 @@ struct MaskRepr {
     height: u16,
 }
 
-
 // Note that we are on purpose storing width and height inside the `Arc`
 // to reduce the memory footprint of the struct.
 /// A mask.

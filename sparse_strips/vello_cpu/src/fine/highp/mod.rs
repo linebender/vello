@@ -178,7 +178,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 simd,
                 dest,
                 src,
-                bytemuck::cast_slice::<u8, [u8; 4]>(alphas).iter().copied()
+                bytemuck::cast_slice::<u8, [u8; 4]>(alphas).iter().copied(),
             );
         } else {
             fill::alpha_composite_solid(simd, dest, src);
@@ -231,7 +231,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         let mask_iter = mask.map(|m| {
             let width = m.width();
             let height = m.height();
-            
+
             core::iter::from_fn(move || {
                 let samples = if start_x < width && start_y + 3 < height {
                     // All in bounds, sample directly
@@ -244,10 +244,26 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 } else {
                     // Fallback: check each individually
                     [
-                        if start_x < width && start_y < height { m.sample(start_x, start_y) } else { 255 },
-                        if start_x < width && start_y + 1 < height { m.sample(start_x, start_y + 1) } else { 255 },
-                        if start_x < width && start_y + 2 < height { m.sample(start_x, start_y + 2) } else { 255 },
-                        if start_x < width && start_y + 3 < height { m.sample(start_x, start_y + 3) } else { 255 },
+                        if start_x < width && start_y < height {
+                            m.sample(start_x, start_y)
+                        } else {
+                            255
+                        },
+                        if start_x < width && start_y + 1 < height {
+                            m.sample(start_x, start_y + 1)
+                        } else {
+                            255
+                        },
+                        if start_x < width && start_y + 2 < height {
+                            m.sample(start_x, start_y + 2)
+                        } else {
+                            255
+                        },
+                        if start_x < width && start_y + 3 < height {
+                            m.sample(start_x, start_y + 3)
+                        } else {
+                            255
+                        },
                     ]
                 };
 

@@ -236,9 +236,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         alphas: Option<&[u8]>,
         mask: Option<&Mask>,
     ) {
-        let alpha_iter = alphas.map(|a| {
-            bytemuck::cast_slice::<u8, [u8; 8]>(a).iter().copied()
-        });
+        let alpha_iter = alphas.map(|a| bytemuck::cast_slice::<u8, [u8; 8]>(a).iter().copied());
 
         let mask_iter = mask.map(|m| {
             iter::from_fn(|| {
