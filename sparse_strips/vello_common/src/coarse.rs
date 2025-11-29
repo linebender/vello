@@ -1605,7 +1605,7 @@ impl LayerCommandRanges {
 
 #[cfg(test)]
 mod tests {
-    use crate::coarse::{Cmd, LayerKind, MODE_CPU, Wide, WideTile};
+    use crate::coarse::{LayerKind, MODE_CPU, Wide, WideTile};
     use crate::color::AlphaColor;
     use crate::color::palette::css::TRANSPARENT;
     use crate::kurbo::Affine;
