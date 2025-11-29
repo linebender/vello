@@ -201,7 +201,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 simd,
                 dest,
                 src.chunks_exact(16).map(|el| f32x16::from_slice(simd, el)),
-                alphas.chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]),
+                bytemuck::cast_slice::<u8, [u8; 4]>(alphas).iter().copied(),
             );
         } else {
             fill::alpha_composite_arbitrary(
