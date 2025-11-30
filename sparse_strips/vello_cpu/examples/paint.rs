@@ -1,7 +1,7 @@
 //! Using gradients and patterns paints using Vello CPU.
 
-use std::sync::Arc;
 use std::path::Path;
+use std::sync::Arc;
 use vello_cpu::{
     Image, ImageSource, Pixmap, RenderContext,
     color::palette::css::{BLUE, CYAN, DEEP_PINK, MAGENTA, NAVY, ORANGE, PURPLE, WHITE, YELLOW},
@@ -12,15 +12,14 @@ use vello_cpu::{
     },
 };
 
-
 fn main() {
     // Apart from drawing shapes using a single color, you can also draw them
     // using gradients and image patterns.
-    
+
     let mut ctx = RenderContext::new(500, 500);
     let base_rect = Rect::new(25.0, 25.0, 225.0, 225.0);
 
-    // All you need to is to construct the given gradient/pattern and activate 
+    // All you need to is to construct the given gradient/pattern and activate
     // it by using the `set_paint` method. In this case, we are drawing a
     // linear gradient.
     ctx.set_paint(linear_gradient(&base_rect));
@@ -112,10 +111,11 @@ fn pattern() -> Image {
     // For patterns, you need to get access to a pixmap. You can either do this
     // by rendering your own pixmap or converting for example a png image into
     // one.
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/tests/assets/rgb_image_2x2.png");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vello_sparse_tests/tests/assets/rgb_image_2x2.png");
     let file = std::fs::read(path).unwrap();
     let pixmap = Pixmap::from_png(file.as_slice()).unwrap();
-    
+
     Image {
         // Note that only ImageSource::Pixmap is currently supported. Don't
         // use ImageSource::OpaqueId.

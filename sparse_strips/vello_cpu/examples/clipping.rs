@@ -95,7 +95,7 @@ fn main() {
     // operation will conceptually be stencil-masked through the intersection
     // of all currently active clip paths before being drawn onto the screen.
     // On the other hand, doing `push_clip_layer` will actually push a whole
-    // new isolated layer (see the `layers` example), and once you call
+    // new isolated layer, and once you call
     // `pop_layer`, the layer _as a whole_ will be clipped to the bounds of the
     // paths and composited back into the previous layer.
     //
@@ -111,7 +111,8 @@ fn main() {
     // Finally, it is also worth mentioning that according to your experiments,
     // non-isolated clipping is usually faster than isolated clipping, especially
     // on the CPU. Therefore, if you are still in doubt, it is recommended
-    // that you simply use the non-isolated method.
+    // that you simply use the non-isolated method. If necessary, you can easily
+    // just mix the two different methods as well.
     //
     // Another small note: Clip paths can actually be emulated using alpha
     // masks (see the masking example), so strictly speaking you don't need
