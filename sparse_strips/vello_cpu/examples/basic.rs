@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! This example demonstrates the most basic usage of Vello CPU, including
 //! fundamental features in 2D rendering like filling, stroking and applying
 //! transforms.
@@ -88,7 +91,7 @@ fn main() {
     // can also paint your shapes using gradients or patterns (see the `paints`
     // example). In this case, we are setting the color to blue.
     ctx.set_paint(BLUE);
-    // Now, we can dispatch a commands, for example to fill a reactangle with
+    // Now, we can dispatch a commands, for example to fill a rectangle with
     // the given dimensions.
     ctx.fill_path(&Rect::new(25.0, 25.0, 75.0, 75.0).to_path(0.1));
 

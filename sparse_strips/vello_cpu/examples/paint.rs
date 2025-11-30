@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Using gradients and patterns paints using Vello CPU.
 
 use std::path::Path;

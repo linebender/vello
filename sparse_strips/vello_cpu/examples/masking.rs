@@ -1,3 +1,6 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Using masks with Vello CPU.
 
 use vello_cpu::color::palette::css::{BLUE, RED, WHITE};
