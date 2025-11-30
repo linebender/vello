@@ -16,8 +16,8 @@ fn main() {
 
     // Two example clip shapes. They have a small overlap in the center that forms
     // an ellipse.
-    let mut clip_1 = Circle::new((75.0, 75.0), 50.0).to_path(0.1);
-    let mut clip_2 = Circle::new((125.0, 75.0), 50.0).to_path(0.1);
+    let clip_1 = Circle::new((75.0, 75.0), 50.0).to_path(0.1);
+    let clip_2 = Circle::new((125.0, 75.0), 50.0).to_path(0.1);
 
     // Method 1: Non-isolated clipping using the `push_clip_path` and
     // `pop_clip_path` methods:
