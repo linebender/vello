@@ -14,7 +14,7 @@ use vello_cpu::{
 };
 
 fn main() {
-    // vello_cpu is a CPU-based 2D renderer. It takes drawing commands like
+    // Vello CPU is a CPU-based 2D renderer. It takes drawing commands like
     // "fill a rectangle" or "stroke a triangle" as input and rasterizes
     // them into a bitmap with premultiplied RGBA pixels, which can then
     // be further processed (for example by converting to PNG or displaying
@@ -24,13 +24,13 @@ fn main() {
     let settings = RenderSettings {
         // The `level` field indicates what SIMD level should be used. In
         // the vast majority of cases, you should just use `Level::new` so that
-        // vello_cpu automatically uses an appropriate level that is
+        // Vello CPU automatically uses an appropriate level that is
         // available on the host system.
         //
         // There are very few reasons to override that value. One instance where
-        // it might be useful to override is for example when using vello_cpu
+        // it might be useful to override is for example when using Vello CPU
         // to create reference images for test suites. In that case, you could
-        // pass `Level::fallback`, which indicates to vello_cpu that no
+        // pass `Level::fallback`, which indicates to Vello CPU that no
         // platform-specific SIMD intrinsics should be used. This might be useful
         // because it reduces the possibility of slight pixel differences when
         // running on different platforms.
