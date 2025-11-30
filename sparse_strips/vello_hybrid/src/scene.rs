@@ -231,8 +231,10 @@ impl Scene {
         wide.generate(&self.strip_storage.strips, paint, self.blend_mode, 0, None);
     }
 
-    // TODO: Explain how this is different to `push_clip_layer`.
     /// Push a new clip path to the clip stack.
+    ///
+    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
+    /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
         self.clip_context.push_clip(
             path,
@@ -368,6 +370,9 @@ impl Scene {
     }
 
     /// Push a new clip layer.
+    ///
+    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
+    /// example for how this method differs from `push_clip_path`.
     pub fn push_clip_layer(&mut self, path: &BezPath) {
         self.push_layer(Some(path), None, None, None, None);
     }

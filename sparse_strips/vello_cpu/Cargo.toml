@@ -47,3 +47,19 @@ text = ["vello_common/text"]
 
 [lints]
 workspace = true
+
+[[example]]
+name = "basic"
+required-features = ["png", "std"]
+
+[[example]]
+name = "clipping"
+required-features = ["png", "std"]
+
+[[example]]
+name = "masking"
+required-features = ["png", "std"]
+
+[[example]]
+name = "paints"
+required-features = ["png", "std"]

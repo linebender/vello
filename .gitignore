@@ -2,6 +2,7 @@
 /debug.svg
 /svg.png
 /trace.json
+/example_*.png
 .DS_Store
 
 examples/assets/downloads/*
