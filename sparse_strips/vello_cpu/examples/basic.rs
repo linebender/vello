@@ -1,4 +1,4 @@
-//! This example demonstrates the most basic usage of vello_cpu, including
+//! This example demonstrates the most basic usage of Vello CPU, including
 //! fundamental features in 2D rendering like filling, stroking and applying
 //! transforms.
 
@@ -59,17 +59,17 @@ fn main() {
         render_mode: RenderMode::OptimizeSpeed,
     };
 
-    // vello_cpu embraces a slightly different paradigm than a lot of other 2D
+    // Vello CPU embraces a slightly different paradigm than a lot of other 2D
     // renderers. Many 2D renderers use _immediate mode rendering_, where
     // you create a single `Pixmap` and then dispatch rendering commands into
-    // it. In `vello_cpu`, there are two components instead.
+    // it. In Vello CPU, there are two components instead.
     //
     // The first component is the `RenderContext`, which can be thought of as
     // a reusable buffer for dispatching rendering commands. The `reusable`
     // part is important: In situations where you are executing multiple
     // rendering passes at the same resolution, you should reset the context
     // and reuse it instead of always creating a new one, as will be shown below.
-    // This is important because it allows vello_cpu to reuse existing memory
+    // This is important because it allows Vello CPU to reuse existing memory
     // allocations, leading to better performance.
     //
     // The second component is then the `Pixmap`, which simply acts as a storage
@@ -79,7 +79,7 @@ fn main() {
     // width and height in pixels, as well as our render settings.
     let mut ctx = RenderContext::new_with(100, 100, settings);
 
-    // vello_cpu uses a Postscript-like API, where you can use methods like
+    // Vello CPU uses a Postscript-like API, where you can use methods like
     // `set_paint` or `set_stroke` to update an internal state, and then
     // dispatch commands to fill or stroke paths, using the current state.
 
@@ -112,7 +112,7 @@ fn main() {
     //
     // However, it is highly recommended that you always call this.
     // This way, downstream consumers of your crate that might have externally
-    // enabled vello_cpu's multi-threading feature won't run into panics when
+    // enabled Vello CPU's multi-threading feature won't run into panics when
     // running your code.
     ctx.flush();
 
@@ -137,11 +137,11 @@ fn main() {
     // a new one.
     ctx.reset();
 
-    // vello_cpu supports arbitrary affine transformations.
+    // Vello CPU supports arbitrary affine transformations.
     ctx.set_transform(Affine::scale(3.0));
     ctx.set_paint(YELLOW);
     // The rectangle will now actually have the dimensions 60x60 since we
-    // applied an affine transformation to the context.
+    // applied an affine transform that scales everything by 3x to the context.
     ctx.fill_rect(&Rect::new(0.0, 0.0, 20.0, 20.0));
     ctx.flush();
 
