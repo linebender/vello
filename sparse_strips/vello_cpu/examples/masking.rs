@@ -4,7 +4,7 @@
 //! Using masks with Vello CPU.
 
 use vello_cpu::color::palette::css::{BLUE, RED, WHITE};
-use vello_cpu::kurbo::{Affine, Rect};
+use vello_cpu::kurbo::Rect;
 use vello_cpu::{Mask, Pixmap, RenderContext};
 
 const SIZE: u16 = 200;

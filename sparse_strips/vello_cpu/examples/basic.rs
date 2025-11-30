@@ -123,17 +123,17 @@ fn main() {
     // pixmap. We do this by creating a new pixmap (or reusing an existing one).
     // Please note that the pixmap and the render context need to have the same
     // dimensions! Otherwise, the renderer will panic.
-    let mut pixmap = Pixmap::new(100, 100);
+    let mut pixmap_1 = Pixmap::new(100, 100);
     // Now, simply extract the results from the render context into the
     // pixmap.
-    ctx.render_to_pixmap(&mut pixmap);
+    ctx.render_to_pixmap(&mut pixmap_1);
 
     // Now you can do whatever you want with the pixmap, which provides raw
     // access to the premultiplied RGBA pixels of the image. If you have enabled
     // the `png` feature, you can convert it into a PNG image very easily and
     // then save it to disk.
-    let png = pixmap.into_png().unwrap();
-    std::fs::write("example_basic1.png", png).unwrap();
+    let png_1 = pixmap_1.into_png().unwrap();
+    std::fs::write("example_basic1.png", png_1).unwrap();
 
     // If you have another scene you want to draw at the same resolution,
     // you can simply reuse the existing render context instead of creating
@@ -153,8 +153,8 @@ fn main() {
     // dimension), since all previous pixels in the pixmap will be
     // discarded. In our case, we need to create a new one since our call
     // to `into_png` consumed the pixmap.
-    let mut pixmap = Pixmap::new(100, 100);
-    ctx.render_to_pixmap(&mut pixmap);
-    let png = pixmap.into_png().unwrap();
-    std::fs::write("example_basic2.png", png).unwrap();
+    let mut pixmap_2 = Pixmap::new(100, 100);
+    ctx.render_to_pixmap(&mut pixmap_2);
+    let png_2 = pixmap_2.into_png().unwrap();
+    std::fs::write("example_basic2.png", png_2).unwrap();
 }

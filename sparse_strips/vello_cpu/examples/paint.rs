@@ -72,6 +72,7 @@ fn linear_gradient(rect: &Rect) -> Gradient {
 
 fn radial_gradient(rect: &Rect) -> Gradient {
     let center = rect.center();
+    #[allow(clippy::cast_possible_truncation, reason = "necessary for conversion")]
     let radius = (rect.width().min(rect.height()) * 0.5) as f32;
     Gradient {
         kind: RadialGradientPosition {
