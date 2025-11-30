@@ -355,7 +355,7 @@ impl RenderContext {
     /// Push a new clip layer.
     ///
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
-    /// for how this method differs from `push_clip_path`.
+    /// example for how this method differs from `push_clip_path`.
     pub fn push_clip_layer(&mut self, path: &BezPath) {
         self.push_layer(Some(path), None, None, None, None);
     }
@@ -370,11 +370,12 @@ impl RenderContext {
         self.push_layer(None, None, Some(opacity), None, None);
     }
 
-    /// Push a new mask layer.
+    /// Push a new mask layer. The mask needs to have the same dimensions as the
+    /// render context. The mask will not be affected by the current transform
+    /// in place.
     ///
-    /// Note that the mask, if provided, needs to have the same size as the render context. Otherwise,
-    /// it will be ignored. In addition to that, the mask will not be affected by the current
-    /// transformation matrix in place.
+    /// See the explanation in the [masking](https://github.com/linebender/vello/tree/main/sparse_strips/masking/examples)
+    /// example for how this method differs from `set_mask`.
     pub fn push_mask_layer(&mut self, mask: Mask) {
         self.push_layer(None, None, None, Some(mask), None);
     }
@@ -458,8 +459,12 @@ impl RenderContext {
         self.fill_rule = fill_rule;
     }
 
-    // TODO: Add explanation on how this differs to layer masks.
-    /// Set the mask to use for path-painting operations.
+    /// Set the mask to use for path-painting operations. The mask needs to
+    /// have the same dimensions as the render context. The mask will not be
+    /// affected by the current transform in place.
+    ///
+    /// See the explanation in the [masking](https://github.com/linebender/vello/tree/main/sparse_strips/masking/examples)
+    /// example for how this method differs from `push_mask_layer`.
     pub fn set_mask(&mut self, mask: Mask) {
         self.mask = Some(mask);
     }
@@ -517,7 +522,7 @@ impl RenderContext {
     /// Push a new clip path to the clip stack.
     ///
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
-    /// for how this method differs from `push_clip_layer`.
+    /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
         self.dispatcher.push_clip_path(
             path,
