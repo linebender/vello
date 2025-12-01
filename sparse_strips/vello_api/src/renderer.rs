@@ -3,11 +3,13 @@
 
 //! The [`Renderer`] trait, which manages resources for 2d rendering.
 
+use alloc::sync::Arc;
 use core::any::Any;
 
 use crate::{
     PaintScene, SceneOptions,
-    path_set::PathSet,
+    paths::{PathGroup, PathGroupId, PathSet},
+    sync::Share,
     texture::{TextureDescriptor, TextureId},
 };
 
@@ -75,36 +77,47 @@ use crate::{
 ///    expected to be short, i.e. no/very little actual rendering work happens on the main thread.
 ///
 /// The reason to do things that way is to make `Arc<dyn AnyRenderer>` clearly first-class (even if you're internally downcasting to convert into generics?)
-pub trait Renderer: Any {
+pub trait Renderer: Any + Share {
     /// The `ScenePainter` is the encoder for rendering commands.
-    type ScenePainter: PaintScene;
+    type ScenePainter: PaintScene
+    where
+        Self: Sized;
 
     /// Create a texture for use in renders with this device.
-    fn create_texture(&mut self, descriptor: TextureDescriptor) -> TextureId;
-
+    fn alloc_texture_raw(&self, descriptor: TextureDescriptor) -> TextureId;
     // Error if the texture was already freed/not associated with this renderer.
-    fn free_texture(&mut self, texture: TextureId) -> Result<(), ()>;
+    fn free_texture_raw(&self, texture: TextureId) -> Result<(), ()>;
     // TODO: Texture resizing? Reasonable reasons to not do that include cannot resize wgpu textures
     // Also what does that mean for existing content, etc.
+
+    // TODO: Better error kinds.
+    fn upload_image(&self, to: &TextureId, data: &peniko::ImageData) -> Result<(), ()>;
+
+    fn upload_paths(&self, paths: &mut PathSet) -> PathGroup
+    where
+        Self: Send + Sync,
+    {
+        let id = self.upload_paths_raw(paths);
+        PathGroup::new(self.as_dyn_arc(), id)
+    }
+
+    fn as_arc(&self) -> Arc<Self>
+    where
+        Self: Sized;
+    fn as_dyn_arc(&self) -> Arc<dyn Renderer + Send + Sync>;
+
+    // TODO: Reason about how we want downloads to work.
+    // fn queue_download(&self, of: &TextureId) -> DownloadId;
+    fn upload_paths_raw(&self, paths: &mut PathSet) -> PathGroupId;
+    fn free_paths(&self, group: PathGroupId);
 
     // fn create_mask(descriptor: MaskOperation) -> Mask;
     // fn mask_from_scene(from: &Texture, to: &Scene, MaskDescriptor { subset_rect });
 
-    fn create_scene(
-        &mut self,
-        to: &TextureId,
-        options: SceneOptions,
-    ) -> Result<Self::ScenePainter, ()>;
-    fn queue_render(&mut self, from: Self::ScenePainter);
-
-    // TODO: Reason about how we want downloads to work.
-    // fn queue_download(&mut self, of: &TextureId) -> DownloadId;
-    fn cache_paths(&mut self, paths: &mut PathSet) -> PathGroup;
-    fn free_paths(&mut self, group: PathGroup);
-
-    // TODO: Better error kinds.
-    fn upload_image(&mut self, to: &TextureId, data: &peniko::ImageData) -> Result<(), ()>;
+    fn create_scene(&self, to: &TextureId, options: SceneOptions) -> Result<Self::ScenePainter, ()>
+    where
+        Self: Sized;
+    fn queue_render(&self, from: Self::ScenePainter)
+    where
+        Self: Sized;
 }
-
-#[derive(Debug)]
-pub struct PathGroup(pub u32);
