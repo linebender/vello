@@ -3,15 +3,12 @@
 
 use core::any::Any;
 
-use peniko::kurbo::{self, Affine, BezPath, Rect, Shape, Stroke};
+use peniko::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
 
 use crate::texture::TextureId;
 
 pub trait PaintScene: Any {
-    fn width(&self) -> u16;
-    fn height(&self) -> u16;
-
     fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape);
     fn stroke_path(&mut self, transform: Affine, stroke_params: &Stroke, path: impl Shape);
 
@@ -60,12 +57,12 @@ pub trait PaintScene: Any {
     // This can be accessed through downcasting:
     // fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>);
     // TODO: What does this mean?
-    fn set_blend_mode(&mut self, blend_mode: BlendMode);
+    // fn set_blend_mode(&mut self, blend_mode: BlendMode);
 
     // TODO: Do we want this exposed?
     // TODO: &impl Shape?
-    fn push_clip_path(&mut self, path: &kurbo::BezPath);
-    fn pop_clip_path(&mut self);
+    // fn push_clip_path(&mut self, path: &kurbo::BezPath);
+    // fn pop_clip_path(&mut self);
 
     fn push_layer(
         &mut self,
@@ -76,7 +73,11 @@ pub trait PaintScene: Any {
         // mask: Option<Mask>,
         // filter: Option<Filter>
     );
-    fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape);
+
+    // TODO: Do we need all of these?
+    fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape) {
+        self.push_layer(clip_transform, Some(path), None, None);
+    }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
         self.push_layer(

@@ -7,6 +7,8 @@ use peniko::{
     kurbo::{Affine, PathEl, Shape, Stroke},
 };
 
+use crate::paths::StoredPathId;
+
 #[derive(Debug)]
 pub struct PathSet {
     pub elements: Vec<PathEl>,
@@ -39,7 +41,7 @@ impl PathSet {
         fill_rule: Fill,
         meta: PreparedPathMeta,
         shape: &impl Shape,
-    ) -> usize {
+    ) -> StoredPathId {
         let start_index = self.elements.len();
         // TODO: Determine the optimal tolerance from the transform.
         self.elements.extend(shape.path_elements(0.1));
@@ -50,7 +52,7 @@ impl PathSet {
             operation: Operation::Fill(fill_rule),
         });
 
-        meta_index
+        StoredPathId::local(meta_index)
     }
 
     // TODO: Maybe require stroke expansion happen *prior* to this stage?
@@ -59,7 +61,7 @@ impl PathSet {
         stroke_rule: Stroke,
         meta: PreparedPathMeta,
         shape: &impl Shape,
-    ) -> usize {
+    ) -> StoredPathId {
         let start_index = self.elements.len();
         // TODO: Determine the optimal tolerance from the transform.
         self.elements.extend(shape.path_elements(0.1));
@@ -70,7 +72,7 @@ impl PathSet {
             operation: Operation::Stroke(stroke_rule),
         });
 
-        meta_index
+        StoredPathId::local(meta_index)
     }
 }
 
@@ -90,9 +92,6 @@ pub struct PathMeta {
 #[derive(Debug)]
 pub struct PreparedPathMeta {
     pub transform: Affine,
-    // TODO: Do we need these properties?
-    pub width: u16,
-    pub height: u16,
     pub x_offset: i32,
     pub y_offset: i32,
 }
