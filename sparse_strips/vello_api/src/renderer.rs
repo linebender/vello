@@ -4,7 +4,7 @@
 //! The [`Renderer`] trait, which manages resources for 2d rendering.
 
 use alloc::sync::Arc;
-use core::any::Any;
+use core::{any::Any, fmt::Debug};
 
 use crate::{
     PaintScene, SceneOptions,
@@ -77,7 +77,7 @@ use crate::{
 ///    expected to be short, i.e. no/very little actual rendering work happens on the main thread.
 ///
 /// The reason to do things that way is to make `Arc<dyn AnyRenderer>` clearly first-class (even if you're internally downcasting to convert into generics?)
-pub trait Renderer: Any + Share {
+pub trait Renderer: Any + Debug + Share {
     /// The `ScenePainter` is the encoder for rendering commands.
     type ScenePainter: PaintScene
     where
@@ -121,3 +121,5 @@ pub trait Renderer: Any + Share {
     where
         Self: Sized;
 }
+
+// impl dyn Renderer {fn downcast} ?

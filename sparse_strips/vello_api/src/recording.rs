@@ -8,18 +8,19 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use alloc::vec::Vec;
+use alloc::{sync::Arc, vec::Vec};
 use peniko::{BlendMode, kurbo::Affine};
 
-use crate::{PaintScene, paths::PathSet, texture::TextureId};
-
-#[derive(Debug, Clone)]
-pub struct PathIndex(pub usize);
+use crate::{
+    PaintScene, Renderer,
+    paths::{PathSet, StoredPathId},
+    texture::TextureId,
+};
 
 #[derive(Debug)]
 pub enum RenderCommand {
     /// Draw a path with the current brush.
-    DrawPath(PathIndex),
+    DrawPath(StoredPathId),
     /// Push a new layer with optional clipping and effects.
     PushLayer(PushLayerCommand),
     /// Pop the current layer.
@@ -32,7 +33,7 @@ pub enum RenderCommand {
 #[derive(Debug, Clone)]
 pub struct PushLayerCommand {
     /// Clip path.
-    pub clip_path: Option<PathIndex>,
+    pub clip_path: Option<StoredPathId>,
     /// Blend mode.
     pub blend_mode: Option<BlendMode>,
     /// Opacity.
@@ -51,11 +52,13 @@ pub struct Scene {
     height: u16,
     origin_x_offset: i32,
     origin_y_offset: i32,
+    renderer: Arc<dyn Renderer>,
 }
 
 impl Scene {
-    pub fn new() -> Self {
+    pub fn new(renderer: Arc<dyn Renderer>) -> Self {
         Self {
+            renderer,
             paths: PathSet::new(),
             commands: Vec::new(),
             height: 0,
@@ -82,12 +85,6 @@ impl Scene {
     }
 }
 
-impl Default for Scene {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 pub type OurBrush = peniko::Brush<peniko::ImageBrush<TextureId>>;
 
 #[expect(
@@ -97,19 +94,22 @@ pub type OurBrush = peniko::Brush<peniko::ImageBrush<TextureId>>;
     reason = "Incomplete implementation, needs to exist for Vellos API and Hybrid to type check."
 )]
 impl PaintScene for Scene {
-    fn width(&self) -> u16 {
-        todo!()
-    }
-    fn height(&self) -> u16 {
-        todo!()
-    }
     fn fill_path(
         &mut self,
         transform: peniko::kurbo::Affine,
         fill_rule: peniko::Fill,
         path: impl peniko::kurbo::Shape,
     ) {
-        todo!()
+        let idx = self.paths.prepare_fill(
+            fill_rule,
+            crate::paths::PreparedPathMeta {
+                transform,
+                x_offset: 0,
+                y_offset: 0,
+            },
+            &path,
+        );
+        self.commands.push(RenderCommand::DrawPath(idx));
     }
     fn stroke_path(
         &mut self,
@@ -117,7 +117,16 @@ impl PaintScene for Scene {
         stroke_params: &peniko::kurbo::Stroke,
         path: impl peniko::kurbo::Shape,
     ) {
-        todo!()
+        let idx = self.paths.prepare_stroke(
+            stroke_params.clone(),
+            crate::paths::PreparedPathMeta {
+                transform,
+                x_offset: 0,
+                y_offset: 0,
+            },
+            &path,
+        );
+        self.commands.push(RenderCommand::DrawPath(idx));
     }
     fn set_brush(
         &mut self,
@@ -125,8 +134,10 @@ impl PaintScene for Scene {
         // transform: peniko::kurbo::Affine,
         paint_transform: peniko::kurbo::Affine,
     ) {
-        todo!()
+        self.commands
+            .push(RenderCommand::SetPaint(paint_transform, brush.into()));
     }
+
     fn set_blurred_rounded_rect_brush(
         &mut self,
         paint_transform: peniko::kurbo::Affine,
@@ -137,15 +148,6 @@ impl PaintScene for Scene {
     ) {
         todo!()
     }
-    fn set_blend_mode(&mut self, blend_mode: peniko::BlendMode) {
-        todo!()
-    }
-    fn push_clip_path(&mut self, path: &peniko::kurbo::BezPath) {
-        todo!()
-    }
-    fn pop_clip_path(&mut self) {
-        todo!()
-    }
     fn push_layer(
         &mut self,
         clip_transform: peniko::kurbo::Affine,
@@ -154,17 +156,29 @@ impl PaintScene for Scene {
         opacity: Option<f32>,
         // mask: Option<Mask>,
     ) {
-        todo!()
-    }
-    fn push_clip_layer(
-        &mut self,
-        clip_transform: peniko::kurbo::Affine,
-        path: impl peniko::kurbo::Shape,
-    ) {
-        todo!()
+        let clip_idx = if let Some(clip_path) = clip_path {
+            Some(self.paths.prepare_fill(
+                // TODO?
+                peniko::Fill::NonZero,
+                crate::paths::PreparedPathMeta {
+                    transform: clip_transform,
+                    x_offset: 0,
+                    y_offset: 0,
+                },
+                &clip_path,
+            ))
+        } else {
+            None
+        };
+        self.commands
+            .push(RenderCommand::PushLayer(PushLayerCommand {
+                clip_path: clip_idx,
+                blend_mode,
+                opacity,
+            }));
     }
     fn pop_layer(&mut self) {
-        todo!()
+        self.commands.push(RenderCommand::PopLayer);
     }
 }
 
