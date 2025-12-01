@@ -31,7 +31,7 @@ pub fn test_scenes() -> SceneSet {
 
 /// A macro which exports each passed scene indivudally
 ///
-/// This is used to avoid having to repetetively define both a function for
+/// This is used to avoid having to repetitively define both a function for
 /// each test scene, and adding them to an enumeration.
 /// Format is `fn $scene_name([arguments to scene!])`.
 /// See the branches of `scene!` for full details.
