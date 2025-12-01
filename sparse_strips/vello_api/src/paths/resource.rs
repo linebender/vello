@@ -4,12 +4,9 @@
 use alloc::sync::Arc;
 use core::{fmt::Debug, hash::Hash};
 
-use crate::Renderer;
+use crate::{Renderer, paths::PathGroupId};
 
-#[derive(Debug, Clone, Copy)]
-pub struct PathGroupId(pub u32);
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PathGroup {
     inner: Arc<PathGroupInner>,
 }
@@ -17,6 +14,11 @@ pub struct PathGroup {
 impl PathGroup {
     pub fn id(&self) -> PathGroupId {
         self.inner.id
+    }
+
+    // Probably return a structure instead.
+    pub fn with(&self, index: u32) -> (Self, u32) {
+        (self.clone(), index)
     }
 
     pub(crate) fn new(renderer: Arc<dyn Renderer>, id: PathGroupId) -> Self {
@@ -39,7 +41,6 @@ impl PartialEq for PathGroup {
 impl Eq for PathGroup {}
 
 struct PathGroupInner {
-    // TODO: Maybe `Rc` for LocalPathGroup?
     renderer: Arc<dyn Renderer>,
     id: PathGroupId,
 }
