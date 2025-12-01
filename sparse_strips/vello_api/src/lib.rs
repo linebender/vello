@@ -76,8 +76,9 @@ mod painter;
 mod renderer;
 
 pub mod dynamic;
-pub mod path_set;
+pub mod paths;
 pub mod recording;
+pub mod sync;
 pub mod texture;
 
 pub use self::painter::{PaintScene, SceneOptions};

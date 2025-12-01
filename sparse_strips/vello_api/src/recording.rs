@@ -11,7 +11,7 @@
 use alloc::vec::Vec;
 use peniko::{BlendMode, kurbo::Affine};
 
-use crate::{PaintScene, path_set::PathSet, texture::TextureId};
+use crate::{PaintScene, paths::PathSet, texture::TextureId};
 
 #[derive(Debug, Clone)]
 pub struct PathIndex(pub usize);
