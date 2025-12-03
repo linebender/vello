@@ -6,9 +6,12 @@ use core::any::Any;
 use peniko::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
 
+use crate::recording::Scene;
 use crate::texture::TextureId;
 
 pub trait PaintScene: Any {
+    fn append(&mut self, scene: &Scene);
+
     fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape);
     fn stroke_path(&mut self, transform: Affine, stroke_params: &Stroke, path: impl Shape);
 
