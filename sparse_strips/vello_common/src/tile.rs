@@ -9,8 +9,6 @@ use alloc::vec::Vec;
 use fearless_simd::Level;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
-use std::println;
-use std::string::{String, ToString};
 
 /// The max number of lines per path.
 ///
@@ -224,36 +222,6 @@ pub struct Tiles {
     tile_buf: Vec<Tile>,
     level: Level,
     sorted: bool,
-}
-
-fn format_mask(mask: u32) -> String {
-    let mut parts = Vec::new();
-
-    // Check bits from MSB (Winding) to LSB (Top)
-    if (mask & 0b100000) != 0 {
-        parts.push("W");
-    } // Winding
-    if (mask & 0b010000) != 0 {
-        parts.push("P");
-    } // Perfect Corner
-    if (mask & 0b001000) != 0 {
-        parts.push("R");
-    } // Right
-    if (mask & 0b000100) != 0 {
-        parts.push("L");
-    } // Left
-    if (mask & 0b000010) != 0 {
-        parts.push("B");
-    } // Bottom
-    if (mask & 0b000001) != 0 {
-        parts.push("T");
-    } // Top
-
-    if parts.is_empty() {
-        " ".to_string()
-    } else {
-        parts.join(" | ")
-    }
 }
 
 impl Tiles {
@@ -547,8 +515,8 @@ impl Tiles {
                                 let x_start_f = x_start as f32;
                                 let x_right_f = (x_start + 1) as f32;
 
-                                // TODO Verify all cases of bottom left tiebreaking. Preliminary
-                                // testing appears to be fine.
+                                // TODO Verify all cases of bottom left tiebreaking with downstream
+                                // rasterization. Preliminary testing appears to be fine?
                                 // TODO SIMD here!
                                 let trc = ((line_row_top_x == x_right_f) as u32) & !start_tile;
                                 let tlc = ((line_row_top_x == x_start_f) as u32) & !start_tile;
@@ -666,7 +634,6 @@ mod tests {
 
     const GEN_INT_MASK: bool = true;
 
-    // The winding bit is now bit 5 (0b100000)
     const W: u32 = 0b100000;
     const P: u32 = 0b010000;
     const R: u32 = 0b001000;
@@ -996,14 +963,18 @@ mod tests {
     #[test]
     fn horizontal_line_crossing_right_viewport() {
         let lines = [Line {
-            p0: Point { x: 15.0, y: 10.0 },
-            p1: Point { x: 25.0, y: 10.0 },
+            p0: Point {
+                x: F_V_DIM - 5.0,
+                y: 10.0,
+            },
+            p1: Point {
+                x: F_V_DIM + 5.0,
+                y: 10.0,
+            },
         }];
 
-        // TODO change to VIEW_DIM
-        // Note: This test uses a width of 20, not VIEW_DIM (100)
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, 20, VIEW_DIM);
+        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [Tile::new(3, 2, 0, R), Tile::new(4, 2, 0, L | R)];
 
