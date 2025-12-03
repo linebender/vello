@@ -27,6 +27,8 @@ pub enum RenderCommand {
     PopLayer,
     /// Set the current paint.
     SetPaint(Affine, OurBrush),
+    /// Set the current paint.
+    BlurredRoundedRectPaint(BlurredRoundedRectBrush),
 }
 
 /// Command for pushing a new layer.
@@ -42,6 +44,15 @@ pub struct PushLayerCommand {
     // pub mask: Option<crate::renderer::Mask>,
     // /// Filter.
     // pub filter: Option<Filter>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlurredRoundedRectBrush {
+    pub paint_transform: peniko::kurbo::Affine,
+    pub color: peniko::Color,
+    pub rect: peniko::kurbo::Rect,
+    pub radius: f32,
+    pub std_dev: f32,
 }
 
 #[derive(Debug)]
@@ -87,12 +98,6 @@ impl Scene {
 
 pub type OurBrush = peniko::Brush<peniko::ImageBrush<TextureId>>;
 
-#[expect(
-    unused_variables,
-    clippy::todo,
-    // There aren't any huge unknowns with writing this implementation, so it's fine to leave incomplete.
-    reason = "Incomplete implementation, needs to exist for Vellos API and Hybrid to type check."
-)]
 impl PaintScene for Scene {
     fn fill_path(
         &mut self,
@@ -146,7 +151,15 @@ impl PaintScene for Scene {
         radius: f32,
         std_dev: f32,
     ) {
-        todo!()
+        self.commands.push(RenderCommand::BlurredRoundedRectPaint(
+            BlurredRoundedRectBrush {
+                paint_transform,
+                color,
+                rect: *rect,
+                radius,
+                std_dev,
+            },
+        ));
     }
     fn push_layer(
         &mut self,

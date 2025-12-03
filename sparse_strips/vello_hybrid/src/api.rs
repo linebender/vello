@@ -30,14 +30,6 @@ pub struct HybridScenePainter {
 }
 
 impl PaintScene for HybridScenePainter {
-    fn width(&self) -> u16 {
-        self.scene.width()
-    }
-
-    fn height(&self) -> u16 {
-        self.scene.height()
-    }
-
     fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape) {
         self.scene.set_transform(transform);
         self.scene.set_fill_rule(fill_rule);
@@ -83,10 +75,6 @@ impl PaintScene for HybridScenePainter {
         unimplemented!("Vello Hybrid doesn't expose drawing blurred rounded rectangles yet.")
     }
 
-    fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        self.scene.set_blend_mode(blend_mode);
-    }
-
     fn push_layer(
         &mut self,
         clip_transform: Affine,
@@ -115,13 +103,5 @@ impl PaintScene for HybridScenePainter {
 
     fn pop_layer(&mut self) {
         self.scene.pop_layer();
-    }
-
-    fn push_clip_path(&mut self, path: &kurbo::BezPath) {
-        self.scene.push_clip_path(path);
-    }
-
-    fn pop_clip_path(&mut self) {
-        self.scene.pop_clip_path();
     }
 }
