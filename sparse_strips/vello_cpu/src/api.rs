@@ -4,11 +4,14 @@
 #![expect(missing_docs, reason = "This code is incomplete.")]
 #![expect(clippy::result_unit_err, reason = "This code is incomplete.")]
 
+use std::sync::Weak;
+
 use alloc::sync::Arc;
 
 use hashbrown::HashMap;
 use vello_api::{
     PaintScene, Renderer,
+    sync::Lock,
     texture::{self, TextureId, TextureUsages},
 };
 use vello_common::{
@@ -22,25 +25,35 @@ use vello_common::{
 use crate::{RenderContext, RenderSettings};
 
 #[derive(Debug)]
-pub struct VelloCPU {
+struct VelloCPUContents {
     default_render_settings: RenderSettings,
     // TODO: Evaluate whether to use generational(?) indexing instead of a HashMap
     texture_id_source: u64,
     textures: HashMap<TextureId, StoredTexture>,
 }
 
+#[derive(Debug)]
+pub struct VelloCPU {
+    inner: Lock<VelloCPUContents>,
+    this: Weak<VelloCPU>,
+}
+
 impl VelloCPU {
-    pub fn new(default_render_settings: RenderSettings) -> Self {
-        Self {
-            default_render_settings,
-            textures: HashMap::new(),
-            texture_id_source: 0,
-        }
+    pub fn new(default_render_settings: RenderSettings) -> Arc<Self> {
+        Arc::new_cyclic(|this| Self {
+            inner: Lock::new(VelloCPUContents {
+                default_render_settings,
+                texture_id_source: 0,
+                textures: HashMap::new(),
+            }),
+            this: this.clone(),
+        })
     }
 
-    pub fn read_texture(&self, texture: &TextureId) -> Result<&Pixmap, ()> {
-        Ok(&self.textures.get(texture).ok_or(())?.pixmap)
-    }
+    // TODO: Find a signature which works here?
+    // pub fn read_texture(&self, texture: &TextureId) -> Result<&Pixmap, ()> {
+    //     Ok(&self.textures.get(texture).ok_or(())?.pixmap)
+    // }
 }
 
 impl Renderer for VelloCPU {
