@@ -9,7 +9,7 @@ use core::{any::Any, fmt::Debug};
 use crate::{
     PaintScene, SceneOptions,
     sync::Share,
-    texture::{TextureDescriptor, TextureId},
+    texture::{TextureDescriptor, TextureHandle, TextureId},
 };
 
 // TODO: Maybe?
@@ -82,6 +82,11 @@ pub trait Renderer: Any + Debug + Share {
     where
         Self: Sized;
 
+    fn create_texture(&self, descriptor: TextureDescriptor) -> TextureHandle {
+        let id = self.alloc_texture_raw(descriptor);
+        TextureHandle::new(self.as_dyn_arc(), id)
+    }
+
     /// Create a texture for use in renders with this device.
     fn alloc_texture_raw(&self, descriptor: TextureDescriptor) -> TextureId;
     // Error if the texture was already freed/not associated with this renderer.
@@ -90,6 +95,7 @@ pub trait Renderer: Any + Debug + Share {
     // Also what does that mean for existing content, etc.
 
     // TODO: Better error kinds.
+    // TODO: Also accept TextureHandle?
     fn upload_image(&self, to: &TextureId, data: &peniko::ImageData) -> Result<(), ()>;
 
     fn as_arc(&self) -> Arc<Self>
