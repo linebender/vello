@@ -246,9 +246,7 @@ fn vs_main(
                 + encoded_image.transform.zw * f32(scene_strip_y)
                 + encoded_image.transform.xy * x * f32(width)
                 + encoded_image.transform.zw * y * f32(config.strip_height);
-        }
-
-        if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
+        } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             // Unpack view coordinates for gradient calculation
             let scene_strip_x = instance.payload & 0xffffu;
             let scene_strip_y = instance.payload >> 16u;
