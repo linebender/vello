@@ -10,7 +10,8 @@ use crate::recording::Scene;
 use crate::texture::TextureId;
 
 pub trait PaintScene: Any {
-    fn append(&mut self, scene: &Scene);
+    // Error if associated with different renderer.
+    fn append(&mut self, transform: Affine, scene: &Scene) -> Result<(), ()>;
 
     fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape);
     fn stroke_path(&mut self, transform: Affine, stroke_params: &Stroke, path: impl Shape);
@@ -58,6 +59,7 @@ pub trait PaintScene: Any {
     }
 
     // This can be accessed through downcasting:
+    // (Well, kind of...; that doesn't apply to Scene, which is by far the most common type here.)
     // fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>);
     // TODO: What does this mean?
     // fn set_blend_mode(&mut self, blend_mode: BlendMode);

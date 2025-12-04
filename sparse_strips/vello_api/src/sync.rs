@@ -27,10 +27,11 @@
 //! We determine therefore that multi-threading can only be supported if the `std` feature of this crate is enabled
 //! (as we cannot use the `std` `Mutex` without using the standard library!).
 //!
-//! For WebAssembly, we currently hardcode to only being in single threaded mode, even if the renderer could theoret.
-//! This is done because all Javascript objects cannot be sent between threads, and so Vello Hybrid cannot support cross-thread operation.
+//! For WebAssembly, we currently hardcode to only being in single threaded mode, even if the renderer could theoretically use (e.g. web workers).
+//! This is done because all JavaScript objects cannot be sent between threads, and so Vello Hybrid cannot support cross-thread operation.
 //! Additionally, Wasm multi-threading is not currently very well developed, and it isn't supported to block the thread in a lock.
-//! All of this makes supporting multithreaded rendering in Wasm through the abstraction impractical.
+//! All of this makes supporting multithreaded rendering in Wasm through the abstraction currently impractical.
+//! If the need arises, we can revisit these concerns.
 //!
 //! This does lead to a few tradeoffs:
 //!
@@ -66,7 +67,7 @@ mod single {
 
     impl<T: ?Sized> Share for T {}
 
-    /// The most practical locking primitive for interior mutability in 2d renderers.
+    /// The most practical locking primitive for interior mutability in 2D renderers.
     ///
     /// In the current compilation, this is a thin wrapper around [`RefCell`](core::cell::RefCell).
     ///
@@ -102,7 +103,7 @@ mod multi {
     impl<T: Send + Sync + ?Sized> Share for T {}
 
     #[derive(Debug)]
-    /// The most practical locking primitive for interior mutability in 2d renderers.
+    /// The most practical locking primitive for interior mutability in 2D renderers.
     ///
     /// In the current compilation, this is a thin wrapper around [`Mutex`](std::sync::Mutex).
     ///
