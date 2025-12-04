@@ -4,7 +4,7 @@
 // After you edit the crate's doc comment, run this command, then check README.md for any missing links
 // cargo rdme --workspace-project=vello_api
 
-//! Vello API is the rendering API of the 2d renderers in the Vello project.
+//! Vello API is the rendering API of the 2D renderers in the Vello project.
 //!
 //! There are currently two [supported Vello renderers](#renderers), each with different tradeoffs.
 //! This crate allows you to write the majority of your application logic to support either of those renderers.
@@ -23,8 +23,8 @@
 //!
 //! The Vello renderers which support this API are:
 //!
-//! - Vello CPU, an extremely portable 2d renderer which does not require a GPU.
-//!   It is one of the fastest CPU-only 2d renderers in Rust.
+//! - Vello CPU, an extremely portable 2D renderer which does not require a GPU.
+//!   It is one of the fastest CPU-only 2D renderers in Rust.
 //! - Vello Hybrid, which runs the most compute intensive portions of rendering on the GPU, improving performance over Vello CPU.
 //!   It has wide compatibility with most devices, so long as they have a GPU, and it runs well on the web.
 //! <!-- We might also have, to be determined:
@@ -44,7 +44,7 @@
 //!
 //! # Abstraction Boundaries
 //!
-//! The abstractions in this crate are focused on 2d rendering, and the resources required to perform that.
+//! The abstractions in this crate are focused on 2D rendering, and the resources required to perform that.
 //! In particular, this does abstract over strategies for:
 //!
 //! - creating the renderer.
@@ -71,11 +71,9 @@
 
 extern crate alloc;
 
-mod design;
 mod painter;
 mod renderer;
 
-pub mod dynamic;
 pub mod paths;
 pub mod recording;
 pub mod sync;

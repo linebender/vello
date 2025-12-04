@@ -9,33 +9,40 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use alloc::{sync::Arc, vec::Vec};
+
 use peniko::{BlendMode, kurbo::Affine};
 
 use crate::{
     PaintScene, Renderer,
-    paths::{PathSet, StoredPathId},
+    paths::{PathId, PathSet},
     texture::TextureId,
 };
 
 #[derive(Debug)]
 pub enum RenderCommand {
     /// Draw a path with the current brush.
-    DrawPath(StoredPathId),
+    DrawPath(Affine, PathId),
     /// Push a new layer with optional clipping and effects.
     PushLayer(PushLayerCommand),
     /// Pop the current layer.
     PopLayer,
     /// Set the current paint.
+    ///
+    /// The affine is currently path local for future drawing operations.
+    /// That is something I expect *could* change in the future/want to change.
     SetPaint(Affine, OurBrush),
-    /// Set the current paint.
+    /// Set the paint to be a blurred rounded rectangle.
+    ///
+    /// This is useful for box shadows.
     BlurredRoundedRectPaint(BlurredRoundedRectBrush),
 }
 
 /// Command for pushing a new layer.
 #[derive(Debug, Clone)]
 pub struct PushLayerCommand {
+    pub clip_transform: Affine,
     /// Clip path.
-    pub clip_path: Option<StoredPathId>,
+    pub clip_path: Option<PathId>,
     /// Blend mode.
     pub blend_mode: Option<BlendMode>,
     /// Opacity.
@@ -59,33 +66,18 @@ pub struct BlurredRoundedRectBrush {
 pub struct Scene {
     paths: PathSet,
     commands: Vec<RenderCommand>,
-    width: u16,
-    height: u16,
-    origin_x_offset: i32,
-    origin_y_offset: i32,
     renderer: Arc<dyn Renderer>,
+    hinted: bool,
 }
 
 impl Scene {
-    pub fn new(renderer: Arc<dyn Renderer>) -> Self {
+    pub fn new(renderer: Arc<dyn Renderer>, hinted: bool) -> Self {
         Self {
             renderer,
             paths: PathSet::new(),
             commands: Vec::new(),
-            height: 0,
-            width: 0,
-            origin_x_offset: 0,
-            origin_y_offset: 0,
+            hinted,
         }
-    }
-    pub fn set_dimensions(&mut self, width: u16, height: u16) {
-        self.width = width;
-        self.height = height;
-    }
-
-    pub fn set_origin_offset(&mut self, origin_x_offset: i32, origin_y_offset: i32) {
-        self.origin_x_offset = origin_x_offset;
-        self.origin_y_offset = origin_y_offset;
     }
 }
 
@@ -94,27 +86,102 @@ impl Scene {
         self.commands.clear();
         self.paths.clear();
     }
+    pub fn hinted(&self) -> bool {
+        self.hinted
+    }
 }
 
 pub type OurBrush = peniko::Brush<peniko::ImageBrush<TextureId>>;
 
+pub fn extract_integer_translation(transform: Affine) -> Option<(f64, f64)> {
+    fn is_nearly(a: f64, b: f64) -> bool {
+        // TODO: This is a very arbitrary threshold.
+        (a - b).abs() < 0.01
+    }
+    let [a, b, c, d, dx, dy] = transform.as_coeffs();
+    // If there's a skew, rotation or scale, then the transform is not compatible with hinting.
+    if !(is_nearly(a, 1.0) && is_nearly(b, 0.0) && is_nearly(c, 1.0) && is_nearly(d, 0.0)) {
+        return None;
+    }
+
+    // TODO: Is `round` or `round_ties_even` more performant?
+    let round_x = dx.round();
+    let round_y = dy.round();
+    if is_nearly(dx, round_x) && is_nearly(dy, round_y) {
+        Some((round_x, round_y))
+    } else {
+        None
+    }
+}
+
 impl PaintScene for Scene {
+    fn append(
+        &mut self,
+        mut scene_transform: Affine,
+        Self {
+            // Make sure we consider all the fields of Scene by destructuring
+            // (I wonder if there should be an opt in restriction clippy lint?)
+            paths: other_paths,
+            commands: other_commands,
+            renderer: other_renderer,
+            hinted: other_hinted,
+        }: &Scene,
+    ) -> Result<(), ()> {
+        if !Arc::ptr_eq(&self.renderer, other_renderer) {
+            // Mismatched Renderers
+            return Err(());
+        }
+
+        if *other_hinted {
+            if !self.hinted {
+                // Trying to bring a "hinted" scene into an unhinted context.
+                return Err(());
+            }
+            if let Some((dx, dy)) = extract_integer_translation(scene_transform) {
+                // Update the transform to be a pure integer translation.
+                // This is valid as the scene is hinted, so we know it won't be scaled.
+                scene_transform = Affine::translate((dx, dy));
+            } else {
+                // Translation not hinting compatible.
+                return Err(());
+            }
+        }
+        let path_correction_factor = self.paths.append(other_paths);
+        let correct_path = |path: PathId| PathId(path.0 + path_correction_factor);
+        let correct_transform = |transform: Affine| scene_transform * transform;
+
+        self.commands
+            .extend(other_commands.iter().map(|command| match command {
+                RenderCommand::DrawPath(transform, path) => {
+                    RenderCommand::DrawPath(correct_transform(*transform), correct_path(*path))
+                }
+                RenderCommand::PushLayer(command) => RenderCommand::PushLayer(PushLayerCommand {
+                    clip_transform: correct_transform(command.clip_transform),
+                    clip_path: command.clip_path.map(correct_path),
+                    blend_mode: command.blend_mode,
+                    opacity: command.opacity,
+                }),
+                RenderCommand::PopLayer => RenderCommand::PopLayer,
+                RenderCommand::SetPaint(affine, brush) => {
+                    // Don't update the paint_transform, as it's already path local.
+                    RenderCommand::SetPaint(*affine, brush.clone())
+                }
+                RenderCommand::BlurredRoundedRectPaint(brush) => {
+                    // Don't update the paint_transform, as it's (currently) already path local.
+                    RenderCommand::BlurredRoundedRectPaint(brush.clone())
+                }
+            }));
+        Ok(())
+    }
+
     fn fill_path(
         &mut self,
         transform: peniko::kurbo::Affine,
         fill_rule: peniko::Fill,
         path: impl peniko::kurbo::Shape,
     ) {
-        let idx = self.paths.prepare_fill(
-            fill_rule,
-            crate::paths::PreparedPathMeta {
-                transform,
-                x_offset: 0,
-                y_offset: 0,
-            },
-            &path,
-        );
-        self.commands.push(RenderCommand::DrawPath(idx));
+        let idx = self.paths.prepare_fill(fill_rule, &path);
+        self.commands.push(RenderCommand::DrawPath(transform, idx));
     }
     fn stroke_path(
         &mut self,
@@ -122,17 +189,10 @@ impl PaintScene for Scene {
         stroke_params: &peniko::kurbo::Stroke,
         path: impl peniko::kurbo::Shape,
     ) {
-        let idx = self.paths.prepare_stroke(
-            stroke_params.clone(),
-            crate::paths::PreparedPathMeta {
-                transform,
-                x_offset: 0,
-                y_offset: 0,
-            },
-            &path,
-        );
-        self.commands.push(RenderCommand::DrawPath(idx));
+        let idx = self.paths.prepare_stroke(stroke_params.clone(), &path);
+        self.commands.push(RenderCommand::DrawPath(transform, idx));
     }
+
     fn set_brush(
         &mut self,
         brush: impl Into<OurBrush>,
@@ -161,6 +221,7 @@ impl PaintScene for Scene {
             },
         ));
     }
+
     fn push_layer(
         &mut self,
         clip_transform: peniko::kurbo::Affine,
@@ -173,11 +234,6 @@ impl PaintScene for Scene {
             Some(self.paths.prepare_fill(
                 // TODO?
                 peniko::Fill::NonZero,
-                crate::paths::PreparedPathMeta {
-                    transform: clip_transform,
-                    x_offset: 0,
-                    y_offset: 0,
-                },
                 &clip_path,
             ))
         } else {
@@ -185,6 +241,7 @@ impl PaintScene for Scene {
         };
         self.commands
             .push(RenderCommand::PushLayer(PushLayerCommand {
+                clip_transform,
                 clip_path: clip_idx,
                 blend_mode,
                 opacity,
@@ -192,50 +249,5 @@ impl PaintScene for Scene {
     }
     fn pop_layer(&mut self) {
         self.commands.push(RenderCommand::PopLayer);
-    }
-}
-
-#[expect(
-    unused_variables,
-    clippy::todo,
-    // There aren't any huge unknowns with writing this implementation, so it's fine to leave incomplete.
-    reason = "Incomplete implementation, needs to exist for Vellos API and Hybrid to type check."
-)]
-impl Scene {
-    pub fn draw_into<Target>(
-        &self,
-        scene: &mut Target,
-        x_offset: i32,
-        y_offset: i32,
-        // Error case for if:
-        // - The `Scene` type doesn't line up
-        //
-        // Anything else?
-    ) -> Result<(), ()>
-    where
-        Target: PaintScene,
-    {
-        // TODO: Reason about whether this needs to be - instead of +
-        let x_offset = x_offset + self.origin_x_offset;
-        let y_offset = y_offset + self.origin_y_offset;
-        todo!();
-    }
-
-    pub fn draw_into_transformed<Target>(
-        &self,
-        scene: &mut Target,
-        transform: Affine,
-        // Error case for if:
-        // - The `Scene` type doesn't line up
-        //
-        // Anything else?
-    ) -> Result<(), ()>
-    where
-        Target: PaintScene,
-    {
-        // TODO: Reason about whether this needs to be - the offset.
-        let transform = transform
-            .pre_translate((self.origin_x_offset as f64, self.origin_y_offset as f64).into());
-        todo!()
     }
 }

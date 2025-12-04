@@ -1,14 +1,13 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! The [`Renderer`] trait, which manages resources for 2d rendering.
+//! The [`Renderer`] trait, which manages resources for 2D rendering.
 
 use alloc::sync::Arc;
 use core::{any::Any, fmt::Debug};
 
 use crate::{
     PaintScene, SceneOptions,
-    paths::{PathGroup, PathGroupId, PathSet},
     sync::Share,
     texture::{TextureDescriptor, TextureId},
 };
@@ -20,7 +19,7 @@ use crate::{
 //     Alpha,
 // }
 
-/// A 2d renderer, which can be used to schedule the renders of multiple 2d scenes.
+/// A 2D renderer, which can be used to schedule the renders of multiple 2D scenes.
 ///
 /// Types which implement this trait are the main empty point into Vello API.
 /// Once you have a value of this type, you can schedule scenes.
@@ -41,7 +40,7 @@ use crate::{
 /// This API has been designed with the idea that most applications should expect to have a single
 /// `Renderer` across all threads (i.e. shared between those threads).
 /// For multi-threading aware applications, it is reasonable for your use of this
-/// trait to be `Arc<Mutex<dyn AnyRenderer + Send>>`.
+/// trait to be `Arc<dyn Renderer>`.
 /// See the section on multi-threading thoughts for more.
 /// This allows scheduling renders from any thread, whilst performing per-thread
 /// painting operations without locking.
@@ -93,23 +92,13 @@ pub trait Renderer: Any + Debug + Share {
     // TODO: Better error kinds.
     fn upload_image(&self, to: &TextureId, data: &peniko::ImageData) -> Result<(), ()>;
 
-    fn upload_paths(&self, paths: &mut PathSet) -> PathGroup
-    where
-        Self: Send + Sync,
-    {
-        let id = self.upload_paths_raw(paths);
-        PathGroup::new(self.as_dyn_arc(), id)
-    }
-
     fn as_arc(&self) -> Arc<Self>
     where
         Self: Sized;
-    fn as_dyn_arc(&self) -> Arc<dyn Renderer + Send + Sync>;
+    fn as_dyn_arc(&self) -> Arc<dyn Renderer>;
 
     // TODO: Reason about how we want downloads to work.
     // fn queue_download(&self, of: &TextureId) -> DownloadId;
-    fn upload_paths_raw(&self, paths: &mut PathSet) -> PathGroupId;
-    fn free_paths(&self, group: PathGroupId);
 
     // fn create_mask(descriptor: MaskOperation) -> Mask;
     // fn mask_from_scene(from: &Texture, to: &Scene, MaskDescriptor { subset_rect });
