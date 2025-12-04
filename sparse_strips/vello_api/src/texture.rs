@@ -3,8 +3,11 @@
 
 //! Texture types used in Vello API.
 
+use alloc::sync::Arc;
 use bitflags::bitflags;
-use core::fmt::Debug;
+use core::{fmt::Debug, hash::Hash};
+
+use crate::Renderer;
 
 #[derive(Copy, Clone, Debug)]
 pub struct TextureDescriptor {
@@ -17,6 +20,7 @@ pub struct TextureDescriptor {
     // TODO: Explicit atlasing?
 }
 
+// TODO: Generational index?
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TextureId(u64);
 
@@ -27,7 +31,6 @@ impl TextureId {
     pub const fn from_raw(raw: u64) -> Self {
         Self(raw)
     }
-    // TODO: Do we want a `from_raw`?
 }
 
 bitflags! {
@@ -51,5 +54,58 @@ bitflags! {
         const UPLOAD = Self::UPLOAD_TARGET.bits() | Self::TEXTURE_BINDING.bits();
         /// The usages for a texture which we want to queue for download.
         const DOWNLOAD = Self::RENDER_TARGET.bits() | Self::DOWNLOAD_SRC.bits();
+    }
+}
+
+/// A reference counted handle to a texture owned by a [`Renderer`].
+#[derive(Debug, Clone)]
+pub struct TextureHandle {
+    inner: Arc<TextureInner>,
+}
+
+impl TextureHandle {
+    pub fn id(&self) -> TextureId {
+        self.inner.id
+    }
+
+    pub(crate) fn new(renderer: Arc<dyn Renderer>, id: TextureId) -> Self {
+        Self {
+            inner: Arc::new(TextureInner { renderer, id }),
+        }
+    }
+}
+
+impl Hash for TextureHandle {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.inner).hash(state);
+    }
+}
+impl PartialEq for TextureHandle {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::as_ptr(&self.inner) == Arc::as_ptr(&other.inner)
+    }
+}
+impl Eq for TextureHandle {}
+
+struct TextureInner {
+    renderer: Arc<dyn Renderer>,
+    id: TextureId,
+}
+
+impl Drop for TextureInner {
+    fn drop(&mut self) {
+        // TODO: Maybe just log?
+        self.renderer
+            .free_texture_raw(self.id)
+            .expect("Vello API texture managed as a `Texture` shouldn't have been manually freed.");
+    }
+}
+
+impl Debug for TextureInner {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PathGroupInner")
+            .field("renderer", &"elided")
+            .field("id", &self.id)
+            .finish()
     }
 }
