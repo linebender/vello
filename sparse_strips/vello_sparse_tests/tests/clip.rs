@@ -15,7 +15,9 @@ use vello_common::peniko::Color;
 use vello_common::peniko::Fill;
 use vello_common::tile::Tile;
 use vello_cpu::color::palette::css::PINK;
-use vello_cpu::peniko::{Gradient, LinearGradientPosition};
+use vello_cpu::peniko::{
+    Gradient, LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
+};
 use vello_dev_macros::vello_test;
 
 #[vello_test(height = 8)]
@@ -398,7 +400,7 @@ fn clip_non_isolated_deeply_nested_circles(ctx: &mut impl Renderer) {
 }
 
 #[vello_test(width = 600, height = 200)]
-fn clip_with_gradient_fill(ctx: &mut impl Renderer) {
+fn clip_with_linear_gradient_fill(ctx: &mut impl Renderer) {
     use crate::util::stops_green_blue;
     // Border to see crop.
     ctx.set_paint(PINK);
@@ -415,6 +417,69 @@ fn clip_with_gradient_fill(ctx: &mut impl Renderer) {
         kind: LinearGradientPosition {
             start: Point::new(100.0, 100.0),
             end: Point::new(300.0, 100.0),
+        }
+        .into(),
+        stops: stops_green_blue(),
+        ..Default::default()
+    };
+
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&box_rect);
+
+    ctx.pop_layer();
+}
+
+#[vello_test(width = 600, height = 200)]
+fn clip_with_radial_gradient_fill(ctx: &mut impl Renderer) {
+    use crate::util::stops_green_blue;
+    // Border to see crop.
+    ctx.set_paint(PINK);
+    ctx.fill_rect(&Rect::new(0., 0., 600., 200.));
+
+    // Crop 10px border around image.
+    let clip = Rect::new(10., 10., 590., 190.0);
+    ctx.push_clip_layer(&clip.to_path(0.));
+
+    // Fill a full screen rect with a gradient.
+    let box_rect = Rect::new(0., 0., 600.0, 200.0);
+
+    let gradient = Gradient {
+        kind: RadialGradientPosition {
+            start_center: Point::new(300.0, 100.0),
+            start_radius: 0.0,
+            end_center: Point::new(300.0, 100.0),
+            end_radius: 150.0,
+        }
+        .into(),
+        stops: stops_green_blue(),
+        ..Default::default()
+    };
+
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&box_rect);
+
+    ctx.pop_layer();
+}
+
+#[vello_test(width = 600, height = 200)]
+fn clip_with_sweep_gradient_fill(ctx: &mut impl Renderer) {
+    use crate::util::stops_green_blue;
+    // Border to see crop.
+    ctx.set_paint(PINK);
+    ctx.fill_rect(&Rect::new(0., 0., 600., 200.));
+
+    // Crop 10px border around image.
+    let clip = Rect::new(10., 10., 590., 190.0);
+    ctx.push_clip_layer(&clip.to_path(0.));
+
+    // Fill a full screen rect with a gradient.
+    let box_rect = Rect::new(0., 0., 600.0, 200.0);
+
+    let gradient = Gradient {
+        kind: SweepGradientPosition {
+            center: Point::new(300.0, 100.0),
+            start_angle: 0.0,
+            end_angle: std::f32::consts::TAU,
         }
         .into(),
         stops: stops_green_blue(),
