@@ -9,9 +9,7 @@ Considerations for Vello API; use cases, required features, etc.
 
 ## Scope
 
-Concretely, the issue with the current version is that it conflates the "low-level" underlying texture handle.
-
-## Still TO-DO
+### Still TO-DO
 
 - Draw images/gradients; images must be pre-uploaded, maybe gradients too.
   - What does it mean to pre-upload gradients?
@@ -33,7 +31,7 @@ Concretely, the issue with the current version is that it conflates the "low-lev
   - Translation
 - Clip optimisation (which is equivalent to non-isolated `Normal` blending), ✓-ish
 
-## "Completed"
+### "Completed"
 
 - Fill/Stroke paths. ✓
 - Transforms applied to fills/strokes and their contents. ✓
@@ -54,7 +52,7 @@ Concretely, the issue with the current version is that it conflates the "low-lev
 
 - No per-operation allocations. ✓
 
-Medium Scope:
+## Medium Scope
 
 - "Upload" CPU images "immediately", i.e. I have a CPU texture, and want to display it on-screen.
   - This needs to support cleanup.
@@ -87,7 +85,7 @@ Medium Scope:
   - Reasoning: Multi-threaded dispatch/splitout must be explicit.
 - Minimal per-frame allocations
 
-As yet undetermined:
+## As yet undetermined
 
 - Fully generic/backend-interchangable recording
   - What are the use cases for this?
@@ -108,7 +106,7 @@ Out of scope:
 - Drive a GPU surface (i.e. output to a buffer).
   Note that we *do* need to not *block* this.
 
-# Image Resources
+## Image Resources
 
 The classes of image resources are:
 
@@ -122,4 +120,3 @@ Is that backend specific? The question becomes how is multithreading handled.
 Explicit usages for the textures?
 
 [`set_aliasing_threshold`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.set_aliasing_threshold
-
