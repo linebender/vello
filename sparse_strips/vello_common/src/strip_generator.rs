@@ -130,7 +130,7 @@ impl StripGenerator {
         aliasing_threshold: Option<u8>,
     ) {
         self.tiles
-            .make_tiles::<false>(&self.line_buf, self.width, self.height);
+            .make_tiles::</*GEN_INT_MASK=*/false>(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
 
         if strip_storage.generation_mode == GenerationMode::Replace {

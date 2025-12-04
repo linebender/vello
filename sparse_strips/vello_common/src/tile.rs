@@ -515,21 +515,23 @@ impl Tiles {
                                 let x_start_f = x_start as f32;
                                 let x_right_f = (x_start + 1) as f32;
 
-                                // TODO Verify all cases of bottom left tiebreaking with downstream
-                                // rasterization. Preliminary testing appears to be fine?
+                                // TODO Verify all cases of bottom left tiebreaking. Preliminary
+                                // testing appears to be fine.
                                 // TODO SIMD here!
                                 let trc = ((line_row_top_x == x_right_f) as u32) & !start_tile;
                                 let tlc = ((line_row_top_x == x_start_f) as u32) & !start_tile;
                                 let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
                                 let blc = ((line_row_bottom_x == x_start_f) as u32) & !end_tile;
+                                // The top left corner must be treated specially.
+                                let tie_break = tlc & (cannonical_row_start ^ 1);
 
                                 // If we touch corners, force the corresponding horizontal intersection
                                 // bits to ensure that no intersection gets destructed.
-                                mask |= (tlc | blc) << 2;
+                                mask |= (tie_break | blc) << 2;
                                 mask |= (trc | brc) << 3;
 
                                 // Then, clear those vertical intersections.
-                                mask &= !(tlc | trc);
+                                mask &= !(tie_break | trc);
                                 mask &= !((blc | brc) << 1);
 
                                 let perfect_corner = trc | tlc | brc | blc;
@@ -585,9 +587,10 @@ impl Tiles {
                                 let tlc = ((line_row_top_x == x_end_f) as u32) & !start_tile;
                                 let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
                                 let blc = ((line_row_bottom_x == x_end_f) as u32) & !end_tile;
-                                mask |= (tlc | blc) << 2;
+                                let tie_break = tlc & (cannonical_row_start ^ 1);
+                                mask |= (tie_break | blc) << 2;
                                 mask |= (trc | brc) << 3;
-                                mask &= !(tlc | trc);
+                                mask &= !(tie_break | trc);
                                 mask &= !((blc | brc) << 1);
 
                                 let perfect_corner = trc | tlc | brc | blc;
@@ -976,7 +979,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
 
-        let expected = [Tile::new(3, 2, 0, R), Tile::new(4, 2, 0, L | R)];
+        let expected = [Tile::new(23, 2, 0, R), Tile::new(24, 2, 0, L | R)];
 
         assert_eq!(tiles.tile_buf, expected);
     }
@@ -1435,7 +1438,7 @@ mod tests {
             [
                 Tile::new(1, 0, 0, P | L),
                 Tile::new(0, 1, 0, P | R),
-                Tile::new(1, 1, 0, W | P | L),
+                Tile::new(1, 1, 0, W | P | L | T),
             ]
         );
     }
@@ -1455,7 +1458,7 @@ mod tests {
             [
                 Tile::new(0, 0, 0, P | R),
                 Tile::new(1, 0, 0, P | L),
-                Tile::new(1, 1, 0, W | P | L),
+                Tile::new(1, 1, 0, W | P | T),
             ]
         );
     }
@@ -1473,7 +1476,7 @@ mod tests {
         let expected = [
             Tile::new(1, 1, 0, P | R),
             Tile::new(2, 1, 0, P | L),
-            Tile::new(2, 2, 0, W | P | L),
+            Tile::new(2, 2, 0, W | P | T),
         ];
 
         assert_eq!(tiles.tile_buf, expected);
@@ -1542,7 +1545,7 @@ mod tests {
         let expected = [
             Tile::new(0, 0, 0, W | P | R),
             Tile::new(1, 0, 0, P | L),
-            Tile::new(1, 1, 0, W | P | R | L),
+            Tile::new(1, 1, 0, W | P | R | T),
             Tile::new(2, 1, 0, L),
         ];
 
@@ -1564,7 +1567,7 @@ mod tests {
             Tile::new(1, 0, 0, P | R | L),
             Tile::new(2, 0, 0, W | L),
             Tile::new(0, 1, 0, P | R),
-            Tile::new(1, 1, 0, W | P | L),
+            Tile::new(1, 1, 0, W | P | L | T),
         ];
 
         assert_eq!(tiles.tile_buf, expected);
