@@ -3,12 +3,12 @@
 
 use alloc::{sync::Arc, vec::Vec};
 
-use peniko::{BlendMode, kurbo::Affine};
+use peniko::{BlendMode, ImageBrush, kurbo::Affine};
 
 use crate::{
     PaintScene, Renderer,
     paths::{PathId, PathSet},
-    texture::TextureId,
+    texture::{TextureHandle, TextureId},
 };
 
 #[derive(Debug)]
@@ -23,7 +23,10 @@ pub enum RenderCommand {
     ///
     /// The affine is currently path local for future drawing operations.
     /// That is something I expect *could* change in the future/want to change.
-    SetPaint(Affine, OurBrush),
+    ///
+    /// This doesn't use [`OurBrush`] because we want to limit the
+    /// number of textures stored.
+    SetPaint(Affine, peniko::Brush<peniko::ImageBrush<TextureId>>),
     /// Set the paint to be a blurred rounded rectangle.
     ///
     /// This is useful for box shadows.
@@ -61,6 +64,8 @@ pub struct Scene {
     commands: Vec<RenderCommand>,
     renderer: Arc<dyn Renderer>,
     hinted: bool,
+    // TODO: HashSet? We'd need to bring in hashbrown, but that's probably fine
+    textures: Vec<TextureHandle>,
 }
 
 impl Scene {
@@ -70,6 +75,7 @@ impl Scene {
             paths: PathSet::new(),
             commands: Vec::new(),
             hinted,
+            textures: Vec::new(),
         }
     }
 }
@@ -84,7 +90,8 @@ impl Scene {
     }
 }
 
-pub type OurBrush = peniko::Brush<peniko::ImageBrush<TextureId>>;
+// TODO: Change module and give a better name.
+pub type OurBrush = peniko::Brush<peniko::ImageBrush<TextureHandle>>;
 
 pub fn extract_integer_translation(transform: Affine) -> Option<(f64, f64)> {
     fn is_nearly(a: f64, b: f64) -> bool {
@@ -118,6 +125,7 @@ impl PaintScene for Scene {
             commands: other_commands,
             renderer: other_renderer,
             hinted: other_hinted,
+            textures,
         }: &Scene,
     ) -> Result<(), ()> {
         if !Arc::ptr_eq(&self.renderer, other_renderer) {
@@ -164,6 +172,17 @@ impl PaintScene for Scene {
                     RenderCommand::BlurredRoundedRectPaint(brush.clone())
                 }
             }));
+
+        // We avoid duplicating the handles where possible.
+        // It is likely that there's a better data structure for this (a `HashSet`?)
+        // but there isn't one provided in core/alloc.x
+        // We expect the number of textures to be relatively small, so this O(N^2) isn't
+        // an immediate optimisation target.
+        for texture in textures {
+            if !self.textures.contains(texture) {
+                self.textures.push(texture.clone());
+            }
+        }
         Ok(())
     }
 
@@ -192,8 +211,24 @@ impl PaintScene for Scene {
         // transform: peniko::kurbo::Affine,
         paint_transform: peniko::kurbo::Affine,
     ) {
+        let brush = match brush.into() {
+            peniko::Brush::Image(image) => {
+                let id = image.image.id();
+                // We expect there to be relatively few textures per scene, so an O(n) linear scan here is *fine*
+                // (i.e. even though it's O(N^2) for total textures in a scene, we expect N to be small)
+                if !self.textures.contains(&image.image) {
+                    self.textures.push(image.image);
+                }
+                peniko::Brush::Image(ImageBrush {
+                    sampler: image.sampler,
+                    image: id,
+                })
+            }
+            peniko::Brush::Solid(alpha_color) => peniko::Brush::Solid(alpha_color),
+            peniko::Brush::Gradient(gradient) => peniko::Brush::Gradient(gradient),
+        };
         self.commands
-            .push(RenderCommand::SetPaint(paint_transform, brush.into()));
+            .push(RenderCommand::SetPaint(paint_transform, brush));
     }
 
     fn set_blurred_rounded_rect_brush(

@@ -6,8 +6,7 @@ use core::any::Any;
 use peniko::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
 
-use crate::scene::Scene;
-use crate::texture::TextureId;
+use crate::scene::{OurBrush, Scene};
 
 pub trait PaintScene: Any {
     // Error if associated with different renderer.
@@ -18,7 +17,7 @@ pub trait PaintScene: Any {
 
     fn set_brush(
         &mut self,
-        brush: impl Into<Brush<ImageBrush<TextureId>>>,
+        brush: impl Into<OurBrush>,
         // We'd like to support both brushes which are "object-local" and brushes which are "scene-local".
         // Image for example you want a gradient to be applied over a whole paragraph of text.
         // The naive solution would need to apply the gradient with a paint transform which undoes the
