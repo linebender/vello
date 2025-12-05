@@ -6,7 +6,7 @@ use core::any::Any;
 use peniko::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
 
-use crate::recording::Scene;
+use crate::scene::Scene;
 use crate::texture::TextureId;
 
 pub trait PaintScene: Any {

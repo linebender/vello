@@ -83,14 +83,14 @@ pub trait Renderer: Any + Debug + Share {
         Self: Sized;
 
     fn create_texture(&self, descriptor: TextureDescriptor) -> TextureHandle {
-        let id = self.alloc_texture_raw(descriptor);
+        let id = self.alloc_untracked_texture(descriptor);
         TextureHandle::new(self.as_dyn_arc(), id)
     }
 
     /// Create a texture for use in renders with this device.
-    fn alloc_texture_raw(&self, descriptor: TextureDescriptor) -> TextureId;
+    fn alloc_untracked_texture(&self, descriptor: TextureDescriptor) -> TextureId;
     // Error if the texture was already freed/not associated with this renderer.
-    fn free_texture_raw(&self, texture: TextureId) -> Result<(), ()>;
+    fn free_untracked_texture(&self, texture: TextureId) -> Result<(), ()>;
     // TODO: Texture resizing? Reasonable reasons to not do that include cannot resize wgpu textures
     // Also what does that mean for existing content, etc.
 
@@ -117,4 +117,5 @@ pub trait Renderer: Any + Debug + Share {
         Self: Sized;
 }
 
-// impl dyn Renderer {fn downcast} ?
+// TODO: impl dyn Renderer {fn downcast}
+// TODO: impl Arc<dyn Renderer> {fn downcast}

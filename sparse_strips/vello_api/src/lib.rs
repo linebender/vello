@@ -45,9 +45,9 @@
 //! # Abstraction Boundaries
 //!
 //! The abstractions in this crate are focused on 2D rendering, and the resources required to perform that.
-//! In particular, this does abstract over strategies for:
+//! In particular, this does not abstract over strategies for:
 //!
-//! - creating the renderer.
+//! - creating the renderer (which can require more context, such as a wgpu `Device`); nor
 //! - bringing external content into the renderer (for example, already resident GPU textures); nor
 //! - presenting rendered content to an operating system window.
 //!
@@ -66,7 +66,6 @@
 
 #![forbid(unsafe_code)]
 #![no_std]
-#![expect(missing_docs, reason = "This code is very experimental.")]
 #![expect(clippy::result_unit_err, reason = "This code is very experimental.")]
 
 extern crate alloc;
@@ -75,7 +74,7 @@ mod painter;
 mod renderer;
 
 pub mod paths;
-pub mod recording;
+pub mod scene;
 pub mod sync;
 pub mod texture;
 

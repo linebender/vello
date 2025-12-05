@@ -1,13 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Recordings are convenience structures for drawing the same path multiple times.
-//!
-//! This can be used for (some) COLR glyphs.
-
-// Copyright 2025 the Vello Authors
-// SPDX-License-Identifier: Apache-2.0 OR MIT
-
 use alloc::{sync::Arc, vec::Vec};
 
 use peniko::{BlendMode, kurbo::Affine};
