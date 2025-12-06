@@ -345,7 +345,7 @@ impl Tiles {
             // the viewport OR it is perfectly horizontal and aligned to the tile grid, contributing
             // no winding. In either case, it should be culled.
             if y_top_tiles >= y_bottom_tiles {
-                // Technically, the `>` part of the `>=` is uneccessary due to clamping, but this
+                // Technically, the `>` part of the `>=` is unnecessary due to clamping, but this
                 // gives stronger signal
                 continue;
             }
@@ -355,7 +355,7 @@ impl Tiles {
             let p0_tile_y = line_top_y.floor() as i32;
             let p1_tile_x = line_bottom_x.floor() as i32;
 
-            // TODO This may now be unecessary? This should not produce a visual difference.
+            // TODO This may now be unnecessary? This should not produce a visual difference.
             //
             // Because our vertical loop is exclusive, an exact bottom edge touch does not produce
             // an additional tile. This exclusive behavior is correct, the line is not actually
@@ -473,12 +473,12 @@ impl Tiles {
                             f32::max(line_row_top_x, line_row_bottom_x).min(line_right_x);
 
                         // Floor so we don't truncate towards zero
-                        let cannonical_x_start = line_row_left_x.floor() as i32;
+                        let canonical_x_start = line_row_left_x.floor() as i32;
                         let x_start = line_row_left_x as u16;
-                        let cannonical_x_end = line_row_right_x as u16;
-                        let x_end = cannonical_x_end.min(tile_columns.saturating_sub(1));
+                        let canonical_x_end = line_row_right_x as u16;
+                        let x_end = canonical_x_end.min(tile_columns.saturating_sub(1));
 
-                        // Row start, but not necessarily the cannonical start of a row.
+                        // Row start, but not necessarily the canonical start of a row.
                         if x_start <= x_end {
                             let winding = ((y >= line_top_y && (dx_dir != 0 || x_start == x_end))
                                 as u32)
@@ -486,26 +486,26 @@ impl Tiles {
 
                             let intersection_mask = if GEN_INT_MASK {
                                 // Check if we are the row start/end unculled.
-                                let unc_row_start = (x_start as i32 == cannonical_x_start) as u32;
-                                let unc_row_end = (x_start == cannonical_x_end) as u32;
-                                let cannonical_row_start =
+                                let unc_row_start = (x_start as i32 == canonical_x_start) as u32;
+                                let unc_row_end = (x_start == canonical_x_end) as u32;
+                                let canonical_row_start =
                                     (dx_dir & unc_row_start) | (not_dx_dir & unc_row_end);
-                                let cannonical_row_end =
+                                let canonical_row_end =
                                     (not_dx_dir & unc_row_start) | (dx_dir & unc_row_end);
                                 let start_tile = is_start_tile(x_start, y_idx) as u32;
                                 let end_tile = is_end_tile(x_start, y_idx) as u32;
 
                                 // Entrant
-                                let vert_entrant = cannonical_row_start & (1 ^ start_tile);
-                                let hor_entrant = 1 ^ cannonical_row_start;
+                                let vert_entrant = canonical_row_start & (1 ^ start_tile);
+                                let hor_entrant = 1 ^ canonical_row_start;
 
                                 let mut mask = winding;
                                 mask |= vert_entrant;
                                 mask |= hor_entrant << not_dx_dir << 2;
 
                                 // Exit
-                                let vert_exit = cannonical_row_end & (1 ^ end_tile);
-                                let hor_exit = 1 ^ cannonical_row_end;
+                                let vert_exit = canonical_row_end & (1 ^ end_tile);
+                                let hor_exit = 1 ^ canonical_row_end;
                                 mask |= vert_exit << 1;
                                 mask |= hor_exit << dx_dir << 2;
 
@@ -523,7 +523,7 @@ impl Tiles {
                                 let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
                                 let blc = ((line_row_bottom_x == x_start_f) as u32) & !end_tile;
                                 // The top left corner must be treated specially.
-                                let tie_break = tlc & (cannonical_row_start ^ 1);
+                                let tie_break = tlc & (canonical_row_start ^ 1);
 
                                 // If we touch corners, force the corresponding horizontal intersection
                                 // bits to ensure that no intersection gets destructed.
@@ -559,22 +559,22 @@ impl Tiles {
                             let winding = ((y >= line_top_y && not_dx_dir != 0) as u32) << 5;
                             let intersection_mask = if GEN_INT_MASK {
                                 // Note: must be lt for clipping instead of neq.
-                                let unc_row_end = (x_end == cannonical_x_end) as u32;
-                                let cannonical_row_start = not_dx_dir & unc_row_end;
-                                let cannonical_row_end = dx_dir & unc_row_end;
+                                let unc_row_end = (x_end == canonical_x_end) as u32;
+                                let canonical_row_start = not_dx_dir & unc_row_end;
+                                let canonical_row_end = dx_dir & unc_row_end;
                                 let start_tile = is_start_tile(x_end, y_idx) as u32;
                                 let end_tile = is_end_tile(x_end, y_idx) as u32;
 
                                 // Entrant
-                                let vert_entrant = cannonical_row_start & (1 ^ start_tile);
-                                let hor_entrant = 1 ^ cannonical_row_start;
+                                let vert_entrant = canonical_row_start & (1 ^ start_tile);
+                                let hor_entrant = 1 ^ canonical_row_start;
                                 let mut mask = winding;
                                 mask |= vert_entrant;
                                 mask |= hor_entrant << not_dx_dir << 2;
 
                                 // Exit
-                                let vert_exit = cannonical_row_end & (1 ^ end_tile);
-                                let hor_exit = 1 ^ cannonical_row_end;
+                                let vert_exit = canonical_row_end & (1 ^ end_tile);
+                                let hor_exit = 1 ^ canonical_row_end;
                                 mask |= vert_exit << 1;
                                 mask |= hor_exit << dx_dir << 2;
 
@@ -587,7 +587,7 @@ impl Tiles {
                                 let tlc = ((line_row_top_x == x_end_f) as u32) & !start_tile;
                                 let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
                                 let blc = ((line_row_bottom_x == x_end_f) as u32) & !end_tile;
-                                let tie_break = tlc & (cannonical_row_start ^ 1);
+                                let tie_break = tlc & (canonical_row_start ^ 1);
                                 mask |= (tie_break | blc) << 2;
                                 mask |= (trc | brc) << 3;
                                 mask &= !(tie_break | trc);
