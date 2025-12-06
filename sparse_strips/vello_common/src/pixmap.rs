@@ -250,6 +250,17 @@ impl Pixmap {
         self.buf[idx as usize]
     }
 
+    /// Set a pixel in the pixmap at the given coordinates.
+    ///
+    /// The pixel data should be [premultiplied RGBA8][PremulRgba8]. The coordinate system has
+    /// its origin at the top-left corner, with `x` increasing to the right and `y` increasing
+    /// downward.
+    #[inline(always)]
+    pub fn set_pixel(&mut self, x: u16, y: u16, pixel: PremulRgba8) {
+        let idx = self.width as usize * y as usize + x as usize;
+        self.buf[idx] = pixel;
+    }
+
     /// Consume the pixmap, returning the data as the underlying [`Vec`] of premultiplied RGBA8.
     ///
     /// The pixels are in row-major order.

@@ -6,6 +6,7 @@ use crate::dispatch::multi_threaded::{
     CoarseTask, CoarseTaskSender, CoarseTaskType, RenderTask, RenderTaskType,
 };
 use std::vec::Vec;
+use vello_common::clip::PathDataRef;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
 #[derive(Debug)]
@@ -49,6 +50,10 @@ impl Worker {
         self.strip_storage
             .set_generation_mode(GenerationMode::Append);
         let task_idx = render_task.idx;
+        let path_clip = render_task.clip_path.as_ref().map(|c| PathDataRef {
+            strips: c.strips.as_ref(),
+            alphas: c.alphas.as_ref(),
+        });
 
         for task in render_task
             .allocation_group
@@ -63,6 +68,7 @@ impl Worker {
                     fill_rule,
                     blend_mode,
                     aliasing_threshold,
+                    mask,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
                     let path = &render_task.allocation_group.path
@@ -74,6 +80,7 @@ impl Worker {
                         transform,
                         aliasing_threshold,
                         &mut self.strip_storage,
+                        path_clip,
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
@@ -82,6 +89,7 @@ impl Worker {
                         strips: start..end,
                         blend_mode,
                         paint,
+                        mask,
                     };
 
                     render_task
@@ -96,6 +104,7 @@ impl Worker {
                     blend_mode,
                     stroke,
                     aliasing_threshold,
+                    mask,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
                     let path = &render_task.allocation_group.path
@@ -107,6 +116,7 @@ impl Worker {
                         transform,
                         aliasing_threshold,
                         &mut self.strip_storage,
+                        path_clip,
                     );
                     let end = self.strip_storage.strips.len() as u32;
 
@@ -115,6 +125,7 @@ impl Worker {
                         strips: start..end,
                         blend_mode,
                         paint,
+                        mask,
                     };
 
                     render_task
@@ -141,6 +152,7 @@ impl Worker {
                             transform,
                             aliasing_threshold,
                             &mut self.strip_storage,
+                            path_clip,
                         );
 
                         let end = self.strip_storage.strips.len() as u32;
@@ -180,6 +192,7 @@ impl Worker {
                         strips: strip_buf,
                         paint,
                         blend_mode,
+                        mask: None,
                     };
 
                     render_task

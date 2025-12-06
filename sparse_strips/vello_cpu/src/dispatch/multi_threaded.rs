@@ -21,11 +21,14 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
+use vello_common::clip::ClipContext;
 use vello_common::coarse::{Cmd, MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
+use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
+use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
 
@@ -49,6 +52,7 @@ type CoarseTaskReceiver = ordered_channel::Receiver<CoarseTask>;
 pub(crate) struct MultiThreadedDispatcher {
     /// The wide tile container.
     wide: Wide,
+    clip_context: ClipContext,
     /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
     allocation_group: AllocationGroup,
@@ -101,6 +105,8 @@ pub(crate) struct MultiThreadedDispatcher {
     flushed: bool,
     // So that we can reuse memory allocations across different runs.
     allocations: Allocations,
+    /// Render graph (unused in multi-threaded, only needed for API compatibility with Wide).
+    render_graph: RenderGraph,
 }
 
 impl MultiThreadedDispatcher {
@@ -141,6 +147,7 @@ impl MultiThreadedDispatcher {
             task_idx,
             flushed,
             workers,
+            clip_context: ClipContext::new(),
             task_sender: None,
             coarse_task_receiver: None,
             strip_generator: StripGenerator::new(width, height, level),
@@ -148,6 +155,7 @@ impl MultiThreadedDispatcher {
             level,
             alpha_storage,
             num_threads,
+            render_graph: RenderGraph::new(),
         };
 
         dispatcher.init();
@@ -248,8 +256,13 @@ impl MultiThreadedDispatcher {
         let allocation_group =
             std::mem::replace(&mut self.allocation_group, self.allocations.get());
         let task_sender = self.task_sender.as_mut().unwrap();
+        let clip_path = self.clip_context.get().map(|c| OwnedClip {
+            strips: c.strips.into(),
+            alphas: c.alphas.into(),
+        });
         let task = RenderTask {
             idx: task_idx,
+            clip_path,
             allocation_group,
         };
         task_sender.send(task).unwrap();
@@ -282,21 +295,28 @@ impl MultiThreadedDispatcher {
                                 paint,
                                 blend_mode,
                                 thread_id,
+                                mask,
                             } => self.wide.generate(
                                 &task.allocation_group.strips
                                     [strip_range.start as usize..strip_range.end as usize],
                                 paint.clone(),
                                 blend_mode,
                                 thread_id,
+                                mask,
                             ),
                             CoarseTaskType::RenderWideCommand {
                                 strips,
                                 blend_mode,
                                 paint,
                                 thread_id,
-                            } => self
-                                .wide
-                                .generate(&strips, paint.clone(), blend_mode, thread_id),
+                                mask,
+                            } => self.wide.generate(
+                                &strips,
+                                paint.clone(),
+                                blend_mode,
+                                thread_id,
+                                mask,
+                            ),
                             CoarseTaskType::PushLayer {
                                 thread_id,
                                 clip_path,
@@ -309,10 +329,21 @@ impl MultiThreadedDispatcher {
                                         [strip_range.start as usize..strip_range.end as usize]
                                 });
 
-                                self.wide
-                                    .push_layer(clip_path, blend_mode, mask, opacity, thread_id);
+                                // layer_id 0 and filter None since filters aren't supported
+                                self.wide.push_layer(
+                                    0,
+                                    clip_path,
+                                    blend_mode,
+                                    mask,
+                                    opacity,
+                                    None,
+                                    // Transform can be IDENTITY because filters aren't supported in multi-threaded mode
+                                    Affine::IDENTITY,
+                                    &mut self.render_graph,
+                                    thread_id,
+                                );
                             }
-                            CoarseTaskType::PopLayer => self.wide.pop_layer(),
+                            CoarseTaskType::PopLayer => self.wide.pop_layer(&mut self.render_graph),
                         }
                     }
 
@@ -393,6 +424,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -404,6 +436,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             fill_rule,
             blend_mode,
             aliasing_threshold,
+            mask,
         });
     }
 
@@ -415,6 +448,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -426,6 +460,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             stroke: stroke.clone(),
             blend_mode,
             aliasing_threshold,
+            mask,
         });
     }
 
@@ -438,7 +473,15 @@ impl Dispatcher for MultiThreadedDispatcher {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
+        // TODO: Implement filter support in multi-threaded dispatcher.
+        // The single-threaded dispatcher has full support via LayerManager and render graph execution,
+        // but multi-threaded needs additional infrastructure for cross-thread layer coordination.
+        if filter.is_some() {
+            unimplemented!("Filter effects are not yet supported in multi-threaded rendering");
+        }
+
         let mapped_clip = clip_path.map(|c| {
             let start = self.allocation_group.path.len() as u32;
             self.allocation_group.path.extend(c);
@@ -462,6 +505,7 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn reset(&mut self) {
         self.wide.reset();
+        self.clip_context.reset();
         self.allocation_group.clear();
         self.batch_cost = 0.0;
         self.task_idx = 0;
@@ -554,12 +598,40 @@ impl Dispatcher for MultiThreadedDispatcher {
     fn strip_storage_mut(&mut self) -> &mut StripStorage {
         &mut self.strip_storage
     }
+
+    fn push_clip_path(
+        &mut self,
+        path: &BezPath,
+        fill_rule: Fill,
+        transform: Affine,
+        aliasing_threshold: Option<u8>,
+    ) {
+        self.flush_tasks();
+        self.clip_context.push_clip(
+            path,
+            &mut self.strip_generator,
+            fill_rule,
+            transform,
+            aliasing_threshold,
+        );
+    }
+
+    fn pop_clip_path(&mut self) {
+        self.flush_tasks();
+        self.clip_context.pop_clip();
+    }
 }
 
 impl Debug for MultiThreadedDispatcher {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.write_str("MultiThreadedDispatcher { .. }")
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct OwnedClip {
+    strips: Box<[Strip]>,
+    alphas: Box<[u8]>,
 }
 
 /// A structure that allows storing and fetching existing allocations.
@@ -651,6 +723,7 @@ impl AllocationGroup {
 #[derive(Debug)]
 pub(crate) struct RenderTask {
     pub(crate) idx: u32,
+    pub(crate) clip_path: Option<OwnedClip>,
     pub(crate) allocation_group: AllocationGroup,
 }
 
@@ -663,6 +736,7 @@ pub(crate) enum RenderTaskType {
         fill_rule: Fill,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     },
     WideCommand {
         strip_buf: Box<[Strip]>,
@@ -677,6 +751,7 @@ pub(crate) enum RenderTaskType {
         stroke: Stroke,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
     },
     PushLayer {
         clip_path: Option<(Range<u32>, Affine)>,
@@ -700,12 +775,14 @@ pub(crate) enum CoarseTaskType {
         strips: Range<u32>,
         blend_mode: BlendMode,
         paint: Paint,
+        mask: Option<Mask>,
     },
     RenderWideCommand {
         thread_id: u8,
         strips: Box<[Strip]>,
         paint: Paint,
         blend_mode: BlendMode,
+        mask: Option<Mask>,
     },
     PushLayer {
         thread_id: u8,
@@ -782,6 +859,7 @@ mod tests {
                 Affine::IDENTITY,
                 Paint::Solid(PremulColor::from_alpha_color(BLUE)),
                 BlendMode::default(),
+                None,
                 None,
             );
             dispatcher.flush();

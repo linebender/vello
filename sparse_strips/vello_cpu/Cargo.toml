@@ -19,6 +19,7 @@ targets = []
 [dependencies]
 bytemuck = { workspace = true }
 vello_common = { workspace = true }
+hashbrown = { version = "0.15" }
 crossbeam-channel = { workspace = true, optional = true }
 ordered-channel = { workspace = true, optional = true, features = ["crossbeam-channel"] }
 rayon = { workspace = true, optional = true }
@@ -46,3 +47,19 @@ text = ["vello_common/text"]
 
 [lints]
 workspace = true
+
+[[example]]
+name = "basic"
+required-features = ["png", "std"]
+
+[[example]]
+name = "clipping"
+required-features = ["png", "std"]
+
+[[example]]
+name = "masking"
+required-features = ["png", "std"]
+
+[[example]]
+name = "paints"
+required-features = ["png", "std"]

@@ -1,0 +1,764 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Tests demonstrating the filter effects API usage.
+
+use crate::util::circular_star;
+use crate::{renderer::Renderer, util::layout_glyphs_roboto};
+use vello_common::color::AlphaColor;
+use vello_common::color::palette::css::{
+    PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET, WHITE,
+};
+use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
+use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape};
+use vello_common::mask::Mask;
+use vello_common::peniko::{BlendMode, Compose, Mix};
+use vello_common::pixmap::Pixmap;
+use vello_cpu::RenderContext;
+use vello_dev_macros::vello_test;
+
+/// Test flood filter filling a star shape with solid color using a mask.
+///
+/// Note: SVG-compliant flood would use `feComposite` with `operator="in"`, which requires
+/// implementing the composite primitive and filter subregions.
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_flood(ctx: &mut impl Renderer) {
+    let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
+    let star_path = circular_star(Point::new(50.0, 50.0), 5, 20.0, 40.0);
+
+    // Create a mask from the star shape
+    let width = ctx.width();
+    let height = ctx.height();
+    let mut mask_pixmap = Pixmap::new(width, height);
+    let mut mask_ctx = RenderContext::new_with(
+        width,
+        height,
+        vello_cpu::RenderSettings {
+            level: vello_cpu::Level::fallback(),
+            num_threads: 0,
+            render_mode: vello_cpu::RenderMode::default(),
+        },
+    );
+    mask_ctx.set_paint(WHITE);
+    mask_ctx.fill_path(&star_path);
+    mask_ctx.flush();
+    mask_ctx.render_to_pixmap(&mut mask_pixmap);
+
+    let mask = Mask::new_alpha(&mask_pixmap);
+
+    // Apply flood filter with the mask to fill only the star area
+    ctx.push_layer(None, None, None, Some(mask), Some(filter_flood));
+    // This color will be replaced by the flood
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&star_path);
+    ctx.pop_layer();
+}
+
+/// Test Gaussian blur with small radius (`std_deviation` = 2.0, no decimation).
+/// Uses direct separable convolution at full resolution.
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_gaussian_blur_no_decimation(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+    let rect = Rect::new(20.0, 20.0, 80.0, 80.0).to_path(0.1);
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&rect);
+    ctx.pop_layer();
+}
+
+/// Test Gaussian blur with larger radius (`std_deviation` = 4.0, uses decimation).
+/// Uses multi-scale downsampling for performance.
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_gaussian_blur_with_decimation(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 4.0,
+        edge_mode: EdgeMode::None,
+    });
+    let rect = Rect::new(20.0, 20.0, 80.0, 80.0).to_path(0.1);
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&rect);
+    ctx.pop_layer();
+}
+
+/// Test drop shadow filter on text glyph.
+/// Creates a blurred, offset shadow beneath the original graphic.
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_drop_shadow(ctx: &mut impl Renderer) {
+    let font_size: f32 = 80_f32;
+    let (font, glyphs) = layout_glyphs_roboto("A", font_size);
+
+    let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: 16.0,
+        dy: 8.0,
+        std_deviation: 2.0,
+        color: REBECCA_PURPLE,
+        edge_mode: EdgeMode::None,
+    });
+    ctx.push_filter_layer(filter);
+    ctx.set_transform(Affine::translate((24.0, f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(true)
+        .fill_glyphs(glyphs.into_iter());
+    ctx.pop_layer();
+}
+
+/// Test drop shadow on a simple rectangle.
+/// Verifies the offset pixel optimization works correctly with different offsets.
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_drop_shadow_corners(ctx: &mut impl Renderer) {
+    // Layout parameters
+    let margin = 8.0;
+    let size = 20.0;
+    let shadow_offset = 6.0;
+    let shadow_blur = 2.0;
+
+    // Calculate positions for 3x3 grid
+    let left = margin;
+    let center_x = (100.0 - size) / 2.0;
+    let right = 100.0 - margin - size;
+
+    let top = margin;
+    let center_y = (100.0 - size) / 2.0;
+    let bottom = 100.0 - margin - size;
+
+    ctx.set_paint(ROYAL_BLUE);
+
+    // Top-left corner: shadow to upper-left
+    let filter_tl = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: -shadow_offset,
+        dy: -shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_tl);
+    ctx.fill_rect(&Rect::new(left, top, left + size, top + size));
+
+    // Top center: shadow upward (dy only)
+    let filter_tc = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: 0.0,
+        dy: -shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_tc);
+    ctx.fill_rect(&Rect::new(center_x, top, center_x + size, top + size));
+
+    // Top-right corner: shadow to upper-right
+    let filter_tr = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: shadow_offset,
+        dy: -shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_tr);
+    ctx.fill_rect(&Rect::new(right, top, right + size, top + size));
+
+    // Left center: shadow leftward (dx only)
+    let filter_lc = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: -shadow_offset,
+        dy: 0.0,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_lc);
+    ctx.fill_rect(&Rect::new(left, center_y, left + size, center_y + size));
+
+    // Center: shadow downward-right
+    let filter_c = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: shadow_offset,
+        dy: shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_c);
+    ctx.fill_rect(&Rect::new(
+        center_x,
+        center_y,
+        center_x + size,
+        center_y + size,
+    ));
+
+    // Right center: shadow rightward (dx only)
+    let filter_rc = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: shadow_offset,
+        dy: 0.0,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_rc);
+    ctx.fill_rect(&Rect::new(right, center_y, right + size, center_y + size));
+
+    // Bottom-left corner: shadow to lower-left
+    let filter_bl = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: -shadow_offset,
+        dy: shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_bl);
+    ctx.fill_rect(&Rect::new(left, bottom, left + size, bottom + size));
+
+    // Bottom center: shadow downward (dy only)
+    let filter_bc = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: 0.0,
+        dy: shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_bc);
+    ctx.fill_rect(&Rect::new(center_x, bottom, center_x + size, bottom + size));
+
+    // Bottom-right corner: shadow to lower-right
+    let filter_br = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: shadow_offset,
+        dy: shadow_offset,
+        std_deviation: shadow_blur,
+        color: AlphaColor::from_rgba8(0, 0, 0, 180),
+        edge_mode: EdgeMode::Duplicate,
+    });
+    ctx.set_filter_effect(filter_br);
+    ctx.fill_rect(&Rect::new(right, bottom, right + size, bottom + size));
+
+    ctx.reset_filter_effect();
+}
+
+/// Test `set_filter_effect` and `reset_filter_effect` API.
+/// Applies filters to individual draw calls without creating layers.
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_set_effect(ctx: &mut impl Renderer) {
+    let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: 2.0,
+        dy: 2.0,
+        std_deviation: 4.0,
+        color: AlphaColor::from_rgba8(0, 0, 0, 255),
+        edge_mode: EdgeMode::None,
+    });
+    let filter_gaussian_blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    let width = 32.;
+    let overlap = 6.;
+    let between = 20.;
+
+    let x = 8.;
+    let y = 8.;
+    let mut left = x;
+    let mut top = y;
+
+    ctx.set_filter_effect(filter_gaussian_blur);
+    ctx.set_paint(ROYAL_BLUE);
+    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+
+    ctx.set_paint(PURPLE);
+    left = x + width + between;
+    top = y;
+    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+    ctx.reset_filter_effect();
+
+    ctx.set_paint(TOMATO);
+    left = x + width - overlap;
+    top = y + width - overlap;
+    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+
+    ctx.set_filter_effect(filter_drop_shadow);
+    ctx.set_paint(VIOLET);
+    left = x;
+    top = y + width + between;
+    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+    ctx.reset_filter_effect();
+
+    ctx.set_paint(SEA_GREEN);
+    left = x + width + between;
+    top = y + width + between;
+    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+}
+
+/// Test filter interactions with layers, clips, blend modes, and opacity.
+/// 9 scenarios testing filters at various depths, with clips, opacity, blend modes, etc.
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
+    let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: 2.0,
+        dy: 2.0,
+        std_deviation: 4.0,
+        color: AlphaColor::from_rgba8(0, 0, 0, 255),
+        edge_mode: EdgeMode::None,
+    });
+    let filter_gaussian_blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    let spacing = 32.;
+    let width = 10.;
+    let overlap = 2.;
+    let between = 6.;
+
+    // Test 1: Gaussian blur and drop shadow filters both applied at depth 3 within nested layers.
+    // Tests that multiple different filters work correctly when deeply nested in layer hierarchy.
+    let mut x = 4.;
+    let mut y = 4.;
+    let mut left = x;
+    let mut top = y;
+    {
+        ctx.push_layer(None, None, None, None, None);
+        ctx.set_paint(ROYAL_BLUE);
+        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+        {
+            ctx.push_layer(None, None, None, None, None);
+            ctx.set_paint(PURPLE);
+            left = x + width + between;
+            top = y;
+            ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+            {
+                ctx.push_layer(None, None, None, None, None);
+                ctx.set_paint(TOMATO);
+                left = x + width - overlap;
+                top = y + width - overlap;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                {
+                    ctx.push_filter_layer(filter_gaussian_blur.clone());
+                    ctx.set_paint(VIOLET);
+                    left = x;
+                    top = y + width + between;
+                    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                    ctx.pop_layer();
+                }
+                {
+                    ctx.push_filter_layer(filter_drop_shadow.clone());
+                    ctx.set_paint(SEA_GREEN);
+                    left = x + width + between;
+                    top = y + width + between;
+                    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                    ctx.pop_layer();
+                }
+                ctx.pop_layer();
+            }
+            ctx.pop_layer();
+        }
+        ctx.pop_layer();
+    }
+
+    // Test 2: Drop shadow filter at depth 0, gaussian blur at depth 1, followed by nested layers.
+    // Tests multiple filters at different depths with mixed layer types.
+    x += spacing;
+    left = x;
+    top = y;
+    {
+        ctx.push_filter_layer(filter_drop_shadow.clone());
+        ctx.set_paint(ROYAL_BLUE);
+        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+        {
+            ctx.push_filter_layer(filter_gaussian_blur.clone());
+            ctx.set_paint(PURPLE);
+            left = x + width + between;
+            top = y;
+            ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+            {
+                ctx.push_layer(None, None, None, None, None);
+                ctx.set_paint(TOMATO);
+                left = x + width - overlap;
+                top = y + width - overlap;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                ctx.pop_layer();
+            }
+            ctx.pop_layer();
+        }
+        {
+            ctx.push_layer(None, None, None, None, None);
+            ctx.set_paint(VIOLET);
+            left = x;
+            top = y + width + between;
+            ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+            {
+                ctx.push_layer(None, None, None, None, None);
+                ctx.set_paint(SEA_GREEN);
+                left = x + width + between;
+                top = y + width + between;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                ctx.pop_layer();
+            }
+            ctx.pop_layer();
+        }
+        ctx.pop_layer();
+    }
+
+    // Test 3: Gaussian blur filter at depth 0 with deeply nested plain layers inside.
+    // Tests that filter applied to outermost layer correctly affects all nested content.
+    x += spacing;
+    left = x;
+    top = y;
+    {
+        ctx.push_filter_layer(filter_gaussian_blur.clone());
+        ctx.set_paint(ROYAL_BLUE);
+        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+        {
+            ctx.push_layer(None, None, None, None, None);
+            ctx.set_paint(PURPLE);
+            left = x + width + between;
+            top = y;
+            ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+            {
+                ctx.push_layer(None, None, None, None, None);
+                ctx.set_paint(TOMATO);
+                left = x + width - overlap;
+                top = y + width - overlap;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                {
+                    ctx.push_layer(None, None, None, None, None);
+                    ctx.set_paint(VIOLET);
+                    left = x;
+                    top = y + width + between;
+                    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                    {
+                        ctx.push_layer(None, None, None, None, None);
+                        ctx.set_paint(SEA_GREEN);
+                        left = x + width + between;
+                        top = y + width + between;
+                        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                        ctx.pop_layer();
+                    }
+                    ctx.pop_layer();
+                }
+                ctx.pop_layer();
+            }
+            ctx.pop_layer();
+        }
+        ctx.pop_layer();
+    }
+
+    // Test 4: Drop shadow filter with circular clip path.
+    // Tests filter interaction with clipping (circular mask).
+    x = 4.;
+    y += spacing;
+    left = x;
+    top = y;
+    let mut circle_path = Circle::new((x + 13., y + 13.), 13.).to_path(0.1);
+    {
+        ctx.push_layer(
+            Some(&circle_path),
+            None,
+            None,
+            None,
+            Some(filter_drop_shadow.clone()),
+        );
+        ctx.set_paint(ROYAL_BLUE);
+        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+        {
+            ctx.push_layer(None, None, None, None, None);
+            ctx.set_paint(PURPLE);
+            left = x + width + between;
+            top = y;
+            ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+            {
+                ctx.push_layer(None, None, None, None, None);
+                ctx.set_paint(TOMATO);
+                left = x + width - overlap;
+                top = y + width - overlap;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                {
+                    ctx.push_layer(None, None, None, None, None);
+                    ctx.set_paint(VIOLET);
+                    left = x;
+                    top = y + width + between;
+                    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                    {
+                        ctx.push_layer(None, None, None, None, None);
+                        ctx.set_paint(SEA_GREEN);
+                        left = x + width + between;
+                        top = y + width + between;
+                        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                        ctx.pop_layer();
+                    }
+                    ctx.pop_layer();
+                }
+                ctx.pop_layer();
+            }
+            ctx.pop_layer();
+        }
+        ctx.pop_layer();
+    }
+
+    // Test 5: Drop shadow filter with quadrilateral clip path.
+    // Tests filter interaction with clipping (complex polygon mask).
+    x += spacing;
+    left = x;
+    top = y;
+    let mut quad_path = BezPath::new();
+    quad_path.move_to((x, y));
+    quad_path.line_to((x + 26., y + 5.));
+    quad_path.line_to((x + 30., y + 21.));
+    quad_path.line_to((x + 5., y + 30.));
+    quad_path.close_path();
+    {
+        ctx.push_layer(
+            Some(&quad_path),
+            None,
+            None,
+            None,
+            Some(filter_drop_shadow.clone()),
+        );
+        ctx.set_paint(ROYAL_BLUE);
+        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+        {
+            ctx.push_layer(None, None, None, None, None);
+            ctx.set_paint(PURPLE);
+            left = x + width + between;
+            top = y;
+            ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+            {
+                ctx.push_layer(None, None, None, None, None);
+                ctx.set_paint(TOMATO);
+                left = x + width - overlap;
+                top = y + width - overlap;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                {
+                    ctx.push_layer(None, None, None, None, None);
+                    ctx.set_paint(VIOLET);
+                    left = x;
+                    top = y + width + between;
+                    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                    {
+                        ctx.push_layer(None, None, None, None, None);
+                        ctx.set_paint(SEA_GREEN);
+                        left = x + width + between;
+                        top = y + width + between;
+                        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                        ctx.pop_layer();
+                    }
+                    ctx.pop_layer();
+                }
+                ctx.pop_layer();
+            }
+            ctx.pop_layer();
+        }
+        ctx.pop_layer();
+    }
+
+    // Test 6: Gaussian blur filter with circular clip path.
+    // Tests gaussian blur interaction with clipping (different filter type than Test 4).
+    x += spacing;
+    left = x;
+    top = y;
+    circle_path = Circle::new((x + 13., y + 13.), 13.).to_path(0.1);
+    {
+        ctx.push_layer(
+            Some(&circle_path),
+            None,
+            None,
+            None,
+            Some(filter_gaussian_blur.clone()),
+        );
+        ctx.set_paint(ROYAL_BLUE);
+        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+        {
+            ctx.push_layer(None, None, None, None, None);
+            ctx.set_paint(PURPLE);
+            left = x + width + between;
+            top = y;
+            ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+            {
+                ctx.push_layer(None, None, None, None, None);
+                ctx.set_paint(TOMATO);
+                left = x + width - overlap;
+                top = y + width - overlap;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                {
+                    ctx.push_layer(None, None, None, None, None);
+                    ctx.set_paint(VIOLET);
+                    left = x;
+                    top = y + width + between;
+                    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                    {
+                        ctx.push_layer(None, None, None, None, None);
+                        ctx.set_paint(SEA_GREEN);
+                        left = x + width + between;
+                        top = y + width + between;
+                        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                        ctx.pop_layer();
+                    }
+                    ctx.pop_layer();
+                }
+                ctx.pop_layer();
+            }
+            ctx.pop_layer();
+        }
+        ctx.pop_layer();
+    }
+
+    // Test 7: Filters nested within layer with opacity (0.5).
+    // Tests that filters correctly interact with opacity settings.
+    x = 4.;
+    y += spacing;
+    left = x;
+    top = y;
+    {
+        ctx.push_layer(None, None, Some(0.5), None, None);
+        ctx.set_paint(ROYAL_BLUE);
+        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+        {
+            {
+                ctx.push_filter_layer(filter_gaussian_blur.clone());
+                ctx.set_paint(PURPLE);
+                left = x + width + between;
+                top = y;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                ctx.pop_layer();
+            }
+            {
+                ctx.push_layer(None, None, None, None, None);
+                ctx.set_paint(TOMATO);
+                left = x + width - overlap;
+                top = y + width - overlap;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                {
+                    ctx.push_filter_layer(filter_gaussian_blur.clone());
+                    ctx.set_paint(VIOLET);
+                    left = x;
+                    top = y + width + between;
+                    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                    {
+                        ctx.push_layer(None, None, None, None, None);
+                        ctx.set_paint(SEA_GREEN);
+                        left = x + width + between;
+                        top = y + width + between;
+                        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                        ctx.pop_layer();
+                    }
+                    ctx.pop_layer();
+                }
+                ctx.pop_layer();
+            }
+        }
+        ctx.pop_layer();
+    }
+
+    // Test 8: Gaussian blur filter with DestOut blend mode.
+    // Tests filter interaction with non-standard blend modes.
+    x += spacing;
+    left = x;
+    top = y;
+    {
+        ctx.push_layer(None, None, None, None, None);
+        ctx.set_paint(ROYAL_BLUE);
+        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+        {
+            ctx.push_layer(None, None, None, None, None);
+            ctx.set_paint(PURPLE);
+            left = x + width + between;
+            top = y;
+            ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+            {
+                ctx.push_layer(None, None, None, None, None);
+                ctx.set_paint(VIOLET);
+                left = x;
+                top = y + width + between;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                {
+                    ctx.push_layer(None, None, None, None, None);
+                    ctx.set_paint(SEA_GREEN);
+                    left = x + width + between;
+                    top = y + width + between;
+                    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                    ctx.pop_layer();
+                }
+                ctx.pop_layer();
+            }
+            ctx.pop_layer();
+        }
+        {
+            ctx.push_layer(
+                None,
+                Some(BlendMode::new(Mix::Normal, Compose::DestOut)),
+                None,
+                None,
+                Some(filter_gaussian_blur.clone()),
+            );
+            ctx.set_paint(TOMATO);
+            left = x + width - overlap;
+            top = y + width - overlap;
+            ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+            ctx.pop_layer();
+        }
+        ctx.pop_layer();
+    }
+
+    // Test 9: Five levels of nested gaussian blur filters.
+    // Tests deeply nested filter layers and their cumulative effect.
+    x += spacing;
+    left = x;
+    top = y;
+    {
+        ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::GaussianBlur {
+            std_deviation: 2.0,
+            edge_mode: EdgeMode::None,
+        }));
+        ctx.set_paint(ROYAL_BLUE);
+        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+        {
+            ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::GaussianBlur {
+                std_deviation: 2.0,
+                edge_mode: EdgeMode::None,
+            }));
+            ctx.set_paint(PURPLE);
+            left = x + width + between;
+            top = y;
+            ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+            {
+                ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::GaussianBlur {
+                    std_deviation: 2.0,
+                    edge_mode: EdgeMode::None,
+                }));
+                ctx.set_paint(VIOLET);
+                left = x;
+                top = y + width + between;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                {
+                    ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::GaussianBlur {
+                        std_deviation: 2.0,
+                        edge_mode: EdgeMode::None,
+                    }));
+                    ctx.set_paint(SEA_GREEN);
+                    left = x + width + between;
+                    top = y + width + between;
+                    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                    {
+                        ctx.push_filter_layer(Filter::from_primitive(
+                            FilterPrimitive::GaussianBlur {
+                                std_deviation: 2.0,
+                                edge_mode: EdgeMode::None,
+                            },
+                        ));
+                        ctx.set_paint(TOMATO);
+                        left = x + width - overlap;
+                        top = y + width - overlap;
+                        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                        ctx.pop_layer();
+                    }
+                    ctx.pop_layer();
+                }
+                ctx.pop_layer();
+            }
+            ctx.pop_layer();
+        }
+        ctx.pop_layer();
+    }
+}

@@ -5,6 +5,7 @@
 
 pub mod blend;
 pub mod clip;
+pub mod filter;
 pub mod gradient;
 pub mod image;
 pub mod path;
@@ -12,6 +13,7 @@ pub mod simple;
 pub mod svg;
 pub mod text;
 
+use vello_common::filter_effects::Filter;
 pub use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_common::kurbo::Affine;
 pub use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
@@ -37,6 +39,12 @@ pub trait RenderingContext: Sized {
     fn set_fill_rule(&mut self, fill_rule: Fill);
     /// Set the current paint.
     fn set_paint(&mut self, paint: impl Into<PaintType>);
+    /// Set the current filter effect.
+    fn set_filter_effect(&mut self, filter: Filter);
+    /// Reset the current filter effect.
+    fn reset_filter_effect(&mut self);
+    /// Push a filter layer.
+    fn push_filter_layer(&mut self, filter: Filter);
     /// Set the current stroke style.
     fn set_stroke(&mut self, stroke: Stroke);
     /// Fill a path with the current paint.
@@ -49,6 +57,8 @@ pub trait RenderingContext: Sized {
     fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
     /// Push a clip layer.
     fn push_clip_layer(&mut self, path: &BezPath);
+    /// Push a clip path.
+    fn push_clip_path(&mut self, path: &BezPath);
     /// Push a layer with blend mode, alpha, etc.
     fn push_layer(
         &mut self,
@@ -56,9 +66,12 @@ pub trait RenderingContext: Sized {
         blend_mode: Option<BlendMode>,
         alpha: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     );
     /// Pop the current layer.
     fn pop_layer(&mut self);
+    /// Pop the last clip path.
+    fn pop_clip_path(&mut self);
     /// Record rendering commands into a recording.
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
     /// Generate sparse strips for a recording.
@@ -87,6 +100,18 @@ impl RenderingContext for RenderContext {
         self.set_fill_rule(fill_rule);
     }
 
+    fn set_filter_effect(&mut self, filter: Filter) {
+        self.set_filter_effect(filter);
+    }
+
+    fn reset_filter_effect(&mut self) {
+        self.reset_filter_effect();
+    }
+
+    fn push_filter_layer(&mut self, filter: Filter) {
+        self.push_filter_layer(filter);
+    }
+
     fn set_stroke(&mut self, stroke: Stroke) {
         self.set_stroke(stroke);
     }
@@ -117,8 +142,9 @@ impl RenderingContext for RenderContext {
         blend_mode: Option<BlendMode>,
         alpha: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
-        self.push_layer(clip, blend_mode, alpha, mask);
+        self.push_layer(clip, blend_mode, alpha, mask, filter);
     }
 
     fn pop_layer(&mut self) {
@@ -136,6 +162,14 @@ impl RenderingContext for RenderContext {
     fn execute_recording(&mut self, recording: &Recording) {
         Recordable::execute_recording(self, recording);
     }
+
+    fn push_clip_path(&mut self, path: &BezPath) {
+        Self::push_clip_path(self, path);
+    }
+
+    fn pop_clip_path(&mut self) {
+        Self::pop_clip_path(self);
+    }
 }
 
 impl RenderingContext for Scene {
@@ -143,6 +177,18 @@ impl RenderingContext for Scene {
 
     fn set_transform(&mut self, transform: Affine) {
         self.set_transform(transform);
+    }
+
+    fn set_filter_effect(&mut self, filter: Filter) {
+        self.set_filter_effect(filter);
+    }
+
+    fn reset_filter_effect(&mut self) {
+        self.reset_filter_effect();
+    }
+
+    fn push_filter_layer(&mut self, filter: Filter) {
+        self.push_filter_layer(filter);
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
@@ -187,8 +233,9 @@ impl RenderingContext for Scene {
         blend_mode: Option<BlendMode>,
         alpha: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
-        self.push_layer(clip, blend_mode, alpha, mask);
+        self.push_layer(clip, blend_mode, alpha, mask, filter);
     }
 
     fn pop_layer(&mut self) {
@@ -205,6 +252,14 @@ impl RenderingContext for Scene {
 
     fn execute_recording(&mut self, recording: &Recording) {
         Recordable::execute_recording(self, recording);
+    }
+
+    fn push_clip_path(&mut self, path: &BezPath) {
+        Self::push_clip_path(self, path);
+    }
+
+    fn pop_clip_path(&mut self) {
+        Self::pop_clip_path(self);
     }
 }
 
@@ -287,6 +342,8 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
+    #[cfg(feature = "cpu")]
+    scenes.push(AnyScene::new(filter::FilterScene::new()));
     scenes.push(AnyScene::new(blend::BlendScene::new()));
     scenes.push(AnyScene::new(image::ImageScene::new(img_sources)));
     scenes.push(AnyScene::new(gradient::GradientExtendScene::new()));
@@ -307,10 +364,12 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
 pub fn get_example_scenes<T: RenderingContext + 'static>(
     img_sources: Vec<ImageSource>,
 ) -> Box<[AnyScene<T>]> {
-    vec![
+    let scenes = vec![
         AnyScene::new(svg::SvgScene::tiger()),
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(simple::SimpleScene::new()),
+        #[cfg(feature = "cpu")]
+        AnyScene::new(filter::FilterScene::new()),
         AnyScene::new(clip::ClipScene::new()),
         AnyScene::new(blend::BlendScene::new()),
         AnyScene::new(image::ImageScene::new(img_sources)),
@@ -323,6 +382,6 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
         AnyScene::new(path::TrickyStrokesScene::new()),
         AnyScene::new(path::FunkyPathsScene::new()),
         AnyScene::new(path::RobustPathsScene::new()),
-    ]
-    .into_boxed_slice()
+    ];
+    scenes.into_boxed_slice()
 }

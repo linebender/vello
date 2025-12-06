@@ -18,6 +18,7 @@ members = [
     "sparse_strips/vello_common",
     "sparse_strips/vello_cpu",
     "sparse_strips/vello_cpu/examples/wasm_cpu",
+    "sparse_strips/vello_cpu/examples/winit",
     "sparse_strips/vello_hybrid",
     "sparse_strips/vello_sparse_shaders",
     "sparse_strips/vello_hybrid/examples/native_webgl",
@@ -126,8 +127,10 @@ vello_sparse_shaders = { version = "0.0.4", path = "sparse_strips/vello_sparse_s
 vello_example_scenes = { path = "sparse_strips/vello_example_scenes" }
 vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
 
-# NOTE: Make sure to keep this in sync with the version badge in README.md and vello/README.md
+# NOTE: The wgpu and naga versions should be kept in sync, and make sure to keep this
+# in sync with the version badge in README.md and vello/README.md
 wgpu = { version = "27.0.1", default-features = false, features = ["std", "wgsl"] }
+naga = { version = "27.0.0", default-features = false }
 log = "0.4.27"
 image = { version = "0.25.6", default-features = false }
 

@@ -5,9 +5,11 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
+use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
+use vello_common::filter_effects::Filter;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
@@ -16,6 +18,7 @@ use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
+use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
@@ -54,13 +57,21 @@ impl Default for RenderSettings {
 
 /// A render state which contains the style properties for path rendering and
 /// the current transform.
+///
+/// This is used to save and restore rendering state during recording operations.
 #[derive(Debug)]
 struct RenderState {
+    /// The paint type (solid color, gradient, or image).
     pub(crate) paint: PaintType,
+    /// Transform applied to the paint coordinates.
     pub(crate) paint_transform: Affine,
+    /// Stroke style for path stroking operations.
     pub(crate) stroke: Stroke,
+    /// Transform applied to geometry.
     pub(crate) transform: Affine,
+    /// Fill rule for path filling operations.
     pub(crate) fill_rule: Fill,
+    /// Blend mode for compositing.
     pub(crate) blend_mode: BlendMode,
 }
 
@@ -70,21 +81,37 @@ struct RenderState {
 /// pipeline from paths to strips that can be rendered by the GPU.
 #[derive(Debug)]
 pub struct Scene {
+    /// Width of the rendering surface in pixels.
     pub(crate) width: u16,
+    /// Height of the rendering surface in pixels.
     pub(crate) height: u16,
+    /// Wide coarse rasterizer for generating binned draw commands.
     pub(crate) wide: Wide<MODE_HYBRID>,
+    clip_context: ClipContext,
     pub(crate) paint: PaintType,
+    /// Transform applied to paint coordinates.
     pub(crate) paint_transform: Affine,
     pub(crate) aliasing_threshold: Option<u8>,
+    /// Storage for encoded gradient and image paint data.
     pub(crate) encoded_paints: Vec<EncodedPaint>,
+    /// Whether the current paint is visible (e.g., alpha > 0).
     paint_visible: bool,
+    /// Current stroke style for path stroking operations.
     pub(crate) stroke: Stroke,
+    /// Current transform applied to geometry.
     pub(crate) transform: Affine,
+    /// Current fill rule for path filling operations.
     pub(crate) fill_rule: Fill,
+    /// Current blend mode for compositing.
     pub(crate) blend_mode: BlendMode,
+    /// Generator for converting paths to strips.
     pub(crate) strip_generator: StripGenerator,
+    /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: StripStorage,
+    /// Cache for rasterized glyphs to improve text rendering performance.
     pub(crate) glyph_caches: Option<vello_common::glyph::GlyphCaches>,
+    /// Dependency graph for managing layer rendering order and filter effects.
+    pub(crate) render_graph: RenderGraph,
 }
 
 impl Scene {
@@ -96,10 +123,12 @@ impl Scene {
     /// Create a new render context with specific settings.
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         let render_state = Self::default_render_state();
+        let render_graph = RenderGraph::new();
         Self {
             width,
             height,
             wide: Wide::<MODE_HYBRID>::new(width, height),
+            clip_context: ClipContext::new(),
             aliasing_threshold: None,
             paint: render_state.paint,
             paint_transform: render_state.paint_transform,
@@ -112,6 +141,7 @@ impl Scene {
             fill_rule: render_state.fill_rule,
             blend_mode: render_state.blend_mode,
             glyph_caches: Some(Default::default()),
+            render_graph,
         }
     }
 
@@ -139,6 +169,12 @@ impl Scene {
         }
     }
 
+    /// Encode the current paint into a `Paint` that can be used for rendering.
+    ///
+    /// For solid colors, this is a simple conversion. For gradients and images,
+    /// this encodes the paint data into the `encoded_paints` buffer and returns
+    /// a `Paint` that references that data. The combined transform (geometry + paint)
+    /// is applied during encoding.
     fn encode_current_paint(&mut self) -> Paint {
         match self.paint.clone() {
             PaintType::Solid(s) => s.into(),
@@ -170,6 +206,11 @@ impl Scene {
     }
 
     /// Build strips for a filled path with the given properties.
+    ///
+    /// This is the internal implementation that generates strips from a path
+    /// and submits them to the coarse rasterizer. The path is first converted
+    /// to strips by the strip generator, then the strips are processed by the
+    /// wide coarse rasterizer to generate binned draw commands.
     fn fill_path_with(
         &mut self,
         path: &BezPath,
@@ -185,8 +226,31 @@ impl Scene {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
+            self.clip_context.get(),
         );
-        wide.generate(&self.strip_storage.strips, paint, self.blend_mode, 0);
+        wide.generate(&self.strip_storage.strips, paint, self.blend_mode, 0, None);
+    }
+
+    /// Push a new clip path to the clip stack.
+    ///
+    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
+    /// example for how this method differs from `push_clip_layer`.
+    pub fn push_clip_path(&mut self, path: &BezPath) {
+        self.clip_context.push_clip(
+            path,
+            &mut self.strip_generator,
+            self.fill_rule,
+            self.transform,
+            self.aliasing_threshold,
+        );
+    }
+
+    /// Pop a clip path from the clip stack.
+    ///
+    /// Note that unlike `push_clip_layer`, it is permissible to have pending
+    /// pushed clip paths before finishing the rendering operation.
+    pub fn pop_clip_path(&mut self) {
+        self.clip_context.pop_clip();
     }
 
     /// Stroke a path with the current paint and stroke settings.
@@ -200,6 +264,11 @@ impl Scene {
     }
 
     /// Build strips for a stroked path with the given properties.
+    ///
+    /// This is the internal implementation that generates strips from a stroked path
+    /// and submits them to the coarse rasterizer. The path is first stroked and
+    /// converted to strips by the strip generator, then the strips are processed by
+    /// the wide coarse rasterizer to generate binned draw commands.
     fn stroke_path_with(
         &mut self,
         path: &BezPath,
@@ -215,9 +284,10 @@ impl Scene {
             transform,
             aliasing_threshold,
             &mut self.strip_storage,
+            self.clip_context.get(),
         );
 
-        wide.generate(&self.strip_storage.strips, paint, self.blend_mode, 0);
+        wide.generate(&self.strip_storage.strips, paint, self.blend_mode, 0, None);
     }
 
     /// Set the aliasing threshold.
@@ -253,13 +323,19 @@ impl Scene {
     /// Push a new layer with the given properties.
     ///
     /// Only `clip_path` is supported for now.
+    // TODO: Implement filter integration.
     pub fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
+        if filter.is_some() {
+            unimplemented!("Filter effects are not yet supported in vello_hybrid");
+        }
+
         let clip = if let Some(c) = clip_path {
             self.strip_generator.generate_filled_path(
                 c,
@@ -267,6 +343,7 @@ impl Scene {
                 self.transform,
                 self.aliasing_threshold,
                 &mut self.strip_storage,
+                self.clip_context.get(),
             );
 
             Some(self.strip_storage.strips.as_slice())
@@ -280,22 +357,34 @@ impl Scene {
         }
 
         self.wide.push_layer(
+            0,
             clip,
             blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
             None,
             opacity.unwrap_or(1.),
+            None,
+            self.transform,
+            &mut self.render_graph,
             0,
         );
     }
 
     /// Push a new clip layer.
+    ///
+    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
+    /// example for how this method differs from `push_clip_path`.
     pub fn push_clip_layer(&mut self, path: &BezPath) {
-        self.push_layer(Some(path), None, None, None);
+        self.push_layer(Some(path), None, None, None, None);
+    }
+
+    /// Push a new filter layer.
+    pub fn push_filter_layer(&mut self, filter: Filter) {
+        self.push_layer(None, None, None, None, Some(filter));
     }
 
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
-        self.wide.pop_layer();
+        self.wide.pop_layer(&mut self.render_graph);
     }
 
     /// Set the blend mode for subsequent rendering operations.
@@ -349,10 +438,21 @@ impl Scene {
         self.transform = Affine::IDENTITY;
     }
 
+    /// Apply filter to the current paint (affects next drawn element)
+    pub fn set_filter_effect(&mut self, _filter: Filter) {
+        unimplemented!("Filter effects integration with Scene")
+    }
+
+    /// Reset the current filter effect.
+    pub fn reset_filter_effect(&mut self) {
+        unimplemented!("Filter effects integration with Scene")
+    }
+
     /// Reset scene to default values.
     pub fn reset(&mut self) {
         self.wide.reset();
         self.strip_generator.reset();
+        self.clip_context.reset();
         self.strip_storage.clear();
         self.encoded_paints.clear();
 
@@ -480,13 +580,26 @@ impl Recordable for Scene {
                 RenderCommand::SetStroke(stroke) => {
                     self.set_stroke(stroke.clone());
                 }
+                RenderCommand::SetFilterEffect(filter) => {
+                    self.set_filter_effect(filter.clone());
+                }
+                RenderCommand::ResetFilterEffect => {
+                    self.reset_filter_effect();
+                }
                 RenderCommand::PushLayer(PushLayerCommand {
                     clip_path,
                     blend_mode,
                     opacity,
                     mask,
+                    filter,
                 }) => {
-                    self.push_layer(clip_path.as_ref(), *blend_mode, *opacity, mask.clone());
+                    self.push_layer(
+                        clip_path.as_ref(),
+                        *blend_mode,
+                        *opacity,
+                        mask.clone(),
+                        filter.clone(),
+                    );
                 }
                 RenderCommand::PopLayer => {
                     self.pop_layer();
@@ -527,6 +640,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -537,6 +651,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -547,6 +662,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -557,6 +673,7 @@ impl Scene {
                         self.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -567,6 +684,7 @@ impl Scene {
                         *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -577,6 +695,7 @@ impl Scene {
                         *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
+                        None,
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -626,8 +745,13 @@ impl Scene {
             "Invalid strip range: start={start}, end={end}, count={count}"
         );
         let paint = self.encode_current_paint();
-        self.wide
-            .generate(&adjusted_strips[start..end], paint, self.blend_mode, 0);
+        self.wide.generate(
+            &adjusted_strips[start..end],
+            paint,
+            self.blend_mode,
+            0,
+            None,
+        );
     }
 
     /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.

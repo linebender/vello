@@ -664,6 +664,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-graphics"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa95a34622365fa5bbf40b20b75dba8dfa8c94c734aea8ac9a5ca38af14316f1"
+dependencies = [
+ "bitflags 2.9.4",
+ "core-foundation 0.10.1",
+ "core-graphics-types 0.2.0",
+ "foreign-types",
+ "libc",
+]
+
+[[package]]
 name = "core-graphics-types"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -778,6 +791,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
+name = "ctor-lite"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f791803201ab277ace03903de1594460708d2d54df6053f2d9e82f592b19e3b"
+
+[[package]]
 name = "cursor-icon"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -841,6 +860,45 @@ name = "dpi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
+
+[[package]]
+name = "drm"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98888c4bbd601524c11a7ed63f814b8825f420514f78e96f752c437ae9cbb5d1"
+dependencies = [
+ "bitflags 2.9.4",
+ "bytemuck",
+ "drm-ffi",
+ "drm-fourcc",
+ "rustix 0.38.44",
+]
+
+[[package]]
+name = "drm-ffi"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97c98727e48b7ccb4f4aea8cfe881e5b07f702d17b7875991881b41af7278d53"
+dependencies = [
+ "drm-sys",
+ "rustix 0.38.44",
+]
+
+[[package]]
+name = "drm-fourcc"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0aafbcdb8afc29c1a7ee5fbe53b5d62f4565b35a042a662ca9fecd0b54dae6f4"
+
+[[package]]
+name = "drm-sys"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd39dde40b6e196c2e8763f23d119ddb1a8714534bf7d77fa97a65b0feda3986"
+dependencies = [
+ "libc",
+ "linux-raw-sys 0.6.5",
+]
 
 [[package]]
 name = "dyn-clone"
@@ -1887,6 +1945,12 @@ checksum = "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab"
 
 [[package]]
 name = "linux-raw-sys"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a385b1be4e5c3e362ad2ffa73c392e53f031eaa5b7d648e64cd87f27f6063d7"
+
+[[package]]
+name = "linux-raw-sys"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df1d3c3b53da64cf5760482273a98e575c651a67eec7f77df96b5b642de8f039"
@@ -2032,31 +2096,6 @@ checksum = "ddd32fa8935aeadb8a8a6b6b351e40225570a37c43de67690383d87ef170cd08"
 dependencies = [
  "num-traits",
  "pxfm",
-]
-
-[[package]]
-name = "naga"
-version = "26.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "916cbc7cb27db60be930a4e2da243cf4bc39569195f22fd8ee419cd31d5b662c"
-dependencies = [
- "arrayvec",
- "bit-set",
- "bitflags 2.9.4",
- "cfg-if",
- "cfg_aliases",
- "codespan-reporting",
- "half",
- "hashbrown 0.15.5",
- "hexf-parse",
- "indexmap 2.11.3",
- "libm",
- "log",
- "num-traits",
- "once_cell",
- "rustc-hash 1.1.0",
- "thiserror 2.0.16",
- "unicode-ident",
 ]
 
 [[package]]
@@ -3360,6 +3399,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "softbuffer"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18051cdd562e792cad055119e0cdb2cfc137e44e3987532e0f9659a77931bb08"
+dependencies = [
+ "as-raw-xcb-connection",
+ "bytemuck",
+ "cfg_aliases",
+ "core-graphics 0.24.0",
+ "drm",
+ "fastrand",
+ "foreign-types",
+ "js-sys",
+ "log",
+ "memmap2",
+ "objc2 0.5.2",
+ "objc2-foundation 0.2.2",
+ "objc2-quartz-core",
+ "raw-window-handle",
+ "redox_syscall 0.5.17",
+ "rustix 0.38.44",
+ "tiny-xlib",
+ "wasm-bindgen",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-sys",
+ "web-sys",
+ "windows-sys 0.59.0",
+ "x11rb",
+]
+
+[[package]]
 name = "spirv"
 version = "0.3.0+sdk-1.3.268.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3545,6 +3616,19 @@ dependencies = [
  "arrayref",
  "bytemuck",
  "strict-num",
+]
+
+[[package]]
+name = "tiny-xlib"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0324504befd01cab6e0c994f34b2ffa257849ee019d3fb3b64fb2c858887d89e"
+dependencies = [
+ "as-raw-xcb-connection",
+ "ctor-lite",
+ "libloading",
+ "pkg-config",
+ "tracing",
 ]
 
 [[package]]
@@ -3891,10 +3975,22 @@ version = "0.0.4"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
+ "hashbrown 0.15.5",
  "ordered-channel",
  "rayon",
  "thread_local",
  "vello_common",
+]
+
+[[package]]
+name = "vello_cpu_winit"
+version = "0.0.0"
+dependencies = [
+ "softbuffer",
+ "vello_common",
+ "vello_cpu",
+ "vello_example_scenes",
+ "winit",
 ]
 
 [[package]]
@@ -3974,7 +4070,7 @@ version = "0.6.0"
 dependencies = [
  "bytemuck",
  "log",
- "naga 26.0.0",
+ "naga",
  "thiserror 2.0.16",
  "vello_encoding",
 ]
@@ -3983,7 +4079,7 @@ dependencies = [
 name = "vello_sparse_shaders"
 version = "0.0.4"
 dependencies = [
- "naga 26.0.0",
+ "naga",
 ]
 
 [[package]]
@@ -4480,7 +4576,7 @@ dependencies = [
  "hashbrown 0.16.0",
  "js-sys",
  "log",
- "naga 27.0.3",
+ "naga",
  "parking_lot",
  "portable-atomic",
  "profiling",
@@ -4511,7 +4607,7 @@ dependencies = [
  "hashbrown 0.16.0",
  "indexmap 2.11.3",
  "log",
- "naga 27.0.3",
+ "naga",
  "once_cell",
  "parking_lot",
  "portable-atomic",
@@ -4592,7 +4688,7 @@ dependencies = [
  "libloading",
  "log",
  "metal",
- "naga 27.0.3",
+ "naga",
  "ndk-sys",
  "objc",
  "once_cell",
@@ -5041,7 +5137,7 @@ dependencies = [
  "cfg_aliases",
  "concurrent-queue",
  "core-foundation 0.9.4",
- "core-graphics",
+ "core-graphics 0.23.2",
  "cursor-icon",
  "dpi",
  "js-sys",
