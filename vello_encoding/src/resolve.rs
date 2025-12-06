@@ -36,6 +36,8 @@ pub struct Layout {
     pub transform_base: u32,
     /// Start of style stream.
     pub style_base: u32,
+    /// Start of winding stream.
+    pub winding_base: u32,
 }
 
 impl Layout {
@@ -148,6 +150,9 @@ pub fn resolve_solid_paths_only(encoding: &Encoding, packed: &mut Vec<u8>) -> La
     // Style stream
     layout.style_base = size_to_words(data.len());
     data.extend_from_slice(bytemuck::cast_slice(&encoding.styles));
+    // Winding stream
+    layout.winding_base = size_to_words(data.len());
+    data.extend_from_slice(bytemuck::cast_slice(&encoding.path_windings));
     layout.n_draw_objects = layout.n_paths;
     assert_eq!(buffer_size, data.len());
     layout
@@ -380,6 +385,27 @@ impl Resolver {
                 data.extend_from_slice(bytemuck::cast_slice(&stream[pos..]));
             }
         }
+        // Winding stream
+        layout.winding_base = size_to_words(data.len());
+        {
+            let mut pos = 0;
+            let stream = &encoding.path_windings;
+            for patch in &self.patches {
+                if let ResolvedPatch::GlyphRun { index, glyphs, .. } = patch {
+                    let stream_offset = resources.glyph_runs[*index].stream_offsets.path_windings;
+                    if pos < stream_offset {
+                        data.extend_from_slice(bytemuck::cast_slice(&stream[pos..stream_offset]));
+                        pos = stream_offset;
+                    }
+                    for glyph in &self.glyphs[glyphs.clone()] {
+                        data.extend_from_slice(bytemuck::cast_slice(&glyph.path_windings));
+                    }
+                }
+            }
+            if pos < stream.len() {
+                data.extend_from_slice(bytemuck::cast_slice(&stream[pos..]));
+            }
+        }
         self.glyphs.clear();
         layout.n_draw_objects = layout.n_paths;
         assert_eq!(buffer_size, data.len());
@@ -439,6 +465,7 @@ impl Resolver {
                         font_size,
                         hint,
                         &run.style,
+                        run.embolden_style,
                     ) else {
                         continue;
                     };
@@ -601,7 +628,8 @@ impl SceneBufferSizes {
             )
             + slice_size_in_bytes(&encoding.draw_data, patch_sizes.draw_data)
             + slice_size_in_bytes(&encoding.transforms, patch_sizes.transforms)
-            + slice_size_in_bytes(&encoding.styles, patch_sizes.styles);
+            + slice_size_in_bytes(&encoding.styles, patch_sizes.styles)
+            + slice_size_in_bytes(&encoding.path_windings, patch_sizes.path_windings);
         Self {
             buffer_size,
             path_tag_padded,
