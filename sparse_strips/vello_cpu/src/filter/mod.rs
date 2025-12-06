@@ -163,26 +163,6 @@ pub(crate) fn filter_highp(
     }
 }
 
-/// Scale a blur's standard deviation uniformly based on the transformation.
-///
-/// Extracts the scale factors from the transformation matrix using SVD and
-/// averages them to get a uniform scale factor for the blur radius.
-///
-/// # Arguments
-/// * `std_deviation` - The blur standard deviation in user space
-/// * `transform` - The transformation matrix to extract scale from
-///
-/// # Returns
-/// The scaled standard deviation in device space
-fn transform_blur_params(std_deviation: f32, transform: &Affine) -> f32 {
-    let (scale_x, scale_y) = extract_scales(transform);
-    let uniform_scale = (scale_x + scale_y) / 2.0;
-    // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
-    // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
-    // and allow blur to scale independently along each axis.
-    std_deviation * uniform_scale
-}
-
 /// Transform a drop shadow's offset and standard deviation using the affine transformation.
 ///
 /// Applies the full linear transformation (rotation, scale, and shear) to the offset vector,
@@ -215,4 +195,24 @@ fn transform_shadow_params(
     let scaled_std_dev = transform_blur_params(std_deviation, transform);
 
     (scaled_dx, scaled_dy, scaled_std_dev)
+}
+
+/// Scale a blur's standard deviation uniformly based on the transformation.
+///
+/// Extracts the scale factors from the transformation matrix using SVD and
+/// averages them to get a uniform scale factor for the blur radius.
+///
+/// # Arguments
+/// * `std_deviation` - The blur standard deviation in user space
+/// * `transform` - The transformation matrix to extract scale from
+///
+/// # Returns
+/// The scaled standard deviation in device space
+fn transform_blur_params(std_deviation: f32, transform: &Affine) -> f32 {
+    let (scale_x, scale_y) = extract_scales(transform);
+    let uniform_scale = (scale_x + scale_y) / 2.0;
+    // TODO: Support separate std_deviation for x and y axes (std_deviation_x, std_deviation_y)
+    // to properly handle non-uniform scaling. This would eliminate the need for uniform_scale
+    // and allow blur to scale independently along each axis.
+    std_deviation * uniform_scale
 }

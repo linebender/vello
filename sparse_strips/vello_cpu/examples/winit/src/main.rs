@@ -233,7 +233,6 @@ impl ApplicationHandler for App {
                 let is_cmd = self.modifiers.state().super_key();
                 match logical_key {
                     Key::Named(NamedKey::ArrowRight) => {
-                        println!("ArrowRight");
                         self.current_scene = (self.current_scene + 1) % self.scenes.len();
                         self.transform = Affine::IDENTITY;
                         window.request_redraw();
