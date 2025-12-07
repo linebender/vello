@@ -1802,18 +1802,18 @@ mod tests {
                     );
                 }
 
-                if current.x == next.x {
-                    if current.packed_winding_line_idx > next.packed_winding_line_idx {
-                        panic!(
-                            "Sort Failure [Payload]: at {}x{}, Tile[{}] (val={}) > Tile[{}] (val={})",
-                            current.x,
-                            current.y,
-                            i,
-                            current.packed_winding_line_idx,
-                            i + 1,
-                            next.packed_winding_line_idx
-                        );
-                    }
+                if current.x == next.x
+                    && current.packed_winding_line_idx > next.packed_winding_line_idx
+                {
+                    panic!(
+                        "Sort Failure [Payload]: at {}x{}, Tile[{}] (val={}) > Tile[{}] (val={})",
+                        current.x,
+                        current.y,
+                        i,
+                        current.packed_winding_line_idx,
+                        i + 1,
+                        next.packed_winding_line_idx
+                    );
                 }
             }
         }
