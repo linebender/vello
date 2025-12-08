@@ -233,12 +233,13 @@ fn vs_main(
     let color_source = (instance.paint >> 30u) & 0x3u;
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (instance.paint >> 27u) & 0x7u;
+        // Unpack view coordinates for image sampling and gradient calculations
+        let scene_strip_x = instance.payload & 0xffffu;
+        let scene_strip_y = instance.payload >> 16u;
+
         if paint_type == PAINT_TYPE_IMAGE {
             let paint_tex_idx = instance.paint & PAINT_TEXTURE_INDEX_MASK;
             let encoded_image = unpack_encoded_image(paint_tex_idx);
-            // Unpack view coordinates for image sampling
-            let scene_strip_x = instance.payload & 0xffffu;
-            let scene_strip_y = instance.payload >> 16u;
             // Use view coordinates for image sampling (always in global view space)
             out.sample_xy = encoded_image.translate 
                 + encoded_image.image_offset
@@ -247,10 +248,6 @@ fn vs_main(
                 + encoded_image.transform.xy * x * f32(width)
                 + encoded_image.transform.zw * y * f32(config.strip_height);
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
-            // Unpack view coordinates for gradient calculation
-            let scene_strip_x = instance.payload & 0xffffu;
-            let scene_strip_y = instance.payload >> 16u;
-
             // Use view coordinates for gradient transform (always in global view space)
             out.sample_xy = vec2<f32>(
                 f32(scene_strip_x) + x * f32(width),
