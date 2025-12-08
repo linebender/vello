@@ -78,14 +78,9 @@ bitflags! {
         const TEXTURE_BINDING = 1 << 2;
         // /// This texture can be the source for a "download" operation.
         // const DOWNLOAD_SRC = 1 << 3;
-        // TODO: Does this make sense to support/require this?
+        // TODO: Does this make sense to support/require this be supported?
         // /// A subset of this texture can be rendered to.
         // const PARTIAL_RENDER_TARGET = 1<<4;
-
-        /// The usages for an external texture representing a GPU surface.
-        const SURFACE = Self::RENDER_TARGET.bits();
-        /// The usages for an uploaded texture.
-        const UPLOAD = Self::UPLOAD_TARGET.bits() | Self::TEXTURE_BINDING.bits();
     }
 }
 
@@ -96,6 +91,7 @@ pub struct TextureHandle {
 }
 
 impl TextureHandle {
+    /// Access the "raw" id of this texture.
     pub fn id(&self) -> TextureId {
         self.inner.id
     }

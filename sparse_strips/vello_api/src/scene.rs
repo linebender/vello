@@ -62,8 +62,14 @@ pub struct BlurredRoundedRectBrush {
 pub struct Scene {
     paths: PathSet,
     commands: Vec<RenderCommand>,
+    // TODO: Make this an `Option`? That is, allow explicitly renderer-agnostic scenes
+    // which also don't allow bringing in textures?
     renderer: Arc<dyn Renderer>,
     hinted: bool,
+    /// Handles for each texture stored in this scene.
+    ///
+    /// We store these to ensure that the textures won't be freed until this scene
+    /// is fully rendered (and dropped).
     // TODO: HashSet? We'd need to bring in hashbrown, but that's probably fine
     textures: Vec<TextureHandle>,
 }
@@ -93,6 +99,13 @@ impl Scene {
 // TODO: Change module and give a better name.
 pub type OurBrush = peniko::Brush<peniko::ImageBrush<TextureHandle>>;
 
+/// Extract the translation component from a 2d Affine transformation, if the
+/// transform is equivalent to an exact integer translation.
+///
+/// Returns the x and y translations on success.
+///
+/// This method assumes that the translations will be at a reasonable scale for 2d rendering.
+/// Whilst we don't validate this precisely, values less than ~10 billion pixels should be fine.
 pub fn extract_integer_translation(transform: Affine) -> Option<(f64, f64)> {
     fn is_nearly(a: f64, b: f64) -> bool {
         // TODO: This is a very arbitrary threshold.
@@ -120,12 +133,11 @@ impl PaintScene for Scene {
         mut scene_transform: Affine,
         Self {
             // Make sure we consider all the fields of Scene by destructuring
-            // (I wonder if there should be an opt in restriction clippy lint?)
             paths: other_paths,
             commands: other_commands,
             renderer: other_renderer,
             hinted: other_hinted,
-            textures,
+            textures: other_textures,
         }: &Scene,
     ) -> Result<(), ()> {
         if !Arc::ptr_eq(&self.renderer, other_renderer) {
@@ -140,7 +152,9 @@ impl PaintScene for Scene {
             }
             if let Some((dx, dy)) = extract_integer_translation(scene_transform) {
                 // Update the transform to be a pure integer translation.
-                // This is valid as the scene is hinted, so we know it won't be scaled.
+                // This is valid as the scene is hinted, so we know it won't be later scaled.
+                // As such, a displacement of up to 1/100 of a pixel is inperceptible, but it
+                // makes our reasoning about this easier.
                 scene_transform = Affine::translate((dx, dy));
             } else {
                 // Translation not hinting compatible.
@@ -173,12 +187,12 @@ impl PaintScene for Scene {
                 }
             }));
 
-        // We avoid duplicating the handles where possible.
+        // We avoid duplicating stored handles.
         // It is likely that there's a better data structure for this (a `HashSet`?)
-        // but there isn't one provided in core/alloc.x
-        // We expect the number of textures to be relatively small, so this O(N^2) isn't
-        // an immediate optimisation target.
-        for texture in textures {
+        // but there isn't one provided in core/alloc.
+        // We expect the number of textures to be relatively small, so this being
+        // O(N^2) isn't an immediate optimisation target.
+        for texture in other_textures {
             if !self.textures.contains(texture) {
                 self.textures.push(texture.clone());
             }

@@ -10,6 +10,7 @@ use crate::scene::{OurBrush, Scene};
 
 pub trait PaintScene: Any {
     // Error if associated with different renderer.
+    // TODO: This also "clobbers" the brush; we need to document that.
     fn append(&mut self, transform: Affine, scene: &Scene) -> Result<(), ()>;
 
     fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape);
