@@ -141,7 +141,7 @@ impl StripGenerator {
         }
 
         self.tiles
-            .make_tiles(&self.line_buf, self.width, self.height);
+            .make_tiles::</*GEN_INT_MASK=*/false>(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
 
         if let Some(clip_path) = clip_path {
