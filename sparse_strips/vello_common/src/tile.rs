@@ -89,14 +89,17 @@ impl Tile {
     }
 
     /// The base tile constructor
+    ///
+    /// Unlike [`Self::new_clamped`], this constructor stores `x` and `y` exactly as provided.
+    /// Callers must ensure these coordinates do not exceed the limits required by downstream
+    /// processing (typically `u16::MAX / WIDTH` and `u16::MAX / HEIGHT`).
     #[inline]
     pub const fn new(x: u16, y: u16, line_idx: u32, intersection_mask: u32) -> Self {
         #[cfg(debug_assertions)]
         if line_idx >= MAX_LINES_PER_PATH {
             panic!("Max. number of lines per path exceeded.");
         }
-        // We pack the winding bit as the MSB of the high section (Bit 31).
-        // The intersection_mask is expected to contain bits 0-4 (T, B, L, R, P).
+        // The intersection_mask is expected to contain bits 0-5 (T, B, L, R, P, W).
         Self {
             x,
             y,
@@ -377,7 +380,7 @@ impl Tiles {
                 line_bottom_y.floor() as i32
             };
 
-            // special-case out lines which are fully contained within a tile.
+            // Special-case out lines which are fully contained within a tile.
             let not_same_tile = p0_tile_y != p1_tile_y || p0_tile_x != p1_tile_x;
             if not_same_tile {
                 // For ease of logic, special-case purely vertical tiles.
@@ -399,7 +402,7 @@ impl Tiles {
                     }
 
                     // Middle
-                    // If the start was culled, the first tile inside the viewport is a middle
+                    // If the start was culled, the first tile inside the viewport is a middle.
                     let y_start = if is_start_culled {
                         y_top_tiles
                     } else {
@@ -421,7 +424,7 @@ impl Tiles {
                             self.tile_buf.push(tile);
                         }
 
-                        // Perfect touching B case
+                        // Perfect touching B case.
                         let winding = ((f32::from(y_last) >= line_top_y) as u32) << 5;
                         let intersection_mask = if GEN_INT_MASK {
                             let is_end_tile = ((y_last as i32) == p1_tile_y) as u32;
@@ -457,7 +460,7 @@ impl Tiles {
                         (x_idx as i32 == p1_tile_x) && (y_idx as i32 == p1_tile_y)
                     };
 
-                    // Line walks rows top to bottom, left to right, y-exclusive, x-inclusive
+                    // Line walks rows top to bottom, left to right, y-exclusive, x-inclusive.
                     for y_idx in y_top_tiles..y_bottom_tiles {
                         let y = f32::from(y_idx);
 
@@ -509,15 +512,15 @@ impl Tiles {
                                 mask |= vert_exit << 1;
                                 mask |= hor_exit << dx_dir << 2;
 
-                                // Check if the line passes through any of the four corners of this tile.
-                                // It passes through a corner if the x-intersection with the top or bottom
-                                // edge equals either the left (x_start) or right (x_start + 1) tile boundary
+                                // Check if the line passes through any of the four corners of this
+                                // tile. It passes through a corner if the x-intersection with the
+                                // top or bottom edge equals either the left (x_start) or right
+                                // (x_start + 1) tile boundary.
                                 let x_start_f = x_start as f32;
                                 let x_right_f = (x_start + 1) as f32;
 
                                 // TODO Verify all cases of bottom left tiebreaking. Preliminary
                                 // testing appears to be fine.
-                                // TODO SIMD here!
                                 let trc = ((line_row_top_x == x_right_f) as u32) & !start_tile;
                                 let tlc = ((line_row_top_x == x_start_f) as u32) & !start_tile;
                                 let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
@@ -525,8 +528,8 @@ impl Tiles {
                                 // The top left corner must be treated specially.
                                 let tie_break = tlc & (canonical_row_start ^ 1);
 
-                                // If we touch corners, force the corresponding horizontal intersection
-                                // bits to ensure that no intersection gets destructed.
+                                // If we touch corners, force the corresponding horizontal
+                                // intersection bits to ensure that no intersection gets destructed.
                                 mask |= (tie_break | blc) << 2;
                                 mask |= (trc | brc) << 3;
 
@@ -582,7 +585,6 @@ impl Tiles {
                                 let x_end_f = x_end as f32;
                                 let x_right_f = (x_end + 1) as f32;
 
-                                // TODO SIMD here!
                                 let trc = ((line_row_top_x == x_right_f) as u32) & !start_tile;
                                 let tlc = ((line_row_top_x == x_end_f) as u32) & !start_tile;
                                 let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
