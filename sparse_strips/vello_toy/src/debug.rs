@@ -71,7 +71,7 @@ fn main() {
     }
 
     if stages.iter().any(|s| s.requires_tiling()) {
-        tiles.make_tiles::</*GEN_INT_MASK=*/false>(&line_buf, args.width, args.height);
+        tiles.make_tiles_analytic_aa(&line_buf, args.width, args.height);
         tiles.sort_tiles();
     }
 

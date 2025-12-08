@@ -301,12 +301,171 @@ impl Tiles {
     // TODO: Tiles are clamped to the left edge of the viewport, but lines fully to the left of the
     // viewport are not culled yet. These lines impact winding, and would need forwarding of
     // winding to the strip generation stage.
-    pub fn make_tiles<const GEN_INT_MASK: bool>(
-        &mut self,
-        lines: &[Line],
-        width: u16,
-        height: u16,
-    ) {
+    pub fn make_tiles_analytic_aa(&mut self, lines: &[Line], width: u16, height: u16) {
+        self.reset();
+
+        if width == 0 || height == 0 {
+            return;
+        }
+
+        debug_assert!(
+            lines.len() <= MAX_LINES_PER_PATH as usize,
+            "Max. number of lines per path exceeded. Max is {}, got {}.",
+            MAX_LINES_PER_PATH,
+            lines.len()
+        );
+
+        let tile_columns = width.div_ceil(Tile::WIDTH);
+        let tile_rows = height.div_ceil(Tile::HEIGHT);
+
+        for (line_idx, line) in lines.iter().take(MAX_LINES_PER_PATH as usize).enumerate() {
+            let line_idx = line_idx as u32;
+
+            let p0_x = line.p0.x / f32::from(Tile::WIDTH);
+            let p0_y = line.p0.y / f32::from(Tile::HEIGHT);
+            let p1_x = line.p1.x / f32::from(Tile::WIDTH);
+            let p1_y = line.p1.y / f32::from(Tile::HEIGHT);
+
+            let (line_left_x, line_right_x) = if p0_x < p1_x {
+                (p0_x, p1_x)
+            } else {
+                (p1_x, p0_x)
+            };
+
+            // Lines whose left-most endpoint exceed the right edge of the viewport are culled
+            if line_left_x > tile_columns as f32 {
+                continue;
+            }
+
+            let (line_top_y, line_top_x, line_bottom_y, line_bottom_x) = if p0_y < p1_y {
+                (p0_y, p0_x, p1_y, p1_x)
+            } else {
+                (p1_y, p1_x, p0_y, p0_x)
+            };
+
+            // The `as u16` casts here intentionally clamp negative coordinates to 0.
+            let y_top_tiles = (line_top_y as u16).min(tile_rows);
+            let line_bottom_y_ceil = line_bottom_y.ceil();
+            let y_bottom_tiles = (line_bottom_y_ceil as u16).min(tile_rows);
+
+            // If y_top_tiles == y_bottom_tiles, then the line is either completely above or below
+            // the viewport OR it is perfectly horizontal and aligned to the tile grid, contributing
+            // no winding. In either case, it should be culled.
+            if y_top_tiles >= y_bottom_tiles {
+                // Technically, the `>` part of the `>=` is unnecessary due to clamping, but this
+                // gives stronger signal
+                continue;
+            }
+
+            // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
+            let p0_tile_x = line_top_x.floor() as i32;
+            let p0_tile_y = line_top_y.floor() as i32;
+            let p1_tile_x = line_bottom_x.floor() as i32;
+            let p1_tile_y = line_bottom_y.floor() as i32;
+
+            // Special-case out lines which are fully contained within a tile.
+            let not_same_tile = p0_tile_y != p1_tile_y || p0_tile_x != p1_tile_x;
+            if not_same_tile {
+                // For ease of logic, special-case purely vertical tiles.
+                if line_left_x == line_right_x {
+                    let x = (line_left_x as u16).min(tile_columns.saturating_sub(1));
+
+                    // Row Start, not culled.
+                    let is_start_culled = line_top_y < 0.0;
+                    if !is_start_culled {
+                        let winding = ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5;
+                        let tile = Tile::new_clamped(x, y_top_tiles, line_idx, winding);
+                        self.tile_buf.push(tile);
+                    }
+
+                    // Middle
+                    // If the start was culled, the first tile inside the viewport is a middle.
+                    let y_start = if is_start_culled {
+                        y_top_tiles
+                    } else {
+                        y_top_tiles + 1
+                    };
+                    let line_bottom_floor = line_bottom_y.floor();
+                    let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
+
+                    for y_idx in y_start..y_end_idx {
+                        let tile = Tile::new_clamped(x, y_idx, line_idx, 0b100000);
+                        self.tile_buf.push(tile);
+                    }
+
+                    // Row End, handle the final tile (y_end_idx), but *only* if the line does
+                    // not perfectly end on the top edge of the tile. In the case that it does,
+                    // it gets handled by the middle logic above.
+                    if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
+                        let tile = Tile::new_clamped(x, y_end_idx, line_idx, 0b100000);
+                        self.tile_buf.push(tile);
+                    }
+                } else {
+                    let dx = p1_x - p0_x;
+                    let dy = p1_y - p0_y;
+                    let x_slope = dx / dy;
+                    let dx_dir = (line_bottom_x >= line_top_x) as u32;
+                    let not_dx_dir = dx_dir ^ 1;
+
+                    // Line walks rows top to bottom, left to right, y-exclusive, x-inclusive.
+                    for y_idx in y_top_tiles..y_bottom_tiles {
+                        let y = f32::from(y_idx);
+
+                        let line_row_top_y = line_top_y.max(y).min(y + 1.);
+                        let line_row_bottom_y = line_bottom_y.max(y).min(y + 1.);
+
+                        let line_row_top_x = p0_x + (line_row_top_y - p0_y) * x_slope;
+                        let line_row_bottom_x = p0_x + (line_row_bottom_y - p0_y) * x_slope;
+
+                        let line_row_left_x =
+                            f32::min(line_row_top_x, line_row_bottom_x).max(line_left_x);
+                        let line_row_right_x =
+                            f32::max(line_row_top_x, line_row_bottom_x).min(line_right_x);
+
+                        let x_start = line_row_left_x as u16;
+                        let x_end = (line_row_right_x as u16).min(tile_columns.saturating_sub(1));
+
+                        // Row start
+                        if x_start <= x_end {
+                            let winding = ((y >= line_top_y && (dx_dir != 0 || x_start == x_end))
+                                as u32)
+                                << 5;
+                            let tile = Tile::new(x_start, y_idx, line_idx, winding);
+                            self.tile_buf.push(tile);
+                        }
+
+                        // Middle
+                        for x_idx in x_start + 1..x_end {
+                            let tile = Tile::new(x_idx, y_idx, line_idx, 0);
+                            self.tile_buf.push(tile);
+                        }
+
+                        // Row End
+                        // A single tile row would have been handled in the row start clause,
+                        // so there is no ambiguity as to whether this is the start or end of a row
+                        // except from culling.
+                        if x_start < x_end {
+                            let winding = ((y >= line_top_y && not_dx_dir != 0) as u32) << 5;
+                            let tile = Tile::new(x_end, y_idx, line_idx, winding);
+                            self.tile_buf.push(tile);
+                        }
+                    }
+                }
+            } else {
+                // Case: Line is fully contained within a single tile.
+                let tile = Tile::new_clamped(
+                    (line_left_x as u16).min(tile_columns + 1),
+                    y_top_tiles,
+                    line_idx,
+                    ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5,
+                );
+                self.tile_buf.push(tile);
+            }
+        }
+    }
+
+    /// Comment here!
+    pub fn make_tiles_msaa(&mut self, lines: &[Line], width: u16, height: u16) {
         self.reset();
 
         if width == 0 || height == 0 {
@@ -400,12 +559,7 @@ impl Tiles {
                     let is_start_culled = line_top_y < 0.0;
                     if !is_start_culled {
                         let winding = ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5;
-                        let intersection_mask = if GEN_INT_MASK {
-                            0b10 | winding
-                        } else {
-                            winding
-                        };
-
+                        let intersection_mask = 0b10 | winding;
                         let tile = Tile::new_clamped(x, y_top_tiles, line_idx, intersection_mask);
                         self.tile_buf.push(tile);
                     }
@@ -423,36 +577,25 @@ impl Tiles {
                     if y_start < y_end_idx {
                         let y_last = y_end_idx - 1;
                         for y_idx in y_start..y_last {
-                            let winding = ((f32::from(y_idx) >= line_top_y) as u32) << 5;
-                            let intersection_mask = if GEN_INT_MASK {
-                                0b11 | winding
-                            } else {
-                                winding
-                            };
+                            let intersection_mask = 0b100011; // W | B | T
                             let tile = Tile::new_clamped(x, y_idx, line_idx, intersection_mask);
                             self.tile_buf.push(tile);
                         }
 
                         // Perfect touching B case.
-                        let winding = ((f32::from(y_last) >= line_top_y) as u32) << 5;
-                        let intersection_mask = if GEN_INT_MASK {
+                        {
                             let is_end_tile = ((y_last as i32) == p1_tile_y) as u32;
-                            0b1 | winding | ((1 ^ is_end_tile) << 1)
-                        } else {
-                            winding
-                        };
-
-                        let tile = Tile::new_clamped(x, y_last, line_idx, intersection_mask);
-                        self.tile_buf.push(tile);
+                            let intersection_mask = 0b100001 | ((1 ^ is_end_tile) << 1);
+                            let tile = Tile::new_clamped(x, y_last, line_idx, intersection_mask);
+                            self.tile_buf.push(tile);
+                        }
                     }
 
                     // Row End, handle the final tile (y_end_idx), but *only* if the line does
                     // not perfectly end on the top edge of the tile. In the case that it does,
                     // it gets handled by the middle logic above.
                     if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
-                        let winding = ((f32::from(y_end_idx) >= line_top_y) as u32) << 5;
-                        let intersection_mask = if GEN_INT_MASK { 0b1 | winding } else { winding };
-
+                        let intersection_mask = 0b100001; // W | T
                         let tile = Tile::new_clamped(x, y_end_idx, line_idx, intersection_mask);
                         self.tile_buf.push(tile);
                     }
@@ -492,65 +635,60 @@ impl Tiles {
 
                         // Row start, but not necessarily the canonical start of a row.
                         if x_start <= x_end {
+                            // Check if we are the row start/end unculled.
+                            let unc_row_start = (x_start as i32 == canonical_x_start) as u32;
+                            let unc_row_end = (x_start == canonical_x_end) as u32;
+                            let canonical_row_start =
+                                (dx_dir & unc_row_start) | (not_dx_dir & unc_row_end);
+                            let canonical_row_end =
+                                (not_dx_dir & unc_row_start) | (dx_dir & unc_row_end);
+                            let start_tile = is_start_tile(x_start, y_idx) as u32;
+                            let end_tile = is_end_tile(x_start, y_idx) as u32;
+
                             let winding = ((y >= line_top_y && (dx_dir != 0 || x_start == x_end))
                                 as u32)
                                 << 5;
+                            let mut intersection_mask = winding;
 
-                            let intersection_mask = if GEN_INT_MASK {
-                                // Check if we are the row start/end unculled.
-                                let unc_row_start = (x_start as i32 == canonical_x_start) as u32;
-                                let unc_row_end = (x_start == canonical_x_end) as u32;
-                                let canonical_row_start =
-                                    (dx_dir & unc_row_start) | (not_dx_dir & unc_row_end);
-                                let canonical_row_end =
-                                    (not_dx_dir & unc_row_start) | (dx_dir & unc_row_end);
-                                let start_tile = is_start_tile(x_start, y_idx) as u32;
-                                let end_tile = is_end_tile(x_start, y_idx) as u32;
+                            // Entrant
+                            let vert_entrant = canonical_row_start & (1 ^ start_tile);
+                            let hor_entrant = 1 ^ canonical_row_start;
+                            intersection_mask |= vert_entrant;
+                            intersection_mask |= hor_entrant << not_dx_dir << 2;
 
-                                // Entrant
-                                let vert_entrant = canonical_row_start & (1 ^ start_tile);
-                                let hor_entrant = 1 ^ canonical_row_start;
+                            // Exit
+                            let vert_exit = canonical_row_end & (1 ^ end_tile);
+                            let hor_exit = 1 ^ canonical_row_end;
+                            intersection_mask |= vert_exit << 1;
+                            intersection_mask |= hor_exit << dx_dir << 2;
 
-                                let mut mask = winding;
-                                mask |= vert_entrant;
-                                mask |= hor_entrant << not_dx_dir << 2;
+                            // Check if the line passes through any of the four corners of this
+                            // tile. It passes through a corner if the x-intersection with the
+                            // top or bottom edge equals either the left (x_start) or right
+                            // (x_start + 1) tile boundary.
+                            let x_start_f = x_start as f32;
+                            let x_right_f = (x_start + 1) as f32;
 
-                                // Exit
-                                let vert_exit = canonical_row_end & (1 ^ end_tile);
-                                let hor_exit = 1 ^ canonical_row_end;
-                                mask |= vert_exit << 1;
-                                mask |= hor_exit << dx_dir << 2;
+                            // TODO Verify all cases of bottom left tiebreaking. Preliminary
+                            // testing appears to be fine.
+                            let trc = ((line_row_top_x == x_right_f) as u32) & !start_tile;
+                            let tlc = ((line_row_top_x == x_start_f) as u32) & !start_tile;
+                            let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
+                            let blc = ((line_row_bottom_x == x_start_f) as u32) & !end_tile;
+                            // The top left corner must be treated specially.
+                            let tie_break = tlc & (canonical_row_start ^ 1);
 
-                                // Check if the line passes through any of the four corners of this
-                                // tile. It passes through a corner if the x-intersection with the
-                                // top or bottom edge equals either the left (x_start) or right
-                                // (x_start + 1) tile boundary.
-                                let x_start_f = x_start as f32;
-                                let x_right_f = (x_start + 1) as f32;
+                            // If we touch corners, force the corresponding horizontal
+                            // intersection bits to ensure that no intersection gets destructed.
+                            intersection_mask |= (tie_break | blc) << 2;
+                            intersection_mask |= (trc | brc) << 3;
 
-                                // TODO Verify all cases of bottom left tiebreaking. Preliminary
-                                // testing appears to be fine.
-                                let trc = ((line_row_top_x == x_right_f) as u32) & !start_tile;
-                                let tlc = ((line_row_top_x == x_start_f) as u32) & !start_tile;
-                                let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
-                                let blc = ((line_row_bottom_x == x_start_f) as u32) & !end_tile;
-                                // The top left corner must be treated specially.
-                                let tie_break = tlc & (canonical_row_start ^ 1);
+                            // Then, clear those vertical intersections.
+                            intersection_mask &= !(tie_break | trc);
+                            intersection_mask &= !((blc | brc) << 1);
 
-                                // If we touch corners, force the corresponding horizontal
-                                // intersection bits to ensure that no intersection gets destructed.
-                                mask |= (tie_break | blc) << 2;
-                                mask |= (trc | brc) << 3;
-
-                                // Then, clear those vertical intersections.
-                                mask &= !(tie_break | trc);
-                                mask &= !((blc | brc) << 1);
-
-                                let perfect_corner = trc | tlc | brc | blc;
-                                mask | (perfect_corner << 4)
-                            } else {
-                                winding
-                            };
+                            let perfect_corner = trc | tlc | brc | blc;
+                            intersection_mask |= perfect_corner << 4;
 
                             let tile = Tile::new(x_start, y_idx, line_idx, intersection_mask);
                             self.tile_buf.push(tile);
@@ -558,8 +696,7 @@ impl Tiles {
 
                         // Middle
                         for x_idx in x_start + 1..x_end {
-                            let intersection_mask = if GEN_INT_MASK { 0b1100 } else { 0 }; // RL
-                            let tile = Tile::new(x_idx, y_idx, line_idx, intersection_mask);
+                            let tile = Tile::new(x_idx, y_idx, line_idx, 0b1100);
                             self.tile_buf.push(tile);
                         }
 
@@ -567,48 +704,46 @@ impl Tiles {
                         // A single tile row would have been handled in the row start clause,
                         // so there is no ambiguity as to whether this is the start or end of a row
                         // except from culling.
+                        //
+                        // Note: must be lt for clipping instead of neq.
                         if x_start < x_end {
+                            let unc_row_end = (x_end == canonical_x_end) as u32;
+                            let canonical_row_start = not_dx_dir & unc_row_end;
+                            let canonical_row_end = dx_dir & unc_row_end;
+                            let start_tile = is_start_tile(x_end, y_idx) as u32;
+                            let end_tile = is_end_tile(x_end, y_idx) as u32;
+
                             let winding = ((y >= line_top_y && not_dx_dir != 0) as u32) << 5;
-                            let intersection_mask = if GEN_INT_MASK {
-                                // Note: must be lt for clipping instead of neq.
-                                let unc_row_end = (x_end == canonical_x_end) as u32;
-                                let canonical_row_start = not_dx_dir & unc_row_end;
-                                let canonical_row_end = dx_dir & unc_row_end;
-                                let start_tile = is_start_tile(x_end, y_idx) as u32;
-                                let end_tile = is_end_tile(x_end, y_idx) as u32;
+                            let mut intersection_mask = winding;
 
-                                // Entrant
-                                let vert_entrant = canonical_row_start & (1 ^ start_tile);
-                                let hor_entrant = 1 ^ canonical_row_start;
-                                let mut mask = winding;
-                                mask |= vert_entrant;
-                                mask |= hor_entrant << not_dx_dir << 2;
+                            // Entrant
+                            let vert_entrant = canonical_row_start & (1 ^ start_tile);
+                            let hor_entrant = 1 ^ canonical_row_start;
+                            intersection_mask |= vert_entrant;
+                            intersection_mask |= hor_entrant << not_dx_dir << 2;
 
-                                // Exit
-                                let vert_exit = canonical_row_end & (1 ^ end_tile);
-                                let hor_exit = 1 ^ canonical_row_end;
-                                mask |= vert_exit << 1;
-                                mask |= hor_exit << dx_dir << 2;
+                            // Exit
+                            let vert_exit = canonical_row_end & (1 ^ end_tile);
+                            let hor_exit = 1 ^ canonical_row_end;
+                            intersection_mask |= vert_exit << 1;
+                            intersection_mask |= hor_exit << dx_dir << 2;
 
-                                // See comments above
-                                let x_end_f = x_end as f32;
-                                let x_right_f = (x_end + 1) as f32;
+                            // See comments above
+                            let x_end_f = x_end as f32;
+                            let x_right_f = (x_end + 1) as f32;
 
-                                let trc = ((line_row_top_x == x_right_f) as u32) & !start_tile;
-                                let tlc = ((line_row_top_x == x_end_f) as u32) & !start_tile;
-                                let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
-                                let blc = ((line_row_bottom_x == x_end_f) as u32) & !end_tile;
-                                let tie_break = tlc & (canonical_row_start ^ 1);
-                                mask |= (tie_break | blc) << 2;
-                                mask |= (trc | brc) << 3;
-                                mask &= !(tie_break | trc);
-                                mask &= !((blc | brc) << 1);
+                            let trc = ((line_row_top_x == x_right_f) as u32) & !start_tile;
+                            let tlc = ((line_row_top_x == x_end_f) as u32) & !start_tile;
+                            let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
+                            let blc = ((line_row_bottom_x == x_end_f) as u32) & !end_tile;
+                            let tie_break = tlc & (canonical_row_start ^ 1);
+                            intersection_mask |= (tie_break | blc) << 2;
+                            intersection_mask |= (trc | brc) << 3;
+                            intersection_mask &= !(tie_break | trc);
+                            intersection_mask &= !((blc | brc) << 1);
 
-                                let perfect_corner = trc | tlc | brc | blc;
-                                mask | (perfect_corner << 4)
-                            } else {
-                                winding
-                            };
+                            let perfect_corner = trc | tlc | brc | blc;
+                            intersection_mask |= perfect_corner << 4;
 
                             let tile = Tile::new(x_end, y_idx, line_idx, intersection_mask);
                             self.tile_buf.push(tile);
@@ -636,8 +771,6 @@ mod tests {
     use crate::tile::{Tile, Tiles};
     use fearless_simd::Level;
     use std::vec;
-
-    const GEN_INT_MASK: bool = true;
 
     const W: u32 = 0b100000;
     const P: u32 = 0b010000;
@@ -696,7 +829,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert!(tiles.is_empty());
     }
@@ -723,7 +856,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -772,7 +905,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -798,7 +931,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -832,7 +965,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -866,7 +999,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -896,7 +1029,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -922,7 +1055,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert!(tiles.is_empty());
     }
@@ -941,7 +1074,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert!(tiles.is_empty());
     }
@@ -954,7 +1087,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [
             Tile::new(0, 2, 0, L | R),
@@ -979,7 +1112,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [Tile::new(23, 2, 0, R), Tile::new(24, 2, 0, L | R)];
 
@@ -1006,7 +1139,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(tiles.tile_buf, []);
     }
@@ -1024,7 +1157,7 @@ mod tests {
         );
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&line_buf, 10, 10);
+        tiles.make_tiles_msaa(&line_buf, 10, 10);
 
         assert!(tiles.is_empty());
     }
@@ -1047,7 +1180,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1087,7 +1220,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1107,7 +1240,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, W | L | T)]);
     }
@@ -1126,7 +1259,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(tiles.tile_buf, [Tile::new(24, 24, 0, R | B)]);
     }
@@ -1142,7 +1275,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1162,7 +1295,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1182,7 +1315,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1203,7 +1336,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1223,7 +1356,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1244,7 +1377,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1265,7 +1398,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1286,7 +1419,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1302,7 +1435,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1321,7 +1454,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1343,7 +1476,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1365,7 +1498,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1387,7 +1520,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         // geometrically identical to above
         assert_eq!(
@@ -1416,7 +1549,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         // Both lines are entirely within tile (0,0).
         assert_eq!(
@@ -1433,7 +1566,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1453,7 +1586,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(
             tiles.tile_buf,
@@ -1473,7 +1606,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [
             Tile::new(1, 1, 0, P | R),
@@ -1492,7 +1625,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [
             Tile::new(1, 1, 0, R | B),
@@ -1511,7 +1644,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [Tile::new(0, 0, 0, W | P | R), Tile::new(1, 0, 0, L)];
 
@@ -1526,7 +1659,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [Tile::new(0, 0, 0, P | R), Tile::new(1, 0, 0, W | L)];
 
@@ -1541,7 +1674,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         let expected = [
@@ -1562,7 +1695,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         tiles.sort_tiles();
 
         let expected = [
@@ -1583,7 +1716,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [
             Tile::new(0, 0, 0, R),
@@ -1602,7 +1735,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [
             Tile::new(0, 0, 0, P | R | B),
@@ -1621,7 +1754,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [
             Tile::new(0, 0, 0, W | B),
@@ -1643,7 +1776,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, 0)]);
     }
@@ -1656,7 +1789,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, 0)]);
     }
@@ -1669,7 +1802,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, W)]);
     }
@@ -1682,7 +1815,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [Tile::new(0, 0, 0, R), Tile::new(1, 0, 0, L)];
 
@@ -1703,7 +1836,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [Tile::new(0, 0, 0, 0), Tile::new(0, 0, 1, 0)];
 
@@ -1724,7 +1857,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
         let expected = [Tile::new(0, 0, 0, W), Tile::new(0, 0, 1, W)];
 
@@ -1743,7 +1876,7 @@ mod tests {
         };
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles::<GEN_INT_MASK>(&[line], 600, 600);
+        tiles.make_tiles_msaa(&[line], 600, 600);
     }
 
     #[test]
@@ -1772,7 +1905,7 @@ mod tests {
 
             y -= step;
         }
-        tiles.make_tiles::<true>(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert!(tiles.tile_buf.first().unwrap().y > tiles.tile_buf.last().unwrap().y);
 
         tiles.sort_tiles();

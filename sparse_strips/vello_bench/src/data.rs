@@ -131,7 +131,7 @@ impl DataItem {
     pub fn unsorted_tiles(&self) -> Tiles {
         let mut tiles = Tiles::new(Level::new());
         let lines = self.lines();
-        tiles.make_tiles::</*GEN_INT_MASK=*/false>(&lines, self.width, self.height);
+        tiles.make_tiles_analytic_aa(&lines, self.width, self.height);
 
         tiles
     }
