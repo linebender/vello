@@ -4,7 +4,7 @@
 //! Tests for clipping.
 
 use crate::renderer::Renderer;
-use crate::util::{circular_star, crossed_line_star};
+use crate::util::{circular_star, crossed_line_star, stops_green_blue};
 use std::f64::consts::PI;
 use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::{
@@ -401,7 +401,6 @@ fn clip_non_isolated_deeply_nested_circles(ctx: &mut impl Renderer) {
 
 #[vello_test(width = 600, height = 200)]
 fn clip_with_linear_gradient_fill(ctx: &mut impl Renderer) {
-    use crate::util::stops_green_blue;
     // Border to see crop.
     ctx.set_paint(PINK);
     ctx.fill_rect(&Rect::new(0., 0., 600., 200.));
@@ -431,7 +430,6 @@ fn clip_with_linear_gradient_fill(ctx: &mut impl Renderer) {
 
 #[vello_test(width = 600, height = 200)]
 fn clip_with_radial_gradient_fill(ctx: &mut impl Renderer) {
-    use crate::util::stops_green_blue;
     // Border to see crop.
     ctx.set_paint(PINK);
     ctx.fill_rect(&Rect::new(0., 0., 600., 200.));
@@ -463,7 +461,6 @@ fn clip_with_radial_gradient_fill(ctx: &mut impl Renderer) {
 
 #[vello_test(width = 600, height = 200)]
 fn clip_with_sweep_gradient_fill(ctx: &mut impl Renderer) {
-    use crate::util::stops_green_blue;
     // Border to see crop.
     ctx.set_paint(PINK);
     ctx.fill_rect(&Rect::new(0., 0., 600., 200.));
