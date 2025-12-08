@@ -407,47 +407,107 @@ impl Tiles {
                     let dx_dir = (line_bottom_x >= line_top_x) as u32;
                     let not_dx_dir = dx_dir ^ 1;
 
-                    // Line walks rows top to bottom, left to right, y-exclusive, x-inclusive.
-                    for y_idx in y_top_tiles..y_bottom_tiles {
-                        let y = f32::from(y_idx);
+                    let is_start_culled = line_top_y < 0.0;
+                    if !is_start_culled {
+                        let y = f32::from(y_top_tiles);
 
-                        let line_row_top_y = line_top_y.max(y).min(y + 1.);
-                        let line_row_bottom_y = line_bottom_y.max(y).min(y + 1.);
+                        let row_top_y = line_top_y;
+                        let row_bottom_y = (y + 1.0).min(line_bottom_y);
 
-                        let line_row_top_x = p0_x + (line_row_top_y - p0_y) * x_slope;
-                        let line_row_bottom_x = p0_x + (line_row_bottom_y - p0_y) * x_slope;
+                        let row_top_x = p0_x + (row_top_y - p0_y) * x_slope;
+                        let row_bottom_x = p0_x + (row_bottom_y - p0_y) * x_slope;
 
-                        let line_row_left_x =
-                            f32::min(line_row_top_x, line_row_bottom_x).max(line_left_x);
-                        let line_row_right_x =
-                            f32::max(line_row_top_x, line_row_bottom_x).min(line_right_x);
+                        let row_left_x = f32::min(row_top_x, row_bottom_x).max(line_left_x);
+                        let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
 
-                        let x_start = line_row_left_x as u16;
-                        let x_end = (line_row_right_x as u16).min(tile_columns.saturating_sub(1));
+                        let x_start = row_left_x as u16;
+                        let x_end = (row_right_x as u16).min(tile_columns.saturating_sub(1));
 
-                        // Row start
                         if x_start <= x_end {
                             let winding = ((y >= line_top_y && (dx_dir != 0 || x_start == x_end))
                                 as u32)
                                 << 5;
-                            let tile = Tile::new(x_start, y_idx, line_idx, winding);
-                            self.tile_buf.push(tile);
+                            self.tile_buf
+                                .push(Tile::new(x_start, y_top_tiles, line_idx, winding));
                         }
-
-                        // Middle
                         for x_idx in x_start + 1..x_end {
-                            let tile = Tile::new(x_idx, y_idx, line_idx, 0);
-                            self.tile_buf.push(tile);
+                            self.tile_buf
+                                .push(Tile::new(x_idx, y_top_tiles, line_idx, 0));
                         }
-
-                        // Row End
-                        // A single tile row would have been handled in the row start clause,
-                        // so there is no ambiguity as to whether this is the start or end of a row
-                        // except from culling.
                         if x_start < x_end {
                             let winding = ((y >= line_top_y && not_dx_dir != 0) as u32) << 5;
-                            let tile = Tile::new(x_end, y_idx, line_idx, winding);
-                            self.tile_buf.push(tile);
+                            self.tile_buf
+                                .push(Tile::new(x_end, y_top_tiles, line_idx, winding));
+                        }
+                    }
+
+                    let y_start_middle = if is_start_culled {
+                        y_top_tiles
+                    } else {
+                        y_top_tiles + 1
+                    };
+
+                    let line_bottom_floor = line_bottom_y.floor();
+                    let y_end_middle = (line_bottom_floor as u16).min(tile_rows);
+                    for y_idx in y_start_middle..y_end_middle {
+                        let y = f32::from(y_idx);
+
+                        let row_top_y = y;
+                        let row_bottom_y = (y + 1.0).min(line_bottom_y);
+
+                        let row_top_x = p0_x + (row_top_y - p0_y) * x_slope;
+                        let row_bottom_x = p0_x + (row_bottom_y - p0_y) * x_slope;
+
+                        let row_left_x = f32::min(row_top_x, row_bottom_x).max(line_left_x);
+                        let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
+
+                        let x_start = row_left_x as u16;
+                        let x_end = (row_right_x as u16).min(tile_columns.saturating_sub(1));
+
+                        if x_start <= x_end {
+                            let winding =
+                                ((dx_dir != 0 || x_start == x_end) as u32) << 5;
+                            self.tile_buf
+                                .push(Tile::new(x_start, y_idx, line_idx, winding));
+                        }
+                        for x_idx in x_start + 1..x_end {
+                            self.tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
+                        }
+                        if x_start < x_end {
+                            let winding = not_dx_dir << 5;
+                            self.tile_buf
+                                .push(Tile::new(x_end, y_idx, line_idx, winding));
+                        }
+                    }
+
+                    if line_bottom_y != line_bottom_floor
+                        && y_end_middle < tile_rows
+                        && (is_start_culled || y_end_middle != y_top_tiles) {
+                        let y_idx = y_end_middle;
+                        let y = f32::from(y_idx);
+
+                        let row_top_y = y;
+                        let row_bottom_y = line_bottom_y;
+
+                        let row_top_x = p0_x + (row_top_y - p0_y) * x_slope;
+                        let row_bottom_x = p0_x + (row_bottom_y - p0_y) * x_slope;
+
+                        let row_left_x = f32::min(row_top_x, row_bottom_x).max(line_left_x);
+                        let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
+
+                        let x_start = row_left_x as u16;
+                        let x_end = (row_right_x as u16).min(tile_columns.saturating_sub(1));
+
+                        if x_start <= x_end {
+                            let winding = ((dx_dir != 0 || x_start == x_end) as u32) << 5;
+                            self.tile_buf.push(Tile::new(x_start, y_idx, line_idx, winding));
+                        }
+                        for x_idx in x_start + 1..x_end {
+                            self.tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
+                        }
+                        if x_start < x_end {
+                            let winding = not_dx_dir << 5;
+                            self.tile_buf.push(Tile::new(x_end, y_idx, line_idx, winding));
                         }
                     }
                 }
