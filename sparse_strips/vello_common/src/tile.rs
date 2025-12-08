@@ -46,14 +46,18 @@ pub struct Tile {
     /// and winding data packed together.
     ///
     /// The layout is:
-    /// - **Bits 0-25 (26 bits):** The line index (`line_idx`).
-    /// - **Bits 26-31 (6 bits):** Intersection and Winding Mask (`W | P | R | L | B | T`).
-    ///   - Bit 26 (mask `0b000001`): Intersects top edge (T)
-    ///   - Bit 27 (mask `0b000010`): Intersects bottom edge (B)
-    ///   - Bit 28 (mask `0b000100`): Intersects left edge (L)
-    ///   - Bit 29 (mask `0b001000`): Intersects right edge (R)
-    ///   - Bit 30 (mask `0b010000`): Perfect Corner (P) - True if line intersects ANY corner exactly.
-    ///   - Bit 31 (mask `0b100000`): Winding (W) - 1 if crosses top edge.
+    /// - **Bits 0-5 (6 bits):** Intersection and Winding Mask (`W | P | R | L | B | T`).
+    ///   - Bit 0 (mask `0b000001`): Intersects top edge (T)
+    ///   - Bit 1 (mask `0b000010`): Intersects bottom edge (B)
+    ///   - Bit 2 (mask `0b000100`): Intersects left edge (L)
+    ///   - Bit 3 (mask `0b001000`): Intersects right edge (R)
+    ///   - Bit 4 (mask `0b010000`): Perfect Corner (P) - True if line intersects ANY corner exactly.
+    ///   - Bit 5 (mask `0b100000`): Winding (W) - 1 if crosses top edge.
+    /// - **Bits 6-31 (26 bits):** The line index (`line_idx`).
+    ///
+    /// **Sorting Note:** The `line_idx` occupies the higher bits to ensure that when sorting
+    /// tiles with the same (x, y) coordinates, they are sorted by their line index first,
+    /// and then by their intersection mask.
     pub packed_winding_line_idx: u32,
 
     #[cfg(target_endian = "little")]
@@ -100,10 +104,11 @@ impl Tile {
             panic!("Max. number of lines per path exceeded.");
         }
         // The intersection_mask is expected to contain bits 0-5 (T, B, L, R, P, W).
+        // We pack line_idx into the high bits (6-31) and intersection_mask into low bits (0-5).
         Self {
             x,
             y,
-            packed_winding_line_idx: (intersection_mask << 26) | line_idx,
+            packed_winding_line_idx: (line_idx << 6) | intersection_mask,
         }
     }
 
@@ -126,18 +131,22 @@ impl Tile {
     }
 
     /// The index of the line this tile belongs to into the line buffer.
+    ///
+    /// Returns the high 26 bits.
     #[inline]
     pub const fn line_idx(&self) -> u32 {
-        self.packed_winding_line_idx & (MAX_LINES_PER_PATH - 1)
+        self.packed_winding_line_idx >> 6
     }
 
     /// Whether the line crosses the top edge of the tile.
     ///
     /// Lines making this crossing increment or decrement the coarse tile winding, depending on the
     /// line direction.
+    ///
+    /// Checks Bit 5 (Winding).
     #[inline]
     pub const fn winding(&self) -> bool {
-        (self.packed_winding_line_idx & (1 << 31)) != 0
+        (self.packed_winding_line_idx & (1 << 5)) != 0
     }
 
     /// The 6 bits of intersection and winding data.
@@ -151,7 +160,7 @@ impl Tile {
     ///   - Bit 5 (mask `0b100000`): Winding
     #[inline]
     pub const fn intersection_mask(&self) -> u32 {
-        (self.packed_winding_line_idx >> 26) & 0b111111
+        self.packed_winding_line_idx & 0b111111
     }
 
     /// Whether the line intersects the top edge of the tile.
