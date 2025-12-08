@@ -608,20 +608,11 @@ impl Tiles {
                 }
             } else {
                 // Case: Line is fully contained within a single tile.
-                // TODO: Must exactly match the general case? Or can be simplified?
-                let y = f32::from(y_top_tiles);
-                let line_row_top_y = line_top_y.max(y).min(y + 1.);
-                let line_row_bottom_y = line_bottom_y.max(y).min(y + 1.);
-                let x_slope = (p1_x - p0_x) / (p1_y - p0_y);
-                let line_row_top_x = p0_x + ((line_row_top_y) - p0_y) * x_slope;
-                let line_row_bottom_x = p0_x + (line_row_bottom_y - p0_y) * x_slope;
-                let x_idx = (f32::min(line_row_top_x, line_row_bottom_x).max(line_left_x) as u16)
-                    .min(tile_columns + 1);
                 let tile = Tile::new_clamped(
-                    x_idx,
+                    (line_left_x as u16).min(tile_columns + 1),
                     y_top_tiles,
                     line_idx,
-                    ((y >= line_top_y) as u32) << 5,
+                    ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5,
                 );
                 self.tile_buf.push(tile);
             }
