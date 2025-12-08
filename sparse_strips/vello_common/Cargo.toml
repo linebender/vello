@@ -46,10 +46,6 @@ text = ["dep:skrifa"]
 
 # Development only features
 
-# Enable all debug utilities
-debug = ["debug-cmds"]
-# Enable command listing and introspection utilities
-debug-cmds = []
 # Enable a simple version of SVG drawing.
 # This is only intended for development of Vello CPU itself,
 # and is likely to be removed/moved.

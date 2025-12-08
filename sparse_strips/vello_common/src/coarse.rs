@@ -13,7 +13,7 @@ use crate::render_graph::{DependencyKind, LayerId, RenderGraph, RenderNodeKind};
 use crate::{strip::Strip, tile::Tile};
 use alloc::vec;
 use alloc::{boxed::Box, vec::Vec};
-#[cfg(feature = "debug-cmds")]
+#[cfg(debug_assertions)]
 use alloc::{format, string::String};
 use core::ops::Range;
 use hashbrown::HashMap;
@@ -79,10 +79,10 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// Initialized with node 0 (the root node representing the final output).
     /// As layers with filters are pushed, their node IDs are added to this stack.
     filter_node_stack: Vec<usize>,
-    /// True when currently rendering inside a filtered layer with a clip path.
-    /// When set, command generation uses full viewport bounds instead of clip bounds
+    /// Count of nested filtered layers with clip paths.
+    /// When > 0, command generation uses full viewport bounds instead of clip bounds
     /// to ensure filter effects can process the full layer before applying the clip.
-    in_clipped_filter_layer: bool,
+    clipped_filter_layer_depth: u32,
 }
 
 /// A clip region.
@@ -305,7 +305,7 @@ impl<const MODE: u8> Wide<MODE> {
             clip_stack: vec![],
             // Start with root node 0.
             filter_node_stack: vec![0],
-            in_clipped_filter_layer: false,
+            clipped_filter_layer_depth: 0,
         }
     }
 
@@ -324,7 +324,7 @@ impl<const MODE: u8> Wide<MODE> {
         self.layer_stack.clear();
         self.clip_stack.clear();
         self.filter_node_stack.truncate(1);
-        self.in_clipped_filter_layer = false;
+        self.clipped_filter_layer_depth = 0;
     }
 
     /// Return the number of horizontal tiles.
@@ -610,10 +610,12 @@ impl<const MODE: u8> Wide<MODE> {
         // When this flag is true, we generate explicit drawing commands instead of just counters.
         let in_clipped_filter_layer = has_filter && has_clip;
 
-        // Store the flag at the Wide level so that active_bbox() returns the full viewport
+        // Increment the depth counter so that active_bbox() returns the full viewport
         // instead of the clipped bbox. This ensures command generation covers all tiles,
         // allowing the filter to process the entire layer before the clip is applied.
-        self.in_clipped_filter_layer = in_clipped_filter_layer;
+        if in_clipped_filter_layer {
+            self.clipped_filter_layer_depth += 1;
+        }
 
         let layer = Layer {
             layer_id,
@@ -738,9 +740,9 @@ impl<const MODE: u8> Wide<MODE> {
             }
         }
 
-        // Reset the flag after popping the filtered layer with clip
+        // Decrement the depth counter after popping a filtered layer with clip
         if layer.filter.is_some() && layer.clip {
-            self.in_clipped_filter_layer = false;
+            self.clipped_filter_layer_depth = self.clipped_filter_layer_depth.saturating_sub(1);
         }
     }
 
@@ -796,7 +798,7 @@ impl<const MODE: u8> Wide<MODE> {
         //   commands to properly suppress their content after filtering.
         // - For normal clips: Intersect with the path bounds to only process tiles that are
         //   actually affected by the clip path, avoiding unnecessary work.
-        let clip_bbox = if self.in_clipped_filter_layer {
+        let clip_bbox = if self.clipped_filter_layer_depth > 0 {
             // Use parent_bbox as-is (full viewport) to process all tiles
             parent_bbox
         } else {
@@ -889,7 +891,7 @@ impl<const MODE: u8> Wide<MODE> {
     fn active_bbox(&self) -> WideTilesBbox {
         // When in a clipped filter layer, use full viewport to allow
         // filter to process the complete layer before applying clip as mask
-        if self.in_clipped_filter_layer {
+        if self.clipped_filter_layer_depth > 0 {
             return self.full_viewport_bbox();
         }
 
@@ -1436,9 +1438,9 @@ impl<const MODE: u8> WideTile<MODE> {
 
 /// Debug utilities for wide tiles.
 ///
-/// These methods are only available when the `debug-cmds` feature is enabled (enabled by default via `debug`).
+/// These methods are only available in debug builds (`debug_assertions`).
 /// They provide introspection into the command buffer for debugging and logging purposes.
-#[cfg(feature = "debug-cmds")]
+#[cfg(debug_assertions)]
 impl<const MODE: u8> WideTile<MODE> {
     /// Lists all commands in this wide tile with their indices and names.
     ///
@@ -1458,7 +1460,8 @@ impl<const MODE: u8> WideTile<MODE> {
     /// // 3: FillPath
     /// // 4: PopBuf
     /// ```
-    pub fn list_commands(&self) -> String {
+    #[allow(dead_code, reason = "useful for debugging")]
+    pub(crate) fn list_commands(&self) -> String {
         self.cmds
             .iter()
             .enumerate()
@@ -1552,14 +1555,14 @@ pub enum Cmd {
     Mask(Mask),
 }
 
-#[cfg(feature = "debug-cmds")]
+#[cfg(debug_assertions)]
 impl Cmd {
     /// Returns a human-readable name for this command.
     ///
     /// This is useful for debugging, logging, and displaying command information
     /// in a user-friendly format.
     ///
-    /// **Note:** This method is only available when the `debug-cmds` feature is enabled (enabled by default via `debug`).
+    /// **Note:** This method is only available in debug builds (`debug_assertions`).
     pub fn name(&self) -> &'static str {
         match self {
             Self::Fill(_) => "FillPath",

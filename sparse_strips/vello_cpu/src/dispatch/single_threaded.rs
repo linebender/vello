@@ -215,8 +215,8 @@ impl SingleThreadedDispatcher {
                     fine.filter_layer(&mut pixmap, filter, layer_manager, *transform);
 
                     // Save the filtered pixmap to disk for debugging.
-                    #[cfg(feature = "debug-filters")]
-                    save_filtered_layer_debug(&pixmap, *layer_id);
+                    // #[cfg(all(debug_assertions, feature = "std", feature = "png"))]
+                    // save_filtered_layer_debug(&pixmap, *layer_id);
 
                     // Store the filtered result for use by dependent layers.
                     layer_manager.register_layer(*layer_id, *wtile_bbox, pixmap);
@@ -570,8 +570,12 @@ impl Dispatcher for SingleThreadedDispatcher {
 }
 
 /// Saves a filtered pixmap to disk for debugging purposes.
-/// Only available with the `debug-filters` feature.
-#[cfg(feature = "debug-filters")]
+/// Only available in debug builds with `std` and `png` features enabled.
+#[allow(
+    dead_code,
+    reason = "useful debug utility, can be enabled by uncommenting the call site"
+)]
+#[cfg(all(debug_assertions, feature = "std", feature = "png"))]
 fn save_filtered_layer_debug(pixmap: &Pixmap, layer_id: u32) {
     use std::path::PathBuf;
 

@@ -347,6 +347,8 @@ impl<T: RenderingContext> AnyScene<T> {
     }
 
     /// Draw the tile grid overlay.
+    ///
+    /// Note: We don't restore transform/paint since this runs at the end of `render()`.
     fn draw_widetile_columns(&self, ctx: &mut T) {
         ctx.set_transform(Affine::IDENTITY);
         ctx.set_paint(WHITE);
@@ -356,9 +358,9 @@ impl<T: RenderingContext> AnyScene<T> {
         let max_height = 2000.0;
 
         let mut tile_x = 0.0;
+        let line_width = 1.0;
         while tile_x <= max_width {
             // Draw a thin vertical line
-            let line_width = 1.0;
             ctx.fill_rect(&Rect::from_points(
                 (tile_x, 0.0),
                 (tile_x + line_width, max_height),
