@@ -80,5 +80,6 @@ pub mod texture;
 
 pub use self::painter::{PaintScene, SceneOptions};
 pub use self::renderer::Renderer;
+pub use self::scene::Scene;
 
 pub use ::peniko;
