@@ -14,7 +14,6 @@ use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Color;
 use vello_common::peniko::Fill;
 use vello_common::tile::Tile;
-use vello_cpu::color::palette::css::PINK;
 use vello_cpu::peniko::{
     Gradient, LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
 };
@@ -402,7 +401,6 @@ fn clip_non_isolated_deeply_nested_circles(ctx: &mut impl Renderer) {
 #[vello_test(width = 600, height = 200)]
 fn clip_with_linear_gradient_fill(ctx: &mut impl Renderer) {
     // Border to see crop.
-    ctx.set_paint(PINK);
     ctx.fill_rect(&Rect::new(0., 0., 600., 200.));
 
     // Crop 10px border around image.
@@ -431,7 +429,6 @@ fn clip_with_linear_gradient_fill(ctx: &mut impl Renderer) {
 #[vello_test(width = 600, height = 200)]
 fn clip_with_radial_gradient_fill(ctx: &mut impl Renderer) {
     // Border to see crop.
-    ctx.set_paint(PINK);
     ctx.fill_rect(&Rect::new(0., 0., 600., 200.));
 
     // Crop 10px border around image.
@@ -462,7 +459,6 @@ fn clip_with_radial_gradient_fill(ctx: &mut impl Renderer) {
 #[vello_test(width = 600, height = 200)]
 fn clip_with_sweep_gradient_fill(ctx: &mut impl Renderer) {
     // Border to see crop.
-    ctx.set_paint(PINK);
     ctx.fill_rect(&Rect::new(0., 0., 600., 200.));
 
     // Crop 10px border around image.
