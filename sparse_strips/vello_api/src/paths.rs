@@ -1,6 +1,19 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! A collection of vector graphics paths, for use in.
+//!
+//! This is an internal implementation detail of [`Scene`](crate::Scene).
+//! If you're a consumer of Vello API writing an application, you do not need to use this API.
+//! Instead, this is exposed for use by [`Renderer`](crate::Renderer)s.
+//!
+//! This design has been made with "path caching" in mind, which will allow using rasterised forms of
+//! paths (such as glyphs) directly in the renderer, instead of rasterising from scratch each frame.
+//! This can massively improve performance and efficiency on subsequent frames.
+//! This is however not implemented by any backend, so isn't provided for in Vello API.
+//! It also ensures that there are very few per-frame allocations (i.e. avoids allocating
+//! for each path).
+
 use alloc::vec::Vec;
 use peniko::{
     Fill,
@@ -8,6 +21,10 @@ use peniko::{
 };
 
 #[derive(Debug, Clone, Copy)]
+/// The id for a single path within a given [`PathSet`].
+/// This is an index into the [`meta`](PathSet::meta) field.
+// In a future world with path caching, this would be paired with a path group id.
+// For "scene-local" paths, you would then use a marker "local" path group id.
 pub struct PathId(pub u32);
 
 #[derive(Debug)]
@@ -84,6 +101,22 @@ impl PathSet {
 }
 
 #[derive(Debug, Clone)]
+/// How a path will be rendered.
+///
+/// There are reasonable arguments for moving this away from the path set,
+/// to allow it to e.g. share the segments for filled and stroked versions of a path.
+///
+/// However, in the current draft, we make this a key property of the path.
+/// This would make future caching work easier (as `Stroke` is an extremely unwieldy type to key off).
+///
+/// There are arguments for splitting again, into "paths" and "styled paths" or similar, but
+/// that piles on complexity; and realistically how many people will use that?
+///
+/// Alternatively of course, as stroke expansion is going to be happening on the CPU anyway,
+/// we could expand strokes extremely eagerly/require the user to perform stroke expansion.
+///
+/// The reason not to is that it's potentially expensive (?), and so should be scheduled to a
+/// background thread.
 pub enum Operation {
     Stroke(Stroke),
     Fill(Fill),
