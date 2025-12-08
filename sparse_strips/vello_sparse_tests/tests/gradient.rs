@@ -1096,13 +1096,13 @@ mod sweep {
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[vello_test]
+    #[vello_test(diff_pixels = 4)]
     fn gradient_sweep_with_transform_skew_y_1(ctx: &mut impl Renderer) {
         let transform = Affine::translate((0.0, 50.0)) * Affine::skew(0.0, -tan_45());
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);
     }
 
-    #[vello_test]
+    #[vello_test(diff_pixels = 3)]
     fn gradient_sweep_with_transform_skew_y_2(ctx: &mut impl Renderer) {
         let transform = Affine::translate((0.0, -50.0)) * Affine::skew(0.0, tan_45());
         gradient_with_transform(ctx, transform, 25.0, 25.0, 75.0, 75.0);

@@ -233,12 +233,13 @@ fn vs_main(
     let color_source = (instance.paint >> 30u) & 0x3u;
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (instance.paint >> 27u) & 0x7u;
+        // Unpack view coordinates for image sampling and gradient calculations
+        let scene_strip_x = instance.payload & 0xffffu;
+        let scene_strip_y = instance.payload >> 16u;
+
         if paint_type == PAINT_TYPE_IMAGE {
             let paint_tex_idx = instance.paint & PAINT_TEXTURE_INDEX_MASK;
             let encoded_image = unpack_encoded_image(paint_tex_idx);
-            // Unpack view coordinates for image sampling
-            let scene_strip_x = instance.payload & 0xffffu;
-            let scene_strip_y = instance.payload >> 16u;
             // Use view coordinates for image sampling (always in global view space)
             out.sample_xy = encoded_image.translate 
                 + encoded_image.image_offset
@@ -246,6 +247,12 @@ fn vs_main(
                 + encoded_image.transform.zw * f32(scene_strip_y)
                 + encoded_image.transform.xy * x * f32(width)
                 + encoded_image.transform.zw * y * f32(config.strip_height);
+        } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
+            // Use view coordinates for gradient transform (always in global view space)
+            out.sample_xy = vec2<f32>(
+                f32(scene_strip_x) + x * f32(width),
+                f32(scene_strip_y) + y * f32(config.strip_height)
+            );
         }
     }
 
@@ -355,7 +362,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let linear_gradient = unpack_linear_gradient(paint_tex_idx);
             
             // Calculate fragment position and apply transform
-            let fragment_pos = vec2<f32>(in.position.x, in.position.y);
+            let fragment_pos = in.sample_xy;
             let grad_pos = vec2<f32>(
                 linear_gradient.transform[0] * fragment_pos.x + 
                 linear_gradient.transform[2] * fragment_pos.y +
@@ -380,7 +387,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let radial_gradient = unpack_radial_gradient(paint_tex_idx);
             
             // Calculate fragment position and apply transform
-            let fragment_pos = vec2<f32>(in.position.x, in.position.y);
+            let fragment_pos = in.sample_xy;
             let grad_pos = vec2<f32>(
                 radial_gradient.transform[0] * fragment_pos.x + 
                 radial_gradient.transform[2] * fragment_pos.y + 
@@ -405,7 +412,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let sweep_gradient = unpack_sweep_gradient(paint_tex_idx);
             
             // Calculate fragment position and apply transform
-            let fragment_pos = vec2<f32>(in.position.x, in.position.y);
+            let fragment_pos = in.sample_xy;
             let grad_pos = vec2<f32>(
                 sweep_gradient.transform[0] * fragment_pos.x + 
                 sweep_gradient.transform[2] * fragment_pos.y + 
