@@ -41,7 +41,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
         let extend = self.gradient.extend;
         let pos = f32x16::from_slice(self.simd, self.t_vals.next()?);
         let t_vals = apply_extend(pos, extend);
-        let indices = (t_vals * self.scale_factor).cvt_u32();
+        let indices = (t_vals * self.scale_factor).to_int::<u32x16<S>>();
 
         let mut vals = [0_u8; 64];
         for (val, idx) in vals.chunks_exact_mut(4).zip(indices.val) {

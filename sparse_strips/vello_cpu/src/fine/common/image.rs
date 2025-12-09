@@ -385,7 +385,7 @@ pub(crate) fn sample<S: Simd>(
     x_positions: f32x4<S>,
     y_positions: f32x4<S>,
 ) -> u8x16<S> {
-    let idx = x_positions.cvt_u32() + y_positions.cvt_u32() * data.width_u32;
+    let idx = x_positions.to_int::<u32x4<S>>() + y_positions.to_int::<u32x4<S>>() * data.width_u32;
 
     u32x4::from_slice(
         simd,
@@ -435,7 +435,7 @@ pub(crate) fn extend<S: Simd>(
             // our `max` is always an integer number, u and s must also be an integer number
             // and thus `m_bits` must be 0.
             // Note that this is a wrapping sub!
-            let biased_bits = m_bits - bias_in_ulps.cvt_u32();
+            let biased_bits = m_bits - bias_in_ulps.to_int::<u32x4<S>>();
             f32x4::from_bytes(biased_bits.to_bytes())
                 // In certain edge cases, we might still end up with a higher number.
                 .min(max - 1.0)

@@ -73,7 +73,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
         let pos = f32x8::from_slice(self.simd, self.t_vals.next()?);
         let t_vals = apply_extend(pos, extend);
 
-        let indices = (t_vals * self.scale_factor).cvt_u32();
+        let indices = (t_vals * self.scale_factor).to_int::<u32x8<S>>();
 
         // Clear NaNs.
         let indices = if let Some(transparent_index) = self.lut.transparent_index() {
