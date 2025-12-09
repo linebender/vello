@@ -3,7 +3,7 @@
 
 //! Abstraction for generating strips from paths.
 
-use std::{println, vec};
+use std::vec;
 
 use crate::clip::{PathDataRef, intersect};
 use crate::fearless_simd::Level;
@@ -149,10 +149,8 @@ impl StripGenerator {
             strip_storage.strips.clear();
         }
 
-        // Clear the row winding histogram if the culling is enabled this frame. Even at 4k, this
-        // should be only ~135 bytes.
+        // Clear the row winding histogram if the culling is enabled this frame.
         if self.use_early_culling {
-            println!("Using Culling");
             self.row_winding.fill(0);
         }
 

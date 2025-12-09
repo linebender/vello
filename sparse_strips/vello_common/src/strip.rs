@@ -3,6 +3,8 @@
 
 //! Rendering strips.
 
+use core::u16;
+
 use crate::flatten::Line;
 use crate::peniko::Fill;
 use crate::tile::{Tile, Tiles};
@@ -138,8 +140,28 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     let mut prev_tile = *tiles.get(0);
 
     if USE_EARLY_CULL {
+        for row in 0..prev_tile.y {
+            winding_delta = row_windings[row as usize] as i32;
+            if should_fill(winding_delta) {
+                strip_buf.push(Strip::new(
+                    0,
+                    row * Tile::HEIGHT,
+                    alpha_buf.len() as u32,
+                    false,
+                ));
+                strip_buf.push(Strip::new(
+                    u16::MAX,
+                    row * Tile::HEIGHT,
+                    alpha_buf.len() as u32,
+                    true,
+                ));
+            }
+        }
+
         winding_delta = row_windings[prev_tile.y as usize] as i32;
         if should_fill(winding_delta) && prev_tile.x != 0 {
+            let asd = [255u8; 16];
+            alpha_buf.extend_from_slice(&asd);
             strip_buf.push(Strip::new(
                 0,
                 prev_tile.y * Tile::HEIGHT,
@@ -260,17 +282,34 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                     ));
                 }
 
-                // TODO handle the case where we also have right culled and thus have no tile in the
-                // entire row.
                 if USE_EARLY_CULL {
+                    for row in (prev_tile.y + 1)..tile.y {
+                        if is_sentinel {
+                            break;
+                        }
+                        winding_delta = row_windings[row as usize] as i32;
+                        if should_fill(winding_delta) {
+                            strip_buf.push(Strip::new(
+                                0,
+                                row * Tile::HEIGHT,
+                                alpha_buf.len() as u32,
+                                false,
+                            ));
+                            strip_buf.push(Strip::new(
+                                u16::MAX,
+                                row * Tile::HEIGHT,
+                                alpha_buf.len() as u32,
+                                true,
+                            ));
+                        }
+                    }
+
                     winding_delta = if !is_sentinel {
                         row_windings[tile.y as usize] as i32
                     } else {
                         0
                     };
 
-                    // If we need a fill and there is not an existing tile at the left edge,
-                    // inject one.
                     if should_fill(winding_delta) && tile.x != 0 {
                         strip_buf.push(Strip::new(
                             0,
