@@ -740,9 +740,10 @@ impl<const MODE: u8> Wide<MODE> {
             }
         }
 
+        let in_clipped_filter_layer = layer.filter.is_some() && layer.clip;
         // Decrement the depth counter after popping a filtered layer with clip
-        if layer.filter.is_some() && layer.clip {
-            self.clipped_filter_layer_depth = self.clipped_filter_layer_depth.saturating_sub(1);
+        if in_clipped_filter_layer {
+            self.clipped_filter_layer_depth -= 1;
         }
     }
 
