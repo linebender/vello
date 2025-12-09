@@ -410,8 +410,12 @@ impl Tiles {
                     let w_start = dx_dir << 5;
                     let w_end = not_dx_dir << 5;
 
-                    let mut push_row = |y_idx: u16, row_top_y: f32, row_bottom_y: f32,
-                                        w_start: u32, w_end: u32, w_single: u32| {
+                    let mut push_row = |y_idx: u16,
+                                        row_top_y: f32,
+                                        row_bottom_y: f32,
+                                        w_start: u32,
+                                        w_end: u32,
+                                        w_single: u32| {
                         let row_top_x = p0_x + (row_top_y - p0_y) * x_slope;
                         let row_bottom_x = p0_x + (row_bottom_y - p0_y) * x_slope;
 
@@ -424,7 +428,8 @@ impl Tiles {
                         if x_start <= x_end {
                             let winding = if x_start == x_end { w_single } else { w_start };
 
-                            self.tile_buf.push(Tile::new(x_start, y_idx, line_idx, winding));
+                            self.tile_buf
+                                .push(Tile::new(x_start, y_idx, line_idx, winding));
 
                             for x_idx in x_start + 1..x_end {
                                 self.tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
@@ -447,7 +452,7 @@ impl Tiles {
                             row_bottom_y,
                             w_start & mask,
                             w_end & mask,
-                            0b100000 & mask
+                            0b100000 & mask,
                         );
                     }
 
@@ -462,14 +467,7 @@ impl Tiles {
                     for y_idx in y_start_middle..y_end_middle {
                         let y = f32::from(y_idx);
                         let row_bottom_y = (y + 1.0).min(line_bottom_y);
-                        push_row(
-                            y_idx,
-                            y,
-                            row_bottom_y,
-                            w_start,
-                            w_end,
-                            0b100000
-                        );
+                        push_row(y_idx, y, row_bottom_y, w_start, w_end, 0b100000);
                     }
 
                     if line_bottom_y != line_bottom_floor
@@ -478,14 +476,7 @@ impl Tiles {
                     {
                         let y_idx = y_end_middle;
                         let y = f32::from(y_idx);
-                        push_row(
-                            y_idx,
-                            y,
-                            line_bottom_y,
-                            w_start,
-                            w_end,
-                            0b100000
-                        );
+                        push_row(y_idx, y, line_bottom_y, w_start, w_end, 0b100000);
                     }
                 }
             } else {
@@ -553,8 +544,6 @@ impl Tiles {
             // the viewport OR it is perfectly horizontal and aligned to the tile grid, contributing
             // no winding. In either case, it should be culled.
             if y_top_tiles >= y_bottom_tiles {
-                // Technically, the `>` part of the `>=` is unnecessary due to clamping, but this
-                // gives stronger signal
                 continue;
             }
 
@@ -563,22 +552,6 @@ impl Tiles {
             let p0_tile_y = line_top_y.floor() as i32;
             let p1_tile_x = line_bottom_x.floor() as i32;
 
-            // TODO This may now be unnecessary? This should not produce a visual difference.
-            //
-            // Because our vertical loop is exclusive, an exact bottom edge touch does not produce
-            // an additional tile. This exclusive behavior is correct, the line is not actually
-            // crossing, and producing an empty tile would incorrectly increment winding in that
-            // scanline. However, a side effect of this is that the bottommost tile produced by this
-            // case will not count itself as end_tile. This in turn results in recording a bottom
-            // edge crossing. In isolation, this is fine, but another line may match that endpoint.
-            // If that is the case and that line traverses downwards, then its top edge starting
-            // point will not be an intersection. Because it is not an intersection, the rasterizing
-            // algorithm will use the raw point, which can potentially lead to a watertightness
-            // difference with the point calculated by the top tile.
-            //
-            // The solution is to check whether the bottommost point in the line is perfectly
-            // axis-aligned, and if that is true, to adjust the location of the bottom tile, such
-            // that a bottom touch is not considered an intersection.
             let p1_tile_y = if line_bottom_y == line_bottom_y_ceil {
                 line_bottom_y as i32 - 1
             } else {
@@ -640,151 +613,276 @@ impl Tiles {
                     let dx = p1_x - p0_x;
                     let dy = p1_y - p0_y;
                     let x_slope = dx / dy;
+                    let slope_is_pos = x_slope >= 0.0;
                     let dx_dir = (line_bottom_x >= line_top_x) as u32;
                     let not_dx_dir = dx_dir ^ 1;
-                    let is_start_tile = |x_idx: u16, y_idx: u16| -> bool {
-                        (x_idx as i32 == p0_tile_x) && (y_idx as i32 == p0_tile_y)
-                    };
-                    let is_end_tile = |x_idx: u16, y_idx: u16| -> bool {
-                        (x_idx as i32 == p1_tile_x) && (y_idx as i32 == p1_tile_y)
-                    };
 
-                    // Line walks rows top to bottom, left to right, y-exclusive, x-inclusive.
-                    for y_idx in y_top_tiles..y_bottom_tiles {
-                        let y = f32::from(y_idx);
+                    let w_start = dx_dir << 5;
+                    let w_end_base = not_dx_dir << 5;
 
-                        let line_row_top_y = line_top_y.max(y).min(y + 1.);
-                        let line_row_bottom_y = line_bottom_y.max(y).min(y + 1.);
+                    // Check if the line is fully within the horizontal viewport bounds. If it is,
+                    // we can skip the min/max clamping per row.
+                    let min_x = p0_x.min(p1_x);
+                    let max_x = p0_x.max(p1_x);
+                    // Note: We use >= on the right edge to ensure strictly safe integer truncation
+                    let needs_clamping = min_x < line_left_x || max_x >= line_right_x;
 
-                        let line_row_top_x = p0_x + (line_row_top_y - p0_y) * x_slope;
-                        let line_row_bottom_x = p0_x + (line_row_bottom_y - p0_y) * x_slope;
+                    // Handles the bitmask logic for start/end tiles. Invariant to clamping.
+                    macro_rules! push_edge {
+                        ($x:expr, $y:expr, $row_top_x:expr, $row_bottom_x:expr,
+                         $canonical_start:expr, $canonical_end:expr, $winding_input:expr,
+                         $check_s:tt, $check_e:expr) => {{
+                            let x_idx = $x;
 
-                        let line_row_left_x =
-                            f32::min(line_row_top_x, line_row_bottom_x).max(line_left_x);
-                        let line_row_right_x =
-                            f32::max(line_row_top_x, line_row_bottom_x).min(line_right_x);
+                            let unc_row_start = (x_idx as i32 == $canonical_start) as u32;
+                            let unc_row_end = (x_idx == $canonical_end) as u32;
 
-                        // Floor so we don't truncate towards zero
-                        let canonical_x_start = line_row_left_x.floor() as i32;
-                        let x_start = line_row_left_x as u16;
-                        let canonical_x_end = line_row_right_x as u16;
-                        let x_end = canonical_x_end.min(tile_columns.saturating_sub(1));
-
-                        // Row start, but not necessarily the canonical start of a row.
-                        if x_start <= x_end {
-                            // Check if we are the row start/end unculled.
-                            let unc_row_start = (x_start as i32 == canonical_x_start) as u32;
-                            let unc_row_end = (x_start == canonical_x_end) as u32;
                             let canonical_row_start =
                                 (dx_dir & unc_row_start) | (not_dx_dir & unc_row_end);
                             let canonical_row_end =
                                 (not_dx_dir & unc_row_start) | (dx_dir & unc_row_end);
-                            let start_tile = is_start_tile(x_start, y_idx) as u32;
-                            let end_tile = is_end_tile(x_start, y_idx) as u32;
 
-                            let winding = ((y >= line_top_y && (dx_dir != 0 || x_start == x_end))
-                                as u32)
-                                << 5;
-                            let mut intersection_mask = winding;
+                            let start_tile = if $check_s {
+                                ((x_idx as i32 == p0_tile_x) && ($y as i32 == p0_tile_y)) as u32
+                            } else {
+                                0
+                            };
 
-                            // Entrant
-                            let vert_entrant = canonical_row_start & (1 ^ start_tile);
-                            let hor_entrant = 1 ^ canonical_row_start;
-                            intersection_mask |= vert_entrant;
-                            intersection_mask |= hor_entrant << not_dx_dir << 2;
+                            let end_tile = if $check_e {
+                                ((x_idx as i32 == p1_tile_x) && ($y as i32 == p1_tile_y)) as u32
+                            } else {
+                                0
+                            };
 
-                            // Exit
-                            let vert_exit = canonical_row_end & (1 ^ end_tile);
-                            let hor_exit = 1 ^ canonical_row_end;
-                            intersection_mask |= vert_exit << 1;
-                            intersection_mask |= hor_exit << dx_dir << 2;
+                            let mut mask = $winding_input;
 
-                            // Check if the line passes through any of the four corners of this
-                            // tile. It passes through a corner if the x-intersection with the
-                            // top or bottom edge equals either the left (x_start) or right
-                            // (x_start + 1) tile boundary.
-                            let x_start_f = x_start as f32;
-                            let x_right_f = (x_start + 1) as f32;
+                            // Entrant/Exit
+                            mask |= canonical_row_start & (1 ^ start_tile);
+                            mask |= (1 ^ canonical_row_start) << not_dx_dir << 2;
+                            mask |= (canonical_row_end & (1 ^ end_tile)) << 1;
+                            mask |= (1 ^ canonical_row_end) << dx_dir << 2;
 
-                            // TODO Verify all cases of bottom left tiebreaking. Preliminary
-                            // testing appears to be fine.
-                            let trc = ((line_row_top_x == x_right_f) as u32) & !start_tile;
-                            let tlc = ((line_row_top_x == x_start_f) as u32) & !start_tile;
-                            let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
-                            let blc = ((line_row_bottom_x == x_start_f) as u32) & !end_tile;
-                            // The top left corner must be treated specially.
+                            // Corner
+                            let x_left_f = x_idx as f32;
+                            let x_right_f = (x_idx + 1) as f32;
+                            let trc = (($row_top_x == x_right_f) as u32) & (1 ^ start_tile);
+                            let tlc = (($row_top_x == x_left_f) as u32) & (1 ^ start_tile);
+                            let brc = (($row_bottom_x == x_right_f) as u32) & (1 ^ end_tile);
+                            let blc = (($row_bottom_x == x_left_f) as u32) & (1 ^ end_tile);
+                            // Top left is handled specially
                             let tie_break = tlc & (canonical_row_start ^ 1);
 
-                            // If we touch corners, force the corresponding horizontal
-                            // intersection bits to ensure that no intersection gets destructed.
-                            intersection_mask |= (tie_break | blc) << 2;
-                            intersection_mask |= (trc | brc) << 3;
+                            mask |= (tie_break | blc) << 2;
+                            mask |= (trc | brc) << 3;
+                            mask &= !(tie_break | trc);
+                            mask &= !((blc | brc) << 1);
 
-                            // Then, clear those vertical intersections.
-                            intersection_mask &= !(tie_break | trc);
-                            intersection_mask &= !((blc | brc) << 1);
+                            // Set the perfect bit if in a corner
+                            mask |= (trc | tlc | brc | blc) << 4;
 
-                            let perfect_corner = trc | tlc | brc | blc;
-                            intersection_mask |= perfect_corner << 4;
+                            self.tile_buf.push(Tile::new(x_idx, $y, line_idx, mask));
+                        }};
+                    }
 
-                            let tile = Tile::new(x_start, y_idx, line_idx, intersection_mask);
-                            self.tile_buf.push(tile);
-                        }
+                    // Handles row geometry and clamping logic.
+                    macro_rules! process_row {
+                        ($y_idx:expr, $row_top_y:expr, $row_bottom_y:expr, $w_mask:expr,
+                     $check_s:tt, $check_e:tt, $clamped:tt) => {{
+                            let row_top_x = p0_x + ($row_top_y - p0_y) * x_slope;
+                            let row_bottom_x = p0_x + ($row_bottom_y - p0_y) * x_slope;
 
-                        // Middle
-                        for x_idx in x_start + 1..x_end {
-                            let tile = Tile::new(x_idx, y_idx, line_idx, 0b1100);
-                            self.tile_buf.push(tile);
-                        }
+                            let (row_left_x, row_right_x, x_end) = if $clamped {
+                                let lx = f32::min(row_top_x, row_bottom_x).max(line_left_x);
+                                let rx = f32::max(row_top_x, row_bottom_x).min(line_right_x);
+                                let xe = (rx as u16).min(tile_columns.saturating_sub(1));
+                                (lx, rx, xe)
+                            } else {
+                                let lx = f32::min(row_top_x, row_bottom_x);
+                                let rx = f32::max(row_top_x, row_bottom_x);
+                                let xe = rx as u16; // Safe because we checked bounds earlier
+                                (lx, rx, xe)
+                            };
 
-                        // Row End
-                        // A single tile row would have been handled in the row start clause,
-                        // so there is no ambiguity as to whether this is the start or end of a row
-                        // except from culling.
-                        //
-                        // Note: must be lt for clipping instead of neq.
-                        if x_start < x_end {
-                            let unc_row_end = (x_end == canonical_x_end) as u32;
-                            let canonical_row_start = not_dx_dir & unc_row_end;
-                            let canonical_row_end = dx_dir & unc_row_end;
-                            let start_tile = is_start_tile(x_end, y_idx) as u32;
-                            let end_tile = is_end_tile(x_end, y_idx) as u32;
+                            let canonical_x_start = row_left_x.floor() as i32;
+                            let canonical_x_end = row_right_x as u16;
+                            let x_start = row_left_x as u16;
 
-                            let winding = ((y >= line_top_y && not_dx_dir != 0) as u32) << 5;
-                            let mut intersection_mask = winding;
+                            if x_start <= x_end {
+                                let is_single = (x_start == x_end) as u32;
+                                let w_left = (w_start | (is_single << 5)) & $w_mask;
 
-                            // Entrant
-                            let vert_entrant = canonical_row_start & (1 ^ start_tile);
-                            let hor_entrant = 1 ^ canonical_row_start;
-                            intersection_mask |= vert_entrant;
-                            intersection_mask |= hor_entrant << not_dx_dir << 2;
+                                push_edge!(
+                                    x_start,
+                                    $y_idx,
+                                    row_top_x,
+                                    row_bottom_x,
+                                    canonical_x_start,
+                                    canonical_x_end,
+                                    w_left,
+                                    $check_s,
+                                    $check_e
+                                );
 
-                            // Exit
-                            let vert_exit = canonical_row_end & (1 ^ end_tile);
-                            let hor_exit = 1 ^ canonical_row_end;
-                            intersection_mask |= vert_exit << 1;
-                            intersection_mask |= hor_exit << dx_dir << 2;
+                                for x_idx in x_start + 1..x_end {
+                                    self.tile_buf.push(Tile::new(x_idx, $y_idx, line_idx, 12));
+                                }
 
-                            // See comments above
-                            let x_end_f = x_end as f32;
-                            let x_right_f = (x_end + 1) as f32;
+                                if x_start < x_end {
+                                    let w_right = w_end_base & $w_mask;
+                                    push_edge!(
+                                        x_end,
+                                        $y_idx,
+                                        row_top_x,
+                                        row_bottom_x,
+                                        canonical_x_start,
+                                        canonical_x_end,
+                                        w_right,
+                                        $check_s,
+                                        $check_e
+                                    );
+                                }
+                            }
+                        }};
+                    }
 
-                            let trc = ((line_row_top_x == x_right_f) as u32) & !start_tile;
-                            let tlc = ((line_row_top_x == x_end_f) as u32) & !start_tile;
-                            let brc = ((line_row_bottom_x == x_right_f) as u32) & !end_tile;
-                            let blc = ((line_row_bottom_x == x_end_f) as u32) & !end_tile;
-                            let tie_break = tlc & (canonical_row_start ^ 1);
-                            intersection_mask |= (tie_break | blc) << 2;
-                            intersection_mask |= (trc | brc) << 3;
-                            intersection_mask &= !(tie_break | trc);
-                            intersection_mask &= !((blc | brc) << 1);
+                    // Specialized for the middle loop. Uses incremental x steps.
+                    macro_rules! process_middle_row_incremental {
+                        ($y_idx:expr, $x_curr:expr, $x_next:expr, $check_e:expr, $clamped:tt) => {{
+                            // Determine Left/Right based on slope sign.
+                            let (raw_left, raw_right) = if slope_is_pos {
+                                ($x_curr, $x_next)
+                            } else {
+                                ($x_next, $x_curr)
+                            };
 
-                            let perfect_corner = trc | tlc | brc | blc;
-                            intersection_mask |= perfect_corner << 4;
+                            let (row_left_x, row_right_x, x_end) = if $clamped {
+                                let lx = raw_left.max(line_left_x);
+                                let rx = raw_right.min(line_right_x);
+                                let xe = (rx as u16).min(tile_columns.saturating_sub(1));
+                                (lx, rx, xe)
+                            } else {
+                                // Unclamped: Raw values are trusted
+                                (raw_left, raw_right, raw_right as u16)
+                            };
 
-                            let tile = Tile::new(x_end, y_idx, line_idx, intersection_mask);
-                            self.tile_buf.push(tile);
-                        }
+                            let canonical_x_start = row_left_x.floor() as i32;
+                            let canonical_x_end = row_right_x as u16;
+                            let x_start = row_left_x as u16;
+
+                            if x_start <= x_end {
+                                let is_single = (x_start == x_end) as u32;
+                                let w_left = w_start | (is_single << 5);
+
+                                // Note: We pass raw x_curr/x_next as top/bottom x
+                                push_edge!(
+                                    x_start,
+                                    $y_idx,
+                                    $x_curr,
+                                    $x_next,
+                                    canonical_x_start,
+                                    canonical_x_end,
+                                    w_left,
+                                    false,
+                                    $check_e
+                                );
+
+                                for x_idx in x_start + 1..x_end {
+                                    self.tile_buf.push(Tile::new(x_idx, $y_idx, line_idx, 12));
+                                }
+
+                                if x_start < x_end {
+                                    push_edge!(
+                                        x_end,
+                                        $y_idx,
+                                        $x_curr,
+                                        $x_next,
+                                        canonical_x_start,
+                                        canonical_x_end,
+                                        w_end_base,
+                                        false,
+                                        $check_e
+                                    );
+                                }
+                            }
+                        }};
+                    }
+
+                    // Central macro
+                    macro_rules! run_loops {
+                        ($clamped:tt) => {{
+                            // Top Row
+                            let is_start_culled = line_top_y < 0.0;
+                            if !is_start_culled {
+                                let y = f32::from(y_top_tiles);
+                                let row_bottom_y = (y + 1.0).min(line_bottom_y);
+                                let mask = 0u32.wrapping_sub((y >= line_top_y) as u32);
+                                process_row!(
+                                    y_top_tiles,
+                                    line_top_y,
+                                    row_bottom_y,
+                                    mask,
+                                    true,
+                                    true,
+                                    $clamped
+                                );
+                            }
+
+                            let y_start_middle = if is_start_culled {
+                                y_top_tiles
+                            } else {
+                                y_top_tiles + 1
+                            };
+                            let line_bottom_floor = line_bottom_y.floor();
+                            let y_end_middle = (line_bottom_floor as u16).min(tile_rows);
+
+                            // Middle Rows, walk incrementally
+                            if y_start_middle < y_end_middle {
+                                let start_y_f = f32::from(y_start_middle);
+                                let mut x_curr = p0_x + (start_y_f - p0_y) * x_slope;
+
+                                let y_last = y_end_middle - 1;
+                                for y_idx in y_start_middle..y_last {
+                                    let x_next = x_curr + x_slope;
+                                    process_middle_row_incremental!(
+                                        y_idx, x_curr, x_next, false, $clamped
+                                    );
+                                    x_curr = x_next;
+                                }
+
+                                // Perfect Touching B
+                                {
+                                    let x_next = x_curr + x_slope;
+                                    let check_end = (y_last as i32) == p1_tile_y;
+                                    process_middle_row_incremental!(
+                                        y_last, x_curr, x_next, check_end, $clamped
+                                    );
+                                }
+                            }
+
+                            // Bottom Row
+                            if line_bottom_y != line_bottom_floor
+                                && y_end_middle < tile_rows
+                                && (is_start_culled || y_end_middle != y_top_tiles)
+                            {
+                                let y_idx = y_end_middle;
+                                let y = f32::from(y_idx);
+                                process_row!(
+                                    y_idx,
+                                    y,
+                                    line_bottom_y,
+                                    u32::MAX,
+                                    false,
+                                    true,
+                                    $clamped
+                                );
+                            }
+                        }};
+                    }
+
+                    if needs_clamping {
+                        run_loops!(true);
+                    } else {
+                        run_loops!(false);
                     }
                 }
             } else {
