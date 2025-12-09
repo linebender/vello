@@ -58,20 +58,22 @@ pub struct BlurredRoundedRectBrush {
     pub std_dev: f32,
 }
 
+// TODO: Reason about visibility; do we want a more limited "expose" operation
+// which lets you read all the fields?
 #[derive(Debug)]
 pub struct Scene {
-    paths: PathSet,
-    commands: Vec<RenderCommand>,
+    pub paths: PathSet,
+    pub commands: Vec<RenderCommand>,
     // TODO: Make this an `Option`? That is, allow explicitly renderer-agnostic scenes
     // which also don't allow bringing in textures?
-    renderer: Arc<dyn Renderer>,
-    hinted: bool,
+    pub renderer: Arc<dyn Renderer>,
+    pub hinted: bool,
     /// Handles for each texture stored in this scene.
     ///
     /// We store these to ensure that the textures won't be freed until this scene
     /// is fully rendered (and dropped).
     // TODO: HashSet? We'd need to bring in hashbrown, but that's probably fine
-    textures: Vec<TextureHandle>,
+    pub textures: Vec<TextureHandle>,
 }
 
 impl Scene {
