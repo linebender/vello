@@ -47,27 +47,11 @@ impl<S: Simd> Splat4thExt<S> for u8x16<S> {
     #[inline(always)]
     fn splat_4th(self) -> Self {
         // TODO: SIMDify
-        Self {
-            val: [
-                self.val[3],
-                self.val[3],
-                self.val[3],
-                self.val[3],
-                self.val[7],
-                self.val[7],
-                self.val[7],
-                self.val[7],
-                self.val[11],
-                self.val[11],
-                self.val[11],
-                self.val[11],
-                self.val[15],
-                self.val[15],
-                self.val[15],
-                self.val[15],
-            ],
-            simd: self.simd,
-        }
+        [
+            self[3], self[3], self[3], self[3], self[7], self[7], self[7], self[7], self[11],
+            self[11], self[11], self[11], self[15], self[15], self[15], self[15],
+        ]
+        .simd_into(self.simd)
     }
 }
 
@@ -86,13 +70,7 @@ impl<S: Simd> Splat4thExt<S> for u8x32<S> {
 #[inline(always)]
 pub fn element_wise_splat<S: Simd>(simd: S, input: f32x4<S>) -> f32x16<S> {
     simd.combine_f32x8(
-        simd.combine_f32x4(
-            f32x4::splat(simd, input.val[0]),
-            f32x4::splat(simd, input.val[1]),
-        ),
-        simd.combine_f32x4(
-            f32x4::splat(simd, input.val[2]),
-            f32x4::splat(simd, input.val[3]),
-        ),
+        simd.combine_f32x4(f32x4::splat(simd, input[0]), f32x4::splat(simd, input[1])),
+        simd.combine_f32x4(f32x4::splat(simd, input[2]), f32x4::splat(simd, input[3])),
     )
 }
