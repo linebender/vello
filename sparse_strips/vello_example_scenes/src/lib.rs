@@ -13,6 +13,8 @@ pub mod simple;
 pub mod svg;
 pub mod text;
 
+use vello_common::coarse::WideTile;
+use vello_common::color::palette::css::WHITE;
 use vello_common::filter_effects::Filter;
 pub use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_common::kurbo::Affine;
@@ -266,7 +268,7 @@ impl RenderingContext for Scene {
 /// Example scene that can maintain state between renders.
 pub trait ExampleScene {
     /// Render the scene using the current state.
-    fn render(&mut self, target: &mut impl RenderingContext, root_transform: Affine);
+    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine);
 
     /// Handle key press events (optional).
     /// Returns true if the key was handled, false otherwise.
@@ -281,6 +283,8 @@ pub struct AnyScene<T> {
     render_fn: RenderFn<T>,
     /// The key handler function.
     key_handler_fn: KeyHandlerFn,
+    /// Whether to show the wide tile columns overlay.
+    show_widetile_columns: bool,
 }
 
 /// A type-erased render function.
@@ -291,7 +295,9 @@ type KeyHandlerFn = Box<dyn FnMut(&str) -> bool>;
 
 impl<T> std::fmt::Debug for AnyScene<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AnyScene").finish()
+        f.debug_struct("AnyScene")
+            .field("show_tile_grid", &self.show_widetile_columns)
+            .finish_non_exhaustive()
     }
 }
 
@@ -304,18 +310,63 @@ impl<T: RenderingContext> AnyScene<T> {
         Self {
             render_fn: Box::new(move |s, transform| scene.borrow_mut().render(s, transform)),
             key_handler_fn: Box::new(move |key| scene_clone.borrow_mut().handle_key(key)),
+            show_widetile_columns: false,
         }
     }
 
     /// Render the scene.
-    pub fn render(&mut self, target: &mut T, root_transform: Affine) {
-        (self.render_fn)(target, root_transform);
+    pub fn render(&mut self, ctx: &mut T, root_transform: Affine) {
+        // Render the actual scene content
+        (self.render_fn)(ctx, root_transform);
+
+        // Draw tile grid overlay if enabled
+        if self.show_widetile_columns {
+            self.draw_widetile_columns(ctx);
+        }
     }
 
     /// Handle key press events.
     /// Returns true if the key was handled, false otherwise.
     pub fn handle_key(&mut self, key: &str) -> bool {
+        // First check for global shortcuts
+        match key {
+            "t" | "T" => {
+                self.toggle_tile_grid();
+                return true;
+            }
+            _ => {}
+        }
+
+        // Then delegate to the scene-specific handler
         (self.key_handler_fn)(key)
+    }
+
+    /// Toggle the tile grid overlay.
+    pub fn toggle_tile_grid(&mut self) {
+        self.show_widetile_columns = !self.show_widetile_columns;
+    }
+
+    /// Draw the tile grid overlay.
+    ///
+    /// Note: We don't restore transform/paint since this runs at the end of `render()`.
+    fn draw_widetile_columns(&self, ctx: &mut T) {
+        ctx.set_transform(Affine::IDENTITY);
+        ctx.set_paint(WHITE);
+
+        // Draw lines across the entire scene
+        let max_width = 2000.0;
+        let max_height = 2000.0;
+
+        let mut tile_x = 0.0;
+        let line_width = 1.0;
+        while tile_x <= max_width {
+            // Draw a thin vertical line
+            ctx.fill_rect(&Rect::from_points(
+                (tile_x, 0.0),
+                (tile_x + line_width, max_height),
+            ));
+            tile_x += WideTile::WIDTH as f64;
+        }
     }
 }
 

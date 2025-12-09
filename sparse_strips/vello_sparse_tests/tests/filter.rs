@@ -762,3 +762,73 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
         ctx.pop_layer();
     }
 }
+
+/// Test that blur filters correctly expand bounds when the layer is rotated.
+///
+/// This verifies that the expansion calculation uses `transform_rect_bbox` to account for
+/// the full transformation matrix (including rotation and shear), rather than just extracting
+/// x/y scales separately. A 45-degree rotation should produce a diamond-shaped blur.
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_rotated_blur(ctx: &mut impl Renderer) {
+    let filter_gaussian_blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 4.0,
+        edge_mode: EdgeMode::None,
+    });
+    let center = Point::new(50.0, 50.0);
+    ctx.set_transform(Affine::rotate_about(std::f64::consts::PI / 4.0, center));
+
+    let width = 24.;
+    let overlap = 6.;
+    let between = 12.;
+
+    let x = 21.;
+    let y = 21.;
+    let mut left = x;
+    let mut top = y;
+
+    let circle_path = Circle::new(center, 25.).to_path(0.1);
+    {
+        ctx.push_layer(
+            Some(&circle_path),
+            None,
+            None,
+            None,
+            Some(filter_gaussian_blur.clone()),
+        );
+        ctx.set_paint(ROYAL_BLUE);
+        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+        {
+            ctx.push_layer(None, None, None, None, None);
+            ctx.set_paint(PURPLE);
+            left = x + width + between;
+            top = y;
+            ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+            {
+                ctx.push_layer(None, None, None, None, None);
+                ctx.set_paint(TOMATO);
+                left = x + width - overlap;
+                top = y + width - overlap;
+                ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                {
+                    ctx.push_layer(None, None, None, None, None);
+                    ctx.set_paint(VIOLET);
+                    left = x;
+                    top = y + width + between;
+                    ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                    {
+                        ctx.push_layer(None, None, None, None, None);
+                        ctx.set_paint(SEA_GREEN);
+                        left = x + width + between;
+                        top = y + width + between;
+                        ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
+                        ctx.pop_layer();
+                    }
+                    ctx.pop_layer();
+                }
+                ctx.pop_layer();
+            }
+            ctx.pop_layer();
+        }
+        ctx.pop_layer();
+    }
+}

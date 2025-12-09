@@ -57,7 +57,7 @@ struct App {
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     let (scenes, start_scene_index) = {
-        let mut start_scene_index = 4;
+        let mut start_scene_index = 0;
         let args: Vec<String> = env::args().collect();
         let mut svg_paths: Vec<&str> = Vec::new();
 
@@ -233,7 +233,6 @@ impl ApplicationHandler for App {
                 let is_cmd = self.modifiers.state().super_key();
                 match logical_key {
                     Key::Named(NamedKey::ArrowRight) => {
-                        println!("ArrowRight");
                         self.current_scene = (self.current_scene + 1) % self.scenes.len();
                         self.transform = Affine::IDENTITY;
                         window.request_redraw();

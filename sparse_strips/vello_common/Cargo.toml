@@ -32,7 +32,7 @@ log = { workspace = true }
 default = ["std", "png", "text"]
 # Enable using SIMD instructions for rendering
 simd = []
-# Get floating point functions from the standard library (likely using your target’s libc).
+# Get floating point functions from the standard library (likely using your target's libc).
 std = ["peniko/std", "skrifa?/std", "fearless_simd/std"]
 bytemuck = ["bytemuck/bytemuck_derive"]
 # Use floating point implementations from libm.

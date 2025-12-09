@@ -5,19 +5,21 @@
 
 use crate::color::palette::css::TRANSPARENT;
 use crate::filter_effects::Filter;
-use crate::kurbo::Affine;
+use crate::kurbo::{Affine, Rect};
 use crate::mask::Mask;
 use crate::paint::{Paint, PremulColor};
 use crate::peniko::{BlendMode, Compose, Mix};
 use crate::render_graph::{DependencyKind, LayerId, RenderGraph, RenderNodeKind};
-use crate::util::extract_scales;
 use crate::{strip::Strip, tile::Tile};
 use alloc::vec;
 use alloc::{boxed::Box, vec::Vec};
+#[cfg(debug_assertions)]
+use alloc::{format, string::String};
 use core::ops::Range;
 use hashbrown::HashMap;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
+
 #[derive(Debug)]
 struct Layer {
     /// The layer's ID.
@@ -77,6 +79,10 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// Initialized with node 0 (the root node representing the final output).
     /// As layers with filters are pushed, their node IDs are added to this stack.
     filter_node_stack: Vec<usize>,
+    /// Count of nested filtered layers with clip paths.
+    /// When > 0, command generation uses full viewport bounds instead of clip bounds
+    /// to ensure filter effects can process the full layer before applying the clip.
+    clipped_filter_layer_depth: u32,
 }
 
 /// A clip region.
@@ -237,15 +243,15 @@ impl WideTilesBbox {
     /// Pixel values are converted to tile coordinates (rounding up) and clamped to the
     /// valid range `[0, max_x)` × `[0, max_y)`. The result is a new bounding box in
     /// wide tile coordinates.
-    pub fn expand_by_pixels(
-        &self,
-        left_px: u16,
-        top_px: u16,
-        right_px: u16,
-        bottom_px: u16,
-        max_x: u16,
-        max_y: u16,
-    ) -> Self {
+    pub fn expand_by_pixels(&self, expansion: Rect, max_x: u16, max_y: u16) -> Self {
+        // The expansion rect is centered at origin:
+        // - Negative coordinates (x0, y0) represent left/top expansion
+        // - Positive coordinates (x1, y1) represent right/bottom expansion
+        let left_px = (-expansion.x0).max(0.0).ceil() as u16;
+        let top_px = (-expansion.y0).max(0.0).ceil() as u16;
+        let right_px = expansion.x1.max(0.0).ceil() as u16;
+        let bottom_px = expansion.y1.max(0.0).ceil() as u16;
+
         // Convert pixel expansion to tile expansion (round up)
         let left_tiles = left_px.div_ceil(WideTile::WIDTH);
         let top_tiles = top_px.div_ceil(Tile::HEIGHT);
@@ -299,6 +305,7 @@ impl<const MODE: u8> Wide<MODE> {
             clip_stack: vec![],
             // Start with root node 0.
             filter_node_stack: vec![0],
+            clipped_filter_layer_depth: 0,
         }
     }
 
@@ -317,6 +324,7 @@ impl<const MODE: u8> Wide<MODE> {
         self.layer_stack.clear();
         self.clip_stack.clear();
         self.filter_node_stack.truncate(1);
+        self.clipped_filter_layer_depth = 0;
     }
 
     /// Return the number of horizontal tiles.
@@ -402,7 +410,7 @@ impl<const MODE: u8> Wide<MODE> {
         let _ = thread_idx;
 
         // Get current clip bounding box or full viewport if no clip is active
-        let bbox = self.get_bbox();
+        let bbox = self.active_bbox();
 
         // Save current_layer_id to avoid borrowing issues
         let current_layer_id = self.get_current_layer_id();
@@ -602,6 +610,13 @@ impl<const MODE: u8> Wide<MODE> {
         // When this flag is true, we generate explicit drawing commands instead of just counters.
         let in_clipped_filter_layer = has_filter && has_clip;
 
+        // Increment the depth counter so that active_bbox() returns the full viewport
+        // instead of the clipped bbox. This ensures command generation covers all tiles,
+        // allowing the filter to process the entire layer before the clip is applied.
+        if in_clipped_filter_layer {
+            self.clipped_filter_layer_depth += 1;
+        }
+
         let layer = Layer {
             layer_id,
             clip: has_clip,
@@ -669,19 +684,15 @@ impl<const MODE: u8> Wide<MODE> {
                         ..
                     } = &mut node.kind
                 {
-                    // Calculate expansion in user space, then scale by transform to get pixel-space expansion
-                    // This ensures scaled filters (e.g., zoomed drop shadows) have correct bounds
-                    let expansion = filter.bounds_expansion();
-                    let (scale_x, scale_y) = extract_scales(transform);
+                    // Calculate expansion in device/pixel space, accounting for the full transform.
+                    // This ensures that rotated filters (e.g., drop shadows) have correct bounds.
+                    let expansion = filter.bounds_expansion(transform);
                     let expanded_bbox = layer.wtile_bbox.expand_by_pixels(
-                        (expansion.left as f32 * scale_x).ceil() as u16,
-                        (expansion.top as f32 * scale_y).ceil() as u16,
-                        (expansion.right as f32 * scale_x).ceil() as u16,
-                        (expansion.bottom as f32 * scale_y).ceil() as u16,
+                        expansion,
                         self.width_tiles(),
                         self.height_tiles(),
                     );
-                    let clip_bbox = self.get_bbox();
+                    let clip_bbox = self.active_bbox();
                     let final_bbox = expanded_bbox.intersect(clip_bbox);
 
                     // Update both the local layer and the render graph node
@@ -727,6 +738,12 @@ impl<const MODE: u8> Wide<MODE> {
                     t.pop_buf();
                 }
             }
+        }
+
+        let in_clipped_filter_layer = layer.filter.is_some() && layer.clip;
+        // Decrement the depth counter after popping a filtered layer with clip
+        if in_clipped_filter_layer {
+            self.clipped_filter_layer_depth -= 1;
         }
     }
 
@@ -774,9 +791,21 @@ impl<const MODE: u8> Wide<MODE> {
             WideTilesBbox::new([wtile_x0, wtile_y0, wtile_x1, wtile_y1])
         };
 
-        let parent_bbox = self.get_bbox();
-        // Calculate the intersection of the parent clip bounding box and the path bounding box.
-        let clip_bbox = parent_bbox.intersect(path_bbox);
+        let parent_bbox = self.active_bbox();
+        // Determine which tiles need clip processing:
+        // - For clipped filter layers: active_bbox() returns the full viewport, so parent_bbox
+        //   already covers all tiles. We need to process all of them because the filter needs
+        //   the entire layer rendered, and tiles outside the clip path must get `PushZeroClip`
+        //   commands to properly suppress their content after filtering.
+        // - For normal clips: Intersect with the path bounds to only process tiles that are
+        //   actually affected by the clip path, avoiding unnecessary work.
+        let clip_bbox = if self.clipped_filter_layer_depth > 0 {
+            // Use parent_bbox as-is (full viewport) to process all tiles
+            parent_bbox
+        } else {
+            // Optimize by processing only the intersection of parent and path bounds
+            parent_bbox.intersect(path_bbox)
+        };
 
         let mut cur_wtile_x = clip_bbox.x0();
         let mut cur_wtile_y = clip_bbox.y0();
@@ -860,13 +889,22 @@ impl<const MODE: u8> Wide<MODE> {
     }
 
     /// Get the bounding box of the current clip region or the entire viewport if no clip regions are active.
-    fn get_bbox(&self) -> WideTilesBbox {
-        if let Some(top) = self.clip_stack.last() {
-            top.clip_bbox
-        } else {
-            // Convert pixel dimensions to wide tile coordinates
-            WideTilesBbox::new([0, 0, self.width_tiles(), self.height_tiles()])
+    fn active_bbox(&self) -> WideTilesBbox {
+        // When in a clipped filter layer, use full viewport to allow
+        // filter to process the complete layer before applying clip as mask
+        if self.clipped_filter_layer_depth > 0 {
+            return self.full_viewport_bbox();
         }
+
+        self.clip_stack
+            .last()
+            .map(|top| top.clip_bbox)
+            .unwrap_or_else(|| self.full_viewport_bbox())
+    }
+
+    /// Returns the bounding box covering the entire viewport in wide tile coordinates.
+    fn full_viewport_bbox(&self) -> WideTilesBbox {
+        WideTilesBbox::new([0, 0, self.width_tiles(), self.height_tiles()])
     }
 
     /// Removes the most recently added clip region.
@@ -1399,6 +1437,41 @@ impl<const MODE: u8> WideTile<MODE> {
     }
 }
 
+/// Debug utilities for wide tiles.
+///
+/// These methods are only available in debug builds (`debug_assertions`).
+/// They provide introspection into the command buffer for debugging and logging purposes.
+#[cfg(debug_assertions)]
+impl<const MODE: u8> WideTile<MODE> {
+    /// Lists all commands in this wide tile with their indices and names.
+    ///
+    /// Returns a formatted string with each command on a new line, showing its index
+    /// and human-readable name. This is useful for debugging and understanding the
+    /// command sequence.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let commands = wide_tile.list_commands();
+    /// println!("{}", commands);
+    /// // Output:
+    /// // 0: PushBuf(Regular)
+    /// // 1: FillPath
+    /// // 2: PushZeroClip
+    /// // 3: FillPath
+    /// // 4: PopBuf
+    /// ```
+    #[allow(dead_code, reason = "useful for debugging")]
+    pub(crate) fn list_commands(&self) -> String {
+        self.cmds
+            .iter()
+            .enumerate()
+            .map(|(i, cmd)| format!("{}: {}", i, cmd.name()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 /// Distinguishes between different types of layers and their storage strategies.
 ///
 /// Each layer kind determines how the layer's content is stored and processed:
@@ -1481,6 +1554,36 @@ pub enum Cmd {
     ///
     /// Modulates the alpha channel of the buffer using the provided mask.
     Mask(Mask),
+}
+
+#[cfg(debug_assertions)]
+impl Cmd {
+    /// Returns a human-readable name for this command.
+    ///
+    /// This is useful for debugging, logging, and displaying command information
+    /// in a user-friendly format.
+    ///
+    /// **Note:** This method is only available in debug builds (`debug_assertions`).
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Fill(_) => "FillPath",
+            Self::AlphaFill(_) => "AlphaFillPath",
+            Self::PushBuf(layer_kind) => match layer_kind {
+                LayerKind::Regular(_) => "PushBuf(Regular)",
+                LayerKind::Filtered(_) => "PushBuf(Filtered)",
+                LayerKind::Clip(_) => "PushBuf(Clip)",
+            },
+            Self::PopBuf => "PopBuf",
+            Self::ClipFill(_) => "ClipPathFill",
+            Self::ClipStrip(_) => "ClipPathStrip",
+            Self::PushZeroClip(_) => "PushZeroClip",
+            Self::PopZeroClip => "PopZeroClip",
+            Self::Filter(_, _) => "Filter",
+            Self::Blend(_) => "Blend",
+            Self::Opacity(_) => "Opacity",
+            Self::Mask(_) => "Mask",
+        }
+    }
 }
 
 /// Fill a consecutive horizontal region of a wide tile.
