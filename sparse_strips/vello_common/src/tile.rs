@@ -407,8 +407,8 @@ impl Tiles {
                     let dx_dir = (line_bottom_x >= line_top_x) as u32;
                     let not_dx_dir = dx_dir ^ 1;
 
-                    let w_start = dx_dir << 5;
-                    let w_end = not_dx_dir << 5;
+                    let w_start_base = dx_dir << 5;
+                    let w_end_base = not_dx_dir << 5;
 
                     let mut push_row = |y_idx: u16,
                                         row_top_y: f32,
@@ -450,8 +450,8 @@ impl Tiles {
                             y_top_tiles,
                             line_top_y,
                             row_bottom_y,
-                            w_start & mask,
-                            w_end & mask,
+                            w_start_base & mask,
+                            w_end_base & mask,
                             0b100000 & mask,
                         );
                     }
@@ -467,7 +467,7 @@ impl Tiles {
                     for y_idx in y_start_middle..y_end_middle {
                         let y = f32::from(y_idx);
                         let row_bottom_y = (y + 1.0).min(line_bottom_y);
-                        push_row(y_idx, y, row_bottom_y, w_start, w_end, 0b100000);
+                        push_row(y_idx, y, row_bottom_y, w_start_base, w_end_base, 0b100000);
                     }
 
                     if line_bottom_y != line_bottom_floor
@@ -476,7 +476,7 @@ impl Tiles {
                     {
                         let y_idx = y_end_middle;
                         let y = f32::from(y_idx);
-                        push_row(y_idx, y, line_bottom_y, w_start, w_end, 0b100000);
+                        push_row(y_idx, y, line_bottom_y, w_start_base, w_end_base, 0b100000);
                     }
                 }
             } else {
@@ -521,18 +521,18 @@ impl Tiles {
     /// The logic handles vertical lines and fully-contained lines as special fast paths. Sloped
     /// lines are handled via a set of internal macros to manage complexity:
     ///
-    /// 1. push_edge!: The core logic. Given start/end coordinates within a specific row, it
+    /// 1. `push_edge!`: The core logic. Given start/end coordinates within a specific row, it
     ///    determines exactly which edges (L/R/B/T) are crossed and handles corner cases
     ///    (tie-breaking) to generate the final bitmask.
     ///
-    /// 2. process_row!: Calculates the horizontal span (X_start to X_end) for a specific Y-row
-    ///    using the standard linear equation (X = X0 + dY * slope). It generates the edge tiles
-    ///    using push_edge! and fills the interior tiles with a "pass-through" mask.
+    /// 2. `process_row!`: Calculates the horizontal span (`x_start` to `x_end`) for a specific y-row
+    ///    using the standard linear equation (x= x0 + dY * slope). It generates the edge tiles
+    ///    using `push_edge!` and fills the interior tiles with a "pass-through" mask.
     ///
-    /// 3. process_middle_row_incremental! : For the "middle" rows of a line (rows
+    /// 3. `process_middle_row_incremental!`: For the "middle" rows of a line (rows
     ///    between the top and bottom blocks), we know the line traverses the full height of the
-    ///    tile. Instead of recalculating X from the start point (which requires multiplication), we
-    ///    use incremental addition: X_next = X_curr + slope.
+    ///    tile. Instead of recalculating x from the start point (which requires multiplication), we
+    ///    use incremental addition: `x_next` = `x_curr` + slope.
     ///
     ///    NOTE: regarding floating point errors: The incremental stepping is only used for the
     ///    middle tiles, the endpoints are still calculated using line equation. So the endpoints
@@ -662,7 +662,7 @@ impl Tiles {
                     let dx_dir = (line_bottom_x >= line_top_x) as u32;
                     let not_dx_dir = dx_dir ^ 1;
 
-                    let w_start = dx_dir << 5;
+                    let w_start_base = dx_dir << 5;
                     let w_end_base = not_dx_dir << 5;
 
                     // Check if the line is fully within the horizontal viewport bounds. If it is,
@@ -754,7 +754,7 @@ impl Tiles {
 
                             if x_start <= x_end {
                                 let is_single = (x_start == x_end) as u32;
-                                let w_left = (w_start | (is_single << 5)) & $w_mask;
+                                let w_left = (w_start_base | (is_single << 5)) & $w_mask;
 
                                 push_edge!(
                                     x_start,
@@ -816,7 +816,7 @@ impl Tiles {
 
                             if x_start <= x_end {
                                 let is_single = (x_start == x_end) as u32;
-                                let w_left = w_start | (is_single << 5);
+                                let w_left = w_start_base | (is_single << 5);
 
                                 // Note: We pass raw x_curr/x_next as top/bottom x
                                 push_edge!(
@@ -860,7 +860,7 @@ impl Tiles {
                             if !is_start_culled {
                                 let y = f32::from(y_top_tiles);
                                 let row_bottom_y = (y + 1.0).min(line_bottom_y);
-                                let mask = 0u32.wrapping_sub((y >= line_top_y) as u32);
+                                let mask = ((y >= line_top_y) as u32) << 5;
                                 process_row!(
                                     y_top_tiles,
                                     line_top_y,
