@@ -407,13 +407,11 @@ impl Tiles {
                     let dx_dir = (line_bottom_x >= line_top_x) as u32;
                     let not_dx_dir = dx_dir ^ 1;
 
-                    let is_start_culled = line_top_y < 0.0;
-                    if !is_start_culled {
-                        let y = f32::from(y_top_tiles);
+                    let w_start = dx_dir << 5;
+                    let w_end = not_dx_dir << 5;
 
-                        let row_top_y = line_top_y;
-                        let row_bottom_y = (y + 1.0).min(line_bottom_y);
-
+                    let mut push_row = |y_idx: u16, row_top_y: f32, row_bottom_y: f32,
+                                        w_start: u32, w_end: u32, w_single: u32| {
                         let row_top_x = p0_x + (row_top_y - p0_y) * x_slope;
                         let row_bottom_x = p0_x + (row_bottom_y - p0_y) * x_slope;
 
@@ -424,21 +422,33 @@ impl Tiles {
                         let x_end = (row_right_x as u16).min(tile_columns.saturating_sub(1));
 
                         if x_start <= x_end {
-                            let winding = ((y >= line_top_y && (dx_dir != 0 || x_start == x_end))
-                                as u32)
-                                << 5;
-                            self.tile_buf
-                                .push(Tile::new(x_start, y_top_tiles, line_idx, winding));
+                            let winding = if x_start == x_end { w_single } else { w_start };
+
+                            self.tile_buf.push(Tile::new(x_start, y_idx, line_idx, winding));
+
+                            for x_idx in x_start + 1..x_end {
+                                self.tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
+                            }
+
+                            if x_start < x_end {
+                                self.tile_buf.push(Tile::new(x_end, y_idx, line_idx, w_end));
+                            }
                         }
-                        for x_idx in x_start + 1..x_end {
-                            self.tile_buf
-                                .push(Tile::new(x_idx, y_top_tiles, line_idx, 0));
-                        }
-                        if x_start < x_end {
-                            let winding = ((y >= line_top_y && not_dx_dir != 0) as u32) << 5;
-                            self.tile_buf
-                                .push(Tile::new(x_end, y_top_tiles, line_idx, winding));
-                        }
+                    };
+
+                    let is_start_culled = line_top_y < 0.0;
+                    if !is_start_culled {
+                        let y = f32::from(y_top_tiles);
+                        let row_bottom_y = (y + 1.0).min(line_bottom_y);
+                        let mask = ((y >= line_top_y) as u32) << 5;
+                        push_row(
+                            y_top_tiles,
+                            line_top_y,
+                            row_bottom_y,
+                            w_start & mask,
+                            w_end & mask,
+                            0b100000 & mask
+                        );
                     }
 
                     let y_start_middle = if is_start_culled {
@@ -451,64 +461,31 @@ impl Tiles {
                     let y_end_middle = (line_bottom_floor as u16).min(tile_rows);
                     for y_idx in y_start_middle..y_end_middle {
                         let y = f32::from(y_idx);
-
-                        let row_top_y = y;
                         let row_bottom_y = (y + 1.0).min(line_bottom_y);
-
-                        let row_top_x = p0_x + (row_top_y - p0_y) * x_slope;
-                        let row_bottom_x = p0_x + (row_bottom_y - p0_y) * x_slope;
-
-                        let row_left_x = f32::min(row_top_x, row_bottom_x).max(line_left_x);
-                        let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
-
-                        let x_start = row_left_x as u16;
-                        let x_end = (row_right_x as u16).min(tile_columns.saturating_sub(1));
-
-                        if x_start <= x_end {
-                            let winding =
-                                ((dx_dir != 0 || x_start == x_end) as u32) << 5;
-                            self.tile_buf
-                                .push(Tile::new(x_start, y_idx, line_idx, winding));
-                        }
-                        for x_idx in x_start + 1..x_end {
-                            self.tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
-                        }
-                        if x_start < x_end {
-                            let winding = not_dx_dir << 5;
-                            self.tile_buf
-                                .push(Tile::new(x_end, y_idx, line_idx, winding));
-                        }
+                        push_row(
+                            y_idx,
+                            y,
+                            row_bottom_y,
+                            w_start,
+                            w_end,
+                            0b100000
+                        );
                     }
 
                     if line_bottom_y != line_bottom_floor
                         && y_end_middle < tile_rows
-                        && (is_start_culled || y_end_middle != y_top_tiles) {
+                        && (is_start_culled || y_end_middle != y_top_tiles)
+                    {
                         let y_idx = y_end_middle;
                         let y = f32::from(y_idx);
-
-                        let row_top_y = y;
-                        let row_bottom_y = line_bottom_y;
-
-                        let row_top_x = p0_x + (row_top_y - p0_y) * x_slope;
-                        let row_bottom_x = p0_x + (row_bottom_y - p0_y) * x_slope;
-
-                        let row_left_x = f32::min(row_top_x, row_bottom_x).max(line_left_x);
-                        let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
-
-                        let x_start = row_left_x as u16;
-                        let x_end = (row_right_x as u16).min(tile_columns.saturating_sub(1));
-
-                        if x_start <= x_end {
-                            let winding = ((dx_dir != 0 || x_start == x_end) as u32) << 5;
-                            self.tile_buf.push(Tile::new(x_start, y_idx, line_idx, winding));
-                        }
-                        for x_idx in x_start + 1..x_end {
-                            self.tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
-                        }
-                        if x_start < x_end {
-                            let winding = not_dx_dir << 5;
-                            self.tile_buf.push(Tile::new(x_end, y_idx, line_idx, winding));
-                        }
+                        push_row(
+                            y_idx,
+                            y,
+                            line_bottom_y,
+                            w_start,
+                            w_end,
+                            0b100000
+                        );
                     }
                 }
             } else {
