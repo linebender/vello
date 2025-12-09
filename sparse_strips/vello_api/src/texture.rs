@@ -76,8 +76,11 @@ bitflags! {
         const UPLOAD_TARGET = 1 << 1;
         /// This texture (or a subset of it) can be used for painting.
         const TEXTURE_BINDING = 1 << 2;
-        // /// This texture can be the source for a "download" operation.
-        // const DOWNLOAD_SRC = 1 << 3;
+        /// This texture can be the source for a "download" operation.
+        ///
+        /// This isn't currently exposed in the API, but might have
+        /// a meaning provided by the backend.
+        const DOWNLOAD_SRC = 1 << 3;
         // TODO: Does this make sense to support/require this be supported?
         // /// A subset of this texture can be rendered to.
         // const PARTIAL_RENDER_TARGET = 1<<4;

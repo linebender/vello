@@ -1,10 +1,15 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use alloc::{
+    sync::{Arc, Weak},
+    vec::Vec,
+};
 use hashbrown::HashMap;
 use vello_api::{
     PaintScene, Renderer,
     peniko::Fill,
+    sync::Lock,
     texture::{self, TextureDescriptor, TextureId, TextureUsages},
 };
 use vello_common::{
@@ -21,15 +26,21 @@ use wgpu::{
 
 use crate::{RenderSettings, RenderTargetConfig, Scene, api::HybridScenePainter};
 #[derive(Debug)]
-pub struct VelloHybrid {
-    default_render_settings: RenderSettings,
-    device: Device,
-    queue: Queue,
+struct VelloHybridInner {
     renderer: crate::Renderer,
     // TODO: Evaluate whether to use generational(?) indexing instead of a HashMap
     texture_id_source: u64,
     textures: HashMap<TextureId, StoredTexture>,
+}
+
+#[derive(Debug)]
+pub struct VelloHybrid {
+    inner: Lock<VelloHybridInner>,
+    device: Device,
+    queue: Queue,
     format: wgpu::TextureFormat,
+    default_render_settings: RenderSettings,
+    this: Weak<VelloHybrid>,
 }
 
 impl VelloHybrid {
@@ -39,22 +50,30 @@ impl VelloHybrid {
         queue: &Queue,
         render_target_config: &RenderTargetConfig,
         default_render_settings: RenderSettings,
-    ) -> Self {
-        Self {
-            default_render_settings,
+    ) -> Arc<Self> {
+        let inner = VelloHybridInner {
             textures: HashMap::new(),
             renderer: crate::Renderer::new(device, render_target_config),
             texture_id_source: 0,
-            device: device.clone(),
-            queue: queue.clone(),
-            // TODO: We should support different internal and external formats/
-            // rendering to the "native" format of the screen
-            format: render_target_config.format,
-        }
+        };
+        Arc::new_cyclic(|this| {
+            Self {
+                default_render_settings,
+                inner: Lock::new(inner),
+                device: device.clone(),
+                queue: queue.clone(),
+                // TODO: We should support different internal and external formats/
+                // rendering to the "native" format of the screen
+                format: render_target_config.format,
+                this: this.clone(),
+            }
+        })
     }
     // Minimal API to access the image data. This API has not been carefully designed, and warrants re-examination.
-    pub fn wgpu_texture(&self, texture: &TextureId) -> Result<&wgpu::Texture, ()> {
+    pub fn wgpu_texture(&self, texture: &TextureId) -> Result<wgpu::Texture, ()> {
         Ok(self
+            .inner
+            .lock()
             .textures
             .get(texture)
             // TODO: Correct error type.
@@ -63,7 +82,8 @@ impl VelloHybrid {
             .as_ref()
             .ok_or(())?
             .view
-            .texture())
+            .texture()
+            .clone())
     }
     // For use as a `Surface`, or similar.
     pub fn add_external_texture(
@@ -94,9 +114,10 @@ impl VelloHybrid {
             },
         };
 
-        let id = TextureId::from_raw(self.texture_id_source);
-        self.texture_id_source += 1;
-        self.textures.insert(id, texture);
+        let mut this = self.inner.lock();
+        let id = TextureId::from_raw(this.texture_id_source);
+        this.texture_id_source += 1;
+        this.textures.insert(id, texture);
         Ok(id)
     }
 }
@@ -104,10 +125,10 @@ impl VelloHybrid {
 impl Renderer for VelloHybrid {
     type ScenePainter = HybridScenePainter;
 
-    fn create_texture(&mut self, descriptor: texture::TextureDescriptor) -> TextureId {
+    fn alloc_untracked_texture(&self, descriptor: texture::TextureDescriptor) -> TextureId {
         // We need an explicit texture if we expect to download from it or render to it.
         let texture = if descriptor.usages.contains(TextureUsages::RENDER_TARGET)
-            || descriptor.usages.contains(TextureUsages::DOWNLOAD_SRC)
+        // || descriptor.usages.contains(TextureUsages::DOWNLOAD_SRC)
         {
             // TODO: Warn if this is "download"-only, or "render_target" only?
             // For the former, there's no reason to actually perform the rendering, and for the latter,
@@ -145,21 +166,23 @@ impl Renderer for VelloHybrid {
             descriptor,
         };
 
-        let id = TextureId::from_raw(self.texture_id_source);
-        self.texture_id_source += 1;
-        self.textures.insert(id, texture);
+        let mut this = self.inner.lock();
+        let id = TextureId::from_raw(this.texture_id_source);
+        this.texture_id_source += 1;
+        this.textures.insert(id, texture);
         id
     }
 
-    fn free_texture(&mut self, texture: TextureId) -> Result<(), ()> {
-        let val = self.textures.remove(&texture).ok_or(())?;
+    fn free_untracked_texture(&self, texture: TextureId) -> Result<(), ()> {
+        let mut this = self.inner.lock();
+        let val = this.textures.remove(&texture).ok_or(())?;
         if let Some(image_id) = val.image_id {
             let mut encoder = self
                 .device
                 .create_command_encoder(&CommandEncoderDescriptor {
                     label: Some("Vello Hybrid Dealloc"),
                 });
-            self.renderer
+            this.renderer
                 .destroy_image(&self.device, &self.queue, &mut encoder, image_id);
             self.queue.submit([encoder.finish()]);
         }
@@ -167,11 +190,12 @@ impl Renderer for VelloHybrid {
     }
 
     fn create_scene(
-        &mut self,
+        &self,
         to: &TextureId,
         options: vello_api::SceneOptions,
     ) -> Result<Self::ScenePainter, ()> {
-        let target_texture = self.textures.get(to).ok_or(())?;
+        let this = self.inner.lock();
+        let target_texture = this.textures.get(to).ok_or(())?;
         let (width, height) = if let Some(size) = options.size() {
             size
         } else {
@@ -184,7 +208,12 @@ impl Renderer for VelloHybrid {
         // TODO: Handle options.clear_color more efficiently (i.e. by encoding a load colour in the final render pass)
         // TODO: Cache the contexts internally, so that we don't reallocate here?
         let scene = Scene::new_with(width, height, self.default_render_settings);
-        let mut painter = HybridScenePainter { scene, target: *to };
+        let mut painter = HybridScenePainter {
+            scene,
+            target: *to,
+            renderer: self.as_dyn_arc(),
+            textures: Vec::new(),
+        };
         if let Some(clear_color) = options.clear_color {
             painter.set_solid_brush(clear_color);
             painter.fill_path(
@@ -196,7 +225,9 @@ impl Renderer for VelloHybrid {
         Ok(painter)
     }
 
-    fn queue_render(&mut self, mut from: Self::ScenePainter) {
+    fn queue_render(&self, mut from: Self::ScenePainter) {
+        let mut this = self.inner.lock();
+        let this = &mut *this;
         // Ideally, we'd put all of the renders into a single encoder (or at least make it somehow configurable
         // - e.g. if we know that the previous submission has finished, there's value in submitting semi-eagerly)
         // However, we need to submit immediately because `render` internally uses `write_buffer`. Those operations
@@ -217,7 +248,7 @@ impl Renderer for VelloHybrid {
             {
                 // Back-associate each texture with the actual pixmap.
                 let idx = u64::from(id.as_u32());
-                let wgpu_texture = self
+                let wgpu_texture = this
                 .textures
                 .get_mut(&TextureId::from_raw(idx))
                 .expect("todo: handle this case, where the texture passed to 'set_brush' isn't from this renderer.");
@@ -228,7 +259,7 @@ impl Renderer for VelloHybrid {
                     // as this method doesn't use `write_texture` to the atlas textures.
                     // (As instead it's a `render_pass` operation)
                     if let Some(old_id) = wgpu_texture.image_id {
-                        self.renderer.destroy_image(
+                        this.renderer.destroy_image(
                             &self.device,
                             &self.queue,
                             &mut encoder,
@@ -237,7 +268,7 @@ impl Renderer for VelloHybrid {
                     }
                     // TODO: If there were an old slot (the common case), we should be re-using that (or, of course, just rendering from
                     // the extant `wgpu::Texture` directly)
-                    let image_id = self.renderer.upload_image(
+                    let image_id = this.renderer.upload_image(
                         &self.device,
                         &self.queue,
                         &mut encoder,
@@ -252,7 +283,7 @@ impl Renderer for VelloHybrid {
             }
         }
 
-        let texture = self.textures.get_mut(&from.target).unwrap();
+        let texture = this.textures.get_mut(&from.target).unwrap();
         #[expect(clippy::todo, reason = "Still applies.")]
         if !texture
             .descriptor
@@ -267,7 +298,7 @@ impl Renderer for VelloHybrid {
             .expect("A `RENDER_TARGET` is always created with a corresponding wgpu texture.");
 
         // TODO: This size isn't right, we need to use the size in the `SceneOptions` (if we decide to keep that...)
-        self.renderer
+        this.renderer
             .render(
                 &from.scene,
                 &self.device,
@@ -291,8 +322,10 @@ impl Renderer for VelloHybrid {
         // TODO: We almost certainly want to keep the scene around.
     }
 
-    fn upload_image(&mut self, to: &TextureId, data: &ImageData) -> Result<(), ()> {
-        let source = self.textures.get_mut(to).ok_or(())?;
+    fn upload_image(&self, to: &TextureId, data: &ImageData) -> Result<(), ()> {
+        let mut this = self.inner.lock();
+        let this = &mut *this;
+        let source = this.textures.get_mut(to).ok_or(())?;
         if data.height != u32::from(source.descriptor.height)
             || data.width != u32::from(source.descriptor.width)
         {
@@ -346,7 +379,7 @@ impl Renderer for VelloHybrid {
                         .create_command_encoder(&CommandEncoderDescriptor {
                             label: Some("Vello Hybrid Internal Upload"),
                         });
-                self.renderer.destroy_image(
+                this.renderer.destroy_image(
                     &self.device,
                     &self.queue,
                     &mut destroy_encoder,
@@ -360,12 +393,25 @@ impl Renderer for VelloHybrid {
                 self.queue.submit([destroy_encoder.finish()]);
             }
             let image_id =
-                self.renderer
+                this.renderer
                     .upload_image(&self.device, &self.queue, &mut encoder, &pixmap);
             source.image_id = Some(image_id);
         }
         self.queue.submit([encoder.finish()]);
         Ok(())
+    }
+
+    fn as_arc(&self) -> alloc::sync::Arc<Self>
+    where
+        Self: Sized,
+    {
+        self.this
+            .upgrade()
+            .expect("self still exists, so 'this' should still exist.")
+    }
+
+    fn as_dyn_arc(&self) -> alloc::sync::Arc<dyn Renderer> {
+        self.as_arc()
     }
 }
 
@@ -398,6 +444,7 @@ struct RenderTargetTexture {
     // We store only the `TextureView`, as it's trivial to get a `Texture`
     // from the view.
     view: TextureView,
+    // TODO: Because of external textures, this is actually a three-way condition; yes, no, never
     atlas_up_to_date: bool,
 }
 
