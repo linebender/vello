@@ -917,6 +917,33 @@ mod tests {
     const VIEW_DIM: u16 = 100;
     const F_V_DIM: f32 = VIEW_DIM as f32;
 
+    fn check_analytic_aa_matches(actual: &[Tile], expected: &[Tile]) {
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "Analytic AA: Tile count mismatch."
+        );
+
+        for (i, (got, want)) in actual.iter().zip(expected.iter()).enumerate() {
+            assert_eq!(got.x, want.x, "Analytic AA: Tile[{}] X mismatch", i);
+            assert_eq!(got.y, want.y, "Analytic AA: Tile[{}] Y mismatch", i);
+            assert_eq!(
+                got.line_idx(),
+                want.line_idx(),
+                "Analytic AA: Tile[{}] Line Index mismatch",
+                i
+            );
+
+            let got_winding = got.packed_winding_line_idx & W;
+            let want_winding = want.packed_winding_line_idx & W;
+            assert_eq!(
+                got_winding, want_winding,
+                "Analytic AA: Tile[{}] Winding mismatch",
+                i
+            );
+        }
+    }
+
     //==============================================================================================
     // Culled Lines
     //==============================================================================================
@@ -964,8 +991,11 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert!(tiles.is_empty());
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
         assert!(tiles.is_empty());
     }
 
@@ -991,17 +1021,18 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, W | T),
+            Tile::new(1, 0, 1, W | T),
+            Tile::new(2, 0, 2, W | T),
+            Tile::new(0, 0, 3, W | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, W | T),
-                Tile::new(1, 0, 1, W | T),
-                Tile::new(2, 0, 2, W | T),
-                Tile::new(0, 0, 3, W | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1040,16 +1071,17 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(1, 24, 0, B),
+            Tile::new(2, 24, 1, B),
+            Tile::new(0, 24, 2, B),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(1, 24, 0, B),
-                Tile::new(2, 24, 1, B),
-                Tile::new(0, 24, 2, B),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1066,18 +1098,19 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, W | T | R),
+            Tile::new(1, 0, 0, L | B),
+            Tile::new(1, 1, 0, W | T),
+            Tile::new(0, 0, 1, W | T | B),
+            Tile::new(0, 1, 1, W | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, W | T | R),
-                Tile::new(1, 0, 0, L | B),
-                Tile::new(1, 1, 0, W | T),
-                Tile::new(0, 0, 1, W | T | B),
-                Tile::new(0, 1, 1, W | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1100,18 +1133,19 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 23, 0, B),
+            Tile::new(0, 24, 0, W | T | R),
+            Tile::new(1, 24, 0, B | L),
+            Tile::new(0, 23, 1, B),
+            Tile::new(0, 24, 1, W | T | B),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 23, 0, B),
-                Tile::new(0, 24, 0, W | T | R),
-                Tile::new(1, 24, 0, B | L),
-                Tile::new(0, 23, 1, B),
-                Tile::new(0, 24, 1, W | T | B),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1134,16 +1168,17 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(24, 0, 0, R),
+            Tile::new(23, 0, 1, R),
+            Tile::new(24, 0, 1, R | L),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(24, 0, 0, R),
-                Tile::new(23, 0, 1, R),
-                Tile::new(24, 0, 1, R | L),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1164,22 +1199,23 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, L),
+            Tile::new(0, 0, 1, L | R),
+            Tile::new(1, 0, 1, L),
+            Tile::new(0, 0, 2, L | B),
+            Tile::new(0, 1, 2, W | R | T),
+            Tile::new(1, 1, 2, R | L),
+            Tile::new(2, 1, 2, L | B),
+            Tile::new(2, 2, 2, W | R | T),
+            Tile::new(3, 2, 2, L),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, L),
-                Tile::new(0, 0, 1, L | R),
-                Tile::new(1, 0, 1, L),
-                Tile::new(0, 0, 2, L | B),
-                Tile::new(0, 1, 2, W | R | T),
-                Tile::new(1, 1, 2, R | L),
-                Tile::new(2, 1, 2, L | B),
-                Tile::new(2, 2, 2, W | R | T),
-                Tile::new(3, 2, 2, L),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1190,8 +1226,11 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert!(tiles.is_empty());
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
         assert!(tiles.is_empty());
     }
 
@@ -1209,8 +1248,11 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert!(tiles.is_empty());
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
         assert!(tiles.is_empty());
     }
 
@@ -1222,15 +1264,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [
             Tile::new(0, 2, 0, L | R),
             Tile::new(1, 2, 0, L | R),
             Tile::new(2, 2, 0, L),
         ];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1247,11 +1291,13 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [Tile::new(23, 2, 0, R), Tile::new(24, 2, 0, L | R)];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1274,8 +1320,11 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, []);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, []);
     }
 
@@ -1292,8 +1341,11 @@ mod tests {
         );
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&line_buf, 10, 10);
 
+        tiles.make_tiles_msaa(&line_buf, 10, 10);
+        assert!(tiles.is_empty());
+
+        tiles.make_tiles_analytic_aa(&line_buf, 10, 10);
         assert!(tiles.is_empty());
     }
 
@@ -1315,18 +1367,19 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, W | T),
+            Tile::new(0, 0, 1, W | B | T),
+            Tile::new(0, 1, 1, W | T),
+            Tile::new(0, 0, 2, W | B | T),
+            Tile::new(0, 1, 2, W | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, W | T),
-                Tile::new(0, 0, 1, W | B | T),
-                Tile::new(0, 1, 1, W | T),
-                Tile::new(0, 0, 2, W | B | T),
-                Tile::new(0, 1, 2, W | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1355,16 +1408,17 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 24, 0, B),
+            Tile::new(0, 23, 1, B),
+            Tile::new(0, 24, 1, W | T | B),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 24, 0, B),
-                Tile::new(0, 23, 1, B),
-                Tile::new(0, 24, 1, W | T | B),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1375,9 +1429,13 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [Tile::new(0, 0, 0, W | L | T)];
 
-        assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, W | L | T)]);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1394,9 +1452,13 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [Tile::new(24, 24, 0, R | B)];
 
-        assert_eq!(tiles.tile_buf, [Tile::new(24, 24, 0, R | B)]);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     //==============================================================================================
@@ -1410,16 +1472,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, R),
+            Tile::new(1, 0, 0, R | L),
+            Tile::new(2, 0, 0, L),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, R),
-                Tile::new(1, 0, 0, R | L),
-                Tile::new(2, 0, 0, L),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1430,16 +1493,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, R),
+            Tile::new(1, 0, 0, R | L),
+            Tile::new(2, 0, 0, L),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, R),
-                Tile::new(1, 0, 0, R | L),
-                Tile::new(2, 0, 0, L),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1450,17 +1514,18 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, R),
+            Tile::new(1, 0, 0, R | L),
+            Tile::new(2, 0, 0, R | L),
+            Tile::new(3, 0, 0, L),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, R),
-                Tile::new(1, 0, 0, R | L),
-                Tile::new(2, 0, 0, R | L),
-                Tile::new(3, 0, 0, L),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1471,16 +1536,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, B),
+            Tile::new(0, 1, 0, W | T | B),
+            Tile::new(0, 2, 0, W | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, B),
-                Tile::new(0, 1, 0, W | T | B),
-                Tile::new(0, 2, 0, W | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1491,17 +1557,18 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, B),
+            Tile::new(0, 1, 0, W | T | B),
+            Tile::new(0, 2, 0, W | T | B),
+            Tile::new(0, 3, 0, W | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, B),
-                Tile::new(0, 1, 0, W | T | B),
-                Tile::new(0, 2, 0, W | T | B),
-                Tile::new(0, 3, 0, W | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1512,17 +1579,18 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, B),
+            Tile::new(0, 1, 0, W | T | B),
+            Tile::new(0, 2, 0, W | T | B),
+            Tile::new(0, 3, 0, W | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, B),
-                Tile::new(0, 1, 0, W | T | B),
-                Tile::new(0, 2, 0, W | T | B),
-                Tile::new(0, 3, 0, W | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1533,16 +1601,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, B),
+            Tile::new(0, 1, 0, W | T | B),
+            Tile::new(0, 2, 0, W | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, B),
-                Tile::new(0, 1, 0, W | T | B),
-                Tile::new(0, 2, 0, W | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     // Exclusive to the bottom edge, no P required.
@@ -1554,12 +1623,13 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [Tile::new(0, 0, 0, B), Tile::new(0, 1, 0, W | T)];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [Tile::new(0, 0, 0, B), Tile::new(0, 1, 0, W | T),]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1570,12 +1640,13 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [Tile::new(0, 0, 0, W | B), Tile::new(0, 1, 0, W | T)];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [Tile::new(0, 0, 0, W | B), Tile::new(0, 1, 0, W | T),]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     //==============================================================================================
@@ -1589,18 +1660,19 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, R),
+            Tile::new(1, 0, 0, L | B),
+            Tile::new(1, 1, 0, W | R | T),
+            Tile::new(2, 1, 0, L | B),
+            Tile::new(2, 2, 0, W | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, R),
-                Tile::new(1, 0, 0, L | B),
-                Tile::new(1, 1, 0, W | R | T),
-                Tile::new(2, 1, 0, L | B),
-                Tile::new(2, 2, 0, W | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1611,18 +1683,19 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, R),
+            Tile::new(1, 0, 0, L | B),
+            Tile::new(1, 1, 0, W | R | T),
+            Tile::new(2, 1, 0, L | B),
+            Tile::new(2, 2, 0, W | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, R),
-                Tile::new(1, 0, 0, L | B),
-                Tile::new(1, 1, 0, W | R | T),
-                Tile::new(2, 1, 0, L | B),
-                Tile::new(2, 2, 0, W | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1633,18 +1706,19 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(2, 1, 0, R | B),
+            Tile::new(3, 1, 0, L),
+            Tile::new(0, 2, 0, R),
+            Tile::new(1, 2, 0, R | L),
+            Tile::new(2, 2, 0, W | L | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(2, 1, 0, R | B),
-                Tile::new(3, 1, 0, L),
-                Tile::new(0, 2, 0, R),
-                Tile::new(1, 2, 0, R | L),
-                Tile::new(2, 2, 0, W | L | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1655,19 +1729,19 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(2, 1, 0, R | B),
+            Tile::new(3, 1, 0, L),
+            Tile::new(0, 2, 0, R),
+            Tile::new(1, 2, 0, R | L),
+            Tile::new(2, 2, 0, W | L | T),
+        ];
 
-        // geometrically identical to above
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(2, 1, 0, R | B),
-                Tile::new(3, 1, 0, L),
-                Tile::new(0, 2, 0, R),
-                Tile::new(1, 2, 0, R | L),
-                Tile::new(2, 2, 0, W | L | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1684,13 +1758,13 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [Tile::new(0, 0, 0, 0), Tile::new(0, 0, 1, 0)];
 
-        // Both lines are entirely within tile (0,0).
-        assert_eq!(
-            tiles.tile_buf,
-            [Tile::new(0, 0, 0, 0), Tile::new(0, 0, 1, 0)]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1701,16 +1775,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(1, 0, 0, P | L),
+            Tile::new(0, 1, 0, P | R),
+            Tile::new(1, 1, 0, W | P | L | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(1, 0, 0, P | L),
-                Tile::new(0, 1, 0, P | R),
-                Tile::new(1, 1, 0, W | P | L | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1721,16 +1796,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [
+            Tile::new(0, 0, 0, P | R),
+            Tile::new(1, 0, 0, P | L),
+            Tile::new(1, 1, 0, W | P | T),
+        ];
 
-        assert_eq!(
-            tiles.tile_buf,
-            [
-                Tile::new(0, 0, 0, P | R),
-                Tile::new(1, 0, 0, P | L),
-                Tile::new(1, 1, 0, W | P | T),
-            ]
-        );
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1741,15 +1817,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [
             Tile::new(1, 1, 0, P | R),
             Tile::new(2, 1, 0, P | L),
             Tile::new(2, 2, 0, W | P | T),
         ];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1760,15 +1838,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [
             Tile::new(1, 1, 0, R | B),
             Tile::new(2, 1, 0, L),
             Tile::new(1, 2, 0, W | T),
         ];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1779,11 +1859,13 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [Tile::new(0, 0, 0, W | P | R), Tile::new(1, 0, 0, L)];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1794,11 +1876,13 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [Tile::new(0, 0, 0, P | R), Tile::new(1, 0, 0, W | L)];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1809,9 +1893,6 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        tiles.sort_tiles();
-
         let expected = [
             Tile::new(0, 0, 0, W | P | R),
             Tile::new(1, 0, 0, P | L),
@@ -1819,7 +1900,13 @@ mod tests {
             Tile::new(2, 1, 0, L),
         ];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.sort_tiles();
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.sort_tiles();
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1830,9 +1917,6 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        tiles.sort_tiles();
-
         let expected = [
             Tile::new(1, 0, 0, P | R | L),
             Tile::new(2, 0, 0, W | L),
@@ -1840,7 +1924,13 @@ mod tests {
             Tile::new(1, 1, 0, W | P | L | T),
         ];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.sort_tiles();
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.sort_tiles();
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1851,15 +1941,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [
             Tile::new(0, 0, 0, R),
             Tile::new(1, 0, 0, R | L),
             Tile::new(2, 0, 0, L),
         ];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1870,15 +1962,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [
             Tile::new(0, 0, 0, P | R | B),
             Tile::new(1, 0, 0, W | L),
             Tile::new(0, 1, 0, W | T),
         ];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1889,15 +1983,17 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [
             Tile::new(0, 0, 0, W | B),
             Tile::new(0, 1, 0, W | P | R | T),
             Tile::new(1, 1, 0, L),
         ];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     //==============================================================================================
@@ -1911,9 +2007,13 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [Tile::new(0, 0, 0, 0)];
 
-        assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, 0)]);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1924,9 +2024,13 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [Tile::new(0, 0, 0, 0)];
 
-        assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, 0)]);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1937,9 +2041,13 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        let expected = [Tile::new(0, 0, 0, W)];
 
-        assert_eq!(tiles.tile_buf, [Tile::new(0, 0, 0, W)]);
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
+        assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1950,11 +2058,13 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [Tile::new(0, 0, 0, R), Tile::new(1, 0, 0, L)];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1971,11 +2081,13 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [Tile::new(0, 0, 0, 0), Tile::new(0, 0, 1, 0)];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     #[test]
@@ -1992,11 +2104,13 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-
         let expected = [Tile::new(0, 0, 0, W), Tile::new(0, 0, 1, W)];
 
+        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert_eq!(tiles.tile_buf, expected);
+
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        check_analytic_aa_matches(&tiles.tile_buf, &expected);
     }
 
     //==============================================================================================
@@ -2012,6 +2126,7 @@ mod tests {
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles_msaa(&[line], 600, 600);
+        tiles.make_tiles_analytic_aa(&[line], 600, 600);
     }
 
     #[test]
@@ -2040,12 +2155,19 @@ mod tests {
 
             y -= step;
         }
+
         tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
         assert!(tiles.tile_buf.first().unwrap().y > tiles.tile_buf.last().unwrap().y);
-
         tiles.sort_tiles();
-        let buf = &tiles.tile_buf;
+        check_sorted(&tiles.tile_buf);
 
+        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        assert!(tiles.tile_buf.first().unwrap().y > tiles.tile_buf.last().unwrap().y);
+        tiles.sort_tiles();
+        check_sorted(&tiles.tile_buf);
+    }
+
+    fn check_sorted(buf: &[Tile]) {
         for i in 0..buf.len() - 1 {
             let current = buf[i];
             let next = buf[i + 1];
