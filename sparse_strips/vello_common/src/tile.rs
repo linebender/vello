@@ -492,7 +492,52 @@ impl Tiles {
         }
     }
 
-    /// Comment here!
+    /// Generates tile commands for MSAA (Multisample Anti-Aliasing) rasterization.
+    ///
+    /// [ Architecture & Watertightness ]
+    /// The primary goal of this function is to establish a source of "ground truth" for line-tile
+    /// intersections. Because the downstream rasterization (MSAA) occurs in parallel, it is
+    /// critical that intersections are "watertight." If Thread A handles Tile (0,0) and Thread B
+    /// handles Tile (1,0), they must agree exactly on whether a line crosses the shared edge.
+    ///
+    /// While calculating exact intersection coordinates here is feasible, it is computationally
+    /// expensive. Instead, we defer the heavy math to the GPU/rasterizer and produce a lightweight
+    /// Intersection Bitmask. This mask unambiguously defines which edges of a tile a line segment
+    /// touches or crosses.
+    ///
+    /// [ The Intersection Bitmask (6 bits) ]
+    /// The bitmask encodes winding information and edge intersections. A line is said to
+    /// "intersect" an edge if it touches that edge AND continues into the neighboring tile.
+    ///
+    /// Bit representation:
+    /// Bit: 5 | 4 | 3 | 2 | 1 | 0
+    /// Val: W | P | R | L | B | T
+    ///
+    /// - W (Winding): Tracks the direction of the line (downward vs upward).
+    /// - P (Perfect): Indicates a "Perfect" intersection (e.g., passing exactly through a corner).
+    /// - R/L/B/T: Right, Left, Bottom, and Top edge intersections.
+    ///
+    /// [ Implementation Details & Macros ]
+    /// The logic handles vertical lines and fully-contained lines as special fast paths. Sloped
+    /// lines are handled via a set of internal macros to manage complexity:
+    ///
+    /// 1. push_edge!: The core logic. Given start/end coordinates within a specific row, it
+    ///    determines exactly which edges (L/R/B/T) are crossed and handles corner cases
+    ///    (tie-breaking) to generate the final bitmask.
+    ///
+    /// 2. process_row!: Calculates the horizontal span (X_start to X_end) for a specific Y-row
+    ///    using the standard linear equation (X = X0 + dY * slope). It generates the edge tiles
+    ///    using push_edge! and fills the interior tiles with a "pass-through" mask.
+    ///
+    /// 3. process_middle_row_incremental! : For the "middle" rows of a line (rows
+    ///    between the top and bottom blocks), we know the line traverses the full height of the
+    ///    tile. Instead of recalculating X from the start point (which requires multiplication), we
+    ///    use incremental addition: X_next = X_curr + slope.
+    ///
+    ///    NOTE: regarding floating point errors: The incremental stepping is only used for the
+    ///    middle tiles, the endpoints are still calculated using line equation. So the endpoints
+    ///    should still be watertight. I don't think the viewport can be large enough where enough
+    ///    floating-point error can occur that an issue arises.
     pub fn make_tiles_msaa(&mut self, lines: &[Line], width: u16, height: u16) {
         self.reset();
 
