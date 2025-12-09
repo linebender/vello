@@ -58,7 +58,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
             #[inline(always)]
             || {
                 for chunk in buf.chunks_exact_mut(64) {
-                    chunk.copy_from_slice(&self.next().unwrap().val);
+                    chunk.copy_from_slice(self.next().unwrap().as_slice());
                 }
             },
         );

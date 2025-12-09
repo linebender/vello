@@ -257,7 +257,7 @@ fn intersect_impl<S: Simd>(
 
                                 // Combine them.
                                 let res = simd.narrow_u16x16(normalized_mul_u8x16(s1, s2));
-                                target.alphas.extend(&res.val);
+                                target.alphas.extend(res.as_slice());
                             }
                         }
                     }

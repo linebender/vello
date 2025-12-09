@@ -32,7 +32,7 @@ pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
                 let x_pos = f32x8::splat_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
                 let y_pos = f32x8::splat_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
                 let pos = kind.cur_pos(x_pos, y_pos);
-                buf_part.copy_from_slice(&pos.val);
+                buf_part.copy_from_slice(pos.as_slice());
 
                 cur_pos += 2.0 * gradient.x_advance;
             }
