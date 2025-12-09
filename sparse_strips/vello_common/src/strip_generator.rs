@@ -154,25 +154,21 @@ impl StripGenerator {
             self.row_winding.fill(0);
         }
 
-        let detected_cull_opportunity;
         if self.use_early_culling {
-            detected_cull_opportunity = self.tiles.make_tiles_analytic_aa::<true>(
+            self.use_early_culling = self.tiles.make_tiles_analytic_aa::<true>(
                 &self.line_buf,
                 self.width,
                 self.height,
                 &mut self.row_winding,
             )
         } else {
-            detected_cull_opportunity = self.tiles.make_tiles_analytic_aa::<false>(
+            self.use_early_culling = self.tiles.make_tiles_analytic_aa::<false>(
                 &self.line_buf,
                 self.width,
                 self.height,
                 &mut self.row_winding,
             )
         };
-
-        self.use_early_culling = detected_cull_opportunity;
-        //self.use_early_culling = false;
 
         self.tiles.sort_tiles();
 
