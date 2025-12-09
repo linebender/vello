@@ -430,7 +430,7 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let da = a2 - a0;
         let da_abs = da.abs();
         let sqrt_scale = scale.sqrt();
-        let temp3 = simd.or_i32x4(x0.reinterpret_i32(), x2.reinterpret_i32());
+        let temp3 = simd.or_i32x4(x0.bitcast(), x2.bitcast());
         let mask = simd.simd_ge_i32x4(temp3, i32x4::splat(simd, 0));
         let noncusp = da_abs * sqrt_scale;
         // TODO: should we skip this if neither is a cusp? Maybe not worth branch prediction cost

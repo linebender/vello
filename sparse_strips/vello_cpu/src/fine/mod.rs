@@ -30,7 +30,7 @@ use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
 use vello_common::fearless_simd::{
-    Simd, SimdBase, SimdFloat, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4, u32x8,
+    Bytes, Simd, SimdBase, SimdFloat, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4, u32x8,
 };
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
@@ -135,15 +135,21 @@ pub(crate) fn u8_to_f32<S: Simd>(val: u8x16<S>) -> f32x16<S> {
     let zip1 = simd.zip_high_u8x16(val, zeroes);
     let zip2 = simd.zip_low_u8x16(val, zeroes);
 
-    let p1 = simd.zip_low_u8x16(zip2, zeroes).reinterpret_u32().cvt_f32();
+    let p1 = simd
+        .zip_low_u8x16(zip2, zeroes)
+        .bitcast::<u32x4<S>>()
+        .cvt_f32();
     let p2 = simd
         .zip_high_u8x16(zip2, zeroes)
-        .reinterpret_u32()
+        .bitcast::<u32x4<S>>()
         .cvt_f32();
-    let p3 = simd.zip_low_u8x16(zip1, zeroes).reinterpret_u32().cvt_f32();
+    let p3 = simd
+        .zip_low_u8x16(zip1, zeroes)
+        .bitcast::<u32x4<S>>()
+        .cvt_f32();
     let p4 = simd
         .zip_high_u8x16(zip1, zeroes)
-        .reinterpret_u32()
+        .bitcast::<u32x4<S>>()
         .cvt_f32();
 
     simd.combine_f32x8(simd.combine_f32x4(p1, p2), simd.combine_f32x4(p3, p4))
@@ -189,7 +195,7 @@ impl<S: Simd> CompositeType<u8, S> for u8x32<S> {
 
     #[inline(always)]
     fn from_color(simd: S, color: [u8; 4]) -> Self {
-        u32x8::block_splat(u32x4::splat(simd, u32::from_ne_bytes(color))).reinterpret_u8()
+        u32x8::block_splat(u32x4::splat(simd, u32::from_ne_bytes(color))).to_bytes()
     }
 }
 

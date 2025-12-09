@@ -3,7 +3,7 @@
 
 //! Utility functions.
 
-use fearless_simd::{Simd, SimdBase, f32x16, u8x16, u8x32, u16x16, u16x32};
+use fearless_simd::{Bytes, Simd, SimdBase, f32x16, u8x16, u8x32, u16x16, u16x32};
 use peniko::kurbo::Affine;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
@@ -12,7 +12,7 @@ use peniko::kurbo::common::FloatFuncs as _;
 #[inline(always)]
 pub fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
     let simd = val.simd;
-    let converted = val.cvt_u32().reinterpret_u8();
+    let converted = val.cvt_u32().to_bytes();
 
     let (x8_1, x8_2) = simd.split_u8x64(converted);
     let (p1, p2) = simd.split_u8x32(x8_1);

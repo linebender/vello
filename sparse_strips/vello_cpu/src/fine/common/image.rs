@@ -396,7 +396,7 @@ pub(crate) fn sample<S: Simd>(
             data.pixmap.sample_idx(idx[3]).to_u32(),
         ],
     )
-    .reinterpret_u8()
+    .to_bytes()
 }
 
 #[inline(always)]
