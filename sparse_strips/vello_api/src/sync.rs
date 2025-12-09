@@ -55,6 +55,8 @@ pub use single::{Lock, Share};
 
 #[cfg(any(target_arch = "wasm32", not(feature = "std")))]
 mod single {
+    use core::ops::DerefMut;
+
     /// An alias trait for the most practical subset of `Send + Sync` which supports
     /// interior mutability.
     ///
@@ -73,6 +75,7 @@ mod single {
     ///
     /// When the standard library is enabled, this is a wrapper around `Mutex`.
     /// If not (or on Wasm), this is a wrapper around [`RefCell`](core::cell::RefCell).
+    #[derive(Debug)]
     pub struct Lock<T> {
         inner: core::cell::RefCell<T>,
     }
@@ -83,11 +86,17 @@ mod single {
                 inner: core::cell::RefCell::new(val),
             }
         }
+
+        pub fn lock<'a>(&'a self) -> impl DerefMut<Target = T> + 'a {
+            self.inner.borrow_mut()
+        }
     }
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "std"))]
 mod multi {
+    use core::ops::DerefMut;
+
     extern crate std;
 
     /// An alias trait for the most practical subset of `Send + Sync` which supports
@@ -118,6 +127,13 @@ mod multi {
             Self {
                 inner: std::sync::Mutex::new(val),
             }
+        }
+
+        pub fn lock<'a>(&'a self) -> impl DerefMut<Target = T> + 'a {
+            self.inner.lock().map_or_else(
+                |poison_error| poison_error.into_inner(),
+                core::convert::identity,
+            )
         }
     }
 }
