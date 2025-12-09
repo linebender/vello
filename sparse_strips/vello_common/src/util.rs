@@ -34,7 +34,7 @@ impl<S: Simd> Div255Ext for u16x32<S> {
     fn div_255(self) -> Self {
         let p1 = Self::splat(self.simd, 255);
         let p2 = self + p1;
-        p2.shr(8)
+        p2 >> 8
     }
 }
 
@@ -43,7 +43,7 @@ impl<S: Simd> Div255Ext for u16x16<S> {
     fn div_255(self) -> Self {
         let p1 = Self::splat(self.simd, 255);
         let p2 = self + p1;
-        p2.shr(8)
+        p2 >> 8
     }
 }
 
