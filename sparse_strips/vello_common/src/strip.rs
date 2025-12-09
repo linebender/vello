@@ -99,11 +99,18 @@ pub fn render(
     fill_rule: Fill,
     aliasing_threshold: Option<u8>,
     lines: &[Line],
+    use_early_culling: bool,
+    row_windings: &Vec<i8>,
 ) {
-    dispatch!(level, simd => render_impl(simd, tiles, strip_buf, alpha_buf, fill_rule, aliasing_threshold, lines));
+    // TODO: worth?
+    if use_early_culling {
+        dispatch!(level, simd => render_impl::<_, true>(simd, tiles, strip_buf, alpha_buf, fill_rule, aliasing_threshold, lines, row_windings));
+    } else {
+        dispatch!(level, simd => render_impl::<_, false>(simd, tiles, strip_buf, alpha_buf, fill_rule, aliasing_threshold, lines, row_windings));
+    }
 }
 
-fn render_impl<S: Simd>(
+fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     s: S,
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
@@ -111,6 +118,7 @@ fn render_impl<S: Simd>(
     fill_rule: Fill,
     aliasing_threshold: Option<u8>,
     lines: &[Line],
+    row_windings: &Vec<i8>,
 ) {
     if tiles.is_empty() {
         return;
@@ -124,20 +132,33 @@ fn render_impl<S: Simd>(
     // The accumulated tile winding delta. A line that crosses the top edge of a tile
     // increments the delta if the line is directed upwards, and decrements it if goes
     // downwards. Horizontal lines leave it unchanged.
-    let mut winding_delta: i32 = 0;
+    let mut winding_delta = 0;
 
     // The previous tile visited.
     let mut prev_tile = *tiles.get(0);
+
+    if USE_EARLY_CULL {
+        winding_delta = row_windings[prev_tile.y as usize] as i32;
+        if should_fill(winding_delta) && prev_tile.x != 0 {
+            strip_buf.push(Strip::new(
+                0,
+                prev_tile.y * Tile::HEIGHT,
+                alpha_buf.len() as u32,
+                false,
+            ));
+        }
+    }
+
     // The accumulated (fractional) winding of the tile-sized location we're currently at.
     // Note multiple tiles can be at the same location.
     // Note that we are also implicitly assuming here that the tile height exactly fits into a
     // SIMD vector (i.e. 128 bits).
-    let mut location_winding = [f32x4::splat(s, 0.0); Tile::WIDTH as usize];
+    let mut location_winding = [f32x4::splat(s, winding_delta as f32); Tile::WIDTH as usize];
     // The accumulated (fractional) windings at this location's right edge. When we move to the
     // next location, this is splatted to that location's starting winding.
-    let mut accumulated_winding = f32x4::splat(s, 0.0);
+    let mut accumulated_winding = f32x4::splat(s, winding_delta as f32);
 
-    /// A special tile to keep the logic below simple.
+    // A special tile to keep the logic below simple.
     const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, 0);
 
     // The strip we're building.
@@ -145,7 +166,7 @@ fn render_impl<S: Simd>(
         prev_tile.x * Tile::WIDTH,
         prev_tile.y * Tile::HEIGHT,
         alpha_buf.len() as u32,
-        false,
+        should_fill(winding_delta),
     );
 
     for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
@@ -239,8 +260,30 @@ fn render_impl<S: Simd>(
                     ));
                 }
 
-                winding_delta = 0;
-                accumulated_winding = f32x4::splat(s, 0.0);
+                // TODO handle the case where we also have right culled and thus have no tile in the
+                // entire row.
+                if USE_EARLY_CULL {
+                    winding_delta = if !is_sentinel {
+                        row_windings[tile.y as usize] as i32
+                    } else {
+                        0
+                    };
+
+                    // If we need a fill and there is not an existing tile at the left edge,
+                    // inject one.
+                    if should_fill(winding_delta) && tile.x != 0 {
+                        strip_buf.push(Strip::new(
+                            0,
+                            tile.y * Tile::HEIGHT,
+                            alpha_buf.len() as u32,
+                            false,
+                        ));
+                    }
+                } else {
+                    winding_delta = 0;
+                };
+
+                accumulated_winding = f32x4::splat(s, winding_delta as f32);
 
                 #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
                 for x in 0..Tile::WIDTH as usize {

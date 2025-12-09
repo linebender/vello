@@ -3,14 +3,15 @@
 
 //! Abstraction for generating strips from paths.
 
+use std::{println, vec};
+
 use crate::clip::{PathDataRef, intersect};
 use crate::fearless_simd::Level;
-use crate::flatten::{FlattenCtx, Line};
+use crate::flatten::{self, FlattenCtx, Line};
 use crate::kurbo::{Affine, PathEl, Stroke};
 use crate::peniko::Fill;
-use crate::strip::Strip;
-use crate::tile::Tiles;
-use crate::{flatten, strip};
+use crate::strip::{self, Strip};
+use crate::tile::{Tile, Tiles}; // Assuming Tile::HEIGHT is visible here
 use alloc::vec::Vec;
 use peniko::kurbo::StrokeCtx;
 
@@ -69,11 +70,17 @@ pub struct StripGenerator {
     tiles: Tiles,
     width: u16,
     height: u16,
+    /// Tracks whether we detected a culling opportunity last frame.
+    /// If true, we enable the histogram and culling logic this frame.
+    pub use_early_culling: bool,
+    /// The histogram of winding numbers per scanline.
+    row_winding: Vec<i8>,
 }
 
 impl StripGenerator {
     /// Create a new strip generator.
     pub fn new(width: u16, height: u16, level: Level) -> Self {
+        let num_rows = (height as usize + Tile::HEIGHT as usize - 1) / Tile::HEIGHT as usize;
         Self {
             level,
             line_buf: Vec::new(),
@@ -83,6 +90,8 @@ impl StripGenerator {
             temp_storage: StripStorage::default(),
             width,
             height,
+            use_early_culling: false,
+            row_winding: vec![0; num_rows + 1],
         }
     }
 
@@ -140,8 +149,33 @@ impl StripGenerator {
             strip_storage.strips.clear();
         }
 
-        self.tiles
-            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
+        // Clear the row winding histogram if the culling is enabled this frame. Even at 4k, this
+        // should be only ~135 bytes.
+        if self.use_early_culling {
+            println!("Using Culling");
+            self.row_winding.fill(0);
+        }
+
+        let detected_cull_opportunity;
+        if self.use_early_culling {
+            detected_cull_opportunity = self.tiles.make_tiles_analytic_aa::<true>(
+                &self.line_buf,
+                self.width,
+                self.height,
+                &mut self.row_winding,
+            )
+        } else {
+            detected_cull_opportunity = self.tiles.make_tiles_analytic_aa::<false>(
+                &self.line_buf,
+                self.width,
+                self.height,
+                &mut self.row_winding,
+            )
+        };
+
+        self.use_early_culling = detected_cull_opportunity;
+        //self.use_early_culling = false;
+
         self.tiles.sort_tiles();
 
         if let Some(clip_path) = clip_path {
@@ -155,6 +189,8 @@ impl StripGenerator {
                 fill_rule,
                 aliasing_threshold,
                 &self.line_buf,
+                self.use_early_culling,
+                &self.row_winding,
             );
             let path_data = PathDataRef {
                 strips: &self.temp_storage.strips,
@@ -171,6 +207,8 @@ impl StripGenerator {
                 fill_rule,
                 aliasing_threshold,
                 &self.line_buf,
+                self.use_early_culling,
+                &self.row_winding,
             );
         }
     }

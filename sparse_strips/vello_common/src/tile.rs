@@ -301,11 +301,17 @@ impl Tiles {
     // TODO: Tiles are clamped to the left edge of the viewport, but lines fully to the left of the
     // viewport are not culled yet. These lines impact winding, and would need forwarding of
     // winding to the strip generation stage.
-    pub fn make_tiles_analytic_aa(&mut self, lines: &[Line], width: u16, height: u16) {
+    pub fn make_tiles_analytic_aa<const USE_EARLY_CULL: bool>(
+        &mut self,
+        lines: &[Line],
+        width: u16,
+        height: u16,
+        row_windings: &mut Vec<i8>,
+    ) -> bool {
         self.reset();
 
         if width == 0 || height == 0 {
-            return;
+            return false;
         }
 
         debug_assert!(
@@ -314,6 +320,8 @@ impl Tiles {
             MAX_LINES_PER_PATH,
             lines.len()
         );
+
+        let mut culling_opportunity = false;
 
         let tile_columns = width.div_ceil(Tile::WIDTH);
         let tile_rows = height.div_ceil(Tile::HEIGHT);
@@ -357,6 +365,15 @@ impl Tiles {
                 continue;
             }
 
+            let can_be_culled = line_right_x < 0.0;
+            culling_opportunity |= can_be_culled;
+            let cull = if USE_EARLY_CULL { can_be_culled } else { false };
+            let dir = if USE_EARLY_CULL {
+                if p0_y >= p1_y { 1 } else { -1 }
+            } else {
+                0
+            };
+
             // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
             let p0_tile_x = line_top_x.floor() as i32;
             let p0_tile_y = line_top_y.floor() as i32;
@@ -370,7 +387,10 @@ impl Tiles {
                 if line_left_x == line_right_x {
                     let x = (line_left_x as u16).min(tile_columns.saturating_sub(1));
 
-                    // Row Start, not culled.
+                    // Row Start
+                    // In the analytic case, partial winding contributions are possible. Because
+                    // of this, start and end tiles---which may have partial windings---are NOT
+                    // culled.
                     let is_start_culled = line_top_y < 0.0;
                     if !is_start_culled {
                         let winding = ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5;
@@ -380,25 +400,36 @@ impl Tiles {
 
                     // Middle
                     // If the start was culled, the first tile inside the viewport is a middle.
-                    let y_start = if is_start_culled {
+                    let y_start_middle = if is_start_culled {
                         y_top_tiles
                     } else {
                         y_top_tiles + 1
                     };
-                    let line_bottom_floor = line_bottom_y.floor();
-                    let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
 
-                    for y_idx in y_start..y_end_idx {
-                        let tile = Tile::new_clamped(x, y_idx, line_idx, 0b100000);
-                        self.tile_buf.push(tile);
-                    }
+                    // If we're not culling, the middle and bottom cases are identical
+                    if cull {
+                        // If we are, we need to handle the perfect bottom touching case
+                        let line_bottom_floor = line_bottom_y.floor();
+                        let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
 
-                    // Row End, handle the final tile (y_end_idx), but *only* if the line does
-                    // not perfectly end on the top edge of the tile. In the case that it does,
-                    // it gets handled by the middle logic above.
-                    if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
-                        let tile = Tile::new_clamped(x, y_end_idx, line_idx, 0b100000);
-                        self.tile_buf.push(tile);
+                        for y_idx in y_start_middle..y_end_idx {
+                            row_windings[y_idx as usize] =
+                                row_windings[y_idx as usize].saturating_add(dir);
+                        }
+
+                        // Row End, handle the final tile (y_end_idx), but *only* if the line does
+                        // not perfectly end on the top edge of the tile. In the case that it does,
+                        // it gets handled by the middle logic above.
+                        if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
+                            let tile = Tile::new_clamped(x, y_end_idx, line_idx, 0b100000);
+                            self.tile_buf.push(tile);
+                        }
+                    } else {
+                        let y_end_idx = (line_bottom_y.ceil() as u16).min(tile_rows);
+                        for y_idx in y_start_middle..y_end_idx {
+                            let tile = Tile::new_clamped(x, y_idx, line_idx, 0b100000);
+                            self.tile_buf.push(tile);
+                        }
                     }
                 } else {
                     let dx = p1_x - p0_x;
@@ -461,13 +492,22 @@ impl Tiles {
                     } else {
                         y_top_tiles + 1
                     };
-
                     let line_bottom_floor = line_bottom_y.floor();
                     let y_end_middle = (line_bottom_floor as u16).min(tile_rows);
-                    for y_idx in y_start_middle..y_end_middle {
-                        let y = f32::from(y_idx);
-                        let row_bottom_y = (y + 1.0).min(line_bottom_y);
-                        push_row(y_idx, y, row_bottom_y, w_start_base, w_end_base, 0b100000);
+
+                    // Same as above, if we are culling, and we can't cull anything that has a
+                    // partial winding contribution.
+                    if cull {
+                        for y_idx in y_start_middle..y_end_middle {
+                            row_windings[y_idx as usize] =
+                                row_windings[y_idx as usize].saturating_add(dir);
+                        }
+                    } else {
+                        for y_idx in y_start_middle..y_end_middle {
+                            let y = f32::from(y_idx);
+                            let row_bottom_y = (y + 1.0).min(line_bottom_y);
+                            push_row(y_idx, y, row_bottom_y, w_start_base, w_end_base, 0b100000);
+                        }
                     }
 
                     if line_bottom_y != line_bottom_floor
@@ -490,6 +530,8 @@ impl Tiles {
                 self.tile_buf.push(tile);
             }
         }
+
+        return culling_opportunity;
     }
 
     /// Generates tile commands for MSAA (Multisample Anti-Aliasing) rasterization.
@@ -591,6 +633,23 @@ impl Tiles {
             if y_top_tiles >= y_bottom_tiles {
                 continue;
             }
+
+            // if line_right_x < 0.0 {
+            //     culling_opportunity = true;
+
+            //     if use_early_culling {
+            //         let dir = if p0_y >= p1_y { 1 } else { -1 };
+            //         let y_start = if f32::from(y_top_tiles) >= line_top_y {
+            //             y_top_tiles
+            //         } else {
+            //             y_top_tiles + 1
+            //         };
+            //         for row in (y_start as usize)..(y_bottom_tiles as usize) {
+            //             row_windings[row] = row_windings[row].saturating_add(dir);
+            //         }
+            //         continue;
+            //     }
+            // }
 
             // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
             let p0_tile_x = line_top_x.floor() as i32;
