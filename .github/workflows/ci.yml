@@ -151,10 +151,10 @@ jobs:
       - name: cargo clippy
         run: cargo hack clippy --workspace --locked --optional-deps --each-feature --ignore-unknown-features --features std,u8_pipeline,f32_pipeline -- -D warnings
 
-      - name: cargo clippy (only u8)
+      - name: cargo clippy (vello_cpu - u8 pipeline)
         run: cargo clippy -p vello_cpu --locked --no-default-features --features std,text,png,u8_pipeline
 
-      - name: cargo clippy (only f32)
+      - name: cargo clippy (vello_cpu - f32 pipeline)
         run: cargo clippy -p vello_cpu --locked --no-default-features --features std,text,png,f32_pipeline
 
       - name: cargo clippy (auxiliary)
