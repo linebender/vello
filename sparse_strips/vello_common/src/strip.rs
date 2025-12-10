@@ -282,11 +282,8 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                     ));
                 }
 
-                if USE_EARLY_CULL {
+                if USE_EARLY_CULL && !is_sentinel {
                     for row in (prev_tile.y + 1)..tile.y {
-                        if is_sentinel {
-                            break;
-                        }
                         winding_delta = row_windings[row as usize] as i32;
                         if should_fill(winding_delta) {
                             strip_buf.push(Strip::new(
@@ -304,12 +301,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                         }
                     }
 
-                    winding_delta = if !is_sentinel {
-                        row_windings[tile.y as usize] as i32
-                    } else {
-                        0
-                    };
-
+                    winding_delta = row_windings[tile.y as usize] as i32;
                     if should_fill(winding_delta) && tile.x != 0 {
                         strip_buf.push(Strip::new(
                             0,

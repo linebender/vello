@@ -154,15 +154,16 @@ impl StripGenerator {
             self.row_winding.fill(0);
         }
 
+        let culling_opportunity;
         if self.use_early_culling {
-            self.use_early_culling = self.tiles.make_tiles_analytic_aa::<true>(
+            culling_opportunity = self.tiles.make_tiles_analytic_aa::<true>(
                 &self.line_buf,
                 self.width,
                 self.height,
                 &mut self.row_winding,
             )
         } else {
-            self.use_early_culling = self.tiles.make_tiles_analytic_aa::<false>(
+            culling_opportunity = self.tiles.make_tiles_analytic_aa::<false>(
                 &self.line_buf,
                 self.width,
                 self.height,
@@ -205,6 +206,8 @@ impl StripGenerator {
                 &self.row_winding,
             );
         }
+
+        self.use_early_culling = culling_opportunity;
     }
 
     /// Reset the strip generator.
