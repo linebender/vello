@@ -233,14 +233,14 @@ impl<S: Simd> FloatExt<S> for f32x8<S> {
     #[inline]
     fn powf(mut self, x: f32) -> Self {
         // TODO: SIMD
-        self.val[0] = self.val[0].powf(x);
-        self.val[1] = self.val[1].powf(x);
-        self.val[2] = self.val[2].powf(x);
-        self.val[3] = self.val[3].powf(x);
-        self.val[4] = self.val[4].powf(x);
-        self.val[5] = self.val[5].powf(x);
-        self.val[6] = self.val[6].powf(x);
-        self.val[7] = self.val[7].powf(x);
+        self[0] = self[0].powf(x);
+        self[1] = self[1].powf(x);
+        self[2] = self[2].powf(x);
+        self[3] = self[3].powf(x);
+        self[4] = self[4].powf(x);
+        self[5] = self[5].powf(x);
+        self[6] = self[6].powf(x);
+        self[7] = self[7].powf(x);
 
         self
     }

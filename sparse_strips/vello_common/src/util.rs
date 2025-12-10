@@ -3,7 +3,9 @@
 
 //! Utility functions.
 
-use fearless_simd::{Simd, SimdBase, f32x16, u8x16, u8x32, u16x16, u16x32};
+use fearless_simd::{
+    Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
+};
 use peniko::kurbo::Affine;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
@@ -12,7 +14,7 @@ use peniko::kurbo::common::FloatFuncs as _;
 #[inline(always)]
 pub fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
     let simd = val.simd;
-    let converted = val.cvt_u32().reinterpret_u8();
+    let converted = val.to_int::<u32x16<S>>().to_bytes();
 
     let (x8_1, x8_2) = simd.split_u8x64(converted);
     let (p1, p2) = simd.split_u8x32(x8_1);
@@ -34,7 +36,7 @@ impl<S: Simd> Div255Ext for u16x32<S> {
     fn div_255(self) -> Self {
         let p1 = Self::splat(self.simd, 255);
         let p2 = self + p1;
-        p2.shr(8)
+        p2 >> 8
     }
 }
 
@@ -43,7 +45,7 @@ impl<S: Simd> Div255Ext for u16x16<S> {
     fn div_255(self) -> Self {
         let p1 = Self::splat(self.simd, 255);
         let p2 = self + p1;
-        p2.shr(8)
+        p2 >> 8
     }
 }
 

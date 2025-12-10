@@ -32,7 +32,7 @@ pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
                 let x_pos = f32x8::splat_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
                 let y_pos = f32x8::splat_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
                 let pos = kind.cur_pos(x_pos, y_pos);
-                buf_part.copy_from_slice(&pos.val);
+                buf_part.copy_from_slice(pos.as_slice());
 
                 cur_pos += 2.0 * gradient.x_advance;
             }
@@ -73,7 +73,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
         let pos = f32x8::from_slice(self.simd, self.t_vals.next()?);
         let t_vals = apply_extend(pos, extend);
 
-        let indices = (t_vals * self.scale_factor).cvt_u32();
+        let indices = (t_vals * self.scale_factor).to_int::<u32x8<S>>();
 
         // Clear NaNs.
         let indices = if let Some(transparent_index) = self.lut.transparent_index() {

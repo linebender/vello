@@ -365,13 +365,13 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
         let evaluated = eval_simd(p0_128, p1_128, p2_128, p3_128, t);
         let (low, high) = simd.split_f32x8(evaluated);
 
-        even_pts[i * 4..][..4].copy_from_slice(&low.val);
-        odd_pts[i * 4..][..4].copy_from_slice(&high.val);
+        even_pts[i * 4..][..4].copy_from_slice(low.as_slice());
+        odd_pts[i * 4..][..4].copy_from_slice(high.as_slice());
 
         t += t_inc;
     }
 
-    even_pts[n * 2..][..8].copy_from_slice(&p3_128.val);
+    even_pts[n * 2..][..8].copy_from_slice(p3_128.as_slice());
 }
 
 #[inline(always)]
@@ -389,7 +389,7 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let x1 = p_onehalf.madd(2.0, x);
         let p1 = p2.madd(-0.5, x1);
 
-        odd_pts[(i * 8)..][..8].copy_from_slice(&p1.val);
+        odd_pts[(i * 8)..][..8].copy_from_slice(p1.as_slice());
 
         let d01 = p1 - p0;
         let d12 = p2 - p1;
@@ -430,7 +430,7 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let da = a2 - a0;
         let da_abs = da.abs();
         let sqrt_scale = scale.sqrt();
-        let temp3 = simd.or_i32x4(x0.reinterpret_i32(), x2.reinterpret_i32());
+        let temp3 = simd.or_i32x4(x0.bitcast(), x2.bitcast());
         let mask = simd.simd_ge_i32x4(temp3, i32x4::splat(simd, 0));
         let noncusp = da_abs * sqrt_scale;
         // TODO: should we skip this if neither is a cusp? Maybe not worth branch prediction cost
@@ -445,11 +445,11 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let uscale_a = u2 - u0;
         let uscale = 1.0 / uscale_a;
 
-        ctx.a0[i * 4..][..4].copy_from_slice(&a0.val);
-        ctx.da[i * 4..][..4].copy_from_slice(&da.val);
-        ctx.u0[i * 4..][..4].copy_from_slice(&u0.val);
-        ctx.uscale[i * 4..][..4].copy_from_slice(&uscale.val);
-        ctx.val[i * 4..][..4].copy_from_slice(&val.val);
+        ctx.a0[i * 4..][..4].copy_from_slice(a0.as_slice());
+        ctx.da[i * 4..][..4].copy_from_slice(da.as_slice());
+        ctx.u0[i * 4..][..4].copy_from_slice(u0.as_slice());
+        ctx.uscale[i * 4..][..4].copy_from_slice(uscale.as_slice());
+        ctx.val[i * 4..][..4].copy_from_slice(val.as_slice());
     }
 }
 
@@ -483,7 +483,7 @@ fn output_lines_simd<S: Simd>(
         let z1 = p1.madd(2.0 * t * mt, z);
         let p = p2.madd(t * t, z1);
 
-        out[j * 8..][..8].copy_from_slice(&p.val);
+        out[j * 8..][..8].copy_from_slice(p.as_slice());
 
         a += a_inc;
     }

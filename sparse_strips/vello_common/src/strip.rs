@@ -208,7 +208,7 @@ fn render_impl<S: Simd>(
                 );
             }
 
-            alpha_buf.extend_from_slice(&u8_vals.val);
+            alpha_buf.extend_from_slice(u8_vals.as_slice());
 
             #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
             for x in 0..Tile::WIDTH as usize {

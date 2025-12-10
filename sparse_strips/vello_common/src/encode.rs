@@ -945,7 +945,7 @@ impl FromF32Color for f32 {
     const ZERO: Self = 0.0;
 
     fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4] {
-        color.val
+        color.into()
     }
 }
 

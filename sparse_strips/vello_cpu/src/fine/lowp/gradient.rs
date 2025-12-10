@@ -41,10 +41,10 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
         let extend = self.gradient.extend;
         let pos = f32x16::from_slice(self.simd, self.t_vals.next()?);
         let t_vals = apply_extend(pos, extend);
-        let indices = (t_vals * self.scale_factor).cvt_u32();
+        let indices = (t_vals * self.scale_factor).to_int::<u32x16<S>>();
 
         let mut vals = [0_u8; 64];
-        for (val, idx) in vals.chunks_exact_mut(4).zip(indices.val) {
+        for (val, idx) in vals.chunks_exact_mut(4).zip(*indices) {
             val.copy_from_slice(&self.lut[idx as usize]);
         }
 
@@ -58,7 +58,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
             #[inline(always)]
             || {
                 for chunk in buf.chunks_exact_mut(64) {
-                    chunk.copy_from_slice(&self.next().unwrap().val);
+                    chunk.copy_from_slice(self.next().unwrap().as_slice());
                 }
             },
         );
