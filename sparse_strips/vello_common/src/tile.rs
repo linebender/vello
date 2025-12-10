@@ -2174,6 +2174,16 @@ mod tests {
         tiles.make_tiles_analytic_aa(&[line], 600, 600);
     }
 
+    // See https://github.com/linebender/vello/issues/1321
+    #[test]
+    fn overflow() {
+        let line = Line  { p0: Point { x: 59.60001, y: 40.78 }, p1: Point { x: 520599.6, y: 100.18 } };
+
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
+        tiles.make_tiles_analytic_aa(&[line], 200, 100);
+        tiles.make_tiles_msaa(&[line], 200, 100);
+    }
+
     #[test]
     fn sort_test() {
         let mut lines = vec![];
