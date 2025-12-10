@@ -26,7 +26,7 @@ rayon = { workspace = true, optional = true }
 thread_local = { workspace = true, optional = true }
 
 [features]
-default = ["std", "png", "text", "u8_pipeline", "f32_pipeline"]
+default = ["std", "png", "text", "u8_pipeline"]
 # Get floating point functions from the standard library (likely using your target’s libc).
 std = ["vello_common/std"]
 # Use floating point implementations from libm.
