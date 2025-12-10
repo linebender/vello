@@ -431,7 +431,7 @@ impl Tiles {
                             self.tile_buf
                                 .push(Tile::new(x_start, y_idx, line_idx, winding));
 
-                            for x_idx in x_start + 1..x_end {
+                            for x_idx in x_start.saturating_add(1)..x_end {
                                 self.tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
                             }
 
@@ -768,7 +768,7 @@ impl Tiles {
                                     $check_e
                                 );
 
-                                for x_idx in x_start + 1..x_end {
+                                for x_idx in x_start.saturating_add(1)..x_end {
                                     self.tile_buf.push(Tile::new(x_idx, $y_idx, line_idx, 12));
                                 }
 
@@ -831,7 +831,7 @@ impl Tiles {
                                     $check_e
                                 );
 
-                                for x_idx in x_start + 1..x_end {
+                                for x_idx in x_start.saturating_add(1)..x_end {
                                     self.tile_buf.push(Tile::new(x_idx, $y_idx, line_idx, 12));
                                 }
 
@@ -2174,8 +2174,8 @@ mod tests {
         tiles.make_tiles_analytic_aa(&[line], 600, 600);
     }
 
-    // See https://github.com/linebender/vello/issues/1321
     #[test]
+    // See https://github.com/linebender/vello/issues/1321
     fn overflow() {
         let line = Line  { p0: Point { x: 59.60001, y: 40.78 }, p1: Point { x: 520599.6, y: 100.18 } };
 
