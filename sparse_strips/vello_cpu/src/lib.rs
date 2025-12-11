@@ -120,6 +120,9 @@ extern crate core;
 #[cfg(feature = "std")]
 extern crate std;
 
+#[cfg(all(not(feature = "u8_pipeline"), not(feature = "f32_pipeline")))]
+compile_error!("vello_cpu must have at least one of the u8 or f32 pipelines enabled");
+
 mod render;
 
 mod dispatch;
