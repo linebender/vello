@@ -19,11 +19,12 @@ targets = []
 [dependencies]
 bytemuck = { workspace = true }
 vello_common = { workspace = true }
-hashbrown = { version = "0.15" }
+hashbrown = { version = "0.16.0" }
 crossbeam-channel = { workspace = true, optional = true }
 ordered-channel = { workspace = true, optional = true, features = ["crossbeam-channel"] }
 rayon = { workspace = true, optional = true }
 thread_local = { workspace = true, optional = true }
+vello_api = { workspace = true }
 
 [features]
 default = ["std", "png", "text", "u8_pipeline"]
