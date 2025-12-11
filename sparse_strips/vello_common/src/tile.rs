@@ -295,8 +295,10 @@ impl Tiles {
         self.tile_buf.iter()
     }
 
-    /// Tiles exceeding the top, right or bottom of the viewport (given by `width` and `height` in
-    /// pixels) are culled.
+    /// Generates tile commands for Analytic Anti-Aliasing rasterization. Unlike the MSAA path, this
+    /// function performs "coarse binning" to simply identify every tile a line segment traverses.
+    /// It encodes the line index and winding direction, delegating the precise calculation of pixel
+    /// coverage to `strip::render`.
     //
     // TODO: Tiles are clamped to the left edge of the viewport, but lines fully to the left of the
     // viewport are not culled yet. These lines impact winding, and would need forwarding of
