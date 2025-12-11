@@ -145,6 +145,7 @@ pub use vello_common::pixmap::Pixmap;
 pub use vello_common::{color, kurbo, peniko};
 
 /// The selected rendering mode.
+/// For using [`RenderMode::OptimizeQuality`] you also need to enable `f32_pipeline` feature.
 #[derive(Copy, Clone, Debug, Default)]
 pub enum RenderMode {
     /// Optimize speed (by performing calculations with u8/16).
