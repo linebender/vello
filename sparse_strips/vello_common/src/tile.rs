@@ -962,6 +962,22 @@ mod tests {
     const VIEW_DIM: u16 = 100;
     const F_V_DIM: f32 = VIEW_DIM as f32;
 
+    impl Tiles {
+        fn assert_tiles_match(
+            &mut self,
+            lines: &[Line],
+            width: u16,
+            height: u16,
+            expected: &[Tile],
+        ) {
+            self.make_tiles_msaa(lines, width, height);
+            assert_eq!(self.tile_buf, expected, "MSAA: Tile buffer mismatch");
+
+            self.make_tiles_analytic_aa(lines, width, height);
+            check_analytic_aa_matches(&self.tile_buf, expected);
+        }
+    }
+
     fn check_analytic_aa_matches(actual: &[Tile], expected: &[Tile]) {
         assert_eq!(
             actual.len(),
@@ -1036,12 +1052,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert!(tiles.is_empty());
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        assert!(tiles.is_empty());
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &[]);
     }
 
     #[test]
@@ -1073,11 +1084,7 @@ mod tests {
             Tile::new(0, 0, 3, W | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1122,11 +1129,7 @@ mod tests {
             Tile::new(0, 24, 2, B),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1151,11 +1154,7 @@ mod tests {
             Tile::new(0, 1, 1, W | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1186,11 +1185,7 @@ mod tests {
             Tile::new(0, 24, 1, W | T | B),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1219,11 +1214,7 @@ mod tests {
             Tile::new(24, 0, 1, R | L),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1256,11 +1247,7 @@ mod tests {
             Tile::new(3, 2, 2, L),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1271,12 +1258,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert!(tiles.is_empty());
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        assert!(tiles.is_empty());
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &[]);
     }
 
     #[test]
@@ -1293,12 +1275,7 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert!(tiles.is_empty());
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        assert!(tiles.is_empty());
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &[]);
     }
 
     #[test]
@@ -1315,11 +1292,7 @@ mod tests {
             Tile::new(2, 2, 0, L),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1338,11 +1311,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(23, 2, 0, R), Tile::new(24, 2, 0, L | R)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1365,12 +1334,7 @@ mod tests {
         ];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, []);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, []);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &[]);
     }
 
     #[test]
@@ -1386,12 +1350,7 @@ mod tests {
         );
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-
-        tiles.make_tiles_msaa(&line_buf, 10, 10);
-        assert!(tiles.is_empty());
-
-        tiles.make_tiles_analytic_aa(&line_buf, 10, 10);
-        assert!(tiles.is_empty());
+        tiles.assert_tiles_match(&line_buf, 10, 10, &[]);
     }
 
     #[test]
@@ -1420,11 +1379,7 @@ mod tests {
             Tile::new(0, 1, 2, W | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1459,11 +1414,7 @@ mod tests {
             Tile::new(0, 24, 1, W | T | B),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1476,11 +1427,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, W | L | T)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1499,11 +1446,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(24, 24, 0, R | B)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     //==============================================================================================
@@ -1523,11 +1466,7 @@ mod tests {
             Tile::new(2, 0, 0, L),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1544,11 +1483,7 @@ mod tests {
             Tile::new(2, 0, 0, L),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1566,11 +1501,7 @@ mod tests {
             Tile::new(3, 0, 0, L),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1587,11 +1518,7 @@ mod tests {
             Tile::new(0, 2, 0, W | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1609,11 +1536,7 @@ mod tests {
             Tile::new(0, 3, 0, W | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1631,11 +1554,7 @@ mod tests {
             Tile::new(0, 3, 0, W | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1652,11 +1571,7 @@ mod tests {
             Tile::new(0, 2, 0, W | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     // Exclusive to the bottom edge, no P required.
@@ -1670,11 +1585,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, B), Tile::new(0, 1, 0, W | T)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1687,11 +1598,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, W | B), Tile::new(0, 1, 0, W | T)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     //==============================================================================================
@@ -1713,11 +1620,7 @@ mod tests {
             Tile::new(2, 2, 0, W | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1736,11 +1639,7 @@ mod tests {
             Tile::new(2, 2, 0, W | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1759,11 +1658,7 @@ mod tests {
             Tile::new(2, 2, 0, W | L | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1782,11 +1677,7 @@ mod tests {
             Tile::new(2, 2, 0, W | L | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1805,11 +1696,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, 0), Tile::new(0, 0, 1, 0)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1826,11 +1713,7 @@ mod tests {
             Tile::new(1, 1, 0, W | P | L | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1847,11 +1730,7 @@ mod tests {
             Tile::new(1, 1, 0, W | P | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1868,11 +1747,7 @@ mod tests {
             Tile::new(2, 2, 0, W | P | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1889,11 +1764,7 @@ mod tests {
             Tile::new(1, 2, 0, W | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1906,11 +1777,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, W | P | R), Tile::new(1, 0, 0, L)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1923,11 +1790,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, P | R), Tile::new(1, 0, 0, W | L)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1945,13 +1808,7 @@ mod tests {
             Tile::new(2, 1, 0, L),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        tiles.sort_tiles();
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        tiles.sort_tiles();
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1969,13 +1826,7 @@ mod tests {
             Tile::new(1, 1, 0, W | P | L | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        tiles.sort_tiles();
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        tiles.sort_tiles();
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -1992,11 +1843,7 @@ mod tests {
             Tile::new(2, 0, 0, L),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -2013,11 +1860,7 @@ mod tests {
             Tile::new(0, 1, 0, W | T),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -2034,11 +1877,7 @@ mod tests {
             Tile::new(1, 1, 0, L),
         ];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     //==============================================================================================
@@ -2054,11 +1893,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, 0)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -2071,11 +1906,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, 0)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -2088,11 +1919,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, W)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -2105,11 +1932,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, R), Tile::new(1, 0, 0, L)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -2128,11 +1951,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, 0), Tile::new(0, 0, 1, 0)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     #[test]
@@ -2151,11 +1970,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [Tile::new(0, 0, 0, W), Tile::new(0, 0, 1, W)];
 
-        tiles.make_tiles_msaa(&lines, VIEW_DIM, VIEW_DIM);
-        assert_eq!(tiles.tile_buf, expected);
-
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
-        check_analytic_aa_matches(&tiles.tile_buf, &expected);
+        tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
 
     //==============================================================================================
@@ -2177,7 +1992,16 @@ mod tests {
     #[test]
     // See https://github.com/linebender/vello/issues/1321
     fn overflow() {
-        let line = Line  { p0: Point { x: 59.60001, y: 40.78 }, p1: Point { x: 520599.6, y: 100.18 } };
+        let line = Line {
+            p0: Point {
+                x: 59.60001,
+                y: 40.78,
+            },
+            p1: Point {
+                x: 520599.6,
+                y: 100.18,
+            },
+        };
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles_analytic_aa(&[line], 200, 100);
