@@ -95,9 +95,9 @@ impl Arguments {
         // directory.
         // TODO: Upload the assets directory on Android
         // Therefore, only render the `test_scenes` (including one SVG example)
-        #[cfg(any(target_arch = "wasm32", target_os = "android"))]
+        #[cfg(any(target_arch = "wasm32", target_os = "android", target_env = "ohos"))]
         return Ok(Some(test_scenes()));
-        #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+        #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_env = "ohos")))]
         if self.test_scenes {
             Ok(test_scenes())
         } else if let Some(svgs) = &self.svgs {
