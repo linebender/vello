@@ -3,9 +3,25 @@
 
 use bytemuck::{Pod, Zeroable};
 use peniko::Fill;
-use peniko::kurbo::{Cap, Join, Shape, Stroke};
+use peniko::kurbo::{Cap, Join, Point, Shape, Stroke, Vec2};
 
 use super::Monoid;
+
+#[derive(Clone, Copy)]
+pub struct EmboldenStyle {
+    pub embolden: Vec2,
+    pub join: Join,
+    pub miter_limit: f32,
+}
+impl Default for EmboldenStyle {
+    fn default() -> Self {
+        Self {
+            embolden: Vec2::ZERO,
+            join: Join::Miter,
+            miter_limit: 4.,
+        }
+    }
+}
 
 /// Data structure encoding stroke or fill style.
 #[derive(Clone, Copy, Debug, Zeroable, Pod, Default, PartialEq)]
@@ -31,6 +47,18 @@ pub struct Style {
 
     /// Encodes the stroke width. This field is ignored for fills.
     pub line_width: f32,
+
+    /// Encodes the embolden amount for the x axis.
+    /// The actual offset applied depends on the tangent angle of each path segment.
+    /// For stroke styles, this adjusts the stroke width based on the tangent direction.
+    /// For fill styles, this is used to offset the paths based on their tangent direction.
+    pub embolden_x: f32,
+
+    /// Encodes the embolden amount for the y axis.
+    /// The actual offset applied depends on the tangent angle of each path segment.
+    /// For stroke styles, this adjusts the stroke width based on the tangent direction.
+    /// For fill styles, this is used to offset the paths based on their tangent direction.
+    pub embolden_y: f32,
 }
 
 impl Style {
@@ -76,6 +104,27 @@ impl Style {
         Self {
             flags_and_miter_limit: fill_bit,
             line_width: 0.,
+            embolden_x: 0.,
+            embolden_y: 0.,
+        }
+    }
+
+    pub fn from_embolden_fill(fill: Fill, embolden_fill: EmboldenStyle) -> Self {
+        let fill_bit = match fill {
+            Fill::NonZero => 0,
+            Fill::EvenOdd => Self::FLAGS_FILL_BIT,
+        };
+        let join = match embolden_fill.join {
+            Join::Bevel => Self::FLAGS_JOIN_BITS_BEVEL,
+            Join::Miter => Self::FLAGS_JOIN_BITS_MITER,
+            Join::Round => Self::FLAGS_JOIN_BITS_ROUND,
+        };
+        let miter_limit = crate::math::f32_to_f16(embolden_fill.miter_limit) as u32;
+        Self {
+            flags_and_miter_limit: fill_bit | join | miter_limit,
+            line_width: 0.,
+            embolden_x: embolden_fill.embolden.x as f32,
+            embolden_y: embolden_fill.embolden.y as f32,
         }
     }
 
@@ -106,7 +155,16 @@ impl Style {
         Some(Self {
             flags_and_miter_limit: style | join | start_cap | end_cap | miter_limit,
             line_width: stroke.width as f32,
+            embolden_x: 0.,
+            embolden_y: 0.,
         })
+    }
+
+    /// Sets the embolden amount for this style.
+    pub fn with_embolden(mut self, embolden: Vec2) -> Self {
+        self.embolden_x = embolden.x as f32;
+        self.embolden_y = embolden.y as f32;
+        self
     }
 
     #[cfg(test)]
@@ -282,6 +340,9 @@ impl PathTag {
     /// Bit that marks a segment that is the end of a subpath.
     pub const SUBPATH_END_BIT: u8 = 0x4;
 
+    /// Bit that marks an increment to the winding count.
+    pub const WINDING_PATH_BIT: u8 = 0x80;
+
     /// Bit for path segments that are represented as f32 values. If unset
     /// they are represented as i16.
     const F32_BIT: u8 = 0x8;
@@ -309,6 +370,11 @@ impl PathTag {
         self.0 |= Self::SUBPATH_END_BIT;
     }
 
+    /// Set and increment to the winding count
+    pub fn set_winding_incr(&mut self) {
+        self.0 |= Self::WINDING_PATH_BIT;
+    }
+
     /// Returns the segment type.
     pub fn path_segment_type(self) -> PathSegmentType {
         PathSegmentType(self.0 & Self::SEGMENT_MASK)
@@ -327,6 +393,8 @@ pub struct PathMonoid {
     pub pathseg_offset: u32,
     /// Index into style stream.
     pub style_ix: u32,
+    /// Index into winding stream.
+    pub winding_ix: u32,
     /// Index of containing path.
     pub path_ix: u32,
 }
@@ -348,6 +416,7 @@ impl Monoid for PathMonoid {
         c.path_ix = (tag_word & (PathTag::PATH.0 as u32 * 0x1010101)).count_ones();
         let style_size = (size_of::<Style>() / size_of::<u32>()) as u32;
         c.style_ix = (tag_word & (PathTag::STYLE.0 as u32 * 0x1010101)).count_ones() * style_size;
+        c.winding_ix = (tag_word & (PathTag::WINDING_PATH_BIT as u32 * 0x1010101)).count_ones();
         c
     }
 
@@ -358,6 +427,7 @@ impl Monoid for PathMonoid {
             pathseg_ix: self.pathseg_ix + other.pathseg_ix,
             pathseg_offset: self.pathseg_offset + other.pathseg_offset,
             style_ix: self.style_ix + other.style_ix,
+            winding_ix: self.winding_ix + other.winding_ix,
             path_ix: self.path_ix + other.path_ix,
         }
     }
@@ -501,7 +571,7 @@ impl<'a> PathEncoder<'a> {
     /// Encodes a move, starting a new subpath.
     pub fn move_to(&mut self, x: f32, y: f32) {
         if self.is_fill {
-            self.close();
+            self.close(false);
         }
         let buf = [x, y];
         let bytes = bytemuck::cast_slice(&buf);
@@ -617,7 +687,7 @@ impl<'a> PathEncoder<'a> {
     }
 
     /// Closes the current subpath.
-    pub fn close(&mut self) {
+    pub fn close(&mut self, embolden_fill: bool) {
         match self.state {
             PathState::Start => return,
             PathState::MoveTo => {
@@ -642,7 +712,7 @@ impl<'a> PathEncoder<'a> {
             self.tags.push(PathTag::LINE_TO_F32);
             self.n_encoded_segments += 1;
         }
-        if !self.is_fill {
+        if !self.is_fill || embolden_fill {
             self.insert_stroke_cap_marker_segment(true);
         }
         if let Some(tag) = self.tags.last_mut() {
@@ -674,7 +744,7 @@ impl<'a> PathEncoder<'a> {
                     p2.x as f32,
                     p2.y as f32,
                 ),
-                PathEl::ClosePath => self.close(),
+                PathEl::ClosePath => self.close(false),
             }
         }
     }
@@ -686,7 +756,7 @@ impl<'a> PathEncoder<'a> {
     /// multiple paths with differing transforms for a single draw object.
     pub fn finish(mut self, insert_path_marker: bool) -> u32 {
         if self.is_fill {
-            self.close();
+            self.close(false);
         }
         if self.state == PathState::MoveTo {
             let new_len = self.data.len() - 2;
@@ -709,7 +779,6 @@ impl<'a> PathEncoder<'a> {
     }
 
     fn insert_stroke_cap_marker_segment(&mut self, is_closed: bool) {
-        assert!(!self.is_fill);
         assert!(self.state == PathState::NonemptySubpath);
         if is_closed {
             // We expect that the most recently encoded pair of coordinates in the path data stream
@@ -817,6 +886,174 @@ impl<'a> PathEncoder<'a> {
 }
 
 impl skrifa::outline::OutlinePen for PathEncoder<'_> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.move_to(x, y);
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.line_to(x, y);
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.quad_to(cx0, cy0, x, y);
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.cubic_to(cx0, cy0, cx1, cy1, x, y);
+    }
+
+    fn close(&mut self) {
+        self.close(false);
+    }
+}
+
+/// Encoder for path segments with winding information.
+pub struct WindingPathEncoder<'a> {
+    /// The underlying path encoder
+    encoder: PathEncoder<'a>,
+    path_windings: &'a mut Vec<f32>,
+    /// Collects points from all subpaths for a single winding calculation
+    all_glyph_points: Vec<Point>,
+    /// Tracks current subpath points
+    current_subpath: Vec<Point>,
+    /// Tracks if a subpath is in progress
+    in_subpath: bool,
+    winding_stored: bool,
+}
+
+impl<'a> WindingPathEncoder<'a> {
+    /// Creates a new winding path encoder.
+    pub fn new(
+        tags: &'a mut Vec<PathTag>,
+        data: &'a mut Vec<u32>,
+        n_segments: &'a mut u32,
+        n_paths: &'a mut u32,
+        path_windings: &'a mut Vec<f32>,
+        is_fill: bool,
+    ) -> Self {
+        Self {
+            encoder: PathEncoder::new(tags, data, n_segments, n_paths, is_fill),
+            path_windings,
+            current_subpath: Vec::new(),
+            all_glyph_points: Vec::new(),
+            in_subpath: false,
+            winding_stored: false,
+        }
+    }
+
+    pub fn move_to(&mut self, x: f32, y: f32) {
+        if self.in_subpath && !self.current_subpath.is_empty() {
+            self.all_glyph_points
+                .extend_from_slice(&self.current_subpath);
+        }
+
+        self.current_subpath.clear();
+        self.current_subpath.push(Point::new(x as f64, y as f64));
+        self.in_subpath = true;
+
+        self.encoder.move_to(x, y);
+    }
+
+    pub fn line_to(&mut self, x: f32, y: f32) {
+        if self.in_subpath {
+            self.current_subpath.push(Point::new(x as f64, y as f64));
+        }
+
+        self.encoder.line_to(x, y);
+    }
+
+    pub fn quad_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32) {
+        if self.in_subpath {
+            self.current_subpath.push(Point::new(x2 as f64, y2 as f64));
+        }
+
+        self.encoder.quad_to(x1, y1, x2, y2);
+    }
+
+    pub fn cubic_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) {
+        if self.in_subpath {
+            self.current_subpath.push(Point::new(x3 as f64, y3 as f64));
+        }
+
+        self.encoder.cubic_to(x1, y1, x2, y2, x3, y3);
+    }
+
+    pub fn close(&mut self) {
+        if self.in_subpath && !self.current_subpath.is_empty() {
+            self.all_glyph_points
+                .extend_from_slice(&self.current_subpath);
+        }
+
+        self.in_subpath = false;
+        self.current_subpath.clear();
+
+        self.encoder.close(true);
+    }
+
+    pub fn shape(&mut self, shape: &impl Shape) {
+        self.path_elements(shape.path_elements(0.1));
+    }
+
+    pub fn path_elements(&mut self, path: impl Iterator<Item = peniko::kurbo::PathEl>) {
+        use peniko::kurbo::PathEl;
+        for el in path {
+            match el {
+                PathEl::MoveTo(p0) => self.move_to(p0.x as f32, p0.y as f32),
+                PathEl::LineTo(p0) => self.line_to(p0.x as f32, p0.y as f32),
+                PathEl::QuadTo(p0, p1) => {
+                    self.quad_to(p0.x as f32, p0.y as f32, p1.x as f32, p1.y as f32);
+                }
+                PathEl::CurveTo(p0, p1, p2) => self.cubic_to(
+                    p0.x as f32,
+                    p0.y as f32,
+                    p1.x as f32,
+                    p1.y as f32,
+                    p2.x as f32,
+                    p2.y as f32,
+                ),
+                PathEl::ClosePath => self.close(),
+            }
+        }
+    }
+
+    pub fn finish(mut self, insert_path_marker: bool) -> u32 {
+        if self.in_subpath && !self.current_subpath.is_empty() {
+            self.all_glyph_points
+                .extend_from_slice(&self.current_subpath);
+        }
+
+        // compute a single winding for the entire glyph/path
+        if !self.all_glyph_points.is_empty() && !self.winding_stored {
+            let winding = compute_winding(&self.all_glyph_points);
+            let winding_sign = if winding == 0 { -1.0 } else { 1.0 };
+
+            self.path_windings.push(winding_sign);
+            if let Some(tag) = self.encoder.tags.last_mut() {
+                tag.set_winding_incr();
+            }
+
+            self.winding_stored = true;
+        }
+
+        self.encoder.finish(insert_path_marker)
+    }
+}
+
+fn compute_winding(points: &[Point]) -> u8 {
+    if points.is_empty() {
+        return 0;
+    }
+    let mut area = 0.;
+    let last = points.len() - 1;
+    let mut prev = points[last];
+    for cur in points[0..=last].iter() {
+        area += (cur.y - prev.y) * (cur.x + prev.x);
+        prev = *cur;
+    }
+    if area > 0. { 1 } else { 0 }
+}
+
+impl skrifa::outline::OutlinePen for WindingPathEncoder<'_> {
     fn move_to(&mut self, x: f32, y: f32) {
         self.move_to(x, y);
     }

@@ -30,6 +30,7 @@ struct Config {
 
     transform_base: u32,
     style_base: u32,
+    winding_base: u32,
 
     // Sizes of bump allocated buffers (in element size units)
     lines_size: u32,

@@ -3,6 +3,8 @@
 
 use crate::DrawBeginClip;
 
+use crate::path::{EmboldenStyle, WindingPathEncoder};
+
 use super::{
     DrawBlurRoundedRect, DrawColor, DrawImage, DrawLinearGradient, DrawRadialGradient,
     DrawSweepGradient, DrawTag, Glyph, GlyphRun, NormalizedCoord, Patch, PathEncoder, PathTag,
@@ -10,7 +12,7 @@ use super::{
 };
 
 use peniko::color::{DynamicColor, palette};
-use peniko::kurbo::{Shape, Stroke};
+use peniko::kurbo::{Shape, Stroke, Vec2};
 use peniko::{
     BrushRef, ColorStop, Extend, Fill, GradientKind, ImageBrushRef, ImageSampler,
     LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
@@ -38,6 +40,8 @@ pub struct Encoding {
     pub transforms: Vec<Transform>,
     /// The style stream
     pub styles: Vec<Style>,
+    /// Winding information for filled shapes
+    pub path_windings: Vec<f32>,
     /// Late bound resource data.
     pub resources: Resources,
     /// Number of encoded paths.
@@ -82,6 +86,7 @@ impl Encoding {
         self.styles.clear();
         self.draw_data.clear();
         self.draw_tags.clear();
+        self.path_windings.clear();
         self.n_paths = 0;
         self.n_path_segments = 0;
         self.n_clips = 0;
@@ -117,6 +122,7 @@ impl Encoding {
                     run.stream_offsets.draw_data += offsets.draw_data;
                     run.stream_offsets.transforms += offsets.transforms;
                     run.stream_offsets.styles += offsets.styles;
+                    run.stream_offsets.path_windings += offsets.path_windings;
                     run
                 }));
             self.resources
@@ -154,6 +160,7 @@ impl Encoding {
         self.path_data.extend_from_slice(&other.path_data);
         self.draw_tags.extend_from_slice(&other.draw_tags);
         self.draw_data.extend_from_slice(&other.draw_data);
+        self.path_windings.extend_from_slice(&other.path_windings);
         self.n_paths += other.n_paths;
         self.n_path_segments += other.n_path_segments;
         self.n_clips += other.n_clips;
@@ -180,6 +187,7 @@ impl Encoding {
             draw_data: self.draw_data.len(),
             transforms: self.transforms.len(),
             styles: self.styles.len(),
+            path_windings: self.path_windings.len(),
         }
     }
 
@@ -196,6 +204,22 @@ impl Encoding {
         let style = Style::from_stroke(stroke);
         if let Some(style) = style {
             self.encode_style(style);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Encodes a fill style with embolden.
+    pub fn encode_fill_style_embolden(&mut self, fill: Fill, embolden_fill: EmboldenStyle) {
+        self.encode_style(Style::from_embolden_fill(fill, embolden_fill));
+    }
+
+    /// Encodes a stroke style with embolden.
+    pub fn encode_stroke_style_embolden(&mut self, stroke: &Stroke, embolden: Vec2) -> bool {
+        let style = Style::from_stroke(stroke);
+        if let Some(style) = style {
+            self.encode_style(style.with_embolden(embolden));
             true
         } else {
             false
@@ -235,6 +259,18 @@ impl Encoding {
             &mut self.path_data,
             &mut self.n_path_segments,
             &mut self.n_paths,
+            is_fill,
+        )
+    }
+
+    /// Returns an encoder for encoding a shape with winding data for expansion.
+    pub fn encode_winding_path(&mut self, is_fill: bool) -> WindingPathEncoder<'_> {
+        WindingPathEncoder::new(
+            &mut self.path_tags,
+            &mut self.path_data,
+            &mut self.n_path_segments,
+            &mut self.n_paths,
+            &mut self.path_windings,
             is_fill,
         )
     }
@@ -592,6 +628,8 @@ pub struct StreamOffsets {
     pub transforms: usize,
     /// Current length of style stream.
     pub styles: usize,
+    /// Current length of path winding stream.
+    pub path_windings: usize,
 }
 
 impl StreamOffsets {
@@ -602,6 +640,7 @@ impl StreamOffsets {
         self.draw_data += other.draw_data;
         self.transforms += other.transforms;
         self.styles += other.styles;
+        self.path_windings += other.path_windings;
     }
 }
 
