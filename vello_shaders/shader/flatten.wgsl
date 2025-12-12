@@ -569,7 +569,12 @@ fn draw_join(
             let miter_limit = unpack2x16float(style_flags & STYLE_MITER_LIMIT_MASK)[0];
 
             var line_ix: u32;
-            if 2. * hypot < (hypot + d) * miter_limit * miter_limit && cr != 0. {
+            // `hypot` is |tan_prev| * |tan_next| (since cr^2 + d^2 = |a|^2 |b|^2).
+            // For near-collinear joins, the ideal miter point goes to infinity; the
+            // miter limit must clamp those cases to avoid extreme geometry.
+            // `hypot - d` is proportional to sin^2(theta/2), where theta is the angle
+            // between the tangents.
+            if 2. * hypot < (hypot - d) * miter_limit * miter_limit && cr != 0. {
                 let is_backside = cr > 0.;
                 let fp_last = select(front0, back1, is_backside);
                 let fp_this = select(front1, back0, is_backside);
