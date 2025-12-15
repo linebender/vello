@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::renderer::Renderer;
+use fearless_simd::Fallback;
 use smallvec::smallvec;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLACK, LIME, RED, YELLOW};
@@ -17,7 +18,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     let mut mask_pix = Pixmap::new(100, 100);
     // TODO: Would be nice to take the settings from the current test context.
     let settings = RenderSettings {
-        level: Level::fallback(),
+        level: Level::Fallback(Fallback::new()),
         num_threads: 0,
         render_mode: RenderMode::OptimizeSpeed,
     };

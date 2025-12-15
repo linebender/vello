@@ -2013,7 +2013,7 @@ mod tests {
     #[test]
     fn sort_test() {
         let mut lines = vec![];
-        let mut tiles = Tiles::new(Level::fallback());
+        let mut tiles = Tiles::new(Level::baseline());
 
         let step = 4.0;
         let mut y = F_V_DIM - 10.0;
