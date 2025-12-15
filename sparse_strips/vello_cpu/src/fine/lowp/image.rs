@@ -5,7 +5,7 @@ use crate::fine::PosExt;
 use crate::fine::common::image::{ImagePainterData, extend, sample};
 use crate::fine::macros::u8x16_painter;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x16};
+use vello_common::fearless_simd::*;
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::element_wise_splat;
 use vello_common::util::f32_to_u8;

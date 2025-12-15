@@ -100,7 +100,7 @@ pub struct RenderSettings {
 impl Default for RenderSettings {
     fn default() -> Self {
         Self {
-            level: Level::try_detect().unwrap_or(Level::fallback()),
+            level: Level::new(),
             #[cfg(feature = "multithreading")]
             num_threads: (std::thread::available_parallelism()
                 .unwrap()
