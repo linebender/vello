@@ -18,7 +18,7 @@ path = "tests/mod.rs"
 vello_api = { workspace = true }
 vello_common = { workspace = true, features = ["std"] }
 vello_cpu = { workspace = true, features = ["multithreading", "std", "f32_pipeline"] }
-fearless_simd = { workspace = true, features = ["force_support_fallback"]}
+fearless_simd = { workspace = true, features = ["force_support_fallback"] }
 vello_hybrid = { workspace = true }
 wgpu = { workspace = true, default-features = true }
 pollster = { workspace = true }
