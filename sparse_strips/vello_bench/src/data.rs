@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use fearless_simd::Fallback;
 use std::path::Path;
 use std::sync::OnceLock;
 use usvg::tiny_skia_path::PathSegment;
@@ -152,7 +153,7 @@ impl DataItem {
         let tiles = self.sorted_tiles();
 
         strip::render(
-            Level::fallback(),
+            Level::Fallback(Fallback::new()),
             &tiles,
             &mut strip_buf,
             &mut alpha_buf,

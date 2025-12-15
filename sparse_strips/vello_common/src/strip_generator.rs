@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn reset() {
-        let mut generator = StripGenerator::new(100, 100, Level::fallback());
+        let mut generator = StripGenerator::new(100, 100, Level::baseline());
         let mut storage = StripStorage::default();
         let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
 
