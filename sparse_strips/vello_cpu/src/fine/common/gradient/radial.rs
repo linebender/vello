@@ -3,7 +3,7 @@
 
 use crate::fine::common::gradient::SimdGradientKind;
 use vello_common::encode::{FocalData, RadialKind};
-use vello_common::fearless_simd::{Simd, SimdBase, f32x8};
+use vello_common::fearless_simd::*;
 
 pub(crate) enum SimdRadialKindInner<S: Simd> {
     Radial {
