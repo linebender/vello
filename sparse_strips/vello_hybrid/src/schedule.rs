@@ -774,15 +774,15 @@ impl Scheduler {
                     );
                     let gpu_strip_builder = if depth <= 2 {
                         GpuStripBuilder::at_surface(
-                            wide_tile_x + clip_fill.x as u16,
+                            wide_tile_x + clip_fill.x,
                             wide_tile_y,
-                            clip_fill.width as u16,
+                            clip_fill.width,
                         )
                     } else {
                         GpuStripBuilder::at_slot(
                             nos.dest_slot.get_idx(),
-                            clip_fill.x as u16,
-                            clip_fill.width as u16,
+                            clip_fill.x,
+                            clip_fill.width,
                         )
                     };
                     draw.push(gpu_strip_builder.copy_from_slot(tos.dest_slot.get_idx(), 0xFF));
@@ -816,15 +816,15 @@ impl Scheduler {
                     );
                     let gpu_strip_builder = if depth <= 2 {
                         GpuStripBuilder::at_surface(
-                            wide_tile_x + clip_alpha_fill.x as u16,
+                            wide_tile_x + clip_alpha_fill.x,
                             wide_tile_y,
-                            clip_alpha_fill.width as u16,
+                            clip_alpha_fill.width,
                         )
                     } else {
                         GpuStripBuilder::at_slot(
                             nos.dest_slot.get_idx(),
-                            clip_alpha_fill.x as u16,
-                            clip_alpha_fill.width as u16,
+                            clip_alpha_fill.x,
+                            clip_alpha_fill.width,
                         )
                     };
 
@@ -834,7 +834,7 @@ impl Scheduler {
 
                     draw.push(
                         gpu_strip_builder
-                            .with_sparse(clip_alpha_fill.width as u16, col_idx)
+                            .with_sparse(clip_alpha_fill.width, col_idx)
                             .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
                     );
                     let nos_ptr = state.stack.len() - 2;

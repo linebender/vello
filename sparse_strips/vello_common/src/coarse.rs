@@ -1030,13 +1030,13 @@ impl<const MODE: u8> Wide<MODE> {
                 }
 
                 // Calculate the portion of the strip that affects this tile
-                let x_rel = u32::from(x % WideTile::WIDTH);
+                let x_rel = x % WideTile::WIDTH;
                 let width = clipped_x1.min((wtile_x + 1) * WideTile::WIDTH) - x;
 
                 // Create clip strip command for rendering the partial coverage
                 let cmd = CmdClipAlphaFill {
                     x: x_rel,
-                    width: u32::from(width),
+                    width,
                     alpha_idx: col as usize * Tile::HEIGHT as usize,
                     #[cfg(feature = "multithreading")]
                     thread_idx,
@@ -1069,9 +1069,9 @@ impl<const MODE: u8> Wide<MODE> {
                 // whole tile, as such clips are skipped by the `push_clip` function. See
                 // <https://github.com/linebender/vello/blob/de0659e4df9842c8857153841a2b4ba6f1020bb0/sparse_strips/vello_common/src/coarse.rs#L504-L516>
                 if width > 0 && width < WideTile::WIDTH {
-                    let x_rel = u32::from(clipped_x1 % WideTile::WIDTH);
+                    let x_rel = clipped_x1 % WideTile::WIDTH;
                     self.get_mut(cur_wtile_x, cur_wtile_y)
-                        .clip_fill(x_rel, u32::from(width));
+                        .clip_fill(x_rel, width);
                 }
 
                 // If the next strip is a sentinel, skip the fill
@@ -1105,8 +1105,7 @@ impl<const MODE: u8> Wide<MODE> {
                         // that any tile in-between is fully covered and thus no clipping is
                         // necessary at all. See also the `push_clip` function, where we don't
                         // push a new buffer for such tiles.
-                        self.get_mut(cur_wtile_x, cur_wtile_y)
-                            .clip_fill(0, u32::from(width2));
+                        self.get_mut(cur_wtile_x, cur_wtile_y).clip_fill(0, width2);
                     }
                 }
             }
@@ -1335,7 +1334,7 @@ impl<const MODE: u8> WideTile<MODE> {
     }
 
     /// Applies a clip fill operation at the specified position and width.
-    pub fn clip_fill(&mut self, x: u32, width: u32) {
+    pub fn clip_fill(&mut self, x: u16, width: u16) {
         if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(_))) {
             self.cmds.push(Cmd::ClipFill(CmdClipFill { x, width }));
         }
@@ -1650,9 +1649,9 @@ pub struct CmdAlphaFill {
 #[derive(Debug, PartialEq, Eq)]
 pub struct CmdClipFill {
     /// The horizontal start position relative to the wide tile's left edge, in pixels.
-    pub x: u32,
+    pub x: u16,
     /// The width of the region to copy in pixels.
-    pub width: u32,
+    pub width: u16,
 }
 
 /// Alpha-masked fill operation within a clipping region.
@@ -1663,9 +1662,9 @@ pub struct CmdClipFill {
 #[derive(Debug, PartialEq, Eq)]
 pub struct CmdClipAlphaFill {
     /// The horizontal start position relative to the wide tile's left edge, in pixels.
-    pub x: u32,
+    pub x: u16,
     /// The width of the region to composite in pixels.
-    pub width: u32,
+    pub width: u16,
     /// The index of the thread that owns the alpha buffer
     /// containing the mask values at `alpha_idx`.
     #[cfg(feature = "multithreading")]

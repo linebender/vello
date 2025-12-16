@@ -440,20 +440,21 @@ fn stroke_scaled(ctx: &mut impl Renderer) {
 // We have this test here instead of in `vello_common` because
 // the vello_common tests seemingly are not run for 32-bit in CI.
 //
-// The size was reduced from 48 to 32 bytes (64-bit) by moving paint,
-// blend_mode, and mask into a shared CmdProps struct indexed by props_idx.
+// The size was reduced from 48 to 24 bytes (64-bit) by:
+// 1. Moving paint, blend_mode, and mask into a shared CmdProps struct indexed by props_idx
+// 2. Changing x and width fields in CmdClipFill/CmdClipAlphaFill from u32 to u16
 #[vello_test(no_ref)]
 fn test_cmd_size(_: &mut impl Renderer) {
     #[cfg(target_pointer_width = "64")]
     assert_eq!(
         size_of::<Cmd>(),
-        32,
+        24,
         "size of a command didn't match the expected value"
     );
     #[cfg(target_pointer_width = "32")]
     assert_eq!(
         size_of::<Cmd>(),
-        24,
+        16,
         "size of a command didn't match the expected value"
     );
 }
