@@ -537,13 +537,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             }
             Cmd::AlphaFill(s) => {
                 let props = &cmd_props[s.props_idx as usize];
+                let alpha_idx = props.alpha_base_idx + s.alpha_offset as usize;
                 self.fill(
                     usize::from(s.x),
                     usize::from(s.width),
                     &props.paint,
                     props.blend_mode,
                     paints,
-                    Some(&alphas[s.alpha_idx..]),
+                    Some(&alphas[alpha_idx..]),
                     props.mask.as_ref(),
                 );
             }

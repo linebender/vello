@@ -619,11 +619,11 @@ impl Scheduler {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
-                    let col_idx = (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
+                    let props = &cmd_props[alpha_fill.props_idx as usize];
+                    let alpha_idx = props.alpha_base_idx + alpha_fill.alpha_offset as usize;
+                    let col_idx = (alpha_idx / usize::from(Tile::HEIGHT))
                         .try_into()
                         .expect("Sparse strips are bound to u32 range");
-
-                    let props = &cmd_props[alpha_fill.props_idx as usize];
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + alpha_fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
                         &props.paint,

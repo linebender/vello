@@ -411,6 +411,10 @@ impl<const MODE: u8> Wide<MODE> {
             return;
         }
 
+        // Compute base alpha index from the first strip (rounded to tile boundary)
+        let base_col = strip_buf[0].alpha_idx() / u32::from(Tile::HEIGHT);
+        let alpha_base_idx = (base_col * u32::from(Tile::HEIGHT)) as usize;
+
         // Create shared properties for all commands from this path
         let props_idx = self.cmd_props.len() as u32;
         self.cmd_props.push(CmdProps {
@@ -419,6 +423,7 @@ impl<const MODE: u8> Wide<MODE> {
             paint,
             blend_mode,
             mask,
+            alpha_base_idx,
         });
 
         // Get current clip bounding box or full viewport if no clip is active
@@ -486,7 +491,7 @@ impl<const MODE: u8> Wide<MODE> {
                 let cmd = CmdAlphaFill {
                     x: x_wtile_rel,
                     width,
-                    alpha_idx: (col * u32::from(Tile::HEIGHT)) as usize,
+                    alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx as u32,
                     props_idx,
                 };
                 x += width;
@@ -1607,6 +1612,9 @@ pub struct CmdProps {
     pub blend_mode: BlendMode,
     /// A mask to apply to the command.
     pub mask: Option<Mask>,
+    /// Base index into the alpha buffer for this path's commands.
+    /// Commands store a relative offset that is added to this base.
+    pub alpha_base_idx: usize,
 }
 
 /// Fill a consecutive horizontal region of a wide tile.
@@ -1635,8 +1643,9 @@ pub struct CmdAlphaFill {
     pub x: u16,
     /// The width of the filled region in pixels.
     pub width: u16,
-    /// The start index into the alpha buffer for the mask values.
-    pub alpha_idx: usize,
+    /// Relative offset from `CmdProps::alpha_base_idx` to the alpha buffer location.
+    /// The actual index is computed as `props.alpha_base_idx + alpha_offset as usize`.
+    pub alpha_offset: u32,
     /// Index into the command properties array.
     pub props_idx: u32,
 }
