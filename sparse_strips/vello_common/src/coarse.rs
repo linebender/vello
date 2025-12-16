@@ -71,10 +71,8 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     pub height: u16,
     /// The wide tiles in the container.
     pub tiles: Vec<WideTile<MODE>>,
-    /// Shared command properties, referenced by index from CmdFill/CmdAlphaFill.
-    pub cmd_props: Vec<CmdProps>,
-    /// Shared clip properties, referenced by index from CmdClipAlphaFill.
-    pub clip_props: Vec<ClipProps>,
+    /// Shared command properties, referenced by index from fill and clip commands.
+    pub props: Props,
     /// The stack of layers.
     layer_stack: Vec<Layer>,
     /// The stack of active clip regions.
@@ -96,7 +94,8 @@ struct Clip {
     pub clip_bbox: WideTilesBbox,
     /// The rendered path in sparse strip representation
     pub strips: Box<[Strip]>,
-    #[cfg(feature = "multithreading")]
+    /// The index of the thread that owns the alpha buffer.
+    /// Always 0 in single-threaded mode.
     pub thread_idx: u8,
 }
 
@@ -305,8 +304,7 @@ impl<const MODE: u8> Wide<MODE> {
             tiles,
             width,
             height,
-            cmd_props: vec![],
-            clip_props: vec![],
+            props: Props::default(),
             layer_stack: vec![],
             clip_stack: vec![],
             // Start with root node 0.
@@ -327,8 +325,7 @@ impl<const MODE: u8> Wide<MODE> {
             tile.cmds.clear();
             tile.layer_ids.truncate(1);
         }
-        self.cmd_props.clear();
-        self.clip_props.clear();
+        self.props.clear();
         self.layer_stack.clear();
         self.clip_stack.clear();
         self.filter_node_stack.truncate(1);
@@ -407,7 +404,6 @@ impl<const MODE: u8> Wide<MODE> {
         strip_buf: &[Strip],
         paint: Paint,
         blend_mode: BlendMode,
-        #[cfg_attr(not(feature = "multithreading"), allow(unused_variables))]
         thread_idx: u8,
         mask: Option<Mask>,
     ) {
@@ -420,9 +416,8 @@ impl<const MODE: u8> Wide<MODE> {
         let alpha_base_idx = (base_col * u32::from(Tile::HEIGHT)) as usize;
 
         // Create shared properties for all commands from this path
-        let props_idx = self.cmd_props.len() as u32;
-        self.cmd_props.push(CmdProps {
-            #[cfg(feature = "multithreading")]
+        let props_idx = self.props.fill.len() as u32;
+        self.props.fill.push(FillProps {
             thread_idx,
             paint,
             blend_mode,
@@ -526,13 +521,14 @@ impl<const MODE: u8> Wide<MODE> {
                 // Pre-compute the override color if the fill can replace the background.
                 // This is used for an optimization where a solid opaque full-tile fill
                 // can replace all previous commands.
-                let override_color = if let Paint::Solid(s) = &self.cmd_props[props_idx as usize].paint {
-                    if s.is_opaque() && self.cmd_props[props_idx as usize].mask.is_none() {
+                let override_color = if let Paint::Solid(s) = &self.props.fill[props_idx as usize].paint {
+                    if s.is_opaque() && self.props.fill[props_idx as usize].mask.is_none() {
                         Some(*s)
                     } else {
                         None
                     }
                 } else {
+                    // TODO: Implement for indexed paints.
                     None
                 };
 
@@ -901,13 +897,9 @@ impl<const MODE: u8> Wide<MODE> {
             cur_wtile_y += 1;
         }
 
-        // Prevent unused warning.
-        let _ = thread_idx;
-
         self.clip_stack.push(Clip {
             clip_bbox,
             strips,
-            #[cfg(feature = "multithreading")]
             thread_idx,
         });
     }
@@ -948,7 +940,6 @@ impl<const MODE: u8> Wide<MODE> {
         let Clip {
             clip_bbox,
             strips,
-            #[cfg(feature = "multithreading")]
             thread_idx,
         } = self.clip_stack.pop().unwrap();
         let n_strips = strips.len();
@@ -957,9 +948,8 @@ impl<const MODE: u8> Wide<MODE> {
         let (clip_props_idx, alpha_base_idx) = if n_strips > 0 {
             let base_col = strips[0].alpha_idx() / u32::from(Tile::HEIGHT);
             let alpha_base_idx = (base_col * u32::from(Tile::HEIGHT)) as usize;
-            let props_idx = self.clip_props.len() as u32;
-            self.clip_props.push(ClipProps {
-                #[cfg(feature = "multithreading")]
+            let props_idx = self.props.clip.len() as u32;
+            self.props.clip.push(ClipProps {
                 thread_idx,
                 alpha_base_idx,
             });
@@ -1619,10 +1609,10 @@ impl Cmd {
 /// from a single path, reducing memory usage by storing them once and referencing
 /// by index rather than duplicating in each command.
 #[derive(Debug, Clone, PartialEq)]
-pub struct CmdProps {
+pub struct FillProps {
     /// The index of the thread that owns the alpha buffer
     /// containing the mask values at `alpha_idx`.
-    #[cfg(feature = "multithreading")]
+    /// Always 0 in single-threaded mode.
     pub thread_idx: u8,
     /// The paint (color, gradient, etc.) to fill the region with.
     pub paint: Paint,
@@ -1644,11 +1634,31 @@ pub struct CmdProps {
 pub struct ClipProps {
     /// The index of the thread that owns the alpha buffer
     /// containing the mask values at `alpha_idx`.
-    #[cfg(feature = "multithreading")]
+    /// Always 0 in single-threaded mode.
     pub thread_idx: u8,
     /// Base index into the alpha buffer for this clip path's commands.
     /// Commands store a relative offset that is added to this base.
     pub alpha_base_idx: usize,
+}
+
+/// Container for shared command properties.
+///
+/// This struct holds the shared properties for fill and clip commands,
+/// allowing them to be passed together to functions that need both.
+#[derive(Debug, Default, Clone)]
+pub struct Props {
+    /// Shared properties for fill commands, indexed by `props_idx` in `CmdFill`/`CmdAlphaFill`.
+    pub fill: Vec<FillProps>,
+    /// Shared properties for clip commands, indexed by `props_idx` in `CmdClipAlphaFill`.
+    pub clip: Vec<ClipProps>,
+}
+
+impl Props {
+    /// Clear all properties.
+    pub fn clear(&mut self) {
+        self.fill.clear();
+        self.clip.clear();
+    }
 }
 
 /// Fill a consecutive horizontal region of a wide tile.

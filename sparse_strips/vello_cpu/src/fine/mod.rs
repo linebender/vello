@@ -25,7 +25,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
-use vello_common::coarse::{ClipProps, Cmd, CmdProps, WideTile};
+use vello_common::coarse::{ClipProps, Cmd, FillProps, WideTile};
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
@@ -520,12 +520,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         cmd: &Cmd,
         alphas: &[u8],
         paints: &[EncodedPaint],
-        cmd_props: &[CmdProps],
+        fill_props: &[FillProps],
         clip_props: &[ClipProps],
     ) {
         match cmd {
             Cmd::Fill(f) => {
-                let props = &cmd_props[f.props_idx as usize];
+                let props = &fill_props[f.props_idx as usize];
                 self.fill(
                     usize::from(f.x),
                     usize::from(f.width),
@@ -537,7 +537,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 );
             }
             Cmd::AlphaFill(s) => {
-                let props = &cmd_props[s.props_idx as usize];
+                let props = &fill_props[s.props_idx as usize];
                 let alpha_idx = props.alpha_base_idx + s.alpha_offset as usize;
                 self.fill(
                     usize::from(s.x),

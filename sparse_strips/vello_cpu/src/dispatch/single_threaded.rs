@@ -300,8 +300,8 @@ impl SingleThreadedDispatcher {
                         cmd,
                         &self.strip_storage.alphas,
                         encoded_paints,
-                        &self.wide.cmd_props,
-                        &self.wide.clip_props,
+                        &self.wide.props.fill,
+                        &self.wide.props.clip,
                     );
 
             // Special handling for filtered layer composition.
@@ -327,8 +327,8 @@ impl SingleThreadedDispatcher {
                             &wtile.cmds[cmd_idx + 1],
                             &self.strip_storage.alphas,
                             encoded_paints,
-                            &self.wide.cmd_props,
-                            &self.wide.clip_props,
+                            &self.wide.props.fill,
+                            &self.wide.props.clip,
                         );
                         cmd_idx += 1;
 
@@ -388,8 +388,8 @@ impl SingleThreadedDispatcher {
                     cmd,
                     &self.strip_storage.alphas,
                     encoded_paints,
-                    &self.wide.cmd_props,
-                    &self.wide.clip_props,
+                    &self.wide.props.fill,
+                    &self.wide.props.clip,
                 );
             }
 

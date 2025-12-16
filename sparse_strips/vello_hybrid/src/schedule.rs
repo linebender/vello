@@ -179,7 +179,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::{ClipProps, CmdProps, MODE_HYBRID};
+use vello_common::coarse::{ClipProps, FillProps, MODE_HYBRID};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, LayerKind, WideTile},
@@ -433,8 +433,8 @@ impl Scheduler {
                     &annotated_cmds,
                     tile_state,
                     paint_idxs,
-                    &scene.wide.cmd_props,
-                    &scene.wide.clip_props,
+                    &scene.wide.props.fill,
+                    &scene.wide.props.clip,
                 )?;
             }
         }
@@ -579,7 +579,7 @@ impl Scheduler {
         cmds: &'a [AnnotatedCmd<'a>],
         mut state: TileState,
         paint_idxs: &[u32],
-        cmd_props: &[CmdProps],
+        fill_props: &[FillProps],
         clip_props: &[ClipProps],
     ) -> Result<(), RenderError> {
         for annotated_cmd in cmds {
@@ -595,7 +595,7 @@ impl Scheduler {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
-                    let props = &cmd_props[fill.props_idx as usize];
+                    let props = &fill_props[fill.props_idx as usize];
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
                         &props.paint,
@@ -621,7 +621,7 @@ impl Scheduler {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
-                    let props = &cmd_props[alpha_fill.props_idx as usize];
+                    let props = &fill_props[alpha_fill.props_idx as usize];
                     let alpha_idx = props.alpha_base_idx + alpha_fill.alpha_offset as usize;
                     let col_idx = (alpha_idx / usize::from(Tile::HEIGHT))
                         .try_into()
