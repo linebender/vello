@@ -25,7 +25,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
-use vello_common::coarse::{Cmd, CmdProps, WideTile};
+use vello_common::coarse::{ClipProps, Cmd, CmdProps, WideTile};
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
@@ -521,6 +521,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         alphas: &[u8],
         paints: &[EncodedPaint],
         cmd_props: &[CmdProps],
+        clip_props: &[ClipProps],
     ) {
         match cmd {
             Cmd::Fill(f) => {
@@ -566,10 +567,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 self.clip(cf.x as usize, cf.width as usize, None);
             }
             Cmd::ClipStrip(cs) => {
+                let props = &clip_props[cs.props_idx as usize];
+                let alpha_idx = props.alpha_base_idx + cs.alpha_offset as usize;
                 self.clip(
                     cs.x as usize,
                     cs.width as usize,
-                    Some(&alphas[cs.alpha_idx..]),
+                    Some(&alphas[alpha_idx..]),
                 );
             }
             Cmd::Blend(b) => self.blend(*b),

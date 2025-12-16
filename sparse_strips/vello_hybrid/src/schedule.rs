@@ -179,7 +179,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::{CmdProps, MODE_HYBRID};
+use vello_common::coarse::{ClipProps, CmdProps, MODE_HYBRID};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, LayerKind, WideTile},
@@ -434,6 +434,7 @@ impl Scheduler {
                     tile_state,
                     paint_idxs,
                     &scene.wide.cmd_props,
+                    &scene.wide.clip_props,
                 )?;
             }
         }
@@ -579,6 +580,7 @@ impl Scheduler {
         mut state: TileState,
         paint_idxs: &[u32],
         cmd_props: &[CmdProps],
+        clip_props: &[ClipProps],
     ) -> Result<(), RenderError> {
         for annotated_cmd in cmds {
             // Note: this starts at 1 (for the final target)
@@ -828,7 +830,9 @@ impl Scheduler {
                         )
                     };
 
-                    let col_idx = (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
+                    let props = &clip_props[clip_alpha_fill.props_idx as usize];
+                    let alpha_idx = props.alpha_base_idx + clip_alpha_fill.alpha_offset as usize;
+                    let col_idx = (alpha_idx / usize::from(Tile::HEIGHT))
                         .try_into()
                         .expect("Sparse strips are bound to u32 range");
 

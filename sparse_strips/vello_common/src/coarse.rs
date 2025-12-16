@@ -73,6 +73,8 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     pub tiles: Vec<WideTile<MODE>>,
     /// Shared command properties, referenced by index from CmdFill/CmdAlphaFill.
     pub cmd_props: Vec<CmdProps>,
+    /// Shared clip properties, referenced by index from CmdClipAlphaFill.
+    pub clip_props: Vec<ClipProps>,
     /// The stack of layers.
     layer_stack: Vec<Layer>,
     /// The stack of active clip regions.
@@ -304,6 +306,7 @@ impl<const MODE: u8> Wide<MODE> {
             width,
             height,
             cmd_props: vec![],
+            clip_props: vec![],
             layer_stack: vec![],
             clip_stack: vec![],
             // Start with root node 0.
@@ -325,6 +328,7 @@ impl<const MODE: u8> Wide<MODE> {
             tile.layer_ids.truncate(1);
         }
         self.cmd_props.clear();
+        self.clip_props.clear();
         self.layer_stack.clear();
         self.clip_stack.clear();
         self.filter_node_stack.truncate(1);
@@ -949,6 +953,21 @@ impl<const MODE: u8> Wide<MODE> {
         } = self.clip_stack.pop().unwrap();
         let n_strips = strips.len();
 
+        // Compute base alpha index and create shared clip properties
+        let (clip_props_idx, alpha_base_idx) = if n_strips > 0 {
+            let base_col = strips[0].alpha_idx() / u32::from(Tile::HEIGHT);
+            let alpha_base_idx = (base_col * u32::from(Tile::HEIGHT)) as usize;
+            let props_idx = self.clip_props.len() as u32;
+            self.clip_props.push(ClipProps {
+                #[cfg(feature = "multithreading")]
+                thread_idx,
+                alpha_base_idx,
+            });
+            (props_idx, alpha_base_idx)
+        } else {
+            (0, 0)
+        };
+
         let mut cur_wtile_x = clip_bbox.x0();
         let mut cur_wtile_y = clip_bbox.y0();
         let mut pop_pending = false;
@@ -1042,9 +1061,8 @@ impl<const MODE: u8> Wide<MODE> {
                 let cmd = CmdClipAlphaFill {
                     x: x_rel,
                     width,
-                    alpha_idx: col as usize * Tile::HEIGHT as usize,
-                    #[cfg(feature = "multithreading")]
-                    thread_idx,
+                    alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx as u32,
+                    props_idx: clip_props_idx,
                 };
                 x += width;
                 col += u32::from(width);
@@ -1617,6 +1635,22 @@ pub struct CmdProps {
     pub alpha_base_idx: usize,
 }
 
+/// Shared properties for clip alpha fill commands.
+///
+/// This struct holds properties that are shared across all clip commands generated
+/// from a single clip path, reducing memory usage by storing them once and referencing
+/// by index rather than duplicating in each command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipProps {
+    /// The index of the thread that owns the alpha buffer
+    /// containing the mask values at `alpha_idx`.
+    #[cfg(feature = "multithreading")]
+    pub thread_idx: u8,
+    /// Base index into the alpha buffer for this clip path's commands.
+    /// Commands store a relative offset that is added to this base.
+    pub alpha_base_idx: usize,
+}
+
 /// Fill a consecutive horizontal region of a wide tile.
 ///
 /// This command fills a rectangular region with the specified paint.
@@ -1674,12 +1708,11 @@ pub struct CmdClipAlphaFill {
     pub x: u16,
     /// The width of the region to composite in pixels.
     pub width: u16,
-    /// The index of the thread that owns the alpha buffer
-    /// containing the mask values at `alpha_idx`.
-    #[cfg(feature = "multithreading")]
-    pub thread_idx: u8,
-    /// The start index into the alpha buffer for the mask values.
-    pub alpha_idx: usize,
+    /// Relative offset from `ClipProps::alpha_base_idx` to the alpha buffer location.
+    /// The actual index is computed as `props.alpha_base_idx + alpha_offset as usize`.
+    pub alpha_offset: u32,
+    /// Index into the clip properties array.
+    pub props_idx: u32,
 }
 
 trait BlendModeExt {
