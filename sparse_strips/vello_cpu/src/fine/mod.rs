@@ -25,7 +25,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
-use vello_common::coarse::{ClipProps, Cmd, FillProps, WideTile};
+use vello_common::coarse::{Cmd, Props, WideTile};
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
@@ -520,33 +520,32 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         cmd: &Cmd,
         alphas: &[u8],
         paints: &[EncodedPaint],
-        fill_props: &[FillProps],
-        clip_props: &[ClipProps],
+        props: &Props,
     ) {
         match cmd {
             Cmd::Fill(f) => {
-                let props = &fill_props[f.props_idx as usize];
+                let fill_props = &props.fill[f.props_idx as usize];
                 self.fill(
                     usize::from(f.x),
                     usize::from(f.width),
-                    &props.paint,
-                    props.blend_mode,
+                    &fill_props.paint,
+                    fill_props.blend_mode,
                     paints,
                     None,
-                    props.mask.as_ref(),
+                    fill_props.mask.as_ref(),
                 );
             }
             Cmd::AlphaFill(s) => {
-                let props = &fill_props[s.props_idx as usize];
-                let alpha_idx = props.alpha_base_idx + s.alpha_offset as usize;
+                let fill_props = &props.fill[s.props_idx as usize];
+                let alpha_idx = fill_props.alpha_base_idx + s.alpha_offset as usize;
                 self.fill(
                     usize::from(s.x),
                     usize::from(s.width),
-                    &props.paint,
-                    props.blend_mode,
+                    &fill_props.paint,
+                    fill_props.blend_mode,
                     paints,
                     Some(&alphas[alpha_idx..]),
-                    props.mask.as_ref(),
+                    fill_props.mask.as_ref(),
                 );
             }
             Cmd::Filter(_filter, _) => {
@@ -567,8 +566,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 self.clip(cf.x as usize, cf.width as usize, None);
             }
             Cmd::ClipStrip(cs) => {
-                let props = &clip_props[cs.props_idx as usize];
-                let alpha_idx = props.alpha_base_idx + cs.alpha_offset as usize;
+                let clip_props = &props.clip[cs.props_idx as usize];
+                let alpha_idx = clip_props.alpha_base_idx + cs.alpha_offset as usize;
                 self.clip(
                     cs.x as usize,
                     cs.width as usize,

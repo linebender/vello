@@ -406,7 +406,7 @@ impl MultiThreadedDispatcher {
                     let alphas = thread_idx
                         .map(|i| alpha_slots[i as usize].as_slice())
                         .unwrap_or(&[]);
-                    fine.run_cmd(cmd, alphas, encoded_paints, &wide.props.fill, &wide.props.clip);
+                    fine.run_cmd(cmd, alphas, encoded_paints, &wide.props);
                 }
 
                 fine.pack(region);

@@ -179,7 +179,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::{ClipProps, FillProps, MODE_HYBRID};
+use vello_common::coarse::{Props, MODE_HYBRID};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, LayerKind, WideTile},
@@ -433,8 +433,7 @@ impl Scheduler {
                     &annotated_cmds,
                     tile_state,
                     paint_idxs,
-                    &scene.wide.props.fill,
-                    &scene.wide.props.clip,
+                    &scene.wide.props,
                 )?;
             }
         }
@@ -579,8 +578,7 @@ impl Scheduler {
         cmds: &'a [AnnotatedCmd<'a>],
         mut state: TileState,
         paint_idxs: &[u32],
-        fill_props: &[FillProps],
-        clip_props: &[ClipProps],
+        props: &Props,
     ) -> Result<(), RenderError> {
         for annotated_cmd in cmds {
             // Note: this starts at 1 (for the final target)
@@ -595,10 +593,10 @@ impl Scheduler {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
-                    let props = &fill_props[fill.props_idx as usize];
+                    let fill_props = &props.fill[fill.props_idx as usize];
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
-                        &props.paint,
+                        &fill_props.paint,
                         scene,
                         (scene_strip_x, scene_strip_y),
                         paint_idxs,
@@ -621,14 +619,14 @@ impl Scheduler {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
-                    let props = &fill_props[alpha_fill.props_idx as usize];
-                    let alpha_idx = props.alpha_base_idx + alpha_fill.alpha_offset as usize;
+                    let fill_props = &props.fill[alpha_fill.props_idx as usize];
+                    let alpha_idx = fill_props.alpha_base_idx + alpha_fill.alpha_offset as usize;
                     let col_idx = (alpha_idx / usize::from(Tile::HEIGHT))
                         .try_into()
                         .expect("Sparse strips are bound to u32 range");
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + alpha_fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
-                        &props.paint,
+                        &fill_props.paint,
                         scene,
                         (scene_strip_x, scene_strip_y),
                         paint_idxs,
@@ -830,8 +828,8 @@ impl Scheduler {
                         )
                     };
 
-                    let props = &clip_props[clip_alpha_fill.props_idx as usize];
-                    let alpha_idx = props.alpha_base_idx + clip_alpha_fill.alpha_offset as usize;
+                    let clip_props = &props.clip[clip_alpha_fill.props_idx as usize];
+                    let alpha_idx = clip_props.alpha_base_idx + clip_alpha_fill.alpha_offset as usize;
                     let col_idx = (alpha_idx / usize::from(Tile::HEIGHT))
                         .try_into()
                         .expect("Sparse strips are bound to u32 range");
