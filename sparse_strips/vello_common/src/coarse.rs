@@ -411,9 +411,7 @@ impl<const MODE: u8> Wide<MODE> {
             return;
         }
 
-        // Compute base alpha index from the first strip (rounded to tile boundary)
-        let base_col = strip_buf[0].alpha_idx() / u32::from(Tile::HEIGHT);
-        let alpha_base_idx = (base_col * u32::from(Tile::HEIGHT)) as usize;
+        let alpha_base_idx = strip_buf[0].alpha_idx() as usize;
 
         // Create shared properties for all commands from this path
         let props_idx = self.props.fill.len() as u32;
@@ -946,8 +944,7 @@ impl<const MODE: u8> Wide<MODE> {
 
         // Compute base alpha index and create shared clip properties
         let (clip_props_idx, alpha_base_idx) = if n_strips > 0 {
-            let base_col = strips[0].alpha_idx() / u32::from(Tile::HEIGHT);
-            let alpha_base_idx = (base_col * u32::from(Tile::HEIGHT)) as usize;
+            let alpha_base_idx = strips[0].alpha_idx() as usize;
             let props_idx = self.props.clip.len() as u32;
             self.props.clip.push(ClipProps {
                 thread_idx,
@@ -955,7 +952,9 @@ impl<const MODE: u8> Wide<MODE> {
             });
             (props_idx, alpha_base_idx)
         } else {
-            (0, 0)
+            // In case we have 0 stris, those variables won't be accessed
+            // anyway.
+            (u32::MAX, usize::MAX)
         };
 
         let mut cur_wtile_x = clip_bbox.x0();
