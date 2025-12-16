@@ -296,7 +296,12 @@ impl SingleThreadedDispatcher {
         while cmd_idx < ranges.render_range.end {
             let cmd: &Cmd = &wtile.cmds[cmd_idx];
 
-            fine.run_cmd(cmd, &self.strip_storage.alphas, encoded_paints, &self.wide.props);
+            fine.run_cmd(
+                cmd,
+                &self.strip_storage.alphas,
+                encoded_paints,
+                &self.wide.props,
+            );
 
             // Special handling for filtered layer composition.
             // Filtered layers have already been rendered and stored in layer_manager.
@@ -377,7 +382,12 @@ impl SingleThreadedDispatcher {
             // Clear to background and process all commands in order.
             fine.clear(wtile.bg);
             for cmd in &wtile.cmds {
-                fine.run_cmd(cmd, &self.strip_storage.alphas, encoded_paints, &self.wide.props);
+                fine.run_cmd(
+                    cmd,
+                    &self.strip_storage.alphas,
+                    encoded_paints,
+                    &self.wide.props,
+                );
             }
 
             fine.pack(region);

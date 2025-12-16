@@ -519,16 +519,17 @@ impl<const MODE: u8> Wide<MODE> {
                 // Pre-compute the override color if the fill can replace the background.
                 // This is used for an optimization where a solid opaque full-tile fill
                 // can replace all previous commands.
-                let override_color = if let Paint::Solid(s) = &self.props.fill[props_idx as usize].paint {
-                    if s.is_opaque() && self.props.fill[props_idx as usize].mask.is_none() {
-                        Some(*s)
+                let override_color =
+                    if let Paint::Solid(s) = &self.props.fill[props_idx as usize].paint {
+                        if s.is_opaque() && self.props.fill[props_idx as usize].mask.is_none() {
+                            Some(*s)
+                        } else {
+                            None
+                        }
                     } else {
+                        // TODO: Implement for indexed paints.
                         None
-                    }
-                } else {
-                    // TODO: Implement for indexed paints.
-                    None
-                };
+                    };
 
                 // Generate fill commands for each wide tile in the fill region
                 for wtile_x in wfxt0..wfxt1 {
@@ -540,8 +541,13 @@ impl<const MODE: u8> Wide<MODE> {
                             * WideTile::WIDTH,
                     ) - x;
                     x += width;
-                    self.get_mut(wtile_x, strip_y)
-                        .fill(x_wtile_rel, width, props_idx, current_layer_id, override_color);
+                    self.get_mut(wtile_x, strip_y).fill(
+                        x_wtile_rel,
+                        width,
+                        props_idx,
+                        current_layer_id,
+                        override_color,
+                    );
                     // TODO: This bbox update might be redundant since filled regions are always
                     // bounded by strip regions (which already update the bbox). Consider removing
                     // this in a follow-up with proper benchmarks to verify correctness.

@@ -568,11 +568,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             Cmd::ClipStrip(cs) => {
                 let clip_props = &props.clip[cs.props_idx as usize];
                 let alpha_idx = clip_props.alpha_idx(cs.alpha_offset);
-                self.clip(
-                    cs.x as usize,
-                    cs.width as usize,
-                    Some(&alphas[alpha_idx..]),
-                );
+                self.clip(cs.x as usize, cs.width as usize, Some(&alphas[alpha_idx..]));
             }
             Cmd::Blend(b) => self.blend(*b),
             Cmd::Mask(m) => {

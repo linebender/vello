@@ -394,12 +394,8 @@ impl MultiThreadedDispatcher {
                 fine.clear(wtile.bg);
                 for cmd in &wtile.cmds {
                     let thread_idx = match cmd {
-                        Cmd::AlphaFill(a) => {
-                            Some(wide.props.fill[a.props_idx as usize].thread_idx)
-                        }
-                        Cmd::ClipStrip(a) => {
-                            Some(wide.props.clip[a.props_idx as usize].thread_idx)
-                        }
+                        Cmd::AlphaFill(a) => Some(wide.props.fill[a.props_idx as usize].thread_idx),
+                        Cmd::ClipStrip(a) => Some(wide.props.clip[a.props_idx as usize].thread_idx),
                         _ => None,
                     };
 
