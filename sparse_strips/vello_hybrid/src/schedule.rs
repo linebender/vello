@@ -620,7 +620,7 @@ impl Scheduler {
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
                     let fill_props = &props.fill[alpha_fill.props_idx as usize];
-                    let alpha_idx = fill_props.alpha_base_idx + alpha_fill.alpha_offset as usize;
+                    let alpha_idx = fill_props.alpha_idx(alpha_fill.alpha_offset);
                     let col_idx = (alpha_idx / usize::from(Tile::HEIGHT))
                         .try_into()
                         .expect("Sparse strips are bound to u32 range");
@@ -829,7 +829,7 @@ impl Scheduler {
                     };
 
                     let clip_props = &props.clip[clip_alpha_fill.props_idx as usize];
-                    let alpha_idx = clip_props.alpha_base_idx + clip_alpha_fill.alpha_offset as usize;
+                    let alpha_idx = clip_props.alpha_idx(clip_alpha_fill.alpha_offset);
                     let col_idx = (alpha_idx / usize::from(Tile::HEIGHT))
                         .try_into()
                         .expect("Sparse strips are bound to u32 range");

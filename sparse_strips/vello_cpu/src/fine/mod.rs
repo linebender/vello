@@ -537,7 +537,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             }
             Cmd::AlphaFill(s) => {
                 let fill_props = &props.fill[s.props_idx as usize];
-                let alpha_idx = fill_props.alpha_base_idx + s.alpha_offset as usize;
+                let alpha_idx = fill_props.alpha_idx(s.alpha_offset);
                 self.fill(
                     usize::from(s.x),
                     usize::from(s.width),
@@ -567,7 +567,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             }
             Cmd::ClipStrip(cs) => {
                 let clip_props = &props.clip[cs.props_idx as usize];
-                let alpha_idx = clip_props.alpha_base_idx + cs.alpha_offset as usize;
+                let alpha_idx = clip_props.alpha_idx(cs.alpha_offset);
                 self.clip(
                     cs.x as usize,
                     cs.width as usize,

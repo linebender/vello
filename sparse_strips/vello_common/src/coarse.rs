@@ -1621,7 +1621,14 @@ pub struct FillProps {
     pub mask: Option<Mask>,
     /// Base index into the alpha buffer for this path's commands.
     /// Commands store a relative offset that is added to this base.
-    pub alpha_base_idx: usize,
+    alpha_base_idx: usize,
+}
+
+impl FillProps {
+    /// Compute the absolute alpha buffer index from a relative offset.
+    pub fn alpha_idx(&self, offset: u32) -> usize {
+        self.alpha_base_idx + offset as usize
+    }
 }
 
 /// Shared properties for clip alpha fill commands.
@@ -1637,7 +1644,14 @@ pub struct ClipProps {
     pub thread_idx: u8,
     /// Base index into the alpha buffer for this clip path's commands.
     /// Commands store a relative offset that is added to this base.
-    pub alpha_base_idx: usize,
+    alpha_base_idx: usize,
+}
+
+impl ClipProps {
+    /// Compute the absolute alpha buffer index from a relative offset.
+    pub fn alpha_idx(&self, offset: u32) -> usize {
+        self.alpha_base_idx + offset as usize
+    }
 }
 
 /// Container for shared command properties.
@@ -1686,8 +1700,8 @@ pub struct CmdAlphaFill {
     pub x: u16,
     /// The width of the filled region in pixels.
     pub width: u16,
-    /// Relative offset from `CmdProps::alpha_base_idx` to the alpha buffer location.
-    /// The actual index is computed as `props.alpha_base_idx + alpha_offset as usize`.
+    /// Relative offset to the alpha buffer location.
+    /// Use `FillProps::alpha_idx(alpha_offset)` to compute the absolute index.
     pub alpha_offset: u32,
     /// Index into the command properties array.
     pub props_idx: u32,
@@ -1717,8 +1731,8 @@ pub struct CmdClipAlphaFill {
     pub x: u16,
     /// The width of the region to composite in pixels.
     pub width: u16,
-    /// Relative offset from `ClipProps::alpha_base_idx` to the alpha buffer location.
-    /// The actual index is computed as `props.alpha_base_idx + alpha_offset as usize`.
+    /// Relative offset to the alpha buffer location.
+    /// Use `ClipProps::alpha_idx(alpha_offset)` to compute the absolute index.
     pub alpha_offset: u32,
     /// Index into the clip properties array.
     pub props_idx: u32,
