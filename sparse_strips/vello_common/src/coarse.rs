@@ -1608,11 +1608,7 @@ impl Cmd {
     }
 }
 
-/// Shared properties for fill commands.
-///
-/// This struct holds properties that are shared across all commands generated
-/// from a single path, reducing memory usage by storing them once and referencing
-/// by index rather than duplicating in each command.
+/// Shared properties for alpha fill commands.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FillProps {
     /// The index of the thread that owns the alpha buffer
@@ -1638,10 +1634,6 @@ impl FillProps {
 }
 
 /// Shared properties for clip alpha fill commands.
-///
-/// This struct holds properties that are shared across all clip commands generated
-/// from a single clip path, reducing memory usage by storing them once and referencing
-/// by index rather than duplicating in each command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClipProps {
     /// The index of the thread that owns the alpha buffer
