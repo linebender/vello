@@ -179,7 +179,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::MODE_HYBRID;
+use vello_common::coarse::{CmdProps, MODE_HYBRID};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, LayerKind, WideTile},
@@ -433,6 +433,7 @@ impl Scheduler {
                     &annotated_cmds,
                     tile_state,
                     paint_idxs,
+                    &scene.wide.cmd_props,
                 )?;
             }
         }
@@ -577,6 +578,7 @@ impl Scheduler {
         cmds: &'a [AnnotatedCmd<'a>],
         mut state: TileState,
         paint_idxs: &[u32],
+        cmd_props: &[CmdProps],
     ) -> Result<(), RenderError> {
         for annotated_cmd in cmds {
             // Note: this starts at 1 (for the final target)
@@ -591,9 +593,10 @@ impl Scheduler {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
+                    let props = &cmd_props[fill.props_idx as usize];
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
-                        &fill.paint,
+                        &props.paint,
                         scene,
                         (scene_strip_x, scene_strip_y),
                         paint_idxs,
@@ -620,9 +623,10 @@ impl Scheduler {
                         .try_into()
                         .expect("Sparse strips are bound to u32 range");
 
+                    let props = &cmd_props[alpha_fill.props_idx as usize];
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + alpha_fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
-                        &alpha_fill.paint,
+                        &props.paint,
                         scene,
                         (scene_strip_x, scene_strip_y),
                         paint_idxs,

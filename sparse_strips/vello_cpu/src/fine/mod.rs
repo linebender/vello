@@ -25,7 +25,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
-use vello_common::coarse::{Cmd, WideTile};
+use vello_common::coarse::{Cmd, CmdProps, WideTile};
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
@@ -515,28 +515,36 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     ///
     /// This is the main dispatch method that processes different command types including
     /// fills, clips, blends, filters, masks, and buffer operations.
-    pub(crate) fn run_cmd(&mut self, cmd: &Cmd, alphas: &[u8], paints: &[EncodedPaint]) {
+    pub(crate) fn run_cmd(
+        &mut self,
+        cmd: &Cmd,
+        alphas: &[u8],
+        paints: &[EncodedPaint],
+        cmd_props: &[CmdProps],
+    ) {
         match cmd {
             Cmd::Fill(f) => {
+                let props = &cmd_props[f.props_idx as usize];
                 self.fill(
                     usize::from(f.x),
                     usize::from(f.width),
-                    &f.paint,
-                    f.blend_mode,
+                    &props.paint,
+                    props.blend_mode,
                     paints,
                     None,
-                    f.mask.as_ref(),
+                    props.mask.as_ref(),
                 );
             }
             Cmd::AlphaFill(s) => {
+                let props = &cmd_props[s.props_idx as usize];
                 self.fill(
                     usize::from(s.x),
                     usize::from(s.width),
-                    &s.paint,
-                    s.blend_mode,
+                    &props.paint,
+                    props.blend_mode,
                     paints,
                     Some(&alphas[s.alpha_idx..]),
-                    s.mask.as_ref(),
+                    props.mask.as_ref(),
                 );
             }
             Cmd::Filter(_filter, _) => {
