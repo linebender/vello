@@ -958,7 +958,7 @@ impl<const MODE: u8> Wide<MODE> {
             });
             (props_idx, alpha_base_idx)
         } else {
-            // In case we have 0 stris, those variables won't be accessed
+            // In case we have 0 strips, those variables won't be accessed
             // anyway.
             (u32::MAX, usize::MAX)
         };
