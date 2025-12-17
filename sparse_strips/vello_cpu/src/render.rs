@@ -203,6 +203,7 @@ impl RenderContext {
                 ctx.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
+                &ctx.encoded_paints,
             );
         });
     }
@@ -219,6 +220,7 @@ impl RenderContext {
                 ctx.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
+                &ctx.encoded_paints,
             );
         });
     }
@@ -236,6 +238,7 @@ impl RenderContext {
                 ctx.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
+                &ctx.encoded_paints,
             );
         });
     }
@@ -253,6 +256,7 @@ impl RenderContext {
                 ctx.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
+                &ctx.encoded_paints,
             );
         });
     }
@@ -307,6 +311,7 @@ impl RenderContext {
             self.blend_mode,
             self.aliasing_threshold,
             self.mask.clone(),
+            &self.encoded_paints,
         );
     }
 
@@ -546,7 +551,7 @@ impl RenderContext {
     /// For multi-threaded rendering, you _have_ to call this before rasterizing, otherwise
     /// the program will panic.
     pub fn flush(&mut self) {
-        self.dispatcher.flush();
+        self.dispatcher.flush(&self.encoded_paints);
     }
 
     /// Render the current context into a buffer.
@@ -630,6 +635,7 @@ impl GlyphRenderer for RenderContext {
                     self.blend_mode,
                     self.aliasing_threshold,
                     self.mask.clone(),
+                    &self.encoded_paints,
                 );
             }
             GlyphType::Bitmap(glyph) => {
@@ -737,6 +743,7 @@ impl GlyphRenderer for RenderContext {
                     self.blend_mode,
                     self.aliasing_threshold,
                     self.mask.clone(),
+                    &self.encoded_paints,
                 );
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
@@ -1051,8 +1058,12 @@ impl RenderContext {
             "Invalid strip range"
         );
         let paint = self.encode_current_paint();
-        self.dispatcher
-            .generate_wide_cmd(&adjusted_strips[start..end], paint, self.blend_mode);
+        self.dispatcher.generate_wide_cmd(
+            &adjusted_strips[start..end],
+            paint,
+            self.blend_mode,
+            &self.encoded_paints,
+        );
     }
 
     /// Prepare cached strips for rendering by adjusting indices.

@@ -4,6 +4,7 @@
 //! Generating and processing wide tiles.
 
 use crate::color::palette::css::TRANSPARENT;
+use crate::encode::EncodedPaint;
 use crate::filter_effects::Filter;
 use crate::kurbo::{Affine, Rect};
 use crate::mask::Mask;
@@ -401,6 +402,7 @@ impl<const MODE: u8> Wide<MODE> {
         blend_mode: BlendMode,
         thread_idx: u8,
         mask: Option<Mask>,
+        encoded_paints: &[EncodedPaint],
     ) {
         if strip_buf.is_empty() {
             return;
@@ -523,6 +525,7 @@ impl<const MODE: u8> Wide<MODE> {
                         paint.clone(),
                         current_layer_id,
                         mask.clone(),
+                        encoded_paints,
                     );
                     // TODO: This bbox update might be redundant since filled regions are always
                     // bounded by strip regions (which already update the bbox). Consider removing
@@ -1194,50 +1197,73 @@ impl<const MODE: u8> WideTile<MODE> {
         paint: Paint,
         current_layer_id: LayerId,
         mask: Option<Mask>,
+        encoded_paints: &[EncodedPaint],
     ) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             match MODE {
                 MODE_CPU => {
-                    let bg = if let Paint::Solid(s) = &paint {
-                        // Note that we could be more aggressive in optimizing a whole-tile opaque fill
-                        // even with a clip stack. It would be valid to elide all drawing commands from
-                        // the enclosing clip push up to the fill. Further, we could extend the clip
-                        // push command to include a background color, rather than always starting with
-                        // a transparent buffer. Lastly, a sequence of push(bg); strip/fill; pop could
-                        // be replaced with strip/fill with the color (the latter is true even with a
-                        // non-opaque color).
-                        //
-                        // However, the extra cost of tracking such optimizations may outweigh the
-                        // benefit, especially in hybrid mode with GPU painting.
-                        let can_override = x == 0
-                            && width == WideTile::WIDTH
-                            && s.is_opaque()
-                            && mask.is_none()
-                            && self.n_clip == 0
-                            && self.n_bufs == 0;
-                        can_override.then_some(*s)
-                    } else {
-                        // TODO: Implement for indexed paints.
-                        None
-                    };
+                    // Check if we can override (clear all previous commands).
+                    // This optimization applies when filling the entire tile width with an
+                    // opaque paint and no clip/mask/buffer stack.
+                    let can_override = x == 0
+                        && width == WideTile::WIDTH
+                        && mask.is_none()
+                        && self.n_clip == 0
+                        && self.n_bufs == 0;
 
-                    if let Some(bg) = bg {
-                        self.cmds.clear();
-                        self.bg = bg;
-                        // Clear layer ranges when we clear commands
-                        if let Some(ranges) = self.layer_cmd_ranges.get_mut(&current_layer_id) {
-                            ranges.clear();
+                    if can_override {
+                        match &paint {
+                            Paint::Solid(s) if s.is_opaque() => {
+                                // Note that we could be more aggressive in optimizing a whole-tile opaque fill
+                                // even with a clip stack. It would be valid to elide all drawing commands from
+                                // the enclosing clip push up to the fill. Further, we could extend the clip
+                                // push command to include a background color, rather than always starting with
+                                // a transparent buffer. Lastly, a sequence of push(bg); strip/fill; pop could
+                                // be replaced with strip/fill with the color (the latter is true even with a
+                                // non-opaque color).
+                                //
+                                // However, the extra cost of tracking such optimizations may outweigh the
+                                // benefit, especially in hybrid mode with GPU painting.
+                                self.cmds.clear();
+                                self.bg = *s;
+                                if let Some(ranges) =
+                                    self.layer_cmd_ranges.get_mut(&current_layer_id)
+                                {
+                                    ranges.clear();
+                                }
+                                return;
+                            }
+                            Paint::Indexed(idx) => {
+                                // TODO: Add optimization for gradients.
+                                // Check if the indexed paint is an opaque image.
+                                if let Some(EncodedPaint::Image(img)) =
+                                    encoded_paints.get(idx.index())
+                                    && !img.has_opacities
+                                    && img.sampler.alpha == 1.0
+                                {
+                                    // Opaque image: clear previous commands but still emit the fill.
+                                    self.cmds.clear();
+                                    self.bg = PremulColor::from_alpha_color(TRANSPARENT);
+                                    if let Some(ranges) =
+                                        self.layer_cmd_ranges.get_mut(&current_layer_id)
+                                    {
+                                        ranges.clear();
+                                    }
+                                    // Fall through to emit the fill command below.
+                                }
+                            }
+                            _ => {}
                         }
-                    } else {
-                        self.record_fill_cmd(current_layer_id, self.cmds.len());
-                        self.cmds.push(Cmd::Fill(CmdFill {
-                            x,
-                            width,
-                            paint,
-                            blend_mode,
-                            mask,
-                        }));
                     }
+
+                    self.record_fill_cmd(current_layer_id, self.cmds.len());
+                    self.cmds.push(Cmd::Fill(CmdFill {
+                        x,
+                        width,
+                        paint,
+                        blend_mode,
+                        mask,
+                    }));
                 }
                 MODE_HYBRID => {
                     self.record_fill_cmd(current_layer_id, self.cmds.len());
@@ -1462,11 +1488,11 @@ impl<const MODE: u8> WideTile<MODE> {
     /// // 4: PopBuf
     /// ```
     #[allow(dead_code, reason = "useful for debugging")]
-    pub(crate) fn list_commands(&self) -> String {
+    pub fn list_commands(&self, encoded_paints: &[EncodedPaint]) -> String {
         self.cmds
             .iter()
             .enumerate()
-            .map(|(i, cmd)| format!("{}: {}", i, cmd.name()))
+            .map(|(i, cmd)| format!("{}: {}", i, cmd.name(encoded_paints)))
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -1564,24 +1590,57 @@ impl Cmd {
     /// in a user-friendly format.
     ///
     /// **Note:** This method is only available in debug builds (`debug_assertions`).
-    pub fn name(&self) -> &'static str {
+    pub fn name(&self, encoded_paints: &[EncodedPaint]) -> String {
         match self {
-            Self::Fill(_) => "FillPath",
-            Self::AlphaFill(_) => "AlphaFillPath",
+            Self::Fill(cmd) => format!("FillPath({})", paint_name(&cmd.paint, encoded_paints)),
+            Self::AlphaFill(cmd) => {
+                format!("AlphaFillPath({})", paint_name(&cmd.paint, encoded_paints))
+            }
             Self::PushBuf(layer_kind) => match layer_kind {
-                LayerKind::Regular(_) => "PushBuf(Regular)",
-                LayerKind::Filtered(_) => "PushBuf(Filtered)",
-                LayerKind::Clip(_) => "PushBuf(Clip)",
+                LayerKind::Regular(_) => "PushBuf(Regular)".into(),
+                LayerKind::Filtered(_) => "PushBuf(Filtered)".into(),
+                LayerKind::Clip(_) => "PushBuf(Clip)".into(),
             },
-            Self::PopBuf => "PopBuf",
-            Self::ClipFill(_) => "ClipPathFill",
-            Self::ClipStrip(_) => "ClipPathStrip",
-            Self::PushZeroClip(_) => "PushZeroClip",
-            Self::PopZeroClip => "PopZeroClip",
-            Self::Filter(_, _) => "Filter",
-            Self::Blend(_) => "Blend",
-            Self::Opacity(_) => "Opacity",
-            Self::Mask(_) => "Mask",
+            Self::PopBuf => "PopBuf".into(),
+            Self::ClipFill(_) => "ClipPathFill".into(),
+            Self::ClipStrip(_) => "ClipPathStrip".into(),
+            Self::PushZeroClip(_) => "PushZeroClip".into(),
+            Self::PopZeroClip => "PopZeroClip".into(),
+            Self::Filter(_, _) => "Filter".into(),
+            Self::Blend(_) => "Blend".into(),
+            Self::Opacity(_) => "Opacity".into(),
+            Self::Mask(_) => "Mask".into(),
+        }
+    }
+}
+
+/// Returns a human-readable description of a paint.
+#[cfg(debug_assertions)]
+fn paint_name(paint: &Paint, encoded_paints: &[EncodedPaint]) -> String {
+    match paint {
+        Paint::Solid(color) => {
+            let rgba = color.as_premul_rgba8();
+            format!(
+                "Solid(#{:02x}{:02x}{:02x}{:02x})",
+                rgba.r, rgba.g, rgba.b, rgba.a
+            )
+        }
+        Paint::Indexed(idx) => {
+            let index = idx.index();
+            if let Some(encoded) = encoded_paints.get(index) {
+                let kind = match encoded {
+                    EncodedPaint::Gradient(g) => match &g.kind {
+                        crate::encode::EncodedKind::Linear(_) => "LinearGradient",
+                        crate::encode::EncodedKind::Radial(_) => "RadialGradient",
+                        crate::encode::EncodedKind::Sweep(_) => "SweepGradient",
+                    },
+                    EncodedPaint::Image(_) => "Image",
+                    EncodedPaint::BlurredRoundedRect(_) => "BlurredRoundedRect",
+                };
+                format!("{}[{}]", kind, index)
+            } else {
+                format!("Indexed({})", index)
+            }
         }
     }
 }
@@ -1738,6 +1797,7 @@ mod tests {
             Paint::Solid(PremulColor::from_alpha_color(TRANSPARENT)),
             0,
             None,
+            &[],
         );
         wide.fill(
             10,
@@ -1746,6 +1806,7 @@ mod tests {
             Paint::Solid(PremulColor::from_alpha_color(TRANSPARENT)),
             0,
             None,
+            &[],
         );
         wide.pop_buf();
 
@@ -1761,8 +1822,8 @@ mod tests {
 
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf(LayerKind::Regular(0));
-        wide.fill(0, 10, BlendMode::default(), paint.clone(), 0, None);
-        wide.fill(10, 10, BlendMode::default(), paint.clone(), 0, None);
+        wide.fill(0, 10, BlendMode::default(), paint.clone(), 0, None, &[]);
+        wide.fill(10, 10, BlendMode::default(), paint.clone(), 0, None, &[]);
         wide.blend(blend_mode);
         wide.pop_buf();
 
@@ -1778,7 +1839,7 @@ mod tests {
 
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf(LayerKind::Regular(0));
-        wide.fill(0, 10, BlendMode::default(), paint.clone(), 0, None);
+        wide.fill(0, 10, BlendMode::default(), paint.clone(), 0, None, &[]);
         wide.blend(blend_mode);
         wide.pop_buf();
 
