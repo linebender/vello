@@ -4090,6 +4090,8 @@ dependencies = [
  "image",
  "oxipng",
  "pollster",
+ "serde",
+ "serde_json",
  "skrifa 0.37.0",
  "smallvec",
  "vello_api",
