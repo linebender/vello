@@ -6,6 +6,7 @@
 
 //! Proc-macros for testing `vello_cpu` and `vello_hybrid`.
 
+mod api_test;
 mod bench;
 mod test;
 
@@ -75,6 +76,21 @@ impl Parse for Attribute {
 #[proc_macro_attribute]
 pub fn vello_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     vello_test_inner(attr, item)
+}
+
+/// Create a new Vello snapshot test which uses Vello API.
+///
+/// Vello API is our new API which abstracts between the renderers.
+///
+/// See [`test::Arguments`] for documentation of the arguments, which are comma-separated.
+/// Boolean flags are set on their own, and others are in the form of key-value pairs.
+///
+/// ## Example
+///
+/// <!-- TODO -->
+#[proc_macro_attribute]
+pub fn vello_api_test(attr: TokenStream, item: TokenStream) -> TokenStream {
+    api_test::vello_test_inner(attr, item)
 }
 
 /// Create a new Vello benchmark for fine rasterization.
