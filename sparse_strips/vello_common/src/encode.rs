@@ -498,20 +498,19 @@ impl EncodeExt for Image {
         let (x_advance, y_advance) = x_y_advances(&transform);
 
         let encoded = match &self.image {
-            ImageSource::Pixmap(pixmap) => {
-                EncodedImage {
-                    source: ImageSource::Pixmap(pixmap.clone()),
-                    sampler,
-                    // While we could optimize RGB8 images, it's probably not worth the trouble.
-                    has_opacities: true,
-                    transform,
-                    x_advance,
-                    y_advance,
-                }
-            }
+            ImageSource::Pixmap(pixmap) => EncodedImage {
+                source: ImageSource::Pixmap(pixmap.clone()),
+                sampler,
+                has_opacities: pixmap.has_opacities(),
+                transform,
+                x_advance,
+                y_advance,
+            },
             ImageSource::OpaqueId(image) => EncodedImage {
                 source: ImageSource::OpaqueId(*image),
                 sampler,
+                // Safe fallback: we don't have access to pixel data for externally
+                // registered images, so we conservatively assume they have opacities.
                 has_opacities: true,
                 transform,
                 x_advance,
