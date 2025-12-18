@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 #![expect(missing_docs, reason = "This code is incomplete.")]
+#![expect(clippy::result_unit_err, reason = "This code is very experimental.")]
 
 use alloc::{
     sync::{Arc, Weak},
@@ -53,10 +54,11 @@ impl VelloCPU {
         })
     }
 
-    // TODO: Find a signature which works here?
-    // pub fn read_texture(&self, texture: &TextureId) -> Result<&Pixmap, ()> {
-    //     Ok(&self.textures.get(texture).ok_or(())?.pixmap)
-    // }
+    // TODO: IWBN if we could avoid copying this data out (at least on the happy-path).
+    // We could feasibly do some copy-on-write shenanigans, i.e. use `Arc::make_mut` instead of `get_mut`?
+    pub fn read_texture(&self, texture: TextureId) -> Result<Pixmap, ()> {
+        Ok((*self.inner.lock().textures.get(&texture).ok_or(())?.pixmap).clone())
+    }
 }
 
 impl Renderer for VelloCPU {

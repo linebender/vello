@@ -70,12 +70,12 @@ impl VelloHybrid {
         })
     }
     // Minimal API to access the image data. This API has not been carefully designed, and warrants re-examination.
-    pub fn wgpu_texture(&self, texture: &TextureId) -> Result<wgpu::Texture, ()> {
+    pub fn wgpu_texture(&self, texture: TextureId) -> Result<wgpu::Texture, ()> {
         Ok(self
             .inner
             .lock()
             .textures
-            .get(texture)
+            .get(&texture)
             // TODO: Correct error type.
             .ok_or(())?
             .texture
