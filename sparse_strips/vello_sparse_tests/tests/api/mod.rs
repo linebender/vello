@@ -5,14 +5,9 @@
 //!
 //! There are two types of tests in this
 
-use vello_api::PaintScene;
-use vello_dev_macros::vello_api_test;
-
+mod basic;
 mod example;
 mod infra;
-
-#[vello_api_test]
-fn test_name(scene: &mut impl PaintScene, renderer: &dyn vello_api::Renderer) {}
 
 // This message is adapted from https://github.com/linebender/fearless_simd/pull/126
 const UNSUPPORTED_LEVEL_MESSAGE: &str = "This means that some of the other tests in this run may be false positives, that is, they have been marked as succeeding even though they would actually fail if they could run.\n\

@@ -470,7 +470,9 @@ pub(crate) fn check_pixmap_ref(
     let encoded_image = pixmap.into_png().unwrap();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
-    let ref_image = load_from_memory(ref_data.unwrap()).unwrap().into_rgba8();
+    let ref_image = load_from_memory(ref_data.expect("Ref data provided"))
+        .unwrap()
+        .into_rgba8();
 
     let diff_image = get_diff(&ref_image, &actual, threshold, diff_pixels);
     if let Some((ref img, _)) = diff_image {

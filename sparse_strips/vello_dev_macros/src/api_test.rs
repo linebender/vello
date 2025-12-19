@@ -1,6 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! The [`vello_api_test`](crate::vello_api_test) macro, which automatically generates variations of tests for
+//! functions using Vello API.
+
 use crate::{
     Attribute, AttributeInput, DEFAULT_CPU_F32_TOLERANCE, DEFAULT_CPU_U8_TOLERANCE,
     DEFAULT_HYBRID_TOLERANCE, DEFAULT_SIMD_TOLERANCE, parse_int_lit, parse_string_lit,
@@ -39,6 +42,10 @@ struct Arguments {
     /// Whether no reference image should actually be created (for tests that only check
     /// for panics, but are not interested in the actual output).
     no_ref: bool,
+    /// Whether a reference image should be used but not created for this test.
+    ///
+    /// This is used for porting tests from the interim "API" to Vello API.
+    existing_ref: bool,
     /// A reason for ignoring a test.
     ignore_reason: Option<String>,
 }
@@ -56,6 +63,7 @@ impl Default for Arguments {
             skip_hybrid: false,
             no_ref: false,
             diff_pixels: 0,
+            existing_ref: false,
             ignore_reason: None,
         }
     }
@@ -147,7 +155,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         width,
         height,
         cpu_u8_tolerance,
-        mut hybrid_tolerance,
+        hybrid_tolerance,
         transparent,
         skip_cpu,
         skip_multithreaded,
@@ -155,7 +163,12 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         ignore_reason,
         no_ref,
         diff_pixels,
+        existing_ref,
     } = parse_args(&attrs);
+
+    if no_ref && existing_ref {
+        panic!("Setting `no_ref` and `existing_ref` at the same time is meaningless.");
+    }
 
     let params_const = {
         let cpu_u8_scalar_tolerance = cpu_u8_tolerance + DEFAULT_CPU_U8_TOLERANCE;
@@ -322,7 +335,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         f32_fn_name_scalar,
         f32_fn_name_str_scalar,
         &cpu_f32_tolerance_scalar,
-        true,
+        // Only make a reference image if there is already a reference image existing.
+        !existing_ref,
         0,
         quote! {"fallback"},
         skip_cpu,
@@ -496,7 +510,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 },
                 #webgl_fn_name_str,
                 #params_name.hybrid_tolerance,
-                false,
             );
         }
     };
@@ -542,6 +555,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "skip_multithreaded" => args.skip_multithreaded = true,
                     "skip_hybrid" => args.skip_hybrid = true,
                     "no_ref" => args.no_ref = true,
+                    "existing_ref" => args.existing_ref = true,
                     "ignore" => {
                         args.skip_cpu = true;
                         args.skip_multithreaded = true;
