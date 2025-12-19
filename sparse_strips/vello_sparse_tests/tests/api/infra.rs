@@ -12,7 +12,7 @@ use vello_cpu::{
     Level, Pixmap, RenderSettings,
     api::{CPUScenePainter, VelloCPU},
 };
-use vello_hybrid::api::{HybridScenePainter, VelloHybrid};
+use vello_hybrid::api::HybridScenePainter;
 
 use crate::util::check_pixmap_ref;
 
@@ -128,7 +128,7 @@ pub(crate) fn run_test_hybrid_wgpu<M>(
     .expect("Failed to create device");
 
     // Create renderer and render the scene to the texture.
-    let renderer = VelloHybrid::new(
+    let renderer = vello_hybrid::api::VelloHybrid::new(
         &device,
         &queue,
         &vello_hybrid::RenderTargetConfig {
@@ -240,8 +240,8 @@ pub(crate) fn run_test_hybrid_webgl<M>(
     scene_func: impl SceneFunction<HybridScenePainter, M>,
     params: TestParams,
     render_settings: vello_hybrid::RenderSettings,
-    threshold: u8,
     specific_name: &str,
+    threshold: u8,
 ) {
     use wasm_bindgen::JsCast;
     use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
@@ -261,15 +261,9 @@ pub(crate) fn run_test_hybrid_webgl<M>(
 
     let renderer = vello_hybrid::api::VelloHybridWebgl::new(&canvas, render_settings);
 
-    let target = renderer.create_texture(TextureDescriptor {
-        label: Some(params.name),
-        width: params.width,
-        height: params.height,
-        usages: TextureUsages::RENDER_TARGET | TextureUsages::DOWNLOAD_SRC,
-    });
     let mut scene = renderer
         .create_scene(
-            &target.id(),
+            &vello_hybrid::api::VelloHybridWebgl::CANVAS_TEXTURE_ID,
             SceneOptions {
                 target: None,
                 clear_color: (!params.transparent).then_some(Color::WHITE),
@@ -279,7 +273,7 @@ pub(crate) fn run_test_hybrid_webgl<M>(
     scene_func.run(&mut scene, &*renderer);
     renderer.queue_render(scene);
 
-    if params.no_ref {
+    if !params.no_ref {
         let gl = renderer.gl_context();
 
         let width = params.width;

@@ -1,7 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! An example expansion of `#[vello_api_test]`, which makes editing the code of that macro easier.
+//! An example expansion of `#[vello_api_test]`, which makes editing/understanding the code of that macro easier.
+//!
+//! Note that this is not meaningfully a complete test.
 
 use vello_api::{PaintScene, Renderer, peniko::Fill};
 use vello_cpu::{
@@ -12,6 +14,7 @@ use vello_cpu::{
 use crate::api::infra::{self, TestParams};
 
 // #[vello_api_test] on this function expands to everything below
+// Note that the `_renderer` field could be.
 fn my_test(scene: &mut impl PaintScene, _renderer: &dyn Renderer) {
     scene.set_solid_brush(css::BLUE_VIOLET);
     scene.fill_path(
@@ -64,7 +67,7 @@ fn my_test_cpu_u8_scalar() {
         },
         "my_test_cpu_u8_scalar",
         MY_TEST_PARAMS.cpu_u8_scalar_tolerance,
-        true,
+        false,
     );
 }
 
@@ -85,7 +88,8 @@ fn my_test_cpu_f32_scalar() {
         },
         "my_test_cpu_f32_scalar",
         MY_TEST_PARAMS.cpu_f32_scalar_tolerance,
-        false,
+        // This one is the reference image.
+        true,
     );
 }
 

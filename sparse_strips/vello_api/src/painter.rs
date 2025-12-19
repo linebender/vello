@@ -4,7 +4,7 @@
 use core::any::Any;
 
 use peniko::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
-use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
+use peniko::{BlendMode, Brush, Color, Fill};
 
 use crate::scene::{OurBrush, Scene};
 
@@ -69,6 +69,7 @@ pub trait PaintScene: Any {
     // fn push_clip_path(&mut self, path: &kurbo::BezPath);
     // fn pop_clip_path(&mut self);
 
+    // TODO: We need to support a fill rule here for clip paths...
     fn push_layer(
         &mut self,
         clip_transform: Affine,
@@ -80,6 +81,7 @@ pub trait PaintScene: Any {
     );
 
     // TODO: Do we need all of these?
+    // TODO: We need to support a fill rule here...
     fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape) {
         self.push_layer(clip_transform, Some(path), None, None);
     }
