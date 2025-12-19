@@ -569,7 +569,20 @@ fn draw_join(
             let miter_limit = unpack2x16float(style_flags & STYLE_MITER_LIMIT_MASK)[0];
 
             var line_ix: u32;
-            if 2. * hypot < (hypot + d) * miter_limit * miter_limit && cr != 0. {
+            // Given the two tangents `tan_prev` and `tan_next` arranged tail-to-tail, the
+            // miter length ratio is `1 / |cos(theta/2)|`, where `theta` is the angle
+            // between the tangents.
+            //
+            // `hypot` is `|tan_prev| * |tan_next|` (since cr^2 + d^2 = |a|^2 |b|^2) and
+            // `hypot + d` is `2 * |tan_prev| * |tan_next| * cos^2(theta/2)`. After
+            // rearranging, the following tests whether `1/|cos(theta/2)| < miter_limit`.
+            //
+            // Also avoid the miter computation when `cr` is very small; the intersection
+            // math divides by `cr` and becomes numerically unstable for near-collinear
+            // tangents.
+            if 2. * hypot < (hypot + d) * miter_limit * miter_limit
+                && abs(cr) > TANGENT_THRESH * TANGENT_THRESH
+            {
                 let is_backside = cr > 0.;
                 let fp_last = select(front0, back1, is_backside);
                 let fp_this = select(front1, back0, is_backside);

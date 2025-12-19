@@ -22,6 +22,7 @@ This release has an [MSRV][] of 1.88.
 ### Fixed
 
 - Bitmap emoji displayed at an incorrect position when scaled. ([#1273][] by [@ArthurCose][])
+- Miter joins for path segments with near-parallel endpoint tangents no longer cause rendering artifacts. ([#1323][] by [@Cupnfish][] and [@tomcur][])
 
 ## [0.6.0][] - 2025-10-03
 
@@ -270,6 +271,7 @@ This release has an [MSRV][] of 1.75.
 [@ArthurCose]: https://github.com/ArthurCose
 [@armansito]: https://github.com/armansito
 [@cfagot]: https://github.com/cfagot
+[@Cupnfish]: https://github.com/Cupnfish
 [@DasLixou]: https://github.com/DasLixou
 [@dfrg]: https://github.com/drfg
 [@DJMcNab]: https://github.com/DJMcNab
@@ -380,6 +382,7 @@ This release has an [MSRV][] of 1.75.
 [#1229]: https://github.com/linebender/vello/pull/1229
 [#1273]: https://github.com/linebender/vello/pull/1273
 [#1280]: https://github.com/linebender/vello/pull/1280
+[#1323]: https://github.com/linebender/vello/pull/1323
 
 <!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.5.0...HEAD

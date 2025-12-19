@@ -457,7 +457,9 @@ fn draw_join(
             let hypot = cr.hypot(d);
             let miter_limit = f16_to_f32((style_flags & Style::MITER_LIMIT_MASK) as u16);
 
-            if 2. * hypot < (hypot + d) * miter_limit * miter_limit && cr != 0. {
+            if 2. * hypot < (hypot + d) * miter_limit * miter_limit
+                && cr.abs() > TANGENT_THRESH.powi(2)
+            {
                 let is_backside = cr > 0.;
                 let fp_last = if is_backside { back1 } else { front0 };
                 let fp_this = if is_backside { back0 } else { front1 };
