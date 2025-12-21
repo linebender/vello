@@ -26,7 +26,8 @@ impl ReflectionMap {
     /// Create a new `ReflectionMap` given the [`naga`] compile info.
     pub(crate) fn new(info: ReflectionInfo, global_vars: &Arena<GlobalVariable>) -> Self {
         debug_assert_eq!(info.varying.len(), 0, "unimplemented");
-        debug_assert_eq!(info.push_constant_items.len(), 0, "unimplemented");
+        // debug_assert_eq!(info.push_constant_items.len(), 0, "unimplemented");
+        debug_assert_eq!(info.immediates_items.len(), 0, "unimplemented");
         let mut texture_mapping = BTreeMap::default();
         let mut uniforms = BTreeMap::default();
 
