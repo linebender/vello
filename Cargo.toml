@@ -129,8 +129,23 @@ vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
 
 # NOTE: The wgpu and naga versions should be kept in sync, and make sure to keep this
 # in sync with the version badge in README.md and vello/README.md
-wgpu = { version = "28.0.0", default-features = false, features = ["std", "wgsl"] }
-naga = { version = "28.0.0", default-features = false }
+wgpu_27 = { package = "wgpu", version = "27.0.1", default-features = false, features = [
+    "std",
+    "wgsl",
+] }
+naga_27 = { package = "naga", version = "27.0.0", default-features = false }
+wgpu_profiler_27 = { package = "wgpu-profiler", version = "0.25.0" }
+
+# NOTE: The wgpu and naga versions should be kept in sync, and make sure to keep this
+# in sync with the version badge in README.md and vello/README.md
+wgpu_28 = { package = "wgpu", version = "28.0.0", default-features = false, features = [
+    "std",
+    "wgsl",
+] }
+naga_28 = { package = "naga", version = "28.0.0", default-features = false }
+# https://github.com/Wumpf/wgpu-profiler/pull/103
+wgpu_profiler_28 = { package = "wgpu-profiler", git = "https://github.com/Wumpf/wgpu-profiler", rev = "a50f97d1838117c5b48ad268ece06c50c7d94120" }
+
 log = "0.4.27"
 image = { version = "0.25.6", default-features = false }
 
@@ -139,8 +154,6 @@ clap = "4.5.38"
 anyhow = "1.0.98"
 pollster = "0.4.0"
 web-time = "1.1.0"
-# https://github.com/Wumpf/wgpu-profiler/pull/103
-wgpu-profiler = { git = "https://github.com/Wumpf/wgpu-profiler", rev = "a50f97d1838117c5b48ad268ece06c50c7d94120" }
 winit = "0.30.10"
 scenes = { path = "examples/scenes" }
 svg = "0.18.0"

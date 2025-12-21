@@ -5,10 +5,14 @@
 
 use std::future::Future;
 
+use crate::wgpu;
 use wgpu::{
     Adapter, Device, Instance, Limits, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
     Texture, TextureFormat, TextureView, util::TextureBlitter,
 };
+
+#[cfg(feature = "wgpu-profiler")]
+use crate::wgpu_profiler;
 
 use crate::{Error, Result};
 

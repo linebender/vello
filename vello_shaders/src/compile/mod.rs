@@ -1,6 +1,8 @@
 // Copyright 2023 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use naga_28 as naga;
+
 use naga::front::wgsl;
 use naga::valid::{Capabilities, ModuleInfo, ValidationError, ValidationFlags};
 use naga::{AddressSpace, ArraySize, ImageClass, Module, StorageAccess, WithSpan};

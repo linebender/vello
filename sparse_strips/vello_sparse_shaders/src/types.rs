@@ -8,6 +8,7 @@
     reason = "False positives as this module is used at build time."
 )]
 
+use crate::naga;
 use naga::{Arena, GlobalVariable, back::glsl::ReflectionInfo};
 use std::collections::BTreeMap;
 

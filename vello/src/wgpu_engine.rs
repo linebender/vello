@@ -6,11 +6,15 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
+use crate::wgpu;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, CommandEncoder, CommandEncoderDescriptor,
     ComputePassDescriptor, ComputePipeline, Device, PipelineCache, PipelineCompilationOptions,
     Queue, Texture, TextureAspect, TextureUsages, TextureView, TextureViewDimension,
 };
+
+#[cfg(feature = "wgpu-profiler")]
+use crate::wgpu_profiler;
 
 use crate::{
     Error, Result,
@@ -863,8 +867,10 @@ impl WgpuEngine {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
                 bind_group_layouts: &[&bind_group_layout],
+                #[cfg(feature = "wgpu_27")]
+                push_constant_ranges: &[],
+                #[cfg(feature = "wgpu_28")]
                 immediate_size: 0,
-                // push_constant_ranges: &[],
             });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some(label),
