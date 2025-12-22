@@ -5,6 +5,7 @@
 
 use crate::renderer::Renderer;
 use image::{Rgba, RgbaImage, load_from_memory};
+use serde::Serializer;
 use skrifa::MetadataProvider;
 use skrifa::raw::FileRef;
 use smallvec::smallvec;
@@ -41,11 +42,27 @@ pub(crate) struct PixelDiff {
     /// The y coordinate of the differing pixel.
     pub y: u32,
     /// The RGBA values from the reference image.
+    #[serde(serialize_with = "hex_string")]
     pub reference: [u8; 4],
     /// The RGBA values from the actual image.
+    #[serde(serialize_with = "hex_string")]
     pub actual: [u8; 4],
     /// Per-channel difference (actual - reference) as signed values.
     pub difference: [i16; 4],
+}
+
+/// Serialize a [`[u8; 4]`](primitive@core::array) pixel as a hex string through serde.
+///
+/// E.g. `[0, 255, 0, 255]` becomes #00ff00. Notice that the alpha is not included if fully opaque.
+fn hex_string<S>([r, g, b, a]: &[u8; 4], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if *a != 255 {
+        serializer.collect_str(&format_args!("#{r:02x}{g:02x}{b:02x}{a:02x}"))
+    } else {
+        serializer.collect_str(&format_args!("#{r:02x}{g:02x}{b:02x}"))
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
