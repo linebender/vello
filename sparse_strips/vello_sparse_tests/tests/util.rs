@@ -381,7 +381,11 @@ pub(crate) fn check_ref(
         let json_data = serde_json::to_string_pretty(&report).unwrap();
         std::fs::write(&json_path, json_data).unwrap();
 
-        panic!("test didnt match reference image");
+        panic!(
+            "test didn't match reference image\n  diff image: {}\n  diff report: {}",
+            diff_path.display(),
+            json_path.display()
+        );
     }
 }
 
