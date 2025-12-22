@@ -4,6 +4,7 @@
 //! Full scene rendering benchmarks.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use criterion::Criterion;
 use vello_common::kurbo::{Affine, Rect};
@@ -16,6 +17,7 @@ use vello_cpu::RenderContext;
 /// Image scene rendering benchmark.
 pub fn images(c: &mut Criterion) {
     let mut g = c.benchmark_group("images");
+    g.measurement_time(Duration::from_secs(10));
 
     let flower_image = load_flower_image();
 
@@ -71,26 +73,32 @@ fn load_flower_image() -> ImageSource {
     let height = image.height();
     let rgba_data = image.into_rgba8().into_vec();
 
+    let mut has_opacities = false;
     #[expect(
         clippy::cast_possible_truncation,
-        reason = "Image dimensions fit in u16"
+        reason = "u16 * u8 / 255 fits in u8, image dimensions fit in u16"
     )]
-    let pixmap = Pixmap::from_parts(
+    let pixmap = Pixmap::from_parts_with_opacity(
         rgba_data
             .chunks_exact(4)
             .map(|rgba| {
-                let alpha = u16::from(rgba[3]);
-                let premultiply = |component| (alpha * u16::from(component) / 255) as u8;
+                let alpha = rgba[3];
+                if alpha != 255 {
+                    has_opacities = true;
+                }
+                let alpha_u16 = u16::from(alpha);
+                let premultiply = |component| (alpha_u16 * u16::from(component) / 255) as u8;
                 vello_common::color::PremulRgba8 {
                     r: premultiply(rgba[0]),
                     g: premultiply(rgba[1]),
                     b: premultiply(rgba[2]),
-                    a: alpha as u8,
+                    a: alpha,
                 }
             })
             .collect(),
         width as u16,
         height as u16,
+        has_opacities,
     );
 
     ImageSource::Pixmap(Arc::new(pixmap))
