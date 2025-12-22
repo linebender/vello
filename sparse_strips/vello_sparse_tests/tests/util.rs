@@ -21,6 +21,33 @@ use vello_cpu::{Level, RenderMode};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
+/// Aggregate diff report with statistics and individual pixel differences.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct DiffReport {
+    /// Total number of pixels that differ.
+    pub pixel_count: usize,
+    /// Maximum absolute difference per channel [R, G, B, A].
+    pub max_difference: [i16; 4],
+    /// Individual pixel differences.
+    pub pixels: Vec<PixelDiff>,
+}
+
+/// Represents a single pixel difference between reference and actual images.
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct PixelDiff {
+    /// The x coordinate of the differing pixel.
+    pub x: u32,
+    /// The y coordinate of the differing pixel.
+    pub y: u32,
+    /// The RGBA values from the reference image.
+    pub reference: [u8; 4],
+    /// The RGBA values from the actual image.
+    pub actual: [u8; 4],
+    /// Per-channel difference (actual - reference) as signed values.
+    pub difference: [i16; 4],
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 static REFS_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/snapshots")
@@ -321,9 +348,9 @@ pub(crate) fn check_ref(
         .into_rgba8();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
-    let diff_image = get_diff(&ref_image, &actual, threshold, diff_pixels);
+    let diff_result = get_diff(&ref_image, &actual, threshold, diff_pixels);
 
-    if let Some(diff_image) = diff_image {
+    if let Some((diff_image, diff_data)) = diff_result {
         if should_replace() && is_reference {
             write_ref_image();
             panic!("test was replaced");
@@ -338,7 +365,27 @@ pub(crate) fn check_ref(
             .save_with_format(&diff_path, image::ImageFormat::Png)
             .unwrap();
 
-        panic!("test didnt match reference image");
+        // Save diff data as JSON
+        let json_path = DIFFS_PATH.join(format!("{specific_name}.json"));
+        let max_difference: [i16; 4] = diff_data.iter().fold([0; 4], |mut max, p| {
+            for (m, d) in max.iter_mut().zip(&p.difference) {
+                *m = (*m).max(d.abs());
+            }
+            max
+        });
+        let report = DiffReport {
+            pixel_count: diff_data.len(),
+            max_difference,
+            pixels: diff_data,
+        };
+        let json_data = serde_json::to_string_pretty(&report).unwrap();
+        std::fs::write(&json_path, json_data).unwrap();
+
+        panic!(
+            "test didn't match reference image\n  diff image: {}\n  diff report: {}",
+            diff_path.display(),
+            json_path.display()
+        );
     }
 }
 
@@ -365,7 +412,7 @@ pub(crate) fn check_ref(
     let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
 
     let diff_image = get_diff(&ref_image, &actual, threshold, diff_pixels);
-    if let Some(ref img) = diff_image {
+    if let Some((ref img, _)) = diff_image {
         append_diff_image_to_browser_document(specific_name, img);
         panic!("test didn't match reference image. Scroll to bottom of browser to view diff.");
     }
@@ -445,11 +492,12 @@ fn get_diff(
     actual_image: &RgbaImage,
     threshold: u8,
     diff_pixels: u16,
-) -> Option<RgbaImage> {
+) -> Option<(RgbaImage, Vec<PixelDiff>)> {
     let width = max(expected_image.width(), actual_image.width());
     let height = max(expected_image.height(), actual_image.height());
 
     let mut diff_image = RgbaImage::new(width * 3, height);
+    let mut diff_data = Vec::new();
 
     let mut pixel_diff = 0;
 
@@ -465,6 +513,18 @@ fn get_diff(
                     if is_pix_diff(expected, actual, threshold) {
                         pixel_diff += 1;
                         diff_image.put_pixel(x + width, y, Rgba([255, 0, 0, 255]));
+                        diff_data.push(PixelDiff {
+                            x,
+                            y,
+                            reference: expected.0,
+                            actual: actual.0,
+                            difference: [
+                                i16::from(actual.0[0]) - i16::from(expected.0[0]),
+                                i16::from(actual.0[1]) - i16::from(expected.0[1]),
+                                i16::from(actual.0[2]) - i16::from(expected.0[2]),
+                                i16::from(actual.0[3]) - i16::from(expected.0[3]),
+                            ],
+                        });
                     } else {
                         diff_image.put_pixel(x + width, y, Rgba([0, 0, 0, 255]));
                     }
@@ -473,23 +533,54 @@ fn get_diff(
                     pixel_diff += 1;
                     diff_image.put_pixel(x + 2 * width, y, *actual);
                     diff_image.put_pixel(x + width, y, Rgba([255, 0, 0, 255]));
+                    diff_data.push(PixelDiff {
+                        x,
+                        y,
+                        reference: [0, 0, 0, 0],
+                        actual: actual.0,
+                        difference: [
+                            i16::from(actual.0[0]),
+                            i16::from(actual.0[1]),
+                            i16::from(actual.0[2]),
+                            i16::from(actual.0[3]),
+                        ],
+                    });
                 }
                 (None, Some(expected)) => {
                     pixel_diff += 1;
                     diff_image.put_pixel(x, y, *expected);
                     diff_image.put_pixel(x + width, y, Rgba([255, 0, 0, 255]));
+                    diff_data.push(PixelDiff {
+                        x,
+                        y,
+                        reference: expected.0,
+                        actual: [0, 0, 0, 0],
+                        difference: [
+                            -i16::from(expected.0[0]),
+                            -i16::from(expected.0[1]),
+                            -i16::from(expected.0[2]),
+                            -i16::from(expected.0[3]),
+                        ],
+                    });
                 }
                 _ => {
                     pixel_diff += 1;
                     diff_image.put_pixel(x, y, Rgba([255, 0, 0, 255]));
                     diff_image.put_pixel(x + width, y, Rgba([255, 0, 0, 255]));
+                    diff_data.push(PixelDiff {
+                        x,
+                        y,
+                        reference: [0, 0, 0, 0],
+                        actual: [0, 0, 0, 0],
+                        difference: [0, 0, 0, 0],
+                    });
                 }
             }
         }
     }
 
     if pixel_diff > diff_pixels {
-        Some(diff_image)
+        Some((diff_image, diff_data))
     } else {
         None
     }
