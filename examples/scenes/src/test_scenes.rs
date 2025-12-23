@@ -769,7 +769,7 @@ mod impls {
             &rect,
         );
         let alpha = params.time.sin() as f32 * 0.5 + 0.5;
-        scene.push_layer(Mix::Normal, alpha, Affine::IDENTITY, &rect);
+        scene.push_layer(Fill::NonZero, Mix::Normal, alpha, Affine::IDENTITY, &rect);
         scene.fill(
             Fill::NonZero,
             Affine::translate((100.0, 100.0)) * Affine::scale(0.2),
@@ -1125,6 +1125,7 @@ mod impls {
         let mut depth = 0;
         for (width, color) in &options[..params.complexity.min(options.len() - 1)] {
             scene.push_layer(
+                Fill::NonZero,
                 Mix::Normal,
                 0.9,
                 Affine::IDENTITY,
@@ -1152,7 +1153,7 @@ mod impls {
                 const CLIPS_PER_FILL: usize = 3;
                 for _ in 0..CLIPS_PER_FILL {
                     let rot = Affine::rotate(rng.random_range(0.0..PI));
-                    scene.push_clip_layer(translate * rot, &base_tri);
+                    scene.push_clip_layer(Fill::NonZero, translate * rot, &base_tri);
                 }
                 let rot = Affine::rotate(rng.random_range(0.0..PI));
                 let color = Color::new([rng.random(), rng.random(), rng.random(), 1.]);
@@ -1212,7 +1213,7 @@ mod impls {
                 PathEl::LineTo((X0, Y1).into()),
                 PathEl::ClosePath,
             ];
-            scene.push_clip_layer(Affine::IDENTITY, &path);
+            scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &path);
         }
         let rect = Rect::new(X0, Y0, X1, Y1);
         scene.fill(
@@ -1243,7 +1244,11 @@ mod impls {
             None,
             &make_diamond(1024.0, 125.0),
         );
-        scene.push_clip_layer(Affine::IDENTITY, &make_diamond(1024.0, 150.0));
+        scene.push_clip_layer(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            &make_diamond(1024.0, 150.0),
+        );
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -1271,11 +1276,11 @@ mod impls {
             scene.fill(Fill::NonZero, transform, &radial, None, &rect);
         }
         const COLORS: &[Color] = &[palette::css::RED, palette::css::LIME, palette::css::BLUE];
-        scene.push_layer(Mix::Normal, 1.0, transform, &rect);
+        scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, transform, &rect);
         for (i, c) in COLORS.iter().enumerate() {
             let linear = Gradient::new_linear((0.0, 0.0), (0.0, 200.0))
                 .with_stops([palette::css::WHITE, *c]);
-            scene.push_layer(blend, 1.0, transform, &rect);
+            scene.push_layer(Fill::NonZero, blend, 1.0, transform, &rect);
             // squash the ellipse
             let a = transform
                 * Affine::translate((100., 100.))
@@ -1579,7 +1584,7 @@ mod impls {
                 PathEl::ClosePath,
             ]
         };
-        scene.push_clip_layer(Affine::IDENTITY, &clip);
+        scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &clip);
         {
             let text_size = 60.0 + 40.0 * (params.time as f32).sin();
             let s = "Some clipped text!";
@@ -1594,6 +1599,80 @@ mod impls {
         }
         scene.pop_layer();
 
+        // Even-odd clip-layer demo: a self-intersecting star ("pentagram") has different results
+        // under non-zero vs even-odd fill rules (even-odd produces a hole).
+        let demo_rect = Rect::new(250.0, 20.0, 450.0, 220.0);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            palette::css::BLUE,
+            None,
+            &demo_rect,
+        );
+        let mut star = BezPath::new();
+        let center = Point::new(350.0, 120.0);
+        let outer_r = 90.0;
+        let start_angle = -std::f64::consts::FRAC_PI_2;
+        let pts: [Point; 5] = core::array::from_fn(|i| {
+            let a = start_angle + (i as f64) * (2.0 * std::f64::consts::PI / 5.0);
+            center + Vec2::new(a.cos() * outer_r, a.sin() * outer_r)
+        });
+        let order = [0_usize, 2, 4, 1, 3];
+        star.move_to(pts[order[0]]);
+        for &idx in &order[1..] {
+            star.line_to(pts[idx]);
+        }
+        star.close_path();
+
+        scene.push_clip_layer(Fill::EvenOdd, Affine::IDENTITY, &star);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            palette::css::RED,
+            None,
+            &demo_rect,
+        );
+        scene.pop_layer();
+
+        // Stroke clip demo: clip to the stroked outline of a path.
+        let stroke_demo_rect = Rect::new(250.0, 240.0, 450.0, 440.0);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            palette::css::SLATE_GRAY,
+            None,
+            &stroke_demo_rect,
+        );
+        let mut stroke_star = BezPath::new();
+        let center = Point::new(350.0, 340.0);
+        let outer_r = 85.0;
+        let start_angle = -std::f64::consts::FRAC_PI_2;
+        let pts: [Point; 5] = core::array::from_fn(|i| {
+            let a = start_angle + (i as f64) * (2.0 * std::f64::consts::PI / 5.0);
+            center + Vec2::new(a.cos() * outer_r, a.sin() * outer_r)
+        });
+        let order = [0_usize, 2, 4, 1, 3];
+        stroke_star.move_to(pts[order[0]]);
+        for &idx in &order[1..] {
+            stroke_star.line_to(pts[idx]);
+        }
+        stroke_star.close_path();
+        let mut stroke = Stroke::new(18.0);
+        stroke.join = Join::Round;
+        stroke.start_cap = Cap::Round;
+        stroke.end_cap = Cap::Round;
+        scene.push_clip_layer(&stroke, Affine::IDENTITY, &stroke_star);
+        let grad = Gradient::new_linear((250.0, 240.0), (450.0, 440.0))
+            .with_stops([palette::css::MAGENTA, palette::css::CYAN]);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            &grad,
+            None,
+            &stroke_demo_rect,
+        );
+        scene.pop_layer();
+
         let large_background_rect = Rect::new(-1000.0, -1000.0, 2000.0, 2000.0);
         let inside_clip_rect = Rect::new(11.0, 13.399999999999999, 59.0, 56.6);
         let outside_clip_rect = Rect::new(
@@ -1606,6 +1685,7 @@ mod impls {
         let scale = 2.0;
 
         scene.push_layer(
+            Fill::NonZero,
             BlendMode {
                 mix: Mix::Normal,
                 compose: Compose::SrcOver,
@@ -1926,6 +2006,7 @@ mod impls {
             },
         );
         scene.push_layer(
+            Fill::NonZero,
             BlendMode::new(Mix::Normal, Compose::SrcOver),
             1.0,
             Affine::IDENTITY,
@@ -1949,6 +2030,7 @@ mod impls {
             },
         );
         scene.push_luminance_mask_layer(
+            Fill::NonZero,
             1.0,
             Affine::IDENTITY,
             &Rect {
@@ -1993,6 +2075,7 @@ mod impls {
             .unwrap();
         // HACK: Porter-Duff "over" the base color, restoring full alpha
         scene.push_layer(
+            Fill::NonZero,
             BlendMode::new(Mix::Normal, Compose::SrcOver),
             1.0,
             Affine::IDENTITY,
@@ -2028,6 +2111,7 @@ mod impls {
             },
         );
         scene.push_luminance_mask_layer(
+            Fill::NonZero,
             1.0,
             Affine::IDENTITY,
             &Rect {

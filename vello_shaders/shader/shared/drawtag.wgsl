@@ -23,7 +23,7 @@ const DRAWTAG_FILL_RAD_GRADIENT = 0x29cu;
 const DRAWTAG_FILL_SWEEP_GRADIENT = 0x254u;
 const DRAWTAG_FILL_IMAGE = 0x28Cu;
 const DRAWTAG_BLURRED_ROUNDED_RECT = 0x2d4u;
-const DRAWTAG_BEGIN_CLIP = 0x9u;
+const DRAWTAG_BEGIN_CLIP = 0x49u;
 const DRAWTAG_END_CLIP = 0x21u;
 
 /// The first word of each draw info stream entry contains the flags. This is not a part of the

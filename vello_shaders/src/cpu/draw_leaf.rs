@@ -191,7 +191,9 @@ fn draw_leaf_main(
                         info[di + 9] = scene[dd as usize + 3];
                         info[di + 10] = scene[dd as usize + 4];
                     }
-                    DrawTag::BEGIN_CLIP => (),
+                    DrawTag::BEGIN_CLIP => {
+                        info[di] = draw_flags;
+                    }
                     _ => todo!("unhandled draw tag {:x}", tag_word.0),
                 }
             }
