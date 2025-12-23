@@ -46,7 +46,7 @@ use winit::window::{Window, WindowAttributes};
 
 use vello::wgpu::{self, PipelineCache};
 
-#[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_env = "ohos")))]
 mod hot_reload;
 mod minimal_pipeline_cache;
 mod multi_touch;
@@ -106,12 +106,12 @@ struct RenderState {
     window: Arc<Window>,
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 // TODO: Make this set configurable through the command line
 // Alternatively, load anti-aliasing shaders on demand/asynchronously
 const AA_CONFIGS: [AaConfig; 3] = [AaConfig::Area, AaConfig::Msaa8, AaConfig::Msaa16];
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_env = "ohos"))]
 // Hard code to only one on Android whilst we are working on startup speed
 const AA_CONFIGS: [AaConfig; 1] = [AaConfig::Area];
 
@@ -691,8 +691,8 @@ impl ApplicationHandler<UserEvent> for VelloApp {
     }
 
     fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
+        #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_env = "ohos")))]
         match event {
-            #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
             UserEvent::HotReload => {
                 let Some(render_state) = &mut self.state else {
                     return;
@@ -863,6 +863,13 @@ fn run(
         cache_data,
     };
 
+    #[cfg(target_env = "ohos")]
+    {
+        let app = Box::leak(Box::new(app));
+        event_loop.run_app(app).expect("run to completion");
+    }
+
+    #[cfg(not(target_env = "ohos"))]
     event_loop.run_app(&mut app).expect("run to completion");
 }
 
@@ -897,7 +904,7 @@ fn window_attributes() -> WindowAttributes {
 
 #[derive(Debug)]
 enum UserEvent {
-    #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+    #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_env = "ohos")))]
     HotReload,
 }
 
@@ -923,7 +930,7 @@ fn display_error_message() -> Option<()> {
 }
 
 /// Entry point.
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 pub fn main() -> anyhow::Result<()> {
     // TODO: initializing both env_logger and console_logger fails on wasm.
     // Figure out a more principled approach.
@@ -1073,4 +1080,25 @@ fn test_kurbo_schemars_with_peniko() {
     use std::marker::PhantomData;
     #[expect(unused_qualifications)]
     let _: PhantomData<kurbo::Rect> = PhantomData::<vello::peniko::kurbo::Rect>;
+}
+
+#[cfg(target_env = "ohos")]
+use openharmony_ability::OpenHarmonyApp;
+#[cfg(target_env = "ohos")]
+use winit::platform::ohos::EventLoopBuilderExtOpenHarmony;
+#[cfg(target_env = "ohos")]
+use openharmony_ability_derive::ability;
+
+#[cfg(target_env = "ohos")]
+#[ability]
+pub fn openharmony_main(app: OpenHarmonyApp) {
+    let event_loop = EventLoop::with_user_event()
+        .with_openharmony_app(app)
+        .build()
+        .expect("Required to continue");
+    let args = parse_arguments();
+    let scenes = args.args.select_scene_set().unwrap().unwrap();
+    let render_cx = RenderContext::new();
+
+    run(event_loop, args, scenes, render_cx);
 }
