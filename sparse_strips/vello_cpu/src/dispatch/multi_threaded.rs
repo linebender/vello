@@ -394,15 +394,15 @@ impl MultiThreadedDispatcher {
                 fine.clear(wtile.bg);
                 for cmd in &wtile.cmds {
                     let thread_idx = match cmd {
-                        Cmd::AlphaFill(a) => Some(a.thread_idx),
-                        Cmd::ClipStrip(a) => Some(a.thread_idx),
+                        Cmd::AlphaFill(a) => Some(wide.props.fill[a.props_idx as usize].thread_idx),
+                        Cmd::ClipStrip(a) => Some(wide.props.clip[a.props_idx as usize].thread_idx),
                         _ => None,
                     };
 
                     let alphas = thread_idx
                         .map(|i| alpha_slots[i as usize].as_slice())
                         .unwrap_or(&[]);
-                    fine.run_cmd(cmd, alphas, encoded_paints);
+                    fine.run_cmd(cmd, alphas, encoded_paints, &wide.props);
                 }
 
                 fine.pack(region);

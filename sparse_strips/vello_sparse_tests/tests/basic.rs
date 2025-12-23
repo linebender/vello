@@ -444,13 +444,13 @@ fn test_cmd_size(_: &mut impl Renderer) {
     #[cfg(target_pointer_width = "64")]
     assert_eq!(
         size_of::<Cmd>(),
-        48,
+        16,
         "size of a command didn't match the expected value"
     );
     #[cfg(target_pointer_width = "32")]
     assert_eq!(
         size_of::<Cmd>(),
-        40,
+        16,
         "size of a command didn't match the expected value"
     );
 }

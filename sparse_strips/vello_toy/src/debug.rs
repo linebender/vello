@@ -310,7 +310,9 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
                 Cmd::AlphaFill(s) => {
                     for x in 0..s.width {
                         for y in 0..Tile::HEIGHT {
-                            let alpha = alphas[s.alpha_idx
+                            // Since we only draw one path, we can use alpha offset
+                            // directly, since the absolute offset is 0.
+                            let alpha = alphas[s.alpha_offset as usize
                                 + usize::from(x) * usize::from(Tile::HEIGHT)
                                 + usize::from(y)];
 
