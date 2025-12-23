@@ -19,6 +19,12 @@
     "msaa16",
     "msaa"
   ],
+  "[json]": {
+    // Show a colour preview in the diff reports.
+    // The diff reports (and the trace.json dump from wgpu-profiler) are the only instances of
+    // JSON files in this repository, so it's fairly low risk.
+    "editor.defaultColorDecorators": "always",
+  },
   // These settings can be set to get Rust-analyzer working for Android compilation
   // (unfortunately you need to do the variable expansion manually, because 
   // rust-analyzer doesn't do this for us)
