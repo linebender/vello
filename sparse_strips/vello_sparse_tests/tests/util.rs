@@ -41,13 +41,15 @@ pub(crate) struct PixelDiff {
     pub x: u32,
     /// The y coordinate of the differing pixel.
     pub y: u32,
-    /// The RGBA values from the reference image.
+    /// The RGBA values from the target image (i.e. the saved reference).
+    // Note that this field name is chosen to be the same length as `actual`
+    // That makes it easier to compare the results in the printed JSON.
     #[serde(serialize_with = "hex_string")]
-    pub reference: [u8; 4],
+    pub target: [u8; 4],
     /// The RGBA values from the actual image.
     #[serde(serialize_with = "hex_string")]
     pub actual: [u8; 4],
-    /// Per-channel difference (actual - reference) as signed values.
+    /// Per-channel difference (actual - target) as signed values.
     pub difference: [i16; 4],
 }
 
@@ -533,7 +535,7 @@ fn get_diff(
                         diff_data.push(PixelDiff {
                             x,
                             y,
-                            reference: expected.0,
+                            target: expected.0,
                             actual: actual.0,
                             difference: [
                                 i16::from(actual.0[0]) - i16::from(expected.0[0]),
@@ -553,7 +555,7 @@ fn get_diff(
                     diff_data.push(PixelDiff {
                         x,
                         y,
-                        reference: [0, 0, 0, 0],
+                        target: [0, 0, 0, 0],
                         actual: actual.0,
                         difference: [
                             i16::from(actual.0[0]),
@@ -570,7 +572,7 @@ fn get_diff(
                     diff_data.push(PixelDiff {
                         x,
                         y,
-                        reference: expected.0,
+                        target: expected.0,
                         actual: [0, 0, 0, 0],
                         difference: [
                             -i16::from(expected.0[0]),
@@ -587,7 +589,7 @@ fn get_diff(
                     diff_data.push(PixelDiff {
                         x,
                         y,
-                        reference: [0, 0, 0, 0],
+                        target: [0, 0, 0, 0],
                         actual: [0, 0, 0, 0],
                         difference: [0, 0, 0, 0],
                     });
