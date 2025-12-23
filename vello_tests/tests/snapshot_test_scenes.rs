@@ -100,6 +100,14 @@ fn snapshot_many_clips() {
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
+fn snapshot_clip_test() {
+    let test_scene = test_scenes::clip_test();
+    let params = TestParams::new("clip_test", 512, 512);
+    snapshot_test_scene(test_scene, params);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn snapshot_blurred_rounded_rect() {
     let test_scene = test_scenes::blurred_rounded_rect();
     let params = TestParams::new("blurred_rounded_rect", 400, 400);

@@ -97,6 +97,7 @@ fn test_layer_size() {
         &Rect::from_origin_size((20.0, 20.0), (20., 20.)),
     );
     scene.push_layer(
+        vello::peniko::Fill::NonZero,
         vello::peniko::Compose::Clear,
         1.0,
         vello::kurbo::Affine::IDENTITY,
@@ -205,8 +206,14 @@ fn clip_blends() {
         &Rect::from_origin_size((0., 0.), (100., 100.)),
     );
     let layer_shape = Triangle::from_coords((50., 0.), (0., 100.), (100., 100.));
-    scene.push_clip_layer(Affine::IDENTITY, &layer_shape);
-    scene.push_layer(Mix::Multiply, 1.0, Affine::IDENTITY, &layer_shape);
+    scene.push_clip_layer(vello::peniko::Fill::NonZero, Affine::IDENTITY, &layer_shape);
+    scene.push_layer(
+        vello::peniko::Fill::NonZero,
+        Mix::Multiply,
+        1.0,
+        Affine::IDENTITY,
+        &layer_shape,
+    );
     scene.fill(
         vello::peniko::Fill::EvenOdd,
         Affine::IDENTITY,

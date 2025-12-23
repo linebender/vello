@@ -131,6 +131,9 @@ fn main(
                 case DRAWTAG_FILL_COLOR: {
                     info[di] = draw_flags;
                 }
+                case DRAWTAG_BEGIN_CLIP: {
+                    info[di] = draw_flags;
+                }
                 case DRAWTAG_FILL_LIN_GRADIENT: {
                     info[di] = draw_flags;
                     var p0 = bitcast<vec2<f32>>(vec2(scene[dd + 1u], scene[dd + 2u]));

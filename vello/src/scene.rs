@@ -82,6 +82,11 @@ impl Scene {
     /// Pushes a new layer clipped by the specified shape and composed with
     /// previous layers using the specified blend mode.
     ///
+    /// The `clip_style` controls how the `clip` shape is interpreted.
+    ///
+    /// - Use [`Fill`] to clip to the interior of the shape, with the chosen fill rule.
+    /// - Use [`Stroke`] (via `&Stroke`) to clip to the stroked outline of the shape.
+    ///
     /// Every drawing command after this call will be clipped by the shape
     /// until the layer is [popped](Self::pop_layer).
     /// For layers which are only added for clipping, you should
@@ -90,9 +95,14 @@ impl Scene {
     /// **However, the transforms are *not* saved or modified by the layer stack.**
     /// That is, the `transform` argument to this function only applies a transform to the `clip` shape.
     #[expect(deprecated, reason = "Provided by the user, need to handle correctly.")]
+    #[expect(
+        single_use_lifetimes,
+        reason = "False positive: https://github.com/rust-lang/rust/issues/129255"
+    )]
     #[track_caller]
-    pub fn push_layer(
+    pub fn push_layer<'a>(
         &mut self,
+        clip_style: impl Into<StyleRef<'a>>,
         blend: impl Into<BlendMode>,
         alpha: f32,
         transform: Affine,
@@ -107,6 +117,7 @@ impl Scene {
         }
         self.push_layer_inner(
             DrawBeginClip::new(blend, alpha.clamp(0.0, 1.0)),
+            clip_style.into(),
             transform,
             clip,
         );
@@ -117,6 +128,11 @@ impl Scene {
     ///
     /// That is, content drawn between this and the matching `pop_layer` call will serve
     /// as a luminance mask for the prior content in this layer.
+    ///
+    /// The `clip_style` controls how the `clip` shape is interpreted.
+    ///
+    /// - Use [`Fill`] to clip to the interior of the shape, with the chosen fill rule.
+    /// - Use [`Stroke`] (via `&Stroke`) to clip to the stroked outline of the shape.
     ///
     /// Every drawing command after this call will be clipped by the shape
     /// until the layer is [popped](Self::pop_layer).
@@ -135,15 +151,31 @@ impl Scene {
     /// This issue only occurs if there are no intermediate opaque layers, so can be worked around
     /// by drawing something opaque (or having an opaque `base_color`), then putting a layer around your entire scene
     /// with a [`Compose::SrcOver`].
-    pub fn push_luminance_mask_layer(&mut self, alpha: f32, transform: Affine, clip: &impl Shape) {
+    #[expect(
+        single_use_lifetimes,
+        reason = "False positive: https://github.com/rust-lang/rust/issues/129255"
+    )]
+    pub fn push_luminance_mask_layer<'a>(
+        &mut self,
+        clip_style: impl Into<StyleRef<'a>>,
+        alpha: f32,
+        transform: Affine,
+        clip: &impl Shape,
+    ) {
         self.push_layer_inner(
             DrawBeginClip::luminance_mask(alpha.clamp(0.0, 1.0)),
+            clip_style.into(),
             transform,
             clip,
         );
     }
 
     /// Pushes a new layer clipped by the specified `clip` shape.
+    ///
+    /// The `clip_style` controls how the `clip` shape is interpreted.
+    ///
+    /// - Use [`Fill`] to clip to the interior of the shape, with the chosen fill rule.
+    /// - Use [`Stroke`] (via `&Stroke`) to clip to the stroked outline of the shape.
     ///
     /// The pushed layer is intended to not impact the "source" for blending; that is, any blends
     /// within this layer will still include content from before this method was called in the "source"
@@ -157,21 +189,55 @@ impl Scene {
     ///
     /// **However, the transforms are *not* saved or modified by the layer stack.**
     /// That is, the `transform` argument to this function only applies a transform to the `clip` shape.
-    pub fn push_clip_layer(&mut self, transform: Affine, clip: &impl Shape) {
-        self.push_layer_inner(DrawBeginClip::clip(), transform, clip);
+    #[expect(
+        single_use_lifetimes,
+        reason = "False positive: https://github.com/rust-lang/rust/issues/129255"
+    )]
+    pub fn push_clip_layer<'a>(
+        &mut self,
+        clip_style: impl Into<StyleRef<'a>>,
+        transform: Affine,
+        clip: &impl Shape,
+    ) {
+        self.push_layer_inner(DrawBeginClip::clip(), clip_style.into(), transform, clip);
     }
 
     /// Helper for logic shared between [`Self::push_layer`] and [`Self::push_luminance_mask_layer`]
-    fn push_layer_inner(
+    fn push_layer_inner<'a>(
         &mut self,
         parameters: DrawBeginClip,
+        clip_style: StyleRef<'a>,
         transform: Affine,
         clip: &impl Shape,
     ) {
         let t = Transform::from_kurbo(&transform);
         self.encoding.encode_transform(t);
-        self.encoding.encode_fill_style(Fill::NonZero);
-        if !self.encoding.encode_shape(clip, true) {
+        let (is_fill, stroke_for_estimate) = match clip_style {
+            StyleRef::Fill(fill) => {
+                self.encoding.encode_fill_style(fill);
+                (true, None)
+            }
+            StyleRef::Stroke(stroke) => {
+                let encoded_stroke = self.encoding.encode_stroke_style(stroke);
+                (false, encoded_stroke.then_some(stroke))
+            }
+        };
+        if stroke_for_estimate.is_none() && matches!(clip_style, StyleRef::Stroke(_)) {
+            // If the stroke has zero width, encode a valid empty path. This suppresses
+            // all drawing until the layer is popped.
+            self.encoding.encode_fill_style(Fill::NonZero);
+            self.encoding.encode_empty_shape();
+            #[cfg(feature = "bump_estimate")]
+            {
+                use peniko::kurbo::PathEl;
+                let path = [PathEl::MoveTo(Point::ZERO), PathEl::LineTo(Point::ZERO)];
+                self.estimator.count_path(path.into_iter(), &t, None);
+            }
+            self.encoding.encode_begin_clip(parameters);
+            return;
+        }
+
+        if !self.encoding.encode_shape(clip, is_fill) {
             // If the layer shape is invalid, encode a valid empty path. This suppresses
             // all drawing until the layer is popped.
             self.encoding.encode_empty_shape();
@@ -183,7 +249,8 @@ impl Scene {
             }
         } else {
             #[cfg(feature = "bump_estimate")]
-            self.estimator.count_path(clip.path_elements(0.1), &t, None);
+            self.estimator
+                .count_path(clip.path_elements(0.1), &t, stroke_for_estimate);
         }
         self.encoding.encode_begin_clip(parameters);
     }
@@ -894,7 +961,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
         };
         self.clip_depth += 1;
         self.scene
-            .push_clip_layer(self.last_transform().to_kurbo(), &path.0);
+            .push_clip_layer(Fill::NonZero, self.last_transform().to_kurbo(), &path.0);
     }
 
     fn push_clip_box(&mut self, clip_box: skrifa::raw::types::BoundingBox<f32>) {
@@ -909,7 +976,7 @@ impl ColorPainter for DrawColorGlyphs<'_> {
         }
         self.clip_depth += 1;
         self.scene
-            .push_clip_layer(self.last_transform().to_kurbo(), &clip_box);
+            .push_clip_layer(Fill::NonZero, self.last_transform().to_kurbo(), &clip_box);
     }
 
     fn pop_clip(&mut self) {
@@ -949,8 +1016,13 @@ impl ColorPainter for DrawColorGlyphs<'_> {
             // TODO:
             _ => Compose::SrcOver,
         };
-        self.scene
-            .push_layer(blend, 1.0, self.last_transform().to_kurbo(), &self.clip_box);
+        self.scene.push_layer(
+            Fill::NonZero,
+            blend,
+            1.0,
+            self.last_transform().to_kurbo(),
+            &self.clip_box,
+        );
     }
 
     fn pop_layer(&mut self) {

@@ -410,7 +410,9 @@ fn main(
                         write_image(di + 1u);
                     }
                     case DRAWTAG_BEGIN_CLIP: {
-                        if tile.segment_count_or_ix == 0u && tile.backdrop == 0 {
+                        let even_odd = (draw_flags & DRAW_INFO_FLAGS_FILL_RULE_BIT) != 0u;
+                        let backdrop_clear = select(tile.backdrop, abs(tile.backdrop) & 1, even_odd) == 0;
+                        if tile.segment_count_or_ix == 0u && backdrop_clear {
                             clip_zero_depth = clip_depth + 1u;
                         } else {
                             write_begin_clip();
@@ -421,8 +423,7 @@ fn main(
                     }
                     case DRAWTAG_END_CLIP: {
                         clip_depth -= 1u;
-                        // A clip shape is always a non-zero fill (draw_flags=0).
-                        write_path(tile, tile_ix, /*draw_flags=*/0u);
+                        write_path(tile, tile_ix, draw_flags);
                         let blend = scene[dd];
                         let alpha = bitcast<f32>(scene[dd + 1u]);
                         write_end_clip(CmdEndClip(blend, alpha));

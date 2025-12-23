@@ -66,6 +66,8 @@ fn clip_leaf_main(
             draw_monoids[clip_el.ix as usize].path_ix = tos.path_ix;
             draw_monoids[clip_el.ix as usize].scene_offset =
                 draw_monoids[tos.parent_ix as usize].scene_offset;
+            draw_monoids[clip_el.ix as usize].info_offset =
+                draw_monoids[tos.parent_ix as usize].info_offset;
         }
     }
 }
