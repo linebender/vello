@@ -125,6 +125,8 @@ compile_error!("vello_cpu must have at least one of the u8 or f32 pipelines enab
 
 mod render;
 
+pub mod api;
+
 mod dispatch;
 mod filter;
 #[doc(hidden)]
@@ -133,6 +135,7 @@ pub mod fine;
 pub mod layer_manager;
 #[doc(hidden)]
 pub mod region;
+
 mod util;
 
 pub use render::{RenderContext, RenderSettings};
