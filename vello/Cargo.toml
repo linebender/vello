@@ -16,30 +16,41 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = []
 
 [features]
-default = ["wgpu", "wgpu_default"]
+default = ["wgpu_28", "wgpu_28_default"]
 # Enables GPU memory usage estimation. This performs additional computations
 # in order to estimate the minimum required allocations for buffers backing
 # bump-allocated GPU memory.
 # TODO: Turn this into a runtime option used at resolve time and remove the feature.
 bump_estimate = ["vello_encoding/bump_estimate"]
-wgpu = ["dep:wgpu", "dep:vello_shaders", "dep:futures-intrusive"]
-# Enable wgpu with its default features. If you need to customise the set of enabled wgpu features,
+
+wgpu_27 = ["wgpu", "dep:wgpu_27"]
+# Enable wgpu 27 with its default features. If you need to customise the set of enabled wgpu features,
 # please disable this crate's default features, enable its "wgpu" feature, then depend on wgpu directly
 # with the features which you need enabled.
-wgpu_default = ["wgpu", "wgpu/default"]
+wgpu_27_default = ["wgpu_27", "wgpu_27/default"]
+
+
+wgpu_28 = ["wgpu", "dep:wgpu_28"]
+# Enable wgpu 28 with its default features. If you need to customise the set of enabled wgpu features,
+# please disable this crate's default features, enable its "wgpu" feature, then depend on wgpu directly
+# with the features which you need enabled.
+wgpu_28_default = ["wgpu_28", "wgpu_28/default"]
+# This is an internal feature not intended for public use. Please depend on a specific WGPU version (wgpu_27, etc)
+wgpu = ["dep:vello_shaders", "dep:futures-intrusive"]
+
 
 # Development only features
 
 # Enables debug features when using the "async" pipeline.
 # This is only intended for development of Vello itself.
 debug_layers = []
-# Enables an embedded wgpu-profiler profiler.
-# This is only intended for development of Vello itself.
-wgpu-profiler = ["dep:wgpu-profiler"]
 # Enables hot reloading of Vello shaders.
 # This is only intended for development of Vello itself.
 # In practise, this won't compile outside of the Vello repository.
 hot_reload = ["vello_shaders/compile"]
+# Enables an embedded wgpu-profiler profiler.
+# This is only intended for development of Vello itself.
+wgpu-profiler = ["dep:wgpu_profiler_28"]
 
 [lints]
 workspace = true
@@ -50,11 +61,15 @@ vello_shaders = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 skrifa = { workspace = true, features = ["std"] }
 peniko = { workspace = true, default-features = true }
-wgpu = { workspace = true, default-features = false, optional = true }
 log = { workspace = true }
 static_assertions = { workspace = true }
 futures-intrusive = { workspace = true, optional = true }
-wgpu-profiler = { workspace = true, optional = true }
 thiserror = { workspace = true }
 # TODO: Add feature for built-in bitmap emoji support?
 png = { workspace = true }
+
+# WGPU dependencies
+wgpu_27 = { workspace = true, default-features = false, optional = true }
+wgpu_profiler_27 = { workspace = true, optional = true }
+wgpu_28 = { workspace = true, default-features = false, optional = true }
+wgpu_profiler_28 = { workspace = true, optional = true }

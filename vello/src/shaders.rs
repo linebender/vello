@@ -4,7 +4,7 @@
 //! Load rendering shaders.
 
 #[cfg(feature = "wgpu")]
-use wgpu::Device;
+use crate::wgpu::Device;
 
 use crate::ShaderId;
 

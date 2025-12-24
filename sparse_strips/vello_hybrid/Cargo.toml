@@ -19,7 +19,8 @@ targets = []
 bytemuck = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 vello_common = { workspace = true, features = ["std", "text"] }
-wgpu = { workspace = true, default-features = false, optional = true }
+wgpu_28 = { workspace = true, default-features = false, optional = true }
+wgpu_27 = { workspace = true, default-features = false, optional = true }
 vello_sparse_shaders = { workspace = true, optional = true }
 log = { workspace = true }
 guillotiere = "0.6.2"
@@ -47,13 +48,23 @@ vello_common = { workspace = true, features = ["pico_svg"] }
 roxmltree = "0.20.0"
 
 [features]
-default = ["wgpu", "wgpu_default"]
-std = ["wgpu", "vello_common/std"]
-wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
+default = ["wgpu_28", "wgpu_28_default"]
+std = ["vello_common/std"]
+
+wgpu_27 = ["wgpu", "dep:wgpu_27", "dep:vello_sparse_shaders"]
 # Enable wgpu with its default features. If you need to customise the set of enabled wgpu features,
 # please disable this crate's default features, enable its "wgpu" feature, then depend on wgpu directly
 # with the features which you need enabled.
-wgpu_default = ["wgpu", "wgpu/default"]
+wgpu_27_default = ["wgpu_27", "wgpu_27/default"]
+
+wgpu_28 = ["wgpu", "dep:wgpu_28", "dep:vello_sparse_shaders"]
+# Enable wgpu with its default features. If you need to customise the set of enabled wgpu features,
+# please disable this crate's default features, enable its "wgpu" feature, then depend on wgpu directly
+# with the features which you need enabled.
+wgpu_28_default = ["wgpu_28", "wgpu_28/default"]
+
+# Internal feature only
+wgpu = ["dep:vello_sparse_shaders"]
 webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_sparse_shaders", "vello_sparse_shaders/glsl"]
 
 [lints]

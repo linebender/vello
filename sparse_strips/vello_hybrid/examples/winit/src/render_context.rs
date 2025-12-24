@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use crate::wgpu;
 use vello_hybrid::{RenderTargetConfig, Renderer};
 use wgpu::{
     Adapter, Device, Features, Instance, Limits, Queue, Surface, SurfaceConfiguration,

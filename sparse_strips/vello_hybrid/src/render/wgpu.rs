@@ -18,6 +18,11 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+#[cfg(feature = "wgpu_27")]
+use wgpu_27 as wgpu;
+#[cfg(feature = "wgpu_28")]
+use wgpu_28 as wgpu;
+
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, mem, num::NonZeroU64};
@@ -282,6 +287,8 @@ impl Renderer {
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
+            #[cfg(feature = "wgpu_28")]
+            multiview_mask: None,
         });
 
         // Set scissor rectangle to limit clearing to specific region
@@ -652,14 +659,20 @@ impl Programs {
                     &encoded_paints_bind_group_layout,
                     &gradient_bind_group_layout,
                 ],
+                #[cfg(feature = "wgpu_27")]
                 push_constant_ranges: &[],
+                #[cfg(feature = "wgpu_28")]
+                immediate_size: 0,
             });
 
         let clear_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Clear Slots Pipeline Layout"),
                 bind_group_layouts: &[&clear_bind_group_layout],
+                #[cfg(feature = "wgpu_27")]
                 push_constant_ranges: &[],
+                #[cfg(feature = "wgpu_28")]
+                immediate_size: 0,
             });
 
         let strip_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -691,7 +704,10 @@ impl Programs {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
+            #[cfg(feature = "wgpu_27")]
             multiview: None,
+            #[cfg(feature = "wgpu_28")]
+            multiview_mask: None,
             cache: None,
         });
 
@@ -729,7 +745,10 @@ impl Programs {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
+            #[cfg(feature = "wgpu_27")]
             multiview: None,
+            #[cfg(feature = "wgpu_28")]
+            multiview_mask: None,
             cache: None,
         });
 
@@ -738,7 +757,10 @@ impl Programs {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Atlas Clear Pipeline Layout"),
                 bind_group_layouts: &[],
+                #[cfg(feature = "wgpu_27")]
                 push_constant_ranges: &[],
+                #[cfg(feature = "wgpu_28")]
+                immediate_size: 0,
             });
         let atlas_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Atlas Clear Pipeline"),
@@ -766,7 +788,10 @@ impl Programs {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
+            #[cfg(feature = "wgpu_27")]
             multiview: None,
+            #[cfg(feature = "wgpu_28")]
+            multiview_mask: None,
             cache: None,
         });
 
@@ -1588,6 +1613,8 @@ impl RendererContext<'_> {
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
+            #[cfg(feature = "wgpu_28")]
+            multiview_mask: None,
         });
         render_pass.set_pipeline(&self.programs.strip_pipeline);
         render_pass.set_bind_group(0, &self.programs.resources.slot_bind_groups[ix], &[]);
@@ -1637,6 +1664,8 @@ impl RendererContext<'_> {
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
+                #[cfg(feature = "wgpu_28")]
+                multiview_mask: None,
             });
 
             render_pass.set_pipeline(&self.programs.clear_pipeline);

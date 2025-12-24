@@ -251,7 +251,7 @@ fn round_up(n: usize, f: usize) -> usize {
 }
 
 #[cfg(feature = "wgpu-profiler")]
-use wgpu_profiler::GpuTimerQueryResult;
+use crate::wgpu_profiler::GpuTimerQueryResult;
 
 /// Formats the given number of seconds as a Duration.
 ///

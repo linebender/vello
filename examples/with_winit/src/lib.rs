@@ -28,6 +28,9 @@ use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 
+#[cfg(feature = "wgpu-profiler")]
+use wgpu_profiler_28 as wgpu_profiler;
+
 #[cfg(all(feature = "wgpu-profiler", not(target_arch = "wasm32")))]
 use std::time::Duration;
 #[cfg(all(feature = "wgpu-profiler", target_arch = "wasm32"))]

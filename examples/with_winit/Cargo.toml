@@ -15,7 +15,7 @@ crate-type = ["cdylib", "lib"]
 default = ["wgpu-profiler"]
 # Enable the use of wgpu-profiler. This is an optional feature for times when we use a git dependency on
 # wgpu (which means the dependency used in wgpu-profiler would be incompatible)
-wgpu-profiler = ["dep:wgpu-profiler", "vello/wgpu-profiler"]
+wgpu-profiler = ["dep:wgpu_profiler_28", "vello/wgpu-profiler"]
 # Test for dependencies which implement std traits in ways that cause type inference issues.
 _ci_dep_features_to_test = ["dep:kurbo", "kurbo/schemars"]
 
@@ -35,7 +35,7 @@ scenes = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 pollster = { workspace = true }
-wgpu-profiler = { workspace = true, optional = true }
+wgpu_profiler_28 = { workspace = true, optional = true }
 
 winit = { workspace = true }
 log = { workspace = true }

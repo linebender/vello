@@ -7,6 +7,7 @@ use crate::{
     debug::validate::{LineEndpoint, validate_line_soup},
     recording::{BindType, DrawParams, ImageProxy, Recording, ResourceProxy, ShaderId},
     render::CapturedBuffers,
+    wgpu,
     wgpu_engine::WgpuEngine,
 };
 

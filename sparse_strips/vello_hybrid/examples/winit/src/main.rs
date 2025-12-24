@@ -23,6 +23,8 @@ use winit::{
     window::{Window, WindowId},
 };
 
+use wgpu_28 as wgpu;
+
 const ZOOM_STEP: f64 = 0.1;
 
 struct App<'s> {
