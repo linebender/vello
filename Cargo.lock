@@ -3944,6 +3944,7 @@ name = "vello_bench"
 version = "0.0.0"
 dependencies = [
  "criterion",
+ "image",
  "parley",
  "rand",
  "smallvec",
