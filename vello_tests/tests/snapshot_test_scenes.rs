@@ -102,7 +102,7 @@ fn snapshot_many_clips() {
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn snapshot_clip_test() {
     let test_scene = test_scenes::clip_test();
-    let params = TestParams::new("clip_test", 512, 512);
+    let params = TestParams::new("clip_test", 512, 768);
     snapshot_test_scene(test_scene, params);
 }
 

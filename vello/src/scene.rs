@@ -212,34 +212,57 @@ impl Scene {
     ) {
         let t = Transform::from_kurbo(&transform);
         self.encoding.encode_transform(t);
-        let (is_fill, stroke_for_estimate) = match clip_style {
+
+        // The logic for encoding the clip shape differs between fill and stroke style clips, but
+        // the logic is otherwise similar.
+        //
+        // `encoded_result` will be `true` if and only if a valid path has been encoded. If it is
+        // `false`, we will need to explicitly encode a valid empty path.
+        let encoded_result = match clip_style {
             StyleRef::Fill(fill) => {
                 self.encoding.encode_fill_style(fill);
-                (true, None)
+                #[cfg(feature = "bump_estimate")]
+                self.estimator.count_path(clip.path_elements(0.1), &t, None);
+                self.encoding.encode_shape(clip, true)
             }
             StyleRef::Stroke(stroke) => {
                 let encoded_stroke = self.encoding.encode_stroke_style(stroke);
-                (false, encoded_stroke.then_some(stroke))
+                if !encoded_stroke {
+                    // If the stroke has zero width, encode a fill style and indicate no path was
+                    // encoded.
+                    self.encoding.encode_fill_style(Fill::NonZero);
+                    false
+                } else {
+                    if stroke.dash_pattern.is_empty() {
+                        #[cfg(feature = "bump_estimate")]
+                        self.estimator
+                            .count_path(clip.path_elements(0.1), &t, Some(stroke));
+                        self.encoding.encode_shape(clip, false)
+                    } else {
+                        // TODO: We currently collect the output of the dash iterator because
+                        // `encode_path_elements` wants to consume the iterator. We want to avoid calling
+                        // `dash` twice when `bump_estimate` is enabled because it internally allocates.
+                        // Bump estimation will move to resolve time rather than scene construction time,
+                        // so we can revert this back to not collecting when that happens.
+                        let dashed = peniko::kurbo::dash(
+                            clip.path_elements(0.1),
+                            stroke.dash_offset,
+                            &stroke.dash_pattern,
+                        )
+                        .collect::<Vec<_>>();
+                        #[cfg(feature = "bump_estimate")]
+                        self.estimator
+                            .count_path(dashed.iter().copied(), &t, Some(stroke));
+                        self.encoding
+                            .encode_path_elements(dashed.into_iter(), false)
+                    }
+                }
             }
         };
-        if stroke_for_estimate.is_none() && matches!(clip_style, StyleRef::Stroke(_)) {
-            // If the stroke has zero width, encode a valid empty path. This suppresses
-            // all drawing until the layer is popped.
-            self.encoding.encode_fill_style(Fill::NonZero);
-            self.encoding.encode_empty_shape();
-            #[cfg(feature = "bump_estimate")]
-            {
-                use peniko::kurbo::PathEl;
-                let path = [PathEl::MoveTo(Point::ZERO), PathEl::LineTo(Point::ZERO)];
-                self.estimator.count_path(path.into_iter(), &t, None);
-            }
-            self.encoding.encode_begin_clip(parameters);
-            return;
-        }
 
-        if !self.encoding.encode_shape(clip, is_fill) {
-            // If the layer shape is invalid, encode a valid empty path. This suppresses
-            // all drawing until the layer is popped.
+        if !encoded_result {
+            // If the layer shape is invalid or a zero-width stroke, encode a valid empty path.
+            // This suppresses all drawing until the layer is popped.
             self.encoding.encode_empty_shape();
             #[cfg(feature = "bump_estimate")]
             {
@@ -247,10 +270,6 @@ impl Scene {
                 let path = [PathEl::MoveTo(Point::ZERO), PathEl::LineTo(Point::ZERO)];
                 self.estimator.count_path(path.into_iter(), &t, None);
             }
-        } else {
-            #[cfg(feature = "bump_estimate")]
-            self.estimator
-                .count_path(clip.path_elements(0.1), &t, stroke_for_estimate);
         }
         self.encoding.encode_begin_clip(parameters);
     }
