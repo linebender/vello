@@ -25,7 +25,7 @@ pub fn glyph(c: &mut Criterion) {
         strip_generator: StripGenerator::new(
             WIDTH,
             HEIGHT,
-            Level::try_detect().unwrap_or(Level::fallback()),
+            Level::try_detect().unwrap_or(Level::baseline()),
         ),
         strip_storage: StripStorage::default(),
         glyph_caches: Default::default(),

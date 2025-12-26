@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_cache_empty() {
-        let mut cache = GradientRampCache::new(5, Level::fallback());
+        let mut cache = GradientRampCache::new(5, Level::baseline());
         cache.maintain();
 
         assert_eq!(cache.cache.len(), 0);
@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_unique_entry_creation() {
-        let mut cache = GradientRampCache::new(5, Level::fallback());
+        let mut cache = GradientRampCache::new(5, Level::baseline());
         insert_entries(&mut cache, 4);
         cache.maintain();
 
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn test_no_eviction_under_limit() {
-        let mut cache = GradientRampCache::new(5, Level::fallback());
+        let mut cache = GradientRampCache::new(5, Level::baseline());
         insert_entries(&mut cache, 4);
         cache.maintain();
 
@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn test_no_eviction_at_limit() {
-        let mut cache = GradientRampCache::new(5, Level::fallback());
+        let mut cache = GradientRampCache::new(5, Level::baseline());
         insert_entries(&mut cache, 5);
         cache.maintain();
 
@@ -383,7 +383,7 @@ mod tests {
 
     #[test]
     fn test_eviction_over_limit() {
-        let mut cache = GradientRampCache::new(5, Level::fallback());
+        let mut cache = GradientRampCache::new(5, Level::baseline());
         insert_entries(&mut cache, 10);
         cache.maintain();
 
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn test_lut_compaction_and_offset_updates() {
-        let mut cache = GradientRampCache::new(2, Level::fallback());
+        let mut cache = GradientRampCache::new(2, Level::baseline());
 
         // Start from 1 to keep LUT sizes consistent, making it easier to test LUT size
         // before and after eviction.
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn test_correct_lru_eviction() {
-        let mut cache = GradientRampCache::new(3, Level::fallback());
+        let mut cache = GradientRampCache::new(3, Level::baseline());
 
         // Insert 3 gradients to fill the cache
         let gradient1 = create_gradient(0.1);
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn test_take_and_restore_luts() {
-        let mut cache = GradientRampCache::new(5, Level::fallback());
+        let mut cache = GradientRampCache::new(5, Level::baseline());
 
         let gradient1 = create_gradient(0.1);
         let gradient2 = create_gradient(0.2);
@@ -526,7 +526,7 @@ mod tests {
 
     #[test]
     fn test_lut_start_invalidation() {
-        let mut cache = GradientRampCache::new(2, Level::fallback());
+        let mut cache = GradientRampCache::new(2, Level::baseline());
 
         let gradient_1 = create_encoded_gradient(create_gradient(0.1));
         let gradient_2 = create_encoded_gradient(create_gradient(0.2));

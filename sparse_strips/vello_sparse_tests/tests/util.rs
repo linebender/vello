@@ -19,6 +19,7 @@ use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RenderMode};
 
+use fearless_simd::Fallback;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
@@ -107,16 +108,10 @@ pub(crate) fn get_ctx<T: Renderer>(
 ) -> T {
     let level = match level {
         #[cfg(target_arch = "aarch64")]
-        "neon" => Level::Neon(
-            Level::try_detect()
-                .unwrap_or(Level::fallback())
-                .as_neon()
-                .expect("neon should be available"),
-        ),
+        "neon" => Level::Neon(Level::new().as_neon().expect("neon should be available")),
         #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
         "wasm_simd128" => Level::WasmSimd128(
-            Level::try_detect()
-                .unwrap_or(Level::fallback())
+            Level::new()
                 .as_wasm_simd128()
                 .expect("wasm simd128 should be available"),
         ),
@@ -138,7 +133,7 @@ pub(crate) fn get_ctx<T: Renderer>(
                 panic!("avx2 or fma feature not detected");
             }
         }
-        "fallback" => Level::fallback(),
+        "fallback" => Level::Fallback(Fallback::new()),
         _ => panic!("unknown level: {level}"),
     };
 

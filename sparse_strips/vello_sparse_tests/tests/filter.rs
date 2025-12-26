@@ -5,6 +5,7 @@
 
 use crate::util::circular_star;
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
+use fearless_simd::Fallback;
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
     PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET, WHITE,
@@ -34,7 +35,7 @@ fn filter_flood(ctx: &mut impl Renderer) {
         width,
         height,
         vello_cpu::RenderSettings {
-            level: vello_cpu::Level::fallback(),
+            level: vello_cpu::Level::Fallback(Fallback::new()),
             num_threads: 0,
             render_mode: vello_cpu::RenderMode::default(),
         },

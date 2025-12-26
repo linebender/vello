@@ -85,7 +85,7 @@ impl RendererWrapper {
                 height,
             },
             RenderSettings {
-                level: Level::try_detect().unwrap_or(Level::fallback()),
+                level: Level::try_detect().unwrap_or(Level::baseline()),
                 atlas_config: AtlasConfig {
                     atlas_size: (max_texture_dimension_2d, max_texture_dimension_2d),
                     ..AtlasConfig::default()
