@@ -108,7 +108,7 @@
 #![cfg_attr(target_pointer_width = "64", warn(clippy::trivially_copy_pass_by_ref))]
 // END LINEBENDER LINT SET
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![forbid(unsafe_code)]
+// #![forbid(unsafe_code)]
 #![expect(
     clippy::cast_possible_truncation,
     reason = "We cast u16s to u8 in various places where we know for sure that it's < 256"

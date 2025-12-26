@@ -33,32 +33,19 @@ impl<'a, S: Simd> GradientPainter<'a, S> {
     }
 }
 
-impl<S: Simd> Iterator for GradientPainter<'_, S> {
-    type Item = u8x64<S>;
-
-    #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
-        let extend = self.gradient.extend;
-        let pos = f32x16::from_slice(self.simd, self.t_vals.next()?);
-        let t_vals = apply_extend(pos, extend);
-        let indices = (t_vals * self.scale_factor).to_int::<u32x16<S>>();
-
-        let mut vals = [0_u8; 64];
-        for (val, idx) in vals.chunks_exact_mut(4).zip(*indices) {
-            val.copy_from_slice(&self.lut[idx as usize]);
-        }
-
-        Some(u8x64::from_slice(self.simd, &vals))
-    }
-}
-
 impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
     fn paint_u8(&mut self, buf: &mut [u8]) {
         self.simd.vectorize(
             #[inline(always)]
             || {
                 for chunk in buf.chunks_exact_mut(64) {
-                    chunk.copy_from_slice(self.next().unwrap().as_slice());
+                    let extend = self.gradient.extend;
+                    let pos = f32x16::from_slice(self.simd, self.t_vals.next().unwrap());
+                    let t_vals = apply_extend(pos, extend);
+                    let indices = (t_vals * self.scale_factor).to_int::<u32x16<S>>();
+
+                    let casted: &[u32] = bytemuck::cast_slice(&self.lut);
+                    indices.gather_into(casted, bytemuck::cast_slice_mut(chunk));
                 }
             },
         );

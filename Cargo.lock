@@ -990,7 +990,6 @@ dependencies = [
 [[package]]
 name = "fearless_simd"
 version = "0.3.0"
-source = "git+https://github.com/linebender/fearless_simd?rev=5999991#5999991189327435c5f16d6a609636b3f63b7ab1"
 dependencies = [
  "libm",
 ]

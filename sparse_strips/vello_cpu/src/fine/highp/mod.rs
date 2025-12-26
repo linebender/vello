@@ -321,7 +321,7 @@ mod fill {
             #[inline(always)]
             || {
                 let one_minus_alpha = 1.0 - f32x16::block_splat(f32x4::splat(s, src[3]));
-                let src_c = f32x16::block_splat(f32x4::simd_from(src, s));
+                let src_c = f32x16::block_splat(f32x4::simd_from(s, src));
 
                 for next_dest in dest.chunks_exact_mut(16) {
                     alpha_composite_inner(s, next_dest, src_c, one_minus_alpha);

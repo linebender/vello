@@ -177,7 +177,7 @@ impl<S: Simd> CompositeType<f32, S> for f32x16<S> {
 
     #[inline(always)]
     fn from_slice(simd: S, slice: &[f32]) -> Self {
-        <Self as SimdBase<_, _>>::from_slice(simd, slice)
+        <Self as SimdBase<_>>::from_slice(simd, slice)
     }
 
     #[inline(always)]
@@ -191,7 +191,7 @@ impl<S: Simd> CompositeType<u8, S> for u8x32<S> {
 
     #[inline(always)]
     fn from_slice(simd: S, slice: &[u8]) -> Self {
-        <Self as SimdBase<_, _>>::from_slice(simd, slice)
+        <Self as SimdBase<_>>::from_slice(simd, slice)
     }
 
     #[inline(always)]
