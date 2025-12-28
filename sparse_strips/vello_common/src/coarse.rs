@@ -939,20 +939,17 @@ impl<const MODE: u8> Wide<MODE> {
         } = self.clip_stack.pop().unwrap();
         let n_strips = strips.len();
 
+        if n_strips == 0 {
+            return;
+        }
+
         // Compute base alpha index and create shared clip properties
-        let (clip_props_idx, alpha_base_idx) = if n_strips > 0 {
-            let alpha_base_idx = strips[0].alpha_idx();
-            let props_idx = self.props.clip.len() as u32;
-            self.props.clip.push(ClipProps {
-                thread_idx,
-                alpha_base_idx,
-            });
-            (props_idx, alpha_base_idx)
-        } else {
-            // In case we have 0 strips, those variables won't be accessed
-            // anyway.
-            (u32::MAX, u32::MAX)
-        };
+        let alpha_base_idx = strips[0].alpha_idx();
+        let clip_props_idx = self.props.clip.len() as u32;
+        self.props.clip.push(ClipProps {
+            thread_idx,
+            alpha_base_idx,
+        });
 
         let mut cur_wtile_x = clip_bbox.x0();
         let mut cur_wtile_y = clip_bbox.y0();
