@@ -72,7 +72,7 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// The wide tiles in the container.
     pub tiles: Vec<WideTile<MODE>>,
     /// Shared command properties, referenced by index from fill and clip commands.
-    pub props: Props,
+    pub props: CommandAttrs,
     /// The stack of layers.
     layer_stack: Vec<Layer>,
     /// The stack of active clip regions.
@@ -304,7 +304,7 @@ impl<const MODE: u8> Wide<MODE> {
             tiles,
             width,
             height,
-            props: Props::default(),
+            props: CommandAttrs::default(),
             layer_stack: vec![],
             clip_stack: vec![],
             // Start with root node 0.
@@ -1657,14 +1657,14 @@ impl ClipProps {
 /// This struct holds the shared properties for fill and clip commands,
 /// allowing them to be passed together to functions that need both.
 #[derive(Debug, Default, Clone)]
-pub struct Props {
+pub struct CommandAttrs {
     /// Shared properties for fill commands, indexed by `props_idx` in `CmdFill`/`CmdAlphaFill`.
     pub fill: Vec<FillProps>,
     /// Shared properties for clip commands, indexed by `props_idx` in `CmdClipAlphaFill`.
     pub clip: Vec<ClipProps>,
 }
 
-impl Props {
+impl CommandAttrs {
     /// Clear all properties.
     pub fn clear(&mut self) {
         self.fill.clear();

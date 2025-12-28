@@ -25,7 +25,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
-use vello_common::coarse::{Cmd, Props, WideTile};
+use vello_common::coarse::{Cmd, CommandAttrs, WideTile};
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
@@ -520,7 +520,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         cmd: &Cmd,
         alphas: &[u8],
         paints: &[EncodedPaint],
-        props: &Props,
+        props: &CommandAttrs,
     ) {
         match cmd {
             Cmd::Fill(f) => {

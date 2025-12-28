@@ -179,7 +179,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::{MODE_HYBRID, Props};
+use vello_common::coarse::{MODE_HYBRID, CommandAttrs};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, LayerKind, WideTile},
@@ -578,7 +578,7 @@ impl Scheduler {
         cmds: &'a [AnnotatedCmd<'a>],
         mut state: TileState,
         paint_idxs: &[u32],
-        props: &Props,
+        props: &CommandAttrs,
     ) -> Result<(), RenderError> {
         for annotated_cmd in cmds {
             // Note: this starts at 1 (for the final target)
