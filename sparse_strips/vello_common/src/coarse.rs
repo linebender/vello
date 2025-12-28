@@ -516,20 +516,11 @@ impl<const MODE: u8> Wide<MODE> {
                     .min(bbox.x1())
                     .min(WideTile::MAX_WIDE_TILE_COORD);
 
-                // Pre-compute the override color if the fill can replace the background.
-                // This is used for an optimization where a solid opaque full-tile fill
-                // can replace all previous commands.
-                let override_color =
-                    if let Paint::Solid(s) = &self.props.fill[props_idx as usize].paint {
-                        if s.is_opaque() && self.props.fill[props_idx as usize].mask.is_none() {
-                            Some(*s)
-                        } else {
-                            None
-                        }
-                    } else {
-                        // TODO: Implement for indexed paints.
-                        None
-                    };
+                let fill_props = &self.props.fill[props_idx as usize];
+                let override_color = match &fill_props.paint {
+                    Paint::Solid(s) if s.is_opaque() && fill_props.mask.is_none() => Some(*s),
+                    _ => None,
+                };
 
                 // Generate fill commands for each wide tile in the fill region
                 for wtile_x in wfxt0..wfxt1 {
