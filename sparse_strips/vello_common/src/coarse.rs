@@ -1604,6 +1604,8 @@ pub struct FillProps {
     /// Always 0 in single-threaded mode.
     pub thread_idx: u8,
     /// The paint (color, gradient, etc.) to fill the region with.
+    // TODO: Store premultiplied colors as indexed paints as well, to reduce
+    // memory overhead? Or get rid of indexed paints and inline all paints?
     pub paint: Paint,
     /// The blend mode to apply before drawing the contents.
     pub blend_mode: BlendMode,
