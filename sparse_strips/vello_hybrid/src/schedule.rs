@@ -621,9 +621,7 @@ impl Scheduler {
 
                     let fill_props = &props.fill[alpha_fill.props_idx as usize];
                     let alpha_idx = fill_props.alpha_idx(alpha_fill.alpha_offset);
-                    let col_idx = (alpha_idx / u32::from(Tile::HEIGHT))
-                        .try_into()
-                        .expect("Sparse strips are bound to u32 range");
+                    let col_idx = (alpha_idx / u32::from(Tile::HEIGHT));
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + alpha_fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
                         &fill_props.paint,
@@ -830,9 +828,7 @@ impl Scheduler {
 
                     let clip_props = &props.clip[clip_alpha_fill.props_idx as usize];
                     let alpha_idx = clip_props.alpha_idx(clip_alpha_fill.alpha_offset);
-                    let col_idx = (alpha_idx / u32::from(Tile::HEIGHT))
-                        .try_into()
-                        .expect("Sparse strips are bound to u32 range");
+                    let col_idx = (alpha_idx / u32::from(Tile::HEIGHT));
 
                     draw.push(
                         gpu_strip_builder
