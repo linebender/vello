@@ -179,7 +179,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::{MODE_HYBRID, CommandAttrs};
+use vello_common::coarse::{CommandAttrs, MODE_HYBRID};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, LayerKind, WideTile},
@@ -621,7 +621,7 @@ impl Scheduler {
 
                     let fill_props = &props.fill[alpha_fill.props_idx as usize];
                     let alpha_idx = fill_props.alpha_idx(alpha_fill.alpha_offset);
-                    let col_idx = (alpha_idx / usize::from(Tile::HEIGHT))
+                    let col_idx = (alpha_idx / u32::from(Tile::HEIGHT))
                         .try_into()
                         .expect("Sparse strips are bound to u32 range");
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + alpha_fill.x, wide_tile_y);
@@ -830,7 +830,7 @@ impl Scheduler {
 
                     let clip_props = &props.clip[clip_alpha_fill.props_idx as usize];
                     let alpha_idx = clip_props.alpha_idx(clip_alpha_fill.alpha_offset);
-                    let col_idx = (alpha_idx / usize::from(Tile::HEIGHT))
+                    let col_idx = (alpha_idx / u32::from(Tile::HEIGHT))
                         .try_into()
                         .expect("Sparse strips are bound to u32 range");
 

@@ -411,7 +411,7 @@ impl<const MODE: u8> Wide<MODE> {
             return;
         }
 
-        let alpha_base_idx = strip_buf[0].alpha_idx() as usize;
+        let alpha_base_idx = strip_buf[0].alpha_idx();
 
         // Create shared properties for all commands from this path
         let props_idx = self.props.fill.len() as u32;
@@ -488,7 +488,7 @@ impl<const MODE: u8> Wide<MODE> {
                 let cmd = CmdAlphaFill {
                     x: x_wtile_rel,
                     width,
-                    alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx as u32,
+                    alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx,
                     props_idx,
                 };
                 x += width;
@@ -950,7 +950,7 @@ impl<const MODE: u8> Wide<MODE> {
 
         // Compute base alpha index and create shared clip properties
         let (clip_props_idx, alpha_base_idx) = if n_strips > 0 {
-            let alpha_base_idx = strips[0].alpha_idx() as usize;
+            let alpha_base_idx = strips[0].alpha_idx();
             let props_idx = self.props.clip.len() as u32;
             self.props.clip.push(ClipProps {
                 thread_idx,
@@ -960,7 +960,7 @@ impl<const MODE: u8> Wide<MODE> {
         } else {
             // In case we have 0 strips, those variables won't be accessed
             // anyway.
-            (u32::MAX, usize::MAX)
+            (u32::MAX, u32::MAX)
         };
 
         let mut cur_wtile_x = clip_bbox.x0();
@@ -1056,7 +1056,7 @@ impl<const MODE: u8> Wide<MODE> {
                 let cmd = CmdClipAlphaFill {
                     x: x_rel,
                     width,
-                    alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx as u32,
+                    alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx,
                     props_idx: clip_props_idx,
                 };
                 x += width;
@@ -1623,13 +1623,13 @@ pub struct FillProps {
     pub mask: Option<Mask>,
     /// Base index into the alpha buffer for this path's commands.
     /// Commands store a relative offset that is added to this base.
-    alpha_base_idx: usize,
+    alpha_base_idx: u32,
 }
 
 impl FillProps {
     /// Compute the absolute alpha buffer index from a relative offset.
-    pub fn alpha_idx(&self, offset: u32) -> usize {
-        self.alpha_base_idx + offset as usize
+    pub fn alpha_idx(&self, offset: u32) -> u32 {
+        self.alpha_base_idx + offset
     }
 }
 
@@ -1642,13 +1642,13 @@ pub struct ClipProps {
     pub thread_idx: u8,
     /// Base index into the alpha buffer for this clip path's commands.
     /// Commands store a relative offset that is added to this base.
-    alpha_base_idx: usize,
+    alpha_base_idx: u32,
 }
 
 impl ClipProps {
     /// Compute the absolute alpha buffer index from a relative offset.
-    pub fn alpha_idx(&self, offset: u32) -> usize {
-        self.alpha_base_idx + offset as usize
+    pub fn alpha_idx(&self, offset: u32) -> u32 {
+        self.alpha_base_idx + offset
     }
 }
 
