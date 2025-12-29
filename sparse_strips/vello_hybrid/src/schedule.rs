@@ -179,7 +179,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::MODE_HYBRID;
+use vello_common::coarse::{CommandAttrs, MODE_HYBRID};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, LayerKind, WideTile},
@@ -433,6 +433,7 @@ impl Scheduler {
                     &annotated_cmds,
                     tile_state,
                     paint_idxs,
+                    &scene.wide.attrs,
                 )?;
             }
         }
@@ -577,6 +578,7 @@ impl Scheduler {
         cmds: &'a [AnnotatedCmd<'a>],
         mut state: TileState,
         paint_idxs: &[u32],
+        attrs: &CommandAttrs,
     ) -> Result<(), RenderError> {
         for annotated_cmd in cmds {
             // Note: this starts at 1 (for the final target)
@@ -591,9 +593,10 @@ impl Scheduler {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
+                    let fill_attrs = &attrs.fill[fill.attrs_idx as usize];
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
-                        &fill.paint,
+                        &fill_attrs.paint,
                         scene,
                         (scene_strip_x, scene_strip_y),
                         paint_idxs,
@@ -616,13 +619,12 @@ impl Scheduler {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
-                    let col_idx = (alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
-                        .try_into()
-                        .expect("Sparse strips are bound to u32 range");
-
+                    let fill_attrs = &attrs.fill[alpha_fill.attrs_idx as usize];
+                    let alpha_idx = fill_attrs.alpha_idx(alpha_fill.alpha_offset);
+                    let col_idx = alpha_idx / u32::from(Tile::HEIGHT);
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + alpha_fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
-                        &alpha_fill.paint,
+                        &fill_attrs.paint,
                         scene,
                         (scene_strip_x, scene_strip_y),
                         paint_idxs,
@@ -770,15 +772,15 @@ impl Scheduler {
                     );
                     let gpu_strip_builder = if depth <= 2 {
                         GpuStripBuilder::at_surface(
-                            wide_tile_x + clip_fill.x as u16,
+                            wide_tile_x + clip_fill.x,
                             wide_tile_y,
-                            clip_fill.width as u16,
+                            clip_fill.width,
                         )
                     } else {
                         GpuStripBuilder::at_slot(
                             nos.dest_slot.get_idx(),
-                            clip_fill.x as u16,
-                            clip_fill.width as u16,
+                            clip_fill.x,
+                            clip_fill.width,
                         )
                     };
                     draw.push(gpu_strip_builder.copy_from_slot(tos.dest_slot.get_idx(), 0xFF));
@@ -812,25 +814,25 @@ impl Scheduler {
                     );
                     let gpu_strip_builder = if depth <= 2 {
                         GpuStripBuilder::at_surface(
-                            wide_tile_x + clip_alpha_fill.x as u16,
+                            wide_tile_x + clip_alpha_fill.x,
                             wide_tile_y,
-                            clip_alpha_fill.width as u16,
+                            clip_alpha_fill.width,
                         )
                     } else {
                         GpuStripBuilder::at_slot(
                             nos.dest_slot.get_idx(),
-                            clip_alpha_fill.x as u16,
-                            clip_alpha_fill.width as u16,
+                            clip_alpha_fill.x,
+                            clip_alpha_fill.width,
                         )
                     };
 
-                    let col_idx = (clip_alpha_fill.alpha_idx / usize::from(Tile::HEIGHT))
-                        .try_into()
-                        .expect("Sparse strips are bound to u32 range");
+                    let clip_attrs = &attrs.clip[clip_alpha_fill.attrs_idx as usize];
+                    let alpha_idx = clip_attrs.alpha_idx(clip_alpha_fill.alpha_offset);
+                    let col_idx = alpha_idx / u32::from(Tile::HEIGHT);
 
                     draw.push(
                         gpu_strip_builder
-                            .with_sparse(clip_alpha_fill.width as u16, col_idx)
+                            .with_sparse(clip_alpha_fill.width, col_idx)
                             .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
                     );
                     let nos_ptr = state.stack.len() - 2;
