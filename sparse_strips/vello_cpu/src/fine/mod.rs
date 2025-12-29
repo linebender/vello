@@ -339,6 +339,22 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         )
     }
 
+    /// Create a painter for rendering axis-aligned images with `Medium` quality filtering.
+    ///
+    /// Optimized painter for images with bilinear filtering and no skewing component.
+    fn plain_medium_quality_image_painter<'a>(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> impl Painter + 'a {
+        simd.vectorize(
+            #[inline(always)]
+            || FilteredImagePainter::new(simd, image, pixmap, start_x, start_y),
+        )
+    }
+
     /// Create a painter for rendering images with `High` quality filtering.
     ///
     /// Uses high-quality filtering for the best visual appearance.
@@ -802,7 +818,26 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         };
 
                         match (i.has_skew(), i.nearest_neighbor()) {
-                            (_, false) => {
+                            (false, false) => {
+                                // Axis-aligned with filtering - use optimized plain painters
+                                if i.sampler.quality == ImageQuality::Medium {
+                                    fill_complex_paint!(
+                                        i.has_opacities,
+                                        T::plain_medium_quality_image_painter(
+                                            self.simd, i, pixmap, start_x, start_y
+                                        )
+                                    );
+                                } else {
+                                    fill_complex_paint!(
+                                        i.has_opacities,
+                                        T::high_quality_image_painter(
+                                            self.simd, i, pixmap, start_x, start_y
+                                        )
+                                    );
+                                }
+                            }
+                            (true, false) => {
+                                // Skewed with filtering - use generic filtered painters
                                 if i.sampler.quality == ImageQuality::Medium {
                                     fill_complex_paint!(
                                         i.may_have_opacities,

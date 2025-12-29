@@ -193,15 +193,8 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
         // center of the location we are sampling, and sample those points
         // using a cubic filter to weight each location's contribution.
 
-        // Note that this `fract` has different behavior for negative numbers than the normal,
-        // one.
-        #[inline(always)]
-        fn fract<S: Simd>(val: f32x4<S>) -> f32x4<S> {
-            val - val.floor()
-        }
-
-        let x_fract = fract(x_positions + 0.5);
-        let y_fract = fract(y_positions + 0.5);
+        let x_fract = fract_floor(x_positions + 0.5);
+        let y_fract = fract_floor(y_positions + 0.5);
 
         let mut interpolated_color = f32x16::splat(self.simd, 0.0);
 
@@ -326,6 +319,15 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
 }
 
 f32x16_painter!(FilteredImagePainter<'_, S>);
+
+/// Computes the positive fractional part of a value: `val - val.floor()`.
+///
+/// Unlike `f32::fract()`, this always returns a value in [0, 1),
+/// even for negative inputs.
+#[inline(always)]
+pub(crate) fn fract_floor<S: Simd>(val: f32x4<S>) -> f32x4<S> {
+    val - val.floor()
+}
 
 /// Common data used by different image painters
 #[derive(Debug)]

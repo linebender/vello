@@ -13,7 +13,7 @@ mod gradient;
 mod image;
 
 use crate::filter::filter_lowp;
-use crate::fine::lowp::image::BilinearImagePainter;
+use crate::fine::lowp::image::{BilinearImagePainter, PlainBilinearImagePainter};
 use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
 use crate::fine::{FineKernel, highp, u8_to_f32};
 use crate::layer_manager::LayerManager;
@@ -138,6 +138,23 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         simd.vectorize(
             #[inline(always)]
             || BilinearImagePainter::new(simd, image, pixmap, start_x, start_y),
+        )
+    }
+
+    /// Creates a painter for rendering axis-aligned images with bilinear filtering in u8 precision.
+    ///
+    /// Returns a painter that samples the image with bilinear interpolation.
+    /// This is an optimized version for images without skew transformation.
+    fn plain_medium_quality_image_painter<'a>(
+        simd: S,
+        image: &'a EncodedImage,
+        pixmap: &'a Pixmap,
+        start_x: u16,
+        start_y: u16,
+    ) -> impl Painter + 'a {
+        simd.vectorize(
+            #[inline(always)]
+            || PlainBilinearImagePainter::new(simd, image, pixmap, start_x, start_y),
         )
     }
 
