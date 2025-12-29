@@ -35,10 +35,6 @@ pub struct Tile {
     // numeric value of a `Tile` in memory is identical as returned by that method. This allows
     // for, e.g., comparison and sorting.
     #[cfg(target_endian = "big")]
-    /// The index of the tile in the y direction.
-    pub y: u16,
-
-    #[cfg(target_endian = "big")]
     /// The index of the tile in the x direction.
     pub x: u16,
 
@@ -63,10 +59,6 @@ pub struct Tile {
     #[cfg(target_endian = "little")]
     /// The index of the tile in the x direction.
     pub x: u16,
-
-    #[cfg(target_endian = "little")]
-    /// The index of the tile in the y direction.
-    pub y: u16,
 }
 
 impl Tile {
@@ -81,12 +73,11 @@ impl Tile {
     ///
     /// `line_idx` must be smaller than [`MAX_LINES_PER_PATH`].
     #[inline]
-    pub fn new_clamped(x: u16, y: u16, line_idx: u32, intersection_mask: u32) -> Self {
+    pub fn new_clamped(x: u16, line_idx: u32, intersection_mask: u32) -> Self {
         Self::new(
             // Make sure that x and y stay in range when multiplying
             // with the tile width and height during strips generation.
             x.min(u16::MAX / Self::WIDTH),
-            y.min(u16::MAX / Self::HEIGHT),
             line_idx,
             intersection_mask,
         )
@@ -98,7 +89,7 @@ impl Tile {
     /// Callers must ensure these coordinates do not exceed the limits required by downstream
     /// processing (typically `u16::MAX / WIDTH` and `u16::MAX / HEIGHT`).
     #[inline]
-    pub const fn new(x: u16, y: u16, line_idx: u32, intersection_mask: u32) -> Self {
+    pub const fn new(x: u16, line_idx: u32, intersection_mask: u32) -> Self {
         #[cfg(debug_assertions)]
         if line_idx >= MAX_LINES_PER_PATH {
             panic!("Max. number of lines per path exceeded.");
@@ -107,7 +98,6 @@ impl Tile {
         // We pack line_idx into the high bits (6-31) and intersection_mask into low bits (0-5).
         Self {
             x,
-            y,
             packed_winding_line_idx: (line_idx << 6) | intersection_mask,
         }
     }
@@ -115,19 +105,13 @@ impl Tile {
     /// Check whether two tiles are at the same location.
     #[inline]
     pub const fn same_loc(&self, other: &Self) -> bool {
-        self.same_row(other) && self.x == other.x
+        self.x == other.x
     }
 
     /// Check whether `self` is adjacent to the left of `other`.
     #[inline]
     pub const fn prev_loc(&self, other: &Self) -> bool {
-        self.same_row(other) && self.x + 1 == other.x
-    }
-
-    /// Check whether two tiles are on the same row.
-    #[inline]
-    pub const fn same_row(&self, other: &Self) -> bool {
-        self.y == other.y
+        self.x + 1 == other.x
     }
 
     /// The index of the line this tile belongs to into the line buffer.
@@ -201,7 +185,7 @@ impl Tile {
     /// most-significant part of the number and `packed_winding_line_idx` the least significant.
     #[inline(always)]
     const fn to_bits(self) -> u64 {
-        ((self.y as u64) << 48) | ((self.x as u64) << 32) | self.packed_winding_line_idx as u64
+        ((self.x as u64) << 32) | self.packed_winding_line_idx as u64
     }
 }
 
@@ -228,10 +212,47 @@ impl PartialOrd for Tile {
 
 impl Eq for Tile {}
 
+/// A row of tiles.
+///
+/// This accounts for the winding and pixel area coverage of geometry that lies to the left of the
+/// row.
+#[derive(Clone, Debug)]
+pub struct TileRow {
+    /// The tiles that make up this row.
+    pub tiles: Vec<Tile>,
+    // /// The winding of the path at this tile row before the start of the row (i.e., the winding
+    // /// that occurred to the left of the viewport).
+    // pub winding: i32,
+    // /// The per-pixel area coverage of the path at this tile row before the start of the row (i.e.,
+    // /// the pixel coverage of the path segments to the left of the viewport).
+    // pub area_coverage: [f32; Tile::HEIGHT as usize],
+}
+
+impl TileRow {
+    const fn new() -> Self {
+        Self {
+            tiles: Vec::new(),
+            // winding: 0,
+            // area_coverage: [0.; Tile::HEIGHT as usize],
+        }
+    }
+
+    /// Reset the tile row.
+    ///
+    /// This clears the tiles in the row, as well as the calculate pre-viewport winding and area
+    /// coverage.
+    fn reset(&mut self) {
+        self.tiles.clear();
+        // self.winding = 0;
+        // self.area_coverage = [0.; Tile::HEIGHT as usize];
+    }
+}
+
 /// Handles the tiling of paths.
 #[derive(Clone, Debug)]
 pub struct Tiles {
-    tile_buf: Vec<Tile>,
+    tile_rows: Vec<TileRow>,
+    occupied_rows: core::ops::Range<usize>,
     level: Level,
     sorted: bool,
 }
@@ -240,25 +261,27 @@ impl Tiles {
     /// Create a new tiles container.
     pub fn new(level: Level) -> Self {
         Self {
-            tile_buf: vec![],
+            tile_rows: vec![],
+            occupied_rows: usize::MAX..0,
             level,
             sorted: false,
         }
     }
 
-    /// Get the number of tiles in the container.
-    pub fn len(&self) -> u32 {
-        self.tile_buf.len() as u32
-    }
-
-    /// Returns `true` if the container has no tiles.
+    /// Returns `true` if the container has no occupied rows.
+    ///
+    /// Note a row can be occupied without any tiles, such as when all geometry was culled but
+    /// contributes winding.
     pub fn is_empty(&self) -> bool {
-        self.tile_buf.is_empty()
+        self.occupied_rows.is_empty()
     }
 
     /// Reset the tiles' container.
     pub fn reset(&mut self) {
-        self.tile_buf.clear();
+        for row in self.occupied_rows.clone() {
+            self.tile_rows[row].reset();
+        }
+        self.occupied_rows = usize::MAX..0;
         self.sorted = false;
     }
 
@@ -266,33 +289,53 @@ impl Tiles {
     pub fn sort_tiles(&mut self) {
         self.sorted = true;
         // To enable auto-vectorization.
-        self.level.dispatch(|_| self.tile_buf.sort_unstable());
+        self.level.dispatch(|_| {
+            for row in self.occupied_rows.clone() {
+                self.tile_rows[row].tiles.sort_unstable()
+            }
+        });
     }
 
-    /// Get the tile at a certain index.
-    ///
-    /// Panics if the container hasn't been sorted before.
+    /// Iterate over the occupied tile row indices.
     #[inline]
-    pub fn get(&self, index: u32) -> &Tile {
-        assert!(
-            self.sorted,
-            "attempted to call `get` before sorting the tile container."
-        );
-
-        &self.tile_buf[index as usize]
+    pub fn occupied_tile_rows(&self) -> core::ops::Range<usize> {
+        self.occupied_rows.clone()
     }
 
-    /// Iterate over the tiles in sorted order.
+    /// Get a tile row by its index.
     ///
-    /// Panics if the container hasn't been sorted before.
+    /// Panics if the container hasn't been sorted before or if `row` is out of range.
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &Tile> {
-        assert!(
-            self.sorted,
-            "attempted to call `iter` before sorting the tile container."
-        );
+    pub fn get_tile_row(&self, row: u16) -> &TileRow {
+        // assert!(
+        //     self.sorted,
+        //     "attempted to call `iter` before sorting the tile container."
+        // );
 
-        self.tile_buf.iter()
+        &self.tile_rows[row as usize]
+    }
+
+    /// Grows the number of tile rows to `rows`.
+    ///
+    /// Does nothing if the number of tile rows is already greater than or equal to `rows`.
+    #[inline(always)]
+    fn grow_tile_rows_to(&mut self, rows: u16) {
+        let rows = usize::from(rows);
+        if rows > self.tile_rows.len() {
+            self.tile_rows.resize(rows, TileRow::new());
+        }
+    }
+
+    /// Push a tile into a [`TileRow`].
+    ///
+    /// Panics if the number of tile rows in `self` is smaller than  doesn't
+    #[inline(always)]
+    fn push_tile(&mut self, row: u16, tile: Tile) {
+        let row = usize::from(row);
+        self.tile_rows[row].tiles.push(tile);
+        self.occupied_rows.start = usize::min(self.occupied_rows.start, row);
+        self.occupied_rows.end = usize::max(self.occupied_rows.end, row + 1);
+        // self.occupied_rows.set(row, true);
     }
 
     /// Generates tile commands for Analytic Anti-Aliasing rasterization. Unlike the MSAA path, this
@@ -319,6 +362,8 @@ impl Tiles {
 
         let tile_columns = width.div_ceil(Tile::WIDTH);
         let tile_rows = height.div_ceil(Tile::HEIGHT);
+
+        self.grow_tile_rows_to(tile_rows);
 
         for (line_idx, line) in lines.iter().take(MAX_LINES_PER_PATH as usize).enumerate() {
             let line_idx = line_idx as u32;
@@ -376,8 +421,8 @@ impl Tiles {
                     let is_start_culled = line_top_y < 0.0;
                     if !is_start_culled {
                         let winding = ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5;
-                        let tile = Tile::new_clamped(x, y_top_tiles, line_idx, winding);
-                        self.tile_buf.push(tile);
+                        let tile = Tile::new_clamped(x, line_idx, winding);
+                        self.push_tile(y_top_tiles, tile);
                     }
 
                     // Middle
@@ -391,16 +436,16 @@ impl Tiles {
                     let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
 
                     for y_idx in y_start..y_end_idx {
-                        let tile = Tile::new_clamped(x, y_idx, line_idx, 0b100000);
-                        self.tile_buf.push(tile);
+                        let tile = Tile::new_clamped(x, line_idx, 0b100000);
+                        self.push_tile(y_idx, tile);
                     }
 
                     // Row End, handle the final tile (y_end_idx), but *only* if the line does
                     // not perfectly end on the top edge of the tile. In the case that it does,
                     // it gets handled by the middle logic above.
                     if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
-                        let tile = Tile::new_clamped(x, y_end_idx, line_idx, 0b100000);
-                        self.tile_buf.push(tile);
+                        let tile = Tile::new_clamped(x, line_idx, 0b100000);
+                        self.push_tile(y_end_idx, tile);
                     }
                 } else {
                     let dx = p1_x - p0_x;
@@ -430,15 +475,14 @@ impl Tiles {
                         if x_start <= x_end {
                             let winding = if x_start == x_end { w_single } else { w_start };
 
-                            self.tile_buf
-                                .push(Tile::new(x_start, y_idx, line_idx, winding));
+                            self.push_tile(y_idx, Tile::new(x_start, line_idx, winding));
 
                             for x_idx in x_start.saturating_add(1)..x_end {
-                                self.tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
+                                self.push_tile(y_idx, Tile::new(x_idx, line_idx, 0));
                             }
 
                             if x_start < x_end {
-                                self.tile_buf.push(Tile::new(x_end, y_idx, line_idx, w_end));
+                                self.push_tile(y_idx, Tile::new(x_end, line_idx, w_end));
                             }
                         }
                     };
@@ -485,11 +529,10 @@ impl Tiles {
                 // Case: Line is fully contained within a single tile.
                 let tile = Tile::new_clamped(
                     (line_left_x as u16).min(tile_columns + 1),
-                    y_top_tiles,
                     line_idx,
                     ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5,
                 );
-                self.tile_buf.push(tile);
+                self.push_tile(y_top_tiles, tile);
             }
         }
     }
@@ -541,408 +584,410 @@ impl Tiles {
     ///    should still be watertight. I don't think the viewport can be large enough where enough
     ///    floating-point error can occur that an issue arises.
     pub fn make_tiles_msaa(&mut self, lines: &[Line], width: u16, height: u16) {
-        self.reset();
+        // TODO: implement
 
-        if width == 0 || height == 0 {
-            return;
-        }
+        // self.reset();
 
-        debug_assert!(
-            lines.len() <= MAX_LINES_PER_PATH as usize,
-            "Max. number of lines per path exceeded. Max is {}, got {}.",
-            MAX_LINES_PER_PATH,
-            lines.len()
-        );
+        // if width == 0 || height == 0 {
+        //     return;
+        // }
 
-        let tile_columns = width.div_ceil(Tile::WIDTH);
-        let tile_rows = height.div_ceil(Tile::HEIGHT);
+        // debug_assert!(
+        //     lines.len() <= MAX_LINES_PER_PATH as usize,
+        //     "Max. number of lines per path exceeded. Max is {}, got {}.",
+        //     MAX_LINES_PER_PATH,
+        //     lines.len()
+        // );
 
-        for (line_idx, line) in lines.iter().take(MAX_LINES_PER_PATH as usize).enumerate() {
-            let line_idx = line_idx as u32;
+        // let tile_columns = width.div_ceil(Tile::WIDTH);
+        // let tile_rows = height.div_ceil(Tile::HEIGHT);
 
-            let p0_x = line.p0.x / f32::from(Tile::WIDTH);
-            let p0_y = line.p0.y / f32::from(Tile::HEIGHT);
-            let p1_x = line.p1.x / f32::from(Tile::WIDTH);
-            let p1_y = line.p1.y / f32::from(Tile::HEIGHT);
+        // for (line_idx, line) in lines.iter().take(MAX_LINES_PER_PATH as usize).enumerate() {
+        //     let line_idx = line_idx as u32;
 
-            let (line_left_x, line_right_x) = if p0_x < p1_x {
-                (p0_x, p1_x)
-            } else {
-                (p1_x, p0_x)
-            };
+        //     let p0_x = line.p0.x / f32::from(Tile::WIDTH);
+        //     let p0_y = line.p0.y / f32::from(Tile::HEIGHT);
+        //     let p1_x = line.p1.x / f32::from(Tile::WIDTH);
+        //     let p1_y = line.p1.y / f32::from(Tile::HEIGHT);
 
-            // Lines whose left-most endpoint exceed the right edge of the viewport are culled
-            if line_left_x > tile_columns as f32 {
-                continue;
-            }
+        //     let (line_left_x, line_right_x) = if p0_x < p1_x {
+        //         (p0_x, p1_x)
+        //     } else {
+        //         (p1_x, p0_x)
+        //     };
 
-            let (line_top_y, line_top_x, line_bottom_y, line_bottom_x) = if p0_y < p1_y {
-                (p0_y, p0_x, p1_y, p1_x)
-            } else {
-                (p1_y, p1_x, p0_y, p0_x)
-            };
+        //     // Lines whose left-most endpoint exceed the right edge of the viewport are culled
+        //     if line_left_x > tile_columns as f32 {
+        //         continue;
+        //     }
 
-            // The `as u16` casts here intentionally clamp negative coordinates to 0.
-            let y_top_tiles = (line_top_y as u16).min(tile_rows);
-            let line_bottom_y_ceil = line_bottom_y.ceil();
-            let y_bottom_tiles = (line_bottom_y_ceil as u16).min(tile_rows);
+        //     let (line_top_y, line_top_x, line_bottom_y, line_bottom_x) = if p0_y < p1_y {
+        //         (p0_y, p0_x, p1_y, p1_x)
+        //     } else {
+        //         (p1_y, p1_x, p0_y, p0_x)
+        //     };
 
-            // If y_top_tiles == y_bottom_tiles, then the line is either completely above or below
-            // the viewport OR it is perfectly horizontal and aligned to the tile grid, contributing
-            // no winding. In either case, it should be culled.
-            if y_top_tiles >= y_bottom_tiles {
-                continue;
-            }
+        //     // The `as u16` casts here intentionally clamp negative coordinates to 0.
+        //     let y_top_tiles = (line_top_y as u16).min(tile_rows);
+        //     let line_bottom_y_ceil = line_bottom_y.ceil();
+        //     let y_bottom_tiles = (line_bottom_y_ceil as u16).min(tile_rows);
 
-            // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
-            let p0_tile_x = line_top_x.floor() as i32;
-            let p0_tile_y = line_top_y.floor() as i32;
-            let p1_tile_x = line_bottom_x.floor() as i32;
+        //     // If y_top_tiles == y_bottom_tiles, then the line is either completely above or below
+        //     // the viewport OR it is perfectly horizontal and aligned to the tile grid, contributing
+        //     // no winding. In either case, it should be culled.
+        //     if y_top_tiles >= y_bottom_tiles {
+        //         continue;
+        //     }
 
-            let p1_tile_y = if line_bottom_y == line_bottom_y_ceil {
-                line_bottom_y as i32 - 1
-            } else {
-                line_bottom_y.floor() as i32
-            };
+        //     // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
+        //     let p0_tile_x = line_top_x.floor() as i32;
+        //     let p0_tile_y = line_top_y.floor() as i32;
+        //     let p1_tile_x = line_bottom_x.floor() as i32;
 
-            // Special-case out lines which are fully contained within a tile.
-            let not_same_tile = p0_tile_y != p1_tile_y || p0_tile_x != p1_tile_x;
-            if not_same_tile {
-                // For ease of logic, special-case purely vertical tiles.
-                if line_left_x == line_right_x {
-                    let x = (line_left_x as u16).min(tile_columns.saturating_sub(1));
+        //     let p1_tile_y = if line_bottom_y == line_bottom_y_ceil {
+        //         line_bottom_y as i32 - 1
+        //     } else {
+        //         line_bottom_y.floor() as i32
+        //     };
 
-                    // Row Start, not culled.
-                    let is_start_culled = line_top_y < 0.0;
-                    if !is_start_culled {
-                        let winding = ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5;
-                        let intersection_mask = 0b10 | winding;
-                        let tile = Tile::new_clamped(x, y_top_tiles, line_idx, intersection_mask);
-                        self.tile_buf.push(tile);
-                    }
+        //     // Special-case out lines which are fully contained within a tile.
+        //     let not_same_tile = p0_tile_y != p1_tile_y || p0_tile_x != p1_tile_x;
+        //     if not_same_tile {
+        //         // For ease of logic, special-case purely vertical tiles.
+        //         if line_left_x == line_right_x {
+        //             let x = (line_left_x as u16).min(tile_columns.saturating_sub(1));
 
-                    // Middle
-                    // If the start was culled, the first tile inside the viewport is a middle.
-                    let y_start = if is_start_culled {
-                        y_top_tiles
-                    } else {
-                        y_top_tiles + 1
-                    };
-                    let line_bottom_floor = line_bottom_y.floor();
-                    let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
+        //             // Row Start, not culled.
+        //             let is_start_culled = line_top_y < 0.0;
+        //             if !is_start_culled {
+        //                 let winding = ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5;
+        //                 let intersection_mask = 0b10 | winding;
+        //                 let tile = Tile::new_clamped(x, y_top_tiles, line_idx, intersection_mask);
+        //                 self.tile_buf.push(tile);
+        //             }
 
-                    if y_start < y_end_idx {
-                        let y_last = y_end_idx - 1;
-                        for y_idx in y_start..y_last {
-                            let intersection_mask = 0b100011; // W | B | T
-                            let tile = Tile::new_clamped(x, y_idx, line_idx, intersection_mask);
-                            self.tile_buf.push(tile);
-                        }
+        //             // Middle
+        //             // If the start was culled, the first tile inside the viewport is a middle.
+        //             let y_start = if is_start_culled {
+        //                 y_top_tiles
+        //             } else {
+        //                 y_top_tiles + 1
+        //             };
+        //             let line_bottom_floor = line_bottom_y.floor();
+        //             let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
 
-                        // Perfect touching B case.
-                        {
-                            let is_end_tile = ((y_last as i32) == p1_tile_y) as u32;
-                            let intersection_mask = 0b100001 | ((1 ^ is_end_tile) << 1);
-                            let tile = Tile::new_clamped(x, y_last, line_idx, intersection_mask);
-                            self.tile_buf.push(tile);
-                        }
-                    }
+        //             if y_start < y_end_idx {
+        //                 let y_last = y_end_idx - 1;
+        //                 for y_idx in y_start..y_last {
+        //                     let intersection_mask = 0b100011; // W | B | T
+        //                     let tile = Tile::new_clamped(x, y_idx, line_idx, intersection_mask);
+        //                     self.tile_buf.push(tile);
+        //                 }
 
-                    // Row End, handle the final tile (y_end_idx), but *only* if the line does
-                    // not perfectly end on the top edge of the tile. In the case that it does,
-                    // it gets handled by the middle logic above.
-                    if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
-                        let intersection_mask = 0b100001; // W | T
-                        let tile = Tile::new_clamped(x, y_end_idx, line_idx, intersection_mask);
-                        self.tile_buf.push(tile);
-                    }
-                } else {
-                    let dx = p1_x - p0_x;
-                    let dy = p1_y - p0_y;
-                    let x_slope = dx / dy;
-                    let slope_is_pos = x_slope >= 0.0;
-                    let dx_dir = (line_bottom_x >= line_top_x) as u32;
-                    let not_dx_dir = dx_dir ^ 1;
+        //                 // Perfect touching B case.
+        //                 {
+        //                     let is_end_tile = ((y_last as i32) == p1_tile_y) as u32;
+        //                     let intersection_mask = 0b100001 | ((1 ^ is_end_tile) << 1);
+        //                     let tile = Tile::new_clamped(x, y_last, line_idx, intersection_mask);
+        //                     self.tile_buf.push(tile);
+        //                 }
+        //             }
 
-                    let w_start_base = dx_dir << 5;
-                    let w_end_base = not_dx_dir << 5;
+        //             // Row End, handle the final tile (y_end_idx), but *only* if the line does
+        //             // not perfectly end on the top edge of the tile. In the case that it does,
+        //             // it gets handled by the middle logic above.
+        //             if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
+        //                 let intersection_mask = 0b100001; // W | T
+        //                 let tile = Tile::new_clamped(x, y_end_idx, line_idx, intersection_mask);
+        //                 self.tile_buf.push(tile);
+        //             }
+        //         } else {
+        //             let dx = p1_x - p0_x;
+        //             let dy = p1_y - p0_y;
+        //             let x_slope = dx / dy;
+        //             let slope_is_pos = x_slope >= 0.0;
+        //             let dx_dir = (line_bottom_x >= line_top_x) as u32;
+        //             let not_dx_dir = dx_dir ^ 1;
 
-                    // Check if the line is fully within the horizontal viewport bounds. If it is,
-                    // we can skip the min/max clamping per row.
-                    let min_x = p0_x.min(p1_x);
-                    let max_x = p0_x.max(p1_x);
-                    // Note: We use >= on the right edge to ensure strictly safe integer truncation
-                    let needs_clamping = min_x < line_left_x || max_x >= line_right_x;
+        //             let w_start_base = dx_dir << 5;
+        //             let w_end_base = not_dx_dir << 5;
 
-                    // Handles the bitmask logic for start/end tiles. Invariant to clamping.
-                    macro_rules! push_edge {
-                        ($x:expr, $y:expr, $row_top_x:expr, $row_bottom_x:expr,
-                         $canonical_start:expr, $canonical_end:expr, $winding_input:expr,
-                         $check_s:tt, $check_e:expr) => {{
-                            let x_idx = $x;
+        //             // Check if the line is fully within the horizontal viewport bounds. If it is,
+        //             // we can skip the min/max clamping per row.
+        //             let min_x = p0_x.min(p1_x);
+        //             let max_x = p0_x.max(p1_x);
+        //             // Note: We use >= on the right edge to ensure strictly safe integer truncation
+        //             let needs_clamping = min_x < line_left_x || max_x >= line_right_x;
 
-                            let unc_row_start = (x_idx as i32 == $canonical_start) as u32;
-                            let unc_row_end = (x_idx == $canonical_end) as u32;
+        //             // Handles the bitmask logic for start/end tiles. Invariant to clamping.
+        //             macro_rules! push_edge {
+        //                 ($x:expr, $y:expr, $row_top_x:expr, $row_bottom_x:expr,
+        //                  $canonical_start:expr, $canonical_end:expr, $winding_input:expr,
+        //                  $check_s:tt, $check_e:expr) => {{
+        //                     let x_idx = $x;
 
-                            let canonical_row_start =
-                                (dx_dir & unc_row_start) | (not_dx_dir & unc_row_end);
-                            let canonical_row_end =
-                                (not_dx_dir & unc_row_start) | (dx_dir & unc_row_end);
+        //                     let unc_row_start = (x_idx as i32 == $canonical_start) as u32;
+        //                     let unc_row_end = (x_idx == $canonical_end) as u32;
 
-                            let start_tile = if $check_s {
-                                ((x_idx as i32 == p0_tile_x) && ($y as i32 == p0_tile_y)) as u32
-                            } else {
-                                0
-                            };
+        //                     let canonical_row_start =
+        //                         (dx_dir & unc_row_start) | (not_dx_dir & unc_row_end);
+        //                     let canonical_row_end =
+        //                         (not_dx_dir & unc_row_start) | (dx_dir & unc_row_end);
 
-                            let end_tile = if $check_e {
-                                ((x_idx as i32 == p1_tile_x) && ($y as i32 == p1_tile_y)) as u32
-                            } else {
-                                0
-                            };
+        //                     let start_tile = if $check_s {
+        //                         ((x_idx as i32 == p0_tile_x) && ($y as i32 == p0_tile_y)) as u32
+        //                     } else {
+        //                         0
+        //                     };
 
-                            let mut mask = $winding_input;
+        //                     let end_tile = if $check_e {
+        //                         ((x_idx as i32 == p1_tile_x) && ($y as i32 == p1_tile_y)) as u32
+        //                     } else {
+        //                         0
+        //                     };
 
-                            // Entrant/Exit
-                            mask |= canonical_row_start & (1 ^ start_tile);
-                            mask |= (1 ^ canonical_row_start) << not_dx_dir << 2;
-                            mask |= (canonical_row_end & (1 ^ end_tile)) << 1;
-                            mask |= (1 ^ canonical_row_end) << dx_dir << 2;
+        //                     let mut mask = $winding_input;
 
-                            // Corner
-                            let x_left_f = x_idx as f32;
-                            let x_right_f = (x_idx + 1) as f32;
-                            let trc = (($row_top_x == x_right_f) as u32) & (1 ^ start_tile);
-                            let tlc = (($row_top_x == x_left_f) as u32) & (1 ^ start_tile);
-                            let brc = (($row_bottom_x == x_right_f) as u32) & (1 ^ end_tile);
-                            let blc = (($row_bottom_x == x_left_f) as u32) & (1 ^ end_tile);
-                            // Top left is handled specially
-                            let tie_break = tlc & (canonical_row_start ^ 1);
+        //                     // Entrant/Exit
+        //                     mask |= canonical_row_start & (1 ^ start_tile);
+        //                     mask |= (1 ^ canonical_row_start) << not_dx_dir << 2;
+        //                     mask |= (canonical_row_end & (1 ^ end_tile)) << 1;
+        //                     mask |= (1 ^ canonical_row_end) << dx_dir << 2;
 
-                            mask |= (tie_break | blc) << 2;
-                            mask |= (trc | brc) << 3;
-                            mask &= !(tie_break | trc);
-                            mask &= !((blc | brc) << 1);
+        //                     // Corner
+        //                     let x_left_f = x_idx as f32;
+        //                     let x_right_f = (x_idx + 1) as f32;
+        //                     let trc = (($row_top_x == x_right_f) as u32) & (1 ^ start_tile);
+        //                     let tlc = (($row_top_x == x_left_f) as u32) & (1 ^ start_tile);
+        //                     let brc = (($row_bottom_x == x_right_f) as u32) & (1 ^ end_tile);
+        //                     let blc = (($row_bottom_x == x_left_f) as u32) & (1 ^ end_tile);
+        //                     // Top left is handled specially
+        //                     let tie_break = tlc & (canonical_row_start ^ 1);
 
-                            // Set the perfect bit if in a corner
-                            mask |= (trc | tlc | brc | blc) << 4;
+        //                     mask |= (tie_break | blc) << 2;
+        //                     mask |= (trc | brc) << 3;
+        //                     mask &= !(tie_break | trc);
+        //                     mask &= !((blc | brc) << 1);
 
-                            self.tile_buf.push(Tile::new(x_idx, $y, line_idx, mask));
-                        }};
-                    }
+        //                     // Set the perfect bit if in a corner
+        //                     mask |= (trc | tlc | brc | blc) << 4;
 
-                    // Handles row geometry and clamping logic.
-                    macro_rules! process_row {
-                        ($y_idx:expr, $row_top_y:expr, $row_bottom_y:expr, $w_mask:expr,
-                     $check_s:tt, $check_e:tt, $clamped:tt) => {{
-                            let row_top_x = p0_x + ($row_top_y - p0_y) * x_slope;
-                            let row_bottom_x = p0_x + ($row_bottom_y - p0_y) * x_slope;
+        //                     self.tile_buf.push(Tile::new(x_idx, $y, line_idx, mask));
+        //                 }};
+        //             }
 
-                            let (row_left_x, row_right_x, x_end) = if $clamped {
-                                let lx = f32::min(row_top_x, row_bottom_x).max(line_left_x);
-                                let rx = f32::max(row_top_x, row_bottom_x).min(line_right_x);
-                                let xe = (rx as u16).min(tile_columns.saturating_sub(1));
-                                (lx, rx, xe)
-                            } else {
-                                let lx = f32::min(row_top_x, row_bottom_x);
-                                let rx = f32::max(row_top_x, row_bottom_x);
-                                let xe = rx as u16; // Safe because we checked bounds earlier
-                                (lx, rx, xe)
-                            };
+        //             // Handles row geometry and clamping logic.
+        //             macro_rules! process_row {
+        //                 ($y_idx:expr, $row_top_y:expr, $row_bottom_y:expr, $w_mask:expr,
+        //              $check_s:tt, $check_e:tt, $clamped:tt) => {{
+        //                     let row_top_x = p0_x + ($row_top_y - p0_y) * x_slope;
+        //                     let row_bottom_x = p0_x + ($row_bottom_y - p0_y) * x_slope;
 
-                            let canonical_x_start = row_left_x.floor() as i32;
-                            let canonical_x_end = row_right_x as u16;
-                            let x_start = row_left_x as u16;
+        //                     let (row_left_x, row_right_x, x_end) = if $clamped {
+        //                         let lx = f32::min(row_top_x, row_bottom_x).max(line_left_x);
+        //                         let rx = f32::max(row_top_x, row_bottom_x).min(line_right_x);
+        //                         let xe = (rx as u16).min(tile_columns.saturating_sub(1));
+        //                         (lx, rx, xe)
+        //                     } else {
+        //                         let lx = f32::min(row_top_x, row_bottom_x);
+        //                         let rx = f32::max(row_top_x, row_bottom_x);
+        //                         let xe = rx as u16; // Safe because we checked bounds earlier
+        //                         (lx, rx, xe)
+        //                     };
 
-                            if x_start <= x_end {
-                                let is_single = (x_start == x_end) as u32;
-                                let w_left = (w_start_base | (is_single << 5)) & $w_mask;
+        //                     let canonical_x_start = row_left_x.floor() as i32;
+        //                     let canonical_x_end = row_right_x as u16;
+        //                     let x_start = row_left_x as u16;
 
-                                push_edge!(
-                                    x_start,
-                                    $y_idx,
-                                    row_top_x,
-                                    row_bottom_x,
-                                    canonical_x_start,
-                                    canonical_x_end,
-                                    w_left,
-                                    $check_s,
-                                    $check_e
-                                );
+        //                     if x_start <= x_end {
+        //                         let is_single = (x_start == x_end) as u32;
+        //                         let w_left = (w_start_base | (is_single << 5)) & $w_mask;
 
-                                for x_idx in x_start.saturating_add(1)..x_end {
-                                    self.tile_buf.push(Tile::new(x_idx, $y_idx, line_idx, 12));
-                                }
+        //                         push_edge!(
+        //                             x_start,
+        //                             $y_idx,
+        //                             row_top_x,
+        //                             row_bottom_x,
+        //                             canonical_x_start,
+        //                             canonical_x_end,
+        //                             w_left,
+        //                             $check_s,
+        //                             $check_e
+        //                         );
 
-                                if x_start < x_end {
-                                    let w_right = w_end_base & $w_mask;
-                                    push_edge!(
-                                        x_end,
-                                        $y_idx,
-                                        row_top_x,
-                                        row_bottom_x,
-                                        canonical_x_start,
-                                        canonical_x_end,
-                                        w_right,
-                                        $check_s,
-                                        $check_e
-                                    );
-                                }
-                            }
-                        }};
-                    }
+        //                         for x_idx in x_start.saturating_add(1)..x_end {
+        //                             self.tile_buf.push(Tile::new(x_idx, $y_idx, line_idx, 12));
+        //                         }
 
-                    // Specialized for the middle loop. Uses incremental x steps.
-                    macro_rules! process_middle_row_incremental {
-                        ($y_idx:expr, $x_curr:expr, $x_next:expr, $check_e:expr, $clamped:tt) => {{
-                            // Determine Left/Right based on slope sign.
-                            let (raw_left, raw_right) = if slope_is_pos {
-                                ($x_curr, $x_next)
-                            } else {
-                                ($x_next, $x_curr)
-                            };
+        //                         if x_start < x_end {
+        //                             let w_right = w_end_base & $w_mask;
+        //                             push_edge!(
+        //                                 x_end,
+        //                                 $y_idx,
+        //                                 row_top_x,
+        //                                 row_bottom_x,
+        //                                 canonical_x_start,
+        //                                 canonical_x_end,
+        //                                 w_right,
+        //                                 $check_s,
+        //                                 $check_e
+        //                             );
+        //                         }
+        //                     }
+        //                 }};
+        //             }
 
-                            let (row_left_x, row_right_x, x_end) = if $clamped {
-                                let lx = raw_left.max(line_left_x);
-                                let rx = raw_right.min(line_right_x);
-                                let xe = (rx as u16).min(tile_columns.saturating_sub(1));
-                                (lx, rx, xe)
-                            } else {
-                                // Unclamped: Raw values are trusted
-                                (raw_left, raw_right, raw_right as u16)
-                            };
+        //             // Specialized for the middle loop. Uses incremental x steps.
+        //             macro_rules! process_middle_row_incremental {
+        //                 ($y_idx:expr, $x_curr:expr, $x_next:expr, $check_e:expr, $clamped:tt) => {{
+        //                     // Determine Left/Right based on slope sign.
+        //                     let (raw_left, raw_right) = if slope_is_pos {
+        //                         ($x_curr, $x_next)
+        //                     } else {
+        //                         ($x_next, $x_curr)
+        //                     };
 
-                            let canonical_x_start = row_left_x.floor() as i32;
-                            let canonical_x_end = row_right_x as u16;
-                            let x_start = row_left_x as u16;
+        //                     let (row_left_x, row_right_x, x_end) = if $clamped {
+        //                         let lx = raw_left.max(line_left_x);
+        //                         let rx = raw_right.min(line_right_x);
+        //                         let xe = (rx as u16).min(tile_columns.saturating_sub(1));
+        //                         (lx, rx, xe)
+        //                     } else {
+        //                         // Unclamped: Raw values are trusted
+        //                         (raw_left, raw_right, raw_right as u16)
+        //                     };
 
-                            if x_start <= x_end {
-                                let is_single = (x_start == x_end) as u32;
-                                let w_left = w_start_base | (is_single << 5);
+        //                     let canonical_x_start = row_left_x.floor() as i32;
+        //                     let canonical_x_end = row_right_x as u16;
+        //                     let x_start = row_left_x as u16;
 
-                                // Note: We pass raw x_curr/x_next as top/bottom x
-                                push_edge!(
-                                    x_start,
-                                    $y_idx,
-                                    $x_curr,
-                                    $x_next,
-                                    canonical_x_start,
-                                    canonical_x_end,
-                                    w_left,
-                                    false,
-                                    $check_e
-                                );
+        //                     if x_start <= x_end {
+        //                         let is_single = (x_start == x_end) as u32;
+        //                         let w_left = w_start_base | (is_single << 5);
 
-                                for x_idx in x_start.saturating_add(1)..x_end {
-                                    self.tile_buf.push(Tile::new(x_idx, $y_idx, line_idx, 12));
-                                }
+        //                         // Note: We pass raw x_curr/x_next as top/bottom x
+        //                         push_edge!(
+        //                             x_start,
+        //                             $y_idx,
+        //                             $x_curr,
+        //                             $x_next,
+        //                             canonical_x_start,
+        //                             canonical_x_end,
+        //                             w_left,
+        //                             false,
+        //                             $check_e
+        //                         );
 
-                                if x_start < x_end {
-                                    push_edge!(
-                                        x_end,
-                                        $y_idx,
-                                        $x_curr,
-                                        $x_next,
-                                        canonical_x_start,
-                                        canonical_x_end,
-                                        w_end_base,
-                                        false,
-                                        $check_e
-                                    );
-                                }
-                            }
-                        }};
-                    }
+        //                         for x_idx in x_start.saturating_add(1)..x_end {
+        //                             self.tile_buf.push(Tile::new(x_idx, $y_idx, line_idx, 12));
+        //                         }
 
-                    // Central macro
-                    macro_rules! run_loops {
-                        ($clamped:tt) => {{
-                            // Top Row
-                            let is_start_culled = line_top_y < 0.0;
-                            if !is_start_culled {
-                                let y = f32::from(y_top_tiles);
-                                let row_bottom_y = (y + 1.0).min(line_bottom_y);
-                                let mask = ((y >= line_top_y) as u32) << 5;
-                                process_row!(
-                                    y_top_tiles,
-                                    line_top_y,
-                                    row_bottom_y,
-                                    mask,
-                                    true,
-                                    true,
-                                    $clamped
-                                );
-                            }
+        //                         if x_start < x_end {
+        //                             push_edge!(
+        //                                 x_end,
+        //                                 $y_idx,
+        //                                 $x_curr,
+        //                                 $x_next,
+        //                                 canonical_x_start,
+        //                                 canonical_x_end,
+        //                                 w_end_base,
+        //                                 false,
+        //                                 $check_e
+        //                             );
+        //                         }
+        //                     }
+        //                 }};
+        //             }
 
-                            let y_start_middle = if is_start_culled {
-                                y_top_tiles
-                            } else {
-                                y_top_tiles + 1
-                            };
-                            let line_bottom_floor = line_bottom_y.floor();
-                            let y_end_middle = (line_bottom_floor as u16).min(tile_rows);
+        //             // Central macro
+        //             macro_rules! run_loops {
+        //                 ($clamped:tt) => {{
+        //                     // Top Row
+        //                     let is_start_culled = line_top_y < 0.0;
+        //                     if !is_start_culled {
+        //                         let y = f32::from(y_top_tiles);
+        //                         let row_bottom_y = (y + 1.0).min(line_bottom_y);
+        //                         let mask = ((y >= line_top_y) as u32) << 5;
+        //                         process_row!(
+        //                             y_top_tiles,
+        //                             line_top_y,
+        //                             row_bottom_y,
+        //                             mask,
+        //                             true,
+        //                             true,
+        //                             $clamped
+        //                         );
+        //                     }
 
-                            // Middle Rows, walk incrementally
-                            if y_start_middle < y_end_middle {
-                                let start_y_f = f32::from(y_start_middle);
-                                let mut x_curr = p0_x + (start_y_f - p0_y) * x_slope;
+        //                     let y_start_middle = if is_start_culled {
+        //                         y_top_tiles
+        //                     } else {
+        //                         y_top_tiles + 1
+        //                     };
+        //                     let line_bottom_floor = line_bottom_y.floor();
+        //                     let y_end_middle = (line_bottom_floor as u16).min(tile_rows);
 
-                                let y_last = y_end_middle - 1;
-                                for y_idx in y_start_middle..y_last {
-                                    let x_next = x_curr + x_slope;
-                                    process_middle_row_incremental!(
-                                        y_idx, x_curr, x_next, false, $clamped
-                                    );
-                                    x_curr = x_next;
-                                }
+        //                     // Middle Rows, walk incrementally
+        //                     if y_start_middle < y_end_middle {
+        //                         let start_y_f = f32::from(y_start_middle);
+        //                         let mut x_curr = p0_x + (start_y_f - p0_y) * x_slope;
 
-                                // Perfect Touching B
-                                {
-                                    let x_next = x_curr + x_slope;
-                                    let check_end = (y_last as i32) == p1_tile_y;
-                                    process_middle_row_incremental!(
-                                        y_last, x_curr, x_next, check_end, $clamped
-                                    );
-                                }
-                            }
+        //                         let y_last = y_end_middle - 1;
+        //                         for y_idx in y_start_middle..y_last {
+        //                             let x_next = x_curr + x_slope;
+        //                             process_middle_row_incremental!(
+        //                                 y_idx, x_curr, x_next, false, $clamped
+        //                             );
+        //                             x_curr = x_next;
+        //                         }
 
-                            // Bottom Row
-                            if line_bottom_y != line_bottom_floor
-                                && y_end_middle < tile_rows
-                                && (is_start_culled || y_end_middle != y_top_tiles)
-                            {
-                                let y_idx = y_end_middle;
-                                let y = f32::from(y_idx);
-                                process_row!(
-                                    y_idx,
-                                    y,
-                                    line_bottom_y,
-                                    u32::MAX,
-                                    false,
-                                    true,
-                                    $clamped
-                                );
-                            }
-                        }};
-                    }
+        //                         // Perfect Touching B
+        //                         {
+        //                             let x_next = x_curr + x_slope;
+        //                             let check_end = (y_last as i32) == p1_tile_y;
+        //                             process_middle_row_incremental!(
+        //                                 y_last, x_curr, x_next, check_end, $clamped
+        //                             );
+        //                         }
+        //                     }
 
-                    if needs_clamping {
-                        run_loops!(true);
-                    } else {
-                        run_loops!(false);
-                    }
-                }
-            } else {
-                // Case: Line is fully contained within a single tile.
-                let tile = Tile::new_clamped(
-                    (line_left_x as u16).min(tile_columns + 1),
-                    y_top_tiles,
-                    line_idx,
-                    ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5,
-                );
-                self.tile_buf.push(tile);
-            }
-        }
+        //                     // Bottom Row
+        //                     if line_bottom_y != line_bottom_floor
+        //                         && y_end_middle < tile_rows
+        //                         && (is_start_culled || y_end_middle != y_top_tiles)
+        //                     {
+        //                         let y_idx = y_end_middle;
+        //                         let y = f32::from(y_idx);
+        //                         process_row!(
+        //                             y_idx,
+        //                             y,
+        //                             line_bottom_y,
+        //                             u32::MAX,
+        //                             false,
+        //                             true,
+        //                             $clamped
+        //                         );
+        //                     }
+        //                 }};
+        //             }
+
+        //             if needs_clamping {
+        //                 run_loops!(true);
+        //             } else {
+        //                 run_loops!(false);
+        //             }
+        //         }
+        //     } else {
+        //         // Case: Line is fully contained within a single tile.
+        //         let tile = Tile::new_clamped(
+        //             (line_left_x as u16).min(tile_columns + 1),
+        //             y_top_tiles,
+        //             line_idx,
+        //             ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5,
+        //         );
+        //         self.tile_buf.push(tile);
+        //     }
+        // }
     }
 }
 
