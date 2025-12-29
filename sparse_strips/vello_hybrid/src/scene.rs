@@ -228,7 +228,14 @@ impl Scene {
             &mut self.strip_storage,
             self.clip_context.get(),
         );
-        wide.generate(&self.strip_storage.strips, paint, self.blend_mode, 0, None);
+        wide.generate(
+            &self.strip_storage.strips,
+            paint,
+            self.blend_mode,
+            0,
+            None,
+            &self.encoded_paints,
+        );
     }
 
     /// Push a new clip path to the clip stack.
@@ -287,7 +294,14 @@ impl Scene {
             self.clip_context.get(),
         );
 
-        wide.generate(&self.strip_storage.strips, paint, self.blend_mode, 0, None);
+        wide.generate(
+            &self.strip_storage.strips,
+            paint,
+            self.blend_mode,
+            0,
+            None,
+            &self.encoded_paints,
+        );
     }
 
     /// Set the aliasing threshold.
@@ -751,6 +765,7 @@ impl Scene {
             self.blend_mode,
             0,
             None,
+            &self.encoded_paints,
         );
     }
 

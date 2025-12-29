@@ -11,6 +11,7 @@ pub mod data;
 pub mod fine;
 pub mod flatten;
 pub mod glyph;
+pub mod integration;
 pub mod strip;
 pub mod tile;
 

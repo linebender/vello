@@ -414,6 +414,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        encoded_paints: &[EncodedPaint],
     ) {
         let wide = &mut self.wide;
 
@@ -428,7 +429,14 @@ impl Dispatcher for SingleThreadedDispatcher {
         );
 
         // Generate coarse-level commands from strips (layer_id 0 = root layer).
-        wide.generate(&self.strip_storage.strips, paint, blend_mode, 0, mask);
+        wide.generate(
+            &self.strip_storage.strips,
+            paint,
+            blend_mode,
+            0,
+            mask,
+            encoded_paints,
+        );
     }
 
     fn stroke_path(
@@ -440,6 +448,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        encoded_paints: &[EncodedPaint],
     ) {
         let wide = &mut self.wide;
 
@@ -454,7 +463,14 @@ impl Dispatcher for SingleThreadedDispatcher {
         );
 
         // Generate coarse-level commands from strips (layer_id 0 = root layer).
-        wide.generate(&self.strip_storage.strips, paint, blend_mode, 0, mask);
+        wide.generate(
+            &self.strip_storage.strips,
+            paint,
+            blend_mode,
+            0,
+            mask,
+            encoded_paints,
+        );
     }
 
     fn push_layer(
@@ -531,7 +547,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         self.layer_id_next = 0;
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self, _encoded_paints: &[EncodedPaint]) {
         // No-op for single-threaded dispatcher (no work queue to flush).
     }
 
@@ -578,9 +594,16 @@ impl Dispatcher for SingleThreadedDispatcher {
         }
     }
 
-    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint, blend_mode: BlendMode) {
+    fn generate_wide_cmd(
+        &mut self,
+        strip_buf: &[Strip],
+        paint: Paint,
+        blend_mode: BlendMode,
+        encoded_paints: &[EncodedPaint],
+    ) {
         // Generate coarse-level commands from pre-computed strips (layer_id 0 = root layer).
-        self.wide.generate(strip_buf, paint, blend_mode, 0, None);
+        self.wide
+            .generate(strip_buf, paint, blend_mode, 0, None, encoded_paints);
     }
 
     fn strip_storage_mut(&mut self) -> &mut StripStorage {
@@ -652,6 +675,7 @@ mod tests {
             BlendMode::default(),
             None,
             None,
+            &[],
         );
 
         // Ensure there is data to clear.

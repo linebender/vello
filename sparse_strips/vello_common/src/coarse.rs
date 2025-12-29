@@ -4,6 +4,7 @@
 //! Generating and processing wide tiles.
 
 use crate::color::palette::css::TRANSPARENT;
+use crate::encode::EncodedPaint;
 use crate::filter_effects::Filter;
 use crate::kurbo::{Affine, Rect};
 use crate::mask::Mask;
@@ -406,6 +407,7 @@ impl<const MODE: u8> Wide<MODE> {
         blend_mode: BlendMode,
         thread_idx: u8,
         mask: Option<Mask>,
+        encoded_paints: &[EncodedPaint],
     ) {
         if strip_buf.is_empty() {
             return;
@@ -516,10 +518,25 @@ impl<const MODE: u8> Wide<MODE> {
                     .min(bbox.x1())
                     .min(WideTile::MAX_WIDE_TILE_COORD);
 
+                // Compute fill hint based on paint type
                 let fill_attrs = &self.attrs.fill[attrs_idx as usize];
-                let override_color = match &fill_attrs.paint {
-                    Paint::Solid(s) if s.is_opaque() && fill_attrs.mask.is_none() => Some(*s),
-                    _ => None,
+                let fill_hint = if fill_attrs.mask.is_none() {
+                    match &fill_attrs.paint {
+                        Paint::Solid(s) if s.is_opaque() => FillHint::OpaqueSolid(*s),
+                        Paint::Indexed(idx) => {
+                            if let Some(EncodedPaint::Image(img)) = encoded_paints.get(idx.index())
+                                && !img.has_opacities
+                                && img.sampler.alpha == 1.0
+                            {
+                                FillHint::OpaqueImage
+                            } else {
+                                FillHint::None
+                            }
+                        }
+                        _ => FillHint::None,
+                    }
+                } else {
+                    FillHint::None
                 };
 
                 // Generate fill commands for each wide tile in the fill region
@@ -537,7 +554,7 @@ impl<const MODE: u8> Wide<MODE> {
                         width,
                         attrs_idx,
                         current_layer_id,
-                        override_color,
+                        fill_hint,
                     );
                     // TODO: This bbox update might be redundant since filled regions are always
                     // bounded by strip regions (which already update the bbox). Consider removing
@@ -1207,20 +1224,24 @@ impl<const MODE: u8> WideTile<MODE> {
     /// For clipped filter layers, commands are always generated since filters need the full
     /// layer content rendered before applying the clip as a mask.
     ///
-    /// The `override_color` parameter is pre-computed by the caller: if the paint is a solid
-    /// opaque color with no mask, this contains that color for potential background replacement
-    /// optimization.
+    /// The `fill_hint` parameter is pre-computed by the caller based on paint type:
+    /// - `OpaqueSolid(color)`: Paint is an opaque solid color, can replace background
+    /// - `OpaqueImage`: Paint is an opaque image, can clear previous commands
+    /// - `None`: No optimization available
     pub(crate) fn fill(
         &mut self,
         x: u16,
         width: u16,
         attrs_idx: u32,
         current_layer_id: LayerId,
-        override_color: Option<PremulColor>,
+        fill_hint: FillHint,
     ) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             match MODE {
                 MODE_CPU => {
+                    // Check if we can apply overdraw elimination optimization.
+                    // This requires filling the entire tile width with no clip/buffer stack.
+                    //
                     // Note that we could be more aggressive in optimizing a whole-tile opaque fill
                     // even with a clip stack. It would be valid to elide all drawing commands from
                     // the enclosing clip push up to the fill. Further, we could extend the clip
@@ -1231,25 +1252,43 @@ impl<const MODE: u8> WideTile<MODE> {
                     //
                     // However, the extra cost of tracking such optimizations may outweigh the
                     // benefit, especially in hybrid mode with GPU painting.
-                    let bg = override_color.filter(|_| {
-                        x == 0 && width == WideTile::WIDTH && self.n_clip == 0 && self.n_bufs == 0
-                    });
+                    let can_override =
+                        x == 0 && width == WideTile::WIDTH && self.n_clip == 0 && self.n_bufs == 0;
 
-                    if let Some(bg) = bg {
-                        self.cmds.clear();
-                        self.bg = bg;
-                        // Clear layer ranges when we clear commands
-                        if let Some(ranges) = self.layer_cmd_ranges.get_mut(&current_layer_id) {
-                            ranges.clear();
+                    if can_override {
+                        match fill_hint {
+                            FillHint::OpaqueSolid(color) => {
+                                self.cmds.clear();
+                                self.bg = color;
+                                if let Some(ranges) =
+                                    self.layer_cmd_ranges.get_mut(&current_layer_id)
+                                {
+                                    ranges.clear();
+                                }
+                                return;
+                            }
+                            FillHint::OpaqueImage => {
+                                // Opaque image: clear previous commands but still emit the fill.
+                                self.cmds.clear();
+                                self.bg = PremulColor::from_alpha_color(TRANSPARENT);
+                                if let Some(ranges) =
+                                    self.layer_cmd_ranges.get_mut(&current_layer_id)
+                                {
+                                    ranges.clear();
+                                }
+                                // Fall through to emit the fill command below, as opposed to
+                                // solid paints where we have a return statement.
+                            }
+                            FillHint::None => {}
                         }
-                    } else {
-                        self.record_fill_cmd(current_layer_id, self.cmds.len());
-                        self.cmds.push(Cmd::Fill(CmdFill {
-                            x,
-                            width,
-                            attrs_idx,
-                        }));
                     }
+
+                    self.record_fill_cmd(current_layer_id, self.cmds.len());
+                    self.cmds.push(Cmd::Fill(CmdFill {
+                        x,
+                        width,
+                        attrs_idx,
+                    }));
                 }
                 MODE_HYBRID => {
                     self.record_fill_cmd(current_layer_id, self.cmds.len());
@@ -1472,7 +1511,7 @@ impl<const MODE: u8> WideTile<MODE> {
     /// // 4: PopBuf
     /// ```
     #[allow(dead_code, reason = "useful for debugging")]
-    pub(crate) fn list_commands(&self) -> String {
+    pub fn list_commands(&self) -> String {
         self.cmds
             .iter()
             .enumerate()
@@ -1480,6 +1519,21 @@ impl<const MODE: u8> WideTile<MODE> {
             .collect::<Vec<_>>()
             .join("\n")
     }
+}
+
+/// Optimization hint for fill operations, computed in `Wide::generate` and passed to `WideTile::fill`.
+///
+/// This enum communicates whether a fill operation can benefit from overdraw elimination:
+/// - For opaque solid colors: we can set the background color directly and skip the fill
+/// - For opaque images: we can clear previous commands but still need to emit the fill
+#[derive(Debug, Clone, Copy)]
+pub enum FillHint {
+    /// No optimization possible, emit fill command normally.
+    None,
+    /// Paint is an opaque solid color - can replace background if conditions are met.
+    OpaqueSolid(PremulColor),
+    /// Paint is an opaque image - can clear previous commands if conditions are met.
+    OpaqueImage,
 }
 
 /// Distinguishes between different types of layers and their storage strategies.
@@ -1571,7 +1625,8 @@ impl Cmd {
     /// Returns a human-readable name for this command.
     ///
     /// This is useful for debugging, logging, and displaying command information
-    /// in a user-friendly format.
+    /// in a user-friendly format. To get detailed paint information, use `name_with_attrs`
+    /// which can look up the paint from the command attributes.
     ///
     /// **Note:** This method is only available in debug builds (`debug_assertions`).
     pub fn name(&self) -> &'static str {
@@ -1592,6 +1647,69 @@ impl Cmd {
             Self::Blend(_) => "Blend",
             Self::Opacity(_) => "Opacity",
             Self::Mask(_) => "Mask",
+        }
+    }
+
+    /// Returns a human-readable name for this command with detailed paint information.
+    ///
+    /// This variant looks up paint details from the command attributes for fill commands.
+    ///
+    /// **Note:** This method is only available in debug builds (`debug_assertions`).
+    pub fn name_with_attrs(
+        &self,
+        fill_attrs: &[FillAttrs],
+        encoded_paints: &[EncodedPaint],
+    ) -> String {
+        match self {
+            Self::Fill(cmd) => {
+                if let Some(attrs) = fill_attrs.get(cmd.attrs_idx as usize) {
+                    format!("FillPath({})", paint_name(&attrs.paint, encoded_paints))
+                } else {
+                    format!("FillPath(attrs_idx={})", cmd.attrs_idx)
+                }
+            }
+            Self::AlphaFill(cmd) => {
+                if let Some(attrs) = fill_attrs.get(cmd.attrs_idx as usize) {
+                    format!(
+                        "AlphaFillPath({})",
+                        paint_name(&attrs.paint, encoded_paints)
+                    )
+                } else {
+                    format!("AlphaFillPath(attrs_idx={})", cmd.attrs_idx)
+                }
+            }
+            _ => self.name().into(),
+        }
+    }
+}
+
+/// Returns a human-readable description of a paint.
+#[cfg(debug_assertions)]
+fn paint_name(paint: &Paint, encoded_paints: &[EncodedPaint]) -> String {
+    match paint {
+        Paint::Solid(color) => {
+            let rgba = color.as_premul_rgba8();
+            format!(
+                "Solid(#{:02x}{:02x}{:02x}{:02x})",
+                rgba.r, rgba.g, rgba.b, rgba.a
+            )
+        }
+        Paint::Indexed(idx) => {
+            let index = idx.index();
+            if let Some(encoded) = encoded_paints.get(index) {
+                let kind = match encoded {
+                    EncodedPaint::Gradient(g) => match &g.kind {
+                        crate::encode::EncodedKind::Linear(_) => "LinearGradient",
+                        crate::encode::EncodedKind::Radial(_) => "RadialGradient",
+                        crate::encode::EncodedKind::Sweep(_) => "SweepGradient",
+                    },
+                    EncodedPaint::Image(_) => "Image",
+                    EncodedPaint::BlurredRoundedRect(_) => "BlurredRoundedRect",
+                };
+                format!("{}[{}]", kind, index)
+            } else {
+                format!("Indexed({})", index)
+            }
         }
     }
 }
@@ -1772,7 +1890,7 @@ impl LayerCommandRanges {
 
 #[cfg(test)]
 mod tests {
-    use crate::coarse::{LayerKind, MODE_CPU, Wide, WideTile};
+    use crate::coarse::{FillHint, LayerKind, MODE_CPU, Wide, WideTile};
     use crate::kurbo::Affine;
     use crate::peniko::{BlendMode, Compose, Mix};
     use crate::render_graph::RenderGraph;
@@ -1792,8 +1910,8 @@ mod tests {
     fn basic_layer() {
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf(LayerKind::Regular(0));
-        wide.fill(0, 10, 0, 0, None);
-        wide.fill(10, 10, 0, 0, None);
+        wide.fill(0, 10, 0, 0, FillHint::None);
+        wide.fill(10, 10, 0, 0, FillHint::None);
         wide.pop_buf();
 
         assert_eq!(wide.cmds.len(), 4);
@@ -1805,8 +1923,8 @@ mod tests {
 
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf(LayerKind::Regular(0));
-        wide.fill(0, 10, 0, 0, None);
-        wide.fill(10, 10, 0, 0, None);
+        wide.fill(0, 10, 0, 0, FillHint::None);
+        wide.fill(10, 10, 0, 0, FillHint::None);
         wide.blend(blend_mode);
         wide.pop_buf();
 
@@ -1819,7 +1937,7 @@ mod tests {
 
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf(LayerKind::Regular(0));
-        wide.fill(0, 10, 0, 0, None);
+        wide.fill(0, 10, 0, 0, FillHint::None);
         wide.blend(blend_mode);
         wide.pop_buf();
 
