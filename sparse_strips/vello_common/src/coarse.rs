@@ -63,21 +63,6 @@ pub const MODE_CPU: u8 = 0;
 /// generation specific for `vello_hybrid`.
 pub const MODE_HYBRID: u8 = 1;
 
-/// Optimization hint for fill operations, computed in `Wide::generate` and passed to `WideTile::fill`.
-///
-/// This enum communicates whether a fill operation can benefit from overdraw elimination:
-/// - For opaque solid colors: we can set the background color directly and skip the fill
-/// - For opaque images: we can clear previous commands but still need to emit the fill
-#[derive(Debug, Clone, Copy)]
-pub enum FillOptimization {
-    /// No optimization possible, emit fill command normally.
-    None,
-    /// Paint is an opaque solid color - can replace background if conditions are met.
-    OpaqueSolid(PremulColor),
-    /// Paint is an opaque image - can clear previous commands if conditions are met.
-    OpaqueImage,
-}
-
 /// A container for wide tiles.
 #[derive(Debug)]
 pub struct Wide<const MODE: u8 = MODE_CPU> {
@@ -533,25 +518,25 @@ impl<const MODE: u8> Wide<MODE> {
                     .min(bbox.x1())
                     .min(WideTile::MAX_WIDE_TILE_COORD);
 
-                // Compute fill optimization based on paint type
+                // Compute fill hint based on paint type
                 let fill_attrs = &self.attrs.fill[attrs_idx as usize];
-                let optimization = if fill_attrs.mask.is_none() {
+                let fill_hint = if fill_attrs.mask.is_none() {
                     match &fill_attrs.paint {
-                        Paint::Solid(s) if s.is_opaque() => FillOptimization::OpaqueSolid(*s),
+                        Paint::Solid(s) if s.is_opaque() => FillHint::OpaqueSolid(*s),
                         Paint::Indexed(idx) => {
                             if let Some(EncodedPaint::Image(img)) = encoded_paints.get(idx.index())
                                 && !img.has_opacities
                                 && img.sampler.alpha == 1.0
                             {
-                                FillOptimization::OpaqueImage
+                                FillHint::OpaqueImage
                             } else {
-                                FillOptimization::None
+                                FillHint::None
                             }
                         }
-                        _ => FillOptimization::None,
+                        _ => FillHint::None,
                     }
                 } else {
-                    FillOptimization::None
+                    FillHint::None
                 };
 
                 // Generate fill commands for each wide tile in the fill region
@@ -569,7 +554,7 @@ impl<const MODE: u8> Wide<MODE> {
                         width,
                         attrs_idx,
                         current_layer_id,
-                        optimization,
+                        fill_hint,
                     );
                     // TODO: This bbox update might be redundant since filled regions are always
                     // bounded by strip regions (which already update the bbox). Consider removing
@@ -1239,7 +1224,7 @@ impl<const MODE: u8> WideTile<MODE> {
     /// For clipped filter layers, commands are always generated since filters need the full
     /// layer content rendered before applying the clip as a mask.
     ///
-    /// The `optimization` parameter is pre-computed by the caller based on paint type:
+    /// The `fill_hint` parameter is pre-computed by the caller based on paint type:
     /// - `OpaqueSolid(color)`: Paint is an opaque solid color, can replace background
     /// - `OpaqueImage`: Paint is an opaque image, can clear previous commands
     /// - `None`: No optimization available
@@ -1249,29 +1234,30 @@ impl<const MODE: u8> WideTile<MODE> {
         width: u16,
         attrs_idx: u32,
         current_layer_id: LayerId,
-        optimization: FillOptimization,
+        fill_hint: FillHint,
     ) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             match MODE {
                 MODE_CPU => {
                     // Check if we can apply overdraw elimination optimization.
                     // This requires filling the entire tile width with no clip/buffer stack.
+                    //
+                    // Note that we could be more aggressive in optimizing a whole-tile opaque fill
+                    // even with a clip stack. It would be valid to elide all drawing commands from
+                    // the enclosing clip push up to the fill. Further, we could extend the clip
+                    // push command to include a background color, rather than always starting with
+                    // a transparent buffer. Lastly, a sequence of push(bg); strip/fill; pop could
+                    // be replaced with strip/fill with the color (the latter is true even with a
+                    // non-opaque color).
+                    //
+                    // However, the extra cost of tracking such optimizations may outweigh the
+                    // benefit, especially in hybrid mode with GPU painting.
                     let can_override =
                         x == 0 && width == WideTile::WIDTH && self.n_clip == 0 && self.n_bufs == 0;
 
                     if can_override {
-                        match optimization {
-                            FillOptimization::OpaqueSolid(color) => {
-                                // Note that we could be more aggressive in optimizing a whole-tile opaque fill
-                                // even with a clip stack. It would be valid to elide all drawing commands from
-                                // the enclosing clip push up to the fill. Further, we could extend the clip
-                                // push command to include a background color, rather than always starting with
-                                // a transparent buffer. Lastly, a sequence of push(bg); strip/fill; pop could
-                                // be replaced with strip/fill with the color (the latter is true even with a
-                                // non-opaque color).
-                                //
-                                // However, the extra cost of tracking such optimizations may outweigh the
-                                // benefit, especially in hybrid mode with GPU painting.
+                        match fill_hint {
+                            FillHint::OpaqueSolid(color) => {
                                 self.cmds.clear();
                                 self.bg = color;
                                 if let Some(ranges) =
@@ -1281,7 +1267,7 @@ impl<const MODE: u8> WideTile<MODE> {
                                 }
                                 return;
                             }
-                            FillOptimization::OpaqueImage => {
+                            FillHint::OpaqueImage => {
                                 // Opaque image: clear previous commands but still emit the fill.
                                 self.cmds.clear();
                                 self.bg = PremulColor::from_alpha_color(TRANSPARENT);
@@ -1290,9 +1276,10 @@ impl<const MODE: u8> WideTile<MODE> {
                                 {
                                     ranges.clear();
                                 }
-                                // Fall through to emit the fill command below.
+                                // Fall through to emit the fill command below, as opposed to
+                                // solid paints where we have a return statement.
                             }
-                            FillOptimization::None => {}
+                            FillHint::None => {}
                         }
                     }
 
@@ -1532,6 +1519,21 @@ impl<const MODE: u8> WideTile<MODE> {
             .collect::<Vec<_>>()
             .join("\n")
     }
+}
+
+/// Optimization hint for fill operations, computed in `Wide::generate` and passed to `WideTile::fill`.
+///
+/// This enum communicates whether a fill operation can benefit from overdraw elimination:
+/// - For opaque solid colors: we can set the background color directly and skip the fill
+/// - For opaque images: we can clear previous commands but still need to emit the fill
+#[derive(Debug, Clone, Copy)]
+pub enum FillHint {
+    /// No optimization possible, emit fill command normally.
+    None,
+    /// Paint is an opaque solid color - can replace background if conditions are met.
+    OpaqueSolid(PremulColor),
+    /// Paint is an opaque image - can clear previous commands if conditions are met.
+    OpaqueImage,
 }
 
 /// Distinguishes between different types of layers and their storage strategies.
@@ -1888,7 +1890,7 @@ impl LayerCommandRanges {
 
 #[cfg(test)]
 mod tests {
-    use crate::coarse::{FillOptimization, LayerKind, MODE_CPU, Wide, WideTile};
+    use crate::coarse::{FillHint, LayerKind, MODE_CPU, Wide, WideTile};
     use crate::kurbo::Affine;
     use crate::peniko::{BlendMode, Compose, Mix};
     use crate::render_graph::RenderGraph;
@@ -1908,8 +1910,8 @@ mod tests {
     fn basic_layer() {
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf(LayerKind::Regular(0));
-        wide.fill(0, 10, 0, 0, FillOptimization::None);
-        wide.fill(10, 10, 0, 0, FillOptimization::None);
+        wide.fill(0, 10, 0, 0, FillHint::None);
+        wide.fill(10, 10, 0, 0, FillHint::None);
         wide.pop_buf();
 
         assert_eq!(wide.cmds.len(), 4);
@@ -1921,8 +1923,8 @@ mod tests {
 
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf(LayerKind::Regular(0));
-        wide.fill(0, 10, 0, 0, FillOptimization::None);
-        wide.fill(10, 10, 0, 0, FillOptimization::None);
+        wide.fill(0, 10, 0, 0, FillHint::None);
+        wide.fill(10, 10, 0, 0, FillHint::None);
         wide.blend(blend_mode);
         wide.pop_buf();
 
@@ -1935,7 +1937,7 @@ mod tests {
 
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         wide.push_buf(LayerKind::Regular(0));
-        wide.fill(0, 10, 0, 0, FillOptimization::None);
+        wide.fill(0, 10, 0, 0, FillHint::None);
         wide.blend(blend_mode);
         wide.pop_buf();
 

@@ -270,7 +270,10 @@ impl MultiThreadedDispatcher {
             allocation_group,
         };
         task_sender.send(task).unwrap();
-        // TODO: Support encoded_paints in multithreading.
+        // TODO: Pass encoded_paints here to enable overdraw elimination for opaque indexed
+        // paints. Currently we pass an empty slice, so indexed paints render correctly but miss
+        // the FillHint::OpaqueImage optimization. The challenge is that encoded_paints is a
+        // borrowed reference that may not be valid by the time coarse processing runs asynchronously.
         self.run_coarse(true, &[]);
     }
 

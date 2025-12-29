@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Full scene rendering benchmarks.
+//! Integration benchmarks for full rendering pipelines.
 
 use std::sync::Arc;
 
@@ -12,6 +12,7 @@ use vello_common::peniko::ImageSampler;
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderContext;
+use vello_cpu::color::AlphaColor;
 
 /// Image scene rendering benchmark.
 pub fn images(c: &mut Criterion) {
@@ -41,7 +42,6 @@ pub fn images(c: &mut Criterion) {
                 let scale = width / original_width;
                 let height = original_height * scale;
 
-                renderer.set_transform(Affine::IDENTITY);
                 renderer.set_paint_transform(Affine::scale(scale));
                 renderer.set_paint(Image {
                     image: flower_image.clone(),
@@ -79,14 +79,9 @@ fn load_flower_image() -> ImageSource {
         rgba_data
             .chunks_exact(4)
             .map(|rgba| {
-                let alpha = u16::from(rgba[3]);
-                let premultiply = |component| (alpha * u16::from(component) / 255) as u8;
-                vello_common::color::PremulRgba8 {
-                    r: premultiply(rgba[0]),
-                    g: premultiply(rgba[1]),
-                    b: premultiply(rgba[2]),
-                    a: alpha as u8,
-                }
+                AlphaColor::from_rgba8(rgba[0], rgba[1], rgba[2], rgba[3])
+                    .premultiply()
+                    .to_rgba8()
             })
             .collect(),
         width as u16,
