@@ -270,7 +270,8 @@ impl MultiThreadedDispatcher {
             allocation_group,
         };
         task_sender.send(task).unwrap();
-        self.run_coarse(true);
+        // TODO: Support encoded_paints in multithreading.
+        self.run_coarse(true, &[]);
     }
 
     // Currently, we do coarse rasterization in two phases:
@@ -285,7 +286,7 @@ impl MultiThreadedDispatcher {
     // new strips that will be generated.
     //
     // This is why we have the `abort_empty`flag.
-    fn run_coarse(&mut self, abort_empty: bool) {
+    fn run_coarse(&mut self, abort_empty: bool, encoded_paints: &[EncodedPaint]) {
         let result_receiver = self.coarse_task_receiver.as_mut().unwrap();
 
         loop {
@@ -307,6 +308,7 @@ impl MultiThreadedDispatcher {
                                 blend_mode,
                                 thread_id,
                                 mask,
+                                encoded_paints,
                             ),
                             CoarseTaskType::RenderWideCommand {
                                 strips,
@@ -320,6 +322,7 @@ impl MultiThreadedDispatcher {
                                 blend_mode,
                                 thread_id,
                                 mask,
+                                encoded_paints,
                             ),
                             CoarseTaskType::PushLayer {
                                 thread_id,
@@ -429,6 +432,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        _encoded_paints: &[EncodedPaint],
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -453,6 +457,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        _encoded_paints: &[EncodedPaint],
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -541,7 +546,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.init();
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self, encoded_paints: &[EncodedPaint]) {
         if self.flushed {
             return;
         }
@@ -551,7 +556,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         // Note that dropping the sender will signal to the workers that no more new paths
         // can arrive.
         drop(sender);
-        self.run_coarse(false);
+        self.run_coarse(false, encoded_paints);
 
         self.alpha_storage.with_inner(|alphas| {
             // The main thread stores the alphas that are produced by playing a recording.
@@ -596,7 +601,13 @@ impl Dispatcher for MultiThreadedDispatcher {
         }
     }
 
-    fn generate_wide_cmd(&mut self, strip_buf: &[Strip], paint: Paint, blend_mode: BlendMode) {
+    fn generate_wide_cmd(
+        &mut self,
+        strip_buf: &[Strip],
+        paint: Paint,
+        blend_mode: BlendMode,
+        _encoded_paints: &[EncodedPaint],
+    ) {
         // Note that we are essentially round-tripping here: The wide container is inside of the
         // main thread, but we first send a render task to a child thread which basically just
         // forwards it back to the main thread again. We cannot apply the wide command directly
@@ -880,8 +891,9 @@ mod tests {
                 BlendMode::default(),
                 None,
                 None,
+                &[],
             );
-            dispatcher.flush();
+            dispatcher.flush(&[]);
         }
 
         assert_eq!(dispatcher.allocations.paths.entries.len(), 1);

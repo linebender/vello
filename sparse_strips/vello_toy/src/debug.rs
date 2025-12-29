@@ -94,6 +94,7 @@ fn main() {
             BlendMode::new(Mix::Normal, Compose::SrcOver),
             0,
             None,
+            &[],
         );
     }
 
