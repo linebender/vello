@@ -121,7 +121,7 @@ fn render_impl<S: Simd>(
         Fill::EvenOdd => winding % 2 != 0,
     };
 
-    let num_occupied_rows = tiles.occupied_tile_rows().len();
+    let num_occupied_rows = tiles.occupied_tile_rows().count();
     for (occupied_row_idx, row) in tiles.occupied_tile_rows().enumerate() {
         // Whether this is the last occupied tile row in `tile`.
         let is_last_tile_row = occupied_row_idx + 1 == num_occupied_rows;

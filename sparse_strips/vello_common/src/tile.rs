@@ -6,6 +6,7 @@
 use crate::flatten::Line;
 use alloc::vec;
 use alloc::vec::Vec;
+use bitvec::vec::BitVec;
 use fearless_simd::Level;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
@@ -252,7 +253,7 @@ impl TileRow {
 #[derive(Clone, Debug)]
 pub struct Tiles {
     tile_rows: Vec<TileRow>,
-    occupied_rows: core::ops::Range<usize>,
+    occupied_rows: BitVec,
     level: Level,
     sorted: bool,
 }
@@ -262,7 +263,7 @@ impl Tiles {
     pub fn new(level: Level) -> Self {
         Self {
             tile_rows: vec![],
-            occupied_rows: usize::MAX..0,
+            occupied_rows: BitVec::new(),
             level,
             sorted: false,
         }
@@ -278,10 +279,10 @@ impl Tiles {
 
     /// Reset the tiles' container.
     pub fn reset(&mut self) {
-        for row in self.occupied_rows.clone() {
+        for row in self.occupied_rows.iter_ones() {
             self.tile_rows[row].reset();
         }
-        self.occupied_rows = usize::MAX..0;
+        self.occupied_rows.set_elements(0);
         self.sorted = false;
     }
 
@@ -290,7 +291,7 @@ impl Tiles {
         self.sorted = true;
         // To enable auto-vectorization.
         self.level.dispatch(|_| {
-            for row in self.occupied_rows.clone() {
+            for row in self.occupied_rows.iter_ones() {
                 self.tile_rows[row].tiles.sort_unstable()
             }
         });
@@ -298,8 +299,8 @@ impl Tiles {
 
     /// Iterate over the occupied tile row indices.
     #[inline]
-    pub fn occupied_tile_rows(&self) -> core::ops::Range<usize> {
-        self.occupied_rows.clone()
+    pub fn occupied_tile_rows(&self) -> impl Iterator<Item = usize> {
+        self.occupied_rows.iter_ones()
     }
 
     /// Get a tile row by its index.
@@ -323,6 +324,7 @@ impl Tiles {
         let rows = usize::from(rows);
         if rows > self.tile_rows.len() {
             self.tile_rows.resize(rows, TileRow::new());
+            self.occupied_rows.resize(rows, false);
         }
     }
 
@@ -333,9 +335,9 @@ impl Tiles {
     fn push_tile(&mut self, row: u16, tile: Tile) {
         let row = usize::from(row);
         self.tile_rows[row].tiles.push(tile);
-        self.occupied_rows.start = usize::min(self.occupied_rows.start, row);
-        self.occupied_rows.end = usize::max(self.occupied_rows.end, row + 1);
-        // self.occupied_rows.set(row, true);
+        // self.occupied_rows.start = usize::min(self.occupied_rows.start, row);
+        // self.occupied_rows.end = usize::max(self.occupied_rows.end, row + 1);
+        self.occupied_rows.set(row, true);
     }
 
     /// Generates tile commands for Analytic Anti-Aliasing rasterization. Unlike the MSAA path, this
