@@ -25,6 +25,7 @@ pub(crate) trait Callback {
 /// <https://docs.rs/kurbo/latest/kurbo/fn.flatten.html>
 ///
 /// This version works using a similar approach but using f32x4/f32x8 SIMD instead.
+#[inline(always)]
 pub(crate) fn flatten<S: Simd>(
     simd: S,
     path: impl IntoIterator<Item = PathEl>,
@@ -111,17 +112,12 @@ pub(crate) fn flatten<S: Simd>(
                         callback.callback(PathEl::LineTo(p3));
                     } else {
                         let c = CubicBez::new(p0, p1, p2, p3);
-                        let max = simd.vectorize(
-                            #[inline(always)]
-                            || {
-                                flatten_cubic_simd(
-                                    simd,
-                                    c,
-                                    flatten_ctx,
-                                    tolerance as f32,
-                                    &mut flattened_cubics,
-                                )
-                            },
+                        let max = flatten_cubic_simd(
+                            simd,
+                            c,
+                            flatten_ctx,
+                            tolerance as f32,
+                            &mut flattened_cubics,
                         );
 
                         for p in &flattened_cubics[1..max] {
@@ -156,6 +152,7 @@ fn approx_parabola_inv_integral(x: f64) -> f64 {
 }
 
 impl FlattenParamsExt for QuadBez {
+    #[inline(always)]
     fn estimate_subdiv(&self, sqrt_tol: f64) -> FlattenParams {
         // Determine transformation to $y = x^2$ parabola.
         let d01 = self.p1 - self.p0;
@@ -194,6 +191,7 @@ impl FlattenParamsExt for QuadBez {
         }
     }
 
+    #[inline(always)]
     fn determine_subdiv_t(&self, params: &FlattenParams, x: f64) -> f64 {
         let a = params.a0 + (params.a2 - params.a0) * x;
         let u = approx_parabola_inv_integral(a);
