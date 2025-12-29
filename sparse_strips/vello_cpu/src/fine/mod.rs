@@ -520,32 +520,32 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         cmd: &Cmd,
         alphas: &[u8],
         paints: &[EncodedPaint],
-        props: &CommandAttrs,
+        attrs: &CommandAttrs,
     ) {
         match cmd {
             Cmd::Fill(f) => {
-                let fill_props = &props.fill[f.props_idx as usize];
+                let fill_attrs = &attrs.fill[f.attrs_idx as usize];
                 self.fill(
                     usize::from(f.x),
                     usize::from(f.width),
-                    &fill_props.paint,
-                    fill_props.blend_mode,
+                    &fill_attrs.paint,
+                    fill_attrs.blend_mode,
                     paints,
                     None,
-                    fill_props.mask.as_ref(),
+                    fill_attrs.mask.as_ref(),
                 );
             }
             Cmd::AlphaFill(s) => {
-                let fill_props = &props.fill[s.props_idx as usize];
-                let alpha_idx = fill_props.alpha_idx(s.alpha_offset) as usize;
+                let fill_attrs = &attrs.fill[s.attrs_idx as usize];
+                let alpha_idx = fill_attrs.alpha_idx(s.alpha_offset) as usize;
                 self.fill(
                     usize::from(s.x),
                     usize::from(s.width),
-                    &fill_props.paint,
-                    fill_props.blend_mode,
+                    &fill_attrs.paint,
+                    fill_attrs.blend_mode,
                     paints,
                     Some(&alphas[alpha_idx..]),
-                    fill_props.mask.as_ref(),
+                    fill_attrs.mask.as_ref(),
                 );
             }
             Cmd::Filter(_filter, _) => {
@@ -566,8 +566,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 self.clip(cf.x as usize, cf.width as usize, None);
             }
             Cmd::ClipStrip(cs) => {
-                let clip_props = &props.clip[cs.props_idx as usize];
-                let alpha_idx = clip_props.alpha_idx(cs.alpha_offset) as usize;
+                let clip_attrs = &attrs.clip[cs.attrs_idx as usize];
+                let alpha_idx = clip_attrs.alpha_idx(cs.alpha_offset) as usize;
                 self.clip(cs.x as usize, cs.width as usize, Some(&alphas[alpha_idx..]));
             }
             Cmd::Blend(b) => self.blend(*b),

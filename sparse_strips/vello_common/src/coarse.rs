@@ -72,7 +72,7 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// The wide tiles in the container.
     pub tiles: Vec<WideTile<MODE>>,
     /// Shared command properties, referenced by index from fill and clip commands.
-    pub props: CommandAttrs,
+    pub attrs: CommandAttrs,
     /// The stack of layers.
     layer_stack: Vec<Layer>,
     /// The stack of active clip regions.
@@ -304,7 +304,7 @@ impl<const MODE: u8> Wide<MODE> {
             tiles,
             width,
             height,
-            props: CommandAttrs::default(),
+            attrs: CommandAttrs::default(),
             layer_stack: vec![],
             clip_stack: vec![],
             // Start with root node 0.
@@ -325,7 +325,7 @@ impl<const MODE: u8> Wide<MODE> {
             tile.cmds.clear();
             tile.layer_ids.truncate(1);
         }
-        self.props.clear();
+        self.attrs.clear();
         self.layer_stack.clear();
         self.clip_stack.clear();
         self.filter_node_stack.truncate(1);
@@ -413,9 +413,9 @@ impl<const MODE: u8> Wide<MODE> {
 
         let alpha_base_idx = strip_buf[0].alpha_idx();
 
-        // Create shared properties for all commands from this path
-        let props_idx = self.props.fill.len() as u32;
-        self.props.fill.push(FillProps {
+        // Create shared attributes for all commands from this path
+        let attrs_idx = self.attrs.fill.len() as u32;
+        self.attrs.fill.push(FillAttrs {
             thread_idx,
             paint,
             blend_mode,
@@ -489,7 +489,7 @@ impl<const MODE: u8> Wide<MODE> {
                     x: x_wtile_rel,
                     width,
                     alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx,
-                    props_idx,
+                    attrs_idx,
                 };
                 x += width;
                 col += u32::from(width);
@@ -516,9 +516,9 @@ impl<const MODE: u8> Wide<MODE> {
                     .min(bbox.x1())
                     .min(WideTile::MAX_WIDE_TILE_COORD);
 
-                let fill_props = &self.props.fill[props_idx as usize];
-                let override_color = match &fill_props.paint {
-                    Paint::Solid(s) if s.is_opaque() && fill_props.mask.is_none() => Some(*s),
+                let fill_attrs = &self.attrs.fill[attrs_idx as usize];
+                let override_color = match &fill_attrs.paint {
+                    Paint::Solid(s) if s.is_opaque() && fill_attrs.mask.is_none() => Some(*s),
                     _ => None,
                 };
 
@@ -535,7 +535,7 @@ impl<const MODE: u8> Wide<MODE> {
                     self.get_mut(wtile_x, strip_y).fill(
                         x_wtile_rel,
                         width,
-                        props_idx,
+                        attrs_idx,
                         current_layer_id,
                         override_color,
                     );
@@ -943,10 +943,10 @@ impl<const MODE: u8> Wide<MODE> {
             return;
         }
 
-        // Compute base alpha index and create shared clip properties
+        // Compute base alpha index and create shared clip attributes
         let alpha_base_idx = strips[0].alpha_idx();
-        let clip_props_idx = self.props.clip.len() as u32;
-        self.props.clip.push(ClipProps {
+        let clip_attrs_idx = self.attrs.clip.len() as u32;
+        self.attrs.clip.push(ClipAttrs {
             thread_idx,
             alpha_base_idx,
         });
@@ -1045,7 +1045,7 @@ impl<const MODE: u8> Wide<MODE> {
                     x: x_rel,
                     width,
                     alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx,
-                    props_idx: clip_props_idx,
+                    attrs_idx: clip_attrs_idx,
                 };
                 x += width;
                 col += u32::from(width);
@@ -1214,7 +1214,7 @@ impl<const MODE: u8> WideTile<MODE> {
         &mut self,
         x: u16,
         width: u16,
-        props_idx: u32,
+        attrs_idx: u32,
         current_layer_id: LayerId,
         override_color: Option<PremulColor>,
     ) {
@@ -1247,7 +1247,7 @@ impl<const MODE: u8> WideTile<MODE> {
                         self.cmds.push(Cmd::Fill(CmdFill {
                             x,
                             width,
-                            props_idx,
+                            attrs_idx,
                         }));
                     }
                 }
@@ -1256,7 +1256,7 @@ impl<const MODE: u8> WideTile<MODE> {
                     self.cmds.push(Cmd::Fill(CmdFill {
                         x,
                         width,
-                        props_idx,
+                        attrs_idx,
                     }));
                 }
                 _ => unreachable!(),
@@ -1596,9 +1596,9 @@ impl Cmd {
     }
 }
 
-/// Shared properties for alpha fill commands.
+/// Shared attributes for alpha fill commands.
 #[derive(Debug, Clone, PartialEq)]
-pub struct FillProps {
+pub struct FillAttrs {
     /// The index of the thread that owns the alpha buffer
     /// containing the mask values at `alpha_idx`.
     /// Always 0 in single-threaded mode.
@@ -1616,16 +1616,16 @@ pub struct FillProps {
     alpha_base_idx: u32,
 }
 
-impl FillProps {
+impl FillAttrs {
     /// Compute the absolute alpha buffer index from a relative offset.
     pub fn alpha_idx(&self, offset: u32) -> u32 {
         self.alpha_base_idx + offset
     }
 }
 
-/// Shared properties for clip alpha fill commands.
+/// Shared attributes for clip alpha fill commands.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClipProps {
+pub struct ClipAttrs {
     /// The index of the thread that owns the alpha buffer
     /// containing the mask values at `alpha_idx`.
     /// Always 0 in single-threaded mode.
@@ -1635,27 +1635,27 @@ pub struct ClipProps {
     alpha_base_idx: u32,
 }
 
-impl ClipProps {
+impl ClipAttrs {
     /// Compute the absolute alpha buffer index from a relative offset.
     pub fn alpha_idx(&self, offset: u32) -> u32 {
         self.alpha_base_idx + offset
     }
 }
 
-/// Container for shared command properties.
+/// Container for shared command attributes.
 ///
-/// This struct holds the shared properties for fill and clip commands,
+/// This struct holds the shared attributes for fill and clip commands,
 /// allowing them to be passed together to functions that need both.
 #[derive(Debug, Default, Clone)]
 pub struct CommandAttrs {
-    /// Shared properties for fill commands, indexed by `props_idx` in `CmdFill`/`CmdAlphaFill`.
-    pub fill: Vec<FillProps>,
-    /// Shared properties for clip commands, indexed by `props_idx` in `CmdClipAlphaFill`.
-    pub clip: Vec<ClipProps>,
+    /// Shared attributes for fill commands, indexed by `attrs_idx` in `CmdFill`/`CmdAlphaFill`.
+    pub fill: Vec<FillAttrs>,
+    /// Shared attributes for clip commands, indexed by `attrs_idx` in `CmdClipAlphaFill`.
+    pub clip: Vec<ClipAttrs>,
 }
 
 impl CommandAttrs {
-    /// Clear all properties.
+    /// Clear all attributes.
     pub fn clear(&mut self) {
         self.fill.clear();
         self.clip.clear();
@@ -1673,8 +1673,8 @@ pub struct CmdFill {
     pub x: u16,
     /// The width of the filled region in pixels.
     pub width: u16,
-    /// Index into the command properties array.
-    pub props_idx: u32,
+    /// Index into the command attributes array.
+    pub attrs_idx: u32,
 }
 
 /// Fill a consecutive horizontal region with an alpha mask.
@@ -1689,10 +1689,10 @@ pub struct CmdAlphaFill {
     /// The width of the filled region in pixels.
     pub width: u16,
     /// Relative offset to the alpha buffer location.
-    /// Use `FillProps::alpha_idx(alpha_offset)` to compute the absolute index.
+    /// Use `FillAttrs::alpha_idx(alpha_offset)` to compute the absolute index.
     pub alpha_offset: u32,
-    /// Index into the command properties array.
-    pub props_idx: u32,
+    /// Index into the command attributes array.
+    pub attrs_idx: u32,
 }
 
 /// Fill operation within a clipping region.
@@ -1720,10 +1720,10 @@ pub struct CmdClipAlphaFill {
     /// The width of the region to composite in pixels.
     pub width: u16,
     /// Relative offset to the alpha buffer location.
-    /// Use `ClipProps::alpha_idx(alpha_offset)` to compute the absolute index.
+    /// Use `ClipAttrs::alpha_idx(alpha_offset)` to compute the absolute index.
     pub alpha_offset: u32,
-    /// Index into the clip properties array.
-    pub props_idx: u32,
+    /// Index into the clip attributes array.
+    pub attrs_idx: u32,
 }
 
 trait BlendModeExt {

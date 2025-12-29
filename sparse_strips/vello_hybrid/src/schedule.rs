@@ -433,7 +433,7 @@ impl Scheduler {
                     &annotated_cmds,
                     tile_state,
                     paint_idxs,
-                    &scene.wide.props,
+                    &scene.wide.attrs,
                 )?;
             }
         }
@@ -578,7 +578,7 @@ impl Scheduler {
         cmds: &'a [AnnotatedCmd<'a>],
         mut state: TileState,
         paint_idxs: &[u32],
-        props: &CommandAttrs,
+        attrs: &CommandAttrs,
     ) -> Result<(), RenderError> {
         for annotated_cmd in cmds {
             // Note: this starts at 1 (for the final target)
@@ -593,10 +593,10 @@ impl Scheduler {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
-                    let fill_props = &props.fill[fill.props_idx as usize];
+                    let fill_attrs = &attrs.fill[fill.attrs_idx as usize];
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
-                        &fill_props.paint,
+                        &fill_attrs.paint,
                         scene,
                         (scene_strip_x, scene_strip_y),
                         paint_idxs,
@@ -619,12 +619,12 @@ impl Scheduler {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
-                    let fill_props = &props.fill[alpha_fill.props_idx as usize];
-                    let alpha_idx = fill_props.alpha_idx(alpha_fill.alpha_offset);
+                    let fill_attrs = &attrs.fill[alpha_fill.attrs_idx as usize];
+                    let alpha_idx = fill_attrs.alpha_idx(alpha_fill.alpha_offset);
                     let col_idx = alpha_idx / u32::from(Tile::HEIGHT);
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + alpha_fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
-                        &fill_props.paint,
+                        &fill_attrs.paint,
                         scene,
                         (scene_strip_x, scene_strip_y),
                         paint_idxs,
@@ -826,8 +826,8 @@ impl Scheduler {
                         )
                     };
 
-                    let clip_props = &props.clip[clip_alpha_fill.props_idx as usize];
-                    let alpha_idx = clip_props.alpha_idx(clip_alpha_fill.alpha_offset);
+                    let clip_attrs = &attrs.clip[clip_alpha_fill.attrs_idx as usize];
+                    let alpha_idx = clip_attrs.alpha_idx(clip_alpha_fill.alpha_offset);
                     let col_idx = alpha_idx / u32::from(Tile::HEIGHT);
 
                     draw.push(
