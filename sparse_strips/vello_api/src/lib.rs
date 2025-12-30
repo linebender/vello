@@ -94,6 +94,8 @@
 //! - Texture resizing; this might not be viably possible
 //! - More explicit texture atlas support
 //! - Proper handling of where `TextureHandle` and `TextureId` should be passed.
+//! - "Unsetting" the brush; this is mostly useful for append style operations, which may unexpectedly change the brush.
+//! - Dynamic version of `PaintScene`, allowing `dyn PaintScene` for cases where that would be relevant.
 //!
 //! ## Not cross-renderer
 //!

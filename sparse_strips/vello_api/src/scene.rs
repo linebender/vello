@@ -1,6 +1,13 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Implementation types for [`Scene`], a reusable sequence of drawing commands.
+//!
+//! The types in this module (aside from `Scene`) are intended to be used by implementations of Vello API.
+//!
+//! Consumers of Vello API should interact with `Scene` by using the methods from its implementation of [`PaintScene`].
+//! These completed scenes can then be applied to renderer-specific drawing types using [`PaintScene::append`].
+
 use alloc::{sync::Arc, vec::Vec};
 
 use peniko::{BlendMode, ImageBrush, kurbo::Affine};
@@ -11,6 +18,13 @@ use crate::{
     texture::{TextureHandle, TextureId},
 };
 
+/// A single render command in a `Scene`. Each [`PaintScene`] method on the scene adds one of these.
+///
+/// The [`PathId`]s contained within are the index into the pathset associated with this `Scene`.
+/// As such, when moving these commands between scenes, the path id must be updated.
+/// (N.B. this will be less true when we get path caching, if it follows the expected design).
+///
+/// The abstract renderer these commands operate on has the state described in the [`PaintScene`] trait; that is, the current brush and a layer stack.
 #[derive(Debug)]
 pub enum RenderCommand {
     /// Draw a path with the current brush.
@@ -54,9 +68,16 @@ pub struct BlurredRoundedRectBrush {
     pub std_dev: f32,
 }
 
+/// A reusable sequence of drawing commands for renders to a specific [`Renderer`].
+///
+///  # Hinting
+///
+/// TODO: Describe how a scene can be "hinted", i.e. the drawing operations know they will only be translated, and therefore can
+/// design to specific pixels.
+/// Usefulness for drawing glyphs (i.e. characters of text) and, but more invalidation required.
+#[derive(Debug)]
 // TODO: Reason about visibility; do we want a more limited "expose" operation
 // which lets you read all the fields?
-#[derive(Debug)]
 pub struct Scene {
     pub paths: PathSet,
     pub commands: Vec<RenderCommand>,
@@ -82,6 +103,7 @@ impl Scene {
             textures: Vec::new(),
         }
     }
+    // TODO: Consider a "simple" constructor which doesn't require a renderer, and therefore doesn't allow textures.
 }
 
 impl Scene {

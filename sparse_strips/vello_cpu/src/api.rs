@@ -39,7 +39,7 @@ struct VelloCPUContents {
 #[derive(Debug)]
 pub struct VelloCPU {
     inner: Lock<VelloCPUContents>,
-    this: Weak<VelloCPU>,
+    this: Weak<Self>,
 }
 
 impl VelloCPU {

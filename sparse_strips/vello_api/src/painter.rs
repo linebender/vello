@@ -8,6 +8,50 @@ use peniko::{BlendMode, Brush, Color, Fill};
 
 use crate::scene::{OurBrush, Scene};
 
+/// A 2d scene or canvas.
+///
+/// These types are used to prepare a sequence of vector shapes to later be drawn by a [`Renderer`].
+/// From a [`Renderer`], you can create a canvas which renders to a given texture using [`Renderer::create_scene`].
+/// Alternatively, you can use [`Scene`], a reusable `PaintScene`, for cases such as a single SVG, or a GUI widget.
+///
+/// The canvas this type represents combines three separate concerns.
+/// These are:
+///
+/// - The brush, which describes what will be drawn by the following commands.
+///   This can be a solid colour ([`set_solid_brush`]), a gradient, an image (both [`set_brush`]), or a blurred rounded rectangle ([`set_blurred_rounded_rect_brush`]).
+///   The brush's coordinate system is currently relative to the drawn path's coordinate system.
+///   <!-- We might also want to allow this to be explicitly unset, in which case drawing will fail -->.
+/// - The area over which this brush is to be drawn.
+///   This can either be a filled path ([`fill_path`])
+/// - The layer stack, which allows for multiple 2d contexts to be blended together, with clipping.
+///
+/// This separation of brush and drawing area is an experimental aspect of this API.
+/// More traditional drawing APIs either combines these concerns into single methods, or splits these
+/// out even further (those would be a "stateless" or "stateful" API, respectively).
+/// This middle ground is intended to allow drawing multiple shapes with a single brush,
+/// so as to allow brush-specific work to be re-used, without having a mechanism like a brush id.
+///
+/// This design is explicitly an experiment, pending empirical verification.
+// In particular, this is likely to fall down for practical drawing of text.
+// For example, if you're drawing text with a gradient, something like emoji would end up changing the brush.
+// However, for the sake of getting something landed, I'm not planning to change this now.
+///
+/// # Scene area
+///
+/// The canvas represented by this trait logically represents an unbounded area.
+/// However, from a practical perspective, the area which might be visible depends on the specific scene type.
+/// If it will be rendered to a texture (i.e. created using [`Renderer::create_scene`]) then only the texture's viewport is relevant.
+/// If this is a [`Scene`], then when it is actually rendered (by being [`append`]ed to a scene created
+/// using [`Renderer::create_scene`]) it could be transformed, so any part of the scene could be visible.
+/// As such, the inferred clipping from the scene viewports is limited.
+///
+/// [`Renderer::create_scene`]: crate::Renderer::create_scene
+/// [`set_blurred_rounded_rect_brush`]: PaintScene::set_blurred_rounded_rect_brush
+/// [`set_brush`]: PaintScene::set_brush
+/// [`set_solid_brush`]: PaintScene::set_solid_brush
+/// [`fill_path`]: PaintScene::fill_path
+/// [`append`]: PaintScene::append
+/// [`Renderer`]: crate::Renderer
 pub trait PaintScene: Any {
     // Error if associated with different renderer.
     // TODO: This also "clobbers" the brush; we need to document that.

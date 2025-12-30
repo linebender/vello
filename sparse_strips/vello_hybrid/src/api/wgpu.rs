@@ -40,7 +40,7 @@ pub struct VelloHybrid {
     queue: Queue,
     format: wgpu::TextureFormat,
     default_render_settings: RenderSettings,
-    this: Weak<VelloHybrid>,
+    this: Weak<Self>,
 }
 
 impl VelloHybrid {
