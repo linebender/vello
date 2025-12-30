@@ -50,7 +50,7 @@ pub struct TextureDescriptor {
     pub width: u16,
     pub height: u16,
     pub usages: TextureUsages,
-    // TODO: Format? Premultiplication? Hdr?
+    // TODO: Format? Premultiplication? Hdr? Opaqueness?
     // TODO: Explicit atlasing?
 }
 

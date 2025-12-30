@@ -25,7 +25,7 @@ See https://linebender.org/blog/doc-include/ for related discussion. -->
 <!-- markdownlint-disable MD053 -->
 <!-- cargo-rdme start -->
 
-Vello API is the rendering API of the 2d renderers in the Vello project.
+Vello API is the rendering API of the 2D renderers in the Vello project.
 
 There are currently two [supported Vello renderers](#renderers), each with different tradeoffs.
 This crate allows you to write the majority of your application logic to support either of those renderers.
@@ -44,8 +44,8 @@ TODO: This is a stub just to have an outline to push.
 
 The Vello renderers which support this API are:
 
-- Vello CPU, an extremely portable 2d renderer which does not require a GPU.
-  It is one of the fastest CPU-only 2d renderers in Rust.
+- Vello CPU, an extremely portable 2D renderer which does not require a GPU.
+  It is one of the fastest CPU-only 2D renderers in Rust.
 - Vello Hybrid, which runs the most compute intensive portions of rendering on the GPU, improving performance over Vello CPU.
   It has wide compatibility with most devices, so long as they have a GPU, and it runs well on the web.
 <!-- We might also have, to be determined:
@@ -65,10 +65,10 @@ Vello API guarantees identical rendering between these renderers, barring subpix
 
 ## Abstraction Boundaries
 
-The abstractions in this crate are focused on 2d rendering, and the resources required to perform that.
-In particular, this does abstract over strategies for:
+The abstractions in this crate are focused on 2D rendering, and the resources required to perform that.
+In particular, this does not abstract over strategies for:
 
-- creating the renderer.
+- creating the renderer (which can require more context, such as a wgpu `Device`); nor
 - bringing external content into the renderer (for example, already resident GPU textures); nor
 - presenting rendered content to an operating system window.
 
@@ -82,8 +82,63 @@ Vello API does not handle text/glyph rendering itself.
 This allows for improved resource sharing of intermediate text layout data, for hinting and ink splitting underlines.
 
 Text can be rendered to Vello API scenes using the "Parley Draw" crate.
+Note that this crate is not currently implemented; design work is ongoing.
 We also support rendering using using traditional glyph atlases, which may be preferred by some consumers.
 This is especially useful to achieve subpixel rendering, such as ClearType, which Vello doesn't currently support directly.
+
+## Unimplemented Features
+
+The current version of Vello API is a minimal viable product for exploration and later expansion.
+As such, there are several features which we expect to be included in this API, but which are not yet exposed in this crate.
+These are categorised as follows:
+
+### Out of scope/Renderer specific
+
+<!-- This section can be removed once the other three classes are empty -->
+As discussed above, some features are out-of-scope, as they have concerns which need to be handled individually by each renderer.
+This includes:
+
+- Rendering directly to a surface.
+- Importing "external" textures (e.g. from a `wgpu::Texture`)
+
+### Excluded for expedience
+
+- Renderer specific painting commands (i.e. using downcasting).
+  This is intended to be an immediate follow-up to the MVP landing.
+- Pushing/popping clip paths (i.e. non-isolated clipping).
+  This feature should be easy to restore, although it isn't clear how it will work with "Vello GPU", i.e. Hybrid with GPU rasterisation
+- Downloading rendered textures back to the CPU/host.
+  This is currently supported through individual methods on the renderers, but we hope to have a portable API for coordinating this.
+- Anti-aliasing threshold.
+- Fill rules for clip paths.
+- Proper error types; we currently return `()`. This is to ensure that these error types are explicitly interim.
+- Texture resizing; this might not be viably possible
+- More explicit texture atlas support
+- Proper handling of where `TextureHandle` and `TextureId` should be passed.
+
+### Not cross-renderer
+
+There are some features which are only implemented in one of our target renderers, so cannot yet be included in the generalised API.
+As an interim solution, we intend to expose these features as renderer specific extensions (see the "excluded for expedience section").
+
+For Vello CPU, these are (i.e. Vello Hybrid does not implement these):
+
+- Masks
+- Filter effects
+- Non-isolated blending (this is "supported" by Vello Hybrid, but currently silently ignored)
+- Blurred rounded rectangles (note that currently this is actually included in the abstraction, despite this status)
+
+There are currently no such features the other way around (i.e. which only Vello Hybrid supports).
+
+### Not implemented
+
+- Path caching. This feature is intended to allow re-using paths efficiently, primarily for glyphs.
+- Blurred rounded rectangle paints in custom shapes (e.g. to exclude the unblurred parts).
+  (TODO: This actually does exist as a method, but no renderer implements it; we should maybe remove that method?)
+- Mipmaps
+
+For even more detail on some of these, see the `design.md` file.
+Note however that file is very uncurated.
 
 <!-- cargo-rdme end -->
 <!-- markdownlint-enable MD053 -->

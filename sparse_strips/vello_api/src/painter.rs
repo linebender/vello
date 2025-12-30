@@ -58,30 +58,15 @@ pub trait PaintScene: Any {
         self.fill_path(transform, Fill::EvenOdd, shape);
     }
 
-    // This can be accessed through downcasting:
-    // (Well, kind of...; that doesn't apply to Scene, which is by far the most common type here.)
-    // fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>);
-    // TODO: What does this mean?
-    // fn set_blend_mode(&mut self, blend_mode: BlendMode);
-
-    // TODO: Do we want this exposed?
-    // TODO: &impl Shape?
-    // fn push_clip_path(&mut self, path: &kurbo::BezPath);
-    // fn pop_clip_path(&mut self);
-
-    // TODO: We need to support a fill rule here for clip paths...
     fn push_layer(
         &mut self,
         clip_transform: Affine,
         clip_path: Option<impl Shape>,
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
-        // mask: Option<Mask>,
-        // filter: Option<Filter>
     );
 
     // TODO: Do we need all of these?
-    // TODO: We need to support a fill rule here...
     fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape) {
         self.push_layer(clip_transform, Some(path), None, None);
     }
@@ -89,7 +74,7 @@ pub trait PaintScene: Any {
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
         self.push_layer(
             Affine::IDENTITY,
-            // This needing to be turbofished shows a real footgun with the proped "push_layer" API here.
+            // This needing to be turbofished shows a real footgun with the proposed "push_layer" API here.
             None::<BezPath>,
             Some(blend_mode),
             None,

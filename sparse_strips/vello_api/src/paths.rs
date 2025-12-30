@@ -58,8 +58,10 @@ impl Default for PathSet {
 impl PathSet {
     pub fn prepare_fill(&mut self, fill_rule: Fill, shape: &impl Shape) -> PathId {
         let start_index = self.elements.len();
-        // TODO: Maybe determine the optimal tolerance from the transform.
-        // If this can be post-transformed, that doesn't actually meaningfully apply?
+        // TODO: We hard-code this tolerance to be 0.1, as every other call does so.
+        // We should maybe change that at some point?
+        // https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/Determining.20correct.20.60Shape.60.20tolerance/with/565793178
+        // If you need a different tolerance, you should pass in a `BezPath` (i.e. using Shape::to_path with the tolerance you require)
         self.elements.extend(shape.path_elements(0.1));
         let meta_index = self.meta.len();
         self.meta.push(PathMeta {
@@ -74,8 +76,8 @@ impl PathSet {
     // TODO: Maybe require stroke expansion happen *prior* to this stage?
     pub fn prepare_stroke(&mut self, stroke_rule: Stroke, shape: &impl Shape) -> PathId {
         let start_index = self.elements.len();
-        // TODO: Determine the optimal tolerance from the transform.
         // TODO: Perform dash expansion now, even if not stroke expansion?
+        // See https://xi.zulipchat.com/#narrow/channel/260979-kurbo/topic/Removing.20dash_pattern.20from.20Stroke/with/561141820
         self.elements.extend(shape.path_elements(0.1));
         let meta_index = self.meta.len();
         self.meta.push(PathMeta {

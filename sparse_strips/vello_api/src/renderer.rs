@@ -12,13 +12,6 @@ use crate::{
     texture::{TextureDescriptor, TextureHandle, TextureId},
 };
 
-// TODO: Maybe?
-// pub enum MaskOperation {
-//     SvgLuminance,
-//     CssLuminance,
-//     Alpha,
-// }
-
 /// A 2D renderer, which can be used to schedule the renders of multiple 2D scenes.
 ///
 /// Types which implement this trait are the main empty point into Vello API.
@@ -94,20 +87,12 @@ pub trait Renderer: Any + Debug + Share {
     // TODO: Texture resizing? Reasonable reasons to not do that include cannot resize wgpu textures
     // Also what does that mean for existing content, etc.
 
-    // TODO: Better error kinds.
-    // TODO: Also accept TextureHandle?
     fn upload_image(&self, to: &TextureId, data: &peniko::ImageData) -> Result<(), ()>;
 
     fn as_arc(&self) -> Arc<Self>
     where
         Self: Sized;
     fn as_dyn_arc(&self) -> Arc<dyn Renderer>;
-
-    // TODO: Reason about how we want downloads to work.
-    // fn queue_download(&self, of: &TextureId) -> DownloadId;
-
-    // fn create_mask(descriptor: MaskOperation) -> Mask;
-    // fn mask_from_scene(from: &Texture, to: &Scene, MaskDescriptor { subset_rect });
 
     fn create_scene(&self, to: &TextureId, options: SceneOptions) -> Result<Self::ScenePainter, ()>
     where
@@ -116,6 +101,3 @@ pub trait Renderer: Any + Debug + Share {
     where
         Self: Sized;
 }
-
-// TODO: impl dyn Renderer {fn downcast}
-// TODO: impl Arc<dyn Renderer> {fn downcast}

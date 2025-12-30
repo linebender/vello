@@ -43,10 +43,6 @@ pub struct PushLayerCommand {
     pub blend_mode: Option<BlendMode>,
     /// Opacity.
     pub opacity: Option<f32>,
-    // /// Mask.
-    // pub mask: Option<crate::renderer::Mask>,
-    // /// Filter.
-    // pub filter: Option<Filter>,
 }
 
 #[derive(Debug, Clone)]
