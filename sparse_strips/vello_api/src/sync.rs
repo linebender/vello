@@ -111,13 +111,13 @@ mod multi {
 
     impl<T: Send + Sync + ?Sized> Share for T {}
 
-    #[derive(Debug)]
     /// The most practical locking primitive for interior mutability in 2D renderers.
     ///
     /// In the current compilation, this is a thin wrapper around [`Mutex`](std::sync::Mutex).
     ///
     /// When the standard library is enabled, this is a wrapper around `Mutex`.
     /// If not (or on Wasm), this is a wrapper around [`RefCell`](core::cell::RefCell).
+    #[derive(Debug)]
     pub struct Lock<T> {
         inner: std::sync::Mutex<T>,
     }

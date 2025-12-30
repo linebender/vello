@@ -20,9 +20,9 @@ use peniko::{
     kurbo::{PathEl, Shape, Stroke},
 };
 
-#[derive(Debug, Clone, Copy)]
 /// The id for a single path within a given [`PathSet`].
 /// This is an index into the [`meta`](PathSet::meta) field.
+#[derive(Debug, Clone, Copy)]
 // In a future world with path caching, this would be paired with a path group id.
 // For "scene-local" paths, you would then use a marker "local" path group id.
 pub struct PathId(pub u32);
@@ -102,7 +102,6 @@ impl PathSet {
     }
 }
 
-#[derive(Debug, Clone)]
 /// How a path will be rendered.
 ///
 /// There are reasonable arguments for moving this away from the path set,
@@ -119,6 +118,7 @@ impl PathSet {
 ///
 /// The reason not to is that it's potentially expensive (?), and so should be scheduled to a
 /// background thread.
+#[derive(Debug, Clone)]
 pub enum Operation {
     Stroke(Stroke),
     Fill(Fill),
