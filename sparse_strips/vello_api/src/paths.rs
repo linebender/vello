@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! A collection of vector graphics paths, for use in.
+//! A collection of vector graphics paths, for use in 2d rendering.
 //!
 //! This is an internal implementation detail of [`Scene`](crate::Scene).
 //! If you're a consumer of Vello API writing an application, you do not need to use this API.
