@@ -66,7 +66,6 @@ pub trait PaintScene: Any {
         opacity: Option<f32>,
     );
 
-    // TODO: Do we need all of these?
     fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape) {
         self.push_layer(clip_transform, Some(path), None, None);
     }
