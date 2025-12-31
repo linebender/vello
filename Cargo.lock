@@ -732,7 +732,6 @@ dependencies = [
  "num-traits",
  "once_cell",
  "oorandom",
- "plotters",
  "regex",
  "serde",
  "serde_derive",
@@ -1863,22 +1862,6 @@ dependencies = [
 
 [[package]]
 name = "kurbo"
-version = "0.6.0"
-dependencies = [
- "arrayvec",
- "criterion",
- "euclid",
- "getrandom",
- "libm",
- "mint",
- "rand",
- "schemars",
- "serde",
- "smallvec",
-]
-
-[[package]]
-name = "kurbo"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c62026ae44756f8a599ba21140f350303d4f08dcdcc71b5ad9c9bb8128c13c62"
@@ -1897,6 +1880,7 @@ dependencies = [
  "arrayvec",
  "euclid",
  "libm",
+ "schemars",
  "smallvec",
 ]
 
@@ -2107,12 +2091,6 @@ dependencies = [
  "adler2",
  "simd-adler32",
 ]
-
-[[package]]
-name = "mint"
-version = "0.5.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e53debba6bda7a793e5f99b8dacf19e626084f525f7829104ba9898f367d85ff"
 
 [[package]]
 name = "mintex"
@@ -2757,34 +2735,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
-name = "plotters"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5aeb6f403d7a4911efb1e33402027fc44f29b5bf6def3effcc22d7bb75f2b747"
-dependencies = [
- "num-traits",
- "plotters-backend",
- "plotters-svg",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "plotters-backend"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df42e13c12958a16b3f7f4386b9ab1f3e7933914ecea48da7139435263a4172a"
-
-[[package]]
-name = "plotters-svg"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51bae2ac328883f7acdfea3d66a7c35751187f870bc81f94563733a154d7a670"
-dependencies = [
- "plotters-backend",
-]
-
-[[package]]
 name = "png"
 version = "0.17.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3425,9 +3375,6 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "smithay-client-toolkit"
@@ -5285,7 +5232,7 @@ dependencies = [
  "env_logger",
  "getrandom",
  "jni",
- "kurbo 0.6.0",
+ "kurbo 0.12.0",
  "log",
  "notify-debouncer-full",
  "pollster",
