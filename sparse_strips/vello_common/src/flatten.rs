@@ -86,6 +86,7 @@ pub fn fill(
 }
 
 /// Flatten a filled bezier path into line segments.
+#[inline(always)]
 pub fn fill_impl<S: Simd>(
     simd: S,
     path: impl IntoIterator<Item = PathEl>,
@@ -94,7 +95,10 @@ pub fn fill_impl<S: Simd>(
     flatten_ctx: &mut FlattenCtx,
 ) {
     line_buf.clear();
-    let iter = path.into_iter().map(|el| affine * el);
+    let iter = path.into_iter().map(
+        #[inline(always)]
+        |el| affine * el,
+    );
 
     let mut lb = FlattenerCallback {
         line_buf,
