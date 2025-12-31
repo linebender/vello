@@ -135,7 +135,7 @@ pub(crate) fn flatten<S: Simd>(
         }
     }
 
-    // Put the allocation back into the context for reuse in subsequent calls.
+    // Return `flattened_cubics` ownership.
     flatten_ctx.flattened_cubics = flattened_cubics;
 }
 
