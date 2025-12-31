@@ -9,7 +9,6 @@ use crate::flatten::TOL_2;
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
 use crate::kurbo::{CubicBez, ParamCurve, PathEl, Point, QuadBez};
-use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
@@ -33,7 +32,9 @@ pub(crate) fn flatten<S: Simd>(
     callback: &mut impl Callback,
     flatten_ctx: &mut FlattenCtx,
 ) {
-    let mut flattened_cubics = vec![];
+    // Temporarily take ownership of flattened_cubics to avoid borrow conflicts.
+    let mut flattened_cubics = core::mem::take(&mut flatten_ctx.flattened_cubics);
+    flattened_cubics.clear();
 
     let sqrt_tol = tolerance.sqrt();
     let mut last_pt = None;
@@ -133,6 +134,9 @@ pub(crate) fn flatten<S: Simd>(
             }
         }
     }
+
+    // Put the allocation back into the context for reuse in subsequent calls.
+    flatten_ctx.flattened_cubics = flattened_cubics;
 }
 
 // The below methods are copied from kurbo and needed to implement flattening of normal quad curves.
@@ -243,6 +247,8 @@ pub struct FlattenCtx {
     uscale: [f32; MAX_QUADS],
     val: [f32; MAX_QUADS],
     n_quads: usize,
+    /// Reusable buffer for flattened cubic points.
+    flattened_cubics: Vec<Point32>,
 }
 
 #[inline(always)]

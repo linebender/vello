@@ -18,9 +18,13 @@ pub fn flatten(c: &mut Criterion) {
             let expanded_strokes = $item.expanded_strokes();
 
             g.bench_function($item.name.clone(), |b| {
+                // Reuse allocations to better simulate real-world use.
+                let mut line_buf: Vec<flatten::Line> = vec![];
+                let mut temp_buf: Vec<flatten::Line> = vec![];
+                let mut flatten_ctx = FlattenCtx::default();
+
                 b.iter(|| {
-                    let mut line_buf: Vec<flatten::Line> = vec![];
-                    let mut temp_buf: Vec<flatten::Line> = vec![];
+                    line_buf.clear();
 
                     for path in &$item.fills {
                         flatten::fill(
@@ -28,7 +32,7 @@ pub fn flatten(c: &mut Criterion) {
                             &path.path,
                             path.transform,
                             &mut temp_buf,
-                            &mut FlattenCtx::default(),
+                            &mut flatten_ctx,
                         );
                         line_buf.extend(&temp_buf);
                     }
@@ -39,7 +43,7 @@ pub fn flatten(c: &mut Criterion) {
                             stroke,
                             Affine::IDENTITY,
                             &mut temp_buf,
-                            &mut FlattenCtx::default(),
+                            &mut flatten_ctx,
                         );
                         line_buf.extend(&temp_buf);
                     }
