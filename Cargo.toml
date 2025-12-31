@@ -156,3 +156,8 @@ syn = { version = "2.0.101", features = ["full", "extra-traits"] }
 quote = "1.0.40"
 serde = { version = "1.0.225", default-features = false }
 serde_json = "1.0.145"
+
+# Profiling profile: release optimizations with debug info for better backtraces.
+[profile.profiling]
+inherits = "release"
+debug = 1

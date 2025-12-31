@@ -9,9 +9,13 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+dhat-heap = ["dep:dhat"]
+
 [dependencies]
 winit = { workspace = true }
 vello_common = { workspace = true }
 vello_cpu = { workspace = true, features = ["multithreading"] }
 vello_example_scenes = { workspace = true, features = ["cpu"] }
 softbuffer = "0.4.6"
+dhat = { version = "0.3.3", optional = true }

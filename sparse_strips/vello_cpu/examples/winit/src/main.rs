@@ -8,6 +8,10 @@
     reason = "truncation has no appreciable impact in this demo"
 )]
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 #[cfg(not(target_arch = "wasm32"))]
 use std::env;
 use std::num::NonZeroU32;
@@ -55,6 +59,9 @@ struct App {
 }
 
 fn main() {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     #[cfg(not(target_arch = "wasm32"))]
     let (scenes, start_scene_index) = {
         let mut start_scene_index = 0;
