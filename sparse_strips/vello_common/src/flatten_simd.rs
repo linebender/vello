@@ -32,9 +32,7 @@ pub(crate) fn flatten<S: Simd>(
     callback: &mut impl Callback,
     flatten_ctx: &mut FlattenCtx,
 ) {
-    // Temporarily take ownership of flattened_cubics to avoid borrow conflicts.
-    let mut flattened_cubics = core::mem::take(&mut flatten_ctx.flattened_cubics);
-    flattened_cubics.clear();
+    flatten_ctx.flattened_cubics.clear();
 
     let sqrt_tol = tolerance.sqrt();
     let mut last_pt = None;
@@ -113,15 +111,9 @@ pub(crate) fn flatten<S: Simd>(
                         callback.callback(PathEl::LineTo(p3));
                     } else {
                         let c = CubicBez::new(p0, p1, p2, p3);
-                        let max = flatten_cubic_simd(
-                            simd,
-                            c,
-                            flatten_ctx,
-                            tolerance as f32,
-                            &mut flattened_cubics,
-                        );
+                        let max = flatten_cubic_simd(simd, c, flatten_ctx, tolerance as f32);
 
-                        for p in &flattened_cubics[1..max] {
+                        for p in &flatten_ctx.flattened_cubics[1..max] {
                             callback.callback(PathEl::LineTo(Point::new(p.x as f64, p.y as f64)));
                         }
                     }
@@ -134,9 +126,6 @@ pub(crate) fn flatten<S: Simd>(
             }
         }
     }
-
-    // Put the allocation back into the context for reuse in subsequent calls.
-    flatten_ctx.flattened_cubics = flattened_cubics;
 }
 
 // The below methods are copied from kurbo and needed to implement flattening of normal quad curves.
@@ -460,12 +449,12 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
 #[inline(always)]
 fn output_lines_simd<S: Simd>(
     simd: S,
-    ctx: &FlattenCtx,
+    ctx: &mut FlattenCtx,
     i: usize,
     x0: f32,
     dx: f32,
     n: usize,
-    out: &mut [f32],
+    start_idx: usize,
 ) {
     let p0 = pt_splat_simd(simd, ctx.even_pts[i]);
     let p1 = pt_splat_simd(simd, ctx.odd_pts[i]);
@@ -478,6 +467,8 @@ fn output_lines_simd<S: Simd>(
     let mut a = da.madd(x, f32x8::splat(simd, ctx.a0[i]));
     let a_inc = 4.0 * dx * da;
     let uscale = f32x8::splat(simd, ctx.uscale[i]);
+
+    let out: &mut [f32] = bytemuck::cast_slice_mut(&mut ctx.flattened_cubics[start_idx..]);
 
     for j in 0..n.div_ceil(4) {
         let u = approx_parabola_inv_integral_simd(a);
@@ -499,7 +490,6 @@ fn flatten_cubic_simd<S: Simd>(
     c: CubicBez,
     ctx: &mut FlattenCtx,
     accuracy: f32,
-    result: &mut Vec<Point32>,
 ) -> usize {
     let n_quads = estimate_num_quads(c, accuracy);
     eval_cubics_simd(simd, &c, n_quads, ctx);
@@ -508,7 +498,7 @@ fn flatten_cubic_simd<S: Simd>(
     estimate_subdiv_simd(simd, sqrt_tol, ctx);
     let sum: f32 = ctx.val[..n_quads].iter().sum();
     let n = ((0.5 * sum / sqrt_tol).ceil() as usize).max(1);
-    result.resize(n + 4, Point32::default());
+    ctx.flattened_cubics.resize(n + 4, Point32::default());
 
     let step = sum / (n as f32);
     let step_recip = 1.0 / step;
@@ -532,14 +522,14 @@ fn flatten_cubic_simd<S: Simd>(
                 x0,
                 dx,
                 dn,
-                bytemuck::cast_slice_mut(&mut result[last_n..]),
+                last_n,
             );
         }
         x0base = this_n_next - this_n;
         last_n = this_n_next as usize;
     }
 
-    result[n] = ctx.even_pts[n_quads];
+    ctx.flattened_cubics[n] = ctx.even_pts[n_quads];
 
     n + 1
 }
