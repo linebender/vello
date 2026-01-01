@@ -485,12 +485,7 @@ fn output_lines_simd<S: Simd>(
 }
 
 #[inline(always)]
-fn flatten_cubic_simd<S: Simd>(
-    simd: S,
-    c: CubicBez,
-    ctx: &mut FlattenCtx,
-    accuracy: f32,
-) -> usize {
+fn flatten_cubic_simd<S: Simd>(simd: S, c: CubicBez, ctx: &mut FlattenCtx, accuracy: f32) -> usize {
     let n_quads = estimate_num_quads(c, accuracy);
     eval_cubics_simd(simd, &c, n_quads, ctx);
     let tol = accuracy * (1.0 - TO_QUAD_TOL);
@@ -515,15 +510,7 @@ fn flatten_cubic_simd<S: Simd>(
         if dn > 0 {
             let dx = step / val;
             let x0 = x0base * dx;
-            output_lines_simd(
-                simd,
-                ctx,
-                i,
-                x0,
-                dx,
-                dn,
-                last_n,
-            );
+            output_lines_simd(simd, ctx, i, x0, dx, dn, last_n);
         }
         x0base = this_n_next - this_n;
         last_n = this_n_next as usize;
