@@ -65,7 +65,7 @@ impl EncodeExt for Gradient {
             return paint;
         }
 
-        let mut has_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
+        let mut may_have_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
 
         let mut base_transform;
 
@@ -153,7 +153,7 @@ impl EncodeExt for Gradient {
                 // alpha-compositing in case the radial gradient is undefined in certain positions,
                 // in which case the resulting color will be transparent and thus the gradient overall
                 // must be treated as non-opaque.
-                has_opacities |= radial_kind.has_undefined();
+                may_have_opacities |= radial_kind.has_undefined();
 
                 EncodedKind::Radial(radial_kind)
             }
@@ -222,7 +222,7 @@ impl EncodeExt for Gradient {
             y_advance,
             ranges,
             extend: self.extend,
-            has_opacities,
+            may_have_opacities,
             u8_lut: OnceCell::new(),
             f32_lut: OnceCell::new(),
         };
@@ -498,21 +498,20 @@ impl EncodeExt for Image {
         let (x_advance, y_advance) = x_y_advances(&transform);
 
         let encoded = match &self.image {
-            ImageSource::Pixmap(pixmap) => {
-                EncodedImage {
-                    source: ImageSource::Pixmap(pixmap.clone()),
-                    sampler,
-                    // While we could optimize RGB8 images, it's probably not worth the trouble.
-                    has_opacities: true,
-                    transform,
-                    x_advance,
-                    y_advance,
-                }
-            }
+            ImageSource::Pixmap(pixmap) => EncodedImage {
+                source: ImageSource::Pixmap(pixmap.clone()),
+                sampler,
+                may_have_opacities: pixmap.may_have_opacities(),
+                transform,
+                x_advance,
+                y_advance,
+            },
             ImageSource::OpaqueId(image) => EncodedImage {
                 source: ImageSource::OpaqueId(*image),
                 sampler,
-                has_opacities: true,
+                // Safe fallback: we don't have access to pixel data for externally
+                // registered images, so we conservatively assume they have opacities.
+                may_have_opacities: true,
                 transform,
                 x_advance,
                 y_advance,
@@ -556,7 +555,7 @@ pub struct EncodedImage {
     /// Sampler
     pub sampler: ImageSampler,
     /// Whether the image has opacities.
-    pub has_opacities: bool,
+    pub may_have_opacities: bool,
     /// A transform to apply to the image.
     pub transform: Affine,
     /// The advance in image coordinates for one step in the x direction.
@@ -735,7 +734,7 @@ pub struct EncodedGradient {
     /// The extend of the gradient.
     pub extend: Extend,
     /// Whether the gradient requires `source_over` compositing.
-    pub has_opacities: bool,
+    pub may_have_opacities: bool,
     u8_lut: OnceCell<GradientLut<u8>>,
     f32_lut: OnceCell<GradientLut<f32>>,
 }
