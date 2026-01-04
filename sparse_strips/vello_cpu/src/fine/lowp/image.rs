@@ -5,7 +5,7 @@ use crate::fine::PosExt;
 use crate::fine::common::image::{ImagePainterData, extend, sample};
 use crate::fine::macros::u8x16_painter;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x16};
+use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x16, u16x16};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::element_wise_splat;
 use vello_common::util::f32_to_u8;
@@ -84,11 +84,11 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
             self.simd,
             fract(y_positions + 0.5) * 256.0,
         ));
-        let fx_inv = self.simd.widen_u8x16(u8x16::splat(self.simd, 255) - fx);
-        let fy_inv = self.simd.widen_u8x16(u8x16::splat(self.simd, 255) - fy);
-
+        // Widen to u16, then compute `256 - fx` to ensure fx + fx_inv = 256.
         let fx = self.simd.widen_u8x16(fx);
         let fy = self.simd.widen_u8x16(fy);
+        let fx_inv = u16x16::splat(self.simd, 256) - fx;
+        let fy_inv = u16x16::splat(self.simd, 256) - fy;
 
         let x_pos1 = extend_x(x_positions - 0.5);
         let x_pos2 = extend_x(x_positions + 0.5);
@@ -108,9 +108,15 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
             .simd
             .widen_u8x16(sample(self.simd, &self.data, x_pos2, y_pos2));
 
-        let ip1 = (p00 * fx_inv + p10 * fx) >> 8;
-        let ip2 = (p01 * fx_inv + p11 * fx) >> 8;
-        let res = self.simd.narrow_u16x16((ip1 * fy_inv + ip2 * fy) >> 8);
+        // Add rounding bias before shifting: round(x/256) = floor((x + 128) / 256).
+        // Without this, `>> 8` truncates toward zero, causing off-by-one errors.
+        // E.g., 254.996 would become 254 instead of rounding to 255.
+        let round = u16x16::splat(self.simd, 128);
+        let ip1 = (p00 * fx_inv + p10 * fx + round) >> 8;
+        let ip2 = (p01 * fx_inv + p11 * fx + round) >> 8;
+        let res = self
+            .simd
+            .narrow_u16x16((ip1 * fy_inv + ip2 * fy + round) >> 8);
 
         self.data.cur_pos += self.data.image.x_advance;
 
