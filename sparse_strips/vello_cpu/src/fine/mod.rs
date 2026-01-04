@@ -698,8 +698,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 // We need to have this as a macro because closures cannot take generic arguments, and
                 // we would have to repeatedly provide all arguments if we made it a function.
                 macro_rules! fill_complex_paint {
-                    ($has_opacities:expr, $filler:expr) => {
-                        if $has_opacities || alphas.is_some() {
+                    ($may_have_opacities:expr, $filler:expr) => {
+                        if $may_have_opacities || alphas.is_some() {
                             T::apply_painter(self.simd, color_buf, $filler);
 
                             if default_blend && mask.is_none() {
@@ -753,7 +753,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                 );
 
                                 fill_complex_paint!(
-                                    g.has_opacities,
+                                    g.may_have_opacities,
                                     T::gradient_painter(self.simd, g, f32_buf)
                                 );
                             }
@@ -768,7 +768,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                 );
 
                                 fill_complex_paint!(
-                                    g.has_opacities,
+                                    g.may_have_opacities,
                                     T::gradient_painter(self.simd, g, f32_buf)
                                 );
                             }
@@ -784,12 +784,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                                 if r.has_undefined() {
                                     fill_complex_paint!(
-                                        g.has_opacities,
+                                        g.may_have_opacities,
                                         T::gradient_painter_with_undefined(self.simd, g, f32_buf)
                                     );
                                 } else {
                                     fill_complex_paint!(
-                                        g.has_opacities,
+                                        g.may_have_opacities,
                                         T::gradient_painter(self.simd, g, f32_buf)
                                     );
                                 }
@@ -805,14 +805,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             (_, false) => {
                                 if i.sampler.quality == ImageQuality::Medium {
                                     fill_complex_paint!(
-                                        i.has_opacities,
+                                        i.may_have_opacities,
                                         T::medium_quality_image_painter(
                                             self.simd, i, pixmap, start_x, start_y
                                         )
                                     );
                                 } else {
                                     fill_complex_paint!(
-                                        i.has_opacities,
+                                        i.may_have_opacities,
                                         T::high_quality_image_painter(
                                             self.simd, i, pixmap, start_x, start_y
                                         )
@@ -821,7 +821,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             }
                             (false, true) => {
                                 fill_complex_paint!(
-                                    i.has_opacities,
+                                    i.may_have_opacities,
                                     T::plain_nn_image_painter(
                                         self.simd, i, pixmap, start_x, start_y
                                     )
@@ -829,7 +829,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             }
                             (true, true) => {
                                 fill_complex_paint!(
-                                    i.has_opacities,
+                                    i.may_have_opacities,
                                     T::nn_image_painter(self.simd, i, pixmap, start_x, start_y)
                                 );
                             }
