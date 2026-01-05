@@ -210,9 +210,6 @@ impl Scene {
         transform: Affine,
         clip: &impl Shape,
     ) {
-        let t = Transform::from_kurbo(&transform);
-        self.encoding.encode_transform(t);
-
         // The logic for encoding the clip shape differs between fill and stroke style clips, but
         // the logic is otherwise similar.
         //
@@ -220,6 +217,8 @@ impl Scene {
         // `false`, we will need to explicitly encode a valid empty path.
         let encoded_result = match clip_style {
             StyleRef::Fill(fill) => {
+                let t = Transform::from_kurbo(&transform);
+                self.encoding.encode_transform(t);
                 self.encoding.encode_fill_style(fill);
                 #[cfg(feature = "bump_estimate")]
                 self.estimator.count_path(clip.path_elements(0.1), &t, None);
@@ -232,7 +231,7 @@ impl Scene {
                     self.encoding.encode_fill_style(Fill::NonZero);
                     false
                 } else {
-                    self.stroke_gpu_inner(stroke, clip)
+                    self.stroke_gpu_inner(stroke, transform, clip)
                 }
             }
         };
@@ -375,10 +374,7 @@ impl Scene {
             if style.width == 0. {
                 return;
             }
-
-            let t = Transform::from_kurbo(&transform);
-            self.encoding.encode_transform(t);
-            let encode_result = self.stroke_gpu_inner(style, shape);
+            let encode_result = self.stroke_gpu_inner(style, transform, shape);
             if encode_result {
                 if let Some(brush_transform) = brush_transform
                     && self
@@ -403,14 +399,15 @@ impl Scene {
     /// Encodes the stroke of a shape using the specified style. The stroke style must have
     /// non-zero width.
     ///
-    /// This handles encoding the stroke style and shape, including dashing, but not, e.g., the
-    /// shape transform. If applicable, that should be handled by the caller.
+    /// This handles encoding the stroke style (including dashing), transform, and shape.
     ///
     /// Returns `true` if a non-zero number of segments were encoded.
-    fn stroke_gpu_inner(&mut self, style: &Stroke, shape: &impl Shape) -> bool {
+    fn stroke_gpu_inner(&mut self, style: &Stroke, transform: Affine, shape: &impl Shape) -> bool {
         // See the note about tolerances in `Self::stroke`.
         const SHAPE_TOLERANCE: f64 = 0.01;
 
+        let t = Transform::from_kurbo(&transform);
+        self.encoding.encode_transform(t);
         let encoded_stroke = self.encoding.encode_stroke_style(style);
         debug_assert!(encoded_stroke, "Stroke width is non-zero");
 
