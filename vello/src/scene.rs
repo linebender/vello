@@ -415,7 +415,10 @@ impl Scene {
         // We currently don't support dashing on the GPU. If the style has a dash pattern, then
         // we convert it into stroked paths on the CPU and encode those as individual draw
         // objects.
-        let encode_result = if style.dash_pattern.is_empty() {
+        //
+        // Note both branches return a boolean indicating whether a non-zero number of segments
+        // were encoded.
+        if style.dash_pattern.is_empty() {
             #[cfg(feature = "bump_estimate")]
             self.estimator
                 .count_path(shape.path_elements(SHAPE_TOLERANCE), &t, Some(style));
@@ -437,9 +440,7 @@ impl Scene {
                 .count_path(dashed.iter().copied(), &t, Some(style));
             self.encoding
                 .encode_path_elements(dashed.into_iter(), false)
-        };
-
-        encode_result
+        }
     }
 
     /// Draws an image at its natural size with the given transform.
