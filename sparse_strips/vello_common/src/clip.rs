@@ -278,7 +278,7 @@ fn intersect_impl<S: Simd>(
 
     // Push the sentinel strip.
     target.strips.push(Strip::new(
-        u16::MAX,
+        i16::MAX,
         end_y * Tile::HEIGHT,
         target.alphas.len() as u32,
         false,
@@ -288,15 +288,15 @@ fn intersect_impl<S: Simd>(
 /// An overlap between two regions.
 struct Overlap {
     /// The start x coordinate.
-    start: u16,
+    start: i16,
     /// The end x coordinate.
-    end: u16,
+    end: i16,
     /// Whether the left or right region iterator should be advanced next.
     advance: Advance,
 }
 
 impl Overlap {
-    fn width(&self) -> u16 {
+    fn width(&self) -> i16 {
         self.end - self.start
     }
 }
@@ -316,14 +316,14 @@ enum OverlapRelationship {
 
 #[derive(Debug, Clone, Copy)]
 struct FillRegion {
-    start: u16,
-    width: u16,
+    start: i16,
+    width: i16,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct StripRegion<'a> {
-    start: u16,
-    width: u16,
+    start: i16,
+    width: i16,
     alphas: &'a [u8],
 }
 
@@ -335,7 +335,7 @@ enum Region<'a> {
 
 impl Region<'_> {
     #[inline(always)]
-    fn start(&self) -> u16 {
+    fn start(&self) -> i16 {
         match self {
             Region::Fill(fill) => fill.start,
             Region::Strip(strip) => strip.start,
@@ -343,7 +343,7 @@ impl Region<'_> {
     }
 
     #[inline(always)]
-    fn width(&self) -> u16 {
+    fn width(&self) -> i16 {
         match self {
             Region::Fill(fill) => fill.width,
             Region::Strip(strip) => strip.width,
@@ -351,7 +351,7 @@ impl Region<'_> {
     }
 
     #[inline(always)]
-    fn end(&self) -> u16 {
+    fn end(&self) -> i16 {
         self.start() + self.width()
     }
 
@@ -384,7 +384,7 @@ struct RowIterator<'a> {
     /// The path in question.
     input: PathDataRef<'a>,
     /// The strip row we want to iterate over.
-    strip_y: u16,
+    strip_y: i16,
     /// The index of the current strip.
     cur_idx: &'a mut usize,
     /// Whether the iterator should yield a strip next or not.
@@ -395,7 +395,7 @@ struct RowIterator<'a> {
 }
 
 impl<'a> RowIterator<'a> {
-    fn new(input: PathDataRef<'a>, cur_idx: &'a mut usize, strip_y: u16) -> Self {
+    fn new(input: PathDataRef<'a>, cur_idx: &'a mut usize, strip_y: i16) -> Self {
         // Forward the index until we have found the right strip.
         while input.strips[*cur_idx].strip_y() < strip_y {
             *cur_idx += 1;
@@ -420,10 +420,10 @@ impl<'a> RowIterator<'a> {
     }
 
     #[inline(always)]
-    fn cur_strip_width(&self) -> u16 {
+    fn cur_strip_width(&self) -> i16 {
         let cur = self.cur_strip();
         let next = self.next_strip();
-        ((next.alpha_idx() - cur.alpha_idx()) / Tile::HEIGHT as u32) as u16
+        ((next.alpha_idx() - cur.alpha_idx()) / Tile::HEIGHT as u32) as i16
     }
 
     #[inline(always)]
@@ -496,12 +496,12 @@ impl<'a> Iterator for RowIterator<'a> {
 
 /// The data of the current strip we are building.
 struct StripState {
-    x: u16,
+    x: i16,
     alpha_idx: u32,
     fill_gap: bool,
 }
 
-fn flush_strip(strip_state: &mut Option<StripState>, strips: &mut Vec<Strip>, cur_y: u16) {
+fn flush_strip(strip_state: &mut Option<StripState>, strips: &mut Vec<Strip>, cur_y: i16) {
     if let Some(state) = core::mem::take(strip_state) {
         strips.push(Strip::new(
             state.x,
@@ -513,7 +513,7 @@ fn flush_strip(strip_state: &mut Option<StripState>, strips: &mut Vec<Strip>, cu
 }
 
 #[inline(always)]
-fn start_strip(strip_data: &mut Option<StripState>, alphas: &[u8], x: u16, fill_gap: bool) {
+fn start_strip(strip_data: &mut Option<StripState>, alphas: &[u8], x: i16, fill_gap: bool) {
     *strip_data = Some(StripState {
         x,
         alpha_idx: alphas.len() as u32,
@@ -524,11 +524,11 @@ fn start_strip(strip_data: &mut Option<StripState>, alphas: &[u8], x: u16, fill_
 fn should_create_new_strip(
     strip_state: &Option<StripState>,
     alphas: &[u8],
-    overlap_start: u16,
+    overlap_start: i16,
 ) -> bool {
     // Returns false in case we can append to the currently built strip.
     strip_state.as_ref().is_none_or(|state| {
-        let width = ((alphas.len() as u32 - state.alpha_idx) / Tile::HEIGHT as u32) as u16;
+        let width = ((alphas.len() as u32 - state.alpha_idx) / Tile::HEIGHT as u32) as i16;
         let strip_end = state.x + width;
 
         strip_end < overlap_start - 1
@@ -674,7 +674,7 @@ mod tests {
             }
         }
 
-        fn add_strip(self, x: u16, strip_y: u16, end: u16, fill_gap: bool) -> Self {
+        fn add_strip(self, x: i16, strip_y: i16, end: i16, fill_gap: bool) -> Self {
             let width = end - x;
             self.add_strip_with(
                 x,
@@ -687,9 +687,9 @@ mod tests {
 
         fn add_strip_with(
             mut self,
-            x: u16,
-            strip_y: u16,
-            end: u16,
+            x: i16,
+            strip_y: i16,
+            end: i16,
             fill_gap: bool,
             alphas: &[u8],
         ) -> Self {
@@ -710,7 +710,7 @@ mod tests {
 
             self.storage
                 .strips
-                .push(Strip::new(u16::MAX, last_y, idx as u32, false));
+                .push(Strip::new(i16::MAX, last_y, idx as u32, false));
 
             self.storage
         }

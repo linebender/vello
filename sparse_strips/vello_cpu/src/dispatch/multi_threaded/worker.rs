@@ -17,7 +17,7 @@ pub(crate) struct Worker {
 }
 
 impl Worker {
-    pub(crate) fn new(width: u16, height: u16, thread_id: u8, level: Level) -> Self {
+    pub(crate) fn new(width: i16, height: i16, thread_id: u8, level: Level) -> Self {
         let strip_generator = StripGenerator::new(width, height, level);
         let strip_storage = StripStorage::default();
 

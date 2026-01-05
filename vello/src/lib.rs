@@ -541,7 +541,7 @@ impl Renderer {
     ///
     /// The returned `Image` can be used in [`Scene`]s (only those rendered with this `Renderer`)
     /// Rendering Scenes which use this `Image` with other `Renderer`s will panic.
-    ///  
+    ///
     /// `texture` must have the [`wgpu::TextureFormat::Rgba8Unorm`] format and
     /// the [`wgpu::TextureUsages::COPY_SRC`] flag set. This is because the data will
     /// be copied into Vello's image atlas at the start of each frame.

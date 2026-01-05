@@ -61,7 +61,8 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                         .enumerate()
                     {
                         let idx =
-                            COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
+                            COLOR_COMPONENTS * (usize::try_from(Tile::HEIGHT).unwrap() * x +
+                                                usize::try_from(y).unwrap());
                         let start = &blend_buf[idx..];
                         // Convert f32 [0.0, 1.0] to u8 [0, 255] with rounding.
                         // TODO: Use explicit SIMD for better performance
@@ -91,7 +92,8 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 for y in 0..Tile::HEIGHT {
                     for (x, pixel) in region.row_mut(y).chunks_exact(COLOR_COMPONENTS).enumerate() {
                         let idx =
-                            COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
+                            COLOR_COMPONENTS * (usize::try_from(Tile::HEIGHT).unwrap() * x +
+                                                usize::try_from(y).unwrap());
                         let start = &mut blend_buf[idx..];
                         // Convert u8 [0, 255] to normalized f32 [0.0, 1.0] (reverse of pack)
                         start[0] = pixel[0] as f32 / 255.0;
@@ -219,8 +221,8 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     fn blend(
         simd: S,
         dest: &mut [Self::Numeric],
-        mut start_x: u16,
-        start_y: u16,
+        mut start_x: i16,
+        start_y: i16,
         src: impl Iterator<Item = Self::Composite>,
         blend_mode: BlendMode,
         alphas: Option<&[u8]>,

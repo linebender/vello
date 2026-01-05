@@ -132,8 +132,8 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: i16,
+        start_y: i16,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
@@ -245,8 +245,8 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     fn blend(
         simd: S,
         dest: &mut [Self::Numeric],
-        mut start_x: u16,
-        start_y: u16,
+        mut start_x: i16,
+        start_y: i16,
         src: impl Iterator<Item = Self::Composite>,
         blend_mode: BlendMode,
         alphas: Option<&[u8]>,
@@ -256,7 +256,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
 
         let mask_iter = mask.map(|m| {
             iter::from_fn(|| {
-                let sample = |x: u16, y: u16| {
+                let sample = |x: i16, y: i16| {
                     if x < m.width() && y < m.height() {
                         m.sample(x, y)
                     } else {

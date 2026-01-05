@@ -110,7 +110,7 @@ pub(crate) struct MultiThreadedDispatcher {
 }
 
 impl MultiThreadedDispatcher {
-    pub(crate) fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
+    pub(crate) fn new(width: i16, height: i16, num_threads: u16, level: Level) -> Self {
         let wide = Wide::<MODE_CPU>::new(width, height);
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(num_threads as usize)
@@ -167,8 +167,8 @@ impl MultiThreadedDispatcher {
     fn rasterize_f32(
         &self,
         buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         encoded_paints: &[EncodedPaint],
     ) {
         use crate::fine::F32Kernel;
@@ -179,8 +179,8 @@ impl MultiThreadedDispatcher {
     fn rasterize_u8(
         &self,
         buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         encoded_paints: &[EncodedPaint],
     ) {
         use crate::fine::U8Kernel;
@@ -376,8 +376,8 @@ impl MultiThreadedDispatcher {
         &self,
         simd: S,
         buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         encoded_paints: &[EncodedPaint],
     ) {
         let mut buffer = Regions::new(width, height, buffer);
@@ -575,8 +575,8 @@ impl Dispatcher for MultiThreadedDispatcher {
         &self,
         buffer: &mut [u8],
         render_mode: RenderMode,
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         encoded_paints: &[EncodedPaint],
     ) {
         assert!(self.flushed, "attempted to rasterize before flushing");

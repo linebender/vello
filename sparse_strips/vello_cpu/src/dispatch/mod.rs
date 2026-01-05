@@ -74,8 +74,8 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         &self,
         buffer: &mut [u8],
         render_mode: RenderMode,
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         encoded_paints: &[EncodedPaint],
     );
     fn strip_storage_mut(&mut self) -> &mut StripStorage;

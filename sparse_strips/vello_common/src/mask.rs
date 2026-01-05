@@ -10,8 +10,8 @@ use alloc::vec::Vec;
 #[derive(Debug, PartialEq, Eq)]
 struct MaskRepr {
     data: Vec<u8>,
-    width: u16,
-    height: u16,
+    width: i16,
+    height: i16,
 }
 
 // Note that we are on purpose storing width and height inside the `Arc`
@@ -40,10 +40,10 @@ impl Mask {
     /// # Panics
     ///
     /// Panics if the `data` vector is not of length `width * height`.
-    pub fn from_parts(data: Vec<u8>, width: u16, height: u16) -> Self {
+    pub fn from_parts(data: Vec<u8>, width: i16, height: i16) -> Self {
         assert_eq!(
             data.len(),
-            usize::from(width) * usize::from(height),
+            (width as usize) * (height as usize),
             "`data` should have `width * height` length"
         );
 
@@ -89,13 +89,13 @@ impl Mask {
 
     /// Return the width of the mask.
     #[inline(always)]
-    pub fn width(&self) -> u16 {
+    pub fn width(&self) -> i16 {
         self.0.width
     }
 
     /// Return the height of the mask.
     #[inline(always)]
-    pub fn height(&self) -> u16 {
+    pub fn height(&self) -> i16 {
         self.0.height
     }
 
@@ -104,13 +104,14 @@ impl Mask {
     /// This function might panic or yield a wrong result if the location
     /// is out-of-bounds.
     #[inline(always)]
-    pub fn sample(&self, x: u16, y: u16) -> u8 {
+    pub fn sample(&self, x: i16, y: i16) -> u8 {
         let repr = &*self.0;
         debug_assert!(
-            x < repr.width && y < repr.height,
+            x < repr.width && x > 0 && y < repr.height && y > 0,
             "cannot sample mask outside of its range"
         );
 
+        // TODO
         repr.data[y as usize * repr.width as usize + x as usize]
     }
 }

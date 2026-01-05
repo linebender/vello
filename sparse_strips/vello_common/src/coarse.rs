@@ -67,9 +67,9 @@ pub const MODE_HYBRID: u8 = 1;
 #[derive(Debug)]
 pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// The width of the container.
-    pub width: u16,
+    pub width: i16,
     /// The height of the container.
-    pub height: u16,
+    pub height: i16,
     /// The wide tiles in the container.
     pub tiles: Vec<WideTile<MODE>>,
     /// Shared command properties, referenced by index from fill and clip commands.
@@ -107,60 +107,60 @@ struct Clip {
 #[derive(Debug, Clone, Copy)]
 pub struct WideTilesBbox {
     /// The bounding box coordinates.
-    pub bbox: [u16; 4],
+    pub bbox: [i16; 4],
 }
 
 impl WideTilesBbox {
     /// Create a new bounding box.
-    pub fn new(bbox: [u16; 4]) -> Self {
+    pub fn new(bbox: [i16; 4]) -> Self {
         Self { bbox }
     }
 
     /// Get the x0 coordinate of the bounding box.
     #[inline(always)]
-    pub fn x0(&self) -> u16 {
+    pub fn x0(&self) -> i16 {
         self.bbox[0]
     }
 
     /// Get the y0 coordinate of the bounding box.
     #[inline(always)]
-    pub fn y0(&self) -> u16 {
+    pub fn y0(&self) -> i16 {
         self.bbox[1]
     }
 
     /// Get the x1 coordinate of the bounding box.
     #[inline(always)]
-    pub fn x1(&self) -> u16 {
+    pub fn x1(&self) -> i16 {
         self.bbox[2]
     }
 
     /// Get the y1 coordinate of the bounding box.
     #[inline(always)]
-    pub fn y1(&self) -> u16 {
+    pub fn y1(&self) -> i16 {
         self.bbox[3]
     }
 
     /// Get the width of the bounding box (x1 - x0).
     #[inline(always)]
-    pub fn width_tiles(&self) -> u16 {
+    pub fn width_tiles(&self) -> i16 {
         self.x1().saturating_sub(self.x0())
     }
 
     /// Get the width of the bounding box in pixels.
     #[inline(always)]
-    pub fn width_px(&self) -> u16 {
+    pub fn width_px(&self) -> i16 {
         self.width_tiles() * WideTile::WIDTH
     }
 
     /// Get the height of the bounding box (y1 - y0).
     #[inline(always)]
-    pub fn height_tiles(&self) -> u16 {
+    pub fn height_tiles(&self) -> i16 {
         self.y1().saturating_sub(self.y0())
     }
 
     /// Get the height of the bounding box in pixels.
     #[inline(always)]
-    pub fn height_px(&self) -> u16 {
+    pub fn height_px(&self) -> i16 {
         self.height_tiles() * Tile::HEIGHT
     }
 
@@ -168,7 +168,7 @@ impl WideTilesBbox {
     ///
     /// Returns `true` if x0 <= x < x1 and y0 <= y < y1.
     #[inline(always)]
-    pub fn contains(&self, x: u16, y: u16) -> bool {
+    pub fn contains(&self, x: i16, y: i16) -> bool {
         let [x0, y0, x1, y1] = self.bbox;
         (x >= x0) & (x < x1) & (y >= y0) & (y < y1)
     }
@@ -210,18 +210,18 @@ impl WideTilesBbox {
     /// Create an inverted bounding box for incremental updates.
     #[inline(always)]
     pub(crate) fn inverted() -> Self {
-        Self::new([u16::MAX, u16::MAX, 0, 0])
+        Self::new([i16::MAX, i16::MAX, 0, 0])
     }
 
     /// Check if the bbox is still in its inverted state (no updates yet).
     #[inline(always)]
     pub(crate) fn is_inverted(self) -> bool {
-        self.bbox[0] == u16::MAX && self.bbox[1] == u16::MAX
+        self.bbox[0] == i16::MAX && self.bbox[1] == i16::MAX
     }
 
     /// Update the bbox to include the given tile coordinates.
     #[inline(always)]
-    pub(crate) fn include_tile(&mut self, wtile_x: u16, wtile_y: u16) {
+    pub(crate) fn include_tile(&mut self, wtile_x: i16, wtile_y: i16) {
         self.bbox[0] = self.bbox[0].min(wtile_x);
         self.bbox[1] = self.bbox[1].min(wtile_y);
         self.bbox[2] = self.bbox[2].max(wtile_x + 1);
@@ -233,12 +233,12 @@ impl WideTilesBbox {
     /// Multiplies each coordinate by the corresponding scale factor to convert
     /// from one coordinate system to another.
     #[inline(always)]
-    pub fn scale(&self, scale_x: u16, scale_y: u16) -> [u32; 4] {
+    pub fn scale(&self, scale_x: i16, scale_y: i16) -> [i32; 4] {
         [
-            u32::from(self.x0()) * u32::from(scale_x),
-            u32::from(self.y0()) * u32::from(scale_y),
-            u32::from(self.x1()) * u32::from(scale_x),
-            u32::from(self.y1()) * u32::from(scale_y),
+            i32::from(self.x0()) * i32::from(scale_x),
+            i32::from(self.y0()) * i32::from(scale_y),
+            i32::from(self.x1()) * i32::from(scale_x),
+            i32::from(self.y1()) * i32::from(scale_y),
         ]
     }
 
@@ -247,20 +247,23 @@ impl WideTilesBbox {
     /// Pixel values are converted to tile coordinates (rounding up) and clamped to the
     /// valid range `[0, max_x)` × `[0, max_y)`. The result is a new bounding box in
     /// wide tile coordinates.
-    pub fn expand_by_pixels(&self, expansion: Rect, max_x: u16, max_y: u16) -> Self {
+    pub fn expand_by_pixels(&self, expansion: Rect, max_x: i16, max_y: i16) -> Self {
         // The expansion rect is centered at origin:
         // - Negative coordinates (x0, y0) represent left/top expansion
         // - Positive coordinates (x1, y1) represent right/bottom expansion
-        let left_px = (-expansion.x0).max(0.0).ceil() as u16;
-        let top_px = (-expansion.y0).max(0.0).ceil() as u16;
-        let right_px = expansion.x1.max(0.0).ceil() as u16;
-        let bottom_px = expansion.y1.max(0.0).ceil() as u16;
+
+        // TODO the previous behavior with `as u16` effectively clamped the bottom range of these to
+        // 0 do we want to keep this?
+        let left_px = (-expansion.x0).max(0.0).ceil() as i16;
+        let top_px = (-expansion.y0).max(0.0).ceil() as i16;
+        let right_px = expansion.x1.max(0.0).ceil() as i16;
+        let bottom_px = expansion.y1.max(0.0).ceil() as i16;
 
         // Convert pixel expansion to tile expansion (round up)
-        let left_tiles = left_px.div_ceil(WideTile::WIDTH);
-        let top_tiles = top_px.div_ceil(Tile::HEIGHT);
-        let right_tiles = right_px.div_ceil(WideTile::WIDTH);
-        let bottom_tiles = bottom_px.div_ceil(Tile::HEIGHT);
+        let left_tiles = WideTile::width_in_wides(left_px);
+        let top_tiles = WideTile::width_in_wides(top_px);
+        let right_tiles = WideTile::width_in_wides(right_px);
+        let bottom_tiles = WideTile::width_in_wides(bottom_px);
 
         Self::new([
             self.x0().saturating_sub(left_tiles),
@@ -273,24 +276,27 @@ impl WideTilesBbox {
 
 impl Wide<MODE_CPU> {
     /// Create a new container for wide tiles.
-    pub fn new(width: u16, height: u16) -> Self {
+    pub fn new(width: i16, height: i16) -> Self {
         Self::new_internal(width, height)
     }
 }
 
 impl Wide<MODE_HYBRID> {
     /// Create a new container for wide tiles.
-    pub fn new(width: u16, height: u16) -> Self {
+    pub fn new(width: i16, height: i16) -> Self {
         Self::new_internal(width, height)
     }
 }
 
 impl<const MODE: u8> Wide<MODE> {
     /// Create a new container for wide tiles.
-    fn new_internal(width: u16, height: u16) -> Self {
-        let width_tiles = width.div_ceil(WideTile::WIDTH);
-        let height_tiles = height.div_ceil(Tile::HEIGHT);
-        let mut tiles = Vec::with_capacity(usize::from(width_tiles) * usize::from(height_tiles));
+    fn new_internal(width: i16, height: i16) -> Self {
+        let width_tiles = WideTile::width_in_wides(width);
+        let height_tiles = Tile::height_in_tiles(height);
+
+        // TODO check as usize cast. . . should be fine if not negative? Negative guarded in
+        // width/height functions
+        let mut tiles = Vec::with_capacity((width_tiles as usize) * (height_tiles as usize));
 
         for h in 0..height_tiles {
             for w in 0..width_tiles {
@@ -337,37 +343,37 @@ impl<const MODE: u8> Wide<MODE> {
     }
 
     /// Return the number of horizontal tiles.
-    pub fn width_tiles(&self) -> u16 {
-        self.width.div_ceil(WideTile::WIDTH)
+    pub fn width_tiles(&self) -> i16 {
+        WideTile::width_in_wides(self.width)
     }
 
     /// Return the number of vertical tiles.
-    pub fn height_tiles(&self) -> u16 {
-        self.height.div_ceil(Tile::HEIGHT)
+    pub fn height_tiles(&self) -> i16 {
+        Tile::height_in_tiles(self.height)
     }
 
     /// Get the wide tile at a certain index.
     ///
     /// Panics if the index is out-of-range.
-    pub fn get(&self, x: u16, y: u16) -> &WideTile<MODE> {
+    pub fn get(&self, x: i16, y: i16) -> &WideTile<MODE> {
         assert!(
-            x < self.width_tiles() && y < self.height_tiles(),
+            x >= 0 && x < self.width_tiles() && y >= 0 && y < self.height_tiles(),
             "attempted to access out-of-bounds wide tile"
         );
 
-        &self.tiles[usize::from(y) * usize::from(self.width_tiles()) + usize::from(x)]
+        &self.tiles[(y as usize) * (self.width_tiles() as usize) + (x as usize)]
     }
 
     /// Get mutable access to the wide tile at a certain index.
     ///
     /// Panics if the index is out-of-range.
-    pub fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile<MODE> {
+    pub fn get_mut(&mut self, x: i16, y: i16) -> &mut WideTile<MODE> {
         assert!(
-            x < self.width_tiles() && y < self.height_tiles(),
+            x >= 0 && x < self.width_tiles() && y >= 0 && y < self.height_tiles(),
             "attempted to access out-of-bounds wide tile"
         );
 
-        let idx = usize::from(y) * usize::from(self.width_tiles()) + usize::from(x);
+        let idx = (y as usize) * (self.width_tiles() as usize) + (x as usize);
         &mut self.tiles[idx]
     }
 
@@ -385,7 +391,7 @@ impl<const MODE: u8> Wide<MODE> {
     /// Update the bounding box of the current layer to include the given tile.
     /// Should be called whenever a command is generated for a tile.
     #[inline]
-    fn update_current_layer_bbox(&mut self, wtile_x: u16, wtile_y: u16) {
+    fn update_current_layer_bbox(&mut self, wtile_x: i16, wtile_y: i16) {
         if let Some(layer) = self.layer_stack.last_mut() {
             layer.wtile_bbox.include_tile(wtile_x, wtile_y);
         }
@@ -461,19 +467,18 @@ impl<const MODE: u8> Wide<MODE> {
             }
 
             // Calculate the width of the strip in columns
-            let mut col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
+            let mut col = strip.alpha_idx() / (Tile::HEIGHT as u32);
+            let next_col = next_strip.alpha_idx() / (Tile::HEIGHT as u32);
             // Can potentially be 0 if strip only changes winding without covering pixels
             let strip_width = next_col.saturating_sub(col) as u16;
-            let x1 = x0.saturating_add(strip_width);
+            let x1 = (x0 as i32 + strip_width as i32).min(i16::MAX as i32) as i16;
 
             // Calculate which wide tiles this strip intersects
             let wtile_x0 = (x0 / WideTile::WIDTH).max(bbox.x0());
             // It's possible that a strip extends into a new wide tile, but we don't actually
             // have as many wide tiles (e.g. because the pixmap width is only 512, but
             // strip ends at 513), so take the minimum between the rounded values and `width_tiles`.
-            let wtile_x1 = x1
-                .div_ceil(WideTile::WIDTH)
+            let wtile_x1 = WideTile::width_in_wides(x1)
                 .min(bbox.x1())
                 .min(WideTile::MAX_WIDE_TILE_COORD);
 
@@ -481,13 +486,13 @@ impl<const MODE: u8> Wide<MODE> {
             let mut x = x0;
             let clip_x = bbox.x0() * WideTile::WIDTH;
             if clip_x > x {
-                col += u32::from(clip_x - x);
+                col += (clip_x - x) as u32;
                 x = clip_x;
             }
 
             // Generate alpha fill commands for each wide tile intersected by this strip
             for wtile_x in wtile_x0..wtile_x1 {
-                let x_wtile_rel = x % WideTile::WIDTH;
+                let x_wtile_rel = x.rem_euclid(WideTile::WIDTH);
                 // Restrict the width of the fill to the width of the wide tile
                 let width = x1.min((wtile_x + 1) * WideTile::WIDTH) - x;
                 let cmd = CmdAlphaFill {
@@ -497,7 +502,7 @@ impl<const MODE: u8> Wide<MODE> {
                     attrs_idx,
                 };
                 x += width;
-                col += u32::from(width);
+                col += width as u32;
                 self.get_mut(wtile_x, strip_y).strip(cmd, current_layer_id);
                 self.update_current_layer_bbox(wtile_x, strip_y);
             }
@@ -510,14 +515,17 @@ impl<const MODE: u8> Wide<MODE> {
             if active_fill && strip_y == next_strip.strip_y() {
                 // Clamp the fill to the clip bounding box
                 x = x1.max(bbox.x0() * WideTile::WIDTH);
-                let x2 = next_strip.x.min(
-                    self.width
-                        .checked_next_multiple_of(WideTile::WIDTH)
-                        .unwrap_or(u16::MAX),
-                );
+
+                // TODO CHECK ME!
+                // let x2 = next_strip.x.min(
+                //     self.width
+                //         .checked_next_multiple_of(WideTile::WIDTH)
+                //         .unwrap_or(i16::MAX),
+                // );
+                let x2 = next_strip.x.min(WideTile::width_in_wides(self.width).saturating_mul(WideTile::WIDTH));
+
                 let wfxt0 = (x1 / WideTile::WIDTH).max(bbox.x0());
-                let wfxt1 = x2
-                    .div_ceil(WideTile::WIDTH)
+                let wfxt1: i16 = WideTile::width_in_wides(x2)
                     .min(bbox.x1())
                     .min(WideTile::MAX_WIDE_TILE_COORD);
 
@@ -818,10 +826,10 @@ impl<const MODE: u8> Wide<MODE> {
                 let strip = &strips[i];
                 let next_strip = &strips[i + 1];
                 let width =
-                    ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
+                    ((next_strip.alpha_idx() - strip.alpha_idx()) / (Tile::HEIGHT as u32)) as i16;
                 let x = strip.x;
                 wtile_x0 = wtile_x0.min(x / WideTile::WIDTH);
-                wtile_x1 = wtile_x1.max((x + width).div_ceil(WideTile::WIDTH));
+                wtile_x1 = wtile_x1.max(WideTile::width_in_wides(x + width));
             }
             WideTilesBbox::new([wtile_x0, wtile_y0, wtile_x1, wtile_y1])
         };
@@ -893,8 +901,8 @@ impl<const MODE: u8> Wide<MODE> {
             // Process wide tiles covered by the strip - these need actual clipping
             let next_strip = &strips[i + 1];
             let width =
-                ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
-            let wtile_x1 = (x + width).div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
+                ((next_strip.alpha_idx() - strip.alpha_idx()) / (Tile::HEIGHT as u32)) as i16;
+            let wtile_x1 = WideTile::width_in_wides(x + width).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x1 {
                 for wtile_x in cur_wtile_x..wtile_x1 {
                     self.get_mut(wtile_x, cur_wtile_y).push_clip(layer_id);
@@ -1034,17 +1042,17 @@ impl<const MODE: u8> Wide<MODE> {
             // Process tiles covered by the strip - render clip content and pop
             let next_strip = &strips[i + 1];
             let strip_width =
-                ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
+                ((next_strip.alpha_idx() - strip.alpha_idx()) / (Tile::HEIGHT as u32)) as i16;
             let mut clipped_x1 = x0 + strip_width;
             let wtile_x0 = (x0 / WideTile::WIDTH).max(clip_bbox.x0());
-            let wtile_x1 = clipped_x1.div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
+            let wtile_x1 = WideTile::width_in_wides(clipped_x1).min(clip_bbox.x1());
 
             // Calculate starting position and column for alpha mask
             let mut x = x0;
-            let mut col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
+            let mut col = strip.alpha_idx() / (Tile::HEIGHT as u32);
             let clip_x = clip_bbox.x0() * WideTile::WIDTH;
             if clip_x > x {
-                col += u32::from(clip_x - x);
+                col += (clip_x - x) as u32;
                 x = clip_x;
                 clipped_x1 = clip_x.max(clipped_x1);
             }
@@ -1068,7 +1076,7 @@ impl<const MODE: u8> Wide<MODE> {
                     attrs_idx: clip_attrs_idx,
                 };
                 x += width;
-                col += u32::from(width);
+                col += width as u32;
 
                 // Apply the clip strip command and update state
                 self.get_mut(wtile_x, cur_wtile_y).clip_strip(cmd);
@@ -1103,7 +1111,7 @@ impl<const MODE: u8> Wide<MODE> {
                 // If the next strip is a sentinel, skip the fill
                 // It's a sentinel in the row if there is non-zero winding for the sparse fill
                 // Look more into this in the strip.rs render function
-                if x2 == u16::MAX {
+                if x2 == i16::MAX {
                     continue;
                 }
 
@@ -1158,9 +1166,9 @@ impl<const MODE: u8> Wide<MODE> {
 #[derive(Debug)]
 pub struct WideTile<const MODE: u8 = MODE_CPU> {
     /// The x coordinate of the wide tile.
-    pub x: u16,
+    pub x: i16,
     /// The y coordinate of the wide tile.
-    pub y: u16,
+    pub y: i16,
     /// The background of the tile.
     pub bg: PremulColor,
     /// The draw commands of the tile.
@@ -1183,28 +1191,33 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
 
 impl WideTile {
     /// The width of a wide tile in pixels.
-    pub const WIDTH: u16 = 256;
+    pub const WIDTH: i16 = 256;
     /// The maximum coordinate of a wide tile.
-    pub const MAX_WIDE_TILE_COORD: u16 = u16::MAX / Self::WIDTH;
+    pub const MAX_WIDE_TILE_COORD: i16 = i16::MAX / Self::WIDTH;
+    /// aaaaaà
+    pub fn width_in_wides(x: i16) -> i16 {
+        debug_assert!(x >= 0);
+        (x as i32 + Self::WIDTH as i32 - 1).div_euclid(Self::WIDTH as i32) as i16
+    }
 }
 
 impl WideTile<MODE_CPU> {
     /// Create a new wide tile.
-    pub fn new(width: u16, height: u16) -> Self {
+    pub fn new(width: i16, height: i16) -> Self {
         Self::new_internal(width, height)
     }
 }
 
 impl WideTile<MODE_HYBRID> {
     /// Create a new wide tile.
-    pub fn new(width: u16, height: u16) -> Self {
+    pub fn new(width: i16, height: i16) -> Self {
         Self::new_internal(width, height)
     }
 }
 
 impl<const MODE: u8> WideTile<MODE> {
     /// Create a new wide tile.
-    fn new_internal(x: u16, y: u16) -> Self {
+    fn new_internal(x: i16, y: i16) -> Self {
         let mut layer_cmd_ranges = HashMap::new();
         layer_cmd_ranges.insert(0, LayerCommandRanges::default());
         Self {
@@ -1791,7 +1804,7 @@ impl CommandAttrs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CmdFill {
     /// The horizontal start position relative to the wide tile's left edge, in pixels.
-    pub x: u16,
+    pub x: i16,
     /// The width of the filled region in pixels.
     pub width: u16,
     /// Index into the command attributes array.
@@ -1806,7 +1819,7 @@ pub struct CmdFill {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CmdAlphaFill {
     /// The horizontal start position relative to the wide tile's left edge, in pixels.
-    pub x: u16,
+    pub x: i16,
     /// The width of the filled region in pixels.
     pub width: u16,
     /// Relative offset to the alpha buffer location.

@@ -67,13 +67,13 @@ pub struct StripGenerator {
     stroke_ctx: StrokeCtx,
     temp_storage: StripStorage,
     tiles: Tiles,
-    width: u16,
-    height: u16,
+    width: i16,
+    height: i16,
 }
 
 impl StripGenerator {
     /// Create a new strip generator.
-    pub fn new(width: u16, height: u16, level: Level) -> Self {
+    pub fn new(width: i16, height: i16, level: Level) -> Self {
         Self {
             level,
             line_buf: Vec::new(),

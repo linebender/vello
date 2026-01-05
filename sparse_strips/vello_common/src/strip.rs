@@ -14,9 +14,9 @@ use fearless_simd::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Strip {
     /// The x coordinate of the strip, in user coordinates.
-    pub x: u16,
+    pub x: i16,
     /// The y coordinate of the strip, in user coordinates.
-    pub y: u16,
+    pub y: i16,
     /// Packed alpha index and fill gap flag.
     ///
     /// Bit layout (u32):
@@ -30,7 +30,7 @@ impl Strip {
     const FILL_GAP_MASK: u32 = 1 << 31;
 
     /// Creates a new strip.
-    pub fn new(x: u16, y: u16, alpha_idx: u32, fill_gap: bool) -> Self {
+    pub fn new(x: i16, y: i16, alpha_idx: u32, fill_gap: bool) -> Self {
         // Ensure `alpha_idx` does not collide with the fill flag bit.
         assert!(
             alpha_idx & Self::FILL_GAP_MASK == 0,
@@ -46,11 +46,11 @@ impl Strip {
 
     /// Return whether the strip is a sentinel strip.
     pub fn is_sentinel(&self) -> bool {
-        self.x == u16::MAX
+        self.x == i16::MAX
     }
 
     /// Return the y coordinate of the strip, in strip units.
-    pub fn strip_y(&self) -> u16 {
+    pub fn strip_y(&self) -> i16 {
         self.y / Tile::HEIGHT
     }
 
@@ -138,7 +138,7 @@ fn render_impl<S: Simd>(
     let mut accumulated_winding = f32x4::splat(s, 0.0);
 
     /// A special tile to keep the logic below simple.
-    const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, 0);
+    const SENTINEL: Tile = Tile::new(i16::MAX, i16::MAX, 0, 0);
 
     // The strip we're building.
     let mut strip = Strip::new(
@@ -218,9 +218,16 @@ fn render_impl<S: Simd>(
 
         // Push out the strip if we're moving to a next strip.
         if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
+            // debug_assert_eq!(
+            //     (prev_tile.x as u32 + 1) * Tile::WIDTH as u32 - strip.x as u32,
+            //     ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT)) as u32,
+            //     "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
+            // );
+
+            // TODO CHECK ME??!
             debug_assert_eq!(
-                (prev_tile.x as u32 + 1) * Tile::WIDTH as u32 - strip.x as u32,
-                ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT)) as u32,
+                (prev_tile.x as i32 + 1) * i32::from(Tile::WIDTH) - strip.x as i32,
+                (alpha_buf.len() - strip.alpha_idx() as usize) as i32 / i32::from(Tile::HEIGHT),
                 "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
             );
             strip_buf.push(strip);
@@ -232,7 +239,7 @@ fn render_impl<S: Simd>(
                 // `alpha_idx` field is used for width calculations).
                 if winding_delta != 0 || is_sentinel {
                     strip_buf.push(Strip::new(
-                        u16::MAX,
+                        i16::MAX,
                         prev_tile.y * Tile::HEIGHT,
                         alpha_buf.len() as u32,
                         should_fill(winding_delta),

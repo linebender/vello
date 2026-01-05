@@ -44,9 +44,9 @@ use vello_common::{
 #[derive(Debug)]
 pub struct RenderContext {
     /// Width of the render target in pixels.
-    pub(crate) width: u16,
+    pub(crate) width: i16,
     /// Height of the render target in pixels.
-    pub(crate) height: u16,
+    pub(crate) height: i16,
     /// Current paint (color, gradient, or image) to be applied to drawn shapes.
     pub(crate) paint: PaintType,
     /// Transform applied to the paint, independent of geometry transform.
@@ -115,12 +115,12 @@ impl Default for RenderSettings {
 
 impl RenderContext {
     /// Create a new render context with the given width and height in pixels.
-    pub fn new(width: u16, height: u16) -> Self {
+    pub fn new(width: i16, height: i16) -> Self {
         Self::new_with(width, height, RenderSettings::default())
     }
 
     /// Create a new render context with specific settings.
-    pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
+    pub fn new_with(width: i16, height: i16, settings: RenderSettings) -> Self {
         #[cfg(feature = "multithreading")]
         let dispatcher: Box<dyn Dispatcher> = if settings.num_threads == 0 {
             Box::new(SingleThreadedDispatcher::new(width, height, settings.level))
@@ -562,8 +562,8 @@ impl RenderContext {
     pub fn render_to_buffer(
         &self,
         buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         render_mode: RenderMode,
     ) {
         // TODO: Maybe we should move those checks into the dispatcher.
@@ -595,12 +595,12 @@ impl RenderContext {
     }
 
     /// Return the width of the pixmap.
-    pub fn width(&self) -> u16 {
+    pub fn width(&self) -> i16 {
         self.width
     }
 
     /// Return the height of the pixmap.
-    pub fn height(&self) -> u16 {
+    pub fn height(&self) -> i16 {
         self.height
     }
 

@@ -297,8 +297,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: i16,
+        start_y: i16,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
@@ -314,8 +314,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: i16,
+        start_y: i16,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
@@ -330,8 +330,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: i16,
+        start_y: i16,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
@@ -362,8 +362,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: i16,
+        start_y: i16,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
@@ -426,8 +426,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     fn blend(
         simd: S,
         dest: &mut [Self::Numeric],
-        start_x: u16,
-        start_y: u16,
+        start_x: i16,
+        start_y: i16,
         src: impl Iterator<Item = Self::Composite>,
         blend_mode: BlendMode,
         alphas: Option<&[u8]>,
@@ -442,7 +442,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
 #[derive(Debug)]
 pub struct Fine<S: Simd, T: FineKernel<S>> {
     /// The (x, y) coordinates of the currently active wide tile being rendered.
-    pub(crate) wide_coords: (u16, u16),
+    pub(crate) wide_coords: (i16, i16),
 
     /// Stack of blend buffers for managing layers and composition.
     ///
@@ -479,7 +479,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     /// Set the coordinates of the wide tile currently being rendered.
     ///
     /// This is used by painters and other operations to compute absolute pixel positions.
-    pub fn set_coords(&mut self, x: u16, y: u16) {
+    pub fn set_coords(&mut self, x: i16, y: i16) {
         self.wide_coords = (x, y);
     }
 
@@ -593,7 +593,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                 let blend_buf = self.blend_buf.last_mut().unwrap();
 
-                let width = (blend_buf.len() / (Tile::HEIGHT as usize * COLOR_COMPONENTS)) as u16;
+                let width = i16::try_from(blend_buf.len() / (Tile::HEIGHT as usize * COLOR_COMPONENTS)).unwrap_or(i16::MAX);
                 let y = start_y as u32 + u32x4::from_slice(self.simd, &[0, 1, 2, 3]);
 
                 let iter = (start_x..(start_x + width)).map(|x| {

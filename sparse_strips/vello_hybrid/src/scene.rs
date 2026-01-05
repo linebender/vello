@@ -82,9 +82,9 @@ struct RenderState {
 #[derive(Debug)]
 pub struct Scene {
     /// Width of the rendering surface in pixels.
-    pub(crate) width: u16,
+    pub(crate) width: i16,
     /// Height of the rendering surface in pixels.
-    pub(crate) height: u16,
+    pub(crate) height: i16,
     /// Wide coarse rasterizer for generating binned draw commands.
     pub(crate) wide: Wide<MODE_HYBRID>,
     clip_context: ClipContext,
@@ -116,12 +116,12 @@ pub struct Scene {
 
 impl Scene {
     /// Create a new render context with the given width and height in pixels.
-    pub fn new(width: u16, height: u16) -> Self {
+    pub fn new(width: i16, height: i16) -> Self {
         Self::new_with(width, height, RenderSettings::default())
     }
 
     /// Create a new render context with specific settings.
-    pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
+    pub fn new_with(width: i16, height: i16, settings: RenderSettings) -> Self {
         let render_state = Self::default_render_state();
         let render_graph = RenderGraph::new();
         Self {
@@ -484,12 +484,12 @@ impl Scene {
     }
 
     /// Get the width of the render context.
-    pub fn width(&self) -> u16 {
+    pub fn width(&self) -> i16 {
         self.width
     }
 
     /// Get the height of the render context.
-    pub fn height(&self) -> u16 {
+    pub fn height(&self) -> i16 {
         self.height
     }
 }

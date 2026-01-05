@@ -36,11 +36,11 @@ pub struct Tile {
     // for, e.g., comparison and sorting.
     #[cfg(target_endian = "big")]
     /// The index of the tile in the y direction.
-    pub y: u16,
+    pub y: i16,
 
     #[cfg(target_endian = "big")]
     /// The index of the tile in the x direction.
-    pub x: u16,
+    pub x: i16,
 
     /// The index of the line this tile belongs to into the line buffer, intersection data,
     /// and winding data packed together.
@@ -62,31 +62,48 @@ pub struct Tile {
 
     #[cfg(target_endian = "little")]
     /// The index of the tile in the x direction.
-    pub x: u16,
+    pub x: i16,
 
     #[cfg(target_endian = "little")]
     /// The index of the tile in the y direction.
-    pub y: u16,
+    pub y: i16,
 }
 
 impl Tile {
     /// The width of a tile in pixels.
-    pub const WIDTH: u16 = 4;
+    pub const WIDTH: i16 = 4;
 
     /// The height of a tile in pixels.
-    pub const HEIGHT: u16 = 4;
+    pub const HEIGHT: i16 = 4;
+
+    /// div_ceil for i16 is unstable? so implement our own.
+    #[inline]
+    pub fn div_round_up(x: i16, y: i16) -> i16 {
+        ((x as i32) + (y as i32) - 1).div_euclid(y as i32) as i16
+    }
+
+    #[inline]
+    pub fn width_in_tiles(x: i16) -> i16 {
+        Self::div_round_up(x, Tile::WIDTH)
+    }
+
+    #[inline]
+    pub fn height_in_tiles(x: i16) -> i16 {
+        Self::div_round_up(x, Tile::HEIGHT)
+    }
 
     /// Create a new tile.
     /// `x` and `y` will be clamped to the largest possible coordinate if they are too large.
+    /// `x` will be clamped to -1 on the left edge.
     ///
     /// `line_idx` must be smaller than [`MAX_LINES_PER_PATH`].
     #[inline]
-    pub fn new_clamped(x: u16, y: u16, line_idx: u32, intersection_mask: u32) -> Self {
+    pub fn new_clamped(x: i16, y: i16, line_idx: u32, intersection_mask: u32) -> Self {
         Self::new(
             // Make sure that x and y stay in range when multiplying
             // with the tile width and height during strips generation.
-            x.min(u16::MAX / Self::WIDTH),
-            y.min(u16::MAX / Self::HEIGHT),
+            x.clamp(-1, i16::MAX / Self::WIDTH),
+            y.min(i16::MAX / Self::HEIGHT),
             line_idx,
             intersection_mask,
         )
@@ -98,7 +115,7 @@ impl Tile {
     /// Callers must ensure these coordinates do not exceed the limits required by downstream
     /// processing (typically `u16::MAX / WIDTH` and `u16::MAX / HEIGHT`).
     #[inline]
-    pub const fn new(x: u16, y: u16, line_idx: u32, intersection_mask: u32) -> Self {
+    pub const fn new(x: i16, y: i16, line_idx: u32, intersection_mask: u32) -> Self {
         #[cfg(debug_assertions)]
         if line_idx >= MAX_LINES_PER_PATH {
             panic!("Max. number of lines per path exceeded.");
@@ -201,7 +218,10 @@ impl Tile {
     /// most-significant part of the number and `packed_winding_line_idx` the least significant.
     #[inline(always)]
     const fn to_bits(self) -> u64 {
-        ((self.y as u64) << 48) | ((self.x as u64) << 32) | self.packed_winding_line_idx as u64
+        // Preserve correct sorting order by flipping sign bit.
+        let y_biased = u16::from_ne_bytes(self.y.to_ne_bytes()) ^ 0x8000;
+        let x_biased = u16::from_ne_bytes(self.x.to_ne_bytes()) ^ 0x8000;
+        ((y_biased as u64) << 48) | ((x_biased as u64) << 32) | self.packed_winding_line_idx as u64
     }
 }
 
@@ -303,7 +323,7 @@ impl Tiles {
     // TODO: Tiles are clamped to the left edge of the viewport, but lines fully to the left of the
     // viewport are not culled yet. These lines impact winding, and would need forwarding of
     // winding to the strip generation stage.
-    pub fn make_tiles_analytic_aa(&mut self, lines: &[Line], width: u16, height: u16) {
+    pub fn make_tiles_analytic_aa(&mut self, lines: &[Line], width: i16, height: i16) {
         self.reset();
 
         if width == 0 || height == 0 {
@@ -317,8 +337,8 @@ impl Tiles {
             lines.len()
         );
 
-        let tile_columns = width.div_ceil(Tile::WIDTH);
-        let tile_rows = height.div_ceil(Tile::HEIGHT);
+        let tile_columns = Tile::width_in_tiles(width);
+        let tile_rows = Tile::height_in_tiles(height);
 
         for (line_idx, line) in lines.iter().take(MAX_LINES_PER_PATH as usize).enumerate() {
             let line_idx = line_idx as u32;
@@ -345,10 +365,10 @@ impl Tiles {
                 (p1_y, p1_x, p0_y, p0_x)
             };
 
-            // The `as u16` casts here intentionally clamp negative coordinates to 0.
-            let y_top_tiles = (line_top_y as u16).min(tile_rows);
+            // Calculate y ranges.
+            let y_top_tiles = (line_top_y as i16).clamp(0, tile_rows);
             let line_bottom_y_ceil = line_bottom_y.ceil();
-            let y_bottom_tiles = (line_bottom_y_ceil as u16).min(tile_rows);
+            let y_bottom_tiles = (line_bottom_y_ceil as i16).clamp(0, tile_rows);
 
             // If y_top_tiles == y_bottom_tiles, then the line is either completely above or below
             // the viewport OR it is perfectly horizontal and aligned to the tile grid, contributing
@@ -359,18 +379,19 @@ impl Tiles {
                 continue;
             }
 
-            // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
-            let p0_tile_x = line_top_x.floor() as i32;
-            let p0_tile_y = line_top_y.floor() as i32;
-            let p1_tile_x = line_bottom_x.floor() as i32;
-            let p1_tile_y = line_bottom_y.floor() as i32;
+            // Get tile coordinates for start/end points.
+            let p0_tile_x = line_top_x.floor() as i16;
+            let p0_tile_y = line_top_y.floor() as i16;
+            let p1_tile_x = line_bottom_x.floor() as i16;
+            let p1_tile_y = line_bottom_y.floor() as i16;
 
             // Special-case out lines which are fully contained within a tile.
             let not_same_tile = p0_tile_y != p1_tile_y || p0_tile_x != p1_tile_x;
             if not_same_tile {
                 // For ease of logic, special-case purely vertical tiles.
                 if line_left_x == line_right_x {
-                    let x = (line_left_x as u16).min(tile_columns.saturating_sub(1));
+                    let x = (line_left_x.floor() as i16)
+                        .clamp(-1, tile_columns.saturating_sub(1));
 
                     // Row Start, not culled.
                     let is_start_culled = line_top_y < 0.0;
@@ -388,7 +409,7 @@ impl Tiles {
                         y_top_tiles + 1
                     };
                     let line_bottom_floor = line_bottom_y.floor();
-                    let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
+                    let y_end_idx = (line_bottom_floor as i16).clamp(0, tile_rows);
 
                     for y_idx in y_start..y_end_idx {
                         let tile = Tile::new_clamped(x, y_idx, line_idx, 0b100000);
@@ -412,7 +433,7 @@ impl Tiles {
                     let w_start_base = dx_dir << 5;
                     let w_end_base = not_dx_dir << 5;
 
-                    let mut push_row = |y_idx: u16,
+                    let mut push_row = |y_idx: i16,
                                         row_top_y: f32,
                                         row_bottom_y: f32,
                                         w_start: u32,
@@ -424,8 +445,9 @@ impl Tiles {
                         let row_left_x = f32::min(row_top_x, row_bottom_x).max(line_left_x);
                         let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
 
-                        let x_start = row_left_x as u16;
-                        let x_end = (row_right_x as u16).min(tile_columns.saturating_sub(1));
+                        let x_start = (row_left_x.floor() as i16).max(-1);
+                        let x_end = (row_right_x.floor() as i16)
+                            .clamp(-1, tile_columns.saturating_sub(1));
 
                         if x_start <= x_end {
                             let winding = if x_start == x_end { w_single } else { w_start };
@@ -465,7 +487,7 @@ impl Tiles {
                     };
 
                     let line_bottom_floor = line_bottom_y.floor();
-                    let y_end_middle = (line_bottom_floor as u16).min(tile_rows);
+                    let y_end_middle = (line_bottom_floor as i16).clamp(0, tile_rows);
                     for y_idx in y_start_middle..y_end_middle {
                         let y = f32::from(y_idx);
                         let row_bottom_y = (y + 1.0).min(line_bottom_y);
@@ -484,7 +506,7 @@ impl Tiles {
             } else {
                 // Case: Line is fully contained within a single tile.
                 let tile = Tile::new_clamped(
-                    (line_left_x as u16).min(tile_columns + 1),
+                    (line_left_x.floor() as i16).clamp(-1, tile_columns + 1),
                     y_top_tiles,
                     line_idx,
                     ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5,
@@ -540,10 +562,10 @@ impl Tiles {
     ///    middle tiles, the endpoints are still calculated using line equation. So the endpoints
     ///    should still be watertight. I don't think the viewport can be large enough where enough
     ///    floating-point error can occur that an issue arises.
-    pub fn make_tiles_msaa(&mut self, lines: &[Line], width: u16, height: u16) {
+    pub fn make_tiles_msaa(&mut self, lines: &[Line], width: i16, height: i16) {
         self.reset();
 
-        if width == 0 || height == 0 {
+        if width <= 0 || height <= 0 {
             return;
         }
 
@@ -554,8 +576,8 @@ impl Tiles {
             lines.len()
         );
 
-        let tile_columns = width.div_ceil(Tile::WIDTH);
-        let tile_rows = height.div_ceil(Tile::HEIGHT);
+        let tile_columns = Tile::width_in_tiles(width);
+        let tile_rows = Tile::height_in_tiles(height);
 
         for (line_idx, line) in lines.iter().take(MAX_LINES_PER_PATH as usize).enumerate() {
             let line_idx = line_idx as u32;
@@ -582,10 +604,9 @@ impl Tiles {
                 (p1_y, p1_x, p0_y, p0_x)
             };
 
-            // The `as u16` casts here intentionally clamp negative coordinates to 0.
-            let y_top_tiles = (line_top_y as u16).min(tile_rows);
+            let y_top_tiles = (line_top_y as i16).clamp(0, tile_rows);
             let line_bottom_y_ceil = line_bottom_y.ceil();
-            let y_bottom_tiles = (line_bottom_y_ceil as u16).min(tile_rows);
+            let y_bottom_tiles = (line_bottom_y_ceil as i16).clamp(0, tile_rows);
 
             // If y_top_tiles == y_bottom_tiles, then the line is either completely above or below
             // the viewport OR it is perfectly horizontal and aligned to the tile grid, contributing
@@ -594,15 +615,15 @@ impl Tiles {
                 continue;
             }
 
-            // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
-            let p0_tile_x = line_top_x.floor() as i32;
-            let p0_tile_y = line_top_y.floor() as i32;
-            let p1_tile_x = line_bottom_x.floor() as i32;
+            // Get tile coordinates for start/end points
+            let p0_tile_x = line_top_x.floor() as i16;
+            let p0_tile_y = line_top_y.floor() as i16;
+            let p1_tile_x = line_bottom_x.floor() as i16;
 
             let p1_tile_y = if line_bottom_y == line_bottom_y_ceil {
-                line_bottom_y as i32 - 1
+                line_bottom_y as i16 - 1
             } else {
-                line_bottom_y.floor() as i32
+                line_bottom_y.floor() as i16
             };
 
             // Special-case out lines which are fully contained within a tile.
@@ -610,7 +631,8 @@ impl Tiles {
             if not_same_tile {
                 // For ease of logic, special-case purely vertical tiles.
                 if line_left_x == line_right_x {
-                    let x = (line_left_x as u16).min(tile_columns.saturating_sub(1));
+                    let x = (line_left_x.floor() as i16)
+                        .clamp(-1, tile_columns.saturating_sub(1));
 
                     // Row Start, not culled.
                     let is_start_culled = line_top_y < 0.0;
@@ -629,7 +651,7 @@ impl Tiles {
                         y_top_tiles + 1
                     };
                     let line_bottom_floor = line_bottom_y.floor();
-                    let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
+                    let y_end_idx = (line_bottom_floor as i16).clamp(0, tile_rows);
 
                     if y_start < y_end_idx {
                         let y_last = y_end_idx - 1;
@@ -641,7 +663,7 @@ impl Tiles {
 
                         // Perfect touching B case.
                         {
-                            let is_end_tile = ((y_last as i32) == p1_tile_y) as u32;
+                            let is_end_tile = (y_last == p1_tile_y) as u32;
                             let intersection_mask = 0b100001 | ((1 ^ is_end_tile) << 1);
                             let tile = Tile::new_clamped(x, y_last, line_idx, intersection_mask);
                             self.tile_buf.push(tile);
@@ -681,7 +703,7 @@ impl Tiles {
                          $check_s:tt, $check_e:expr) => {{
                             let x_idx = $x;
 
-                            let unc_row_start = (x_idx as i32 == $canonical_start) as u32;
+                            let unc_row_start = (x_idx as i32 == $canonical_start as i32) as u32;
                             let unc_row_end = (x_idx == $canonical_end) as u32;
 
                             let canonical_row_start =
@@ -690,13 +712,13 @@ impl Tiles {
                                 (not_dx_dir & unc_row_start) | (dx_dir & unc_row_end);
 
                             let start_tile = if $check_s {
-                                ((x_idx as i32 == p0_tile_x) && ($y as i32 == p0_tile_y)) as u32
+                                ((x_idx == p0_tile_x) && ($y == p0_tile_y)) as u32
                             } else {
                                 0
                             };
 
                             let end_tile = if $check_e {
-                                ((x_idx as i32 == p1_tile_x) && ($y as i32 == p1_tile_y)) as u32
+                                ((x_idx == p1_tile_x) && ($y == p1_tile_y)) as u32
                             } else {
                                 0
                             };
@@ -734,25 +756,26 @@ impl Tiles {
                     // Handles row geometry and clamping logic.
                     macro_rules! process_row {
                         ($y_idx:expr, $row_top_y:expr, $row_bottom_y:expr, $w_mask:expr,
-                     $check_s:tt, $check_e:tt, $clamped:tt) => {{
+                      $check_s:tt, $check_e:tt, $clamped:tt) => {{
                             let row_top_x = p0_x + ($row_top_y - p0_y) * x_slope;
                             let row_bottom_x = p0_x + ($row_bottom_y - p0_y) * x_slope;
 
                             let (row_left_x, row_right_x, x_end) = if $clamped {
                                 let lx = f32::min(row_top_x, row_bottom_x).max(line_left_x);
                                 let rx = f32::max(row_top_x, row_bottom_x).min(line_right_x);
-                                let xe = (rx as u16).min(tile_columns.saturating_sub(1));
+                                let xe = (rx.floor() as i16)
+                                    .clamp(-1, tile_columns.saturating_sub(1));
                                 (lx, rx, xe)
                             } else {
                                 let lx = f32::min(row_top_x, row_bottom_x);
                                 let rx = f32::max(row_top_x, row_bottom_x);
-                                let xe = rx as u16; // Safe because we checked bounds earlier
+                                let xe = rx.floor() as i16; // Safe because we checked bounds earlier
                                 (lx, rx, xe)
                             };
 
-                            let canonical_x_start = row_left_x.floor() as i32;
-                            let canonical_x_end = row_right_x as u16;
-                            let x_start = row_left_x as u16;
+                            let canonical_x_start = row_left_x.floor() as i16;
+                            let canonical_x_end = row_right_x.floor() as i16;
+                            let x_start = (row_left_x.floor() as i16).max(-1);
 
                             if x_start <= x_end {
                                 let is_single = (x_start == x_end) as u32;
@@ -805,16 +828,17 @@ impl Tiles {
                             let (row_left_x, row_right_x, x_end) = if $clamped {
                                 let lx = raw_left.max(line_left_x);
                                 let rx = raw_right.min(line_right_x);
-                                let xe = (rx as u16).min(tile_columns.saturating_sub(1));
+                                let xe = (rx.floor() as i16)
+                                    .clamp(-1, tile_columns.saturating_sub(1));
                                 (lx, rx, xe)
                             } else {
                                 // Unclamped: Raw values are trusted
-                                (raw_left, raw_right, raw_right as u16)
+                                (raw_left, raw_right, raw_right.floor() as i16)
                             };
 
-                            let canonical_x_start = row_left_x.floor() as i32;
-                            let canonical_x_end = row_right_x as u16;
-                            let x_start = row_left_x as u16;
+                            let canonical_x_start = row_left_x.floor() as i16;
+                            let canonical_x_end = row_right_x.floor() as i16;
+                            let x_start = (row_left_x.floor() as i16).max(-1);
 
                             if x_start <= x_end {
                                 let is_single = (x_start == x_end) as u32;
@@ -880,7 +904,7 @@ impl Tiles {
                                 y_top_tiles + 1
                             };
                             let line_bottom_floor = line_bottom_y.floor();
-                            let y_end_middle = (line_bottom_floor as u16).min(tile_rows);
+                            let y_end_middle = (line_bottom_floor as i16).min(tile_rows);
 
                             // Middle Rows, walk incrementally
                             if y_start_middle < y_end_middle {
@@ -899,7 +923,7 @@ impl Tiles {
                                 // Perfect Touching B
                                 {
                                     let x_next = x_curr + x_slope;
-                                    let check_end = (y_last as i32) == p1_tile_y;
+                                    let check_end = y_last == p1_tile_y;
                                     process_middle_row_incremental!(
                                         y_last, x_curr, x_next, check_end, $clamped
                                     );
@@ -935,7 +959,7 @@ impl Tiles {
             } else {
                 // Case: Line is fully contained within a single tile.
                 let tile = Tile::new_clamped(
-                    (line_left_x as u16).min(tile_columns + 1),
+                    (line_left_x.floor() as i16).clamp(-1, tile_columns + 1),
                     y_top_tiles,
                     line_idx,
                     ((f32::from(y_top_tiles) >= line_top_y) as u32) << 5,
@@ -961,15 +985,15 @@ mod tests {
     const B: u32 = 0b000010;
     const T: u32 = 0b000001;
 
-    const VIEW_DIM: u16 = 100;
+    const VIEW_DIM: i16 = 100;
     const F_V_DIM: f32 = VIEW_DIM as f32;
 
     impl Tiles {
         fn assert_tiles_match(
             &mut self,
             lines: &[Line],
-            width: u16,
-            height: u16,
+            width: i16,
+            height: i16,
             expected: &[Tile],
         ) {
             self.make_tiles_msaa(lines, width, height);
@@ -1238,9 +1262,14 @@ mod tests {
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [
+            Tile::new(-1, 0, 0, L),
             Tile::new(0, 0, 0, L),
+
+            Tile::new(-1, 0, 1, L),
             Tile::new(0, 0, 1, L | R),
             Tile::new(1, 0, 1, L),
+
+            Tile::new(-1, 0, 2, L | B),
             Tile::new(0, 0, 2, L | B),
             Tile::new(0, 1, 2, W | R | T),
             Tile::new(1, 1, 2, R | L),
@@ -1289,6 +1318,7 @@ mod tests {
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         let expected = [
+            Tile::new(-1, 2, 0, L | R), // Clamped to -1
             Tile::new(0, 2, 0, L | R),
             Tile::new(1, 2, 0, L | R),
             Tile::new(2, 2, 0, L),
@@ -1427,7 +1457,11 @@ mod tests {
         }];
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        let expected = [Tile::new(0, 0, 0, W | L | T)];
+        // Note: New -1 tile due to clamping
+        let expected = [
+            Tile::new(-1, 0, 0, W | L),
+            Tile::new(0, 0, 0, W | L | T)
+        ];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }

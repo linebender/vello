@@ -103,8 +103,8 @@ impl LayerManager {
     pub fn layer_tile_region_mut(
         &mut self,
         layer_id: u32,
-        tile_x: u16,
-        tile_y: u16,
+        tile_x: i16,
+        tile_y: i16,
     ) -> Option<Region<'_>> {
         let (pixmap, bbox) = self.layers.get_mut(&layer_id)?;
 
@@ -135,7 +135,7 @@ impl LayerManager {
     /// A mutable reference to a `Pixmap` of at least `width × height` pixels.
     /// The actual buffer may be larger than requested if it was previously allocated
     /// with larger dimensions.
-    pub fn get_scratch_buffer(&mut self, width: u16, height: u16) -> &mut Pixmap {
+    pub fn get_scratch_buffer(&mut self, width: i16, height: i16) -> &mut Pixmap {
         match &mut self.scratch_buffer {
             None => {
                 // No buffer exists yet, allocate a new one

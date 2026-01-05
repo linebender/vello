@@ -24,8 +24,8 @@ impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: i16,
+        start_y: i16,
     ) -> Self {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
@@ -94,8 +94,8 @@ impl<'a, S: Simd> NNImagePainter<'a, S> {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: i16,
+        start_y: i16,
     ) -> Self {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
@@ -163,8 +163,8 @@ impl<'a, S: Simd, const QUALITY: u8> FilteredImagePainter<'a, S, QUALITY> {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: i16,
+        start_y: i16,
     ) -> Self {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
@@ -363,8 +363,8 @@ impl<'a, S: Simd> ImagePainterData<'a, S> {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: i16,
+        start_y: i16,
     ) -> Self {
         let width = pixmap.width() as f32;
         let height = pixmap.height() as f32;

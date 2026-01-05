@@ -92,9 +92,9 @@ pub struct ColorGlyph<'a> {
     /// COLR glyph when painting.
     pub area: Rect,
     /// The width of the pixmap/texture in pixels to which the glyph should be rendered to.
-    pub pix_width: u16,
+    pub pix_width: i16,
     /// The height of the pixmap/texture in pixels to which the glyph should be rendered to.
-    pub pix_height: u16,
+    pub pix_height: i16,
 }
 
 impl Debug for ColorGlyph<'_> {
@@ -463,9 +463,10 @@ fn prepare_colr_glyph<'a>(
         // of where the glyph should be placed.
         * Affine::translate((scaled_bbox.x0, scaled_bbox.y0));
 
+    // TODO
     let (pix_width, pix_height) = (
-        scaled_bbox.width().ceil() as u16,
-        scaled_bbox.height().ceil() as u16,
+        scaled_bbox.width().ceil() as u16 as i16,
+        scaled_bbox.height().ceil() as u16 as i16,
     );
 
     let draw_transform =

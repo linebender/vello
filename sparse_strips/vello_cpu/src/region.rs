@@ -15,14 +15,14 @@ pub struct Regions<'a> {
 }
 
 impl<'a> Regions<'a> {
-    pub fn new(width: u16, height: u16, mut buffer: &'a mut [u8]) -> Self {
-        let buf_width = usize::from(width);
-        let buf_height = usize::from(height);
+    pub fn new(width: i16, height: i16, mut buffer: &'a mut [u8]) -> Self {
+        let buf_width = usize::try_from(width).unwrap_or(0);
+        let buf_height = usize::try_from(height).unwrap_or(0);
 
         let row_advance = buf_width * COLOR_COMPONENTS;
 
-        let height_regions = buf_height.div_ceil(usize::from(Tile::HEIGHT));
-        let width_regions = buf_width.div_ceil(usize::from(WideTile::WIDTH));
+        let height_regions = buf_height.div_ceil(usize::try_from(Tile::HEIGHT).unwrap_or(0));
+        let width_regions = buf_width.div_ceil(usize::try_from(WideTile::WIDTH).unwrap_or(0));
 
         let mut regions = Vec::with_capacity(height_regions * width_regions);
 
@@ -30,8 +30,8 @@ impl<'a> Regions<'a> {
             [&mut [], &mut [], &mut [], &mut []];
 
         for y in 0..height_regions {
-            let base_y = y * usize::from(Tile::HEIGHT);
-            let region_height = usize::from(Tile::HEIGHT).min(buf_height - base_y);
+            let base_y = y * usize::try_from(Tile::HEIGHT).unwrap_or(0);
+            let region_height = (usize::try_from(Tile::HEIGHT).unwrap_or(0)).min(buf_height - base_y);
 
             for line in next_lines.iter_mut().take(region_height) {
                 let (head, tail) = buffer.split_at_mut(row_advance);
@@ -45,7 +45,7 @@ impl<'a> Regions<'a> {
 
                 // All rows have the same width, so we can just take the first row.
                 let region_width =
-                    (usize::from(WideTile::WIDTH) * COLOR_COMPONENTS).min(next_lines[0].len());
+                    (usize::try_from(WideTile::WIDTH).unwrap_or(0) * COLOR_COMPONENTS).min(next_lines[0].len());
 
                 for h in 0..region_height {
                     let next = core::mem::take(&mut next_lines[h]);
@@ -56,10 +56,10 @@ impl<'a> Regions<'a> {
 
                 regions.push(Region::new(
                     areas,
-                    u16::try_from(x).unwrap(),
-                    u16::try_from(y).unwrap(),
-                    region_width as u16 / COLOR_COMPONENTS as u16,
-                    region_height as u16,
+                    i16::try_from(x).unwrap_or(i16::MAX),
+                    i16::try_from(y).unwrap_or(i16::MAX),
+                    i16::try_from(region_width / COLOR_COMPONENTS).unwrap_or(i16::MAX),
+                    i16::try_from(region_height).unwrap_or(i16::MAX),
                 ));
             }
         }
@@ -91,21 +91,21 @@ impl<'a> Regions<'a> {
 #[derive(Default, Debug)]
 pub struct Region<'a> {
     /// The x coordinate of the wide tile this region covers.
-    pub(crate) x: u16,
+    pub(crate) x: i16,
     /// The y coordinate of the wide tile this region covers.
-    pub(crate) y: u16,
-    pub width: u16,
-    pub height: u16,
+    pub(crate) y: i16,
+    pub width: i16,
+    pub height: i16,
     areas: [&'a mut [u8]; Tile::HEIGHT as usize],
 }
 
 impl<'a> Region<'a> {
     pub(crate) fn new(
         areas: [&'a mut [u8]; Tile::HEIGHT as usize],
-        x: u16,
-        y: u16,
-        width: u16,
-        height: u16,
+        x: i16,
+        y: i16,
+        width: i16,
+        height: i16,
     ) -> Self {
         Self {
             areas,
@@ -130,8 +130,8 @@ impl<'a> Region<'a> {
     /// * `tile_y` - Tile row index (in tile units, not pixels)
     pub(crate) fn from_pixmap_tile(
         pixmap: &'a mut Pixmap,
-        tile_x: u16,
-        tile_y: u16,
+        tile_x: i16,
+        tile_y: i16,
     ) -> Option<Self> {
         let pixmap_width = pixmap.width();
         let pixmap_height = pixmap.height();
@@ -186,8 +186,8 @@ impl<'a> Region<'a> {
         ))
     }
 
-    pub(crate) fn row_mut(&mut self, y: u16) -> &mut [u8] {
-        self.areas[usize::from(y)]
+    pub(crate) fn row_mut(&mut self, y: i16) -> &mut [u8] {
+        self.areas[usize::try_from(y).unwrap_or(0)]
     }
 
     pub fn areas(&mut self) -> &mut [&'a mut [u8]; Tile::HEIGHT as usize] {

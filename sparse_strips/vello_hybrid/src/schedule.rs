@@ -44,7 +44,7 @@
 //! │ ───                ────    │  /     /       /     /     │       ──────────────       │
 //! │                  ──        │ /     /       /     /      │───────                     │
 //! └────────────────────────────└────────────────────────────└────────────────────────────┘
-//!                                                                                         
+//!
 //! How the scene is scheduled into rounds and draw calls are shown below:
 //!
 //! ### Round 0
@@ -526,8 +526,8 @@ impl Scheduler {
     fn initialize_tile_state(
         &mut self,
         tile: &WideTile<MODE_HYBRID>,
-        wide_tile_x: u16,
-        wide_tile_y: u16,
+        wide_tile_x: i16,
+        wide_tile_y: i16,
         scene: &Scene,
         idxs: &[u32],
     ) -> TileState {
@@ -569,8 +569,8 @@ impl Scheduler {
         &mut self,
         renderer: &mut R,
         scene: &Scene,
-        wide_tile_x: u16,
-        wide_tile_y: u16,
+        wide_tile_x: i16,
+        wide_tile_y: i16,
         cmds: &'a [AnnotatedCmd<'a>],
         mut state: TileState,
         paint_idxs: &[u32],

@@ -56,7 +56,7 @@ impl SingleThreadedDispatcher {
     /// # Notes
     /// The root layer (`layer_id` 0) is created immediately and must be node 0
     /// in the render graph for proper rendering order.
-    pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
+    pub(crate) fn new(width: i16, height: i16, level: Level) -> Self {
         let wide = Wide::<MODE_CPU>::new(width, height);
         let strip_generator = StripGenerator::new(width, height, level);
         let clip_context = ClipContext::new();
@@ -91,8 +91,8 @@ impl SingleThreadedDispatcher {
     fn rasterize_f32(
         &self,
         buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         encoded_paints: &[EncodedPaint],
     ) {
         use crate::fine::F32Kernel;
@@ -108,8 +108,8 @@ impl SingleThreadedDispatcher {
     fn rasterize_u8(
         &self,
         buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         encoded_paints: &[EncodedPaint],
     ) {
         use crate::fine::U8Kernel;
@@ -129,8 +129,8 @@ impl SingleThreadedDispatcher {
         &self,
         simd: S,
         buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         encoded_paints: &[EncodedPaint],
     ) {
         let mut layer_manager = LayerManager::new();
@@ -165,8 +165,8 @@ impl SingleThreadedDispatcher {
         &self,
         simd: S,
         buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         encoded_paints: &[EncodedPaint],
         layer_manager: &mut LayerManager,
     ) {
@@ -277,8 +277,8 @@ impl SingleThreadedDispatcher {
     fn process_layer_tile<S: Simd, F: FineKernel<S>>(
         &self,
         fine: &mut Fine<S, F>,
-        x: u16,
-        y: u16,
+        x: i16,
+        y: i16,
         layer_id: u32,
         clear_color: PremulColor,
         layer_manager: &mut LayerManager,
@@ -365,8 +365,8 @@ impl SingleThreadedDispatcher {
         &self,
         simd: S,
         buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         encoded_paints: &[EncodedPaint],
     ) {
         let mut buffer = Regions::new(width, height, buffer);
@@ -555,8 +555,8 @@ impl Dispatcher for SingleThreadedDispatcher {
         &self,
         buffer: &mut [u8],
         render_mode: RenderMode,
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         encoded_paints: &[EncodedPaint],
     ) {
         // If only the u8 pipeline is enabled, then use it

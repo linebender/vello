@@ -15,10 +15,10 @@ extern crate std;
 /// A pixmap of premultiplied RGBA8 values backed by [`u8`][core::u8].
 #[derive(Debug, Clone)]
 pub struct Pixmap {
-    /// Width of the pixmap in pixels.  
-    width: u16,
+    /// Width of the pixmap in pixels.
+    width: i16,
     /// Height of the pixmap in pixels.
-    height: u16,
+    height: i16,
     /// Buffer of the pixmap in RGBA8 format.
     buf: Vec<PremulRgba8>,
     /// Whether the pixmap may have non-opaque pixels.
@@ -79,7 +79,7 @@ impl Pixmap {
     ) -> Self {
         assert_eq!(
             data.len(),
-            usize::from(width) * usize::from(height),
+            (width as usize) * (height as usize),
             "Expected `data` to have length of exactly `width * height`"
         );
         Self {
@@ -121,12 +121,12 @@ impl Pixmap {
     }
 
     /// Return the width of the pixmap.
-    pub fn width(&self) -> u16 {
+    pub fn width(&self) -> i16 {
         self.width
     }
 
     /// Return the height of the pixmap.
-    pub fn height(&self) -> u16 {
+    pub fn height(&self) -> i16 {
         self.height
     }
 
@@ -194,11 +194,11 @@ impl Pixmap {
         let mut reader = decoder.read_info()?;
         let mut pixmap = {
             let info = reader.info();
-            let width: u16 = info
+            let width: i16 = info
                 .width
                 .try_into()
                 .map_err(|_| png::DecodingError::LimitsExceeded)?;
-            let height: u16 = info
+            let height: i16 = info
                 .height
                 .try_into()
                 .map_err(|_| png::DecodingError::LimitsExceeded)?;
@@ -319,7 +319,7 @@ impl Pixmap {
     ///
     /// The pixel data is [premultiplied RGBA8][PremulRgba8].
     #[inline(always)]
-    pub fn sample(&self, x: u16, y: u16) -> PremulRgba8 {
+    pub fn sample(&self, x: i16, y: i16) -> PremulRgba8 {
         let idx = self.width as usize * y as usize + x as usize;
         self.buf[idx]
     }
@@ -337,7 +337,7 @@ impl Pixmap {
     /// its origin at the top-left corner, with `x` increasing to the right and `y` increasing
     /// downward.
     #[inline(always)]
-    pub fn set_pixel(&mut self, x: u16, y: u16, pixel: PremulRgba8) {
+    pub fn set_pixel(&mut self, x: i16, y: i16, pixel: PremulRgba8) {
         let idx = self.width as usize * y as usize + x as usize;
         self.buf[idx] = pixel;
     }
