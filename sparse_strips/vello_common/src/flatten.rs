@@ -86,7 +86,94 @@ impl Line {
     }
 }
 
-/// Flatten a filled bezier path into line segments.
+/// Flatten a filled Bézier path into line segments.
+///
+/// # Open subpaths and culling
+///
+/// Open subpaths in the input path get closed by connecting the last endpoint in the subpath to
+/// the starting point. The output lines in `line_buf` describe the flattened path, but these lines
+/// may describe open subpaths, as some path elements may have been culled.
+///
+/// For example, consider the following, where the box describes the viewport, a path is marked by
+/// `*`, and the region to be filled in the viewport is shaded. For ease of drawing the ASCII art,
+/// the path elements are all lines ([`PathEl::LineTo`]), but the same also holds for Bézier path
+/// elements.
+///
+/// ```text
+///    ---> winding scan direction
+///
+///                   * * * * *
+///                 *         *
+///    ---------- * -----     *
+///    |        *░░░░░░░|     *
+///    |      *░░░░░░░░░|     *
+///    |    *░░░░░░░░░░░|     *
+///    |  *░░░░░░░░░░░░░|     *
+///    |*░░░░░░░░░░░░░░░|     *
+///   *|░░░░░░░░░░░░░░░░|     *
+/// *  |░░░░░░░░░░░░░░░░|     *
+/// *  |░░░░░░░░░░░░░░░░|     *
+/// *  ------------------     *
+/// *                         *
+/// *                         *
+/// *                         *
+/// *                         *
+/// *                         *
+/// *                         *
+/// *                         *
+/// * * * * * * * * * * * * * *
+/// ```
+///
+/// Because the winding scan direction is from left to right, only the left-of-viewport and
+/// diagonal lines matter in later stages of rendering for the winding number and pixel coverage.
+/// The other three lines can be culled.
+///
+/// ```text
+///                   *
+///                 *
+///    ---------- * -----
+///    |        *░░░░░░░|
+///    |      *░░░░░░░░░|
+///    |    *░░░░░░░░░░░|
+///    |  *░░░░░░░░░░░░░|
+///    |*░░░░░░░░░░░░░░░|
+///   *|░░░░░░░░░░░░░░░░|
+/// *  |░░░░░░░░░░░░░░░░|
+/// *  |░░░░░░░░░░░░░░░░|
+/// *  ------------------
+/// *
+/// *
+/// *
+/// *
+/// *
+/// *
+/// *
+/// ```
+///
+/// It is important to keep these flattened subpaths open after culling, as closing the subpaths
+/// might yield different geometry like the following.
+///
+/// ```text
+///                   *
+///                 **
+///    ---------- * *----
+///    |        *░░*    |
+///    |      *░░░*     |
+///    |    *░░░░*      |
+///    |  *░░░░░*       |
+///    |*░░░░░░*        |
+///   *|░░░░░░*         |
+/// *  |░░░░░*          |
+/// *  |░░░░*           |
+/// *  --- * ------------
+/// *     *
+/// *    *
+/// *   *
+/// *  *
+/// * *
+/// **
+/// *
+/// ```
 pub fn fill(
     level: Level,
     path: impl IntoIterator<Item = PathEl>,
@@ -100,6 +187,8 @@ pub fn fill(
 }
 
 /// Flatten a filled bezier path into line segments.
+///
+/// See the note about open subpaths and culling on [`fill`].
 #[inline(always)]
 pub fn fill_impl<S: Simd>(
     simd: S,
@@ -128,7 +217,9 @@ pub fn fill_impl<S: Simd>(
         line_buf.clear();
     }
 }
-/// Flatten a stroked bezier path into line segments.
+/// Flatten a stroked Bézier path into line segments.
+///
+/// See the note about open subpaths and culling on [`fill`].
 pub fn stroke(
     level: Level,
     path: impl IntoIterator<Item = PathEl>,
