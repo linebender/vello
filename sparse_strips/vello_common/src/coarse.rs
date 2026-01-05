@@ -325,6 +325,9 @@ impl<const MODE: u8> Wide<MODE> {
             tile.bg = PremulColor::from_alpha_color(TRANSPARENT);
             tile.cmds.clear();
             tile.layer_ids.truncate(1);
+            tile.layer_cmd_ranges.clear();
+            tile.layer_cmd_ranges
+                .insert(0, LayerCommandRanges::default());
         }
         self.attrs.clear();
         self.layer_stack.clear();
