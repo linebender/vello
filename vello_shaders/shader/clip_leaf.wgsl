@@ -193,6 +193,8 @@ fn main(
         draw_monoids[ix].path_ix = u32(path_ix);
         // Make EndClip point to the same draw data as BeginClip
         draw_monoids[ix].scene_offset = draw_monoids[parent_ix].scene_offset;
+        // Make EndClip point to the same info (draw flags) as BeginClip
+        draw_monoids[ix].info_offset = draw_monoids[parent_ix].info_offset;
         if grandparent >= 0 {
             bbox = sh_bbox[grandparent];
         } else if grandparent + i32(stack_size) >= 0 {

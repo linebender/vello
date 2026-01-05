@@ -37,7 +37,7 @@ impl DrawTag {
     pub const BLUR_RECT: Self = Self(0x2d4); // info: 11, scene: 5 (DrawBlurRoundedRect)
 
     /// Begin layer/clip.
-    pub const BEGIN_CLIP: Self = Self(0x9);
+    pub const BEGIN_CLIP: Self = Self(0x49);
 
     /// End layer/clip.
     pub const END_CLIP: Self = Self(0x21);

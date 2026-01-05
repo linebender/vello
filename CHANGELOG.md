@@ -18,6 +18,8 @@ This release has an [MSRV][] of 1.88.
 ### Changed
 
 - Breaking change: wgpu has been updated to wgpu 27. ([#1280][] by [@theoparis][])  
+- Breaking change: Make `Scene` clip / layers honor fill rule (even-odd clips). ([#1332][] by [@waywardmonkeys][])
+  When pushing a layer, you should use `Fill::NonZero` as the clip fill rule to achieve the same behavior as previous versions.
 
 ### Fixed
 
@@ -383,6 +385,7 @@ This release has an [MSRV][] of 1.75.
 [#1273]: https://github.com/linebender/vello/pull/1273
 [#1280]: https://github.com/linebender/vello/pull/1280
 [#1323]: https://github.com/linebender/vello/pull/1323
+[#1332]: https://github.com/linebender/vello/pull/1332
 
 <!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.5.0...HEAD
