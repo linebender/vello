@@ -13,11 +13,27 @@ use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
 
+/// The element of a path made of lines.
+///
+/// Each subpath must start with a `MoveTo`. Closing of subpaths is not supported, and subpaths are
+/// not closed implicitly when a new subpath (with `MoveTo`) is started. It is expected that closed
+/// subpaths are watertight in the sense that the last `LineTo` matches exactly with the first
+/// `MoveTo`.
+///
+/// This intentionally allows for non-watertight subpaths, as, e.g., lines that are fully outside
+/// of the viewport do not need to be drawn.
+///
+/// See [`PathEl`] for a more general-purpose path element type.
+pub(crate) enum LinePathEl {
+    MoveTo(Point),
+    LineTo(Point),
+}
+
 // Unlike kurbo, which takes a closure with a callback for outputting the lines, we use a trait
 // instead. The reason is that this way the callback can be inlined, which is not possible with
 // a closure and turned out to have a noticeable overhead.
 pub(crate) trait Callback {
-    fn callback(&mut self, el: PathEl);
+    fn callback(&mut self, el: LinePathEl);
 }
 
 /// See the docs for the kurbo implementation of flattening:
@@ -35,96 +51,110 @@ pub(crate) fn flatten<S: Simd>(
     flatten_ctx.flattened_cubics.clear();
 
     let sqrt_tol = tolerance.sqrt();
-    let mut last_pt = None;
+    let mut closed = true;
+    let mut start_pt = Point::ZERO;
+    let mut last_pt = Point::ZERO;
 
     for el in path {
         match el {
             PathEl::MoveTo(p) => {
-                last_pt = Some(p);
-                callback.callback(PathEl::MoveTo(p));
+                if !closed && last_pt != start_pt {
+                    callback.callback(LinePathEl::LineTo(start_pt));
+                }
+                closed = false;
+                last_pt = p;
+                start_pt = p;
+                callback.callback(LinePathEl::MoveTo(p));
             }
             PathEl::LineTo(p) => {
-                last_pt = Some(p);
-                callback.callback(PathEl::LineTo(p));
+                debug_assert!(!closed, "Expected a `MoveTo` before a `LineTo`");
+                last_pt = p;
+                callback.callback(LinePathEl::LineTo(p));
             }
             PathEl::QuadTo(p1, p2) => {
-                if let Some(p0) = last_pt {
-                    // An upper bound on the shortest distance of any point on the quadratic Bezier
-                    // curve to the line segment [p0, p2] is 1/2 of the maximum of the
-                    // endpoint-to-control-point distances.
-                    //
-                    // The derivation is similar to that for the cubic Bezier (see below). In
-                    // short:
-                    //
-                    // q(t) = B0(t) p0 + B1(t) p1 + B2(t) p2
-                    // dist(q(t), [p0, p1]) <= B1(t) dist(p1, [p0, p1])
-                    //                       = 2 (1-t)t dist(p1, [p0, p1]).
-                    //
-                    // The maximum occurs at t=1/2, hence
-                    // max(dist(q(t), [p0, p1] <= 1/2 dist(p1, [p0, p1])).
-                    //
-                    // A cheap upper bound for dist(p1, [p0, p1]) is max(dist(p1, p0), dist(p1, p2)).
-                    //
-                    // The following takes the square to elide the square root of the Euclidean
-                    // distance.
-                    if f64::max((p1 - p0).hypot2(), (p1 - p2).hypot2()) <= 4. * TOL_2 {
-                        callback.callback(PathEl::LineTo(p2));
-                    } else {
-                        let q = QuadBez::new(p0, p1, p2);
-                        let params = q.estimate_subdiv(sqrt_tol);
-                        let n = ((0.5 * params.val / sqrt_tol).ceil() as usize).max(1);
-                        let step = 1.0 / (n as f64);
-                        for i in 1..n {
-                            let u = (i as f64) * step;
-                            let t = q.determine_subdiv_t(&params, u);
-                            let p = q.eval(t);
-                            callback.callback(PathEl::LineTo(p));
-                        }
-                        callback.callback(PathEl::LineTo(p2));
+                debug_assert!(!closed, "Expected a `MoveTo` before a `QuadTo`");
+                let p0 = last_pt;
+                // An upper bound on the shortest distance of any point on the quadratic Bezier
+                // curve to the line segment [p0, p2] is 1/2 of the maximum of the
+                // endpoint-to-control-point distances.
+                //
+                // The derivation is similar to that for the cubic Bezier (see below). In
+                // short:
+                //
+                // q}(t) = B0(t) p0 + B1(t) p1 + B2(t) p2
+                // dist(q(t), [p0, p1]) <= B1(t) dist(p1, [p0, p1])
+                //                       = 2 (1-t)t dist(p1, [p0, p1]).
+                //
+                // The maximum occurs at t=1/2, hence
+                // max(dist(q(t), [p0, p1] <= 1/2 dist(p1, [p0, p1])).
+                //
+                // A cheap upper bound for dist(p1, [p0, p1]) is max(dist(p1, p0), dist(p1, p2)).
+                //
+                // The following takes the square to elide the square root of the Euclidean
+                // distance.
+                if f64::max((p1 - p0).hypot2(), (p1 - p2).hypot2()) <= 4. * TOL_2 {
+                    callback.callback(LinePathEl::LineTo(p2));
+                } else {
+                    let q = QuadBez::new(p0, p1, p2);
+                    let params = q.estimate_subdiv(sqrt_tol);
+                    let n = ((0.5 * params.val / sqrt_tol).ceil() as usize).max(1);
+                    let step = 1.0 / (n as f64);
+                    for i in 1..n {
+                        let u = (i as f64) * step;
+                        let t = q.determine_subdiv_t(&params, u);
+                        let p = q.eval(t);
+                        callback.callback(LinePathEl::LineTo(p));
                     }
+                    callback.callback(LinePathEl::LineTo(p2));
                 }
-                last_pt = Some(p2);
+                last_pt = p2;
             }
             PathEl::CurveTo(p1, p2, p3) => {
-                if let Some(p0) = last_pt {
-                    // An upper bound on the shortest distance of any point on the cubic Bezier
-                    // curve to the line segment [p0, p3] is 3/4 of the maximum of the
-                    // endpoint-to-control-point distances.
-                    //
-                    // With Bernstein weights Bi(t), we have
-                    // c(t) = B0(t) p0 + B1(t) p1 + B2(t) p2 + B3(t) p3
-                    // with t from 0 to 1 (inclusive).
-                    //
-                    // Through convexivity of the Euclidean distance function and the line segment,
-                    // we have
-                    // dist(c(t), [p0, p3]) <= B1(t) dist(p1, [p0, p3]) + B2(t) dist(p2, [p0, p3])
-                    //                      <= B1(t) ||p1-p0|| + B2(t) ||p2-p3||
-                    //                      <= (B1(t) + B2(t)) max(||p1-p0||, ||p2-p3|||)
-                    //                       = 3 ((1-t)t^2 + (1-t)^2t) max(||p1-p0||, ||p2-p3||).
-                    //
-                    // The inner polynomial has its maximum of 1/4 at t=1/2, hence
-                    // max(dist(c(t), [p0, p3])) <= 3/4 max(||p1-p0||, ||p2-p3||).
-                    //
-                    // The following takes the square to elide the square root of the Euclidean
-                    // distance.
-                    if f64::max((p0 - p1).hypot2(), (p3 - p2).hypot2()) <= 16. / 9. * TOL_2 {
-                        callback.callback(PathEl::LineTo(p3));
-                    } else {
-                        let c = CubicBez::new(p0, p1, p2, p3);
-                        let max = flatten_cubic_simd(simd, c, flatten_ctx, tolerance as f32);
+                debug_assert!(!closed, "Expected a `MoveTo` before a `CurveTo`");
+                let p0 = last_pt;
+                // An upper bound on the shortest distance of any point on the cubic Bezier
+                // curve to the line segment [p0, p3] is 3/4 of the maximum of the
+                // endpoint-to-control-point distances.
+                //
+                // With Bernstein weights Bi(t), we have
+                // c(t) = B0(t) p0 + B1(t) p1 + B2(t) p2 + B3(t) p3
+                // with t from 0 to 1 (inclusive).
+                //
+                // Through convexivity of the Euclidean distance function and the line segment,
+                // we have
+                // dist(c(t), [p0, p3]) <= B1(t) dist(p1, [p0, p3]) + B2(t) dist(p2, [p0, p3])
+                //                      <= B1(t) ||p1-p0|| + B2(t) ||p2-p3||
+                //                      <= (B1(t) + B2(t)) max(||p1-p0||, ||p2-p3|||)
+                //                       = 3 ((1-t)t^2 + (1-t)^2t) max(||p1-p0||, ||p2-p3||).
+                //
+                // The inner polynomial has its maximum of 1/4 at t=1/2, hence
+                // max(dist(c(t), [p0, p3])) <= 3/4 max(||p1-p0||, ||p2-p3||).
+                //
+                // The following takes the square to elide the square root of the Euclidean
+                // distance.
+                if f64::max((p0 - p1).hypot2(), (p3 - p2).hypot2()) <= 16. / 9. * TOL_2 {
+                    callback.callback(LinePathEl::LineTo(p3));
+                } else {
+                    let c = CubicBez::new(p0, p1, p2, p3);
+                    let max = flatten_cubic_simd(simd, c, flatten_ctx, tolerance as f32);
 
-                        for p in &flatten_ctx.flattened_cubics[1..max] {
-                            callback.callback(PathEl::LineTo(Point::new(p.x as f64, p.y as f64)));
-                        }
+                    for p in &flatten_ctx.flattened_cubics[1..max] {
+                        callback.callback(LinePathEl::LineTo(Point::new(p.x as f64, p.y as f64)));
                     }
                 }
-                last_pt = Some(p3);
+                last_pt = p3;
             }
             PathEl::ClosePath => {
-                last_pt = None;
-                callback.callback(PathEl::ClosePath);
+                closed = true;
+                if last_pt != start_pt {
+                    callback.callback(LinePathEl::LineTo(start_pt));
+                }
             }
         }
+    }
+
+    if !closed && last_pt != start_pt {
+        callback.callback(LinePathEl::LineTo(start_pt));
     }
 }
 
