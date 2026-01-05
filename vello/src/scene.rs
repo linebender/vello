@@ -226,36 +226,13 @@ impl Scene {
                 self.encoding.encode_shape(clip, true)
             }
             StyleRef::Stroke(stroke) => {
-                let encoded_stroke = self.encoding.encode_stroke_style(stroke);
-                if !encoded_stroke {
+                if stroke.width == 0. {
                     // If the stroke has zero width, encode a fill style and indicate no path was
                     // encoded.
                     self.encoding.encode_fill_style(Fill::NonZero);
                     false
                 } else {
-                    if stroke.dash_pattern.is_empty() {
-                        #[cfg(feature = "bump_estimate")]
-                        self.estimator
-                            .count_path(clip.path_elements(0.1), &t, Some(stroke));
-                        self.encoding.encode_shape(clip, false)
-                    } else {
-                        // TODO: We currently collect the output of the dash iterator because
-                        // `encode_path_elements` wants to consume the iterator. We want to avoid calling
-                        // `dash` twice when `bump_estimate` is enabled because it internally allocates.
-                        // Bump estimation will move to resolve time rather than scene construction time,
-                        // so we can revert this back to not collecting when that happens.
-                        let dashed = peniko::kurbo::dash(
-                            clip.path_elements(0.1),
-                            stroke.dash_offset,
-                            &stroke.dash_pattern,
-                        )
-                        .collect::<Vec<_>>();
-                        #[cfg(feature = "bump_estimate")]
-                        self.estimator
-                            .count_path(dashed.iter().copied(), &t, Some(stroke));
-                        self.encoding
-                            .encode_path_elements(dashed.into_iter(), false)
-                    }
+                    self.stroke_gpu_inner(stroke, clip)
                 }
             }
         };
@@ -401,35 +378,7 @@ impl Scene {
 
             let t = Transform::from_kurbo(&transform);
             self.encoding.encode_transform(t);
-            let encoded_stroke = self.encoding.encode_stroke_style(style);
-            debug_assert!(encoded_stroke, "Stroke width is non-zero");
-
-            // We currently don't support dashing on the GPU. If the style has a dash pattern, then
-            // we convert it into stroked paths on the CPU and encode those as individual draw
-            // objects.
-            let encode_result = if style.dash_pattern.is_empty() {
-                #[cfg(feature = "bump_estimate")]
-                self.estimator
-                    .count_path(shape.path_elements(SHAPE_TOLERANCE), &t, Some(style));
-                self.encoding.encode_shape(shape, false)
-            } else {
-                // TODO: We currently collect the output of the dash iterator because
-                // `encode_path_elements` wants to consume the iterator. We want to avoid calling
-                // `dash` twice when `bump_estimate` is enabled because it internally allocates.
-                // Bump estimation will move to resolve time rather than scene construction time,
-                // so we can revert this back to not collecting when that happens.
-                let dashed = peniko::kurbo::dash(
-                    shape.path_elements(SHAPE_TOLERANCE),
-                    style.dash_offset,
-                    &style.dash_pattern,
-                )
-                .collect::<Vec<_>>();
-                #[cfg(feature = "bump_estimate")]
-                self.estimator
-                    .count_path(dashed.iter().copied(), &t, Some(style));
-                self.encoding
-                    .encode_path_elements(dashed.into_iter(), false)
-            };
+            let encode_result = self.stroke_gpu_inner(style, shape);
             if encode_result {
                 if let Some(brush_transform) = brush_transform
                     && self
@@ -449,6 +398,50 @@ impl Scene {
             );
             self.fill(Fill::NonZero, transform, brush, brush_transform, &stroked);
         }
+    }
+
+    /// Encodes the stroke of a shape using the specified style. The stroke style must have
+    /// non-zero width.
+    ///
+    /// This handles encoding the stroke style and shape, including dashing, but not, e.g., the
+    /// shape transform. If applicable, that should be handled by the caller.
+    ///
+    /// Returns `true` if a non-zero number of segments were encoded.
+    fn stroke_gpu_inner(&mut self, style: &Stroke, shape: &impl Shape) -> bool {
+        // See the note about tolerances in `Self::stroke`.
+        const SHAPE_TOLERANCE: f64 = 0.01;
+
+        let encoded_stroke = self.encoding.encode_stroke_style(style);
+        debug_assert!(encoded_stroke, "Stroke width is non-zero");
+
+        // We currently don't support dashing on the GPU. If the style has a dash pattern, then
+        // we convert it into stroked paths on the CPU and encode those as individual draw
+        // objects.
+        let encode_result = if style.dash_pattern.is_empty() {
+            #[cfg(feature = "bump_estimate")]
+            self.estimator
+                .count_path(shape.path_elements(SHAPE_TOLERANCE), &t, Some(style));
+            self.encoding.encode_shape(shape, false)
+        } else {
+            // TODO: We currently collect the output of the dash iterator because
+            // `encode_path_elements` wants to consume the iterator. We want to avoid calling
+            // `dash` twice when `bump_estimate` is enabled because it internally allocates.
+            // Bump estimation will move to resolve time rather than scene construction time,
+            // so we can revert this back to not collecting when that happens.
+            let dashed = peniko::kurbo::dash(
+                shape.path_elements(SHAPE_TOLERANCE),
+                style.dash_offset,
+                &style.dash_pattern,
+            )
+            .collect::<Vec<_>>();
+            #[cfg(feature = "bump_estimate")]
+            self.estimator
+                .count_path(dashed.iter().copied(), &t, Some(style));
+            self.encoding
+                .encode_path_elements(dashed.into_iter(), false)
+        };
+
+        encode_result
     }
 
     /// Draws an image at its natural size with the given transform.
