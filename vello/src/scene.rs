@@ -244,7 +244,8 @@ impl Scene {
             {
                 use peniko::kurbo::PathEl;
                 let path = [PathEl::MoveTo(Point::ZERO), PathEl::LineTo(Point::ZERO)];
-                self.estimator.count_path(path.into_iter(), &t, None);
+                self.estimator
+                    .count_path(path.into_iter(), &Transform::IDENTITY, None);
             }
         }
         self.encoding.encode_begin_clip(parameters);
