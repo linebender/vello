@@ -50,11 +50,16 @@ kurbo = { workspace = true, optional = true, default-features = true }
 # We use android_logger on Android
 env_logger = "0.11.8"
 
-[target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android", target_env = "ohos")))'.dependencies]
 vello = { workspace = true, features = ["hot_reload"] }
 vello_shaders = { workspace = true, features = ["compile"] }
 notify-debouncer-full = "0.5.0"
 
+[target.'cfg(target_env = "ohos")'.dependencies]
+openharmony-ability = "0.3"
+openharmony-ability-derive = "0.3"
+napi-ohos = "1.1"
+napi-derive-ohos = "1.1"
 
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { workspace = true, features = ["android-native-activity"] }
