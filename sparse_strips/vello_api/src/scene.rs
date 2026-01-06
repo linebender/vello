@@ -78,6 +78,7 @@ pub struct BlurredRoundedRectBrush {
 #[derive(Debug)]
 // TODO: Reason about visibility; do we want a more limited "expose" operation
 // which lets you read all the fields?
+// This also applies to `PathSet`
 pub struct Scene {
     pub paths: PathSet,
     pub commands: Vec<RenderCommand>,

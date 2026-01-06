@@ -27,7 +27,24 @@ use peniko::{
 // For "scene-local" paths, you would then use a marker "local" path group id.
 pub struct PathId(pub u32);
 
+/// A collection of filled or stroked paths, each associated with an id.
+///
+/// As noted in the [module level documentation](crate::paths), this type is an implementation
+/// detail of [`Scene`](crate::Scene).
+/// As such, the fields are public, allowing implementations of Vello API to read the contained paths.
+///
+/// This representation of paths is not simply the path points (as in, for example, an svg "path" attribute).
+/// Instead, this also contains the attributes which describe the shape for which the
+/// path points provide the outline.
+/// That is, the elements of this type are either a filled shape, or a stroked path,
+/// without any brush information.
+/// Each `Scene` stores a sequence of these, with the associated brush, to create a 2d scene.
+///
+/// This separation is designed for a future path caching mechanism, where the rasterised geometry
+/// of a path can be computed once, then re-used with multiple brushed, to increase efficiency.
+/// Note however that this plan is not proven in the current version of Vello API.
 #[derive(Debug)]
+// The same "reason about visibility" comment applies as in `Scene`
 pub struct PathSet {
     // There are arguments for a "dynamic length" encoding here, as PathEl is sized for 6 f64s (plus a disciminant)
     // It depends somewhat on what proportion of the elements are a CurveTo
