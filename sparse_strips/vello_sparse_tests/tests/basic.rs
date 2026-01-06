@@ -439,8 +439,8 @@ fn stroke_scaled(ctx: &mut impl Renderer) {
 // Just so we can more closely observe changes in their size.
 // We have this test here instead of in `vello_common` because
 // the vello_common tests seemingly are not run for 32-bit in CI.
-#[vello_test(no_ref)]
-fn test_cmd_size(_: &mut impl Renderer) {
+#[test]
+fn test_cmd_size() {
     #[cfg(target_pointer_width = "64")]
     assert_eq!(
         size_of::<Cmd>(),
