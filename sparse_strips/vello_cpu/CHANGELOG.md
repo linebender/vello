@@ -20,7 +20,7 @@ This release has an [MSRV][] of 1.88.
 - The `RenderContext` now has a `set_blend_mode` (and a corresponding `blend_mode` 
   getter method) that can be used to support non-isolated blending ([#1159][] by [@LaurenzV])
 - The `RenderContext` now contains a `push_clip_path` and `pop_clip_path` method for performing non-isolated clipping ([#1203][] by [@LaurenzV])
-- Support for image filter effects: ([#1286][] by [@grebmeg][])
+- Experimental support for image filter effects: ([#1286][] by [@grebmeg][])
   - New filter API methods on `RenderContext`:
     - `set_filter_effect()` - Set a filter to be applied to subsequent drawing operations
     - `push_filter_layer()` - Create a new layer with a filter effect
@@ -30,8 +30,10 @@ This release has an [MSRV][] of 1.88.
     Uses an optimized decimated blur algorithm with automatic downsampling for performance.
   - Drop Shadow filter with customizable offset, blur radius, and shadow color.
   - Flood filter for solid color fills.
-  - Added a `set_mask` method to make it possible to mask rendered
-    paths without inducing layer isolation ([#1237][] by [@LaurenzV])
+- Added a `set_mask` method to make it possible to mask rendered
+  paths without inducing layer isolation ([#1237][] by [@LaurenzV])
+- Added support for conditionally disabling the u8 or f32 pipeline ([#1294][] by [@nicoburns])
+- Improve performance of rendering opaque images ([#1327][] by [@grebmeg])
 
 
 
@@ -75,11 +77,15 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 
 [@LaurenzV]: https://github.com/LaurenzV
 [@grebmeg]: https://github.com/grebmeg
+[@nicoburns]: https://github.com/nicoburns
 
 [#1159]: https://github.com/linebender/vello/pull/1159
 [#1203]: https://github.com/linebender/vello/pull/1203
 [#1237]: https://github.com/linebender/vello/pull/1237
 [#1286]: https://github.com/linebender/vello/pull/1286
+[#1294]: https://github.com/linebender/vello/pull/1294
+[#1327]: https://github.com/linebender/vello/pull/1327
+
 [Unreleased]: https://github.com/linebender/fearless_simd/compare/sparse-strips-v0.0.4...HEAD
 [0.0.4]: https://github.com/linebender/vello/compare/sparse-stips-v0.0.3...sparse-strips-v0.0.4
 [0.0.3]: https://github.com/linebender/vello/compare/sparse-stips-v0.0.2...sparse-strips-v0.0.3

@@ -386,6 +386,10 @@ impl RenderContext {
     }
 
     /// Push a filter layer that affects all subsequent drawing operations.
+    ///
+    /// WARNING: Note that filters are currently incomplete and experimental. In
+    /// particular, they will lead to a panic when used in combination with
+    /// multi-threaded rendering.
     pub fn push_filter_layer(&mut self, filter: Filter) {
         self.push_layer(None, None, None, None, Some(filter));
     }
