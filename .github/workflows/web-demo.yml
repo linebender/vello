@@ -27,7 +27,7 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           # If updating, also update in examples/with_winit/Cargo.toml
-          tool: wasm-bindgen@0.2.100
+          tool: wasm-bindgen@0.2.106
 
       - name: build (wasm)
         run: cargo build -p with_winit --bin with_winit_bin --release --target wasm32-unknown-unknown

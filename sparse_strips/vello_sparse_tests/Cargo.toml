@@ -31,8 +31,8 @@ skrifa = { workspace = true }
 smallvec = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen-test = "0.3.50"
-web-sys = { version = "0.3.77", features = [
+wasm-bindgen-test = "0.3.56"
+web-sys = { version = "0.3.83", features = [
     "HtmlCanvasElement",
     "WebGl2RenderingContext",
     "Document",
@@ -45,8 +45,8 @@ web-sys = { version = "0.3.77", features = [
     "Url",
     "Response",
 ] }
-wasm-bindgen = "0.2.100"
-wasm-bindgen-futures = "0.4.50"
+wasm-bindgen = "0.2.106"
+wasm-bindgen-futures = "0.4.56"
 # Required for introspecting the built WASM binary.
 wasmparser = "0.235.0"
 
