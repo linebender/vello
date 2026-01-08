@@ -8,4 +8,7 @@ mod compile;
 #[cfg(feature = "glsl")]
 mod types;
 
+#[cfg(feature = "glsl")]
+use naga_28 as naga;
+
 include!(concat!(env!("OUT_DIR"), "/compiled_shaders.rs"));

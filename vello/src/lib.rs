@@ -113,6 +113,13 @@ mod render;
 mod scene;
 mod shaders;
 
+#[cfg(feature = "wgpu_27")]
+pub use wgpu_27 as wgpu;
+#[cfg(feature = "wgpu_28")]
+pub use wgpu_28 as wgpu;
+#[cfg(all(feature = "wgpu_28", feature = "wgpu-profiler"))]
+use wgpu_profiler_28::{self as wgpu_profiler, GpuProfiler, GpuProfilerSettings};
+
 #[cfg(feature = "wgpu")]
 pub mod util;
 #[cfg(feature = "wgpu")]
@@ -140,8 +147,6 @@ pub use peniko::kurbo;
 
 #[cfg(feature = "wgpu")]
 use peniko::ImageData;
-#[cfg(feature = "wgpu")]
-pub use wgpu;
 
 pub use scene::{DrawGlyphs, Scene};
 pub use vello_encoding::{Glyph, NormalizedCoord};
@@ -162,8 +167,6 @@ use wgpu_engine::{ExternalResource, WgpuEngine};
 use std::{num::NonZeroUsize, sync::atomic::AtomicBool};
 #[cfg(feature = "wgpu")]
 use wgpu::{Device, Queue, TextureView};
-#[cfg(all(feature = "wgpu", feature = "wgpu-profiler"))]
-use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
 /// Represents the anti-aliasing method to use during a render pass.
 ///
@@ -592,13 +595,16 @@ impl Renderer {
     #[cfg(feature = "hot_reload")]
     #[doc(hidden)] // End-users of Vello should not have `hot_reload` enabled.
     pub async fn reload_shaders(&mut self, device: &Device) -> Result<(), Error> {
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut engine = WgpuEngine::new(self.options.use_cpu, self.options.pipeline_cache.clone());
         // We choose not to initialise these shaders in parallel, to ensure the error scope works correctly
         let shaders = shaders::full_shaders(device, &mut engine, &self.options)?;
         #[cfg(feature = "debug_layers")]
         let debug = debug::DebugRenderer::new(device, wgpu::TextureFormat::Rgba8Unorm, &mut engine);
-        let error = device.pop_error_scope().await;
+        // wgpu28
+        let error = error_scope.pop().await;
+        // wgpu27
+        // let error  = device.pop_error_scope().await;
         if let Some(error) = error {
             return Err(error.into());
         }

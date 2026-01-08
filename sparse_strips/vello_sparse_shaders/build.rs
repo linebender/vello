@@ -8,6 +8,9 @@ use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "glsl")]
+use naga_28 as naga;
+
 #[allow(warnings)]
 #[cfg(feature = "glsl")]
 #[path = "src/compile.rs"]

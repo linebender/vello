@@ -6,6 +6,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use peniko::ImageData;
 
+#[cfg(feature = "wgpu")]
+use crate::wgpu;
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ShaderId(pub usize);
 
