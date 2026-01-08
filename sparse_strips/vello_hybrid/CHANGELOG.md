@@ -8,10 +8,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 # Changelog
 
-The latest published vello_hybrid release is [0.0.4](#004---2025-10-17) which was released on 2025-10-17.
-You can find its changes [documented below](#004---2025-10-17).
+The latest published vello_hybrid release is [0.0.5](#005---2026-01-08) which was released on 2026-01-08.
+You can find its changes [documented below](#005---2026-01-08).
 
 ## [Unreleased]
+
+This release has an [MSRV][] of 1.88.
+
+## [0.0.5][] - 2026-01-08
 
 This release has an [MSRV][] of 1.88.
 
@@ -31,7 +35,8 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 
 [#1203]: https://github.com/linebender/vello/pull/1203
 
-[Unreleased]: https://github.com/linebender/fearless_simd/compare/sparse-strips-v0.0.4...HEAD
+[Unreleased]: https://github.com/linebender/fearless_simd/compare/sparse-strips-v0.0.5...HEAD
+[0.0.5]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.4...sparse-strips-v0.0.5
 [0.0.4]: https://github.com/linebender/vello/compare/ca6b1e4c7f5b0d95953c3b524f5d3952d5669c5a...sparse-strips-v0.0.4
 
 [MSRV]: README.md#minimum-supported-rust-version-msrv
