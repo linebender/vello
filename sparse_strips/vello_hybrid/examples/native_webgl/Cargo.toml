@@ -16,14 +16,14 @@ workspace = true
 [dependencies]
 console_error_panic_hook = { workspace = true }
 console_log = { workspace = true }
-js-sys = "0.3.77"
+js-sys = "0.3.83"
 log = { workspace = true }
 vello_common = { workspace = true }
 vello_hybrid = { workspace = true, features = ["webgl"] }
 vello_example_scenes = { workspace = true }
-wasm-bindgen = "0.2.100"
-wasm-bindgen-futures = "0.4.50"
-web-sys = { version = "0.3.77", features = [
+wasm-bindgen = "0.2.106"
+wasm-bindgen-futures = "0.4.56"
+web-sys = { version = "0.3.83", features = [
     "Window",
     "Document",
     "Element",
@@ -37,4 +37,4 @@ web-sys = { version = "0.3.77", features = [
 ] }
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3.50"
+wasm-bindgen-test = "0.3.56"
