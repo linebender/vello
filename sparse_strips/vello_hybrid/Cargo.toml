@@ -1,6 +1,6 @@
 [package]
 name = "vello_hybrid"
-version = "0.0.4"
+version = "0.0.5"
 description = "A hybrid CPU/GPU renderer for Vello, balancing computation between CPU and GPU for efficiency."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
