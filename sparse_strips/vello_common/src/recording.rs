@@ -445,6 +445,8 @@ impl<'a> Recorder<'a> {
     }
 
     /// Push a new filter layer.
+    ///
+    /// WARNING: Note that filters are currently incomplete and experimental.
     pub fn push_filter_layer(&mut self, filter: Filter) {
         self.push_layer(None, None, None, None, Some(filter));
     }
