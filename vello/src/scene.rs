@@ -210,47 +210,43 @@ impl Scene {
         transform: Affine,
         clip: &impl Shape,
     ) {
-        let t = Transform::from_kurbo(&transform);
-        self.encoding.encode_transform(t);
-        let (is_fill, stroke_for_estimate) = match clip_style {
+        // The logic for encoding the clip shape differs between fill and stroke style clips, but
+        // the logic is otherwise similar.
+        //
+        // `encoded_result` will be `true` if and only if a valid path has been encoded. If it is
+        // `false`, we will need to explicitly encode a valid empty path.
+        let encoded_result = match clip_style {
             StyleRef::Fill(fill) => {
+                let t = Transform::from_kurbo(&transform);
+                self.encoding.encode_transform(t);
                 self.encoding.encode_fill_style(fill);
-                (true, None)
+                #[cfg(feature = "bump_estimate")]
+                self.estimator.count_path(clip.path_elements(0.1), &t, None);
+                self.encoding.encode_shape(clip, true)
             }
             StyleRef::Stroke(stroke) => {
-                let encoded_stroke = self.encoding.encode_stroke_style(stroke);
-                (false, encoded_stroke.then_some(stroke))
+                if stroke.width == 0. {
+                    // If the stroke has zero width, encode a fill style and indicate no path was
+                    // encoded.
+                    self.encoding.encode_fill_style(Fill::NonZero);
+                    false
+                } else {
+                    self.stroke_gpu_inner(stroke, transform, clip)
+                }
             }
         };
-        if stroke_for_estimate.is_none() && matches!(clip_style, StyleRef::Stroke(_)) {
-            // If the stroke has zero width, encode a valid empty path. This suppresses
-            // all drawing until the layer is popped.
-            self.encoding.encode_fill_style(Fill::NonZero);
-            self.encoding.encode_empty_shape();
-            #[cfg(feature = "bump_estimate")]
-            {
-                use peniko::kurbo::PathEl;
-                let path = [PathEl::MoveTo(Point::ZERO), PathEl::LineTo(Point::ZERO)];
-                self.estimator.count_path(path.into_iter(), &t, None);
-            }
-            self.encoding.encode_begin_clip(parameters);
-            return;
-        }
 
-        if !self.encoding.encode_shape(clip, is_fill) {
-            // If the layer shape is invalid, encode a valid empty path. This suppresses
-            // all drawing until the layer is popped.
+        if !encoded_result {
+            // If the layer shape is invalid or a zero-width stroke, encode a valid empty path.
+            // This suppresses all drawing until the layer is popped.
             self.encoding.encode_empty_shape();
             #[cfg(feature = "bump_estimate")]
             {
                 use peniko::kurbo::PathEl;
                 let path = [PathEl::MoveTo(Point::ZERO), PathEl::LineTo(Point::ZERO)];
-                self.estimator.count_path(path.into_iter(), &t, None);
+                self.estimator
+                    .count_path(path.into_iter(), &Transform::IDENTITY, None);
             }
-        } else {
-            #[cfg(feature = "bump_estimate")]
-            self.estimator
-                .count_path(clip.path_elements(0.1), &t, stroke_for_estimate);
         }
         self.encoding.encode_begin_clip(parameters);
     }
@@ -379,38 +375,7 @@ impl Scene {
             if style.width == 0. {
                 return;
             }
-
-            let t = Transform::from_kurbo(&transform);
-            self.encoding.encode_transform(t);
-            let encoded_stroke = self.encoding.encode_stroke_style(style);
-            debug_assert!(encoded_stroke, "Stroke width is non-zero");
-
-            // We currently don't support dashing on the GPU. If the style has a dash pattern, then
-            // we convert it into stroked paths on the CPU and encode those as individual draw
-            // objects.
-            let encode_result = if style.dash_pattern.is_empty() {
-                #[cfg(feature = "bump_estimate")]
-                self.estimator
-                    .count_path(shape.path_elements(SHAPE_TOLERANCE), &t, Some(style));
-                self.encoding.encode_shape(shape, false)
-            } else {
-                // TODO: We currently collect the output of the dash iterator because
-                // `encode_path_elements` wants to consume the iterator. We want to avoid calling
-                // `dash` twice when `bump_estimate` is enabled because it internally allocates.
-                // Bump estimation will move to resolve time rather than scene construction time,
-                // so we can revert this back to not collecting when that happens.
-                let dashed = peniko::kurbo::dash(
-                    shape.path_elements(SHAPE_TOLERANCE),
-                    style.dash_offset,
-                    &style.dash_pattern,
-                )
-                .collect::<Vec<_>>();
-                #[cfg(feature = "bump_estimate")]
-                self.estimator
-                    .count_path(dashed.iter().copied(), &t, Some(style));
-                self.encoding
-                    .encode_path_elements(dashed.into_iter(), false)
-            };
+            let encode_result = self.stroke_gpu_inner(style, transform, shape);
             if encode_result {
                 if let Some(brush_transform) = brush_transform
                     && self
@@ -429,6 +394,52 @@ impl Scene {
                 STROKE_TOLERANCE,
             );
             self.fill(Fill::NonZero, transform, brush, brush_transform, &stroked);
+        }
+    }
+
+    /// Encodes the stroke of a shape using the specified style. The stroke style must have
+    /// non-zero width.
+    ///
+    /// This handles encoding the stroke style (including dashing), transform, and shape.
+    ///
+    /// Returns `true` if a non-zero number of segments were encoded.
+    fn stroke_gpu_inner(&mut self, style: &Stroke, transform: Affine, shape: &impl Shape) -> bool {
+        // See the note about tolerances in `Self::stroke`.
+        const SHAPE_TOLERANCE: f64 = 0.01;
+
+        let t = Transform::from_kurbo(&transform);
+        self.encoding.encode_transform(t);
+        let encoded_stroke = self.encoding.encode_stroke_style(style);
+        debug_assert!(encoded_stroke, "Stroke width is non-zero");
+
+        // We currently don't support dashing on the GPU. If the style has a dash pattern, then
+        // we convert it into stroked paths on the CPU and encode those as individual draw
+        // objects.
+        //
+        // Note both branches return a boolean indicating whether a non-zero number of segments
+        // were encoded.
+        if style.dash_pattern.is_empty() {
+            #[cfg(feature = "bump_estimate")]
+            self.estimator
+                .count_path(shape.path_elements(SHAPE_TOLERANCE), &t, Some(style));
+            self.encoding.encode_shape(shape, false)
+        } else {
+            // TODO: We currently collect the output of the dash iterator because
+            // `encode_path_elements` wants to consume the iterator. We want to avoid calling
+            // `dash` twice when `bump_estimate` is enabled because it internally allocates.
+            // Bump estimation will move to resolve time rather than scene construction time,
+            // so we can revert this back to not collecting when that happens.
+            let dashed = peniko::kurbo::dash(
+                shape.path_elements(SHAPE_TOLERANCE),
+                style.dash_offset,
+                &style.dash_pattern,
+            )
+            .collect::<Vec<_>>();
+            #[cfg(feature = "bump_estimate")]
+            self.estimator
+                .count_path(dashed.iter().copied(), &t, Some(style));
+            self.encoding
+                .encode_path_elements(dashed.into_iter(), false)
         }
     }
 

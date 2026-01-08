@@ -1673,6 +1673,46 @@ mod impls {
         );
         scene.pop_layer();
 
+        // Dashed stroke clip demo: clip to the stroked outline of a path.
+        let stroke_demo_rect = Rect::new(250.0, 460.0, 450.0, 660.0);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            palette::css::LIGHT_GREEN,
+            None,
+            &stroke_demo_rect,
+        );
+        let mut stroke_star = BezPath::new();
+        let center = Point::new(350.0, 560.0);
+        let outer_r = 85.0;
+        let start_angle = -std::f64::consts::FRAC_PI_2;
+        let pts: [Point; 5] = core::array::from_fn(|i| {
+            let a = start_angle + (i as f64) * (2.0 * std::f64::consts::PI / 5.0);
+            center + Vec2::new(a.cos() * outer_r, a.sin() * outer_r)
+        });
+        let order = [0_usize, 2, 4, 1, 3];
+        stroke_star.move_to(pts[order[0]]);
+        for &idx in &order[1..] {
+            stroke_star.line_to(pts[idx]);
+        }
+        stroke_star.close_path();
+        let mut stroke = Stroke::new(5.0);
+        stroke.dash_pattern = [10.].into_iter().collect();
+        stroke.join = Join::Round;
+        stroke.start_cap = Cap::Round;
+        stroke.end_cap = Cap::Round;
+        scene.push_clip_layer(&stroke, Affine::IDENTITY, &stroke_star);
+        let grad = Gradient::new_linear((250.0, 460.0), (450.0, 660.0))
+            .with_stops([palette::css::MAGENTA, palette::css::CYAN]);
+        scene.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            &grad,
+            None,
+            &stroke_demo_rect,
+        );
+        scene.pop_layer();
+
         let large_background_rect = Rect::new(-1000.0, -1000.0, 2000.0, 2000.0);
         let inside_clip_rect = Rect::new(11.0, 13.399999999999999, 59.0, 56.6);
         let outside_clip_rect = Rect::new(
