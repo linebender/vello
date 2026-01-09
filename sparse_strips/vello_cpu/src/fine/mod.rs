@@ -20,7 +20,7 @@ use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::layer_manager::LayerManager;
 use crate::peniko::{BlendMode, ImageQuality};
 use crate::region::Region;
-use crate::util::{BlendModeExt, EncodedImageExt};
+use crate::util::EncodedImageExt;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -650,7 +650,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     ) {
         let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
             [..TILE_HEIGHT_COMPONENTS * width];
-        let default_blend = blend_mode.is_default();
+        let default_blend = blend_mode == BlendMode::default();
 
         match fill {
             Paint::Solid(color) => {
@@ -849,7 +849,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
 
-        if blend_mode.is_default() {
+        if blend_mode == BlendMode::default() {
             T::alpha_composite_buffer(self.simd, target_buffer, source_buffer, None);
         } else {
             T::blend(

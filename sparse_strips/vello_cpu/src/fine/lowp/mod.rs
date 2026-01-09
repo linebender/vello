@@ -313,8 +313,7 @@ mod fill {
         simd.vectorize(
             #[inline(always)]
             || {
-                #[expect(deprecated, reason = "Provided by the user, need to handle correctly.")]
-                let default_mix = matches!(blend_mode.mix, Mix::Normal | Mix::Clip);
+                let default_mix = matches!(blend_mode.mix, Mix::Normal);
                 for (next_dest, next_src) in dest.chunks_exact_mut(32).zip(src) {
                     let bg_v = u8x32::from_slice(simd, next_dest);
                     let src_v = if default_mix {
@@ -413,8 +412,7 @@ mod alpha_fill {
         simd.vectorize(
             #[inline(always)]
             || {
-                #[expect(deprecated, reason = "Provided by the user, need to handle correctly.")]
-                let default_mix = matches!(blend_mode.mix, Mix::Normal | Mix::Clip);
+                let default_mix = matches!(blend_mode.mix, Mix::Normal);
 
                 for ((next_bg, next_mask), next_src) in
                     dest.chunks_exact_mut(32).zip(alphas).zip(src)

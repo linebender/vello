@@ -18,8 +18,12 @@ This release has an [MSRV][] of 1.88.
 ### Changed
 
 - Breaking change: wgpu has been updated to wgpu 27. ([#1280][] by [@theoparis][])  
+  This has been chosen to match the version used by the upcoming Bevy 0.18.
+  (Note that we do not guarantee that our latest release will always match Bevy's wgpu version.)
 - Breaking change: Allow setting `Scene` layer clip shape drawing style, adding even-odd filled path clipping and stroked path clipping to the various scene layer methods (`Scene::{push_layer, push_luminance_mask_layer, push_clip_layer}`). ([#1332][] by [@waywardmonkeys][], [#1342][] by [@tomcur][])  
   When pushing a layer, you should use `Fill::NonZero` as the clip draw style to achieve the same behavior as previous versions.
+- Breaking change: Updated Peniko to [v0.6.0](https://github.com/linebender/peniko/releases/tag/v0.6.0). ([#1349][] by [@DJMcNab][])
+  - This also updates Kurbo to [v0.13.0](https://github.com/linebender/kurbo/releases/tag/v0.13.0).
 
 ### Fixed
 
@@ -33,7 +37,7 @@ This release has an [MSRV][] of 1.86.
 ### Added
 
 - `register_texture`, a helper for using `wgpu` textures in a Vello `Renderer`. ([#1161][] by [@DJMcNab][])
-- `push_luminance_mask_layer`, content within which is used as a luminance mask. ([#1183][] by [@DJMcNab][]).  
+- `push_luminance_mask_layer`, content within which is used as a luminance mask. ([#1183][] by [@DJMcNab][])  
    This is a breaking change to Vello Encoding.
 - `push_clip_layer`, which replaces the previous `push_layer` using `Mix::Clip`, and has fewer footguns. ([#1192][] by [@DJMcNab][])  
   This is not a breaking change, as `Mix::Clip` is still supported (although it is deprecated).
@@ -387,6 +391,7 @@ This release has an [MSRV][] of 1.75.
 [#1323]: https://github.com/linebender/vello/pull/1323
 [#1332]: https://github.com/linebender/vello/pull/1332
 [#1342]: https://github.com/linebender/vello/pull/1342
+[#1349]: https://github.com/linebender/vello/pull/1349
 
 <!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
 [Unreleased]: https://github.com/linebender/vello/compare/v0.5.0...HEAD

@@ -1935,8 +1935,7 @@ mod impls {
             width: 2,
             height: 2,
             alpha_type: ImageAlphaType::Alpha,
-        }
-        .into();
+        };
 
         scene.draw_image(
             &image,

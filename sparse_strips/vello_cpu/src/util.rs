@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::peniko::{BlendMode, Compose, ImageQuality, Mix};
+use crate::peniko::ImageQuality;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32};
 use vello_common::math::FloatExt;
@@ -72,19 +72,6 @@ impl<S: Simd> NormalizedMulExt for u8x32<S> {
     fn normalized_mul(self, other: Self) -> Self {
         let divided = (self.simd.widen_u8x32(self) * other.simd.widen_u8x32(other)).div_255();
         self.simd.narrow_u16x32(divided)
-    }
-}
-
-pub(crate) trait BlendModeExt {
-    fn is_default(&self) -> bool;
-}
-
-impl BlendModeExt for BlendMode {
-    // peniko uses `Clip` instead of `Normal` as the default, hence this override.
-    // TODO: This default has changed, re-evaluate.
-    #[expect(deprecated, reason = "Provided by the user, need to handle correctly.")]
-    fn is_default(&self) -> bool {
-        matches!(self.mix, Mix::Normal | Mix::Clip) && self.compose == Compose::SrcOver
     }
 }
 
