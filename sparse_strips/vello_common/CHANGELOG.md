@@ -15,6 +15,11 @@ You can find its changes [documented below](#005---2026-01-08).
 
 This release has an [MSRV][] of 1.88.
 
+### Changed
+
+- Breaking change: Updated Peniko to [v0.6.0](https://github.com/linebender/peniko/releases/tag/v0.6.0). ([#1349][] by [@DJMcNab][])
+  - This also updates Kurbo to [v0.13.0](https://github.com/linebender/kurbo/releases/tag/v0.13.0).
+
 ## [0.0.5][] - 2026-01-08
 
 This release has an [MSRV][] of 1.88.
@@ -98,6 +103,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1237]: https://github.com/linebender/vello/pull/1237
 [#1203]: https://github.com/linebender/vello/pull/1203
 [#1159]: https://github.com/linebender/vello/pull/1159
+[#1349]: https://github.com/linebender/vello/pull/1349
 
 [Unreleased]: https://github.com/linebender/fearless_simd/compare/sparse-strips-v0.0.5...HEAD
 [0.0.5]: https://github.com/linebender/vello/compare/sparse-stips-v0.0.4...sparse-strips-v0.0.5
