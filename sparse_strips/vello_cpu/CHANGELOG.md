@@ -21,32 +21,28 @@ This release has an [MSRV][] of 1.88.
 
 ### Added
 
-- The `RenderContext` now has a `set_blend_mode` (and a corresponding `blend_mode` 
-  getter method) that can be used to support non-isolated blending ([#1159][] by [@LaurenzV])
-- The `RenderContext` now contains a `push_clip_path` and `pop_clip_path` method for performing non-isolated clipping ([#1203][] by [@LaurenzV])
+- The `RenderContext` now has a `set_blend_mode` (and a corresponding `blend_mode`  getter method) that can be used to support non-isolated blending. ([#1159][] by [@LaurenzV])
+- The `RenderContext` now contains a `push_clip_path` and `pop_clip_path` method for performing non-isolated clipping. ([#1203][] by [@LaurenzV])
 - Experimental support for image filter effects: ([#1286][] by [@grebmeg][])
   - New filter API methods on `RenderContext`:
-    - `set_filter_effect()` - Set a filter to be applied to subsequent drawing operations
-    - `push_filter_layer()` - Create a new layer with a filter effect
-  - `FilterEffect` trait providing both u8 and f32 precision variants for rendering 
-  across different backends.
+    - `set_filter_effect()` - Set a filter to be applied to subsequent drawing operations.
+    - `push_filter_layer()` - Create a new layer with a filter effect.
+  - `FilterEffect` trait providing both u8 and f32 precision variants for rendering across different backends.
   - Gaussian Blur filter with configurable standard deviation and edge modes (`None`, `Mirror`, `Wrap`, `Duplicate`).
     Uses an optimized decimated blur algorithm with automatic downsampling for performance.
   - Drop Shadow filter with customizable offset, blur radius, and shadow color.
   - Flood filter for solid color fills.
-- Added a `set_mask` method to make it possible to mask rendered
-  paths without inducing layer isolation ([#1237][] by [@LaurenzV])
-- Added support for conditionally disabling the u8 or f32 pipeline ([#1294][] by [@nicoburns])
-- Improve performance of rendering opaque images ([#1327][] by [@grebmeg])
-
-
+- Added a `set_mask` method to make it possible to mask rendered paths without inducing layer isolation. ([#1237][] by [@LaurenzV])
+- Added support for conditionally disabling the u8 or f32 pipeline. ([#1294][] by [@nicoburns])
+- Improve performance of rendering opaque images. ([#1327][] by [@grebmeg])
 
 ### Known Limitations
 
-- Filter effects currently support only single-primitive filters; filter graphs with multiple 
-  chained primitives are not yet supported.
-- Multithreaded rendering is not supported for filter effects; filters are only applied in 
-  single-threaded mode.
+- Filter effects currently support only single-primitive filters; filter graphs with multiple chained primitives are not yet supported.
+- Multithreaded rendering is not supported for filter effects; filters are only applied in single-threaded mode.
+
+See also the [vello_hybrid 0.0.5](../vello_hybrid/CHANGELOG.md#005---2026-01-08) and [vello_common 0.0.5](../vello_common/CHANGELOG.md#005---2026-01-08) releases.
+
 ## [0.0.4][] - 2025-10-17
 
 This release has an [MSRV][] of 1.86.

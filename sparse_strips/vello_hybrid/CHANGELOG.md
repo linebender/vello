@@ -21,7 +21,9 @@ This release has an [MSRV][] of 1.88.
 
 ### Added
 
-- The `Scene` now contains a `push_clip_path` and `pop_clip_path` method for performing non-isolated clipping ([#1203][] by [@LaurenzV])
+- The `Scene` now contains a `push_clip_path` and `pop_clip_path` method for performing non-isolated clipping. ([#1203][] by [@LaurenzV])
+
+See also the [vello_cpu 0.0.5](../vello_cpu/CHANGELOG.md#005---2026-01-08) and [vello_common 0.0.5](../vello_common/CHANGELOG.md#005---2026-01-08) releases.
 
 ## [0.0.4][] - 2025-10-17
 
