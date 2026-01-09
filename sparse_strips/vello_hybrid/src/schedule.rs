@@ -565,10 +565,6 @@ impl Scheduler {
     ///
     /// Returns `Some(command_idx)` if there is more work to be done. Returns `None` if the wide
     /// tile has been fully consumed.
-    #[expect(
-        deprecated,
-        reason = "Mix::Clip might be provided by the user, need to handle correctly."
-    )]
     fn do_tile<'a, R: RendererBackend>(
         &mut self,
         renderer: &mut R,
@@ -859,11 +855,6 @@ impl Scheduler {
                         );
                         let opacity_u8 = (tos.opacity * 255.0) as u8;
                         let mix_mode = mode.mix as u8;
-                        debug_assert_ne!(
-                            mode.mix,
-                            Mix::Clip,
-                            "Mix::Clip unsupported, instead use Mix::Normal."
-                        );
                         let compose_mode = mode.compose as u8;
 
                         let gpu_strip_builder = if depth <= 2 {

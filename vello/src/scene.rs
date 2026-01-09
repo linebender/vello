@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use peniko::{
     BlendMode, Blob, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose,
-    Extend, Fill, FontData, Gradient, ImageBrush, ImageBrushRef, ImageData, Mix, StyleRef,
+    Extend, Fill, FontData, Gradient, ImageBrush, ImageBrushRef, ImageData, StyleRef,
     color::{AlphaColor, DynamicColor, Srgb, palette},
     kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
 };
@@ -94,7 +94,6 @@ impl Scene {
     ///
     /// **However, the transforms are *not* saved or modified by the layer stack.**
     /// That is, the `transform` argument to this function only applies a transform to the `clip` shape.
-    #[expect(deprecated, reason = "Provided by the user, need to handle correctly.")]
     #[expect(
         single_use_lifetimes,
         reason = "False positive: https://github.com/rust-lang/rust/issues/129255"
@@ -109,12 +108,6 @@ impl Scene {
         clip: &impl Shape,
     ) {
         let blend = blend.into();
-        if blend.mix == Mix::Clip && alpha != 1.0 {
-            log::warn!(
-                "Clip mix mode used with semitransparent alpha.\
-                This is wrong, and you should be using `Mix::Normal` instead."
-            );
-        }
         self.push_layer_inner(
             DrawBeginClip::new(blend, alpha.clamp(0.0, 1.0)),
             clip_style.into(),

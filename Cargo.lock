@@ -1807,9 +1807,9 @@ dependencies = [
 
 [[package]]
 name = "kurbo"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce9729cc38c18d86123ab736fd2e7151763ba226ac2490ec092d1dd148825e32"
+checksum = "7564e90fe3c0d5771e1f0bc95322b21baaeaa0d9213fa6a0b61c99f8b17b3bfb"
 dependencies = [
  "arrayvec",
  "euclid",
@@ -2646,13 +2646,13 @@ dependencies = [
 
 [[package]]
 name = "peniko"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3c76095c9a636173600478e0373218c7b955335048c2bcd12dc6a79657649d8"
+checksum = "9a2b6aadb221872732e87d465213e9be5af2849b0e8cc5300a8ba98fffa2e00a"
 dependencies = [
  "bytemuck",
  "color",
- "kurbo 0.12.0",
+ "kurbo 0.13.0",
  "linebender_resource_handle",
  "smallvec",
 ]
@@ -3907,7 +3907,7 @@ dependencies = [
  "bytemuck",
  "futures-intrusive",
  "log",
- "peniko 0.5.0",
+ "peniko 0.6.0",
  "png 0.17.16",
  "skrifa 0.37.0",
  "static_assertions",
@@ -3923,7 +3923,7 @@ name = "vello_api"
 version = "0.6.0"
 dependencies = [
  "bytemuck",
- "peniko 0.5.0",
+ "peniko 0.6.0",
  "png 0.17.16",
 ]
 
@@ -3951,7 +3951,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "libm",
  "log",
- "peniko 0.5.0",
+ "peniko 0.6.0",
  "png 0.17.16",
  "roxmltree",
  "skrifa 0.37.0",
@@ -3997,7 +3997,7 @@ version = "0.6.0"
 dependencies = [
  "bytemuck",
  "guillotiere",
- "peniko 0.5.0",
+ "peniko 0.6.0",
  "skrifa 0.37.0",
  "smallvec",
 ]
@@ -5109,7 +5109,7 @@ dependencies = [
  "env_logger",
  "getrandom",
  "jni",
- "kurbo 0.12.0",
+ "kurbo 0.13.0",
  "log",
  "notify-debouncer-full",
  "pollster",
