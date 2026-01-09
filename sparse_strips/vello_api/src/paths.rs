@@ -16,8 +16,8 @@
 
 use alloc::vec::Vec;
 use peniko::{
-    Fill, Style,
-    kurbo::{PathEl, Shape, Stroke},
+    Style,
+    kurbo::{PathEl, Shape},
 };
 
 /// The id for a single path within a given [`PathSet`].
@@ -55,6 +55,9 @@ pub struct PathSet {
 }
 
 impl PathSet {
+    /// Create a new, empty path collection.
+    ///
+    /// This method doesn't allocate.
     pub fn new() -> Self {
         Self {
             elements: Vec::new(),
@@ -62,6 +65,9 @@ impl PathSet {
         }
     }
 
+    /// Clears the path set, removing all values.
+    ///
+    /// This does not free the underlying allocations.
     pub fn clear(&mut self) {
         self.elements.clear();
         self.meta.clear();
@@ -75,7 +81,13 @@ impl Default for PathSet {
 }
 
 impl PathSet {
-    pub fn prepare_fill(&mut self, fill_rule: Fill, shape: &impl Shape) -> PathId {
+    /// Prepare an outline for drawing as a shape with the given style.
+    ///
+    /// This returns the id of this path in this `PathSet`.
+    /// See the docs on [`append`](PathSet::append) for how this changes when path sets are combined.
+    ///
+    /// This method is generally only expected to be used by [`Scene`](crate::Scene).
+    pub fn prepare_shape(&mut self, shape: &impl Shape, style: impl Into<Style>) -> PathId {
         let start_index = self.elements.len();
         // TODO: We hard-code this tolerance to be 0.1, as every other call does so.
         // We should maybe change that at some point?
@@ -85,28 +97,19 @@ impl PathSet {
         let meta_index = self.meta.len();
         self.meta.push(PathMeta {
             start_index,
-            operation: Style::Fill(fill_rule),
+            operation: style.into(),
         });
 
         // TODO: Better error handling here?
         PathId(meta_index.try_into().unwrap())
     }
 
-    // TODO: Maybe require stroke expansion happen *prior* to this stage?
-    pub fn prepare_stroke(&mut self, stroke_rule: Stroke, shape: &impl Shape) -> PathId {
-        let start_index = self.elements.len();
-        // TODO: Perform dash expansion now, even if not stroke expansion?
-        // See https://xi.zulipchat.com/#narrow/channel/260979-kurbo/topic/Removing.20dash_pattern.20from.20Stroke/with/561141820
-        self.elements.extend(shape.path_elements(0.1));
-        let meta_index = self.meta.len();
-        self.meta.push(PathMeta {
-            start_index,
-            operation: Style::Stroke(stroke_rule),
-        });
-
-        PathId(meta_index.try_into().unwrap())
-    }
-
+    /// Append the shapes in `other` to this pathset.
+    ///
+    /// The return value should be added to the field of [`PathId`]s from `other`
+    /// for use in the combined pathset (i.e. the new value of `self`).
+    ///
+    /// This method is expected to be used to implement [`PaintScene::append`](crate::PaintScene::append).
     #[must_use]
     pub fn append(&mut self, other: &Self) -> u32 {
         let external_correction_factor = self.meta.len().try_into().unwrap();
@@ -121,12 +124,14 @@ impl PathSet {
     }
 }
 
+/// Metadata about a single path in a [`PathSet`].
 #[derive(Debug, Clone)]
 pub struct PathMeta {
     // Would u32 work here?
     /// The index in [`PathSet::elements`] from which this path's elements starts.
     ///
-    /// The path ends at the start of the next `PathMeta`, and so.
+    /// The path ends at the start of the next `PathMeta`, and so for the final path
+    /// the elements are the remaining elements.
     pub start_index: usize,
     /// How the path will be rendered.
     ///
@@ -137,7 +142,7 @@ pub struct PathMeta {
     ///
     /// There are arguments for splitting again, into "paths" and "styled paths" or similar, but
     /// that piles on complexity; and realistically how many people will use that?
-    /// Alternatively, if we made PathMeta store a range instead of a single index,
+    /// Alternatively, if we made `PathMeta` store a range instead of a single index,
     /// that makes reusing segments much easier.
     ///
     /// As stroke expansion is going to be happening on the CPU anyway,

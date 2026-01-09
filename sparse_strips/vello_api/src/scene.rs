@@ -70,7 +70,7 @@ pub struct BlurredRoundedRectBrush {
 
 /// A reusable sequence of drawing commands for renders to a specific [`Renderer`].
 ///
-///  # Hinting
+/// # Hinting
 ///
 /// TODO: Describe how a scene can be "hinted", i.e. the drawing operations know they will only be translated, and therefore can
 /// design to specific pixels.
@@ -227,7 +227,7 @@ impl PaintScene for Scene {
         fill_rule: peniko::Fill,
         path: impl peniko::kurbo::Shape,
     ) {
-        let idx = self.paths.prepare_fill(fill_rule, &path);
+        let idx = self.paths.prepare_shape(&path, fill_rule);
         self.commands.push(RenderCommand::DrawPath(transform, idx));
     }
     fn stroke_path(
@@ -236,7 +236,7 @@ impl PaintScene for Scene {
         stroke_params: &peniko::kurbo::Stroke,
         path: impl peniko::kurbo::Shape,
     ) {
-        let idx = self.paths.prepare_stroke(stroke_params.clone(), &path);
+        let idx = self.paths.prepare_shape(&path, stroke_params.clone());
         self.commands.push(RenderCommand::DrawPath(transform, idx));
     }
 
@@ -294,10 +294,10 @@ impl PaintScene for Scene {
         // mask: Option<Mask>,
     ) {
         let clip_idx = if let Some(clip_path) = clip_path {
-            Some(self.paths.prepare_fill(
-                // TODO?
-                peniko::Fill::NonZero,
+            Some(self.paths.prepare_shape(
                 &clip_path,
+                // TODO: Make this configurable for clip paths.
+                peniko::Fill::NonZero,
             ))
         } else {
             None

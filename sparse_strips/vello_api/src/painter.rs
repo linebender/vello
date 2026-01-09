@@ -20,7 +20,7 @@ use crate::scene::{OurBrush, Scene};
 /// - The brush, which describes what will be drawn by the following commands.
 ///   This can be a solid colour ([`set_solid_brush`]), a gradient, an image (both [`set_brush`]), or a blurred rounded rectangle ([`set_blurred_rounded_rect_brush`]).
 ///   The brush's coordinate system is currently relative to the drawn path's coordinate system.
-///   <!-- We might also want to allow this to be explicitly unset, in which case drawing will fail -->.
+///   <!-- We might also want to allow this to be explicitly unset, in which case drawing will fail. -->
 /// - The area over which this brush is to be drawn.
 ///   This can either be a filled path ([`fill_path`])
 /// - The layer stack, which allows for multiple 2d contexts to be blended together, with clipping.
