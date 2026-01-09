@@ -16,7 +16,7 @@
 
 use alloc::vec::Vec;
 use peniko::{
-    Fill,
+    Fill, Style,
     kurbo::{PathEl, Shape, Stroke},
 };
 
@@ -48,7 +48,9 @@ pub struct PathId(pub u32);
 pub struct PathSet {
     // There are arguments for a "dynamic length" encoding here, as PathEl is sized for 6 f64s (plus a disciminant)
     // It depends somewhat on what proportion of the elements are a CurveTo
+    /// The elements of the contained paths.
     pub elements: Vec<PathEl>,
+    /// The metadata about each path.
     pub meta: Vec<PathMeta>,
 }
 
@@ -83,7 +85,7 @@ impl PathSet {
         let meta_index = self.meta.len();
         self.meta.push(PathMeta {
             start_index,
-            operation: Operation::Fill(fill_rule),
+            operation: Style::Fill(fill_rule),
         });
 
         // TODO: Better error handling here?
@@ -99,7 +101,7 @@ impl PathSet {
         let meta_index = self.meta.len();
         self.meta.push(PathMeta {
             start_index,
-            operation: Operation::Stroke(stroke_rule),
+            operation: Style::Stroke(stroke_rule),
         });
 
         PathId(meta_index.try_into().unwrap())
@@ -119,31 +121,28 @@ impl PathSet {
     }
 }
 
-/// How a path will be rendered.
-///
-/// There are reasonable arguments for moving this away from the path set,
-/// to allow it to e.g. share the segments for filled and stroked versions of a path.
-///
-/// However, in the current draft, we make this a key property of the path.
-/// This would make future caching work easier (as `Stroke` is an extremely unwieldy type to key off).
-///
-/// There are arguments for splitting again, into "paths" and "styled paths" or similar, but
-/// that piles on complexity; and realistically how many people will use that?
-///
-/// Alternatively of course, as stroke expansion is going to be happening on the CPU anyway,
-/// we could expand strokes extremely eagerly/require the user to perform stroke expansion.
-///
-/// The reason not to is that it's potentially expensive (?), and so should be scheduled to a
-/// background thread.
-#[derive(Debug, Clone)]
-pub enum Operation {
-    Stroke(Stroke),
-    Fill(Fill),
-}
-
 #[derive(Debug, Clone)]
 pub struct PathMeta {
     // Would u32 work here?
+    /// The index in [`PathSet::elements`] from which this path's elements starts.
+    ///
+    /// The path ends at the start of the next `PathMeta`, and so.
     pub start_index: usize,
-    pub operation: Operation,
+    /// How the path will be rendered.
+    ///
+    /// There are reasonable arguments for moving this away from the path set,
+    /// to allow it to e.g. share the segments for filled and stroked versions of a path.
+    /// However, in the current draft, we make this a key property of the path.
+    /// This would make future caching work easier (as `Stroke` is an extremely unwieldy type to key off).
+    ///
+    /// There are arguments for splitting again, into "paths" and "styled paths" or similar, but
+    /// that piles on complexity; and realistically how many people will use that?
+    /// Alternatively, if we made PathMeta store a range instead of a single index,
+    /// that makes reusing segments much easier.
+    ///
+    /// As stroke expansion is going to be happening on the CPU anyway,
+    /// we could expand strokes extremely eagerly/require the user to perform stroke expansion.
+    /// The reason not to is that it's potentially expensive (?), and so should be scheduled to a
+    /// background thread.
+    pub operation: Style,
 }

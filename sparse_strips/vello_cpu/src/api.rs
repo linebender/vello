@@ -13,7 +13,7 @@ use core::ptr;
 use hashbrown::HashMap;
 use vello_api::{
     PaintScene, Renderer, Scene,
-    paths::Operation,
+    peniko::Style,
     scene::{RenderCommand, extract_integer_translation},
     sync::Lock,
     texture::{self, TextureHandle, TextureId, TextureUsages},
@@ -247,11 +247,11 @@ impl PaintScene for CPUScenePainter {
                     // Obviously, ideally we'd not be allocating here. This is forced by the current public API of Vello CPU.
                     let bezpath = BezPath::from_iter(segments.iter().cloned());
                     match &path.operation {
-                        Operation::Stroke(stroke) => {
+                        Style::Stroke(stroke) => {
                             self.render_context.set_stroke(stroke.clone());
                             self.render_context.stroke_path(&bezpath);
                         }
-                        Operation::Fill(fill) => {
+                        Style::Fill(fill) => {
                             self.render_context.set_fill_rule(*fill);
                             self.render_context.fill_path(&bezpath);
                         }

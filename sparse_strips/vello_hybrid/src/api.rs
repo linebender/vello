@@ -9,7 +9,7 @@ use core::ptr;
 use alloc::{sync::Arc, vec::Vec};
 use vello_api::{
     PaintScene, Renderer, Scene,
-    paths::Operation,
+    peniko::Style,
     scene::{RenderCommand, extract_integer_translation},
     texture::{TextureHandle, TextureId},
 };
@@ -83,11 +83,11 @@ impl PaintScene for HybridScenePainter {
                     // Obviously, ideally we'd not be allocating here. This is forced by the current public API of Vello CPU.
                     let bezpath = BezPath::from_iter(segments.iter().cloned());
                     match &path.operation {
-                        Operation::Stroke(stroke) => {
+                        Style::Stroke(stroke) => {
                             self.scene.set_stroke(stroke.clone());
                             self.scene.stroke_path(&bezpath);
                         }
-                        Operation::Fill(fill) => {
+                        Style::Fill(fill) => {
                             self.scene.set_fill_rule(*fill);
                             self.scene.fill_path(&bezpath);
                         }
