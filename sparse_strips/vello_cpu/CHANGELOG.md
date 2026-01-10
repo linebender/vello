@@ -15,6 +15,10 @@ You can find its changes [documented below](#005---2026-01-08).
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- Support for the "offset" filter has been added ([#1351] by [@waywardmonkeys])
+
 ### Changed
 
 - Breaking change: Updated Peniko to [v0.6.0](https://github.com/linebender/peniko/releases/tag/v0.6.0). ([#1349][] by [@DJMcNab][])
@@ -87,6 +91,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [@LaurenzV]: https://github.com/LaurenzV
 [@grebmeg]: https://github.com/grebmeg
 [@nicoburns]: https://github.com/nicoburns
+[@waywardmonkeys]: https://github.com/waywardmonkeys
 
 [#1159]: https://github.com/linebender/vello/pull/1159
 [#1203]: https://github.com/linebender/vello/pull/1203
@@ -95,6 +100,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1294]: https://github.com/linebender/vello/pull/1294
 [#1327]: https://github.com/linebender/vello/pull/1327
 [#1349]: https://github.com/linebender/vello/pull/1349
+[#1351]: https://github.com/linebender/vello/pull/1351
 
 [Unreleased]: https://github.com/linebender/fearless_simd/compare/sparse-strips-v0.0.5...HEAD
 [0.0.5]: https://github.com/linebender/vello/compare/sparse-stips-v0.0.4...sparse-strips-v0.0.5

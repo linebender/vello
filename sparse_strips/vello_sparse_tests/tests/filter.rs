@@ -7,10 +7,10 @@ use crate::util::circular_star;
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
-    PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET, WHITE,
+    BLACK, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET, WHITE,
 };
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
-use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape};
+use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::pixmap::Pixmap;
@@ -881,6 +881,43 @@ fn filter_drop_shadow_zero_offset(ctx: &mut impl Renderer) {
     ctx.push_filter_layer(filter);
     ctx.set_paint(ROYAL_BLUE);
     ctx.fill_path(&rect);
+    ctx.pop_layer();
+}
+
+/// Test offset filter primitive.
+///
+/// This shifts content within a filter layer and should not clip content to the original bounds.
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_offset(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset {
+        dx: 18.0,
+        dy: -12.0,
+    });
+    let star_path = circular_star(Point::new(50.0, 50.0), 7, 10.0, 22.0);
+
+    // Draw the unfiltered star as an outline at the original position.
+    ctx.set_paint(ROYAL_BLUE);
+    ctx.set_stroke(Stroke::new(1.5));
+    ctx.stroke_path(&star_path);
+
+    // Draw a marker rect at a known coordinate.
+    //
+    // This avoids trying to reason about pixel movement from an anti-aliased stroke edge.
+    let marker = Rect::new(49.0, 27.0, 53.0, 31.0);
+    ctx.set_paint(SEA_GREEN);
+    ctx.fill_rect(&marker);
+
+    // Draw the filtered (shifted) star as a stroke and fill, then draw the marker through the
+    // filter layer as well.
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(BLACK);
+    ctx.set_stroke(Stroke::new(1.5));
+    ctx.stroke_path(&star_path);
+    ctx.set_paint(TOMATO);
+    ctx.fill_path(&star_path);
+    // With (dx, dy) = (18, -12) this should land at (67, 15).
+    ctx.set_paint(VIOLET);
+    ctx.fill_rect(&marker);
     ctx.pop_layer();
 }
 
