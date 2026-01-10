@@ -21,13 +21,25 @@ pub struct Pixmap {
     height: u16,
     /// Buffer of the pixmap in RGBA8 format.
     buf: Vec<PremulRgba8>,
+    /// Whether the pixmap may have non-opaque pixels.
+    ///
+    /// Note: This may become stale if pixels are modified via [`data_mut()`](Self::data_mut),
+    /// [`data_as_u8_slice_mut()`](Self::data_as_u8_slice_mut), or [`set_pixel()`](Self::set_pixel).
+    may_have_opacities: bool,
 }
 
 impl Pixmap {
     /// Create a new pixmap with the given width and height in pixels.
+    ///
+    /// All pixels are initialized to transparent black.
     pub fn new(width: u16, height: u16) -> Self {
         let buf = vec![PremulRgba8::from_u32(0); width as usize * height as usize];
-        Self { width, height, buf }
+        Self {
+            width,
+            height,
+            buf,
+            may_have_opacities: true,
+        }
     }
 
     /// Create a new pixmap with the given premultiplied RGBA8 data.
@@ -36,10 +48,35 @@ impl Pixmap {
     ///
     /// The pixels are in row-major order.
     ///
+    /// This assumes the image may have transparent pixels. Use
+    /// [`from_parts_with_opacity`](Self::from_parts_with_opacity) if you already
+    /// know the opacity status to enable optimizations.
+    ///
     /// # Panics
     ///
     /// Panics if the `data` vector is not of length `width * height`.
     pub fn from_parts(data: Vec<PremulRgba8>, width: u16, height: u16) -> Self {
+        Self::from_parts_with_opacity(data, width, height, true)
+    }
+
+    /// Create a new pixmap with the given premultiplied RGBA8 data and precomputed opacity flag.
+    ///
+    /// The `data` vector must be of length `width * height` exactly.
+    ///
+    /// The pixels are in row-major order.
+    ///
+    /// Use this when you've already determined whether the data contains
+    /// non-opaque pixels to avoid redundant scanning.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `data` vector is not of length `width * height`.
+    pub fn from_parts_with_opacity(
+        data: Vec<PremulRgba8>,
+        width: u16,
+        height: u16,
+        may_have_opacities: bool,
+    ) -> Self {
         assert_eq!(
             data.len(),
             usize::from(width) * usize::from(height),
@@ -49,6 +86,7 @@ impl Pixmap {
             width,
             height,
             buf: data,
+            may_have_opacities,
         }
     }
 
@@ -59,12 +97,14 @@ impl Pixmap {
     /// black. If the pixmap buffer is larger than required, the buffer is truncated and its
     /// reserved capacity is unchanged.
     pub fn resize(&mut self, width: u16, height: u16) {
+        let new_len = usize::from(width) * usize::from(height);
+        // If we're growing, new pixels are transparent black
+        if new_len > self.buf.len() {
+            self.may_have_opacities = true;
+        }
         self.width = width;
         self.height = height;
-        self.buf.resize(
-            usize::from(width) * usize::from(height),
-            PremulRgba8::from_u32(0),
-        );
+        self.buf.resize(new_len, PremulRgba8::from_u32(0));
     }
 
     /// Shrink the capacity of the pixmap buffer to fit the pixmap's current size.
@@ -90,6 +130,36 @@ impl Pixmap {
         self.height
     }
 
+    /// Returns whether the pixmap may have non-opaque pixels.
+    ///
+    /// This value is computed at construction time. It may become stale if pixels are
+    /// modified directly via [`data_mut()`](Self::data_mut),
+    /// [`data_as_u8_slice_mut()`](Self::data_as_u8_slice_mut), or [`set_pixel()`](Self::set_pixel).
+    ///
+    /// Use [`set_may_have_opacities()`](Self::set_may_have_opacities) to manually update the flag,
+    /// or [`recompute_may_have_opacities()`](Self::recompute_may_have_opacities) to recalculate it
+    /// by scanning all pixels.
+    pub fn may_have_opacities(&self) -> bool {
+        self.may_have_opacities
+    }
+
+    /// Manually set the `may_have_opacities` flag.
+    ///
+    /// Use this after modifying pixels via [`data_mut()`](Self::data_mut) or
+    /// [`set_pixel()`](Self::set_pixel) when you know whether the image has
+    /// non-opaque pixels.
+    pub fn set_may_have_opacities(&mut self, may_have_opacities: bool) {
+        self.may_have_opacities = may_have_opacities;
+    }
+
+    /// Recalculate `may_have_opacities` by scanning all pixels.
+    ///
+    /// Use this after modifying pixels via [`data_mut()`](Self::data_mut) or
+    /// [`set_pixel()`](Self::set_pixel) when you need accurate opacity information.
+    pub fn recompute_may_have_opacities(&mut self) {
+        self.may_have_opacities = self.buf.iter().any(|pixel| pixel.a != 255);
+    }
+
     /// Apply an alpha value to the whole pixmap.
     pub fn multiply_alpha(&mut self, alpha: u8) {
         #[expect(
@@ -105,6 +175,11 @@ impl Pixmap {
                 b: multiply(pixel.b),
                 a: multiply(pixel.a),
             };
+        }
+
+        // If we applied a non-opaque alpha, the image now has opacities
+        if alpha != 255 {
+            self.may_have_opacities = true;
         }
     }
 
@@ -177,17 +252,23 @@ impl Pixmap {
             }
         };
 
+        let mut may_have_opacities = false;
         for pixel in pixmap.data_mut() {
-            let alpha = u16::from(pixel.a);
+            let alpha = pixel.a;
+            if alpha != 255 {
+                may_have_opacities = true;
+            }
+            let alpha_u16 = u16::from(alpha);
             #[expect(
                 clippy::cast_possible_truncation,
                 reason = "Overflow should be impossible."
             )]
-            let premultiply = |e: u8| ((u16::from(e) * alpha) / 255) as u8;
+            let premultiply = |e: u8| ((u16::from(e) * alpha_u16) / 255) as u8;
             pixel.r = premultiply(pixel.r);
             pixel.g = premultiply(pixel.g);
             pixel.b = premultiply(pixel.b);
         }
+        pixmap.may_have_opacities = may_have_opacities;
 
         Ok(pixmap)
     }
