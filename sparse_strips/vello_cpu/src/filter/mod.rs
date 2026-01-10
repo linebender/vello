@@ -11,10 +11,13 @@
 mod drop_shadow;
 mod flood;
 mod gaussian_blur;
+mod offset;
+mod shift;
 
 pub(crate) use drop_shadow::DropShadow;
 pub(crate) use flood::Flood;
 pub(crate) use gaussian_blur::GaussianBlur;
+pub(crate) use offset::Offset;
 
 use crate::layer_manager::LayerManager;
 use vello_common::filter_effects::{Filter, FilterPrimitive};
@@ -96,6 +99,10 @@ pub(crate) fn filter_lowp(
                 DropShadow::new(scaled_dx, scaled_dy, scaled_std_dev, *edge_mode, *color);
             drop_shadow.execute_lowp(pixmap, layer_manager);
         }
+        FilterPrimitive::Offset { dx, dy } => {
+            let (scaled_dx, scaled_dy) = transform_offset_params(*dx, *dy, &transform);
+            Offset::new(scaled_dx, scaled_dy).execute_lowp(pixmap, layer_manager);
+        }
         _ => {
             // Other primitives like Blend, ColorMatrix, ComponentTransfer, etc.
             // are not yet implemented
@@ -155,12 +162,27 @@ pub(crate) fn filter_highp(
                 DropShadow::new(scaled_dx, scaled_dy, scaled_std_dev, *edge_mode, *color);
             drop_shadow.execute_highp(pixmap, layer_manager);
         }
+        FilterPrimitive::Offset { dx, dy } => {
+            let (scaled_dx, scaled_dy) = transform_offset_params(*dx, *dy, &transform);
+            Offset::new(scaled_dx, scaled_dy).execute_highp(pixmap, layer_manager);
+        }
         _ => {
             // Other primitives like Blend, ColorMatrix, ComponentTransfer, etc.
             // are not yet implemented
             unimplemented!("Other filter primitives not yet implemented");
         }
     }
+}
+
+/// Transform an offset's dx/dy using the affine transformation's linear part.
+///
+/// # Returns
+/// A tuple of (`scaled_dx`, `scaled_dy`) in device space.
+fn transform_offset_params(dx: f32, dy: f32, transform: &Affine) -> (f32, f32) {
+    let offset = Vec2::new(dx as f64, dy as f64);
+    let [a, b, c, d, _, _] = transform.as_coeffs();
+    let transformed_offset = Vec2::new(a * offset.x + c * offset.y, b * offset.x + d * offset.y);
+    (transformed_offset.x as f32, transformed_offset.y as f32)
 }
 
 /// Transform a drop shadow's offset and standard deviation using the affine transformation.

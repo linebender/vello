@@ -20,6 +20,7 @@
 //! - `Flood` - Solid color fill
 //! - `GaussianBlur` - Gaussian blur filter
 //! - `DropShadow` - Drop shadow effect (compound primitive)
+//! - `Offset` - Translation/shift (single primitive)
 //!
 //! **Note:** Currently only single primitive filters are supported. Filter graphs with
 //! multiple connected primitives are not yet implemented.
@@ -36,7 +37,6 @@
 //!
 //! **Filter Primitives:**
 //! - `ColorMatrix` - Matrix-based color transformation
-//! - `Offset` - Geometric offset/translation
 //! - `Composite` - Porter-Duff compositing operations
 //! - `Blend` - Blend mode operations
 //! - `Morphology` - Dilate/erode operations
@@ -569,6 +569,12 @@ impl FilterPrimitive {
                 let radius = (*std_deviation * 3.0) as f64;
                 Rect::new(-radius, -radius, radius, radius)
             }
+            Self::Offset { dx, dy } => {
+                // Offset shifts pixels; expand bounds asymmetrically so shifted content isn't cut.
+                let dx = *dx as f64;
+                let dy = *dy as f64;
+                Rect::new(dx.min(0.0), dy.min(0.0), dx.max(0.0), dy.max(0.0))
+            }
             Self::DropShadow {
                 std_deviation,
                 dx,
@@ -591,6 +597,22 @@ impl FilterPrimitive {
             // Most other filters don't expand bounds
             _ => Rect::ZERO,
         }
+    }
+}
+
+#[cfg(test)]
+mod offset_expansion_tests {
+    use super::FilterPrimitive;
+    use crate::kurbo::Rect;
+
+    #[test]
+    fn offset_expands_in_direction_of_shift() {
+        let p = FilterPrimitive::Offset { dx: 2.5, dy: -3.0 };
+        assert_eq!(
+            p.expansion_rect(),
+            Rect::new(0.0, -3.0, 2.5, 0.0),
+            "Offset expansion should be asymmetric and include the shift vector"
+        );
     }
 }
 
