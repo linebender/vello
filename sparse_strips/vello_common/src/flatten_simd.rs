@@ -55,6 +55,7 @@ pub(crate) fn flatten<S: Simd>(
     let mut start_pt = Point::ZERO;
     let mut last_pt = Point::ZERO;
 
+    #[inline(always)]
     fn dist2(line: crate::kurbo::Line, point: crate::kurbo::Point) -> f64 {
         let d = line.p1 - line.p0;
         let v = point - line.p0;
@@ -66,11 +67,14 @@ pub(crate) fn flatten<S: Simd>(
         let t = d.dot(v) / d.hypot2();
 
         // Clamp the parameter to be on the line segment. This results in `t==0` if `t==inf` above.
+        #[expect(
+            clippy::manual_clamp,
+            reason = "`t.max(0.).min(1.)` has slightly fewer instructions than `t.clamp(0., 1.)`"
+        )]
         let t = t.max(0.).min(1.);
 
         // Calculate ||p - s(t)||^2.
-        let distance_sq = (v - t * d).hypot2();
-        distance_sq
+        (v - t * d).hypot2()
     }
 
     for el in path {
