@@ -8,7 +8,7 @@
 use crate::flatten::TOL_2;
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
-use crate::kurbo::{CubicBez, Line, ParamCurve, PathEl, Point, QuadBez};
+use crate::kurbo::{CubicBez, Line, ParamCurve, ParamCurveNearest, PathEl, Point, QuadBez};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
@@ -55,28 +55,6 @@ pub(crate) fn flatten<S: Simd>(
     let mut start_pt = Point::ZERO;
     let mut last_pt = Point::ZERO;
 
-    #[inline(always)]
-    fn dist2(line: crate::kurbo::Line, point: crate::kurbo::Point) -> f64 {
-        let d = line.p1 - line.p0;
-        let v = point - line.p0;
-
-        // Calculate projection parameter `t` of the point onto s(t), with s(t) the line segment
-        // such that s(t) = (1-t) * p0 + t * p1.
-        //
-        // Note this will be inf when the segment has 0 length; see the clamping below.
-        let t = d.dot(v) / d.hypot2();
-
-        // Clamp the parameter to be on the line segment. This results in `t==0` if `t==inf` above.
-        #[expect(
-            clippy::manual_clamp,
-            reason = "`t.max(0.).min(1.)` has slightly fewer instructions than `t.clamp(0., 1.)`"
-        )]
-        let t = t.max(0.).min(1.);
-
-        // Calculate ||p - s(t)||^2.
-        (v - t * d).hypot2()
-    }
-
     for el in path {
         match el {
             PathEl::MoveTo(p) => {
@@ -113,7 +91,7 @@ pub(crate) fn flatten<S: Simd>(
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
                 let line = Line::new(p0, p2);
-                if dist2(line, p1) <= 4. * TOL_2 {
+                if line.nearest(p1, 0.).distance_sq <= 4. * TOL_2 {
                     callback.callback(LinePathEl::LineTo(p2));
                 } else {
                     let q = QuadBez::new(p0, p1, p2);
@@ -154,7 +132,11 @@ pub(crate) fn flatten<S: Simd>(
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
                 let line = Line::new(p0, p3);
-                if f64::max(dist2(line, p1), dist2(line, p2)) <= 16. / 9. * TOL_2 {
+                if f64::max(
+                    line.nearest(p1, 0.).distance_sq,
+                    line.nearest(p2, 0.).distance_sq,
+                ) <= 16. / 9. * TOL_2
+                {
                     callback.callback(LinePathEl::LineTo(p3));
                 } else {
                     let c = CubicBez::new(p0, p1, p2, p3);
