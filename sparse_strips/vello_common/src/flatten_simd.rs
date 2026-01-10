@@ -8,7 +8,7 @@
 use crate::flatten::TOL_2;
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
-use crate::kurbo::{CubicBez, ParamCurve, PathEl, Point, QuadBez};
+use crate::kurbo::{CubicBez, Line, ParamCurve, ParamCurveNearest, PathEl, Point, QuadBez};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
@@ -88,11 +88,10 @@ pub(crate) fn flatten<S: Simd>(
                 // The maximum occurs at t=1/2, hence
                 // max(dist(q(t), [p0, p1] <= 1/2 dist(p1, [p0, p1])).
                 //
-                // A cheap upper bound for dist(p1, [p0, p1]) is max(dist(p1, p0), dist(p1, p2)).
-                //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
-                if f64::max((p1 - p0).hypot2(), (p1 - p2).hypot2()) <= 4. * TOL_2 {
+                let line = Line::new(p0, p2);
+                if line.nearest(p1, 0.).distance_sq <= 4. * TOL_2 {
                     callback.callback(LinePathEl::LineTo(p2));
                 } else {
                     let q = QuadBez::new(p0, p1, p2);
@@ -132,7 +131,12 @@ pub(crate) fn flatten<S: Simd>(
                 //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
-                if f64::max((p0 - p1).hypot2(), (p3 - p2).hypot2()) <= 16. / 9. * TOL_2 {
+                let line = Line::new(p0, p3);
+                if f64::max(
+                    line.nearest(p1, 0.).distance_sq,
+                    line.nearest(p2, 0.).distance_sq,
+                ) <= 16. / 9. * TOL_2
+                {
                     callback.callback(LinePathEl::LineTo(p3));
                 } else {
                     let c = CubicBez::new(p0, p1, p2, p3);
