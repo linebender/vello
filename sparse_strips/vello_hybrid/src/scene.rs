@@ -19,7 +19,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
 use vello_common::render_graph::RenderGraph;
-use vello_common::strip::Strip;
+use vello_common::strip::{PreMergeTile, Strip};
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
 use crate::AtlasConfig;
@@ -555,8 +555,8 @@ impl Recordable for Scene {
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        let (cached_strips, cached_alphas) = recording.get_cached_strips();
-        let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
+        let (cached_strips, cached_alphas, cached_pmts) = recording.get_cached_strips();
+        let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas, cached_pmts);
 
         // Use pre-calculated strip start indices from when we generated the cache
         let strip_start_indices = recording.get_strip_start_indices();
@@ -780,11 +780,14 @@ impl Scene {
         &mut self,
         cached_strips: &[Strip],
         cached_alphas: &[u8],
+        cached_pmts: &[PreMergeTile],
     ) -> Vec<Strip> {
         // Calculate offset for alpha indices based on current buffer size.
         let alpha_offset = self.strip_storage.alphas.len() as u32;
         // Extend current alpha buffer with cached alphas.
         self.strip_storage.alphas.extend(cached_alphas);
+        self.strip_storage.pre_merge_tiles.extend(cached_pmts);
+
         // Create adjusted strips with corrected alpha indices
         cached_strips
             .iter()

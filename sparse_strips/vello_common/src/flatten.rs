@@ -6,6 +6,7 @@
 use crate::flatten_simd::{Callback, LinePathEl};
 use crate::kurbo::{self, Affine, PathEl, Stroke, StrokeCtx, StrokeOpts};
 use alloc::vec::Vec;
+use bytemuck::{Pod, Zeroable};
 use fearless_simd::{Level, Simd, dispatch};
 use log::warn;
 
@@ -16,7 +17,8 @@ const TOL: f64 = 0.25;
 pub(crate) const TOL_2: f64 = TOL * TOL;
 
 /// A point.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct Point {
     /// The x coordinate of the point.
     pub x: f32,
@@ -33,6 +35,15 @@ impl Point {
         Self { x, y }
     }
 }
+
+impl PartialEq for Point {
+    fn eq(&self, other: &Self) -> bool {
+        self.x.to_bits() == other.x.to_bits() &&
+        self.y.to_bits() == other.y.to_bits()
+    }
+}
+
+impl Eq for Point {}
 
 impl core::ops::Add for Point {
     type Output = Self;
@@ -59,7 +70,10 @@ impl core::ops::Mul<f32> for Point {
 }
 
 /// A line.
-#[derive(Clone, Copy, Debug)]
+// Added: #[repr(C)] ensures C-compatible layout.
+// Added: Pod, Zeroable. Note: This requires all fields (Point) to also be Pod.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct Line {
     /// The start point of the line.
     pub p0: Point,
@@ -73,6 +87,15 @@ impl Line {
         Self { p0, p1 }
     }
 }
+
+impl PartialEq for Line {
+    fn eq(&self, other: &Self) -> bool {
+        // Relies on Point's PartialEq implementation
+        self.p0 == other.p0 && self.p1 == other.p1
+    }
+}
+
+impl Eq for Line {}
 
 /// Flatten a filled bezier path into line segments.
 pub fn fill(

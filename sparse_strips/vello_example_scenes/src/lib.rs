@@ -387,6 +387,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
             ));
         }
     } else {
+        //scenes.push(AnyScene::new(path::TrickyStrokesScene::new()));
         scenes.push(AnyScene::new(svg::SvgScene::tiger()));
     }
 

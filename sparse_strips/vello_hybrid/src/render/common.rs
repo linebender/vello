@@ -44,6 +44,20 @@ pub struct Config {
     pub alphas_tex_width_bits: u32,
 }
 
+/// Configuration for the Merge and Stitch compute shaders
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct ComputeConfig {
+    /// PreMergeTileCount; 1:1 with tiles
+    pub pmt_count: u32,
+    /// The total number writing tiles. alpha_buffer.len() / (tile::WIDTH * tile::HEIGHT)
+    pub end_tile_count: u32,
+    /// Placeholder
+    pub workgroups: u32,
+    /// Placeholder
+    pub d: u32,
+}
+
 /// Represents a GPU strip for rendering.
 ///
 /// This struct corresponds to the `StripInstance` struct in the shader.
@@ -113,7 +127,7 @@ pub(crate) struct GpuEncodedImage {
     /// Packed rendering quality, extend modes, and atlas index.
     /// Bits 6-13: `atlas_index` (8 bits, supports up to 256 atlases)
     /// Bits 4-5: `extend_y` (2 bits)
-    /// Bits 2-3: `extend_x` (2 bits)  
+    /// Bits 2-3: `extend_x` (2 bits)
     /// Bits 0-1: `quality` (2 bits)
     pub image_params: u32,
     /// Packed image width and height.

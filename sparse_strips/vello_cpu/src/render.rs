@@ -832,80 +832,80 @@ impl Recordable for RenderContext {
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        let (cached_strips, cached_alphas) = recording.get_cached_strips();
-        let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
+        // let (cached_strips, cached_alphas) = recording.get_cached_strips();
+        // let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
 
-        // Use pre-calculated strip start indices from when we generated the cache.
-        let strip_start_indices = recording.get_strip_start_indices();
-        let mut range_index = 0;
+        // // Use pre-calculated strip start indices from when we generated the cache.
+        // let strip_start_indices = recording.get_strip_start_indices();
+        // let mut range_index = 0;
 
-        // Replay commands in order, using cached strips for geometry.
-        for command in recording.commands() {
-            match command {
-                RenderCommand::FillPath(_)
-                | RenderCommand::StrokePath(_)
-                | RenderCommand::FillRect(_)
-                | RenderCommand::StrokeRect(_) => {
-                    self.process_geometry_command(
-                        strip_start_indices,
-                        range_index,
-                        &adjusted_strips,
-                    );
-                    range_index += 1;
-                }
-                #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
-                    self.process_geometry_command(
-                        strip_start_indices,
-                        range_index,
-                        &adjusted_strips,
-                    );
-                    range_index += 1;
-                }
-                RenderCommand::SetPaint(paint) => {
-                    self.set_paint(paint.clone());
-                }
-                RenderCommand::SetPaintTransform(transform) => {
-                    self.set_paint_transform(*transform);
-                }
-                RenderCommand::ResetPaintTransform => {
-                    self.reset_paint_transform();
-                }
-                RenderCommand::SetTransform(transform) => {
-                    self.set_transform(*transform);
-                }
-                RenderCommand::SetFillRule(fill_rule) => {
-                    self.set_fill_rule(*fill_rule);
-                }
-                RenderCommand::SetStroke(stroke) => {
-                    self.set_stroke(stroke.clone());
-                }
-                RenderCommand::SetFilterEffect(filter) => {
-                    self.set_filter_effect(filter.clone());
-                }
-                RenderCommand::ResetFilterEffect => {
-                    self.reset_filter_effect();
-                }
-                RenderCommand::PushLayer(PushLayerCommand {
-                    clip_path,
-                    blend_mode,
-                    opacity,
-                    mask,
-                    filter,
-                }) => {
-                    self.push_layer(
-                        clip_path.as_ref(),
-                        *blend_mode,
-                        *opacity,
-                        mask.clone(),
-                        filter.clone(),
-                    );
-                }
-                RenderCommand::PopLayer => {
-                    self.pop_layer();
-                }
-            }
-        }
+        // // Replay commands in order, using cached strips for geometry.
+        // for command in recording.commands() {
+        //     match command {
+        //         RenderCommand::FillPath(_)
+        //         | RenderCommand::StrokePath(_)
+        //         | RenderCommand::FillRect(_)
+        //         | RenderCommand::StrokeRect(_) => {
+        //             self.process_geometry_command(
+        //                 strip_start_indices,
+        //                 range_index,
+        //                 &adjusted_strips,
+        //             );
+        //             range_index += 1;
+        //         }
+        //         #[cfg(feature = "text")]
+        //         RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
+        //             self.process_geometry_command(
+        //                 strip_start_indices,
+        //                 range_index,
+        //                 &adjusted_strips,
+        //             );
+        //             range_index += 1;
+        //         }
+        //         RenderCommand::SetPaint(paint) => {
+        //             self.set_paint(paint.clone());
+        //         }
+        //         RenderCommand::SetPaintTransform(transform) => {
+        //             self.set_paint_transform(*transform);
+        //         }
+        //         RenderCommand::ResetPaintTransform => {
+        //             self.reset_paint_transform();
+        //         }
+        //         RenderCommand::SetTransform(transform) => {
+        //             self.set_transform(*transform);
+        //         }
+        //         RenderCommand::SetFillRule(fill_rule) => {
+        //             self.set_fill_rule(*fill_rule);
+        //         }
+        //         RenderCommand::SetStroke(stroke) => {
+        //             self.set_stroke(stroke.clone());
+        //         }
+        //         RenderCommand::SetFilterEffect(filter) => {
+        //             self.set_filter_effect(filter.clone());
+        //         }
+        //         RenderCommand::ResetFilterEffect => {
+        //             self.reset_filter_effect();
+        //         }
+        //         RenderCommand::PushLayer(PushLayerCommand {
+        //             clip_path,
+        //             blend_mode,
+        //             opacity,
+        //             mask,
+        //             filter,
+        //         }) => {
+        //             self.push_layer(
+        //                 clip_path.as_ref(),
+        //                 *blend_mode,
+        //                 *opacity,
+        //                 mask.clone(),
+        //                 filter.clone(),
+        //             );
+        //         }
+        //         RenderCommand::PopLayer => {
+        //             self.pop_layer();
+        //         }
+        //     }
+        // }
     }
 }
 

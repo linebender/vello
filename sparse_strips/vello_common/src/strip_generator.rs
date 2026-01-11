@@ -8,7 +8,7 @@ use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::kurbo::{Affine, PathEl, Stroke};
 use crate::peniko::Fill;
-use crate::strip::Strip;
+use crate::strip::{Strip, PreMergeTile};
 use crate::tile::Tiles;
 use crate::{flatten, strip};
 use alloc::vec::Vec;
@@ -21,6 +21,8 @@ pub struct StripStorage {
     pub strips: Vec<Strip>,
     /// The alphas in the storage.
     pub alphas: Vec<u8>,
+    /// Asdasd
+    pub pre_merge_tiles: Vec<PreMergeTile>,
     generation_mode: GenerationMode,
 }
 
@@ -34,11 +36,38 @@ pub enum GenerationMode {
     Append,
 }
 
+const MASK_WIDTH: u32 = 64;
+const MASK_HEIGHT: u32 = 64;
+const PACKING_SCALE: f32 = 0.5;
+const PATTERN: [u8; 8] = [0, 5, 3, 7, 1, 4, 6, 2];
+
+const SUB_X: [f32; 8] = [
+    (PATTERN[0] as f32 + 0.5) * 0.125,
+    (PATTERN[1] as f32 + 0.5) * 0.125,
+    (PATTERN[2] as f32 + 0.5) * 0.125,
+    (PATTERN[3] as f32 + 0.5) * 0.125,
+    (PATTERN[4] as f32 + 0.5) * 0.125,
+    (PATTERN[5] as f32 + 0.5) * 0.125,
+    (PATTERN[6] as f32 + 0.5) * 0.125,
+    (PATTERN[7] as f32 + 0.5) * 0.125,
+];
+const SUB_Y: [f32; 8] = [
+    (0.0 + 0.5) * 0.125,
+    (1.0 + 0.5) * 0.125,
+    (2.0 + 0.5) * 0.125,
+    (3.0 + 0.5) * 0.125,
+    (4.0 + 0.5) * 0.125,
+    (5.0 + 0.5) * 0.125,
+    (6.0 + 0.5) * 0.125,
+    (7.0 + 0.5) * 0.125,
+];
+
 impl StripStorage {
     /// Reset the storage.
     pub fn clear(&mut self) {
         self.strips.clear();
         self.alphas.clear();
+        self.pre_merge_tiles.clear()
     }
 
     /// Set the generation mode of the storage.
@@ -69,9 +98,54 @@ pub struct StripGenerator {
     tiles: Tiles,
     width: u16,
     height: u16,
+    mask_lut: Vec<u8>
 }
 
 impl StripGenerator {
+    /// Internal helper to generate the half_plane lut
+    fn make_mask_lut_half_plane() -> Vec<u8> {
+        let mut lut = Vec::with_capacity((MASK_WIDTH * MASK_HEIGHT) as usize);
+
+        for j in 0..MASK_HEIGHT {
+            for i in 0..MASK_WIDTH {
+                let xf = (i as f32 + 0.5) / MASK_WIDTH as f32;
+                let yf = (j as f32 + 0.5) / MASK_HEIGHT as f32;
+
+                let n_rev = (2.0 * (xf - 0.5), 2.0 * (yf - 0.5));
+
+                let mut lg_rev = n_rev.0.hypot(n_rev.1);
+                if lg_rev < 1e-9 {
+                    lg_rev = 1e-9;
+                }
+
+                let n_lookup = (n_rev.0 / lg_rev, n_rev.1 / lg_rev);
+
+                let c_dist_unsigned = (1.0 - lg_rev).max(0.0) * (1.0 / PACKING_SCALE);
+
+                let mut n_canonical = n_lookup;
+                let mut c_signed_dist = c_dist_unsigned;
+
+                if n_lookup.0 < 0.0 {
+                    n_canonical.0 = -n_lookup.0;
+                    n_canonical.1 = -n_lookup.1;
+                    c_signed_dist = -c_dist_unsigned;
+                }
+
+                let c_plane = c_signed_dist + 0.5 * (n_canonical.0 + n_canonical.1);
+
+                let mut mask: u8 = 0;
+                for k in 0..8 {
+                    let p = (SUB_X[k], SUB_Y[k]);
+                    if n_canonical.0 * p.0 + n_canonical.1 * p.1 - c_plane > 0.0 {
+                        mask |= 1 << k;
+                    }
+                }
+                lut.push(mask);
+            }
+        }
+        lut
+    }
+
     /// Create a new strip generator.
     pub fn new(width: u16, height: u16, level: Level) -> Self {
         Self {
@@ -83,6 +157,7 @@ impl StripGenerator {
             temp_storage: StripStorage::default(),
             width,
             height,
+            mask_lut: Self::make_mask_lut_half_plane(),
         }
     }
 
@@ -141,7 +216,7 @@ impl StripGenerator {
         }
 
         self.tiles
-            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
+            .make_tiles_msaa(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
 
         if let Some(clip_path) = clip_path {
@@ -150,27 +225,28 @@ impl StripGenerator {
             strip::render(
                 self.level,
                 &self.tiles,
-                &mut self.temp_storage.strips,
-                &mut self.temp_storage.alphas,
+                &mut strip_storage.strips,
+                &mut strip_storage.pre_merge_tiles,
+                &mut strip_storage.alphas,
                 fill_rule,
-                aliasing_threshold,
                 &self.line_buf,
+                &self.mask_lut,
             );
-            let path_data = PathDataRef {
-                strips: &self.temp_storage.strips,
-                alphas: &self.temp_storage.alphas,
-            };
-
-            intersect(self.level, clip_path, path_data, strip_storage);
+            // let path_data = PathDataRef {
+            //     strips: &self.temp_storage.strips,
+            //     alphas: &self.temp_storage.alphas,
+            // };
+            // intersect(self.level, clip_path, path_data, strip_storage);
         } else {
             strip::render(
                 self.level,
                 &self.tiles,
                 &mut strip_storage.strips,
+                &mut strip_storage.pre_merge_tiles,
                 &mut strip_storage.alphas,
                 fill_rule,
-                aliasing_threshold,
                 &self.line_buf,
+                &self.mask_lut,
             );
         }
     }
