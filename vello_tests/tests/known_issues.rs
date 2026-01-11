@@ -14,6 +14,7 @@
 
 use vello::Scene;
 use vello::kurbo::{Affine, Rect, Triangle};
+use vello::peniko::InterpolationAlphaSpace;
 use vello::peniko::{Color, ColorStop, Gradient, ImageFormat, Mix, color::palette};
 use vello_tests::{TestParams, smoke_snapshot_test_sync, snapshot_test_sync};
 

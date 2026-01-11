@@ -13,7 +13,7 @@ use peniko::color::{DynamicColor, palette};
 use peniko::kurbo::{Shape, Stroke};
 use peniko::{
     BrushRef, ColorStop, Extend, Fill, GradientKind, ImageBrushRef, ImageSampler,
-    LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
+    InterpolationAlphaSpace, LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
 };
 
 /// Encoded data streams for a scene.
