@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use peniko::color::cache_key::CacheKey;
-use peniko::color::{AlphaColor, HueDirection, Srgb};
+use peniko::color::{HueDirection, Srgb};
 use peniko::{ColorStop, ColorStops, InterpolationAlphaSpace};
 
 const N_SAMPLES: usize = 512;
