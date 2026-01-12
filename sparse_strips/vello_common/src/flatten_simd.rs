@@ -75,8 +75,8 @@ pub(crate) fn flatten<S: Simd>(
                 debug_assert!(!closed, "Expected a `MoveTo` before a `QuadTo`");
                 let p0 = last_pt;
                 // An upper bound on the shortest distance of any point on the quadratic Bezier
-                // curve to the line segment [p0, p2] is 1/2 of the maximum of the
-                // endpoint-to-control-point distances.
+                // curve to the line segment [p0, p2] is 1/2 of the control-point-to-line-segment
+                // distance.
                 //
                 // The derivation is similar to that for the cubic Bezier (see below). In
                 // short:
@@ -113,7 +113,7 @@ pub(crate) fn flatten<S: Simd>(
                 let p0 = last_pt;
                 // An upper bound on the shortest distance of any point on the cubic Bezier
                 // curve to the line segment [p0, p3] is 3/4 of the maximum of the
-                // endpoint-to-control-point distances.
+                // control-point-to-line-segment distances.
                 //
                 // With Bernstein weights Bi(t), we have
                 // c(t) = B0(t) p0 + B1(t) p1 + B2(t) p2 + B3(t) p3
@@ -122,12 +122,11 @@ pub(crate) fn flatten<S: Simd>(
                 // Through convexivity of the Euclidean distance function and the line segment,
                 // we have
                 // dist(c(t), [p0, p3]) <= B1(t) dist(p1, [p0, p3]) + B2(t) dist(p2, [p0, p3])
-                //                      <= B1(t) ||p1-p0|| + B2(t) ||p2-p3||
-                //                      <= (B1(t) + B2(t)) max(||p1-p0||, ||p2-p3|||)
-                //                       = 3 ((1-t)t^2 + (1-t)^2t) max(||p1-p0||, ||p2-p3||).
+                //                      <= (B1(t) + B2(t)) max(dist(p1, [p0, p3]), dist(p2, [p0, p3]))
+                //                       = 3 ((1-t)t^2 + (1-t)^2t) max(dist(p1, [p0, p3]), dist(p2, [p0, p3])).
                 //
                 // The inner polynomial has its maximum of 1/4 at t=1/2, hence
-                // max(dist(c(t), [p0, p3])) <= 3/4 max(||p1-p0||, ||p2-p3||).
+                // max(dist(c(t), [p0, p3])) <= 3/4 max(dist(p1, [p0, p3]), dist(p2, [p0, p3])).
                 //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
