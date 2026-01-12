@@ -25,31 +25,29 @@ This release has an [MSRV][] of 1.88.
 This release has an [MSRV][] of 1.88.
 
 ### Added
-- A new module `clip` has been added allowing for the possibility
-  to intersect two strips to create a new strip representing their
-  intersection ([#1203][] by [@LaurenzV])
-- An `extend` method has been added to `StripStorage` to extends
-  its alphas/strips from another `StripStorage` ([#1203][] by [@LaurenzV])
-- Added a `from_parts` method for masks ([#1237][] by [@LaurenzV])
-- Add initial support for image filters ([#1286][] by [@grebmeg])
+
+- A new module `clip` has been added allowing for the possibility to intersect two strips to create a new strip representing their intersection. ([#1203][] by [@LaurenzV])
+- An `extend` method has been added to `StripStorage` to extends its alphas/strips from another `StripStorage`. ([#1203][] by [@LaurenzV])
+- Added a `from_parts` method for masks. ([#1237][] by [@LaurenzV])
+- Add initial support for image filters. ([#1286][] by [@grebmeg])
 
 ### Changed
-- `WideTile::generate` now takes an additional `BlendMode` as a parameter ([#1159][] by [@LaurenzV])
-- `CmdFill` and `CmdAlphaFill` now store a `BlendMode` instead of `Option<BlendMode>` ([#1159][] by [@LaurenzV])
-- `Strip` now implements `PartialEq` and `Eq` ([#1203][] by [@LaurenzV])
-- `Strip` now has a `is_sentinel` method ([#1203][] by [@LaurenzV])
-- `StripStorage` now implements `PartialEq` and `Eq` ([#1203][] by [@LaurenzV])
-- The `generate_filled_path` method of `StripGenerator` now takes
-  an optional clip path as input ([#1203][] by [@LaurenzV])
-- A new trait for approximate integer division by 255 has been added ([#1203][] by [@LaurenzV])
-- The `generate` method of `Wide` now takes an optional mask as an
-  additional argument ([#1237][] by [@LaurenzV])
-- `CmdFill` and `CmdAlphaFill` now store an optional mask ([#1237][] by [@LaurenzV])
-- Performance improvements for gradient rendering ([#1301][] by [@valadaptive])
-- Various changes to the logic for computing tile intersections and 
-  representation of tiles ([#1293][], [#1317][], [#1318][] by [@b0nes164])
-- Support for computing data necessary to implement multi-sampled anti-aliasing ([#1319][], by [@b0nes164])
-- Numerous performance and memory-efficiency improvements ([#1325][] by [@LaurenzV], [#1327][] by [@grebmeg], [#1336][] by [@tomcur], [#1338][] by [@taj-p])
+
+- `WideTile::generate` now takes an additional `BlendMode` as a parameter. ([#1159][] by [@LaurenzV])
+- `CmdFill` and `CmdAlphaFill` now store a `BlendMode` instead of `Option<BlendMode>`. ([#1159][] by [@LaurenzV])
+- `Strip` now implements `PartialEq` and `Eq`. ([#1203][] by [@LaurenzV])
+- `Strip` now has a `is_sentinel` method. ([#1203][] by [@LaurenzV])
+- `StripStorage` now implements `PartialEq` and `Eq`. ([#1203][] by [@LaurenzV])
+- The `generate_filled_path` method of `StripGenerator` now takes an optional clip path as input. ([#1203][] by [@LaurenzV])
+- A new trait for approximate integer division by 255 has been added. ([#1203][] by [@LaurenzV])
+- The `generate` method of `Wide` now takes an optional mask as an additional argument. ([#1237][] by [@LaurenzV])
+- `CmdFill` and `CmdAlphaFill` now store an optional mask. ([#1237][] by [@LaurenzV])
+- Performance improvements for gradient rendering. ([#1301][] by [@valadaptive])
+- Various changes to the logic for computing tile intersections and representation of tiles. ([#1293][], [#1317][], [#1318][] by [@b0nes164])
+- Support for computing data necessary to implement multi-sampled anti-aliasing. ([#1319][], by [@b0nes164])
+- Numerous performance and memory-efficiency improvements. ([#1325][] by [@LaurenzV], [#1327][] by [@grebmeg], [#1336][] by [@tomcur], [#1338][] by [@taj-p])
+
+See also the [vello_hybrid 0.0.5](../vello_hybrid/CHANGELOG.md#005---2026-01-08) and [vello_cpu 0.0.5](../vello_cpu/CHANGELOG.md#005---2026-01-08) releases.
 
 ## [0.0.4][] - 2025-10-17
 
