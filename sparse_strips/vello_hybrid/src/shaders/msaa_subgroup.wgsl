@@ -223,12 +223,8 @@ fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
             let candidate = select(vec2f(bound, calculated), vec2f(calculated, bound), use_h);
 
             p_local = select(p_start, candidate, hits_local != 0u);
-        }
-
-        {
-            let tile_size = vec2f(f32(TILE_WIDTH), f32(TILE_HEIGHT));
             p_local -= tile_min;
-            p_local = clamp(p_local, vec2f(0.0), tile_size);
+            p_local = clamp(p_local, vec2f(0.0), vec2f(f32(TILE_WIDTH), f32(TILE_HEIGHT)));
         }
 
         let p_peer = subgroupShuffleXor(p_local, 1u);
@@ -281,67 +277,173 @@ fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
             var p_bot = select(p_next, clipped_bot, row_idx == end_y - 1u);
 
             if row_idx >= start_y && row_idx < end_y {
-                let x_dir = clipped_top.x <= clipped_bot.x;
-                if p_top.y <= p_bot.y && p_top.y < (f32(row_idx) + 1.0) {
+                if p_top.y <= p_bot.y && p_top.y < (f32(row_idx) + 1.0) { // TODO this check redundant?
                     let y = row_idx;
+                    let py = f32(y);
+
                     let x_min = min(p_top.x, p_bot.x);
                     let x_max = max(p_top.x, p_bot.x);
-
                     let x_start = clamp(i32(floor(x_min)), 0, i32(TILE_WIDTH - 1));
                     let x_end   = clamp(i32(floor(x_max)), 0, i32(TILE_WIDTH - 1));
+                    let x_dir = clipped_top.x <= clipped_bot.x;
+
+                    let is_top_row = y == start_y;
+                    let is_bot_row = y == end_y - 1;
+                    let bot_not_left = p_bot.x != 0.0;
+                    let top_is_left = p_top.x == 0.0;
 
                     let pixel_top_touch = p_top.y == floor(p_top.y);
-                    let crossed_top = y > start_y || pixel_top_touch;
+                    let top_mask = 0xffu << u32(round(8.0 * (p_top.y - py)));
+                    let bot_mask = ~(0xffu << u32(round(8.0 * (p_bot.y - py))));
 
-                    for (var x = x_start; x < i32(TILE_WIDTH); x += 1i) {
-                        if x <= x_end {
-                            let px = f32(x);
-                            let py = f32(y);
+                    // TODO benchmark whether manually unrolling the loop is worth while
+                    // x_start OR x_end
+                    {
+                        let px = f32(x_start);
+                        var msaa_mask = get_msaa_mask(
+                            vec2f(p_top.x - px, p_top.y - py),
+                            vec2f(p_bot.x - px, p_bot.y - py));
 
-                            var msaa_mask = get_msaa_mask(
-                                vec2f(p_top.x - px, p_top.y - py),
-                                vec2f(p_bot.x - px, p_bot.y - py));
+                        let is_end = x_start == x_end;
+                        let canonical_start = x_dir || (!x_dir && is_end);
+                        let canonical_end   = (x_dir && is_end) || !x_dir;
+                        let line_top = canonical_start && is_top_row;
 
-                            let is_start = x == x_start;
-                            let is_end   = x == x_end;
-                            let canonical_start = (x_dir && is_start) || (!x_dir && is_end);
-                            let canonical_end   = (x_dir && is_end)   || (!x_dir && is_start);
-                            let line_top = canonical_start && y == start_y;
+                        let bumped = !pixel_top_touch &&
+                            ((line_top && top_is_left) || (!line_top && x_dir));
 
-                            let bumped = (line_top && p_top.x == 0.0 && !pixel_top_touch)
-                                || (!line_top && !pixel_top_touch && x_dir);
+                        if (line_top && !bumped) {
+                            msaa_mask &= top_mask;
+                        }
 
-                            if line_top && !bumped {
-                                let mask_shift = u32(round(8.0 * (p_top.y - py)));
-                                msaa_mask &= 0xffu << mask_shift;
-                            }
+                        if (canonical_end && is_bot_row && bot_not_left) {
+                            msaa_mask &= bot_mask;
+                        }
 
-                            if canonical_end && y == end_y - 1 && p_bot.x != 0.0 {
-                                let mask_shift = u32(round(8.0 * (p_bot.y - py)));
-                                msaa_mask &= ~(0xffu << mask_shift);
-                            }
+                        let mask_a = msaa_mask ^ (msaa_mask << 7u);
+                        let mask_b = mask_a ^ (mask_a << 14u);
+                        var exp_mask =
+                            vec2u(mask_b & 0x1010101u, mask_b >> 4 & 0x1010101u);
 
-                            let mask_a = msaa_mask ^ (msaa_mask << 7u);
-                            let mask_b = mask_a ^ (mask_a << 14u);
-                            var exp_mask =
-                                vec2u(mask_b & 0x1010101u, mask_b >> 4 & 0x1010101u);
+                        if bumped {
+                            exp_mask -= 0x1010101u;
+                        }
 
-                            if bumped {
-                                exp_mask -= 0x1010101u;
-                            }
-
-                            if canonical_y_dir {
-                                mask[x] += exp_mask;
-                            } else {
-                                mask[x] -= exp_mask;
-                            };
+                        if canonical_y_dir {
+                            mask[x_start] += exp_mask;
                         } else {
-                            if crossed_top {
-                                if canonical_y_dir {
-                                    mask[x] += 0x1010101u;
-                                } else {
-                                    mask[x] += 0xfefefeffu;
-                                }
+                            mask[x_start] -= exp_mask;
+                        };
+                    }
+
+                    for (var x = x_start + 1; x < x_end; x += 1i) {
+                        let px = f32(x);
+                        var msaa_mask = get_msaa_mask(
+                            vec2f(p_top.x - px, p_top.y - py),
+                            vec2f(p_bot.x - px, p_bot.y - py));
+                        let mask_a = msaa_mask ^ (msaa_mask << 7u);
+                        let mask_b = mask_a ^ (mask_a << 14u);
+                        var exp_mask =
+                            vec2u(mask_b & 0x1010101u, mask_b >> 4 & 0x1010101u);
+
+                        let bumped = !pixel_top_touch && x_dir;
+                        if bumped {
+                            exp_mask -= 0x1010101u;
+                        }
+
+                        if canonical_y_dir {
+                            mask[x] += exp_mask;
+                        } else {
+                            mask[x] -= exp_mask;
+                        };
+                    }
+
+                    // end, unambiguous
+                    if (x_start < x_end) {
+                        let px = f32(x_end);
+                        var msaa_mask = get_msaa_mask(
+                            vec2f(p_top.x - px, p_top.y - py),
+                            vec2f(p_bot.x - px, p_bot.y - py));
+
+                        let canonical_start = !x_dir;
+                        let canonical_end   = x_dir;
+                        let line_top = canonical_start && is_top_row;
+
+                        let bumped = !pixel_top_touch &&
+                            ((line_top && top_is_left) || (!line_top && x_dir));
+
+                        if (line_top && !bumped) {
+                            msaa_mask &= top_mask;
+                        }
+
+                        if (canonical_end && is_bot_row && bot_not_left) {
+                            msaa_mask &= bot_mask;
+                        }
+
+                        let mask_a = msaa_mask ^ (msaa_mask << 7u);
+                        let mask_b = mask_a ^ (mask_a << 14u);
+                        var exp_mask =
+                            vec2u(mask_b & 0x1010101u, mask_b >> 4 & 0x1010101u);
+
+                        if bumped {
+                            exp_mask -= 0x1010101u;
+                        }
+
+                        if canonical_y_dir {
+                            mask[x_end] += exp_mask;
+                        } else {
+                            mask[x_end] -= exp_mask;
+                        };
+                    }
+
+                    // for (var x = x_start; x <= x_end; x += 1i) {
+                    //     let px = f32(x);
+                    //     let py = f32(y);
+
+                    //     var msaa_mask = get_msaa_mask(
+                    //         vec2f(p_top.x - px, p_top.y - py),
+                    //         vec2f(p_bot.x - px, p_bot.y - py));
+
+                    //     let is_start = x == x_start;
+                    //     let is_end = x == x_end;
+                    //     let cannonical_start = (x_dir && is_start) || (!x_dir && is_end);
+                    //     let cannonical_end = (x_dir && is_end) || (!x_dir && is_start);
+                    //     let line_top = cannonical_start && is_top_row;
+
+                    //     let bumped = !pixel_top_touch &&
+                    //         ((line_top && top_is_left) || (!line_top && x_dir));
+
+                    //     if line_top && !bumped {
+                    //         msaa_mask &= top_mask;
+                    //     }
+
+                    //     if cannonical_end && is_bot_row && bot_not_left {
+                    //         msaa_mask &= bot_mask;
+                    //     }
+
+                    //     let mask_a = msaa_mask ^ (msaa_mask << 7u);
+                    //     let mask_b = mask_a ^ (mask_a << 14u);
+                    //     var exp_mask =
+                    //         vec2u(mask_b & 0x1010101u, mask_b >> 4 & 0x1010101u);
+
+                    //     if bumped {
+                    //         exp_mask -= 0x1010101u;
+                    //     }
+
+                    //     if canonical_y_dir {
+                    //         mask[x] += exp_mask;
+                    //     } else {
+                    //         mask[x] -= exp_mask;
+                    //     };
+                    // }
+
+
+                    if (y > start_y || pixel_top_touch) { // Crossed Top?
+                        for (var x = x_end + 1; x < i32(TILE_WIDTH); x += 1i) {
+                            if canonical_y_dir {
+                                mask[x] += 0x1010101u;
+                            } else {
+                                mask[x] += 0xfefefeffu;
                             }
                         }
                     }
@@ -407,8 +509,8 @@ fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
                 }
             }
         }
+        workgroupBarrier();
     }
-    workgroupBarrier();
 
     let tile_start_id = get_start_tile_idx(pmt.packed_scanned_winding);
     let is_valid = tile_start_id != INVALID_ID;
