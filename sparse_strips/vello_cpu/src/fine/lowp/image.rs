@@ -129,8 +129,6 @@ pub(crate) struct PlainBilinearImagePainter<'a, S: Simd> {
     fy: u16x16<S>,
     /// Pre-computed inverse y interpolation weight
     fy_inv: u16x16<S>,
-    /// Pre-computed rounding bias for integer division
-    round: u16x16<S>,
     /// Current x position
     cur_x_pos: f32x4<S>,
     /// X advance per iteration
@@ -174,10 +172,10 @@ impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
         // Pre-compute y interpolation weights
         let fy = f32_to_u8(element_wise_splat(
             simd,
-            fract_floor(y_positions + 0.5) * 256.0,
+            fract_floor(y_positions + 0.5).madd(255.0, 0.5),
         ));
         let fy = simd.widen_u8x16(fy);
-        let fy_inv = u16x16::splat(simd, 256) - fy;
+        let fy_inv = u16x16::splat(simd, 255) - fy;
 
         let cur_x_pos = f32x4::splat_pos(
             simd,
@@ -192,7 +190,6 @@ impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
             y_pos2,
             fy,
             fy_inv,
-            round: u16x16::splat(simd, 128),
             cur_x_pos,
             advance: image.x_advance.x as f32,
             simd,
@@ -227,10 +224,10 @@ impl<S: Simd> Iterator for PlainBilinearImagePainter<'_, S> {
         // Compute x interpolation weights
         let fx = f32_to_u8(element_wise_splat(
             self.simd,
-            fract_floor(x_plus_half) * 256.0,
+            fract_floor(x_plus_half).madd(255.0, 0.5),
         ));
         let fx = self.simd.widen_u8x16(fx);
-        let fx_inv = u16x16::splat(self.simd, 256) - fx;
+        let fx_inv = u16x16::splat(self.simd, 255) - fx;
 
         // Sample the 4 corners using pre-computed y positions
         let p00 = self
@@ -246,12 +243,12 @@ impl<S: Simd> Iterator for PlainBilinearImagePainter<'_, S> {
             .simd
             .widen_u8x16(sample(self.simd, &self.data, x_pos2, self.y_pos2));
 
-        // Bilinear interpolation with rounding
-        let ip1 = (p00 * fx_inv + p10 * fx + self.round) >> 8;
-        let ip2 = (p01 * fx_inv + p11 * fx + self.round) >> 8;
+        // Bilinear interpolation
+        let ip1 = (p00 * fx_inv + p10 * fx).div_255();
+        let ip2 = (p01 * fx_inv + p11 * fx).div_255();
         let res = self
             .simd
-            .narrow_u16x16((ip1 * self.fy_inv + ip2 * self.fy + self.round) >> 8);
+            .narrow_u16x16((ip1 * self.fy_inv + ip2 * self.fy).div_255());
 
         self.cur_x_pos += self.advance;
 
