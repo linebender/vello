@@ -153,10 +153,13 @@ fn get_msaa_mask(local_p0: vec2f, local_p1: vec2f) -> u32 {
 // 4096 at BLOCK_DIM = 256 and 16xMSAA
 var<workgroup> wg_scan: array<array<array<vec2<u32>, VEC2_COLS>, TILE_HEIGHT>, PART_SIZE>;
 
+//4 threads per pmt
 @compute @workgroup_size(BLOCK_DIM, 1, 1)
 fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
         @builtin(global_invocation_id) gid: vec3<u32>,
-        @builtin(workgroup_id) wgid: vec3<u32>)  {
+        @builtin(workgroup_id) wgid: vec3<u32>,
+        @builtin(subgroup_invocation_id) lane_id: u32,
+        @builtin(subgroup_size) sub_size : u32)  {
     var pmt: PreMergeTile;
     if ((gid.x >> 2) < config.pmt_count) {
         pmt = pmt_in[gid.x >> 2];
@@ -186,101 +189,55 @@ fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
 
     let right = select(p0.x, p1.x, canonical_x_dir);
     let right_in_viewport = right >= 0.0f;
-    //let right_in_viewport = false;
 
     var clipped_top = vec2f(0.0f, 0.0f);
     var clipped_bot = vec2f(0.0f, 0.0f);
     let intersection_data = get_intersection_data(pmt.packed_winding_line_idx);
     if (right_in_viewport) {
-        var p_entry = p0;
-        var p_exit = p1;
-
         let tile_min_x_u32 = get_tile_x(pmt.packed_xy) * TILE_WIDTH;
         let tile_min_y_u32 = get_tile_y(pmt.packed_xy) * TILE_HEIGHT;
         let tile_min = vec2f(f32(tile_min_x_u32), f32(tile_min_y_u32));
         let tile_max = vec2f(f32(tile_min_x_u32 + TILE_WIDTH),
-                                        f32(tile_min_y_u32 + TILE_HEIGHT));
+                             f32(tile_min_y_u32 + TILE_HEIGHT));
 
-        let x_canon = vec2<bool>(canonical_x_dir);
-        let v_masks = select(vec2u(INTERSECTS_RIGHT_MASK, INTERSECTS_LEFT_MASK),
-                                        vec2u(INTERSECTS_LEFT_MASK, INTERSECTS_RIGHT_MASK),
-                                        x_canon);
-        let v_bounds = select(vec2f(tile_max.x, tile_min.x),
-                                         vec2f(tile_min.x, tile_max.x),
-                                         x_canon);
-        let mask_v_in = v_masks.x;
-        let mask_v_out = v_masks.y;
-        let bound_v_in = v_bounds.x;
-        let bound_v_out = v_bounds.y;
+        let is_exit = (tid.x & 1u) == 1u;
+        let sel_x = is_exit == canonical_x_dir;
+        let sel_y = is_exit == canonical_y_dir;
 
-        let y_canon = vec2<bool>(canonical_y_dir);
-        let h_masks = select(
-            vec2u(INTERSECTS_BOTTOM_MASK, INTERSECTS_TOP_MASK),
-            vec2u(INTERSECTS_TOP_MASK, INTERSECTS_BOTTOM_MASK),
-            y_canon,
-        );
-        let h_bounds = select(
-            vec2f(tile_max.y, tile_min.y),
-            vec2f(tile_min.y, tile_max.y),
-            y_canon,
-        );
-        let mask_h_in = h_masks.x;
-        let mask_h_out = h_masks.y;
-        let bound_h_in = h_bounds.x;
-        let bound_h_out = h_bounds.y;
+        let mask_v  = select(INTERSECTS_LEFT_MASK, INTERSECTS_RIGHT_MASK, sel_x);
+        let bound_v = select(tile_min.x, tile_max.x, sel_x);
+        let mask_h  = select(INTERSECTS_TOP_MASK, INTERSECTS_BOTTOM_MASK, sel_y);
+        let bound_h = select(tile_min.y, tile_max.y, sel_y);
 
-        let entry_hits = intersection_data & (mask_v_in | mask_h_in);
+        let p_start = select(p0, p1, is_exit);
+        var p_local = p_start;
+        let hits_local = intersection_data & (mask_v | mask_h);
         {
-            let use_h = (intersection_data & mask_h_in) != 0u;
+            let use_h = (intersection_data & mask_h) != 0u;
+
             let p_oriented = select(p0.yx, p0.xy, use_h);
-            let bound = select(bound_v_in, bound_h_in, use_h);
-            let slope = select(dydx, dxdy, use_h);
+            let bound      = select(bound_v, bound_h, use_h);
+            let slope      = select(dydx, dxdy, use_h);
+
             let calculated = p_oriented.x + (bound - p_oriented.y) * slope;
             let candidate = select(vec2f(bound, calculated), vec2f(calculated, bound), use_h);
-            p_entry = select(p_entry, candidate, entry_hits != 0u);
+
+            p_local = select(p_start, candidate, hits_local != 0u);
         }
 
-        let exit_hits = intersection_data & (mask_v_out | mask_h_out);
         {
-            let use_h = (intersection_data & mask_h_out) != 0u;
-            let p_oriented = select(p0.yx, p0.xy, use_h);
-            let bound = select(bound_v_out, bound_h_out, use_h);
-            let slope = select(dydx, dxdy, use_h);
-            let calculated = p_oriented.x + (bound - p_oriented.y) * slope;
-            let candidate = select(vec2f(bound, calculated), vec2f(calculated, bound), use_h);
-            p_exit = select(p_exit, candidate, exit_hits != 0u);
+            let tile_size = vec2f(f32(TILE_WIDTH), f32(TILE_HEIGHT));
+            p_local -= tile_min;
+            p_local = clamp(p_local, vec2f(0.0), tile_size);
         }
 
-        // Actually redundant. The original intent was to cull empty tiles in the case where a
-        // line ends exactly on a corner, however this was overaggresively culling lines which
-        // intersected the corner and ends inside the tile. Also exit_hits ^ entry_hits should be
-        // countbits(exit_hits | entry_hits).
-        //
-        // Instead we skip culling, and allow the sliver tile to be handled by the regular code path.
-        //
-        // if ((intersection_data & PERFECT_MASK) != 0u && (exit_hits ^ entry_hits) != 0u) {
-        //     let entry_is_empty = entry_hits == 0u;
-
-        //     let target_val = select(p_exit, p_entry, entry_is_empty);
-        //     let out_of_bounds = any(target_val < tile_min) || any(target_val > tile_max);
-
-        //     p_entry = select(p_entry, p_exit, out_of_bounds && entry_is_empty);
-        //     p_exit = select(p_exit, p_entry, out_of_bounds && !entry_is_empty);
-        // }
-
+        let p_peer = subgroupShuffleXor(p_local, 1u);
+        let p_entry = select(p_local, p_peer, is_exit);
+        let p_exit  = select(p_peer, p_local, is_exit);
         {
             let exit_is_min = p_exit.y < p_entry.y;
             clipped_top = select(p_entry, p_exit, exit_is_min);
             clipped_bot = select(p_exit, p_entry, exit_is_min);
-
-            clipped_top -= tile_min;
-            clipped_bot -= tile_min;
-
-            let tile_size = vec2f(f32(TILE_WIDTH), f32(TILE_HEIGHT));
-            let zero_vec = vec2f(0.0);
-
-            clipped_top = clamp(clipped_top, zero_vec, tile_size);
-            clipped_bot = clamp(clipped_bot, zero_vec, tile_size);
         }
     }
 
@@ -313,30 +270,29 @@ fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
         let start_y_f32 = floor(clipped_top.y);
         if !is_horizontal || clipped_top.y != start_y_f32 {
             let start_y = u32(start_y_f32);
-            let end_y = u32(ceil(clipped_bot.y));
-            let x_dir = clipped_top.x <= clipped_bot.x;
-            let row = tid.x & 3;
-            if row >= start_y && row < end_y {
-                let row_top = f32(row);
-                let row_bot = f32(row + 1u);
-                let x_cross_top = clipped_top.x + (row_top - clipped_top.y) * dxdy;
-                let p_top = select(vec2f(x_cross_top, row_top),
-                                              clipped_top,
-                                              clipped_top.y >= row_top);
-                let x_cross_bot = clipped_top.x + (row_bot - clipped_top.y) * dxdy;
-                let p_bot = select(vec2f(x_cross_bot, row_bot),
-                                              clipped_bot,
-                                              clipped_bot.y <= row_bot);
-                if p_top.y <= p_bot.y && p_top.y < row_bot {
-                    let y = row;
+            let end_y   = u32(ceil(clipped_bot.y));
+            let row_idx = tid.x & 3u;
+            let row_y_f = f32(row_idx);
+
+            let x_cross = clipped_top.x + (row_y_f - clipped_top.y) * dxdy;
+            let p_cross   = vec2f(x_cross, row_y_f);
+            let p_next = subgroupShuffleDown(p_cross, 1u);
+            var p_top = select(p_cross, clipped_top, row_idx == start_y);
+            var p_bot = select(p_next, clipped_bot, row_idx == end_y - 1u);
+
+            if row_idx >= start_y && row_idx < end_y {
+                let x_dir = clipped_top.x <= clipped_bot.x;
+                if p_top.y <= p_bot.y && p_top.y < (f32(row_idx) + 1.0) {
+                    let y = row_idx;
                     let x_min = min(p_top.x, p_bot.x);
                     let x_max = max(p_top.x, p_bot.x);
 
                     let x_start = clamp(i32(floor(x_min)), 0, i32(TILE_WIDTH - 1));
-                    let x_end = clamp(i32(floor(x_max)), 0, i32(TILE_WIDTH - 1));
+                    let x_end   = clamp(i32(floor(x_max)), 0, i32(TILE_WIDTH - 1));
 
                     let pixel_top_touch = p_top.y == floor(p_top.y);
                     let crossed_top = y > start_y || pixel_top_touch;
+
                     for (var x = x_start; x < i32(TILE_WIDTH); x += 1i) {
                         if x <= x_end {
                             let px = f32(x);
@@ -347,10 +303,10 @@ fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
                                 vec2f(p_bot.x - px, p_bot.y - py));
 
                             let is_start = x == x_start;
-                            let is_end = x == x_end;
-                            let cannonical_start = (x_dir && is_start) || (!x_dir && is_end);
-                            let cannonical_end = (x_dir && is_end) || (!x_dir && is_start);
-                            let line_top = cannonical_start && y == start_y;
+                            let is_end   = x == x_end;
+                            let canonical_start = (x_dir && is_start) || (!x_dir && is_end);
+                            let canonical_end   = (x_dir && is_end)   || (!x_dir && is_start);
+                            let line_top = canonical_start && y == start_y;
 
                             let bumped = (line_top && p_top.x == 0.0 && !pixel_top_touch)
                                 || (!line_top && !pixel_top_touch && x_dir);
@@ -360,7 +316,7 @@ fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
                                 msaa_mask &= 0xffu << mask_shift;
                             }
 
-                            if cannonical_end && y == end_y - 1 && p_bot.x != 0.0 {
+                            if canonical_end && y == end_y - 1 && p_bot.x != 0.0 {
                                 let mask_shift = u32(round(8.0 * (p_bot.y - py)));
                                 msaa_mask &= ~(0xffu << mask_shift);
                             }
@@ -401,21 +357,54 @@ fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
         wg_scan[tile_index][row_index][col] = mask[col];
     }
 
-    // Scan
-    for (var i = 1u; i < PART_SIZE; i <<= 1u) {
+    //Scan
+    if (sub_size > 8 && sub_size < 128) {
         workgroupBarrier();
-        let ii = tile_index - i;
-        if (tile_index >= i) {
-            for (var col = 0u; col < TILE_WIDTH; col += 1u) {
-                let unbiased = wg_scan[ii][row_index][col] - vec2u(0x80808080u);
-                mask[col] += unbiased;
+
+        let subgroup_id = tid.x / sub_size;
+        let sub_count = BLOCK_DIM / sub_size;
+        let aligned_size = (PART_SIZE + sub_size - 1) / sub_size * sub_size;
+        for(var s = subgroup_id; s < TILE_HEIGHT * TILE_WIDTH; s += sub_count) {
+            let r = s >> 2u;
+            let c = s & 3u;
+            var prev = vec2u(0x80808080u);
+            for (var id = lane_id; id < aligned_size; id += sub_size) {
+                var m = select(vec2u(0x80808080u), wg_scan[id][r][c], id < PART_SIZE);
+                for (var i = 1u; i < sub_size ; i <<= 1) {
+                    let t = subgroupShuffleUp(m, i);
+                    if (lane_id >= i) {
+                        m += t - 0x80808080u;
+                    }
+                }
+                m += prev - vec2u(0x80808080u);
+                if (id < PART_SIZE) {
+                    wg_scan[id][r][c] = m;
+                }
+                prev = subgroupShuffle(m, sub_size - 1);
             }
         }
         workgroupBarrier();
 
-        if (tile_index >= i) {
-            for (var col = 0u; col < TILE_WIDTH; col += 1u) {
-                wg_scan[tile_index][row_index][col] = mask[col];
+        for (var col = 0u; col < TILE_WIDTH; col += 1u) {
+            mask[col] = wg_scan[tile_index][row_index][col];
+        }
+
+    } else {
+        for (var i = 1u; i < PART_SIZE; i <<= 1u) {
+            workgroupBarrier();
+            let ii = tile_index - i;
+            if (tile_index >= i) {
+                for (var col = 0u; col < TILE_WIDTH; col += 1u) {
+                    let unbiased = wg_scan[ii][row_index][col] - vec2u(0x80808080u);
+                    mask[col] += unbiased;
+                }
+            }
+            workgroupBarrier();
+
+            if (tile_index >= i) {
+                for (var col = 0u; col < TILE_WIDTH; col += 1u) {
+                    wg_scan[tile_index][row_index][col] = mask[col];
+                }
             }
         }
     }
@@ -432,13 +421,6 @@ fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
                 let unbiased = wg_scan[pred_id][row_index][col] - vec2u(0x80808080u);
                 mask[col] -= unbiased;
             }
-        }
-    }
-    workgroupBarrier();
-
-    if (is_end && is_valid && tile_start_id != 0) {
-        for (var col = 0u; col < TILE_WIDTH; col += 1u) {
-            wg_scan[tile_index][row_index][col] = mask[col];
         }
     }
     workgroupBarrier();
@@ -471,22 +453,20 @@ fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
                 part_red[wgid.x + config.workgroups][row_index][col] = mask[col];
             }
         }
-        if (is_valid && row_index == 0) {
+        if (is_valid) {
             var final_alphas = vec4u(0);
             if (right_in_viewport) {
                 for (var col = 0u; col < TILE_WIDTH; col += 1u) {
-                    var col_pixels: vec4<f32>;
-                    for (var y = 0u; y < TILE_HEIGHT; y += 1u) {
-                        let cov_mask = wg_scan[tile_index][y][col];
-                        let diff = cov_mask ^ vec2u(0x80808080u);
-                        let subbed = diff - 0x01010101u;
-                        let zeros = subbed & (~diff) & vec2u(0x80808080u);
-                        let actives = zeros ^ vec2u(0x80808080u);
-                        let counts = ((actives >> vec2u(7)) * 0x01010101u) >> vec2u(24);
-                        col_pixels[y] = f32(counts.x + counts.y) * 0.125;
-                    }
+                    let diff = mask[col] ^ vec2u(0x80808080u);
+                    let subbed = diff - 0x01010101u;
+                    let zeros = subbed & (~diff) & vec2u(0x80808080u);
+                    let actives = zeros ^ vec2u(0x80808080u);
+                    let counts = ((actives >> vec2u(7)) * 0x01010101u) >> vec2u(24);
+                    let row_pixels = f32(counts.x + counts.y) * 0.125;
 
-                    final_alphas[col] = pack4x8unorm(abs(col_pixels));
+                    let x = subgroupShuffleUp(row_pixels, 1u);
+                    let xy = subgroupShuffleUp(vec2f(x, row_pixels), 2u);
+                    final_alphas[col] = pack4x8unorm(abs(vec4f(xy, x, row_pixels)));
                 }
             }
 
@@ -496,34 +476,33 @@ fn msaa(@builtin(local_invocation_id) tid: vec3<u32>,
                 alpha_shifted % tex_width,
                 alpha_shifted / tex_width
             );
-            if (output_coords.y < tex_dims.y) {
+            if (output_coords.y < tex_dims.y && row_index == 3) {
                 textureStore(output, output_coords, final_alphas);
             }
         }
     }
 }
 
-// 1 thread per end_tile
-// TODO once subgroups, this should be 1 subgroup : tile
-@compute @workgroup_size(128, 1, 1)
+// 4 threads per end_tile
+@compute @workgroup_size(BLOCK_DIM, 1, 1)
 fn msaa_stitch(@builtin(local_invocation_id) tid: vec3<u32>,
                @builtin(global_invocation_id) gid: vec3<u32>,
                @builtin(workgroup_id) wgid: vec3<u32>)  {
-    if (gid.x >= config.workgroups) {
+    let row_index = tid.x & 3;
+    let tile_index = gid.x >> 2;
+    if (tile_index >= config.workgroups) {
         return;
     }
 
-    let alpha_index = part_indicator[gid.x + config.workgroups];
+    let alpha_index = part_indicator[tile_index + config.workgroups];
     if (alpha_index != 0u) {
-        var lookback_id = gid.x - 1;
-        var mask = part_red[gid.x + config.workgroups];
+        var lookback_id = tile_index - 1;
+        var mask = part_red[tile_index + config.workgroups][row_index];
         while (true) {
-            var prev = part_red[lookback_id];
-            for (var row = 0u; row < TILE_HEIGHT; row += 1u) {
-                for (var col = 0u; col < TILE_WIDTH; col += 1u) {
-                    let unbiased = prev[row][col] - vec2u(0x80808080u);
-                    mask[row][col] += unbiased;
-                }
+            var prev = part_red[lookback_id][row_index];
+            for (var col = 0u; col < TILE_WIDTH; col += 1u) {
+                let unbiased = prev[col] - vec2u(0x80808080u);
+                mask[col] += unbiased;
             }
 
             if (part_indicator[lookback_id] != 0u || lookback_id == 0u) {
@@ -535,24 +514,25 @@ fn msaa_stitch(@builtin(local_invocation_id) tid: vec3<u32>,
 
         var final_alphas = vec4u(0);
         for (var col = 0u; col < TILE_WIDTH; col += 1u) {
-            var col_pixels: vec4<f32>;
-            for (var y = 0u; y < TILE_HEIGHT; y += 1u) {
-                let diff = mask[y][col] ^ vec2u(0x80808080u);
-                let subbed = diff - 0x01010101u;
-                let zeros = subbed & (~diff) & vec2u(0x80808080u);
-                let actives = zeros ^ vec2u(0x80808080u);
-                let counts = ((actives >> vec2u(7)) * 0x01010101u) >> vec2u(24);
-                col_pixels[y] = f32(counts.x + counts.y) * 0.125;
-            }
-            final_alphas[col] = pack4x8unorm(abs(col_pixels));
+            let diff = mask[col] ^ vec2u(0x80808080u);
+            let subbed = diff - 0x01010101u;
+            let zeros = subbed & (~diff) & vec2u(0x80808080u);
+            let actives = zeros ^ vec2u(0x80808080u);
+            let counts = ((actives >> vec2u(7)) * 0x01010101u) >> vec2u(24);
+            let row_pixels = f32(counts.x + counts.y) * 0.125;
+
+            let x = subgroupShuffleUp(row_pixels, 1u);
+            let xy = subgroupShuffleUp(vec2f(x, row_pixels), 2u);
+            final_alphas[col] = pack4x8unorm(abs(vec4f(xy, x, row_pixels)));
         }
+
         let tex_dims = textureDimensions(output);
         let tex_width = tex_dims.x;
         let output_coords = vec2<u32>(
             alpha_index % tex_width,
             alpha_index / tex_width
         );
-        if (output_coords.y < tex_dims.y) {
+        if (output_coords.y < tex_dims.y && row_index == 3) {
             textureStore(output, output_coords, final_alphas);
         }
     }

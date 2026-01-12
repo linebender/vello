@@ -192,7 +192,7 @@ impl RenderContext {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
-                required_features: Features::empty(),
+                required_features: wgpu::Features::SUBGROUP,
                 required_limits: limits,
                 ..Default::default()
             })

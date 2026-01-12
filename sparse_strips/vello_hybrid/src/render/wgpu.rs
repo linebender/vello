@@ -176,7 +176,7 @@ impl Renderer {
         }
 
         {
-            let stitch_workgroups = (workgroups + 127) / 128;
+            let stitch_workgroups = (workgroups + PART_SIZE - 1) / PART_SIZE;
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("MSAA Stitch Pass"),
                 timestamp_writes: None,
@@ -776,7 +776,7 @@ impl Programs {
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::CLEAR_SLOTS.into()),
         });
 
-        let msaa_shader = device.create_shader_module(wgpu::include_wgsl!("../shaders/msaa.wgsl"));
+        let msaa_shader = device.create_shader_module(wgpu::include_wgsl!("../shaders/msaa_subgroup.wgsl"));
 
         let strip_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

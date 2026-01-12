@@ -839,17 +839,18 @@ fn gpu_non_zero(
                     p_exit = select(p_exit, candidate, exit_hits != 0);
                 }
 
+                // This is redundant, see shader comment.
                 // Perfect corner logic
-                if (intersection_data & PERFECT_MASK) != 0 && (exit_hits ^ entry_hits) != 0 {
-                    let entry_is_empty = entry_hits == 0;
+                // if (intersection_data & PERFECT_MASK) != 0 && (exit_hits ^ entry_hits) != 0 {
+                //     let entry_is_empty = entry_hits == 0;
 
-                    let target_val = select(p_exit, p_entry, entry_is_empty);
-                    let out_of_bounds =
-                        any(target_val.lt(tile_min)) || any(target_val.gt(tile_max));
+                //     let target_val = select(p_exit, p_entry, entry_is_empty);
+                //     let out_of_bounds =
+                //         any(target_val.lt(tile_min)) || any(target_val.gt(tile_max));
 
-                    p_entry = select(p_entry, p_exit, out_of_bounds && entry_is_empty);
-                    p_exit = select(p_exit, p_entry, out_of_bounds && !entry_is_empty);
-                }
+                //     p_entry = select(p_entry, p_exit, out_of_bounds && entry_is_empty);
+                //     p_exit = select(p_exit, p_entry, out_of_bounds && !entry_is_empty);
+                // }
 
                 {
                     let exit_is_min = p_exit.y < p_entry.y;
