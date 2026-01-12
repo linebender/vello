@@ -822,14 +822,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                 // Axis-aligned with filtering - use optimized plain painters
                                 if i.sampler.quality == ImageQuality::Medium {
                                     fill_complex_paint!(
-                                        i.has_opacities,
+                                        i.may_have_opacities,
                                         T::plain_medium_quality_image_painter(
                                             self.simd, i, pixmap, start_x, start_y
                                         )
                                     );
                                 } else {
                                     fill_complex_paint!(
-                                        i.has_opacities,
+                                        i.may_have_opacities,
                                         T::high_quality_image_painter(
                                             self.simd, i, pixmap, start_x, start_y
                                         )
