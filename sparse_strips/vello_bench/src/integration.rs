@@ -71,21 +71,27 @@ fn load_flower_image() -> ImageSource {
     let height = image.height();
     let rgba_data = image.into_rgba8().into_vec();
 
+    let mut may_have_opacities = false;
     #[expect(
         clippy::cast_possible_truncation,
         reason = "Image dimensions fit in u16"
     )]
-    let pixmap = Pixmap::from_parts(
+    let pixmap = Pixmap::from_parts_with_opacity(
         rgba_data
             .chunks_exact(4)
             .map(|rgba| {
-                AlphaColor::from_rgba8(rgba[0], rgba[1], rgba[2], rgba[3])
+                let alpha = rgba[3];
+                if alpha != 255 {
+                    may_have_opacities = true;
+                }
+                AlphaColor::from_rgba8(rgba[0], rgba[1], rgba[2], alpha)
                     .premultiply()
                     .to_rgba8()
             })
             .collect(),
         width as u16,
         height as u16,
+        may_have_opacities,
     );
 
     ImageSource::Pixmap(Arc::new(pixmap))

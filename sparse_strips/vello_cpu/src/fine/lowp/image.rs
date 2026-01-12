@@ -5,10 +5,10 @@ use crate::fine::PosExt;
 use crate::fine::common::image::{ImagePainterData, extend, sample};
 use crate::fine::macros::u8x16_painter;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x16};
+use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, u8x16, u16x16};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::element_wise_splat;
-use vello_common::util::f32_to_u8;
+use vello_common::util::{Div255Ext, f32_to_u8};
 
 /// A faster bilinear image renderer for the u8 pipeline.
 #[derive(Debug)]
@@ -78,17 +78,17 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
 
         let fx = f32_to_u8(element_wise_splat(
             self.simd,
-            fract(x_positions + 0.5) * 256.0,
+            fract(x_positions + 0.5).madd(255.0, 0.5),
         ));
         let fy = f32_to_u8(element_wise_splat(
             self.simd,
-            fract(y_positions + 0.5) * 256.0,
+            fract(y_positions + 0.5).madd(255.0, 0.5),
         ));
-        let fx_inv = self.simd.widen_u8x16(u8x16::splat(self.simd, 255) - fx);
-        let fy_inv = self.simd.widen_u8x16(u8x16::splat(self.simd, 255) - fy);
 
         let fx = self.simd.widen_u8x16(fx);
         let fy = self.simd.widen_u8x16(fy);
+        let fx_inv = u16x16::splat(self.simd, 255) - fx;
+        let fy_inv = u16x16::splat(self.simd, 255) - fy;
 
         let x_pos1 = extend_x(x_positions - 0.5);
         let x_pos2 = extend_x(x_positions + 0.5);
@@ -108,9 +108,9 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
             .simd
             .widen_u8x16(sample(self.simd, &self.data, x_pos2, y_pos2));
 
-        let ip1 = (p00 * fx_inv + p10 * fx) >> 8;
-        let ip2 = (p01 * fx_inv + p11 * fx) >> 8;
-        let res = self.simd.narrow_u16x16((ip1 * fy_inv + ip2 * fy) >> 8);
+        let ip1 = (p00 * fx_inv + p10 * fx).div_255();
+        let ip2 = (p01 * fx_inv + p11 * fx).div_255();
+        let res = self.simd.narrow_u16x16((ip1 * fy_inv + ip2 * fy).div_255());
 
         self.data.cur_pos += self.data.image.x_advance;
 

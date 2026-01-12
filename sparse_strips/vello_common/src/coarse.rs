@@ -528,7 +528,7 @@ impl<const MODE: u8> Wide<MODE> {
                         Paint::Solid(s) if s.is_opaque() => FillHint::OpaqueSolid(*s),
                         Paint::Indexed(idx) => {
                             if let Some(EncodedPaint::Image(img)) = encoded_paints.get(idx.index())
-                                && !img.has_opacities
+                                && !img.may_have_opacities
                                 && img.sampler.alpha == 1.0
                             {
                                 FillHint::OpaqueImage
