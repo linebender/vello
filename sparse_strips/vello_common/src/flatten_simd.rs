@@ -81,7 +81,7 @@ pub(crate) fn flatten<S: Simd>(
                 // The derivation is similar to that for the cubic Bezier (see below). In
                 // short:
                 //
-                // q}(t) = B0(t) p0 + B1(t) p1 + B2(t) p2
+                // q(t) = B0(t) p0 + B1(t) p1 + B2(t) p2
                 // dist(q(t), [p0, p1]) <= B1(t) dist(p1, [p0, p1])
                 //                       = 2 (1-t)t dist(p1, [p0, p1]).
                 //
