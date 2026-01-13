@@ -1,12 +1,15 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// After you edit the crate's doc comment, run this command, then check README.md for any missing links
+// cargo rdme --workspace-project=vello_cpu
+
 //! Vello CPU is a 2D graphics rendering engine written in Rust, for devices with no or underpowered GPUs.
 //!
 //! We also develop [Vello](https://crates.io/crates/vello), which makes use of the GPU for 2D rendering and has higher performance than Vello CPU.
 //! Vello CPU is being developed as part of work to address shortcomings in Vello.
 //!
-//! ## Usage
+//! # Usage
 //!
 //! To use Vello CPU, you need to:
 //!
@@ -57,18 +60,28 @@
 //! [examples](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
 //! to better understand how to interact with Vello CPU's API,
 //!
-//! ## Features
+//! # Features
 //!
 //! - `std` (enabled by default): Get floating point functions from the standard library
 //!   (likely using your target's libc).
-//! - `libm`: Use floating point implementations from `libm`.
+//! - `libm`: Use floating point implementations from [libm][].
 //! - `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images.
-//!   Also required for rendering glyphs with an embedded PNG.
-//! - `multithreading`: Enable multi-threaded rendering.
+//!   Also required for rendering glyphs with an embedded PNG. Implies `std`.
+//! - `multithreading`: Enable multi-threaded rendering. Implies `std`.
+//! - `text` (enabled by default): Enables glyph rendering ([`glyph_run`][RenderContext::glyph_run]).
+//! - `u8_pipeline` (enabled by default): Enable the u8 pipeline, for speed focused rendering using u8 math.
+//!   The `u8` pipeline will be used for [`OptimizeSpeed`][RenderMode::OptimizeSpeed], if both pipelines are enabled.
+//!   If you're using Vello CPU for application rendering, you should prefer this pipeline.
+//! - `f32_pipeline`: Enable the `f32` pipeline, which is slower but has more accurate
+//!   and consistent results. This is espectially usedful for rendering text snapshots.
+//!   The `f32` pipeline will be used for [`OptimizeQuality`][RenderMode::OptimizeQuality], if both pipelines are enabled.
 //!
 //! At least one of `std` and `libm` is required; `std` overrides `libm`.
+//! At least one of `u8_pipeline` and `f32_pipeline` must be enabled.
+//! You might choose to disable one of these pipelines if your application
+//! won't use it, so as to reduce binary size.
 //!
-//! ## Caveats
+//! # Caveats
 //!
 //! Overall, Vello CPU is already very feature-rich and should be ready for
 //! production use cases. The main caveat at the moment is that the API is
@@ -83,14 +96,14 @@
 //! (more than 4) might give diminishing returns, especially when
 //! making heavy use of layers and clip paths.
 //!
-//! ## Performance
+//! # Performance
 //!
 //! Performance benchmarks can be found [here](https://laurenzv.github.io/vello_chart/),
 //! As can be seen, Vello CPU achieves compelling performance on both,
 //! aarch64 and x86 platforms. We also have SIMD optimizations for WASM SIMD,
 //! meaning that you can expect good performance there as well.
 //!
-//! ## Implementation
+//! # Implementation
 //!
 //! If you want to gain a better understanding of Vello CPU and the
 //! sparse strips paradigm, you can take a look at the [accompanying
@@ -98,6 +111,8 @@
 //! that was written on the topic. Note that parts of the descriptions might
 //! become outdated as the implementation changes, but it should give a good
 //! overview nevertheless.
+#![cfg_attr(feature = "libm", doc = "[libm]: libm")]
+#![cfg_attr(not(feature = "libm"), doc = "[libm]: https://crates.io/crates/libm")]
 // LINEBENDER LINT SET - lib.rs - v3
 // See https://linebender.org/wiki/canonical-lints/
 // These lints shouldn't apply to examples or tests.
