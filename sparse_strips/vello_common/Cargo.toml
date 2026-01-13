@@ -17,7 +17,7 @@ default-target = "x86_64-unknown-linux-gnu"
 targets = []
 
 [dependencies]
-bytemuck = { workspace = true, features = [] }
+bytemuck = { workspace = true, features = ["derive"] }
 peniko = { workspace = true, features = ["bytemuck"] }
 fearless_simd = { workspace = true }
 hashbrown = { workspace = true, features = ["raw-entry"] }
