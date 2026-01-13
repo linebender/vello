@@ -31,7 +31,6 @@ See https://linebender.org/blog/doc-include/ for related discussion. -->
 [RenderMode::OptimizeQuality]: https://docs.rs/vello_cpu/latest/vello_cpu/enum.RenderMode.html#variant.OptimizeQuality
 [`RenderContext::render_to_pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.render_to_pixmap
 [`Pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.Pixmap.html
-[libm]: https://crates.io/crates/libm
 
 <!-- cargo-rdme start -->
 
@@ -142,6 +141,9 @@ master's thesis](https://ethz.ch/content/dam/ethz/special-interest/infk/inst-pls
 that was written on the topic. Note that parts of the descriptions might
 become outdated as the implementation changes, but it should give a good
 overview nevertheless.
+
+<!-- We can't directly link to the libm crate built locally, because our feature is only a pass-through  -->
+[libm]: https://crates.io/crates/libm
 
 <!-- cargo-rdme end -->
 

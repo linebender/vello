@@ -112,8 +112,8 @@
 //! become outdated as the implementation changes, but it should give a good
 //! overview nevertheless.
 //!
-#![cfg_attr(feature = "libm", doc = "[libm]: libm")]
-#![cfg_attr(not(feature = "libm"), doc = "[libm]: https://crates.io/crates/libm")]
+//! <!-- We can't directly link to the libm crate built locally, because our feature is only a pass-through  -->
+//! [libm]: https://crates.io/crates/libm
 // LINEBENDER LINT SET - lib.rs - v3
 // See https://linebender.org/wiki/canonical-lints/
 // These lints shouldn't apply to examples or tests.
