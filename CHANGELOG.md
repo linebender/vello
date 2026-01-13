@@ -8,14 +8,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 # Changelog
 
-The latest published Vello release is [0.7.0](#070---2026-01-09) which was released on 2026-01-09.
-You can find its changes [documented below](#070---2026-01-09).
+The latest published Vello release is [0.7.0](#070---2026-01-13) which was released on 2026-01-13.
+You can find its changes [documented below](#070---2026-01-13).
 
 ## [Unreleased]
 
 This release has an [MSRV][] of 1.88.
 
-## [0.7.0][] - 2026-01-09
+## [0.7.0][] - 2026-01-13
 
 This release has an [MSRV][] of 1.88.
 
