@@ -19,7 +19,7 @@ targets = []
 [dependencies]
 bytemuck = { workspace = true }
 vello_common = { workspace = true }
-hashbrown = { version = "0.15" }
+hashbrown = { workspace = true }
 crossbeam-channel = { workspace = true, optional = true }
 ordered-channel = { workspace = true, optional = true, features = ["crossbeam-channel"] }
 rayon = { workspace = true, optional = true }
