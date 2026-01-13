@@ -3948,7 +3948,7 @@ version = "0.0.5"
 dependencies = [
  "bytemuck",
  "fearless_simd",
- "hashbrown 0.15.5",
+ "hashbrown 0.16.1",
  "libm",
  "log",
  "peniko 0.6.0",
@@ -3964,7 +3964,7 @@ version = "0.0.5"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
- "hashbrown 0.15.5",
+ "hashbrown 0.16.1",
  "ordered-channel",
  "rayon",
  "thread_local",
@@ -4028,7 +4028,7 @@ version = "0.0.5"
 dependencies = [
  "bytemuck",
  "guillotiere",
- "hashbrown 0.15.5",
+ "hashbrown 0.16.1",
  "js-sys",
  "log",
  "png 0.17.16",
