@@ -8,10 +8,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 # Changelog
 
-The latest published Vello release is [0.6.0](#060---2025-10-03) which was released on 2025-10-03.
-You can find its changes [documented below](#060---2025-10-03).
+The latest published Vello release is [0.7.0](#070---2026-01-13) which was released on 2026-01-13.
+You can find its changes [documented below](#070---2026-01-13).
 
 ## [Unreleased]
+
+This release has an [MSRV][] of 1.88.
+
+## [0.7.0][] - 2026-01-13
 
 This release has an [MSRV][] of 1.88.
 
@@ -393,9 +397,10 @@ This release has an [MSRV][] of 1.75.
 [#1342]: https://github.com/linebender/vello/pull/1342
 [#1349]: https://github.com/linebender/vello/pull/1349
 
+[Unreleased]: https://github.com/linebender/vello/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/linebender/vello/compare/v0.6.0...v0.7.0
 <!-- Note that this still comparing against 0.5.0, because 0.5.1 is a cherry-picked patch -->
-[Unreleased]: https://github.com/linebender/vello/compare/v0.5.0...HEAD
-[0.6.0]: https://github.com/linebender/vello/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/linebender/vello/compare/v0.5.0...v0.6.0
 [0.5.1]: https://github.com/linebender/vello/compare/v0.5.0...v0.5.1
 <!-- Note that this still comparing against 0.4.0, because 0.4.1 is a cherry-picked patch -->
 [0.5.0]: https://github.com/linebender/vello/compare/v0.4.0...v0.5.0

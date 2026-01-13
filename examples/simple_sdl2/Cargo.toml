@@ -12,6 +12,6 @@ workspace = true
 [dependencies]
 # When using this example outside of the original Vello workspace,
 # remove the path property of the following Vello dependency requirement.
-vello = { version = "0.6.0", path = "../../vello" }
+vello = { version = "0.7.0", path = "../../vello" }
 pollster = "0.4.0"
 sdl2 = { version = "0.37.0", features = ["raw-window-handle", "bundled"] }
