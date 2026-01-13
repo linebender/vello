@@ -100,7 +100,7 @@ vello = { version = "0.6.0", path = "vello" }
 vello_encoding = { version = "0.6.0", path = "vello_encoding" }
 vello_shaders = { version = "0.6.0", path = "vello_shaders" }
 bytemuck = { version = "1.24.0", features = ["derive"] }
-skrifa = { version = "0.37.0", default-features = false, features = ["autohint_shaping"] }
+skrifa = { version = "0.40.0", default-features = false, features = ["autohint_shaping"] }
 # The version of kurbo used below should be kept in sync
 # with the version of kurbo used by peniko.
 peniko = { version = "0.6.0", default-features = false }
