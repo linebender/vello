@@ -73,7 +73,7 @@
 //!   The `u8` pipeline will be used for [`OptimizeSpeed`][RenderMode::OptimizeSpeed], if both pipelines are enabled.
 //!   If you're using Vello CPU for application rendering, you should prefer this pipeline.
 //! - `f32_pipeline`: Enable the `f32` pipeline, which is slower but has more accurate
-//!   and results. This is espectially useful for rendering test snapshots.
+//!   results. This is espectially useful for rendering test snapshots.
 //!   The `f32` pipeline will be used for [`OptimizeQuality`][RenderMode::OptimizeQuality], if both pipelines are enabled.
 //!
 //! At least one of `std` and `libm` is required; `std` overrides `libm`.
