@@ -111,6 +111,7 @@
 //! that was written on the topic. Note that parts of the descriptions might
 //! become outdated as the implementation changes, but it should give a good
 //! overview nevertheless.
+//!
 #![cfg_attr(feature = "libm", doc = "[libm]: libm")]
 #![cfg_attr(not(feature = "libm"), doc = "[libm]: https://crates.io/crates/libm")]
 // LINEBENDER LINT SET - lib.rs - v3
