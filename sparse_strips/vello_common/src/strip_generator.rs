@@ -8,7 +8,7 @@ use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::kurbo::{Affine, PathEl, Stroke};
 use crate::peniko::Fill;
-use crate::strip::{Strip, PreMergeTile};
+use crate::strip::{PreMergeTile, Strip};
 use crate::tile::Tiles;
 use crate::{flatten, strip};
 use alloc::vec::Vec;
@@ -98,7 +98,7 @@ pub struct StripGenerator {
     tiles: Tiles,
     width: u16,
     height: u16,
-    mask_lut: Vec<u8>
+    mask_lut: Vec<u8>,
 }
 
 impl StripGenerator {

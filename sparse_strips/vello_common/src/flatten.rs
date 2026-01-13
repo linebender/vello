@@ -38,8 +38,7 @@ impl Point {
 
 impl PartialEq for Point {
     fn eq(&self, other: &Self) -> bool {
-        self.x.to_bits() == other.x.to_bits() &&
-        self.y.to_bits() == other.y.to_bits()
+        self.x.to_bits() == other.x.to_bits() && self.y.to_bits() == other.y.to_bits()
     }
 }
 

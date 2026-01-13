@@ -18,11 +18,11 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::render::common::ComputeConfig;
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, mem, num::NonZeroU64};
 use wgpu::Extent3d;
-use crate::render::common::ComputeConfig;
 
 use crate::AtlasConfig;
 use crate::multi_atlas::AtlasId;
@@ -51,8 +51,8 @@ use vello_common::{
     paint::ImageSource,
     peniko,
     pixmap::Pixmap,
-    tile::Tile,
     strip::PreMergeTile,
+    tile::Tile,
 };
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
@@ -96,10 +96,6 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    const MSAA_TABLE_WIDTH: u16 = 64;
-    const MSAA_TABLE_HEIGHT: u16 = 64;
-    const MSAA_PACKING_SCALE: f32 = 0.5;
-
     /// Creates a new renderer.
     pub fn new(device: &Device, render_target_config: &RenderTargetConfig) -> Self {
         Self::new_with(device, render_target_config, RenderSettings::default())
@@ -502,6 +498,22 @@ struct Programs {
     msaa_stitch_pipeline: wgpu::ComputePipeline,
 }
 
+trait MsaaMask: Copy + Default {
+    fn set_bit(&mut self, bit: usize);
+}
+
+impl MsaaMask for u8 {
+    fn set_bit(&mut self, bit: usize) {
+        *self |= 1 << bit;
+    }
+}
+
+impl MsaaMask for u16 {
+    fn set_bit(&mut self, bit: usize) {
+        *self |= 1 << bit;
+    }
+}
+
 /// Contains all GPU resources needed for rendering
 #[derive(Debug)]
 struct GpuResources {
@@ -776,7 +788,8 @@ impl Programs {
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::CLEAR_SLOTS.into()),
         });
 
-        let msaa_shader = device.create_shader_module(wgpu::include_wgsl!("../shaders/msaa_subgroup.wgsl"));
+        let msaa_shader =
+            device.create_shader_module(wgpu::include_wgsl!("../shaders/msaa_sixteen.wgsl"));
 
         let strip_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1056,7 +1069,16 @@ impl Programs {
             &slot_texture_views,
         );
 
-        // COMPUTE BUFFERS
+        // MSAA INITIALIZATION
+        //let lut: Vec<u8> = Self::make_mask_lut_half_plane_msaa8();
+        let lut: Vec<u16> = Self::make_mask_lut_half_plane_msaa16();
+        let msaa_lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("MSAA LUT Buffer"),
+            //contents: &lut,
+            contents: bytemuck::cast_slice(&lut),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
         let compute_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Compute Config Buffer"),
             contents: bytemuck::bytes_of(&ComputeConfig {
@@ -1067,52 +1089,12 @@ impl Programs {
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
+
         let premerge_tile_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Pre-merge Tile Buffer"),
             size: 128,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
-        });
-
-        // AAA buffers
-        // TODO REMOVE COPY SRC FROM HERE
-        let stitch_indicator_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Stitch Indicator Buffer"),
-            size: 128,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-        let stitch_loc_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Stitch Location Buffer"),
-            size: 128,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
-        let part_indicator_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Partition Indicator Buffer"),
-            size: 128,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
-        let part_acc_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Partition Accumulator Buffer"),
-            size: 128,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
-        let part_loc_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Partition Location Buffer"),
-            size: 128,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
-
-        // MSAA Buffers
-        let lut: Vec<u8> = Self::make_mask_lut_half_plane();
-        let msaa_lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("MSAA LUT Buffer"),
-            contents: &lut,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
         let msaa_indicator_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1147,7 +1129,6 @@ impl Programs {
             &alphas_texture,
             &debug_buffer,
         );
-
 
         let resources = GpuResources {
             strips_buffer: Self::create_strips_buffer(device, 0),
@@ -1300,7 +1281,9 @@ impl Programs {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba32Uint,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         })
     }
@@ -1527,7 +1510,8 @@ impl Programs {
         new_bg |= Self::maybe_resize_buffer(
             device,
             &mut self.resources.msaa_reduction_buffer,
-            workgroups * 2 * 128u64,
+            //workgroups * 2 * 128u64,
+            workgroups * 2 * 256u64,
             "MSAA Reduction",
         );
 
@@ -1947,49 +1931,34 @@ impl Programs {
         buffer.copy_from_slice(bytemuck::cast_slice(strips));
     }
 
-    /// Internal helper to generate the half_plane lut
-    fn make_mask_lut_half_plane() -> Vec<u8> {
-        const PATTERN: [u8; 8] = [0, 5, 3, 7, 1, 4, 6, 2];
-        const SUB_X: [f32; 8] = [
-            (PATTERN[0] as f32 + 0.5) * 0.125,
-            (PATTERN[1] as f32 + 0.5) * 0.125,
-            (PATTERN[2] as f32 + 0.5) * 0.125,
-            (PATTERN[3] as f32 + 0.5) * 0.125,
-            (PATTERN[4] as f32 + 0.5) * 0.125,
-            (PATTERN[5] as f32 + 0.5) * 0.125,
-            (PATTERN[6] as f32 + 0.5) * 0.125,
-            (PATTERN[7] as f32 + 0.5) * 0.125,
-        ];
-        const SUB_Y: [f32; 8] = [
-            (0.0 + 0.5) * 0.125,
-            (1.0 + 0.5) * 0.125,
-            (2.0 + 0.5) * 0.125,
-            (3.0 + 0.5) * 0.125,
-            (4.0 + 0.5) * 0.125,
-            (5.0 + 0.5) * 0.125,
-            (6.0 + 0.5) * 0.125,
-            (7.0 + 0.5) * 0.125,
-        ];
+     fn make_mask_lut_generic<const N: usize, T: MsaaMask>(pattern: [u8; N]) -> Vec<T> {
+        const MSAA_TABLE_WIDTH: u32 = 64;
+        const MSAA_TABLE_HEIGHT: u32 = 64;
+        const MSAA_PACKING_SCALE: f32 = 0.5;
 
-        let mut lut =
-            Vec::with_capacity((Renderer::MSAA_TABLE_WIDTH * Renderer::MSAA_TABLE_HEIGHT) as usize);
+        let scale = 1.0 / (N as f32);
 
-        for j in 0..Renderer::MSAA_TABLE_WIDTH {
-            for i in 0..Renderer::MSAA_TABLE_HEIGHT {
-                let xf = (i as f32 + 0.5) / Renderer::MSAA_TABLE_WIDTH as f32;
-                let yf = (j as f32 + 0.5) / Renderer::MSAA_TABLE_HEIGHT as f32;
+        let mut sub_x = [0.0; N];
+        let mut sub_y = [0.0; N];
+
+        for k in 0..N {
+            sub_x[k] = (pattern[k] as f32 + 0.5) * scale;
+            sub_y[k] = (k as f32 + 0.5) * scale;
+        }
+
+        let mut lut = Vec::with_capacity(MSAA_TABLE_WIDTH as usize * MSAA_TABLE_HEIGHT as usize);
+
+        for j in 0..MSAA_TABLE_WIDTH {
+            for i in 0..MSAA_TABLE_HEIGHT {
+                let xf = (i as f32 + 0.5) / MSAA_TABLE_WIDTH as f32;
+                let yf = (j as f32 + 0.5) / MSAA_TABLE_HEIGHT as f32;
 
                 let n_rev = (2.0 * (xf - 0.5), 2.0 * (yf - 0.5));
-
                 let mut lg_rev = n_rev.0.hypot(n_rev.1);
-                if lg_rev < 1e-9 {
-                    lg_rev = 1e-9;
-                }
+                if lg_rev < 1e-9 { lg_rev = 1e-9; }
 
                 let n_lookup = (n_rev.0 / lg_rev, n_rev.1 / lg_rev);
-
-                let c_dist_unsigned =
-                    (1.0 - lg_rev).max(0.0) * (1.0 / Renderer::MSAA_PACKING_SCALE);
+                let c_dist_unsigned = (1.0 - lg_rev).max(0.0) * (1.0 / MSAA_PACKING_SCALE);
 
                 let mut n_canonical = n_lookup;
                 let mut c_signed_dist = c_dist_unsigned;
@@ -2002,17 +1971,28 @@ impl Programs {
 
                 let c_plane = c_signed_dist + 0.5 * (n_canonical.0 + n_canonical.1);
 
-                let mut mask: u8 = 0;
-                for k in 0..8 {
-                    let p = (SUB_X[k], SUB_Y[k]);
+                let mut mask = T::default();
+                for k in 0..N {
+                    let p = (sub_x[k], sub_y[k]);
                     if n_canonical.0 * p.0 + n_canonical.1 * p.1 - c_plane > 0.0 {
-                        mask |= 1 << k;
+                        mask.set_bit(k);
                     }
                 }
                 lut.push(mask);
             }
         }
         lut
+    }
+
+
+    fn make_mask_lut_half_plane_msaa8() -> Vec<u8> {
+        const PATTERN: [u8; 8] = [0, 5, 3, 7, 1, 4, 6, 2];
+        Self::make_mask_lut_generic::<8, u8>(PATTERN)
+    }
+
+    fn make_mask_lut_half_plane_msaa16() -> Vec<u16> {
+        const PATTERN_16: [u8; 16] = [1, 8, 4, 11, 15, 7, 3, 12, 0, 9, 5, 13, 2, 10, 6, 14];
+        Self::make_mask_lut_generic::<16, u16>(PATTERN_16)
     }
 }
 

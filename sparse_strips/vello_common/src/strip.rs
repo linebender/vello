@@ -98,9 +98,9 @@ impl Strip {
 
 impl PartialEq for Strip {
     fn eq(&self, other: &Self) -> bool {
-        self.x == other.x &&
-        self.y == other.y &&
-        self.packed_alpha_idx_fill_gap == other.packed_alpha_idx_fill_gap
+        self.x == other.x
+            && self.y == other.y
+            && self.packed_alpha_idx_fill_gap == other.packed_alpha_idx_fill_gap
     }
 }
 
@@ -284,17 +284,17 @@ impl PreMergeTile {
 
 impl PartialEq for PreMergeTile {
     fn eq(&self, other: &Self) -> bool {
-        let valid_bits_mask =
-            (1 << IS_END_TILE_BIT) |
-            (1 << FILL_RULE_BIT) |
-            (SCANNED_WINDING_MASK << SCANNED_WINDING_SHIFT) |
-            (TILE_START_ID_MASK << TILE_START_ID_SHIFT);
+        let valid_bits_mask = (1 << IS_END_TILE_BIT)
+            | (1 << FILL_RULE_BIT)
+            | (SCANNED_WINDING_MASK << SCANNED_WINDING_SHIFT)
+            | (TILE_START_ID_MASK << TILE_START_ID_SHIFT);
 
-        self.alpha_index == other.alpha_index &&
-        self.packed_winding_line_idx == other.packed_winding_line_idx &&
-        (self.packed_scanned_winding & valid_bits_mask) == (other.packed_scanned_winding & valid_bits_mask) &&
-        self.packed_xy == other.packed_xy &&
-        self.line == other.line
+        self.alpha_index == other.alpha_index
+            && self.packed_winding_line_idx == other.packed_winding_line_idx
+            && (self.packed_scanned_winding & valid_bits_mask)
+                == (other.packed_scanned_winding & valid_bits_mask)
+            && self.packed_xy == other.packed_xy
+            && self.line == other.line
     }
 }
 
@@ -361,14 +361,7 @@ pub fn render(
     let start_index = pmt_buf.len();
     let fr = Fill::NonZero;
     //let fr = fill_rule;
-    prepare_gpu_inputs(
-        tiles,
-        lines,
-        strip_buf,
-        pmt_buf,
-        alpha_buf,
-        fr,
-    );
+    prepare_gpu_inputs(tiles, lines, strip_buf, pmt_buf, alpha_buf, fr);
 
     // This enables the CPU side generation.
     // let lut_u32: &[u32] = bytemuck::cast_slice(&lut);

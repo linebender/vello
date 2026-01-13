@@ -190,7 +190,11 @@ impl Recording {
 
     /// Get cached strips.
     pub fn get_cached_strips(&self) -> (&[Strip], &[u8], &[PreMergeTile]) {
-        (self.cached_strips.strips(), self.cached_strips.alphas(), self.cached_strips.pmts())
+        (
+            self.cached_strips.strips(),
+            self.cached_strips.alphas(),
+            self.cached_strips.pmts(),
+        )
     }
 
     /// Takes cached strip buffers.
