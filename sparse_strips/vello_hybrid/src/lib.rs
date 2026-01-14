@@ -24,7 +24,6 @@
 //!
 //! - `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
 //! - `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
-//! - `std`: Enables the standard library for integration with vello_common and standard error traits.
 //! - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL shaders for compatibility.
 //!
 //! If you need to customize the set of enabled wgpu features, disable this crate's default features then enable its wgpu feature, and then use the wgpu flag directly with the specific features you require.
