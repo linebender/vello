@@ -16,7 +16,7 @@
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=vello_cpu --heading-base-level=0
+cargo rdme --workspace-project=vello_cpu
 Full documentation at https://github.com/orium/cargo-rdme -->
 
 <!-- Intra-doc links used in lib.rs should be evaluated here.
@@ -27,9 +27,10 @@ See https://linebender.org/blog/doc-include/ for related discussion. -->
 [RenderContext::fill_path]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.fill_path
 [RenderContext::stroke_path]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.stroke_path
 [RenderContext::glyph_run]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.glyph_run
+[RenderMode::OptimizeSpeed]: https://docs.rs/vello_cpu/latest/vello_cpu/enum.RenderMode.html#variant.OptimizeSpeed
+[RenderMode::OptimizeQuality]: https://docs.rs/vello_cpu/latest/vello_cpu/enum.RenderMode.html#variant.OptimizeQuality
 [`RenderContext::render_to_pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.RenderContext.html#method.render_to_pixmap
 [`Pixmap`]: https://docs.rs/vello_cpu/latest/vello_cpu/struct.Pixmap.html
-[libm]: https://crates.io/crates/libm
 
 <!-- cargo-rdme start -->
 
@@ -93,12 +94,22 @@ to better understand how to interact with Vello CPU's API,
 
 - `std` (enabled by default): Get floating point functions from the standard library
   (likely using your target's libc).
-- `libm`: Use floating point implementations from `libm`.
+- `libm`: Use floating point implementations from [libm][].
 - `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images.
-  Also required for rendering glyphs with an embedded PNG.
-- `multithreading`: Enable multi-threaded rendering.
+  Also required for rendering glyphs with an embedded PNG. Implies `std`.
+- `multithreading`: Enable multi-threaded rendering. Implies `std`.
+- `text` (enabled by default): Enables glyph rendering ([`glyph_run`][RenderContext::glyph_run]).
+- `u8_pipeline` (enabled by default): Enable the u8 pipeline, for speed focused rendering using u8 math.
+  The `u8` pipeline will be used for [`OptimizeSpeed`][RenderMode::OptimizeSpeed], if both pipelines are enabled.
+  If you're using Vello CPU for application rendering, you should prefer this pipeline.
+- `f32_pipeline`: Enable the `f32` pipeline, which is slower but has more accurate
+  results. This is espectially useful for rendering test snapshots.
+  The `f32` pipeline will be used for [`OptimizeQuality`][RenderMode::OptimizeQuality], if both pipelines are enabled.
 
 At least one of `std` and `libm` is required; `std` overrides `libm`.
+At least one of `u8_pipeline` and `f32_pipeline` must be enabled.
+You might choose to disable one of these pipelines if your application
+won't use it, so as to reduce binary size.
 
 ## Caveats
 
@@ -130,6 +141,9 @@ master's thesis](https://ethz.ch/content/dam/ethz/special-interest/infk/inst-pls
 that was written on the topic. Note that parts of the descriptions might
 become outdated as the implementation changes, but it should give a good
 overview nevertheless.
+
+<!-- We can't directly link to the libm crate built locally, because our feature is only a pass-through  -->
+[libm]: https://crates.io/crates/libm
 
 <!-- cargo-rdme end -->
 
