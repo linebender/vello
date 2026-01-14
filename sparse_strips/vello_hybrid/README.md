@@ -11,25 +11,53 @@
 
 </div>
 
-This crate implements a hybrid CPU/GPU renderer for Vello. It offloads fine rasterization and other GPU-suited tasks while keeping core path processing on the CPU, making it a balanced solution for a variety of hardware.
+<!-- We use cargo-rdme to update the README with the contents of lib.rs.
+To edit the following section, update it in lib.rs, then run:
+cargo rdme --workspace-project=vello_hybrid --heading-base-level=0
+Full documentation at https://github.com/orium/cargo-rdme -->
 
-## Features
+<!-- Intra-doc links used in lib.rs should be evaluated here.
+See https://linebender.org/blog/doc-include/ for related discussion. -->
 
-- Hybrid rendering approach with CPU-based tiling and GPU-accelerated fine rasterization
-- Efficient path processing with sparse strip representation
-- Designed for performance across different hardware capabilities
+<!-- cargo-rdme start -->
 
-## Usage
+## Vello Hybrid
 
-This crate serves as an optimized hybrid rendering engine, leveraging both CPU and GPU where appropriate.
+A hybrid CPU/GPU renderer for 2D vector graphics.
 
-## Feature Flags
+This crate provides a rendering API that combines CPU and GPU operations for efficient
+vector graphics processing.
+The hybrid approach balances flexibility and performance by:
+
+- Using the CPU for path processing and initial geometry setup
+- Leveraging the GPU for fast rendering and compositing
+- Minimizing data transfer between CPU and GPU
+
+### Key Features
+
+- Efficient path rendering with CPU-side processing
+- GPU-accelerated compositing and blending
+- Support for both windowed and headless rendering
+
+### Feature Flags
 
 - `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
 - `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
 - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL shaders for compatibility.
 
 If you need to customize the set of enabled wgpu features, disable this crate's default features then enable its wgpu feature, and then use the wgpu flag directly with the specific features you require.
+
+### Architecture
+
+The renderer is split into several key components:
+
+- `Scene`: Manages the render context and path processing on the CPU
+- `Renderer` or `WebGlRenderer`: Handles GPU resource management and executes draw operations
+- `Scheduler`: Manages and schedules draw operations on the renderer.
+
+See the individual module documentation for more details on usage and implementation.
+
+<!-- cargo-rdme end -->
 
 ## Minimum supported Rust Version (MSRV)
 
