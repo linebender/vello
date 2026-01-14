@@ -29,7 +29,9 @@ This crate serves as an optimized hybrid rendering engine, leveraging both CPU a
 - `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
 - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL shaders for compatibility.
 
-If you need to customize the set of enabled wgpu features, disable this crate's default features then enable its wgpu feature, and then use the wgpu flag directly with the specific features you require.
+If you need to customize the set of enabled wgpu features, disable this crate's default features then enable its `wgpu` feature.
+You can then depend on wgpu directly, setting the specific features you require.
+Don't forget to also disable wgpu's default features.
 
 ## Minimum supported Rust Version (MSRV)
 
