@@ -143,13 +143,15 @@ mod render;
 
 mod dispatch;
 mod filter;
+mod util;
+
+pub mod api;
 #[doc(hidden)]
 pub mod fine;
 #[doc(hidden)]
 pub mod layer_manager;
 #[doc(hidden)]
 pub mod region;
-mod util;
 
 pub use render::{RenderContext, RenderSettings};
 pub use vello_common::fearless_simd::Level;

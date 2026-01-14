@@ -24,6 +24,7 @@ crossbeam-channel = { workspace = true, optional = true }
 ordered-channel = { workspace = true, optional = true, features = ["crossbeam-channel"] }
 rayon = { workspace = true, optional = true }
 thread_local = { workspace = true, optional = true }
+vello_api.workspace = true
 
 [features]
 # If adding new features, also add to `src/lib.rs`

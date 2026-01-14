@@ -24,6 +24,7 @@ vello_sparse_shaders = { workspace = true, optional = true }
 log = { workspace = true }
 guillotiere = "0.6.2"
 hashbrown = { workspace = true }
+vello_api.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "0.3.83", optional = true }
