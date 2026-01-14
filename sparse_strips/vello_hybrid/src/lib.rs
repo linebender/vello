@@ -19,6 +19,17 @@
 //! - GPU-accelerated compositing and blending
 //! - Support for both windowed and headless rendering
 //!
+//!
+//! ## Feature Flags
+//!
+//! - `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
+//! - `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
+//! - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL shaders for compatibility.
+//!
+//! If you need to customize the set of enabled wgpu features, disable this crate's default features then enable its `wgpu` feature.
+//! You can then depend on wgpu directly, setting the specific features you require.
+//! Don't forget to also disable wgpu's default features.
+//!
 //! ## Architecture
 //!
 //! The renderer is split into several key components:

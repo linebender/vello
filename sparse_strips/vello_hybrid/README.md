@@ -14,12 +14,24 @@
 This crate implements a hybrid CPU/GPU renderer for Vello. It offloads fine rasterization and other GPU-suited tasks while keeping core path processing on the CPU, making it a balanced solution for a variety of hardware.
 
 ## Features
+
 - Hybrid rendering approach with CPU-based tiling and GPU-accelerated fine rasterization
 - Efficient path processing with sparse strip representation
 - Designed for performance across different hardware capabilities
 
 ## Usage
+
 This crate serves as an optimized hybrid rendering engine, leveraging both CPU and GPU where appropriate.
+
+## Feature Flags
+
+- `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
+- `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
+- `webgl`: Enables the WebGL rendering backend for browser support, using GLSL shaders for compatibility.
+
+If you need to customize the set of enabled wgpu features, disable this crate's default features then enable its `wgpu` feature.
+You can then depend on wgpu directly, setting the specific features you require.
+Don't forget to also disable wgpu's default features.
 
 ## Minimum supported Rust Version (MSRV)
 
