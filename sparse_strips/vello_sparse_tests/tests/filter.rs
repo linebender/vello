@@ -907,14 +907,14 @@ fn filter_offset(ctx: &mut impl Renderer) {
     ctx.set_paint(SEA_GREEN);
     ctx.fill_rect(&marker);
 
-    // Draw the filtered (shifted) star as a stroke and fill, then draw the marker through the
+    // Draw the filtered (shifted) star as a fill and stroke, then draw the marker through the
     // filter layer as well.
     ctx.push_filter_layer(filter);
+    ctx.set_paint(TOMATO);
+    ctx.fill_path(&star_path);
     ctx.set_paint(BLACK);
     ctx.set_stroke(Stroke::new(1.5));
     ctx.stroke_path(&star_path);
-    ctx.set_paint(TOMATO);
-    ctx.fill_path(&star_path);
     // With (dx, dy) = (18, -12) this should land at (67, 15).
     ctx.set_paint(VIOLET);
     ctx.fill_rect(&marker);
