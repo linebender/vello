@@ -97,7 +97,6 @@
     missing_debug_implementations,
     clippy::cast_possible_truncation,
     clippy::missing_assert_message,
-    clippy::shadow_unrelated,
     reason = "Deferred"
 )]
 #![allow(
