@@ -668,18 +668,18 @@ mod tests {
 
         // Kernel should be symmetric
         for i in 0..size / 2 {
-            assert!((kernel[i] - kernel[size - 1 - i]).abs() < 1e-6);
+            assert!((kernel[usize::from(i)] - kernel[usize::from(size - 1 - i)]).abs() < 1e-6);
         }
 
         // Kernel should sum to 1.0 (normalized)
-        let sum: f32 = kernel.iter().take(size).sum();
+        let sum: f32 = kernel.iter().take(usize::from(size)).sum();
         assert!((sum - 1.0).abs() < 1e-6);
 
         // Center should be the largest weight
         let center_idx = size / 2;
         for i in 0..size {
             if i != center_idx {
-                assert!(kernel[center_idx] >= kernel[i]);
+                assert!(kernel[usize::from(center_idx)] >= kernel[usize::from(i)]);
             }
         }
     }
@@ -691,7 +691,7 @@ mod tests {
         // For σ=0.1, radius = ceil(0.3) = 1, size = 3
         assert_eq!(size, 3);
         // Should sum to 1.0
-        let sum: f32 = kernel.iter().take(size).sum();
+        let sum: f32 = kernel.iter().take(usize::from(size)).sum();
         assert!((sum - 1.0).abs() < 1e-6);
         // Center weight should be dominant for very small σ
         assert!(kernel[1] > 0.9); // Center is highly weighted
@@ -705,7 +705,7 @@ mod tests {
         assert_eq!(size, 5);
 
         // Should still sum to 1.0
-        let sum: f32 = kernel.iter().take(size).sum();
+        let sum: f32 = kernel.iter().take(usize::from(size)).sum();
         assert!((sum - 1.0).abs() < 1e-6);
     }
 
@@ -955,7 +955,7 @@ mod tests {
                 &mut pixmap,
                 &mut scratch,
                 n_decimations,
-                &kernel[..kernel_size],
+                &kernel[..usize::from(kernel_size)],
                 EdgeMode::None,
             );
         });
@@ -1018,7 +1018,7 @@ mod tests {
             &mut dst,
             5,
             3,
-            &kernel[..kernel_size],
+            &kernel[..usize::from(kernel_size)],
             kernel_size / 2,
             EdgeMode::Duplicate,
         );
@@ -1059,7 +1059,7 @@ mod tests {
             &mut dst,
             3,
             5,
-            &kernel[..kernel_size],
+            &kernel[..usize::from(kernel_size)],
             kernel_size / 2,
             EdgeMode::Duplicate,
         );
@@ -1110,10 +1110,10 @@ mod tests {
         let (kernel, kernel_size) = compute_gaussian_kernel(100.0);
         // For σ=100, radius = ceil(300) = 300, size would be 601
         // But it should be clamped to MAX_KERNEL_SIZE
-        assert_eq!(kernel_size, MAX_KERNEL_SIZE);
+        assert_eq!(usize::from(kernel_size), MAX_KERNEL_SIZE);
 
         // The clamped kernel should still sum to 1.0 (normalized)
-        let sum: f32 = kernel.iter().take(kernel_size).sum();
+        let sum: f32 = kernel.iter().take(usize::from(kernel_size)).sum();
         assert!((sum - 1.0).abs() < 1e-6);
     }
 
@@ -1226,7 +1226,7 @@ mod tests {
     fn test_kernel_normalization_precision() {
         for sigma in [0.1, 0.5, 1.0, 2.0, 5.0, 10.0] {
             let (kernel, kernel_size) = compute_gaussian_kernel(sigma);
-            let sum: f32 = kernel.iter().take(kernel_size).sum();
+            let sum: f32 = kernel.iter().take(usize::from(kernel_size)).sum();
             assert!(
                 (sum - 1.0).abs() < 1e-6,
                 "Kernel for σ={} not normalized: sum={}",
