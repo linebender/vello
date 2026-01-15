@@ -17,7 +17,7 @@ This release has an [MSRV][] of 1.88.
 
 ### Changed
 
-- Improve performance of bilinear image sampling in the `RenderMode::OptimizeQuality` (`f32`) pipeline. ([#1343[] by [@tomcur][])
+- Improve performance of bilinear image sampling in the `RenderMode::OptimizeQuality` (`f32`) pipeline. ([#1343][] by [@tomcur][])
 
 ## [0.0.6][] - 2026-01-15
 
