@@ -10,7 +10,10 @@
 
 use alloc::vec::Vec;
 
-use peniko::{BlendMode, ImageBrush, kurbo::Affine};
+use peniko::{
+    BlendMode,
+    kurbo::{self, Affine},
+};
 
 use crate::{
     PaintScene,
@@ -37,10 +40,7 @@ pub enum RenderCommand {
     ///
     /// The affine is currently path local for future drawing operations.
     /// That is something I expect *could* change in the future/want to change.
-    ///
-    /// This doesn't use [`OurBrush`] because we want to limit the
-    /// number of textures stored.
-    SetPaint(Affine, peniko::Brush<peniko::ImageBrush<TextureId>>),
+    SetPaint(Affine, StandardBrush),
     /// Set the paint to be a blurred rounded rectangle.
     ///
     /// This is useful for box shadows.
@@ -63,9 +63,9 @@ pub struct PushLayerCommand {
 /// Command for setting the brush to be a blurred rounded rectangle.
 #[derive(Debug, Clone)]
 pub struct BlurredRoundedRectBrush {
-    pub paint_transform: peniko::kurbo::Affine,
+    pub paint_transform: kurbo::Affine,
     pub color: peniko::Color,
-    pub rect: peniko::kurbo::Rect,
+    pub rect: kurbo::Rect,
     pub radius: f32,
     pub std_dev: f32,
 }
@@ -109,7 +109,8 @@ impl Scene {
 }
 
 // TODO: Change module and give a better name.
-pub type OurBrush = peniko::Brush<peniko::ImageBrush<TextureId>>;
+/// The brush type used for most painting operations.
+pub type StandardBrush = peniko::Brush<peniko::ImageBrush<TextureId>>;
 
 /// Extract the translation component from a 2d Affine transformation, if the
 /// transform is equivalent to an exact integer translation.
@@ -202,18 +203,18 @@ impl PaintScene for Scene {
 
     fn fill_path(
         &mut self,
-        transform: peniko::kurbo::Affine,
+        transform: kurbo::Affine,
         fill_rule: peniko::Fill,
-        path: impl peniko::kurbo::Shape,
+        path: impl kurbo::Shape,
     ) {
         let idx = self.paths.prepare_shape(&path, fill_rule);
         self.commands.push(RenderCommand::DrawPath(transform, idx));
     }
     fn stroke_path(
         &mut self,
-        transform: peniko::kurbo::Affine,
-        stroke_params: &peniko::kurbo::Stroke,
-        path: impl peniko::kurbo::Shape,
+        transform: kurbo::Affine,
+        stroke_params: &kurbo::Stroke,
+        path: impl kurbo::Shape,
     ) {
         let idx = self.paths.prepare_shape(&path, stroke_params.clone());
         self.commands.push(RenderCommand::DrawPath(transform, idx));
@@ -221,30 +222,20 @@ impl PaintScene for Scene {
 
     fn set_brush(
         &mut self,
-        brush: impl Into<OurBrush>,
+        brush: impl Into<StandardBrush>,
         // transform: peniko::kurbo::Affine,
-        paint_transform: peniko::kurbo::Affine,
+        paint_transform: kurbo::Affine,
     ) {
-        let brush = match brush.into() {
-            peniko::Brush::Image(image) => {
-                let id = image.image;
-                peniko::Brush::Image(ImageBrush {
-                    sampler: image.sampler,
-                    image: id,
-                })
-            }
-            peniko::Brush::Solid(alpha_color) => peniko::Brush::Solid(alpha_color),
-            peniko::Brush::Gradient(gradient) => peniko::Brush::Gradient(gradient),
-        };
+        let brush = brush.into();
         self.commands
             .push(RenderCommand::SetPaint(paint_transform, brush));
     }
 
     fn set_blurred_rounded_rect_brush(
         &mut self,
-        paint_transform: peniko::kurbo::Affine,
+        paint_transform: kurbo::Affine,
         color: peniko::Color,
-        rect: &peniko::kurbo::Rect,
+        rect: &kurbo::Rect,
         radius: f32,
         std_dev: f32,
     ) {
@@ -261,8 +252,8 @@ impl PaintScene for Scene {
 
     fn push_layer(
         &mut self,
-        clip_transform: peniko::kurbo::Affine,
-        clip_path: Option<impl peniko::kurbo::Shape>,
+        clip_transform: kurbo::Affine,
+        clip_path: Option<impl kurbo::Shape>,
         blend_mode: Option<peniko::BlendMode>,
         opacity: Option<f32>,
         // mask: Option<Mask>,
