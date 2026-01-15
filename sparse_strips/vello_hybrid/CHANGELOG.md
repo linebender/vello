@@ -15,6 +15,10 @@ You can find its changes [documented below](#006---2026-01-15).
 
 This release has an [MSRV][] of 1.88.
 
+### Fixed
+
+- Fixed rendering artifacts sometimes present along the seam in sweep gradients by improving numerical robustness around the seam. ([#1352][] by [@tomcur][])
+
 ## [0.0.6][] - 2026-01-15
 
 This release has an [MSRV][] of 1.88.
@@ -50,6 +54,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 
 [#1203]: https://github.com/linebender/vello/pull/1203
 [#1349]: https://github.com/linebender/vello/pull/1349
+[#1352]: https://github.com/linebender/vello/pull/1352
 [#1353]: https://github.com/linebender/vello/pull/1353
 [#1354]: https://github.com/linebender/vello/pull/1354
 
