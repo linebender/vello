@@ -15,6 +15,10 @@ You can find its changes [documented below](#006---2026-01-15).
 
 This release has an [MSRV][] of 1.88.
 
+### Changed
+
+- Improved Bézier flattening performance by catching more Béziers whose chords are immediately within rendering tolerance. ([#1216][] by [@tomcur][])
+
 ## [0.0.6][] - 2026-01-15
 
 This release has an [MSRV][] of 1.88.
@@ -99,6 +103,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 
 [#1159]: https://github.com/linebender/vello/pull/1159
 [#1203]: https://github.com/linebender/vello/pull/1203
+[#1216]: https://github.com/linebender/vello/pull/1216
 [#1237]: https://github.com/linebender/vello/pull/1237
 [#1286]: https://github.com/linebender/vello/pull/1286
 [#1293]: https://github.com/linebender/vello/pull/1293
