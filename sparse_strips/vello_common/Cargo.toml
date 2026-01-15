@@ -1,7 +1,7 @@
 [package]
 name = "vello_common"
 # When updating, also update the version in the workspace dependency in the root Cargo.toml
-version = "0.0.5"
+version = "0.0.6"
 description = "Core data structures and utilities shared across the Vello rendering, including geometry processing and tiling logic."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
