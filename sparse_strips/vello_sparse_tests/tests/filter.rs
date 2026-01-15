@@ -15,6 +15,7 @@ use vello_common::mask::Mask;
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderContext;
+use vello_cpu::kurbo::Dashes;
 use vello_dev_macros::vello_test;
 
 /// Test flood filter filling a star shape with solid color using a mask.
@@ -1037,7 +1038,7 @@ fn filter_stroked_paths(ctx: &mut impl Renderer) {
         miter_limit: 4.0,
         start_cap: Cap::Round,
         end_cap: Cap::Round,
-        dash_pattern: Default::default(),
+        dash_pattern: Dashes::default(),
         dash_offset: 0.0,
     };
 

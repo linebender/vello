@@ -141,8 +141,8 @@ impl MultiThreadedDispatcher {
         let mut dispatcher = Self {
             wide,
             thread_pool,
-            allocations: Default::default(),
-            allocation_group: Default::default(),
+            allocations: Allocations::default(),
+            allocation_group: AllocationGroup::default(),
             batch_cost,
             task_idx,
             flushed,

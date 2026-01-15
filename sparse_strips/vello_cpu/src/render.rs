@@ -19,6 +19,8 @@ use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
+#[cfg(feature = "text")]
+use vello_common::glyph::GlyphCaches;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use vello_common::mask::Mask;
 #[cfg(feature = "text")]
@@ -170,7 +172,7 @@ impl RenderContext {
             encoded_paints,
             filter: None,
             #[cfg(feature = "text")]
-            glyph_caches: Some(Default::default()),
+            glyph_caches: Some(GlyphCaches::default()),
         }
     }
 

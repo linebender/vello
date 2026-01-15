@@ -21,7 +21,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, mem, num::NonZeroU64};
-use wgpu::Extent3d;
+use wgpu::{Extent3d, TextureViewDescriptor};
 
 use crate::AtlasConfig;
 use crate::multi_atlas::AtlasId;
@@ -872,7 +872,7 @@ impl Programs {
         let encoded_paints_bind_group = Self::create_encoded_paints_bind_group(
             device,
             &encoded_paints_bind_group_layout,
-            &encoded_paints_texture.create_view(&Default::default()),
+            &encoded_paints_texture.create_view(&TextureViewDescriptor::default()),
         );
 
         const INITIAL_GRADIENT_TEXTURE_HEIGHT: u32 = 1;
@@ -884,13 +884,13 @@ impl Programs {
         let gradient_bind_group = Self::create_gradient_bind_group(
             device,
             &gradient_bind_group_layout,
-            &gradient_texture.create_view(&Default::default()),
+            &gradient_texture.create_view(&TextureViewDescriptor::default()),
         );
 
         let slot_bind_groups = Self::create_strip_bind_groups(
             device,
             &strip_bind_group_layout,
-            &alphas_texture.create_view(&Default::default()),
+            &alphas_texture.create_view(&TextureViewDescriptor::default()),
             &slot_config_buffer,
             &view_config_buffer,
             &slot_texture_views,
@@ -1234,7 +1234,7 @@ impl Programs {
                 &self
                     .resources
                     .alphas_texture
-                    .create_view(&Default::default()),
+                    .create_view(&TextureViewDescriptor::default()),
                 &self.resources.slot_config_buffer,
                 &self.resources.view_config_buffer,
                 &self.resources.slot_texture_views,
@@ -1279,7 +1279,7 @@ impl Programs {
                 &self
                     .resources
                     .encoded_paints_texture
-                    .create_view(&Default::default()),
+                    .create_view(&TextureViewDescriptor::default()),
             );
         }
     }
@@ -1317,7 +1317,7 @@ impl Programs {
                 &self
                     .resources
                     .gradient_texture
-                    .create_view(&Default::default()),
+                    .create_view(&TextureViewDescriptor::default()),
             );
         }
     }

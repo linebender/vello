@@ -670,7 +670,7 @@ pub struct GlyphCaches {
 impl GlyphCaches {
     /// Creates a new `GlyphCaches` instance.
     pub fn new() -> Self {
-        Default::default()
+        Self::default()
     }
 
     /// Clears the glyph caches.
