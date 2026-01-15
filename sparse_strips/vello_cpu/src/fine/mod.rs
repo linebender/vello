@@ -351,7 +351,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
-            || FilteredImagePainter::new(simd, image, pixmap, start_x, start_y),
+            || FilteredImagePainter::<S, 1>::new(simd, image, pixmap, start_x, start_y),
         )
     }
 
