@@ -24,16 +24,20 @@
 //! - Vello CPU, an extremely portable 2D renderer which does not require a GPU.
 //!   It is one of the fastest CPU-only 2D renderers in Rust.
 //! - Vello Hybrid, which runs the most compute intensive portions of rendering on the GPU, improving performance over Vello CPU.
-//!   It has wide compatibility with most devices, so long as they have a GPU, and it runs well on the web.
+//!   It will have wide compatibility with most devices, so long as they have a GPU, including running well on the web.
 //! <!-- We might also have, to be determined:
 //! - Vello Classic, which performs almost all rendering on the GPU, which gives great performance on devices with decent GPUs.
 //!   However, it cannot run well on devices with weak GPUs, or in contexts without support for compute shaders, such as the web.
 //!   It also has unavoidably high memory usage, and can silently fail to render if the scene gets too big.
 //! -->
 //!
-//! As a general guide for consumers, you should prefer Vello Hybrid for applications, and Vello CPU for headless use cases
-//! (e.g. screenshot tests or server-rendered previews).
-//! Note that applications using Vello Hybrid might need to support falling back to Vello CPU for compatibility or performance reasons.
+//! Currently, Vello CPU is much more mature, and so most consumers should currently prefer that implementation.
+//! We hope that in the not-too distant future, application developers will be able to migrate to Vello Hybrid.
+//! We expect headless use cases (such as screenshot tests or server-rendered previews) to prefer Vello CPU, due to
+//! its cross-platform consistency and lower latency.
+//!
+//! Note that even once Vello Hybrid is more stable, applications using Vello Hybrid might need to support falling
+//! back to Vello CPU for compatibility or performance reasons.
 //!
 //! This abstraction is tailored for the Vello renderers, as we believe that these have a sufficiently broad coverage of the trade-off
 //! space to be viable for any consumer.
