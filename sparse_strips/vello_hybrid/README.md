@@ -16,7 +16,6 @@ To edit the following section, update it in lib.rs, then run:
 cargo rdme --workspace-project=vello_hybrid --heading-base-level=0
 Full documentation at https://github.com/orium/cargo-rdme -->
 
-<<<<<<< HEAD
 <!-- Intra-doc links used in lib.rs should be evaluated here.
 See https://linebender.org/blog/doc-include/ for related discussion. -->
 
@@ -62,27 +61,6 @@ The renderer is split into several key components:
 See the individual module documentation for more details on usage and implementation.
 
 <!-- cargo-rdme end -->
-=======
-## Features
-
-- Hybrid rendering approach with CPU-based tiling and GPU-accelerated fine rasterization
-- Efficient path processing with sparse strip representation
-- Designed for performance across different hardware capabilities
-
-## Usage
-
-This crate serves as an optimized hybrid rendering engine, leveraging both CPU and GPU where appropriate.
->>>>>>> bf5b0f968356bec23fefe76e715e2f91502893eb
-
-## Feature Flags
-
-- `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
-- `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
-- `webgl`: Enables the WebGL rendering backend for browser support, using GLSL shaders for compatibility.
-
-If you need to customize the set of enabled wgpu features, disable this crate's default features then enable its `wgpu` feature.
-You can then depend on wgpu directly, setting the specific features you require.
-Don't forget to also disable wgpu's default features.
 
 ## Minimum supported Rust Version (MSRV)
 
