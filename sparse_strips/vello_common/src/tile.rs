@@ -9,6 +9,7 @@ use alloc::vec::Vec;
 use fearless_simd::Level;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
+use smallvec::SmallVec;
 
 /// The max number of lines per path.
 ///
@@ -219,7 +220,7 @@ impl Eq for Tile {}
 #[derive(Clone, Debug)]
 pub struct TileRow {
     /// The tiles that make up this row.
-    pub tiles: Vec<Tile>,
+    pub tiles: SmallVec<[Tile; 8]>,
     // /// The winding of the path at this tile row before the start of the row (i.e., the winding
     // /// that occurred to the left of the viewport).
     // pub winding: i32,
@@ -231,7 +232,7 @@ pub struct TileRow {
 impl TileRow {
     const fn new() -> Self {
         Self {
-            tiles: Vec::new(),
+            tiles: SmallVec::new_const(),
             // winding: 0,
             // area_coverage: [0.; Tile::HEIGHT as usize],
         }
