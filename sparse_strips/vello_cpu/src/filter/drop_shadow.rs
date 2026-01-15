@@ -38,7 +38,7 @@ pub(crate) struct DropShadow {
     /// Only the first `kernel_size` elements are valid.
     kernel: [f32; MAX_KERNEL_SIZE],
     /// Actual length of the kernel (kernel is padded to `MAX_KERNEL_SIZE`).
-    kernel_size: usize,
+    kernel_size: u8,
 }
 
 impl DropShadow {
@@ -76,7 +76,7 @@ impl FilterEffect for DropShadow {
             self.dy,
             self.std_deviation,
             self.n_decimations,
-            &self.kernel[..self.kernel_size],
+            &self.kernel[..usize::from(self.kernel_size)],
             self.color,
             self.edge_mode,
             layer_manager,
