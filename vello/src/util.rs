@@ -103,6 +103,7 @@ impl RenderContext {
             target_texture,
             target_view,
             blitter: TextureBlitter::new(&device_handle.device, format),
+            blitter_loadop: BlitterWithLoadOp::new(&device_handle.device, format),
         };
         self.configure_surface(&surface);
         Ok(surface)
@@ -225,7 +226,169 @@ pub struct RenderSurface<'s> {
     pub target_texture: Texture,
     pub target_view: TextureView,
     pub blitter: TextureBlitter,
+    /// Blitter with LoadOp control for compositing over existing content
+    pub blitter_loadop: BlitterWithLoadOp,
 }
+
+/// Custom blitter that supports LoadOp control for compositing.
+///
+/// When rendering Vello content on top of existing GPU-rendered content,
+/// the standard blit uses `LoadOp::Clear` which destroys the existing content.
+/// This blitter allows using `LoadOp::Load` to preserve the background.
+pub struct BlitterWithLoadOp {
+    pipeline: wgpu::RenderPipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+}
+
+impl BlitterWithLoadOp {
+    /// Create a new BlitterWithLoadOp for the given device and texture format.
+    pub fn new(device: &Device, format: TextureFormat) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("blit_loadop_shader"),
+            source: wgpu::ShaderSource::Wgsl(BLIT_SHADER.into()),
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("blit_loadop_bind_group_layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("blit_loadop_pipeline_layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("blit_loadop_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self { pipeline, bind_group_layout, sampler }
+    }
+
+    /// Copy source texture to dest with custom LoadOp.
+    ///
+    /// Use `LoadOp::Load` to preserve existing content on the destination,
+    /// or `LoadOp::Clear(color)` to clear before blitting.
+    pub fn copy_with_loadop(
+        &self,
+        device: &Device,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &TextureView,
+        dest: &TextureView,
+        load_op: wgpu::LoadOp<wgpu::Color>,
+    ) {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("blit_loadop_bind_group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(source),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("blit_loadop_pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: dest,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: load_op,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.draw(0..6, 0..1);
+    }
+}
+
+const BLIT_SHADER: &str = r#"
+@group(0) @binding(0) var t: texture_2d<f32>;
+@group(0) @binding(1) var s: sampler;
+
+struct VertexOutput {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
+    let positions = array<vec2<f32>, 6>(
+        vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0),
+        vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0),
+    );
+    let uvs = array<vec2<f32>, 6>(
+        vec2(0.0, 1.0), vec2(1.0, 1.0), vec2(1.0, 0.0),
+        vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(0.0, 0.0),
+    );
+    var out: VertexOutput;
+    out.pos = vec4(positions[idx], 0.0, 1.0);
+    out.uv = uvs[idx];
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return textureSample(t, s, in.uv);
+}
+"#;
 
 impl std::fmt::Debug for RenderSurface<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -237,6 +400,7 @@ impl std::fmt::Debug for RenderSurface<'_> {
             .field("target_texture", &self.target_texture)
             .field("target_view", &self.target_view)
             .field("blitter", &"(Not Debug)")
+            .field("blitter_loadop", &"(Not Debug)")
             .finish()
     }
 }
