@@ -91,8 +91,9 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10) release.
 
-[@LaurenzV]: https://github.com/LaurenzV
+[@DJMcNab]: https://github.com/DJMcNab
 [@grebmeg]: https://github.com/grebmeg
+[@LaurenzV]: https://github.com/LaurenzV
 [@nicoburns]: https://github.com/nicoburns
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 

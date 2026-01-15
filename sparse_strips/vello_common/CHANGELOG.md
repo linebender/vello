@@ -88,29 +88,29 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) release.
 
-[@LaurenzV]: https://github.com/LaurenzV
-[@grebmeg]: https://github.com/grebmeg
 [@b0nes164]: https://github.com/b0nes164
-[@valadaptive]: https://github.com/valadaptive
+[@DJMcNab]: https://github.com/waywardmonkeys
+[@grebmeg]: https://github.com/grebmeg
+[@LaurenzV]: https://github.com/LaurenzV
 [@taj-p]: https://github.com/taj-p
 [@tomcur]: https://github.com/tomcur
-[@DJMcNab]: https://github.com/waywardmonkeys
+[@valadaptive]: https://github.com/valadaptive
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 
-[#1338]: https://github.com/linebender/vello/pull/1327
-[#1336]: https://github.com/linebender/vello/pull/1327
-[#1329]: https://github.com/linebender/vello/pull/1329
-[#1327]: https://github.com/linebender/vello/pull/1327
-[#1325]: https://github.com/linebender/vello/pull/1325
-[#1319]: https://github.com/linebender/vello/pull/1319
-[#1318]: https://github.com/linebender/vello/pull/1318
-[#1317]: https://github.com/linebender/vello/pull/1317
-[#1301]: https://github.com/linebender/vello/pull/1301
-[#1293]: https://github.com/linebender/vello/pull/1293
-[#1286]: https://github.com/linebender/vello/pull/1286
-[#1237]: https://github.com/linebender/vello/pull/1237
-[#1203]: https://github.com/linebender/vello/pull/1203
 [#1159]: https://github.com/linebender/vello/pull/1159
+[#1203]: https://github.com/linebender/vello/pull/1203
+[#1237]: https://github.com/linebender/vello/pull/1237
+[#1286]: https://github.com/linebender/vello/pull/1286
+[#1293]: https://github.com/linebender/vello/pull/1293
+[#1301]: https://github.com/linebender/vello/pull/1301
+[#1317]: https://github.com/linebender/vello/pull/1317
+[#1318]: https://github.com/linebender/vello/pull/1318
+[#1319]: https://github.com/linebender/vello/pull/1319
+[#1325]: https://github.com/linebender/vello/pull/1325
+[#1327]: https://github.com/linebender/vello/pull/1327
+[#1329]: https://github.com/linebender/vello/pull/1329
+[#1336]: https://github.com/linebender/vello/pull/1327
+[#1338]: https://github.com/linebender/vello/pull/1327
 [#1349]: https://github.com/linebender/vello/pull/1349
 [#1353]: https://github.com/linebender/vello/pull/1353
 [#1354]: https://github.com/linebender/vello/pull/1354
@@ -124,4 +124,3 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [0.0.1]: https://github.com/linebender/vello/compare/ca6b1e4c7f5b0d95953c3b524f5d3952d5669c5a...sparse-strips-v0.0.1
 
 [MSRV]: README.md#minimum-supported-rust-version-msrv
-

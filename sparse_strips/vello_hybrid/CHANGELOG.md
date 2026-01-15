@@ -44,7 +44,9 @@ This is the initial release. No changelog was kept for this release.
 
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
+[@DJMcNab]: https://github.com/DJMcNab
 [@LaurenzV]: https://github.com/LaurenzV
+[@waywardmonkeys]: https://github.com/waywardmonkeys
 
 [#1203]: https://github.com/linebender/vello/pull/1203
 [#1349]: https://github.com/linebender/vello/pull/1349
