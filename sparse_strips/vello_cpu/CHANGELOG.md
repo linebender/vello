@@ -15,6 +15,10 @@ You can find its changes [documented below](#006---2026-01-15).
 
 This release has an [MSRV][] of 1.88.
 
+### Changed
+
+- Improve performance of bilinear image sampling in the `RenderMode::OptimizeQuality` (`f32`) pipeline. ([#1343][] by [@tomcur][])
+
 ## [0.0.6][] - 2026-01-15
 
 This release has an [MSRV][] of 1.88.
@@ -104,6 +108,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1294]: https://github.com/linebender/vello/pull/1294
 [#1327]: https://github.com/linebender/vello/pull/1327
 [#1335]: https://github.com/linebender/vello/pull/1335
+[#1343]: https://github.com/linebender/vello/pull/1343
 [#1349]: https://github.com/linebender/vello/pull/1349
 [#1351]: https://github.com/linebender/vello/pull/1351
 [#1353]: https://github.com/linebender/vello/pull/1353
