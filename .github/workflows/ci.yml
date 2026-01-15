@@ -23,7 +23,6 @@ env:
   # The files stored in LFS the tests need to access, in JSON format
   LFS_FILES: '["vello_tests/snapshots/*.png", "sparse_strips/vello_sparse_tests/snapshots/*.png"]'
 
-
 # Rationale
 #
 # We don't run clippy with --all-targets because then even --lib and --bins are compiled with
@@ -100,7 +99,7 @@ jobs:
 
       - name: check copyright headers
         run: bash .github/copyright.sh
-      
+
       - name: Install cargo-rdme
         uses: taiki-e/install-action@v2
         with:
@@ -111,9 +110,12 @@ jobs:
 
       - name: Run cargo rdme (vello_common)
         run: cargo rdme --check --workspace-project=vello_common
-    
+
       - name: Run cargo rdme (vello_api)
         run: cargo rdme --check --heading-base-level=0 --workspace-project=vello_api
+
+      - name: Run cargo rdme (vello_hybrid)
+        run: cargo rdme --check --workspace-project=vello_hybrid
 
   clippy-stable:
     name: cargo clippy
@@ -199,28 +201,28 @@ jobs:
     outputs:
       lfs-hash: ${{ steps.calc-hash.outputs.result }}
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - id: calc-hash
-      name: Calculate LFS hash
-      # GitHub's expression context doesn't support either a literal newline or an escaped newline. We have to use the JSON parser to get a newline character.
-      run: echo "result=${{ hashFiles(join(fromJson(env.LFS_FILES), fromJson('"\n"'))) }}" | tee -a "$GITHUB_OUTPUT"
-      
-    - name: Cache git lfs
-      id: lfs-cache
-      uses: actions/cache@v4
-      with:
-        path: .git/lfs
-        # The files targeted with git lfs
-        key: vello-lfs-${{ steps.calc-hash.outputs.result }}
-        restore-keys: vello-lfs-
-        enableCrossOsArchive: true
+      - id: calc-hash
+        name: Calculate LFS hash
+        # GitHub's expression context doesn't support either a literal newline or an escaped newline. We have to use the JSON parser to get a newline character.
+        run: echo "result=${{ hashFiles(join(fromJson(env.LFS_FILES), fromJson('"\n"'))) }}" | tee -a "$GITHUB_OUTPUT"
 
-    - name: Fetch lfs data
-      if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
-      run: git lfs fetch --include '${{ join(fromJson(env.LFS_FILES), ',') }}'
-  
+      - name: Cache git lfs
+        id: lfs-cache
+        uses: actions/cache@v4
+        with:
+          path: .git/lfs
+          # The files targeted with git lfs
+          key: vello-lfs-${{ steps.calc-hash.outputs.result }}
+          restore-keys: vello-lfs-
+          enableCrossOsArchive: true
+
+      - name: Fetch lfs data
+        if: ${{ steps.lfs-cache.outputs.cache-hit != 'true' }}
+        run: git lfs fetch --include '${{ join(fromJson(env.LFS_FILES), ',') }}'
+
   test-stable:
     name: cargo test
     needs: prime-lfs-cache
@@ -231,13 +233,13 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
         include:
           - os: ubuntu-latest
-            gpu: 'yes'
+            gpu: "yes"
           - os: macos-latest
-            gpu: 'yes'
+            gpu: "yes"
           - os: windows-latest
             # TODO: The windows runners theoretically have CPU fallback for GPUs, but
             # this failed in initial testing
-            gpu: 'no'
+            gpu: "no"
     steps:
       - uses: actions/checkout@v4
         # We intentionally do not use lfs: true here, instead using the caching method to save LFS bandwidth.
@@ -250,7 +252,7 @@ jobs:
           # The files targeted with git lfs
           key: vello-lfs-${{ needs.prime-lfs-cache.outputs.lfs-hash }}
           enableCrossOsArchive: true
-  
+
       - name: Checkout LFS files
         # `git lfs checkout` requires that each individual glob is a separate command line argument.
         # The string `''' '''` is how you write `' '` in GitHub's expression context (i.e. two quotes separated by a space)
@@ -276,7 +278,7 @@ jobs:
           sudo add-apt-repository ppa:kisak/turtle -y
           sudo apt-get update
           sudo apt install -y xvfb libegl-mesa0 libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
-      
+
       - name: install cargo-nextest
         uses: taiki-e/install-action@v2
         with:
@@ -296,7 +298,7 @@ jobs:
           # However, if we do, the tests are designed to be robust against that, if this environment variable is set.
           # If we do run out of bandwidth, uncomment the following line and inform @DJMcNab.
           # VELLO_SKIP_LFS_SNAPSHOTS: all
-      
+
       - name: Upload test results due to failure
         uses: actions/upload-artifact@v4
         if: failure()
@@ -326,7 +328,7 @@ jobs:
           # The files targeted with git lfs
           key: vello-lfs-${{ needs.prime-lfs-cache.outputs.lfs-hash }}
           enableCrossOsArchive: true
-  
+
       - name: Checkout LFS files
         # `git lfs checkout` requires that each individual glob is a separate command line argument.
         # The string `''' '''` is how you write `' '` in GitHub's expression context (i.e. two quotes separated by a space)
@@ -371,7 +373,6 @@ jobs:
         run: RUSTFLAGS=-Ctarget-feature=+simd128 wasm-pack test --headless --chrome --features webgl --release
         working-directory: sparse_strips/vello_sparse_tests
 
-
   check-stable-android:
     name: cargo check (aarch64-android)
     runs-on: ubuntu-latest
@@ -396,7 +397,7 @@ jobs:
         run: cargo apk check -p with_winit --lib
         env:
           # This is a bit of a hack, but cargo apk doesn't seem to allow customising this
-          RUSTFLAGS: '-D warnings'
+          RUSTFLAGS: "-D warnings"
 
   check-msrv:
     name: cargo check (msrv)
@@ -478,7 +479,7 @@ jobs:
       - name: cargo doc
         run: cargo doc --workspace --locked --all-features --no-deps --document-private-items
         env:
-          RUSTDOCFLAGS: '--cfg docsrs -D warnings'
+          RUSTDOCFLAGS: "--cfg docsrs -D warnings"
 
   # If this fails, consider changing your text or adding something to .typos.toml.
   typos:
