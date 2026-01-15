@@ -50,6 +50,7 @@ pub enum RenderCommand {
 /// Command for pushing a new layer.
 #[derive(Debug, Clone)]
 pub struct PushLayerCommand {
+    /// The transform which will be applied to `clip_path`.
     pub clip_transform: Affine,
     /// Clip path.
     pub clip_path: Option<PathId>,
@@ -59,6 +60,7 @@ pub struct PushLayerCommand {
     pub opacity: Option<f32>,
 }
 
+/// Command for setting the brush to be a blurred rounded rectangle.
 #[derive(Debug, Clone)]
 pub struct BlurredRoundedRectBrush {
     pub paint_transform: peniko::kurbo::Affine,
