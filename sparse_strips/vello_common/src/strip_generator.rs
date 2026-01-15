@@ -3,14 +3,17 @@
 
 //! Abstraction for generating strips from paths.
 
+use core::num;
+
 use crate::clip::{PathDataRef, intersect};
 use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::kurbo::{Affine, PathEl, Stroke};
 use crate::peniko::Fill;
 use crate::strip::Strip;
-use crate::tile::Tiles;
+use crate::tile::{Tile, Tiles};
 use crate::{flatten, strip};
+use alloc::vec;
 use alloc::vec::Vec;
 use peniko::kurbo::StrokeCtx;
 
@@ -69,11 +72,14 @@ pub struct StripGenerator {
     tiles: Tiles,
     width: u16,
     height: u16,
+    use_early_culling: bool,
+    row_windings: Vec<f32>,
 }
 
 impl StripGenerator {
     /// Create a new strip generator.
     pub fn new(width: u16, height: u16, level: Level) -> Self {
+        let num_rows = (height as usize + Tile::HEIGHT as usize - 1) / Tile::HEIGHT as usize + 1;
         Self {
             level,
             line_buf: Vec::new(),
@@ -83,6 +89,8 @@ impl StripGenerator {
             temp_storage: StripStorage::default(),
             width,
             height,
+            use_early_culling: false,
+            row_windings: vec![0.0; num_rows],
         }
     }
 
@@ -140,8 +148,24 @@ impl StripGenerator {
             strip_storage.strips.clear();
         }
 
-        self.tiles
-            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
+        let culling_opportunity;
+        if self.use_early_culling {
+            self.row_windings.fill(0.0);
+            culling_opportunity = self.tiles.make_tiles_analytic_aa::<true>(
+                &self.line_buf,
+                self.width,
+                self.height,
+                &mut self.row_windings,
+            );
+        } else {
+            culling_opportunity = self.tiles.make_tiles_analytic_aa::<false>(
+                &self.line_buf,
+                self.width,
+                self.height,
+                &mut self.row_windings,
+            );
+        }
+
         self.tiles.sort_tiles();
 
         if let Some(clip_path) = clip_path {
@@ -155,6 +179,8 @@ impl StripGenerator {
                 fill_rule,
                 aliasing_threshold,
                 &self.line_buf,
+                culling_opportunity,
+                &self.row_windings,
             );
             let path_data = PathDataRef {
                 strips: &self.temp_storage.strips,
@@ -171,8 +197,12 @@ impl StripGenerator {
                 fill_rule,
                 aliasing_threshold,
                 &self.line_buf,
+                culling_opportunity,
+                &self.row_windings,
             );
         }
+
+        self.use_early_culling = false;
     }
 
     /// Reset the strip generator.

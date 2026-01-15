@@ -303,11 +303,18 @@ impl Tiles {
     // TODO: Tiles are clamped to the left edge of the viewport, but lines fully to the left of the
     // viewport are not culled yet. These lines impact winding, and would need forwarding of
     // winding to the strip generation stage.
-    pub fn make_tiles_analytic_aa(&mut self, lines: &[Line], width: u16, height: u16) {
+    pub fn make_tiles_analytic_aa<const USE_EARLY_CULL: bool>(
+        &mut self,
+        lines: &[Line],
+        width: u16,
+        height: u16,
+        row_windings: &mut Vec<f32>,
+    ) -> bool {
         self.reset();
+        let mut culling_opportunity = false;
 
         if width == 0 || height == 0 {
-            return;
+            return culling_opportunity;
         }
 
         debug_assert!(
@@ -359,6 +366,40 @@ impl Tiles {
                 continue;
             }
 
+            // Culling is quite similar to the vertical line case, except that we are more careful
+            // with the last end tile
+            if line_right_x < 0.0 {
+                culling_opportunity = true;
+                if USE_EARLY_CULL {
+                    let dir = if p0_y >= p1_y { 1.0 } else { -1.0 };
+
+                    let is_start_culled = line_top_y < 0.0;
+                    if !is_start_culled {
+                        let start_height = (f32::from(y_top_tiles) + 1.0) - line_top_y;
+                        row_windings[y_top_tiles as usize] += start_height * dir;
+                    }
+
+                    // If start was culled, we begin at y_top_tiles (clamped to 0).
+                    // Otherwise, we've already handled y_top_tiles, so start at +1.
+                    let y_start = if is_start_culled {
+                        y_top_tiles
+                    } else {
+                        y_top_tiles + 1
+                    };
+                    let line_bottom_floor = line_bottom_y.floor();
+                    let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
+                    for y_idx in y_start..y_end_idx {
+                        row_windings[y_idx as usize] += dir;
+                    }
+
+                    if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
+                        let end_height = line_bottom_y - line_bottom_floor;
+                        row_windings[y_end_idx as usize] += end_height * dir;
+                    }
+                    continue;
+                }
+            }
+
             // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
             let p0_tile_x = line_top_x.floor() as i32;
             let p0_tile_y = line_top_y.floor() as i32;
@@ -387,19 +428,9 @@ impl Tiles {
                     } else {
                         y_top_tiles + 1
                     };
-                    let line_bottom_floor = line_bottom_y.floor();
-                    let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
-
+                    let y_end_idx = (line_bottom_y.ceil() as u16).min(tile_rows);
                     for y_idx in y_start..y_end_idx {
                         let tile = Tile::new_clamped(x, y_idx, line_idx, 0b100000);
-                        self.tile_buf.push(tile);
-                    }
-
-                    // Row End, handle the final tile (y_end_idx), but *only* if the line does
-                    // not perfectly end on the top edge of the tile. In the case that it does,
-                    // it gets handled by the middle logic above.
-                    if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
-                        let tile = Tile::new_clamped(x, y_end_idx, line_idx, 0b100000);
                         self.tile_buf.push(tile);
                     }
                 } else {
@@ -492,6 +523,8 @@ impl Tiles {
                 self.tile_buf.push(tile);
             }
         }
+
+        return culling_opportunity;
     }
 
     /// Generates tile commands for MSAA (Multisample Anti-Aliasing) rasterization.
@@ -952,7 +985,7 @@ mod tests {
     use crate::kurbo::{Affine, BezPath};
     use crate::tile::{Tile, Tiles};
     use fearless_simd::Level;
-    use std::vec;
+    use std::vec::Vec;
 
     const W: u32 = 0b100000;
     const P: u32 = 0b010000;
@@ -963,6 +996,7 @@ mod tests {
 
     const VIEW_DIM: u16 = 100;
     const F_V_DIM: f32 = VIEW_DIM as f32;
+    const NO_EARLY_CULL: bool = false;
 
     impl Tiles {
         fn assert_tiles_match(
@@ -975,7 +1009,7 @@ mod tests {
             self.make_tiles_msaa(lines, width, height);
             assert_eq!(self.tile_buf, expected, "MSAA: Tile buffer mismatch");
 
-            self.make_tiles_analytic_aa(lines, width, height);
+            self.make_tiles_analytic_aa::<NO_EARLY_CULL>(lines, width, height, &mut Vec::new());
             check_analytic_aa_matches(&self.tile_buf, expected);
         }
     }
@@ -1342,7 +1376,7 @@ mod tests {
     #[test]
     fn vertical_path_on_the_right_of_viewport() {
         let path = BezPath::from_svg("M261,0 L78848,0 L78848,4 L261,4 Z").unwrap();
-        let mut line_buf = vec![];
+        let mut line_buf: Vec<Line> = Vec::new();
         fill(
             Level::try_detect().unwrap_or(Level::fallback()),
             &path,
@@ -1988,7 +2022,7 @@ mod tests {
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles_msaa(&[line], 600, 600);
-        tiles.make_tiles_analytic_aa(&[line], 600, 600);
+        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(&[line], 600, 600, &mut Vec::new());
     }
 
     #[test]
@@ -2006,13 +2040,13 @@ mod tests {
         };
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_analytic_aa(&[line], 200, 100);
+        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(&[line], 200, 100, &mut Vec::new());
         tiles.make_tiles_msaa(&[line], 200, 100);
     }
 
     #[test]
     fn sort_test() {
-        let mut lines = vec![];
+        let mut lines: Vec<Line> = Vec::new();
         let mut tiles = Tiles::new(Level::fallback());
 
         let step = 4.0;
@@ -2042,7 +2076,7 @@ mod tests {
         tiles.sort_tiles();
         check_sorted(&tiles.tile_buf);
 
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(&lines, VIEW_DIM, VIEW_DIM, &mut Vec::new());
         assert!(tiles.tile_buf.first().unwrap().y > tiles.tile_buf.last().unwrap().y);
         tiles.sort_tiles();
         check_sorted(&tiles.tile_buf);
