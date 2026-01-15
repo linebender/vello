@@ -431,8 +431,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             // noticeable as the seam is not anti-aliased. The flickering may
             // vary across machines. See
             // <https://github.com/linebender/vello/pull/1352>.
-            grad_pos.x = select(grad_pos.x, 0.0, abs(grad_pos.x) < NEARLY_ZERO_TOLERANCE);
-            grad_pos.y = select(grad_pos.y, 0.0, abs(grad_pos.y) < NEARLY_ZERO_TOLERANCE);
+            grad_pos = select(grad_pos, vec2(0.0), abs(grad_pos) < vec2(NEARLY_ZERO_TOLERANCE));
             
             // For sweep gradient, calculate angle from center using fast polynomial approximation
             let unit_angle = xy_to_unit_angle(grad_pos.x, grad_pos.y);
