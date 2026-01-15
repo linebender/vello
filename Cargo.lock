@@ -3975,7 +3975,6 @@ dependencies = [
 name = "vello_common"
 version = "0.0.6"
 dependencies = [
- "bitvec",
  "bytemuck",
  "fearless_simd",
  "hashbrown 0.16.1",

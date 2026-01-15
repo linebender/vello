@@ -18,7 +18,6 @@ targets = []
 
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
-bitvec = { version = "1.0.1", default-features = false, features = ["alloc"] }
 peniko = { workspace = true, features = ["bytemuck"] }
 fearless_simd = { workspace = true }
 hashbrown = { workspace = true, features = ["raw-entry"] }
