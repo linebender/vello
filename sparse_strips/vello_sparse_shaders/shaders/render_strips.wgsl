@@ -413,7 +413,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             
             // Calculate fragment position and apply transform
             let fragment_pos = in.sample_xy;
-            let grad_pos = vec2<f32>(
+            var grad_pos = vec2<f32>(
                 sweep_gradient.transform[0] * fragment_pos.x + 
                 sweep_gradient.transform[2] * fragment_pos.y + 
                 sweep_gradient.transform[4],
@@ -421,6 +421,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 sweep_gradient.transform[3] * fragment_pos.y + 
                 sweep_gradient.transform[5]
             );
+
+            // Before passing the position to the angle calculation, we bias
+            // very small coordinates to 0. Otherwise the sweep gradient's seam
+            // may flicker, because the angle calculation uses the coordinates'
+            // signs to select a quadrant. For coordinates around 0, slight
+            // noise in the coordinate calculation can then land the
+            // calculation in different quadrants. That flickering is quite
+            // noticeable as the seam is not anti-aliased. The flickering may
+            // vary across machines. See
+            // <https://github.com/linebender/vello/pull/1352>.
+            grad_pos = select(grad_pos, vec2(0.0), abs(grad_pos) < vec2(NEARLY_ZERO_TOLERANCE));
             
             // For sweep gradient, calculate angle from center using fast polynomial approximation
             let unit_angle = xy_to_unit_angle(grad_pos.x, grad_pos.y);
