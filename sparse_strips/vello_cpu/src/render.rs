@@ -77,7 +77,7 @@ pub struct RenderContext {
     pub(crate) render_settings: RenderSettings,
     dispatcher: Box<dyn Dispatcher>,
     #[cfg(feature = "text")]
-    pub(crate) glyph_caches: Option<vello_common::glyph::GlyphCaches>,
+    pub(crate) glyph_caches: Option<GlyphCaches>,
 }
 
 /// Settings to apply to the render context.
@@ -760,11 +760,11 @@ impl GlyphRenderer for RenderContext {
         }
     }
 
-    fn take_glyph_caches(&mut self) -> vello_common::glyph::GlyphCaches {
+    fn take_glyph_caches(&mut self) -> GlyphCaches {
         self.glyph_caches.take().unwrap()
     }
 
-    fn restore_glyph_caches(&mut self, cache: vello_common::glyph::GlyphCaches) {
+    fn restore_glyph_caches(&mut self, cache: GlyphCaches) {
         self.glyph_caches = Some(cache);
     }
 }

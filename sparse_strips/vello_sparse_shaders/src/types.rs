@@ -200,7 +200,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             .unwrap();
 
         // Write the vertex glsl shader.
-        let options = naga::back::glsl::Options {
+        let options = glsl::Options {
             version: Version::Embedded {
                 version: 300,
                 is_webgl: true,
@@ -244,7 +244,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let info = Validator::new(ValidationFlags::all(), Capabilities::default())
             .validate(&module)
             .unwrap();
-        let options = naga::back::glsl::Options {
+        let options = glsl::Options {
             version: Version::Embedded {
                 version: 300,
                 is_webgl: true,

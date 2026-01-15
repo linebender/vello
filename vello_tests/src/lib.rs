@@ -193,7 +193,7 @@ pub async fn get_scene_image(
         width,
         height,
         // TODO: Confirm
-        alpha_type: vello::peniko::ImageAlphaType::Alpha,
+        alpha_type: ImageAlphaType::Alpha,
     };
     Ok(image)
 }

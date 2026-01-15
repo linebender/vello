@@ -109,7 +109,7 @@ pub struct Scene {
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: StripStorage,
     /// Cache for rasterized glyphs to improve text rendering performance.
-    pub(crate) glyph_caches: Option<vello_common::glyph::GlyphCaches>,
+    pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
 }
@@ -528,11 +528,11 @@ impl GlyphRenderer for Scene {
         }
     }
 
-    fn take_glyph_caches(&mut self) -> vello_common::glyph::GlyphCaches {
+    fn take_glyph_caches(&mut self) -> GlyphCaches {
         self.glyph_caches.take().unwrap_or_default()
     }
 
-    fn restore_glyph_caches(&mut self, cache: vello_common::glyph::GlyphCaches) {
+    fn restore_glyph_caches(&mut self, cache: GlyphCaches) {
         self.glyph_caches = Some(cache);
     }
 }

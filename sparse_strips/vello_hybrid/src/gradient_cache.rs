@@ -269,7 +269,7 @@ pub(crate) struct CachedRamp {
 #[inline(always)]
 fn generate_gradient_lut_impl<S: Simd>(
     simd: S,
-    gradient: &vello_common::encode::EncodedGradient,
+    gradient: &EncodedGradient,
     output: &mut Vec<u8>,
 ) -> usize {
     let lut = gradient.u8_lut(simd);
