@@ -11,17 +11,31 @@
 
 </div>
 
-This crate implements a hybrid CPU/GPU renderer for Vello. It offloads fine rasterization and other GPU-suited tasks while keeping core path processing on the CPU, making it a balanced solution for a variety of hardware.
+<!-- We use cargo-rdme to update the README with the contents of lib.rs.
+To edit the following section, update it in lib.rs, then run:
+cargo rdme --workspace-project=vello_hybrid
+Full documentation at https://github.com/orium/cargo-rdme -->
 
-## Features
+<!-- Intra-doc links used in lib.rs should be evaluated here.
+See https://linebender.org/blog/doc-include/ for related discussion. -->
 
-- Hybrid rendering approach with CPU-based tiling and GPU-accelerated fine rasterization
-- Efficient path processing with sparse strip representation
-- Designed for performance across different hardware capabilities
+<!-- cargo-rdme start -->
 
-## Usage
+A hybrid CPU/GPU renderer for 2D vector graphics.
 
-This crate serves as an optimized hybrid rendering engine, leveraging both CPU and GPU where appropriate.
+This crate provides a rendering API that combines CPU and GPU operations for efficient
+vector graphics processing.
+The hybrid approach balances flexibility and performance by:
+
+- Using the CPU for path processing and initial geometry setup
+- Leveraging the GPU for fast rendering and compositing
+- Minimizing data transfer between CPU and GPU
+
+## Key Features
+
+- Efficient path rendering with CPU-side processing
+- GPU-accelerated compositing and blending
+- Support for both windowed and headless rendering
 
 ## Feature Flags
 
@@ -32,6 +46,18 @@ This crate serves as an optimized hybrid rendering engine, leveraging both CPU a
 If you need to customize the set of enabled wgpu features, disable this crate's default features then enable its `wgpu` feature.
 You can then depend on wgpu directly, setting the specific features you require.
 Don't forget to also disable wgpu's default features.
+
+## Architecture
+
+The renderer is split into several key components:
+
+- `Scene`: Manages the render context and path processing on the CPU
+- `Renderer` or `WebGlRenderer`: Handles GPU resource management and executes draw operations
+- `Scheduler`: Manages and schedules draw operations on the renderer.
+
+See the individual module documentation for more details on usage and implementation.
+
+<!-- cargo-rdme end -->
 
 ## Minimum supported Rust Version (MSRV)
 
@@ -71,5 +97,3 @@ Licensed under either of
 at your option.
 
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[Vello]: https://github.com/linebender/vello
-[the changelog]: https://github.com/linebender/vello/tree/main/CHANGELOG.md
