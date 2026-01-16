@@ -56,7 +56,7 @@ impl ClipContext {
         main_storage.set_generation_mode(GenerationMode::Append);
         Self {
             storage: main_storage,
-            temp_storage: Default::default(),
+            temp_storage: StripStorage::default(),
             clip_stack: vec![],
         }
     }

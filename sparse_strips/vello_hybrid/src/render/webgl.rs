@@ -43,7 +43,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
-use core::{fmt::Debug, mem};
+use core::fmt::Debug;
 use vello_common::{
     coarse::WideTile,
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
@@ -1057,9 +1057,9 @@ impl WebGlPrograms {
 struct WebGlStateGuard<'a> {
     gl: &'a WebGl2RenderingContext,
     config: WebGlStateConfig,
-    original_framebuffer: Option<web_sys::WebGlFramebuffer>,
-    original_read_framebuffer: Option<web_sys::WebGlFramebuffer>,
-    original_texture_2d_array: Option<web_sys::WebGlTexture>,
+    original_framebuffer: Option<WebGlFramebuffer>,
+    original_read_framebuffer: Option<WebGlFramebuffer>,
+    original_texture_2d_array: Option<WebGlTexture>,
     scissor_enabled: bool,
     viewport: [i32; 4],
 }
@@ -1071,7 +1071,7 @@ impl<'a> WebGlStateGuard<'a> {
         let original_framebuffer = if config.framebuffer {
             gl.get_parameter(WebGl2RenderingContext::FRAMEBUFFER_BINDING)
                 .ok()
-                .and_then(|v| v.dyn_into::<web_sys::WebGlFramebuffer>().ok())
+                .and_then(|v| v.dyn_into::<WebGlFramebuffer>().ok())
         } else {
             None
         };
@@ -1080,7 +1080,7 @@ impl<'a> WebGlStateGuard<'a> {
         let original_read_framebuffer = if config.read_framebuffer {
             gl.get_parameter(WebGl2RenderingContext::READ_FRAMEBUFFER_BINDING)
                 .ok()
-                .and_then(|v| v.dyn_into::<web_sys::WebGlFramebuffer>().ok())
+                .and_then(|v| v.dyn_into::<WebGlFramebuffer>().ok())
         } else {
             None
         };
@@ -1089,7 +1089,7 @@ impl<'a> WebGlStateGuard<'a> {
         let original_texture_2d_array = if config.texture_2d_array {
             gl.get_parameter(WebGl2RenderingContext::TEXTURE_BINDING_2D_ARRAY)
                 .ok()
-                .and_then(|v| v.dyn_into::<web_sys::WebGlTexture>().ok())
+                .and_then(|v| v.dyn_into::<WebGlTexture>().ok())
         } else {
             None
         };
@@ -1658,7 +1658,7 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
         Some(&resources.strips_buffer),
     );
 
-    let stride = mem::size_of::<GpuStrip>() as i32;
+    let stride = size_of::<GpuStrip>() as i32;
     debug_assert_eq!(stride, 20, "expected stride of 20");
 
     // Configure attributes.
@@ -2142,7 +2142,7 @@ struct WebGlTextureSize {
 fn copy_to_texture_array_layer(
     gl: &WebGl2RenderingContext,
     source_setup: impl FnOnce(&WebGl2RenderingContext),
-    dest_texture_array: &web_sys::WebGlTexture,
+    dest_texture_array: &WebGlTexture,
     dest_layer: u32,
     dest_offset: [u32; 2],
     copy_size: [u32; 2],

@@ -10,7 +10,7 @@ use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
-use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
+use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{Paint, PaintType};
@@ -109,7 +109,7 @@ pub struct Scene {
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: StripStorage,
     /// Cache for rasterized glyphs to improve text rendering performance.
-    pub(crate) glyph_caches: Option<vello_common::glyph::GlyphCaches>,
+    pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
 }
@@ -140,7 +140,7 @@ impl Scene {
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
             blend_mode: render_state.blend_mode,
-            glyph_caches: Some(Default::default()),
+            glyph_caches: Some(GlyphCaches::default()),
             render_graph,
         }
     }
@@ -528,11 +528,11 @@ impl GlyphRenderer for Scene {
         }
     }
 
-    fn take_glyph_caches(&mut self) -> vello_common::glyph::GlyphCaches {
+    fn take_glyph_caches(&mut self) -> GlyphCaches {
         self.glyph_caches.take().unwrap_or_default()
     }
 
-    fn restore_glyph_caches(&mut self, cache: vello_common::glyph::GlyphCaches) {
+    fn restore_glyph_caches(&mut self, cache: GlyphCaches) {
         self.glyph_caches = Some(cache);
     }
 }

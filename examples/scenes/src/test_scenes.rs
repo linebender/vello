@@ -1614,7 +1614,7 @@ mod impls {
         let outer_r = 90.0;
         let start_angle = -std::f64::consts::FRAC_PI_2;
         let pts: [Point; 5] = core::array::from_fn(|i| {
-            let a = start_angle + (i as f64) * (2.0 * std::f64::consts::PI / 5.0);
+            let a = start_angle + (i as f64) * (2.0 * PI / 5.0);
             center + Vec2::new(a.cos() * outer_r, a.sin() * outer_r)
         });
         let order = [0_usize, 2, 4, 1, 3];
@@ -1648,7 +1648,7 @@ mod impls {
         let outer_r = 85.0;
         let start_angle = -std::f64::consts::FRAC_PI_2;
         let pts: [Point; 5] = core::array::from_fn(|i| {
-            let a = start_angle + (i as f64) * (2.0 * std::f64::consts::PI / 5.0);
+            let a = start_angle + (i as f64) * (2.0 * PI / 5.0);
             center + Vec2::new(a.cos() * outer_r, a.sin() * outer_r)
         });
         let order = [0_usize, 2, 4, 1, 3];
@@ -1687,7 +1687,7 @@ mod impls {
         let outer_r = 85.0;
         let start_angle = -std::f64::consts::FRAC_PI_2;
         let pts: [Point; 5] = core::array::from_fn(|i| {
-            let a = start_angle + (i as f64) * (2.0 * std::f64::consts::PI / 5.0);
+            let a = start_angle + (i as f64) * (2.0 * PI / 5.0);
             center + Vec2::new(a.cos() * outer_r, a.sin() * outer_r)
         });
         let order = [0_usize, 2, 4, 1, 3];

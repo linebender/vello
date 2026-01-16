@@ -376,7 +376,7 @@ impl Scheduler {
             round: 0,
             total_slots,
             free,
-            rounds_queue: Default::default(),
+            rounds_queue: VecDeque::new(),
         }
     }
 
@@ -1056,7 +1056,7 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
     // Reserve room for three extra items such that we can prevent repeated blends into the surface.
     let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Vec::with_capacity(cmds.len() + 3);
-    let mut pointer_to_push_buf_stack: Vec<usize> = Default::default();
+    let mut pointer_to_push_buf_stack: Vec<usize> = Vec::new();
     // We pretend that the surface might be blended into. This will be removed if no blends occur to
     // the surface.
     pointer_to_push_buf_stack.push(0);

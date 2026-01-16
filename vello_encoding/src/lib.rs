@@ -26,7 +26,6 @@
 )]
 #![allow(
     unnameable_types,
-    clippy::shadow_unrelated,
     reason = "Deferred, only apply in some feature sets so not expect"
 )]
 

@@ -20,8 +20,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
-use core::{fmt::Debug, mem, num::NonZeroU64};
-use wgpu::Extent3d;
+use core::{fmt::Debug, num::NonZeroU64};
 
 use crate::AtlasConfig;
 use crate::multi_atlas::AtlasId;
@@ -54,8 +53,9 @@ use vello_common::{
 };
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
-    Device, PipelineCompilationOptions, Queue, RenderPassColorAttachment, RenderPassDescriptor,
-    RenderPipeline, Texture, TextureView, util::DeviceExt,
+    Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment,
+    RenderPassDescriptor, RenderPipeline, Texture, TextureView, TextureViewDescriptor,
+    util::DeviceExt,
 };
 
 /// Placeholder value for uninitialized GPU encoded paints.
@@ -254,7 +254,7 @@ impl Renderer {
             self.programs
                 .resources
                 .atlas_texture_array
-                .create_view(&wgpu::TextureViewDescriptor {
+                .create_view(&TextureViewDescriptor {
                     label: Some("Atlas Layer Clear View"),
                     format: Some(wgpu::TextureFormat::Rgba8Unorm),
                     dimension: Some(wgpu::TextureViewDimension::D2),
@@ -267,9 +267,9 @@ impl Renderer {
                     usage: None,
                 });
 
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Clear Atlas Region"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            color_attachments: &[Some(RenderPassColorAttachment {
                 view: &layer_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
@@ -774,7 +774,7 @@ impl Programs {
             device
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some("Slot Texture"),
-                    size: wgpu::Extent3d {
+                    size: Extent3d {
                         width: u32::from(WideTile::WIDTH),
                         height: u32::from(Tile::HEIGHT) * slot_count as u32,
                         depth_or_array_layers: 1,
@@ -788,7 +788,7 @@ impl Programs {
                         | wgpu::TextureUsages::COPY_SRC,
                     view_formats: &[],
                 })
-                .create_view(&wgpu::TextureViewDescriptor::default())
+                .create_view(&TextureViewDescriptor::default())
         });
 
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -872,7 +872,7 @@ impl Programs {
         let encoded_paints_bind_group = Self::create_encoded_paints_bind_group(
             device,
             &encoded_paints_bind_group_layout,
-            &encoded_paints_texture.create_view(&Default::default()),
+            &encoded_paints_texture.create_view(&TextureViewDescriptor::default()),
         );
 
         const INITIAL_GRADIENT_TEXTURE_HEIGHT: u32 = 1;
@@ -884,13 +884,13 @@ impl Programs {
         let gradient_bind_group = Self::create_gradient_bind_group(
             device,
             &gradient_bind_group_layout,
-            &gradient_texture.create_view(&Default::default()),
+            &gradient_texture.create_view(&TextureViewDescriptor::default()),
         );
 
         let slot_bind_groups = Self::create_strip_bind_groups(
             device,
             &strip_bind_group_layout,
-            &alphas_texture.create_view(&Default::default()),
+            &alphas_texture.create_view(&TextureViewDescriptor::default()),
             &slot_config_buffer,
             &view_config_buffer,
             &slot_texture_views,
@@ -970,7 +970,7 @@ impl Programs {
     fn create_alphas_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Alpha Texture"),
-            size: wgpu::Extent3d {
+            size: Extent3d {
                 width,
                 height,
                 depth_or_array_layers: 1,
@@ -993,7 +993,7 @@ impl Programs {
         // Create a single texture array with multiple layers
         let atlas_texture_array = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture Array"),
-            size: wgpu::Extent3d {
+            size: Extent3d {
                 width,
                 height,
                 depth_or_array_layers: atlas_count,
@@ -1009,18 +1009,17 @@ impl Programs {
             view_formats: &[],
         });
 
-        let atlas_texture_array_view =
-            atlas_texture_array.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("Atlas Texture Array View"),
-                format: None,
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
-                aspect: wgpu::TextureAspect::All,
-                base_mip_level: 0,
-                mip_level_count: None,
-                base_array_layer: 0,
-                array_layer_count: Some(atlas_count),
-                usage: None,
-            });
+        let atlas_texture_array_view = atlas_texture_array.create_view(&TextureViewDescriptor {
+            label: Some("Atlas Texture Array View"),
+            format: None,
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            aspect: wgpu::TextureAspect::All,
+            base_mip_level: 0,
+            mip_level_count: None,
+            base_array_layer: 0,
+            array_layer_count: Some(atlas_count),
+            usage: None,
+        });
 
         (atlas_texture_array, atlas_texture_array_view)
     }
@@ -1043,7 +1042,7 @@ impl Programs {
     fn create_encoded_paints_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Encoded Paints Texture"),
-            size: wgpu::Extent3d {
+            size: Extent3d {
                 width,
                 height,
                 depth_or_array_layers: 1,
@@ -1075,7 +1074,7 @@ impl Programs {
     fn create_gradient_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Gradient Texture"),
-            size: wgpu::Extent3d {
+            size: Extent3d {
                 width,
                 height,
                 depth_or_array_layers: 1,
@@ -1234,7 +1233,7 @@ impl Programs {
                 &self
                     .resources
                     .alphas_texture
-                    .create_view(&Default::default()),
+                    .create_view(&TextureViewDescriptor::default()),
                 &self.resources.slot_config_buffer,
                 &self.resources.view_config_buffer,
                 &self.resources.slot_texture_views,
@@ -1279,7 +1278,7 @@ impl Programs {
                 &self
                     .resources
                     .encoded_paints_texture
-                    .create_view(&Default::default()),
+                    .create_view(&TextureViewDescriptor::default()),
             );
         }
     }
@@ -1317,7 +1316,7 @@ impl Programs {
                 &self
                     .resources
                     .gradient_texture
-                    .create_view(&Default::default()),
+                    .create_view(&TextureViewDescriptor::default()),
             );
         }
     }
@@ -1411,7 +1410,7 @@ impl Programs {
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::Extent3d {
+            Extent3d {
                 width,
                 height,
                 depth_or_array_layers: layer_count_to_copy,
@@ -1449,7 +1448,7 @@ impl Programs {
                 bytes_per_row: Some(texture_width << 4),
                 rows_per_image: Some(texture_height),
             },
-            wgpu::Extent3d {
+            Extent3d {
                 width: texture_width,
                 height: texture_height,
                 depth_or_array_layers: 1,
@@ -1478,7 +1477,7 @@ impl Programs {
                 bytes_per_row: Some(encoded_paints_texture_width << 4),
                 rows_per_image: Some(encoded_paints_texture_height),
             },
-            wgpu::Extent3d {
+            Extent3d {
                 width: encoded_paints_texture_width,
                 height: encoded_paints_texture_height,
                 depth_or_array_layers: 1,
@@ -1515,7 +1514,7 @@ impl Programs {
                     bytes_per_row: Some(gradient_texture_width << 2),
                     rows_per_image: Some(gradient_texture_height),
                 },
-                wgpu::Extent3d {
+                Extent3d {
                     width: gradient_texture_width,
                     height: gradient_texture_height,
                     depth_or_array_layers: 1,
@@ -1605,7 +1604,7 @@ impl RendererContext<'_> {
         }
 
         let resources = &mut self.programs.resources;
-        let size = mem::size_of_val(slot_indices) as u64;
+        let size = size_of_val(slot_indices) as u64;
         // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
         // approach would be to re-use buffers or slices of a larger buffer.
         resources.clear_slot_indices_buffer =
@@ -1654,12 +1653,7 @@ impl RendererBackend for RendererContext<'_> {
     }
 
     /// Execute the render pass for rendering strips.
-    fn render_strips(
-        &mut self,
-        strips: &[GpuStrip],
-        target_index: usize,
-        load_op: crate::schedule::LoadOp,
-    ) {
+    fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp) {
         let wgpu_load_op = match load_op {
             LoadOp::Load => wgpu::LoadOp::Load,
             LoadOp::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
@@ -1687,7 +1681,7 @@ pub trait AtlasWriter {
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-        atlas_texture: &wgpu::Texture,
+        atlas_texture: &Texture,
         layer: u32,
         offset: [u32; 2],
         width: u32,
@@ -1696,7 +1690,7 @@ pub trait AtlasWriter {
 }
 
 /// Implementation for `wgpu::Texture` - uses texture-to-texture copy
-impl AtlasWriter for wgpu::Texture {
+impl AtlasWriter for Texture {
     fn width(&self) -> u32 {
         self.width()
     }
@@ -1710,7 +1704,7 @@ impl AtlasWriter for wgpu::Texture {
         _device: &Device,
         _queue: &Queue,
         encoder: &mut CommandEncoder,
-        atlas_texture: &wgpu::Texture,
+        atlas_texture: &Texture,
         layer: u32,
         offset: [u32; 2],
         width: u32,
@@ -1733,7 +1727,7 @@ impl AtlasWriter for wgpu::Texture {
                 },
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::Extent3d {
+            Extent3d {
                 width,
                 height,
                 depth_or_array_layers: 1,
@@ -1757,7 +1751,7 @@ impl AtlasWriter for Pixmap {
         _device: &Device,
         queue: &Queue,
         _encoder: &mut CommandEncoder,
-        atlas_texture: &wgpu::Texture,
+        atlas_texture: &Texture,
         layer: u32,
         offset: [u32; 2],
         width: u32,
@@ -1780,7 +1774,7 @@ impl AtlasWriter for Pixmap {
                 bytes_per_row: Some(4 * width),
                 rows_per_image: Some(height),
             },
-            wgpu::Extent3d {
+            Extent3d {
                 width,
                 height,
                 depth_or_array_layers: 1,
@@ -1804,7 +1798,7 @@ impl AtlasWriter for Arc<Pixmap> {
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-        atlas_texture: &wgpu::Texture,
+        atlas_texture: &Texture,
         layer: u32,
         offset: [u32; 2],
         width: u32,

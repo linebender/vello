@@ -21,7 +21,6 @@
     unreachable_pub,
     missing_docs,
     clippy::missing_assert_message,
-    clippy::shadow_unrelated,
     clippy::print_stderr,
     clippy::print_stdout,
     clippy::allow_attributes_without_reason
@@ -194,7 +193,7 @@ pub async fn get_scene_image(
         width,
         height,
         // TODO: Confirm
-        alpha_type: vello::peniko::ImageAlphaType::Alpha,
+        alpha_type: ImageAlphaType::Alpha,
     };
     Ok(image)
 }

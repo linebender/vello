@@ -9,8 +9,7 @@
 #![allow(
     unreachable_pub,
     clippy::allow_attributes_without_reason,
-    clippy::cast_possible_truncation,
-    clippy::shadow_unrelated
+    clippy::cast_possible_truncation
 )]
 
 use std::collections::HashSet;

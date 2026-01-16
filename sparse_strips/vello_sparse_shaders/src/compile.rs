@@ -28,7 +28,7 @@ pub(crate) fn compile_wgsl_shader(
         .validate(&module)
         .unwrap();
 
-    let options = naga::back::glsl::Options {
+    let options = glsl::Options {
         version: Version::Embedded {
             version: 300,
             is_webgl: true,
