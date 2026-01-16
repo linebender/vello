@@ -97,5 +97,3 @@ Licensed under either of
 at your option.
 
 [Rust code of conduct]: https://www.rust-lang.org/policies/code-of-conduct
-[Vello]: https://github.com/linebender/vello
-[the changelog]: https://github.com/linebender/vello/tree/main/CHANGELOG.md
