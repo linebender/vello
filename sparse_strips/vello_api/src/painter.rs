@@ -57,13 +57,50 @@ pub type StandardBrush = peniko::Brush<peniko::ImageBrush<TextureId>>;
 /// [`append`]: PaintScene::append
 /// [`Renderer`]: crate::Renderer
 pub trait PaintScene: Any {
-    // Error if associated with different renderer.
     // TODO: This also "clobbers" the brush; we need to document that.
+    /// Insert the contents of `Scene` into the drawing sequence at this point, with the 2d affine
+    /// `transform` applied to its contents.
+    ///
+    /// This will change the currently active brush, so you must reset the brush after calling this method.
+    /// (TODO: Change the brush design, because that's stupid!)
+    ///
+    /// # Errors
+    ///
+    /// This returns an error if:
+    /// - `scene` is hinted, but `self` cannot guarantee that the hinting properties would be maintained.
+    ///   Hinted scenes can be appended to the final, renderer-specific, implementations of `PaintScene`
+    ///   or to other hinted `Scene`s.
+    /// - `scene` is hinted, but the transform would remove the hinting property.
+    ///   For hinted scenes, the only valid transforms are integer translations.
+    /// - `scene` does not apply to the same renderer as `self`.
+    /// - `scene` has unbalanced layers (TODO: This isn't implemented yet).
     fn append(&mut self, transform: Affine, scene: &Scene) -> Result<(), ()>;
 
+    /// Fill the interior of the closed path described by `path` with the current brush.
+    ///
+    /// Both `path` and the current brush will be transformed using the 2d affine `transform`.
+    /// For self-intersecting or nested paths, the areas which are treated as the interior
+    /// will be determined using the given `fill_rule`.
+    /// See the documentation on [`Fill`]'s variants for details on when you might choose a given
+    /// fill rule.
+    ///
+    /// If `path` is not a closed path, a fallback straight-line closing segment may be appended.
+    /// (TODO: Should we give a warning of some kind as well?)
+    // It would be really nice to have images of nested paths here, to explain winding numbers.
     fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape);
+
+    /// Stroke along `path` with the current brush, following the given stroke parameters.
+    ///
+    /// Both the stroked area and the current brush will be transformed using the 2d affine `transform`.
+    /// Dashes configured in the stroke parameter will be expanded.
     fn stroke_path(&mut self, transform: Affine, stroke_params: &Stroke, path: impl Shape);
 
+    /// Set the current brush to `brush`.
+    ///
+    /// This method is used to set the brush for images and gradients.
+    /// The `paint_transform` will be applied to only the brush contents, in
+    /// addition to the transform applied to the object.
+    /// For solid colors, this has no effect, and so you may prefer [`set_solid_brush`](PaintScene::set_solid_brush).
     fn set_brush(
         &mut self,
         brush: impl Into<StandardBrush>,
@@ -84,6 +121,8 @@ pub trait PaintScene: Any {
         radius: f32,
         std_dev: f32,
     );
+
+    /// Set the current brush to a solid `color`.
     fn set_solid_brush(&mut self, color: Color) {
         // The transform doesn't matter for a solid color brush.
         self.set_brush(Brush::Solid(color), Affine::IDENTITY);

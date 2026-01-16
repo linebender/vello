@@ -85,6 +85,8 @@ pub struct BlurredRoundedRectBrush {
 /// on the physical pixel grid when the content is rendered.
 /// This is especially useful for improving the clarity of text, but it also
 /// allows drawing single-pixel lines for user interfaces.
+/// This hinting property allows improved performance through caching
+/// of intermediate rendering stages.
 ///
 /// However, this does mean that more advanced transformations are not possible on hinted scenes.
 ///
