@@ -4,8 +4,6 @@
 // After you edit the crate's doc comment, run this command, then check README.md for any missing links
 // cargo rdme --workspace-project=vello_hybrid
 
-//! # Vello Hybrid
-//!
 //! A hybrid CPU/GPU renderer for 2D vector graphics.
 //!
 //! This crate provides a rendering API that combines CPU and GPU operations for efficient
@@ -16,13 +14,13 @@
 //! - Leveraging the GPU for fast rendering and compositing
 //! - Minimizing data transfer between CPU and GPU
 //!
-//! ## Key Features
+//! # Key Features
 //!
 //! - Efficient path rendering with CPU-side processing
 //! - GPU-accelerated compositing and blending
 //! - Support for both windowed and headless rendering
 //!
-//! ## Feature Flags
+//! # Feature Flags
 //!
 //! - `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
 //! - `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
@@ -32,7 +30,7 @@
 //! You can then depend on wgpu directly, setting the specific features you require.
 //! Don't forget to also disable wgpu's default features.
 //!
-//! ## Architecture
+//! # Architecture
 //!
 //! The renderer is split into several key components:
 //!

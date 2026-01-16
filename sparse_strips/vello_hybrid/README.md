@@ -13,15 +13,13 @@
 
 <!-- We use cargo-rdme to update the README with the contents of lib.rs.
 To edit the following section, update it in lib.rs, then run:
-cargo rdme --workspace-project=vello_hybrid --heading-base-level=0
+cargo rdme --workspace-project=vello_hybrid
 Full documentation at https://github.com/orium/cargo-rdme -->
 
 <!-- Intra-doc links used in lib.rs should be evaluated here.
 See https://linebender.org/blog/doc-include/ for related discussion. -->
 
 <!-- cargo-rdme start -->
-
-## Vello Hybrid
 
 A hybrid CPU/GPU renderer for 2D vector graphics.
 
@@ -33,13 +31,13 @@ The hybrid approach balances flexibility and performance by:
 - Leveraging the GPU for fast rendering and compositing
 - Minimizing data transfer between CPU and GPU
 
-### Key Features
+## Key Features
 
 - Efficient path rendering with CPU-side processing
 - GPU-accelerated compositing and blending
 - Support for both windowed and headless rendering
 
-### Feature Flags
+## Feature Flags
 
 - `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
 - `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
@@ -49,7 +47,7 @@ If you need to customize the set of enabled wgpu features, disable this crate's 
 You can then depend on wgpu directly, setting the specific features you require.
 Don't forget to also disable wgpu's default features.
 
-### Architecture
+## Architecture
 
 The renderer is split into several key components:
 
