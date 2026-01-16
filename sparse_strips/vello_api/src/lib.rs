@@ -138,7 +138,7 @@ pub mod paths;
 pub mod scene;
 pub mod texture;
 
-pub use self::painter::{PaintScene, SceneOptions};
+pub use self::painter::{PaintScene, StandardBrush};
 pub use self::scene::Scene;
 
 pub use ::peniko;

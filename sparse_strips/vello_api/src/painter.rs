@@ -6,7 +6,11 @@ use core::any::Any;
 use peniko::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use peniko::{BlendMode, Brush, Color, Fill};
 
-use crate::scene::{Scene, StandardBrush};
+use crate::scene::Scene;
+use crate::texture::TextureId;
+
+/// The brush type used for most painting operations in Vello API.
+pub type StandardBrush = peniko::Brush<peniko::ImageBrush<TextureId>>;
 
 /// A 2d scene or canvas.
 ///
@@ -128,27 +132,4 @@ pub trait PaintScene: Any {
     }
 
     fn pop_layer(&mut self);
-}
-
-#[derive(Debug)]
-pub struct SceneOptions {
-    /// The target area within the Texture to render to.
-    ///
-    /// If `None`, will render to the whole texture.
-    /// Format: (x0, y0, width, height).
-    // TODO: This is currently extremely underutilised - it's only used for
-    // resizing the canvas in webgl.
-    pub target: Option<(u16, u16, u16, u16)>,
-    /// The color which the texture will be cleared to before drawing.
-    ///
-    /// If this is `None`, the previous content will be retained.
-    /// This is useful for use cases such as the web's `CanvasRenderingContext2D`,
-    /// which doesn't have automatic clearing.
-    pub clear_color: Option<Color>,
-}
-
-impl SceneOptions {
-    pub fn size(&self) -> Option<(u16, u16)> {
-        self.target.map(|(_, _, width, height)| (width, height))
-    }
 }

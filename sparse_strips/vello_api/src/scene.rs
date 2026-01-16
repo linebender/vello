@@ -16,9 +16,8 @@ use peniko::{
 };
 
 use crate::{
-    PaintScene,
+    PaintScene, StandardBrush,
     paths::{PathId, PathSet},
-    texture::TextureId,
 };
 
 /// A single render command in a `Scene`. Each [`PaintScene`] method on the scene adds one of these.
@@ -63,10 +62,17 @@ pub struct PushLayerCommand {
 /// Command for setting the brush to be a blurred rounded rectangle.
 #[derive(Debug, Clone)]
 pub struct BlurredRoundedRectBrush {
+    /// The transform which will be applied to the rectangle to be drawn.
+    /// This applies after the path transform.
     pub paint_transform: kurbo::Affine,
+    /// The color of the rectangle.
     pub color: peniko::Color,
+    /// The rectangle before transformation.
     pub rect: kurbo::Rect,
+    /// The corner radius.
     pub radius: f32,
+    /// The standard deviation of the blur.
+    /// Higher means a "more blurred" rectangle
     pub std_dev: f32,
 }
 
@@ -74,20 +80,36 @@ pub struct BlurredRoundedRectBrush {
 ///
 /// # Hinting
 ///
-/// TODO: Describe how a scene can be "hinted", i.e. the drawing operations know they will only be translated, and therefore can
-/// design to specific pixels.
-/// Usefulness for drawing glyphs (i.e. characters of text) and, but more invalidation required.
+/// A `Scene` can optionally be marked as "hinted".
+/// This means that the units of any input drawing operations will always fall
+/// on the physical pixel grid when the content is rendered.
+/// This is especially useful for improving the clarity of text, but it also
+/// allows drawing single-pixel lines for user interfaces.
+///
+/// However, this does mean that more advanced transformations are not possible on hinted scenes.
+///
+/// # Usage
+///
+/// This type has public fields as an interim basis.
+/// To use this type, you should use the methods on its implementation of [`PaintScene`] instead.
 #[derive(Debug)]
 // TODO: Reason about visibility; do we want a more limited "expose" operation
 // which lets you read all the fields?
 // This also applies to `PathSet`
 pub struct Scene {
+    /// The paths in this Scene.
     pub paths: PathSet,
+    /// The ordered sequence of render commands.
     pub commands: Vec<RenderCommand>,
+    /// Whether this `Scene` is hinted.
     pub hinted: bool,
 }
 
 impl Scene {
+    /// Create a new reusable `Scene`.
+    ///
+    /// If `hinted` is true, this Scene is hinted.
+    /// See the documentation on this type for details of what that means.
     pub fn new(hinted: bool) -> Self {
         Self {
             paths: PathSet::new(),
@@ -95,22 +117,22 @@ impl Scene {
             hinted,
         }
     }
-    // TODO: Consider a "simple" constructor which doesn't require a renderer, and therefore doesn't allow textures.
-}
 
-impl Scene {
+    /// Removes all content from this `Scene`.
+    ///
+    /// Does not reset the hinted value.
     pub fn clear(&mut self) {
         self.commands.clear();
         self.paths.clear();
     }
+
+    /// Returns true if this `Scene` is hinted.
+    ///
+    /// See the type level documentation for more information.
     pub fn hinted(&self) -> bool {
         self.hinted
     }
 }
-
-// TODO: Change module and give a better name.
-/// The brush type used for most painting operations.
-pub type StandardBrush = peniko::Brush<peniko::ImageBrush<TextureId>>;
 
 /// Extract the translation component from a 2d Affine transformation, if the
 /// transform is equivalent to an exact integer translation.
