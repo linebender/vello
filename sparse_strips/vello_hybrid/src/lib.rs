@@ -1,6 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// After you edit the crate's doc comment, run this command, then check README.md for any missing links
+// cargo rdme --workspace-project=vello_hybrid
+
 //! # Vello Hybrid
 //!
 //! A hybrid CPU/GPU renderer for 2D vector graphics.
@@ -18,7 +21,6 @@
 //! - Efficient path rendering with CPU-side processing
 //! - GPU-accelerated compositing and blending
 //! - Support for both windowed and headless rendering
-//!
 //!
 //! ## Feature Flags
 //!

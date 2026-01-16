@@ -39,7 +39,6 @@ The hybrid approach balances flexibility and performance by:
 - GPU-accelerated compositing and blending
 - Support for both windowed and headless rendering
 
-
 ### Feature Flags
 
 - `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
