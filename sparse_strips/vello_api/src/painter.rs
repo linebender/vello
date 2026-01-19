@@ -49,13 +49,13 @@ pub type StandardBrush = Brush<ImageBrush<TextureId>>;
 /// using [`Renderer::create_scene`]) it could be transformed, so any part of the scene could be visible.
 /// As such, the inferred clipping from the scene viewports is limited.
 ///
-/// [`Renderer::create_scene`]: crate::Renderer::create_scene
+/// [`Renderer::create_scene`]: todo
 /// [`set_blurred_rounded_rect_brush`]: PaintScene::set_blurred_rounded_rect_brush
 /// [`set_brush`]: PaintScene::set_brush
 /// [`set_solid_brush`]: PaintScene::set_solid_brush
 /// [`fill_path`]: PaintScene::fill_path
 /// [`append`]: PaintScene::append
-/// [`Renderer`]: crate::Renderer
+/// [`Renderer`]: todo
 pub trait PaintScene: Any {
     // TODO: This also "clobbers" the brush; we need to document that.
     /// Insert the contents of `Scene` into the drawing sequence at this point, with the 2d affine

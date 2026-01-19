@@ -5,7 +5,7 @@
 //!
 //! This is an internal implementation detail of [`Scene`](crate::Scene).
 //! If you're a consumer of Vello API writing an application, you do not need to use this API.
-//! Instead, this is exposed for use by [`Renderer`](crate::Renderer)s.
+//! Instead, this is exposed for use by renderers.
 //!
 //! This design has been made with "path caching" in mind, which will allow using rasterised forms of
 //! paths (such as glyphs) directly in the renderer, instead of rasterising from scratch each frame.
