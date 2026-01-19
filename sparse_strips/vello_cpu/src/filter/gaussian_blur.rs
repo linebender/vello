@@ -28,11 +28,22 @@ use vello_common::peniko::color::PremulRgba8;
 use vello_common::peniko::kurbo::common::FloatFuncs as _;
 use vello_common::pixmap::Pixmap;
 
-/// Maximum size of the Gaussian kernel (must be odd).
+/// Maximum size of the Gaussian kernel (must be odd and equal to or smaller than [`u8::MAX`]).
+///
 /// The multi-scale decimation algorithm guarantees that kernel size never exceeds this value.
 /// Decimation stops when remaining variance ≤ 4.0 (σ ≤ 2.0), which produces kernels of size
 /// at most 13 (radius = ceil(3σ) = 6, size = 1 + 2×6 = 13).
 pub(crate) const MAX_KERNEL_SIZE: usize = 13;
+
+#[cfg(test)]
+const _: () = const {
+    if MAX_KERNEL_SIZE.is_multiple_of(2) {
+        panic!("`MAX_KERNEL_SIZE` must be odd");
+    }
+    if MAX_KERNEL_SIZE > u8::MAX as usize {
+        panic!("`MAX_KERNEL_SIZE` must be less than or equal to `u8::MAX`");
+    }
+};
 
 pub(crate) struct GaussianBlur {
     std_deviation: f32,
@@ -42,7 +53,7 @@ pub(crate) struct GaussianBlur {
     /// Only the first `kernel_size` elements are valid.
     kernel: [f32; MAX_KERNEL_SIZE],
     /// Actual length of the kernel (rest is padding up to `MAX_KERNEL_SIZE`).
-    kernel_size: usize,
+    kernel_size: u8,
     /// Edge mode for handling out-of-bounds sampling.
     edge_mode: EdgeMode,
 }
@@ -76,7 +87,7 @@ impl FilterEffect for GaussianBlur {
             pixmap,
             scratch,
             self.n_decimations,
-            &self.kernel[..self.kernel_size],
+            &self.kernel[..usize::from(self.kernel_size)],
             self.edge_mode,
         );
     }
@@ -94,7 +105,7 @@ impl FilterEffect for GaussianBlur {
 /// - `n_decimations`: Number of 2× downsampling steps to perform (per axis)
 /// - `kernel`: Pre-computed Gaussian kernel weights (fixed-size array)
 /// - `kernel_size`: Actual length of the kernel (rest is zero-padded)
-pub(crate) fn plan_decimated_blur(std_deviation: f32) -> (usize, [f32; MAX_KERNEL_SIZE], usize) {
+pub(crate) fn plan_decimated_blur(std_deviation: f32) -> (usize, [f32; MAX_KERNEL_SIZE], u8) {
     if std_deviation <= 0.0 {
         // Invalid standard deviation, return identity kernel (no blur)
         let mut kernel = [0.0; MAX_KERNEL_SIZE];
@@ -135,11 +146,11 @@ pub(crate) fn plan_decimated_blur(std_deviation: f32) -> (usize, [f32; MAX_KERNE
 /// Returns (`kernel_weights`, `kernel_size`) where `kernel_size = 2×radius + 1`.
 /// The kernel is stored in a fixed-size array to avoid heap allocation.
 /// Uses the standard Gaussian formula: G(x) = exp(-x² / (2σ²)), normalized to sum to 1.
-pub(crate) fn compute_gaussian_kernel(std_deviation: f32) -> ([f32; MAX_KERNEL_SIZE], usize) {
+pub(crate) fn compute_gaussian_kernel(std_deviation: f32) -> ([f32; MAX_KERNEL_SIZE], u8) {
     // Use radius = 3σ to capture 99.7% of the Gaussian distribution.
     // Beyond ±3σ, the Gaussian values are negligible (<0.3%).
     let radius = (3.0 * std_deviation).ceil() as usize;
-    let kernel_size = (1 + radius * 2).min(MAX_KERNEL_SIZE);
+    let kernel_size = (1 + radius * 2).min(MAX_KERNEL_SIZE) as u8;
 
     let mut kernel = [0.0; MAX_KERNEL_SIZE];
     // Compute Gaussian weights using the formula: G(x) = exp(-x² / (2σ²))
@@ -147,7 +158,7 @@ pub(crate) fn compute_gaussian_kernel(std_deviation: f32) -> ([f32; MAX_KERNEL_S
     let gaussian_denominator = 2.0 * std_deviation * std_deviation;
     let mut sum = 0.0;
     let kernel_center = (kernel_size / 2) as f32;
-    for (i, weight) in kernel.iter_mut().enumerate().take(kernel_size) {
+    for (i, weight) in kernel.iter_mut().enumerate().take(usize::from(kernel_size)) {
         // Compute distance from center (0 at center, increases outward)
         let x = (i as f32) - kernel_center;
         // Apply Gaussian formula: weight decreases exponentially with squared distance
@@ -158,7 +169,7 @@ pub(crate) fn compute_gaussian_kernel(std_deviation: f32) -> ([f32; MAX_KERNEL_S
     // Normalize weights to sum to 1.0, ensuring the blur doesn't change overall brightness.
     // Without normalization, blurring a uniform gray area could make it brighter/darker.
     let scale = 1.0 / sum;
-    for weight in kernel.iter_mut().take(kernel_size) {
+    for weight in kernel.iter_mut().take(usize::from(kernel_size)) {
         *weight *= scale;
     }
 
@@ -180,7 +191,7 @@ pub(crate) fn apply_blur(
     kernel: &[f32],
     edge_mode: EdgeMode,
 ) {
-    let radius = kernel.len() / 2;
+    let radius = (kernel.len() / 2) as u8;
     let width = pixmap.width();
     let height = pixmap.height();
 
@@ -235,7 +246,7 @@ pub(crate) fn convolve(
     width: u16,
     height: u16,
     kernel: &[f32],
-    radius: usize,
+    radius: u8,
     edge_mode: EdgeMode,
 ) {
     convolve_x(src, scratch, width, height, kernel, radius, edge_mode);
@@ -253,7 +264,7 @@ pub(crate) fn convolve_x(
     src_width: u16,
     src_height: u16,
     kernel: &[f32],
-    radius: usize,
+    radius: u8,
     edge_mode: EdgeMode,
 ) {
     for y in 0..src_height {
@@ -262,7 +273,12 @@ pub(crate) fn convolve_x(
 
             // Sum contributions from all kernel positions: output = Σ(weight[j] × pixel[x+j-radius])
             for (j, &k) in kernel.iter().enumerate() {
-                let src_x = x as i32 + j as i32 - radius as i32;
+                #[expect(
+                    clippy::cast_possible_wrap,
+                    reason = "This cast never wraps because `kernel.len()` is never greater than `u8::MAX` due to the restriction on `MAX_KERNEL_SIZE`"
+                )]
+                let j = j as i32;
+                let src_x = x as i32 + j - radius as i32;
                 let p = sample_x(src, src_x, y, src_width, edge_mode);
 
                 rgba[0] += p.r as f32 * k;
@@ -297,7 +313,7 @@ pub(crate) fn convolve_y(
     src_width: u16,
     src_height: u16,
     kernel: &[f32],
-    radius: usize,
+    radius: u8,
     edge_mode: EdgeMode,
 ) {
     for y in 0..src_height {
@@ -306,7 +322,12 @@ pub(crate) fn convolve_y(
 
             // Sum contributions from all kernel positions: output = Σ(weight[j] × pixel[y+j-radius])
             for (j, &k) in kernel.iter().enumerate() {
-                let src_y = y as i32 + j as i32 - radius as i32;
+                #[expect(
+                    clippy::cast_possible_wrap,
+                    reason = "This cast never wraps because `kernel.len()` is never greater than `u8::MAX` due to the restriction on `MAX_KERNEL_SIZE`"
+                )]
+                let j = j as i32;
+                let src_y = y as i32 + j - radius as i32;
                 let p = sample_y(src, x, src_y, src_height, edge_mode);
 
                 rgba[0] += p.r as f32 * k;
@@ -647,18 +668,18 @@ mod tests {
 
         // Kernel should be symmetric
         for i in 0..size / 2 {
-            assert!((kernel[i] - kernel[size - 1 - i]).abs() < 1e-6);
+            assert!((kernel[usize::from(i)] - kernel[usize::from(size - 1 - i)]).abs() < 1e-6);
         }
 
         // Kernel should sum to 1.0 (normalized)
-        let sum: f32 = kernel.iter().take(size).sum();
+        let sum: f32 = kernel.iter().take(usize::from(size)).sum();
         assert!((sum - 1.0).abs() < 1e-6);
 
         // Center should be the largest weight
         let center_idx = size / 2;
         for i in 0..size {
             if i != center_idx {
-                assert!(kernel[center_idx] >= kernel[i]);
+                assert!(kernel[usize::from(center_idx)] >= kernel[usize::from(i)]);
             }
         }
     }
@@ -670,7 +691,7 @@ mod tests {
         // For σ=0.1, radius = ceil(0.3) = 1, size = 3
         assert_eq!(size, 3);
         // Should sum to 1.0
-        let sum: f32 = kernel.iter().take(size).sum();
+        let sum: f32 = kernel.iter().take(usize::from(size)).sum();
         assert!((sum - 1.0).abs() < 1e-6);
         // Center weight should be dominant for very small σ
         assert!(kernel[1] > 0.9); // Center is highly weighted
@@ -684,7 +705,7 @@ mod tests {
         assert_eq!(size, 5);
 
         // Should still sum to 1.0
-        let sum: f32 = kernel.iter().take(size).sum();
+        let sum: f32 = kernel.iter().take(usize::from(size)).sum();
         assert!((sum - 1.0).abs() < 1e-6);
     }
 
@@ -934,7 +955,7 @@ mod tests {
                 &mut pixmap,
                 &mut scratch,
                 n_decimations,
-                &kernel[..kernel_size],
+                &kernel[..usize::from(kernel_size)],
                 EdgeMode::None,
             );
         });
@@ -997,7 +1018,7 @@ mod tests {
             &mut dst,
             5,
             3,
-            &kernel[..kernel_size],
+            &kernel[..usize::from(kernel_size)],
             kernel_size / 2,
             EdgeMode::Duplicate,
         );
@@ -1038,7 +1059,7 @@ mod tests {
             &mut dst,
             3,
             5,
-            &kernel[..kernel_size],
+            &kernel[..usize::from(kernel_size)],
             kernel_size / 2,
             EdgeMode::Duplicate,
         );
@@ -1089,10 +1110,10 @@ mod tests {
         let (kernel, kernel_size) = compute_gaussian_kernel(100.0);
         // For σ=100, radius = ceil(300) = 300, size would be 601
         // But it should be clamped to MAX_KERNEL_SIZE
-        assert_eq!(kernel_size, MAX_KERNEL_SIZE);
+        assert_eq!(usize::from(kernel_size), MAX_KERNEL_SIZE);
 
         // The clamped kernel should still sum to 1.0 (normalized)
-        let sum: f32 = kernel.iter().take(kernel_size).sum();
+        let sum: f32 = kernel.iter().take(usize::from(kernel_size)).sum();
         assert!((sum - 1.0).abs() < 1e-6);
     }
 
@@ -1205,7 +1226,7 @@ mod tests {
     fn test_kernel_normalization_precision() {
         for sigma in [0.1, 0.5, 1.0, 2.0, 5.0, 10.0] {
             let (kernel, kernel_size) = compute_gaussian_kernel(sigma);
-            let sum: f32 = kernel.iter().take(kernel_size).sum();
+            let sum: f32 = kernel.iter().take(usize::from(kernel_size)).sum();
             assert!(
                 (sum - 1.0).abs() < 1e-6,
                 "Kernel for σ={} not normalized: sum={}",
