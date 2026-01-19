@@ -112,6 +112,25 @@ pub trait PaintScene: Any {
         // transform: Affine,
         paint_transform: Affine,
     );
+
+    /// Set the current brush to represent a rounded rectangle blurred with an approximate gaussian filter.
+    ///
+    /// **This method is currently unimplemented on all backends, so should not be used.**
+    ///
+    /// For performance reasons, shapes drawn with this brush should not extend more than approximately
+    /// 2.5 times `std_dev` away from the edges of `rect` (as any such points will not be perceptably
+    /// painted to, but calculations will still be performed for them).
+    ///
+    /// This method effectively draws the blurred rounded rectangle clipped to the
+    /// shapes drawn with this brush.
+    /// This clipping is useful for drawing box shadows, where the shadow should only
+    /// be drawn outside the box.
+    /// If just the blurred rounded rectangle is desired, without any clipping,
+    /// use the simpler [`fill_blurred_rounded_rect`][PaintScene::fill_blurred_rounded_rect].
+    /// For many users, that method will be easier to use.
+    ///
+    /// For details on the algorithm used, see the 2020 Blog Post describing the technique,
+    /// [*Blurred rounded rectangles*](https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html).
     fn set_blurred_rounded_rect_brush(
         &mut self,
         // transform: Affine,
@@ -128,6 +147,20 @@ pub trait PaintScene: Any {
         self.set_brush(Brush::Solid(color), Affine::IDENTITY);
     }
 
+    /// Draw a rounded rectangle blurred with an approximate gaussian filter.
+    /// This method resets the current brush.
+    ///
+    /// **This method is currently unimplemented on some backends, so should not be used.**
+    ///
+    /// If the rounded rectangle needs to be clipped, you can instead use
+    /// [`set_blurred_rounded_rect_brush`](PaintScene::set_blurred_rounded_rect_brush).
+    ///
+    /// The drawing is cut off 2.5 times `std_dev` away from the edges of `rect` for performance
+    /// reasons, as any points outside of that area would not be perceptably painted to.
+    /// <!-- Fun maths thing: I believe we can calculate exactly the amount of loss due to this approximation. -->
+    ///
+    /// For details on the algorithm used, see the 2020 Blog Post describing the technique,
+    /// [*Blurred rounded rectangles*](https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html).
     fn fill_blurred_rounded_rect(
         &mut self,
         transform: Affine,
@@ -145,6 +178,24 @@ pub trait PaintScene: Any {
         self.fill_path(transform, Fill::EvenOdd, shape);
     }
 
+    /// Pushes a new layer clipped by the specified shape (if provided) and composed with
+    /// previous layers using the specified blend mode.
+    ///
+    /// <!-- TODO: The `clip_style` controls how the `clip` shape is interpreted.
+    ///
+    /// - Use [`Fill`] to clip to the interior of the shape, with the chosen fill rule.
+    /// - Use [`Stroke`] (via `&Stroke`) to clip to the stroked outline of the shape.
+    /// -->
+    /// Every drawing command after this call will be clipped by the shape
+    /// until the layer is [popped](PaintScene::pop_layer).
+    /// For layers which are only added for clipping, you should
+    /// use [`push_clip_layer`](PaintScene::push_clip_layer) instead.
+    ///
+    /// Opacity must be between 0.0 and 1.0, if provided.
+    /// Layers with an opacity of zero may be optimised out, but this is not currently guaranteed.
+    ///
+    /// **However, the transforms are *not* saved or modified by the layer stack.**
+    /// That is, the `transform` argument to this function only applies a transform to the `clip` shape.
     fn push_layer(
         &mut self,
         clip_transform: Affine,
@@ -153,10 +204,23 @@ pub trait PaintScene: Any {
         opacity: Option<f32>,
     );
 
+    /// Pushes a new layer clipped by the specified `clip` shape.
+    ///
+    /// <!-- TODO: Determine and document isolation properties. -->
+    /// <!-- TODO: clip_style as above -->
+    /// Every drawing command after this call will be clipped by the shape
+    /// until the layer is [popped](PaintScene::pop_layer).
+    ///
+    /// **However, the transforms are *not* saved or modified by the layer stack.**
+    /// That is, the `transform` argument to this function only applies a transform to the `clip` shape.
     fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape) {
         self.push_layer(clip_transform, Some(path), None, None);
     }
 
+    /// Pushes a new layer which is not clipped and composed with previous layers using the given blend mode.
+    ///
+    /// Every drawing command after this call will be composed as described
+    /// until the layer is [popped](PaintScene::pop_layer).
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
         self.push_layer(
             Affine::IDENTITY,
@@ -166,9 +230,22 @@ pub trait PaintScene: Any {
             None,
         );
     }
+
+    /// Pushes a new layer which is not clipped and composed with previous layers with its opacity
+    /// multiplied by the given value.
+    ///
+    /// Opacity must be between 0.0 and 1.0.
+    /// Layers with an opacity of zero may be optimised out, but this is not currently guaranteed.
+    ///
+    /// Every drawing command after this call will be composed as described
+    /// until the layer is [popped](PaintScene::pop_layer).
     fn push_opacity_layer(&mut self, opacity: f32) {
         self.push_layer(Affine::IDENTITY, None::<BezPath>, None, Some(opacity));
     }
 
+    /// Pop the most recently pushed layer.
+    ///
+    /// All open layers in a [`Scene`] must be popped before [appending](PaintScene::append)
+    /// it to another scene.
     fn pop_layer(&mut self);
 }
