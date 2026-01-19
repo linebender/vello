@@ -9,6 +9,7 @@ use crate::tile::{Tile, Tiles};
 use crate::util::f32_to_u8;
 use alloc::vec::Vec;
 use fearless_simd::*;
+use std::println;
 
 /// A strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,12 +101,29 @@ pub fn render(
     aliasing_threshold: Option<u8>,
     lines: &[Line],
     use_early_culling: bool,
-    row_windings: &Vec<f32>,
+    partial_windings: &Vec<[f32; Tile::HEIGHT as usize]>,
+    row_windings: &Vec<i8>,
 ) {
     if use_early_culling {
-        dispatch!(level, simd => render_impl::<_, true>(simd, tiles, strip_buf, alpha_buf, fill_rule, aliasing_threshold, lines, row_windings));
+        dispatch!(level, simd => render_impl::<_, true>(simd,
+                                                        tiles,
+                                                        strip_buf,
+                                                        alpha_buf,
+                                                        fill_rule,
+                                                        aliasing_threshold,
+                                                        lines,
+                                                        partial_windings,
+                                                        row_windings));
     } else {
-        dispatch!(level, simd => render_impl::<_, false>(simd, tiles, strip_buf, alpha_buf, fill_rule, aliasing_threshold, lines, row_windings));
+        dispatch!(level, simd => render_impl::<_, false>(simd,
+                                                         tiles,
+                                                         strip_buf,
+                                                         alpha_buf,
+                                                         fill_rule,
+                                                         aliasing_threshold,
+                                                         lines,
+                                                         partial_windings,
+                                                         row_windings));
     }
 }
 
@@ -117,7 +135,8 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     fill_rule: Fill,
     aliasing_threshold: Option<u8>,
     lines: &[Line],
-    row_windings: &Vec<f32>,
+    partial_windings: &Vec<[f32; Tile::HEIGHT as usize]>,
+    row_windings: &Vec<i8>,
 ) {
     if tiles.is_empty() {
         return;
@@ -128,23 +147,36 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
         Fill::EvenOdd => winding % 2 != 0,
     };
 
-    let starting_fill = |winding: f32| match fill_rule {
-        Fill::NonZero => winding.abs() > 1e-4,
-        Fill::EvenOdd => (winding % 2.0).abs() > 1e-4,
-    };
-
     // The accumulated tile winding delta. A line that crosses the top edge of a tile
     // increments the delta if the line is directed upwards, and decrements it if goes
     // downwards. Horizontal lines leave it unchanged.
-    let mut winding_delta: i32 = 0;
+    let mut winding_delta = 0;
+
+    // The accumulated (fractional) winding of the tile-sized location we're currently at.
+    // Note multiple tiles can be at the same location.
+    // Note that we are also implicitly assuming here that the tile height exactly fits into a
+    // SIMD vector (i.e. 128 bits).
+    let mut location_winding = [f32x4::splat(s, 0.0); Tile::WIDTH as usize];
+    // The accumulated (fractional) windings at this location's right edge. When we move to the
+    // next location, this is splatted to that location's starting winding.
+    let mut accumulated_winding = f32x4::splat(s, 0.0);
 
     // The previous tile visited.
     let mut prev_tile = *tiles.get(0);
 
-    let starting_winding;
+
+    // When early culling is active, geometry fully to the left of the viewport creates no tiles.
+    // However, if that geometry has a non-zero winding (e.g. a large shape surrounding the
+    // viewport), the fill must persist.
+    //
+    // We reconstruct this "background" fill using `row_windings` (the winding at x=0) to emit solid
+    // strips for:
+    //      1. All rows vertically above the first visible tile.
+    //      2. The horizontal gap to the left of the first visible tile.
     if USE_EARLY_CULL {
         for row in 0..prev_tile.y {
-            if row_windings[row as usize] != 0.0 && starting_fill(row_windings[row as usize]) {
+            winding_delta = row_windings[row as usize] as i32;
+            if should_fill(winding_delta) {
                 strip_buf.push(Strip::new(
                     0,
                     row * Tile::HEIGHT,
@@ -159,10 +191,12 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                 ));
             }
         }
-        if prev_tile.x != 0
-            && row_windings[prev_tile.y as usize] != 0.0
-            && starting_fill(row_windings[prev_tile.y as usize])
-        {
+
+        winding_delta = row_windings[prev_tile.y as usize] as i32;
+        let left_viewport = prev_tile.x == 0;
+        if should_fill(winding_delta) && !left_viewport {
+            let asd = [255u8; 16];
+            alpha_buf.extend_from_slice(&asd);
             strip_buf.push(Strip::new(
                 0,
                 prev_tile.y * Tile::HEIGHT,
@@ -170,21 +204,15 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                 false,
             ));
         }
-        starting_winding = row_windings[prev_tile.y as usize];
-    } else {
-        starting_winding = 0.0;
+        accumulated_winding = f32x4::splat(s, winding_delta as f32);
+        if left_viewport {
+            let fine_winding: f32x4<_> = partial_windings[prev_tile.y as usize].simd_into(s);
+            accumulated_winding += fine_winding;
+        }
+        location_winding = [accumulated_winding; Tile::WIDTH as usize];
     }
 
-    // The accumulated (fractional) winding of the tile-sized location we're currently at.
-    // Note multiple tiles can be at the same location.
-    // Note that we are also implicitly assuming here that the tile height exactly fits into a
-    // SIMD vector (i.e. 128 bits).
-    let mut location_winding = [f32x4::splat(s, starting_winding); Tile::WIDTH as usize];
-    // The accumulated (fractional) windings at this location's right edge. When we move to the
-    // next location, this is splatted to that location's starting winding.
-    let mut accumulated_winding = f32x4::splat(s, starting_winding);
-
-    /// A special tile to keep the logic below simple.
+    // A special tile to keep the logic below simple.
     const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, 0);
 
     // The strip we're building.
@@ -192,7 +220,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
         prev_tile.x * Tile::WIDTH,
         prev_tile.y * Tile::HEIGHT,
         alpha_buf.len() as u32,
-        false,
+        should_fill(winding_delta),
     );
 
     for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
@@ -255,7 +283,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                 );
             }
 
-            alpha_buf.extend_from_slice(u8_vals.as_slice());
+            alpha_buf.extend_from_slice(&u8_vals.val);
 
             #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
             for x in 0..Tile::WIDTH as usize {
@@ -286,11 +314,12 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                     ));
                 }
 
+                // Logic identical to the start (see above): fill any vertical gaps (empty rows)
+                // between the previous and current tile using the row windings.
                 if USE_EARLY_CULL && !is_sentinel {
                     for row in (prev_tile.y + 1)..tile.y {
-                        if row_windings[row as usize] != 0.0
-                            && starting_fill(row_windings[row as usize])
-                        {
+                        winding_delta = row_windings[row as usize] as i32;
+                        if should_fill(winding_delta) {
                             strip_buf.push(Strip::new(
                                 0,
                                 row * Tile::HEIGHT,
@@ -306,10 +335,9 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                         }
                     }
 
-                    if tile.x != 0
-                        && row_windings[tile.y as usize] != 0.0
-                        && starting_fill(row_windings[tile.y as usize])
-                    {
+                    winding_delta = row_windings[tile.y as usize] as i32;
+                    let left_viewport = tile.x == 0;
+                    if should_fill(winding_delta) && !left_viewport {
                         strip_buf.push(Strip::new(
                             0,
                             tile.y * Tile::HEIGHT,
@@ -318,17 +346,24 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                         ));
                     }
 
-                    accumulated_winding = f32x4::splat(s, row_windings[tile.y as usize]);
+                    accumulated_winding = f32x4::splat(s, winding_delta as f32);
+                    if left_viewport {
+                        let fine_winding: f32x4<_> = partial_windings[tile.y as usize].simd_into(s);
+                        accumulated_winding += fine_winding;
+                    }
                 } else {
+                    winding_delta = 0;
                     accumulated_winding = f32x4::splat(s, 0.0);
-                }
-
-                winding_delta = 0;
+                };
 
                 #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
                 for x in 0..Tile::WIDTH as usize {
                     location_winding[x] = accumulated_winding;
                 }
+            } else {
+                // Note: this fill is mathematically not necessary. It provides a way to reduce
+                // accumulation of float rounding errors.
+                accumulated_winding = f32x4::splat(s, winding_delta as f32);
             }
 
             if is_sentinel {
@@ -341,9 +376,6 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                 alpha_buf.len() as u32,
                 should_fill(winding_delta),
             );
-            // Note: this fill is mathematically not necessary. It provides a way to reduce
-            // accumulation of float rounding errors.
-            accumulated_winding = f32x4::splat(s, winding_delta as f32);
         }
         prev_tile = tile;
 
@@ -404,9 +436,13 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
 
         winding_delta += sign as i32 * i32::from(tile.winding());
 
-        // TODO: this should be removed when out-of-viewport tiles are culled at the
-        // tile-generation stage. That requires calculating and forwarding winding to strip
-        // generation.
+        // Handle geometry extending to the left of the viewport (x < 0). This path is required for:
+        // 1. Fallback: If early culling was disabled during tile generation (e.g. the previous
+        //    frame detected no culling opportunity), fully off-screen tiles are present and must be
+        //    processed here.
+        // 2. Edge crossings: Even with early culling enabled, lines *crossing* the viewport's left
+        //    edge are not culled. We must calculate the winding contribution of the line segment
+        //    that lies outside the viewport.
         if tile.x == 0 && line_left_x < 0. {
             let (ymin, ymax) = if line.p0.x == line.p1.x {
                 (line_top_y, line_bottom_y)

@@ -299,16 +299,13 @@ impl Tiles {
     /// function performs "coarse binning" to simply identify every tile a line segment traverses.
     /// It encodes the line index and winding direction, delegating the precise calculation of pixel
     /// coverage to `strip::render`.
-    //
-    // TODO: Tiles are clamped to the left edge of the viewport, but lines fully to the left of the
-    // viewport are not culled yet. These lines impact winding, and would need forwarding of
-    // winding to the strip generation stage.
     pub fn make_tiles_analytic_aa<const USE_EARLY_CULL: bool>(
         &mut self,
         lines: &[Line],
         width: u16,
         height: u16,
-        row_windings: &mut Vec<f32>,
+        partial_windings: &mut Vec<[f32; Tile::WIDTH as usize]>,
+        coarse_windings: &mut Vec<i8>,
     ) -> bool {
         self.reset();
         let mut culling_opportunity = false;
@@ -366,21 +363,43 @@ impl Tiles {
                 continue;
             }
 
-            // Culling is quite similar to the vertical line case, except that we are more careful
-            // with the last end tile
+            // Lines fully to the left of the viewport (line_right_x < 0) are invisible and do not
+            // generate intersection tiles.
+            //
+            // However, they determine the initial winding state of the visible viewport. If early
+            // culling is enabled, we analytically apply their vertical coverage to the global
+            // winding buffers (coarse and partial) here, so the rendering logic "knows" these lines
+            // exist to the left.
+            //
+            // Note: Lines that cross the left edge (start < 0, end > 0) are NOT handled here. They
+            // will naturally generate a tile at x=0 in the standard path.
             if line_right_x < 0.0 {
                 culling_opportunity = true;
                 if USE_EARLY_CULL {
-                    let dir = if p0_y >= p1_y { 1.0 } else { -1.0 };
+                    let dir = if p0_y >= p1_y { 1 } else { -1 };
+                    let f_dir = dir as f32;
 
                     let is_start_culled = line_top_y < 0.0;
                     if !is_start_culled {
-                        let start_height = (f32::from(y_top_tiles) + 1.0) - line_top_y;
-                        row_windings[y_top_tiles as usize] += start_height * dir;
+                        let y_top_tile_f32 = f32::from(y_top_tiles);
+                        if y_top_tile_f32 >= line_top_y {
+                            coarse_windings[y_top_tiles as usize] += dir;
+                        } else {
+                            let local_y_start =
+                                (line_top_y - y_top_tile_f32) * (Tile::HEIGHT as f32);
+                            let local_y_end =
+                                (line_bottom_y - y_top_tile_f32).min(1.0) * (Tile::HEIGHT as f32);
+                            for i in 0..Tile::HEIGHT as usize {
+                                let px_top = i as f32;
+                                let px_bottom = px_top + 1.0;
+                                let clipped_min = px_top.max(local_y_start);
+                                let clipped_max = px_bottom.min(local_y_end);
+                                let h = (clipped_max - clipped_min).max(0.0);
+                                partial_windings[y_top_tiles as usize][i] += h * f_dir;
+                            }
+                        }
                     }
 
-                    // If start was culled, we begin at y_top_tiles (clamped to 0).
-                    // Otherwise, we've already handled y_top_tiles, so start at +1.
                     let y_start = if is_start_culled {
                         y_top_tiles
                     } else {
@@ -389,12 +408,23 @@ impl Tiles {
                     let line_bottom_floor = line_bottom_y.floor();
                     let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
                     for y_idx in y_start..y_end_idx {
-                        row_windings[y_idx as usize] += dir;
+                        coarse_windings[y_idx as usize] += dir;
                     }
 
-                    if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
-                        let end_height = line_bottom_y - line_bottom_floor;
-                        row_windings[y_end_idx as usize] += end_height * dir;
+                    if line_bottom_y != line_bottom_floor
+                        && y_end_idx < tile_rows
+                        && (is_start_culled || y_end_idx != y_top_tiles)
+                    {
+                        coarse_windings[y_end_idx as usize] += dir;
+
+                        let y_end_idx_f32 = f32::from(y_end_idx);
+                        let local_y_end = (line_bottom_y - y_end_idx_f32) * (Tile::HEIGHT as f32);
+                        for i in 0..Tile::HEIGHT as usize {
+                            let px_top = i as f32;
+                            let clipped_max = (px_top + 1.0).min(local_y_end);
+                            let h = (clipped_max - px_top).max(0.0);
+                            partial_windings[y_end_idx as usize][i] += h * f_dir - f_dir;
+                        }
                     }
                     continue;
                 }
@@ -1009,7 +1039,13 @@ mod tests {
             self.make_tiles_msaa(lines, width, height);
             assert_eq!(self.tile_buf, expected, "MSAA: Tile buffer mismatch");
 
-            self.make_tiles_analytic_aa::<NO_EARLY_CULL>(lines, width, height, &mut Vec::new());
+            self.make_tiles_analytic_aa::<NO_EARLY_CULL>(
+                lines,
+                width,
+                height,
+                &mut Vec::new(),
+                &mut Vec::new(),
+            );
             check_analytic_aa_matches(&self.tile_buf, expected);
         }
     }
@@ -2022,7 +2058,13 @@ mod tests {
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles_msaa(&[line], 600, 600);
-        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(&[line], 600, 600, &mut Vec::new());
+        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(
+            &[line],
+            600,
+            600,
+            &mut Vec::new(),
+            &mut Vec::new(),
+        );
     }
 
     #[test]
@@ -2040,7 +2082,13 @@ mod tests {
         };
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(&[line], 200, 100, &mut Vec::new());
+        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(
+            &[line],
+            200,
+            100,
+            &mut Vec::new(),
+            &mut Vec::new(),
+        );
         tiles.make_tiles_msaa(&[line], 200, 100);
     }
 
@@ -2076,7 +2124,13 @@ mod tests {
         tiles.sort_tiles();
         check_sorted(&tiles.tile_buf);
 
-        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(&lines, VIEW_DIM, VIEW_DIM, &mut Vec::new());
+        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(
+            &lines,
+            VIEW_DIM,
+            VIEW_DIM,
+            &mut Vec::new(),
+            &mut Vec::new(),
+        );
         assert!(tiles.tile_buf.first().unwrap().y > tiles.tile_buf.last().unwrap().y);
         tiles.sort_tiles();
         check_sorted(&tiles.tile_buf);
