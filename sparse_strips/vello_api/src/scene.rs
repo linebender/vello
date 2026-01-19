@@ -64,7 +64,7 @@ pub struct PushLayerCommand {
 pub struct BlurredRoundedRectBrush {
     /// The transform which will be applied to the rectangle to be drawn.
     /// This applies after the path transform.
-    pub paint_transform: kurbo::Affine,
+    pub paint_transform: Affine,
     /// The color of the rectangle.
     pub color: peniko::Color,
     /// The rectangle before transformation.
@@ -225,18 +225,13 @@ impl PaintScene for Scene {
         Ok(())
     }
 
-    fn fill_path(
-        &mut self,
-        transform: kurbo::Affine,
-        fill_rule: peniko::Fill,
-        path: impl kurbo::Shape,
-    ) {
+    fn fill_path(&mut self, transform: Affine, fill_rule: peniko::Fill, path: impl kurbo::Shape) {
         let idx = self.paths.prepare_shape(&path, fill_rule);
         self.commands.push(RenderCommand::DrawPath(transform, idx));
     }
     fn stroke_path(
         &mut self,
-        transform: kurbo::Affine,
+        transform: Affine,
         stroke_params: &kurbo::Stroke,
         path: impl kurbo::Shape,
     ) {
@@ -244,12 +239,7 @@ impl PaintScene for Scene {
         self.commands.push(RenderCommand::DrawPath(transform, idx));
     }
 
-    fn set_brush(
-        &mut self,
-        brush: impl Into<StandardBrush>,
-        // transform: peniko::kurbo::Affine,
-        paint_transform: kurbo::Affine,
-    ) {
+    fn set_brush(&mut self, brush: impl Into<StandardBrush>, paint_transform: Affine) {
         let brush = brush.into();
         self.commands
             .push(RenderCommand::SetPaint(paint_transform, brush));
@@ -257,7 +247,7 @@ impl PaintScene for Scene {
 
     fn set_blurred_rounded_rect_brush(
         &mut self,
-        paint_transform: kurbo::Affine,
+        paint_transform: Affine,
         color: peniko::Color,
         rect: &kurbo::Rect,
         radius: f32,
@@ -276,9 +266,9 @@ impl PaintScene for Scene {
 
     fn push_layer(
         &mut self,
-        clip_transform: kurbo::Affine,
+        clip_transform: Affine,
         clip_path: Option<impl kurbo::Shape>,
-        blend_mode: Option<peniko::BlendMode>,
+        blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         // mask: Option<Mask>,
     ) {

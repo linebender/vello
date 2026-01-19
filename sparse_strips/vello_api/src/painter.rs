@@ -4,13 +4,13 @@
 use core::any::Any;
 
 use peniko::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
-use peniko::{BlendMode, Brush, Color, Fill};
+use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
 
 use crate::scene::Scene;
 use crate::texture::TextureId;
 
 /// The brush type used for most painting operations in Vello API.
-pub type StandardBrush = peniko::Brush<peniko::ImageBrush<TextureId>>;
+pub type StandardBrush = Brush<ImageBrush<TextureId>>;
 
 /// A 2d scene or canvas.
 ///
