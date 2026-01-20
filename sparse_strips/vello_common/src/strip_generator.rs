@@ -77,7 +77,7 @@ pub struct StripGenerator {
 impl StripGenerator {
     /// Create a new strip generator.
     pub fn new(width: u16, height: u16, level: Level) -> Self {
-        let num_rows = (height as usize + Tile::HEIGHT as usize - 1) / Tile::HEIGHT as usize + 1;
+        let num_rows = (height.div_ceil(Tile::HEIGHT) + 1) as usize;
         Self {
             level,
             line_buf: Vec::new(),
@@ -147,26 +147,25 @@ impl StripGenerator {
             strip_storage.strips.clear();
         }
 
-        let culling_opportunity;
-        if self.use_early_culling {
+        let culling_opportunity = if self.use_early_culling {
             self.partial_windings.fill([0.0; Tile::HEIGHT as usize]);
             self.coarse_windings.fill(0);
-            culling_opportunity = self.tiles.make_tiles_analytic_aa::<true>(
+            self.tiles.make_tiles_analytic_aa::<true>(
                 &self.line_buf,
                 self.width,
                 self.height,
                 &mut self.partial_windings,
                 &mut self.coarse_windings,
-            );
+            )
         } else {
-            culling_opportunity = self.tiles.make_tiles_analytic_aa::<false>(
+            self.tiles.make_tiles_analytic_aa::<false>(
                 &self.line_buf,
                 self.width,
                 self.height,
                 &mut self.partial_windings,
                 &mut self.coarse_windings,
-            );
-        }
+            )
+        };
 
         self.tiles.sort_tiles();
 

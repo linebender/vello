@@ -9,7 +9,6 @@ use crate::tile::{Tile, Tiles};
 use crate::util::f32_to_u8;
 use alloc::vec::Vec;
 use fearless_simd::*;
-use std::println;
 
 /// A strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,8 +100,8 @@ pub fn render(
     aliasing_threshold: Option<u8>,
     lines: &[Line],
     use_early_culling: bool,
-    partial_windings: &Vec<[f32; Tile::HEIGHT as usize]>,
-    row_windings: &Vec<i8>,
+    partial_windings: &[[f32; Tile::HEIGHT as usize]],
+    row_windings: &[i8],
 ) {
     if use_early_culling {
         dispatch!(level, simd => render_impl::<_, true>(simd,
@@ -135,8 +134,8 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     fill_rule: Fill,
     aliasing_threshold: Option<u8>,
     lines: &[Line],
-    partial_windings: &Vec<[f32; Tile::HEIGHT as usize]>,
-    row_windings: &Vec<i8>,
+    partial_windings: &[[f32; Tile::HEIGHT as usize]],
+    row_windings: &[i8],
 ) {
     if tiles.is_empty() {
         return;
@@ -163,7 +162,6 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
 
     // The previous tile visited.
     let mut prev_tile = *tiles.get(0);
-
 
     // When early culling is active, geometry fully to the left of the viewport creates no tiles.
     // However, if that geometry has a non-zero winding (e.g. a large shape surrounding the
@@ -195,8 +193,6 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
         winding_delta = row_windings[prev_tile.y as usize] as i32;
         let left_viewport = prev_tile.x == 0;
         if should_fill(winding_delta) && !left_viewport {
-            let asd = [255u8; 16];
-            alpha_buf.extend_from_slice(&asd);
             strip_buf.push(Strip::new(
                 0,
                 prev_tile.y * Tile::HEIGHT,

@@ -17,7 +17,13 @@ pub fn tile(c: &mut Criterion) {
             g.bench_function($item.name.clone(), |b| {
                 b.iter(|| {
                     let mut tiler = Tiles::new(Level::new());
-                    tiler.make_tiles_analytic_aa(&lines, $item.width, $item.height);
+                    tiler.make_tiles_analytic_aa::<false>(
+                        &lines,
+                        $item.width,
+                        $item.height,
+                        &mut Vec::new(),
+                        &mut Vec::new(),
+                    );
                 })
             });
         };

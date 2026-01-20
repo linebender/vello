@@ -131,7 +131,13 @@ impl DataItem {
     pub fn unsorted_tiles(&self) -> Tiles {
         let mut tiles = Tiles::new(Level::new());
         let lines = self.lines();
-        tiles.make_tiles_analytic_aa(&lines, self.width, self.height);
+        tiles.make_tiles_analytic_aa::<false>(
+            &lines,
+            self.width,
+            self.height,
+            &mut Vec::new(),
+            &mut Vec::new(),
+        );
 
         tiles
     }
@@ -159,6 +165,9 @@ impl DataItem {
             Fill::NonZero,
             None,
             &lines,
+            false,
+            &Vec::new(),
+            &Vec::new(),
         );
 
         (alpha_buf, strip_buf)

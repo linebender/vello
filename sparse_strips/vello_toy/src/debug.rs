@@ -71,7 +71,13 @@ fn main() {
     }
 
     if stages.iter().any(|s| s.requires_tiling()) {
-        tiles.make_tiles_analytic_aa(&line_buf, args.width, args.height);
+        tiles.make_tiles_analytic_aa::<false>(
+            &line_buf,
+            args.width,
+            args.height,
+            &mut Vec::new(),
+            &mut Vec::new(),
+        );
         tiles.sort_tiles();
     }
 
@@ -84,6 +90,9 @@ fn main() {
             args.fill_rule,
             None,
             &line_buf,
+            false,
+            &Vec::new(),
+            &Vec::new(),
         );
     }
 

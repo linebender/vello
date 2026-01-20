@@ -304,8 +304,8 @@ impl Tiles {
         lines: &[Line],
         width: u16,
         height: u16,
-        partial_windings: &mut Vec<[f32; Tile::WIDTH as usize]>,
-        coarse_windings: &mut Vec<i8>,
+        partial_windings: &mut [[f32; Tile::WIDTH as usize]],
+        coarse_windings: &mut [i8],
     ) -> bool {
         self.reset();
         let mut culling_opportunity = false;
@@ -389,6 +389,8 @@ impl Tiles {
                                 (line_top_y - y_top_tile_f32) * (Tile::HEIGHT as f32);
                             let local_y_end =
                                 (line_bottom_y - y_top_tile_f32).min(1.0) * (Tile::HEIGHT as f32);
+
+                            #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
                             for i in 0..Tile::HEIGHT as usize {
                                 let px_top = i as f32;
                                 let px_bottom = px_top + 1.0;
@@ -419,6 +421,8 @@ impl Tiles {
 
                         let y_end_idx_f32 = f32::from(y_end_idx);
                         let local_y_end = (line_bottom_y - y_end_idx_f32) * (Tile::HEIGHT as f32);
+
+                        #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
                         for i in 0..Tile::HEIGHT as usize {
                             let px_top = i as f32;
                             let clipped_max = (px_top + 1.0).min(local_y_end);
@@ -554,7 +558,7 @@ impl Tiles {
             }
         }
 
-        return culling_opportunity;
+        culling_opportunity
     }
 
     /// Generates tile commands for MSAA (Multisample Anti-Aliasing) rasterization.
