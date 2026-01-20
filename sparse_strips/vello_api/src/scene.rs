@@ -20,6 +20,9 @@ use crate::{
     paths::{PathId, PathSet},
 };
 
+#[cfg(not(feature = "std"))]
+use peniko::kurbo::common::FloatFuncs as _;
+
 /// A single render command in a `Scene`. Each [`PaintScene`] method on the scene adds one of these.
 ///
 /// The [`PathId`]s contained within are the index into the pathset associated with this `Scene`.
