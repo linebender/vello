@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
-use peniko::{Extend, ImageData};
+use peniko::{Extend, ImageData, InterpolationAlphaSpace};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -401,8 +401,12 @@ impl Resolver {
                     draw_data_offset,
                     stops,
                     extend,
+                    interpolation_alpha_space,
                 } => {
-                    let ramp_id = self.ramp_cache.add(&resources.color_stops[stops.clone()]);
+                    let ramp_id = self.ramp_cache.add(
+                        *interpolation_alpha_space,
+                        &resources.color_stops[stops.clone()],
+                    );
                     self.patches.push(ResolvedPatch::Ramp {
                         draw_data_offset: *draw_data_offset + sizes.draw_data,
                         ramp_id,
@@ -524,6 +528,8 @@ pub enum Patch {
         stops: Range<usize>,
         /// Extend mode for the gradient.
         extend: Extend,
+        /// Interpolation alpha space for the gradient.
+        interpolation_alpha_space: InterpolationAlphaSpace,
     },
     /// Glyph run resource.
     GlyphRun {
