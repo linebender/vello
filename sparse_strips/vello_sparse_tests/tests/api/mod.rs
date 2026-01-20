@@ -20,7 +20,7 @@ const UNSUPPORTED_LEVEL_MESSAGE: &str = "This means that some of the other tests
 
 #[test]
 #[cfg_attr(
-    any(target_arch = "x86", target_arch = "x86_64"),
+    not(any(target_arch = "x86", target_arch = "x86_64")),
     ignore = "x86 specific"
 )]
 fn supports_all_simd_levels_x86() {
@@ -28,8 +28,8 @@ fn supports_all_simd_levels_x86() {
         infra::parse_level("fallback").is_some(),
         "Fallback always supported."
     );
-    if std::env::var("CI").is_ok_and(|it| !it.is_empty())
-        || std::env::var("SKIP_UNSUPPORTED_SIMD").is_ok_and(|it| !it.is_empty())
+    if !(std::env::var("CI").is_ok_and(|it| !it.is_empty())
+        || std::env::var("SKIP_UNSUPPORTED_SIMD").is_ok_and(|it| !it.is_empty()))
     {
         assert!(
             infra::parse_level("sse42").is_some(),
@@ -43,14 +43,14 @@ fn supports_all_simd_levels_x86() {
 }
 
 #[test]
-#[cfg_attr(any(target_arch = "aarch64"), ignore = "aarch64 specific")]
+#[cfg_attr(not(any(target_arch = "aarch64")), ignore = "aarch64 specific")]
 fn supports_all_simd_levels_aarch64() {
     assert!(
         infra::parse_level("fallback").is_some(),
         "Fallback always supported."
     );
-    if std::env::var("CI").is_ok_and(|it| !it.is_empty())
-        || std::env::var("SKIP_UNSUPPORTED_SIMD").is_ok_and(|it| !it.is_empty())
+    if !(std::env::var("CI").is_ok_and(|it| !it.is_empty())
+        || std::env::var("SKIP_UNSUPPORTED_SIMD").is_ok_and(|it| !it.is_empty()))
     {
         assert!(
             infra::parse_level("neon").is_some(),
