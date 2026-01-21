@@ -267,8 +267,8 @@ fn glyphs_colr_noto(ctx: &mut impl Renderer) {
 
 /// Test COLR emoji with 2x scene scale.
 /// This tests the fix for the double-scaling bug where scene transforms
-/// were applied twice to COLR glyphs (once in area dimensions, once in glyph_transform).
-/// Hinting is disabled to preserve the scale in the transform passed to prepare_colr_glyph.
+/// were applied twice to COLR glyphs (once in area dimensions, once in `glyph_transform`).
+/// Hinting is disabled to preserve the scale in the transform passed to `prepare_colr_glyph`.
 #[vello_test(width = 500, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
