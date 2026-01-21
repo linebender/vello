@@ -90,13 +90,14 @@ pub(crate) fn run_test_cpu<M>(
 // Tweaking this code to be async as required on the web would be hard.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn run_test_hybrid_wgpu<M>(
-    scene_func: impl SceneFunction<HybridScenePainter, M>,
+    scene_func: impl SceneFunction<vello_hybrid::api::HybridScenePainter, M>,
     params: TestParams,
     render_settings: vello_hybrid::RenderSettings,
     specific_name: &str,
     threshold: u8,
     is_reference: bool,
 ) {
+    use vello_hybrid::api::HybridScenePainter;
     // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
     // tests are run in parallel (likely related to the number of device resources being
     // requested simultaneously). This is "fixed" by putting a mutex around this method,
