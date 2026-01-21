@@ -448,7 +448,11 @@ fn prepare_colr_glyph<'a>(
     // coordinates.
     let scaled_bbox = bbox.scale_from_origin(scale_factor);
 
-    let glyph_transform = transform
+    // The scale is already baked into scaled_bbox dimensions, so applying transform's
+    // scale again would cause double-scaling; just use the translation vector.
+    let translation = transform.translation();
+
+    let glyph_transform = Affine::translate(translation)
         // There are two things going on here:
         // - On the one hand, for images, the position (0, 0) will be at the top-left, while
         //   for images, the position will be at the bottom-left.

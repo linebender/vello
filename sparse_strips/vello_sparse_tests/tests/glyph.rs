@@ -265,6 +265,37 @@ fn glyphs_colr_noto(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
+/// Test COLR emoji with 2x scene scale.
+/// This tests the fix for the double-scaling bug where scene transforms
+/// were applied twice to COLR glyphs (once in area dimensions, once in glyph_transform).
+/// Hinting is disabled to preserve the scale in the transform passed to prepare_colr_glyph.
+#[vello_test(width = 500, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
+fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let scale = 2.0;
+    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(scale));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter());
+}
+
+/// Test COLR emoji with 0.5x scene scale (as above).
+#[vello_test(width = 125, height = 35, skip_hybrid, cpu_u8_tolerance = 1)]
+fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let scale = 0.5;
+    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(scale));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter());
+}
+
 #[cfg(target_os = "macos")]
 #[vello_test(width = 200, height = 70, skip_hybrid, cpu_u8_tolerance = 2)]
 fn glyphs_bitmap_apple(ctx: &mut impl Renderer) {
