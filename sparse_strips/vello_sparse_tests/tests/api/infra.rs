@@ -270,8 +270,22 @@ pub(crate) fn run_test_hybrid_webgl<M>(
     specific_name: &str,
     threshold: u8,
 ) {
+    use vello_hybrid::RenderSize;
     use wasm_bindgen::JsCast;
     use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
+
+    let mut scene = HybridScenePainter {
+        scene: vello_hybrid::Scene::new_with(params.width, params.height, render_settings),
+    };
+    if !params.transparent {
+        scene.set_solid_brush(Color::WHITE);
+        scene.fill_path(
+            Affine::IDENTITY,
+            Fill::EvenOdd,
+            Rect::new(0., 0., params.width as f64, params.height as f64),
+        );
+    }
+    scene_func.run(&mut scene);
 
     // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
     // the pixmap for diff checking.
@@ -286,19 +300,16 @@ pub(crate) fn run_test_hybrid_webgl<M>(
     canvas.set_width(params.width.into());
     canvas.set_height(params.height.into());
 
-    let renderer = vello_hybrid::api::VelloHybridWebgl::new(&canvas, render_settings);
-
-    let mut scene = renderer
-        .create_scene(
-            &vello_hybrid::api::VelloHybridWebgl::CANVAS_TEXTURE_ID,
-            SceneOptions {
-                target: None,
-                clear_color: (!params.transparent).then_some(Color::WHITE),
+    let mut renderer = vello_hybrid::WebGlRenderer::new_with(&canvas, render_settings);
+    renderer
+        .render(
+            &scene.scene,
+            &RenderSize {
+                width: params.width.into(),
+                height: params.height.into(),
             },
         )
         .unwrap();
-    scene_func.run(&mut scene, &*renderer);
-    renderer.queue_render(scene);
 
     if !params.no_ref {
         let gl = renderer.gl_context();
