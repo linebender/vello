@@ -12,7 +12,6 @@ use vello_cpu::{
     api::CPUScenePainter,
     kurbo::{Affine, Rect},
 };
-use vello_hybrid::api::HybridScenePainter;
 
 use crate::util::check_pixmap_ref;
 
@@ -30,6 +29,10 @@ pub(crate) struct TestParams {
     pub(crate) cpu_f32_scalar_tolerance: u8,
     pub(crate) cpu_u8_simd_tolerance: u8,
     pub(crate) cpu_f32_simd_tolerance: u8,
+    #[allow(
+        dead_code,
+        reason = "Dead if no hybrid renderers are enabled (i.e. wasm32 without webgl feature)"
+    )]
     pub(crate) hybrid_tolerance: u8,
     /// Number of pixels allowed to exceed the threshold of difference.
     pub(crate) diff_pixels: u16,
@@ -262,15 +265,16 @@ pub(crate) fn run_test_hybrid_wgpu<M>(
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub(crate) fn run_test_hybrid_webgl<M>(
-    scene_func: impl SceneFunction<HybridScenePainter, M>,
+    scene_func: impl SceneFunction<vello_hybrid::api::HybridScenePainter, M>,
     params: TestParams,
     render_settings: vello_hybrid::RenderSettings,
     specific_name: &str,
     threshold: u8,
 ) {
     use vello_hybrid::RenderSize;
+    use vello_hybrid::api::HybridScenePainter;
     use wasm_bindgen::JsCast;
     use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 
