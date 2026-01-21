@@ -467,14 +467,14 @@ impl<const MODE: u8> Wide<MODE> {
             }
 
             // Calculate the width of the strip in columns
-            let mut col = strip.alpha_idx() / (Tile::HEIGHT as u32);
-            let next_col = next_strip.alpha_idx() / (Tile::HEIGHT as u32);
+            let mut col = strip.alpha_idx() / u32::try_from(Tile::HEIGHT).unwrap();
+            let next_col = next_strip.alpha_idx() / u32::try_from(Tile::HEIGHT).unwrap();
             // Can potentially be 0 if strip only changes winding without covering pixels
             let strip_width = next_col.saturating_sub(col) as u16;
             let x1 = (x0 as i32 + strip_width as i32).min(i16::MAX as i32) as i16;
 
             // Calculate which wide tiles this strip intersects
-            let wtile_x0 = (x0 / WideTile::WIDTH).max(bbox.x0());
+            let wtile_x0 = (x0.div_euclid(WideTile::WIDTH)).max(bbox.x0());
             // It's possible that a strip extends into a new wide tile, but we don't actually
             // have as many wide tiles (e.g. because the pixmap width is only 512, but
             // strip ends at 513), so take the minimum between the rounded values and `width_tiles`.
@@ -492,17 +492,19 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Generate alpha fill commands for each wide tile intersected by this strip
             for wtile_x in wtile_x0..wtile_x1 {
+                // TODO, is correct?
                 let x_wtile_rel = x.rem_euclid(WideTile::WIDTH);
                 // Restrict the width of the fill to the width of the wide tile
                 let width = x1.min((wtile_x + 1) * WideTile::WIDTH) - x;
+                debug_assert!(width >= 0);
                 let cmd = CmdAlphaFill {
                     x: x_wtile_rel,
                     width,
-                    alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx,
+                    alpha_offset: col * u32::try_from(Tile::HEIGHT).unwrap() - alpha_base_idx,
                     attrs_idx,
                 };
                 x += width;
-                col += width as u32;
+                col += width as u32; // TODO is correct?
                 self.get_mut(wtile_x, strip_y).strip(cmd, current_layer_id);
                 self.update_current_layer_bbox(wtile_x, strip_y);
             }
@@ -522,9 +524,11 @@ impl<const MODE: u8> Wide<MODE> {
                 //         .checked_next_multiple_of(WideTile::WIDTH)
                 //         .unwrap_or(i16::MAX),
                 // );
-                let x2 = next_strip.x.min(WideTile::width_in_wides(self.width).saturating_mul(WideTile::WIDTH));
+                let x2 = next_strip
+                    .x
+                    .min(WideTile::width_in_wides(self.width).saturating_mul(WideTile::WIDTH));
 
-                let wfxt0 = (x1 / WideTile::WIDTH).max(bbox.x0());
+                let wfxt0 = (x1.div_euclid(WideTile::WIDTH)).max(bbox.x0());
                 let wfxt1: i16 = WideTile::width_in_wides(x2)
                     .min(bbox.x1())
                     .min(WideTile::MAX_WIDE_TILE_COORD);
@@ -552,13 +556,12 @@ impl<const MODE: u8> Wide<MODE> {
 
                 // Generate fill commands for each wide tile in the fill region
                 for wtile_x in wfxt0..wfxt1 {
-                    let x_wtile_rel = x % WideTile::WIDTH;
-                    let width = x2.min(
-                        (wtile_x
-                            .checked_add(1)
-                            .unwrap_or(WideTile::MAX_WIDE_TILE_COORD))
-                            * WideTile::WIDTH,
-                    ) - x;
+                    // TODO, is correct?
+                    let x_wtile_rel = x.rem_euclid(WideTile::WIDTH);
+                    let tile_right_edge = (wtile_x as i32 + 1) * (WideTile::WIDTH as i32);
+                    let bound = tile_right_edge.min(i16::MAX as i32) as i16;
+                    let width = x2.min(bound) - x;
+
                     x += width;
                     self.get_mut(wtile_x, strip_y).fill(
                         x_wtile_rel,
@@ -820,7 +823,7 @@ impl<const MODE: u8> Wide<MODE> {
             let wtile_y1 = strips[n_strips.saturating_sub(1)].strip_y() + 1;
 
             // Calculate the x range by examining all strips in wide tile coordinates
-            let mut wtile_x0 = strips[0].x / WideTile::WIDTH;
+            let mut wtile_x0 = strips[0].x.div_euclid(WideTile::WIDTH);
             let mut wtile_x1 = wtile_x0;
             for i in 0..n_strips.saturating_sub(1) {
                 let strip = &strips[i];
@@ -828,7 +831,7 @@ impl<const MODE: u8> Wide<MODE> {
                 let width =
                     ((next_strip.alpha_idx() - strip.alpha_idx()) / (Tile::HEIGHT as u32)) as i16;
                 let x = strip.x;
-                wtile_x0 = wtile_x0.min(x / WideTile::WIDTH);
+                wtile_x0 = wtile_x0.min(x.div_euclid(WideTile::WIDTH));
                 wtile_x1 = wtile_x1.max(WideTile::width_in_wides(x + width));
             }
             WideTilesBbox::new([wtile_x0, wtile_y0, wtile_x1, wtile_y1])
@@ -884,7 +887,7 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Process wide tiles to the left of this strip in the same row
             let x = strip.x;
-            let wtile_x_clamped = (x / WideTile::WIDTH).min(clip_bbox.x1());
+            let wtile_x_clamped = (x.div_euclid(WideTile::WIDTH)).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x_clamped {
                 // If winding is zero or doesn't match fill rule, these wide tiles are outside the path
                 let is_inside = strip.fill_gap();
@@ -900,8 +903,8 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Process wide tiles covered by the strip - these need actual clipping
             let next_strip = &strips[i + 1];
-            let width =
-                ((next_strip.alpha_idx() - strip.alpha_idx()) / (Tile::HEIGHT as u32)) as i16;
+            let width = ((next_strip.alpha_idx() - strip.alpha_idx())
+                / u32::try_from(Tile::HEIGHT).unwrap()) as i16;
             let wtile_x1 = WideTile::width_in_wides(x + width).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x1 {
                 for wtile_x in cur_wtile_x..wtile_x1 {
@@ -1019,7 +1022,7 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Process tiles to the left of this strip in the same row
             let x0 = strip.x;
-            let wtile_x_clamped = (x0 / WideTile::WIDTH).min(clip_bbox.x1());
+            let wtile_x_clamped = (x0.div_euclid(WideTile::WIDTH)).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x_clamped {
                 // Handle any pending clip pop from previous iteration
                 if core::mem::take(&mut pop_pending) {
@@ -1041,15 +1044,15 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Process tiles covered by the strip - render clip content and pop
             let next_strip = &strips[i + 1];
-            let strip_width =
-                ((next_strip.alpha_idx() - strip.alpha_idx()) / (Tile::HEIGHT as u32)) as i16;
+            let strip_width = ((next_strip.alpha_idx() - strip.alpha_idx())
+                / u32::try_from(Tile::HEIGHT).unwrap()) as i16;
             let mut clipped_x1 = x0 + strip_width;
             let wtile_x0 = (x0 / WideTile::WIDTH).max(clip_bbox.x0());
             let wtile_x1 = WideTile::width_in_wides(clipped_x1).min(clip_bbox.x1());
 
             // Calculate starting position and column for alpha mask
             let mut x = x0;
-            let mut col = strip.alpha_idx() / (Tile::HEIGHT as u32);
+            let mut col = strip.alpha_idx() / u32::try_from(Tile::HEIGHT).unwrap();
             let clip_x = clip_bbox.x0() * WideTile::WIDTH;
             if clip_x > x {
                 col += (clip_x - x) as u32;
@@ -1065,14 +1068,16 @@ impl<const MODE: u8> Wide<MODE> {
                 }
 
                 // Calculate the portion of the strip that affects this tile
-                let x_rel = x % WideTile::WIDTH;
-                let width = clipped_x1.min((wtile_x + 1) * WideTile::WIDTH) - x;
+                let x_rel = x.rem_euclid(WideTile::WIDTH); // Rem euclid necessary?
+                let tile_right_edge = (wtile_x as i32 + 1) * (WideTile::WIDTH as i32);
+                let bound = tile_right_edge.min(i16::MAX as i32) as i16;
+                let width = clipped_x1.min(bound) - x;
 
                 // Create clip strip command for rendering the partial coverage
                 let cmd = CmdClipAlphaFill {
                     x: x_rel,
                     width,
-                    alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx,
+                    alpha_offset: col * u32::try_from(Tile::HEIGHT).unwrap() - alpha_base_idx,
                     attrs_idx: clip_attrs_idx,
                 };
                 x += width;
@@ -1103,7 +1108,7 @@ impl<const MODE: u8> Wide<MODE> {
                 // whole tile, as such clips are skipped by the `push_clip` function. See
                 // <https://github.com/linebender/vello/blob/de0659e4df9842c8857153841a2b4ba6f1020bb0/sparse_strips/vello_common/src/coarse.rs#L504-L516>
                 if width > 0 && width < WideTile::WIDTH {
-                    let x_rel = clipped_x1 % WideTile::WIDTH;
+                    let x_rel = clipped_x1.rem_euclid(WideTile::WIDTH);
                     self.get_mut(cur_wtile_x, cur_wtile_y)
                         .clip_fill(x_rel, width);
                 }
@@ -1121,8 +1126,8 @@ impl<const MODE: u8> Wide<MODE> {
                         self.get_mut(cur_wtile_x, cur_wtile_y).pop_clip();
                     }
 
-                    let width2 = x2 % WideTile::WIDTH;
-                    cur_wtile_x = x2 / WideTile::WIDTH;
+                    let width2 = x2.rem_euclid(WideTile::WIDTH); // rem euclid necessary?
+                    cur_wtile_x = x2.div_euclid(WideTile::WIDTH);
 
                     // If the strip is outside the clipping box, we don't need to do any
                     // filling, so we continue (also to prevent out-of-bounds access).
@@ -1246,8 +1251,8 @@ impl<const MODE: u8> WideTile<MODE> {
     /// - `None`: No optimization available
     pub(crate) fn fill(
         &mut self,
-        x: u16,
-        width: u16,
+        x: i16,
+        width: i16,
         attrs_idx: u32,
         current_layer_id: LayerId,
         fill_hint: FillHint,
@@ -1395,8 +1400,9 @@ impl<const MODE: u8> WideTile<MODE> {
     }
 
     /// Applies a clip fill operation at the specified position and width.
-    pub fn clip_fill(&mut self, x: u16, width: u16) {
+    pub fn clip_fill(&mut self, x: i16, width: i16) {
         if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(_))) {
+            debug_assert!(width >= 0);
             self.cmds.push(Cmd::ClipFill(CmdClipFill { x, width }));
         }
     }
@@ -1806,7 +1812,7 @@ pub struct CmdFill {
     /// The horizontal start position relative to the wide tile's left edge, in pixels.
     pub x: i16,
     /// The width of the filled region in pixels.
-    pub width: u16,
+    pub width: i16,
     /// Index into the command attributes array.
     pub attrs_idx: u32,
 }
@@ -1821,7 +1827,7 @@ pub struct CmdAlphaFill {
     /// The horizontal start position relative to the wide tile's left edge, in pixels.
     pub x: i16,
     /// The width of the filled region in pixels.
-    pub width: u16,
+    pub width: i16,
     /// Relative offset to the alpha buffer location.
     /// Use `FillAttrs::alpha_idx(alpha_offset)` to compute the absolute index.
     pub alpha_offset: u32,
@@ -1837,9 +1843,9 @@ pub struct CmdAlphaFill {
 #[derive(Debug, PartialEq, Eq)]
 pub struct CmdClipFill {
     /// The horizontal start position relative to the wide tile's left edge, in pixels.
-    pub x: u16,
+    pub x: i16,
     /// The width of the region to copy in pixels.
-    pub width: u16,
+    pub width: i16,
 }
 
 /// Alpha-masked fill operation within a clipping region.
@@ -1850,9 +1856,9 @@ pub struct CmdClipFill {
 #[derive(Debug, PartialEq, Eq)]
 pub struct CmdClipAlphaFill {
     /// The horizontal start position relative to the wide tile's left edge, in pixels.
-    pub x: u16,
+    pub x: i16,
     /// The width of the region to composite in pixels.
-    pub width: u16,
+    pub width: i16,
     /// Relative offset to the alpha buffer location.
     /// Use `ClipAttrs::alpha_idx(alpha_offset)` to compute the absolute index.
     pub alpha_offset: u32,

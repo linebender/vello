@@ -32,8 +32,11 @@ impl Pixmap {
     /// Create a new pixmap with the given width and height in pixels.
     ///
     /// All pixels are initialized to transparent black.
-    pub fn new(width: u16, height: u16) -> Self {
-        let buf = vec![PremulRgba8::from_u32(0); width as usize * height as usize];
+    pub fn new(width: i16, height: i16) -> Self {
+        let buf = vec![
+            PremulRgba8::from_u32(0);
+            usize::try_from(width).unwrap_or(0) * usize::try_from(height).unwrap_or(0)
+        ];
         Self {
             width,
             height,
@@ -55,7 +58,7 @@ impl Pixmap {
     /// # Panics
     ///
     /// Panics if the `data` vector is not of length `width * height`.
-    pub fn from_parts(data: Vec<PremulRgba8>, width: u16, height: u16) -> Self {
+    pub fn from_parts(data: Vec<PremulRgba8>, width: i16, height: i16) -> Self {
         Self::from_parts_with_opacity(data, width, height, true)
     }
 
@@ -73,8 +76,8 @@ impl Pixmap {
     /// Panics if the `data` vector is not of length `width * height`.
     pub fn from_parts_with_opacity(
         data: Vec<PremulRgba8>,
-        width: u16,
-        height: u16,
+        width: i16,
+        height: i16,
         may_have_opacities: bool,
     ) -> Self {
         assert_eq!(
@@ -96,8 +99,8 @@ impl Pixmap {
     /// If the pixmap buffer has to grow to fit the new size, those pixels are set to transparent
     /// black. If the pixmap buffer is larger than required, the buffer is truncated and its
     /// reserved capacity is unchanged.
-    pub fn resize(&mut self, width: u16, height: u16) {
-        let new_len = usize::from(width) * usize::from(height);
+    pub fn resize(&mut self, width: i16, height: i16) {
+        let new_len = usize::try_from(width).unwrap_or(0) * usize::try_from(height).unwrap_or(0);
         // If we're growing, new pixels are transparent black
         if new_len > self.buf.len() {
             self.may_have_opacities = true;
@@ -320,7 +323,8 @@ impl Pixmap {
     /// The pixel data is [premultiplied RGBA8][PremulRgba8].
     #[inline(always)]
     pub fn sample(&self, x: i16, y: i16) -> PremulRgba8 {
-        let idx = self.width as usize * y as usize + x as usize;
+        let idx = usize::try_from(self.width).unwrap_or(0) *
+            usize::try_from(y).unwrap_or(0) + usize::try_from(x).unwrap_or(0);
         self.buf[idx]
     }
 
@@ -338,7 +342,8 @@ impl Pixmap {
     /// downward.
     #[inline(always)]
     pub fn set_pixel(&mut self, x: i16, y: i16, pixel: PremulRgba8) {
-        let idx = self.width as usize * y as usize + x as usize;
+        let idx = usize::try_from(self.width).unwrap_or(0) *
+            usize::try_from(y).unwrap_or(0) + usize::try_from(x).unwrap_or(0);
         self.buf[idx] = pixel;
     }
 

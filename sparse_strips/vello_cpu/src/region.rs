@@ -31,7 +31,8 @@ impl<'a> Regions<'a> {
 
         for y in 0..height_regions {
             let base_y = y * usize::try_from(Tile::HEIGHT).unwrap_or(0);
-            let region_height = (usize::try_from(Tile::HEIGHT).unwrap_or(0)).min(buf_height - base_y);
+            let region_height =
+                (usize::try_from(Tile::HEIGHT).unwrap_or(0)).min(buf_height - base_y);
 
             for line in next_lines.iter_mut().take(region_height) {
                 let (head, tail) = buffer.split_at_mut(row_advance);
@@ -44,8 +45,9 @@ impl<'a> Regions<'a> {
                     [&mut [], &mut [], &mut [], &mut []];
 
                 // All rows have the same width, so we can just take the first row.
-                let region_width =
-                    (usize::try_from(WideTile::WIDTH).unwrap_or(0) * COLOR_COMPONENTS).min(next_lines[0].len());
+                let region_width = (usize::try_from(WideTile::WIDTH).unwrap_or(0)
+                    * COLOR_COMPONENTS)
+                    .min(next_lines[0].len());
 
                 for h in 0..region_height {
                     let next = core::mem::take(&mut next_lines[h]);

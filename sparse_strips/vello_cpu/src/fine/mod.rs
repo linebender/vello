@@ -593,7 +593,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                 let blend_buf = self.blend_buf.last_mut().unwrap();
 
-                let width = i16::try_from(blend_buf.len() / (Tile::HEIGHT as usize * COLOR_COMPONENTS)).unwrap_or(i16::MAX);
+                let width =
+                    i16::try_from(blend_buf.len() / (Tile::HEIGHT as usize * COLOR_COMPONENTS))
+                        .unwrap_or(i16::MAX);
                 let y = start_y as u32 + u32x4::from_slice(self.simd, &[0, 1, 2, 3]);
 
                 let iter = (start_x..(start_x + width)).map(|x| {

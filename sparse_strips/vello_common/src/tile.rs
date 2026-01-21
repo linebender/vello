@@ -390,8 +390,7 @@ impl Tiles {
             if not_same_tile {
                 // For ease of logic, special-case purely vertical tiles.
                 if line_left_x == line_right_x {
-                    let x = (line_left_x.floor() as i16)
-                        .clamp(-1, tile_columns.saturating_sub(1));
+                    let x = (line_left_x.floor() as i16).clamp(-1, tile_columns.saturating_sub(1));
 
                     // Row Start, not culled.
                     let is_start_culled = line_top_y < 0.0;
@@ -446,8 +445,8 @@ impl Tiles {
                         let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
 
                         let x_start = (row_left_x.floor() as i16).max(-1);
-                        let x_end = (row_right_x.floor() as i16)
-                            .clamp(-1, tile_columns.saturating_sub(1));
+                        let x_end =
+                            (row_right_x.floor() as i16).clamp(-1, tile_columns.saturating_sub(1));
 
                         if x_start <= x_end {
                             let winding = if x_start == x_end { w_single } else { w_start };
@@ -631,8 +630,7 @@ impl Tiles {
             if not_same_tile {
                 // For ease of logic, special-case purely vertical tiles.
                 if line_left_x == line_right_x {
-                    let x = (line_left_x.floor() as i16)
-                        .clamp(-1, tile_columns.saturating_sub(1));
+                    let x = (line_left_x.floor() as i16).clamp(-1, tile_columns.saturating_sub(1));
 
                     // Row Start, not culled.
                     let is_start_culled = line_top_y < 0.0;
@@ -828,8 +826,8 @@ impl Tiles {
                             let (row_left_x, row_right_x, x_end) = if $clamped {
                                 let lx = raw_left.max(line_left_x);
                                 let rx = raw_right.min(line_right_x);
-                                let xe = (rx.floor() as i16)
-                                    .clamp(-1, tile_columns.saturating_sub(1));
+                                let xe =
+                                    (rx.floor() as i16).clamp(-1, tile_columns.saturating_sub(1));
                                 (lx, rx, xe)
                             } else {
                                 // Unclamped: Raw values are trusted
@@ -1264,11 +1262,9 @@ mod tests {
         let expected = [
             Tile::new(-1, 0, 0, L),
             Tile::new(0, 0, 0, L),
-
             Tile::new(-1, 0, 1, L),
             Tile::new(0, 0, 1, L | R),
             Tile::new(1, 0, 1, L),
-
             Tile::new(-1, 0, 2, L | B),
             Tile::new(0, 0, 2, L | B),
             Tile::new(0, 1, 2, W | R | T),
@@ -1458,10 +1454,7 @@ mod tests {
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         // Note: New -1 tile due to clamping
-        let expected = [
-            Tile::new(-1, 0, 0, W | L),
-            Tile::new(0, 0, 0, W | L | T)
-        ];
+        let expected = [Tile::new(-1, 0, 0, W | L), Tile::new(0, 0, 0, W | L | T)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
     }
