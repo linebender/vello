@@ -21,8 +21,11 @@ use minimal_pipeline_cache::{get_cache_directory, load_pipeline_cache, write_pip
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 use vello::low_level::DebugLayers;
+use vello::peniko::Blob;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
+use wgpu::TexelCopyTextureInfoBase;
+use wgpu_shader::DemoRenderer;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
@@ -50,6 +53,7 @@ mod hot_reload;
 mod minimal_pipeline_cache;
 mod multi_touch;
 mod stats;
+mod wgpu_shader;
 
 #[derive(Parser, Debug)]
 #[command(about, long_about = None, bin_name="cargo run -p with_winit --")]
@@ -170,6 +174,8 @@ struct VelloApp {
     prev_scene_ix: i32,
     modifiers: ModifiersState,
 
+    demo_renderer: Option<DemoRenderer>,
+
     debug: DebugLayers,
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -209,6 +215,14 @@ impl ApplicationHandler<UserEvent> for VelloApp {
             self.renderers
                 .resize_with(self.context.devices.len(), || None);
             let id = render_state.surface.dev_id;
+
+            // Initialise demo renderer
+            let device_handle = &self.context.devices[id];
+            self.demo_renderer = Some(DemoRenderer::new(
+                &device_handle.device,
+                &device_handle.queue,
+            ));
+
             self.renderers[id].get_or_insert_with(|| {
                 let device_handle = &self.context.devices[id];
                 let cache = if let Some((dir, tx)) = self.cache_data.as_ref() {
@@ -511,6 +525,40 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                 let device_handle = &self.context.devices[surface.dev_id];
                 let snapshot = self.stats.snapshot();
 
+                // Render demo and store as override_image
+                // TODO: reuse dummy images and texture mapping
+
+                let mut demo_texture = None;
+                let demo_w = width / 2;
+                let demo_h = height / 2;
+                let demo_x = width / 4;
+                let demo_y = height / 4;
+                if let Some(renderer) = self.renderers[surface.dev_id].as_mut() {
+                    if let Some(demo) = self.demo_renderer.as_mut() {
+                        let texture = demo.render(1.0, 0.0, 0.0, demo_w, demo_h);
+                        let dummy_image = vello::peniko::Image {
+                            data: Blob::new(Arc::new([])), // will be ignored
+                            format: vello::peniko::ImageFormat::Rgba8,
+                            width: demo_w,
+                            height: demo_h,
+                            x_extend: vello::peniko::Extend::Pad,
+                            y_extend: vello::peniko::Extend::Pad,
+                            quality: vello::peniko::ImageQuality::High,
+                            alpha: 1.0,
+                        };
+
+                        let base = TexelCopyTextureInfoBase {
+                            texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        };
+                        renderer.override_image(&dummy_image, Some(base));
+
+                        demo_texture = Some(dummy_image);
+                    }
+                }
+
                 // Allow looping forever
                 self.scene_ix = self.scene_ix.rem_euclid(self.scenes.len() as i32);
                 self.aa_config_ix = self.aa_config_ix.rem_euclid(AA_CONFIGS.len() as i32);
@@ -558,6 +606,17 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                     transform *= Affine::scale(scale_factor);
                 }
                 self.scene.append(&self.fragment, Some(transform));
+
+                if let Some(demo_texture) = demo_texture {
+                    self.scene.draw_image(
+                        &demo_texture,
+                        Affine::translate(Vec2 {
+                            x: demo_x as f64,
+                            y: demo_y as f64,
+                        }),
+                    );
+                };
+
                 if self.stats_shown {
                     snapshot.draw_layer(
                         &mut self.scene,
@@ -847,6 +906,8 @@ fn run(
 
         frame_start_time: Instant::now(),
         start: Instant::now(),
+
+        demo_renderer: None,
 
         touch_state: multi_touch::TouchState::new(),
         navigation_fingers: HashSet::new(),
