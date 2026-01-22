@@ -57,7 +57,6 @@ pub type StandardBrush = Brush<ImageBrush<TextureId>>;
 /// [`append`]: PaintScene::append
 /// [`Renderer`]: todo
 pub trait PaintScene: Any {
-    // TODO: This also "clobbers" the brush; we need to document that.
     /// Insert the contents of `Scene` into the drawing sequence at this point, with the 2d affine
     /// `transform` applied to its contents.
     ///
