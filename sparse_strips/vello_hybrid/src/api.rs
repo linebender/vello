@@ -1,7 +1,14 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Integration of Vello API into Vello Hybrid.
+//! Integration of the experimental Vello API preview into Vello Hybrid.
+//!
+//! <div class="warning">
+//!
+//! Vello API is currently in an experimental phase, released only as a preview, and has no stability guarantees.
+//! See [its documentation](vello_api) for more details.
+//!
+//! </div>
 
 use vello_api::{
     PaintScene, Scene,
