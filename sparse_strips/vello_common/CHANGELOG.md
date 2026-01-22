@@ -18,6 +18,9 @@ This release has an [MSRV][] of 1.88.
 ### Changed
 
 - Improved Bézier flattening performance by catching more Béziers whose chords are immediately within rendering tolerance. ([#1216][] by [@tomcur][])
+- Improved flattening and tiling performance by culling out-of-viewport Béziers before flattening. ([#1341][] by [@tomcur][])  
+  This drops all out-of-viewport geometry that does not impact winding or pixel coverage (i.e., geometry above, to the right, or below the viewport).
+  For geometry that is to the left of the viewport (impacting winding), this skips flattening by directly yielding the Bézier's chord.
 
 ## [0.0.6][] - 2026-01-15
 
@@ -116,6 +119,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1329]: https://github.com/linebender/vello/pull/1329
 [#1336]: https://github.com/linebender/vello/pull/1327
 [#1338]: https://github.com/linebender/vello/pull/1327
+[#1341]: https://github.com/linebender/vello/pull/1341
 [#1349]: https://github.com/linebender/vello/pull/1349
 [#1353]: https://github.com/linebender/vello/pull/1353
 [#1354]: https://github.com/linebender/vello/pull/1354

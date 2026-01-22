@@ -34,6 +34,16 @@ impl Point {
     }
 }
 
+impl From<crate::kurbo::Point> for Point {
+    #[inline(always)]
+    fn from(value: crate::kurbo::Point) -> Self {
+        Self {
+            x: value.x as f32,
+            y: value.y as f32,
+        }
+    }
+}
+
 impl core::ops::Add for Point {
     type Output = Self;
 
@@ -74,18 +84,109 @@ impl Line {
     }
 }
 
-/// Flatten a filled bezier path into line segments.
+/// Flatten a filled Bézier path into line segments.
+///
+/// # Open subpaths and culling
+///
+/// Open subpaths in the input path get closed by connecting the last endpoint in the subpath to
+/// the starting point. The output lines in `line_buf` describe the flattened path, but these lines
+/// may describe open subpaths, as some path elements may have been culled.
+///
+/// For example, consider the following, where the box describes the viewport, a path is marked by
+/// `*`, and the region to be filled in the viewport is shaded. For ease of drawing the ASCII art,
+/// the path elements are all lines ([`PathEl::LineTo`]), but the same also holds for Bézier path
+/// elements.
+///
+/// ```text
+///    ---> winding scan direction
+///
+///                   * * * * *
+///                 *         *
+///    ---------- * -----     *
+///    |        *░░░░░░░|     *
+///    |      *░░░░░░░░░|     *
+///    |    *░░░░░░░░░░░|     *
+///    |  *░░░░░░░░░░░░░|     *
+///    |*░░░░░░░░░░░░░░░|     *
+///   *|░░░░░░░░░░░░░░░░|     *
+/// *  |░░░░░░░░░░░░░░░░|     *
+/// *  |░░░░░░░░░░░░░░░░|     *
+/// *  ------------------     *
+/// *                         *
+/// *                         *
+/// *                         *
+/// *                         *
+/// *                         *
+/// *                         *
+/// *                         *
+/// * * * * * * * * * * * * * *
+/// ```
+///
+/// Because the winding scan direction is from left to right, only the left-of-viewport and
+/// diagonal lines matter in later stages of rendering for the winding number and pixel coverage.
+/// The other three lines can be culled.
+///
+/// ```text
+///                   *
+///                 *
+///    ---------- * -----
+///    |        *░░░░░░░|
+///    |      *░░░░░░░░░|
+///    |    *░░░░░░░░░░░|
+///    |  *░░░░░░░░░░░░░|
+///    |*░░░░░░░░░░░░░░░|
+///   *|░░░░░░░░░░░░░░░░|
+/// *  |░░░░░░░░░░░░░░░░|
+/// *  |░░░░░░░░░░░░░░░░|
+/// *  ------------------
+/// *
+/// *
+/// *
+/// *
+/// *
+/// *
+/// *
+/// ```
+///
+/// It is important to keep these flattened subpaths open after culling, as closing the subpaths
+/// might yield different geometry like the following.
+///
+/// ```text
+///                   *
+///                 **
+///    ---------- * *----
+///    |        *░░*    |
+///    |      *░░░*     |
+///    |    *░░░░*      |
+///    |  *░░░░░*       |
+///    |*░░░░░░*        |
+///   *|░░░░░░*         |
+/// *  |░░░░░*          |
+/// *  |░░░░*           |
+/// *  --- * ------------
+/// *     *
+/// *    *
+/// *   *
+/// *  *
+/// * *
+/// **
+/// *
+/// ```
 pub fn fill(
     level: Level,
     path: impl IntoIterator<Item = PathEl>,
     affine: Affine,
     line_buf: &mut Vec<Line>,
     ctx: &mut FlattenCtx,
+    width: u16,
+    height: u16,
 ) {
-    dispatch!(level, simd => fill_impl(simd, path, affine, line_buf, ctx));
+    dispatch!(level, simd => fill_impl(simd, path, affine, line_buf, ctx, width, height));
 }
 
 /// Flatten a filled bezier path into line segments.
+///
+/// See the note about open subpaths and culling on [`fill`].
 #[inline(always)]
 pub fn fill_impl<S: Simd>(
     simd: S,
@@ -93,12 +194,10 @@ pub fn fill_impl<S: Simd>(
     affine: Affine,
     line_buf: &mut Vec<Line>,
     flatten_ctx: &mut FlattenCtx,
+    width: u16,
+    height: u16,
 ) {
     line_buf.clear();
-    let iter = path.into_iter().map(
-        #[inline(always)]
-        |el| affine * el,
-    );
 
     let mut lb = FlattenerCallback {
         line_buf,
@@ -107,7 +206,7 @@ pub fn fill_impl<S: Simd>(
         is_nan: false,
     };
 
-    crate::flatten_simd::flatten(simd, iter, TOL, &mut lb, flatten_ctx);
+    crate::flatten_simd::flatten(simd, affine, path, TOL, &mut lb, flatten_ctx, width, height);
 
     // A path that contains NaN is ill-defined, so ignore it.
     if lb.is_nan {
@@ -116,7 +215,9 @@ pub fn fill_impl<S: Simd>(
         line_buf.clear();
     }
 }
-/// Flatten a stroked bezier path into line segments.
+/// Flatten a stroked Bézier path into line segments.
+///
+/// See the note about open subpaths and culling on [`fill`].
 pub fn stroke(
     level: Level,
     path: impl IntoIterator<Item = PathEl>,
@@ -125,6 +226,8 @@ pub fn stroke(
     line_buf: &mut Vec<Line>,
     flatten_ctx: &mut FlattenCtx,
     stroke_ctx: &mut StrokeCtx,
+    width: u16,
+    height: u16,
 ) {
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
     let tolerance = TOL
@@ -134,7 +237,15 @@ pub fn stroke(
             .max(1.);
 
     expand_stroke(path, style, tolerance, stroke_ctx);
-    fill(level, stroke_ctx.output(), affine, line_buf, flatten_ctx);
+    fill(
+        level,
+        stroke_ctx.output(),
+        affine,
+        line_buf,
+        flatten_ctx,
+        width,
+        height,
+    );
 }
 
 /// Expand a stroked path to a filled path.
@@ -161,13 +272,14 @@ impl Callback for FlattenerCallback<'_> {
             LinePathEl::MoveTo(p) => {
                 self.is_nan |= p.is_nan();
 
-                self.start = Point::new(p.x as f32, p.y as f32);
-                self.p0 = self.start;
+                let p = p.into();
+                self.start = p;
+                self.p0 = p;
             }
             LinePathEl::LineTo(p) => {
                 self.is_nan |= p.is_nan();
 
-                let p = Point::new(p.x as f32, p.y as f32);
+                let p = p.into();
                 self.line_buf.push(Line::new(self.p0, p));
                 self.p0 = p;
             }
