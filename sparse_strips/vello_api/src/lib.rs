@@ -6,7 +6,10 @@
 
 // These docs are written for a more complete version of Vello API.
 
-//! Vello API is the rendering API of the 2D renderers in the Vello project.
+//! Vello API is the **experimental** rendering API of the 2D renderers in the Vello project.
+//!
+//! Warning: Vello API is currently only released as a preview, and is not ready for usage beyond short-term experiments.
+//! We know of several design decisions which will change before its use can be recommended.
 //!
 //! There are currently two [supported Vello renderers](#renderers), each with different tradeoffs.
 //! This crate allows you to write the majority of your application logic to support either of those renderers.
