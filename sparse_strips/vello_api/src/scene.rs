@@ -155,7 +155,7 @@ pub fn extract_integer_translation(transform: Affine) -> Option<(f64, f64)> {
     }
     let [a, b, c, d, dx, dy] = transform.as_coeffs();
     // If there's a skew, rotation or scale, then the transform is not compatible with hinting.
-    if !(is_nearly(a, 1.0) && is_nearly(b, 0.0) && is_nearly(c, 1.0) && is_nearly(d, 0.0)) {
+    if !(is_nearly(a, 1.0) && is_nearly(b, 0.0) && is_nearly(c, 0.0) && is_nearly(d, 1.0)) {
         return None;
     }
 
