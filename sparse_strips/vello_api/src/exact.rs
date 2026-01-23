@@ -21,7 +21,7 @@ use peniko::kurbo;
 /// It is a requirement of this trait that [`Shape::path_elements`] returns the same iterator
 /// as [`ExactPathElements::exact_path_elements`] for any provided tolerance value.
 pub trait ExactPathElements: Shape {
-    /// Returns an iterator over this shape expressed as exact [`PathEl`]s;
+    /// Returns an iterator over this shape expressed as exact [`PathEl`](kurbo::PathEl)s;
     /// that is, as exact Bézier path _elements_.
     ///
     /// These path elements are exact, in the sense that no approximation is required
