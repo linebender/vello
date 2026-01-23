@@ -146,7 +146,7 @@ impl Tile {
     /// Checks Bit 5 (Winding).
     #[inline]
     pub const fn winding(&self) -> bool {
-        (self.packed_winding_line_idx & (1 << 5)) != 0
+        (self.packed_winding_line_idx & 0b100000) != 0
     }
 
     /// The 6 bits of intersection and winding data.
@@ -166,25 +166,25 @@ impl Tile {
     /// Whether the line intersects the top edge of the tile.
     #[inline]
     pub const fn intersects_top(&self) -> bool {
-        (self.intersection_mask() & 0b000001) != 0
+        (self.packed_winding_line_idx & 0b000001) != 0
     }
 
     /// Whether the line intersects the bottom edge of the tile.
     #[inline]
     pub const fn intersects_bottom(&self) -> bool {
-        (self.intersection_mask() & 0b000010) != 0
+        (self.packed_winding_line_idx & 0b000010) != 0
     }
 
     /// Whether the line intersects the left edge of the tile.
     #[inline]
     pub const fn intersects_left(&self) -> bool {
-        (self.intersection_mask() & 0b000100) != 0
+        (self.packed_winding_line_idx & 0b000100) != 0
     }
 
     /// Whether the line intersects the right edge of the tile.
     #[inline]
     pub const fn intersects_right(&self) -> bool {
-        (self.intersection_mask() & 0b001000) != 0
+        (self.packed_winding_line_idx & 0b001000) != 0
     }
 
     /// Whether the tile intersects a perfect corner.
@@ -192,7 +192,7 @@ impl Tile {
     /// This is true when the line intersects TL, TR, BL, or BR exactly.
     #[inline]
     pub const fn is_perfect_corner(&self) -> bool {
-        (self.intersection_mask() & 0b010000) != 0
+        (self.packed_winding_line_idx & 0b010000) != 0
     }
 
     /// Return the `u64` representation of this tile.

@@ -27,7 +27,7 @@ use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
 use vello_common::strip::Strip;
-use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::strip_generator::{Analytic, GenerationMode, StripGenerator, StripStorage};
 #[cfg(feature = "text")]
 use vello_common::{
     color::{AlphaColor, Srgb},
@@ -938,7 +938,7 @@ impl RenderContext {
 
         let saved_state = self.take_current_state();
         let mut strip_generator =
-            StripGenerator::new(self.width, self.height, self.render_settings.level);
+            StripGenerator::<Analytic>::new(self.width, self.height, self.render_settings.level);
 
         for command in commands {
             let start_index = strip_storage.strips.len();

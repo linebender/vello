@@ -3,10 +3,13 @@
 
 //! Rendering strips.
 
+use core::arch::aarch64::{uint32x2x4_t, uint32x4x2_t};
+
 use crate::flatten::Line;
 use crate::peniko::Fill;
 use crate::tile::{Tile, Tiles};
 use crate::util::f32_to_u8;
+use alloc::fmt::Debug;
 use alloc::vec::Vec;
 use fearless_simd::*;
 
@@ -91,7 +94,7 @@ impl Strip {
 }
 
 /// Render the tiles stored in `tiles` into the strip and alpha buffer.
-pub fn render(
+pub fn render<T: MsaaMask>(
     level: Level,
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
@@ -99,11 +102,29 @@ pub fn render(
     fill_rule: Fill,
     aliasing_threshold: Option<u8>,
     lines: &[Line],
+    mask_lut: &[T],
 ) {
-    dispatch!(level, simd => render_impl(simd, tiles, strip_buf, alpha_buf, fill_rule, aliasing_threshold, lines));
+    if mask_lut.is_empty() {
+        dispatch!(level, simd => render_analytic_impl(simd,
+                                                      tiles,
+                                                      strip_buf,
+                                                      alpha_buf,
+                                                      fill_rule,
+                                                      aliasing_threshold,
+                                                      lines));
+    } else {
+        dispatch!(level, simd => T::render_msaa(simd,
+                                                tiles,
+                                                strip_buf,
+                                                alpha_buf,
+                                                fill_rule,
+                                                aliasing_threshold,
+                                                lines,
+                                                mask_lut));
+    }
 }
 
-fn render_impl<S: Simd>(
+fn render_analytic_impl<S: Simd>(
     s: S,
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
@@ -415,5 +436,470 @@ fn render_impl<S: Simd>(
         }
 
         accumulated_winding += acc;
+    }
+}
+
+fn generate_mask_lut_generic<const N: usize, T: MsaaMask>(pattern: [u8; N]) -> Vec<T> {
+    const MASK_WIDTH: u32 = 64;
+    const MASK_HEIGHT: u32 = 64;
+    const PACKING_SCALE: f32 = 0.5;
+
+    let scale = 1.0 / (N as f32);
+
+    let mut sub_x = [0.0; N];
+    let mut sub_y = [0.0; N];
+
+    for k in 0..N {
+        sub_x[k] = (pattern[k] as f32 + 0.5) * scale;
+        sub_y[k] = (k as f32 + 0.5) * scale;
+    }
+
+    let mut lut = Vec::with_capacity((MASK_WIDTH * MASK_HEIGHT) as usize);
+
+    for j in 0..MASK_WIDTH {
+        for i in 0..MASK_HEIGHT {
+            let xf = (i as f32 + 0.5) / MASK_WIDTH as f32;
+            let yf = (j as f32 + 0.5) / MASK_HEIGHT as f32;
+
+            let n_rev = (2.0 * (xf - 0.5), 2.0 * (yf - 0.5));
+            let mut lg_rev = n_rev.0.hypot(n_rev.1);
+            if lg_rev < 1e-9 {
+                lg_rev = 1e-9;
+            }
+
+            let n_lookup = (n_rev.0 / lg_rev, n_rev.1 / lg_rev);
+            let c_dist_unsigned = (1.0 - lg_rev).max(0.0) * (1.0 / PACKING_SCALE);
+
+            let mut n_canonical = n_lookup;
+            let mut c_signed_dist = c_dist_unsigned;
+
+            if n_lookup.0 < 0.0 {
+                n_canonical.0 = -n_lookup.0;
+                n_canonical.1 = -n_lookup.1;
+                c_signed_dist = -c_dist_unsigned;
+            }
+
+            let c_plane = c_signed_dist + 0.5 * (n_canonical.0 + n_canonical.1);
+
+            let mut mask = T::default();
+            for k in 0..N {
+                let p = (sub_x[k], sub_y[k]);
+                if n_canonical.0 * p.0 + n_canonical.1 * p.1 - c_plane > 0.0 {
+                    mask.set_bit(k);
+                }
+            }
+            lut.push(mask);
+        }
+    }
+    lut
+}
+
+///askjbd
+pub fn generate_mask_lut_msaa8() -> Vec<u8> {
+    const PATTERN: [u8; 8] = [0, 5, 3, 7, 1, 4, 6, 2];
+    generate_mask_lut_generic::<8, u8>(PATTERN)
+}
+
+///asidbasiudu
+pub fn generate_mask_lut_msaa16() -> Vec<u16> {
+    const PATTERN_16: [u8; 16] = [1, 8, 4, 11, 15, 7, 3, 12, 0, 9, 5, 13, 2, 10, 6, 14];
+    generate_mask_lut_generic::<16, u16>(PATTERN_16)
+}
+
+/// Clips a line segment to a tile.
+///
+/// Returns the start and end points of the clipped line segment relative to the tile origin.
+pub fn clip_to_tile(
+    line: &Line,
+    bounds: &[f32; 4],
+    derivatives: &[f32; 4],
+    intersection_data: u32,
+    cannonical_x_dir: bool,
+    cannonical_y_dir: bool,
+) -> [[f32; 2]; 2] {
+    const INTERSECTS_TOP_MASK: u32 = 1;
+    const INTERSECTS_BOTTOM_MASK: u32 = 2;
+    const INTERSECTS_LEFT_MASK: u32 = 4;
+    const INTERSECTS_RIGHT_MASK: u32 = 8;
+    const PERFECT_MASK: u32 = 16;
+
+    let mut p_entry = [line.p0.x, line.p0.y];
+    let mut p_exit = [line.p1.x, line.p1.y];
+
+    let tile_min_x = bounds[0];
+    let tile_min_y = bounds[1];
+    let tile_max_x = bounds[2];
+    let tile_max_y = bounds[3];
+
+    let dx = derivatives[0];
+    let dy = derivatives[1];
+
+    let (mask_v_in, bound_v_in, mask_v_out, bound_v_out) = if cannonical_x_dir {
+        (
+            INTERSECTS_LEFT_MASK,
+            tile_min_x,
+            INTERSECTS_RIGHT_MASK,
+            tile_max_x,
+        )
+    } else {
+        (
+            INTERSECTS_RIGHT_MASK,
+            tile_max_x,
+            INTERSECTS_LEFT_MASK,
+            tile_min_x,
+        )
+    };
+
+    let (mask_h_in, bound_h_in, mask_h_out, bound_h_out) = if cannonical_y_dir {
+        (
+            INTERSECTS_TOP_MASK,
+            tile_min_y,
+            INTERSECTS_BOTTOM_MASK,
+            tile_max_y,
+        )
+    } else {
+        (
+            INTERSECTS_BOTTOM_MASK,
+            tile_max_y,
+            INTERSECTS_TOP_MASK,
+            tile_min_y,
+        )
+    };
+
+    // let slope_v = dy * derivatives[2];
+    // let slope_h = dx * derivatives[3];
+    // let entry_hits = intersection_data & (mask_v_in | mask_h_in);
+    // if entry_hits != 0 {
+    //     let use_h = (intersection_data & mask_h_in) != 0;
+
+    //     let base = if use_h { line.p0.x } else { line.p0.y };
+    //     let ortho = if use_h { line.p0.y } else { line.p0.x };
+    //     let bound = if use_h { bound_h_in } else { bound_v_in };
+    //     let slope = if use_h { slope_h } else { slope_v };
+
+    //     let calculated = base + (bound - ortho) * slope;
+    //     let axis = if use_h { 0 } else { 1 };
+
+    //     p_entry[axis] = calculated;
+    //     p_entry[1 - axis] = bound;
+    // }
+
+    // let exit_hits = intersection_data & (mask_v_out | mask_h_out);
+    // if exit_hits != 0 {
+    //     let use_h = (intersection_data & mask_h_out) != 0;
+
+    //     let base = if use_h { line.p0.x } else { line.p0.y };
+    //     let ortho = if use_h { line.p0.y } else { line.p0.x };
+    //     let bound = if use_h { bound_h_out } else { bound_v_out };
+    //     let slope = if use_h { slope_h } else { slope_v };
+
+    //     let calculated = base + (bound - ortho) * slope;
+    //     let axis = if use_h { 0 } else { 1 };
+
+    //     p_exit[axis] = calculated;
+    //     p_exit[1 - axis] = bound;
+    // }
+
+    let idx = derivatives[2];
+    let idy = derivatives[3];
+
+    let entry_hits = intersection_data & (mask_v_in | mask_h_in);
+    if entry_hits != 0 {
+        let use_h = (intersection_data & mask_h_in) != 0;
+
+        let bound = if use_h { bound_h_in } else { bound_v_in };
+        let start = if use_h { line.p0.y } else { line.p0.x };
+        let inv_d = if use_h { idy } else { idx };
+
+        let t = (bound - start) * inv_d;
+
+        p_entry[0] = line.p0.x + t * dx;
+        p_entry[1] = line.p0.y + t * dy;
+        p_entry[if use_h { 1 } else { 0 }] = bound;
+    }
+
+    let exit_hits = intersection_data & (mask_v_out | mask_h_out);
+    if exit_hits != 0 {
+        let use_h = (intersection_data & mask_h_out) != 0;
+
+        let bound = if use_h { bound_h_out } else { bound_v_out };
+        let start = if use_h { line.p0.y } else { line.p0.x };
+        let inv_d = if use_h { idy } else { idx };
+
+        let t = (bound - start) * inv_d;
+
+        p_exit[0] = line.p0.x + t * dx;
+        p_exit[1] = line.p0.y + t * dy;
+        p_exit[if use_h { 1 } else { 0 }] = bound;
+    }
+
+    // TODO: The perfect bit can be removed; this means less cpu side work, but this check becomes
+    // less specific, so EVERY single intersection hits the bounds checks
+    //
+    // If we have a perfect corner intersection (PERFECT_MASK is set) AND the intersection has been
+    // tie-broken to a single edge (only 1 bit set in 0-3), we duplicate the intersection point.
+    // Otherwise, the raw endpoint would be returned. In these single intersection cases, this
+    // creates valid non-deleterious logic.
+    let is_perfect = (intersection_data & PERFECT_MASK) != 0;
+    let single_hit = (exit_hits ^ entry_hits) != 0;
+    if is_perfect && single_hit {
+        let (target, source) = if entry_hits == 0 {
+            (&mut p_entry, p_exit)
+        } else {
+            (&mut p_exit, p_entry)
+        };
+        if target[0] < tile_min_x
+            || target[0] > tile_max_x
+            || target[1] < tile_min_y
+            || target[1] > tile_max_y
+        {
+            *target = source;
+        }
+    }
+
+    let mut result = if p_exit[1] >= p_entry[1] {
+        [p_entry, p_exit]
+    } else {
+        [p_exit, p_entry]
+    };
+
+    result[0][0] -= tile_min_x;
+    result[0][1] -= tile_min_y;
+    result[1][0] -= tile_min_x;
+    result[1][1] -= tile_min_y;
+
+    // Clamping has a dual purpose here:
+    // 1) Points which are slightly outside the tile due to floating point error are coerced inside.
+    // 2) More subtly, perfectly horizontal or vertical lines have their reciprocal derivatives
+    //    set to 0. This causes the intersection calculation to return the original coordinate.
+    //    While the coordinate fixed to the tile edge is explicitly set (and guaranteed valid),
+    //    clamping forces the coordinate along that edge to be in bounds and watertight.
+    let width = Tile::WIDTH as f32;
+    let height = Tile::HEIGHT as f32;
+    result[0][0] = result[0][0].clamp(0.0, width);
+    result[0][1] = result[0][1].clamp(0.0, height);
+    result[1][0] = result[1][0].clamp(0.0, width);
+    result[1][1] = result[1][1].clamp(0.0, height);
+
+    result
+}
+
+///aaaaa
+pub trait MsaaMask: Copy + Default + Debug + 'static {
+    /// Sets a bit in the mask. Used during LUT generation.
+    fn set_bit(&mut self, bit: usize);
+
+    /// Renders using this mask type.
+    fn render_msaa<S: Simd>(
+        simd: S,
+        tiles: &Tiles,
+        strip_buf: &mut Vec<Strip>,
+        alpha_buf: &mut Vec<u8>,
+        fill_rule: Fill,
+        aliasing_threshold: Option<u8>,
+        lines: &[Line],
+        mask_lut: &[Self],
+    );
+}
+
+impl MsaaMask for u8 {
+    fn set_bit(&mut self, bit: usize) {
+        *self |= 1 << bit;
+    }
+
+    fn render_msaa<S: Simd>(
+        s: S,
+        tiles: &Tiles,
+        strip_buf: &mut Vec<Strip>,
+        alpha_buf: &mut Vec<u8>,
+        fill_rule: Fill,
+        aliasing_threshold: Option<u8>,
+        lines: &[Line],
+        mask_lut: &[Self],
+    ) {
+        if tiles.is_empty() {
+            return;
+        }
+
+        let should_fill = |winding: i32| match fill_rule {
+            Fill::NonZero => winding != 0,
+            Fill::EvenOdd => winding % 2 != 0,
+        };
+
+        // The accumulated tile winding delta. A line that crosses the top edge of a tile
+        // increments the delta if the line is directed upwards, and decrements it if goes
+        // downwards. Horizontal lines leave it unchanged.
+        let mut winding_delta: i32 = 0;
+
+        // The previous tile visited.
+        let mut prev_tile = *tiles.get(0);
+
+        // Winding Counts
+        let mut mask = [u32x8::splat(s, 0x80808080u32); Tile::HEIGHT as usize];
+
+        /// A special tile to keep the logic below simple.
+        const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, 0);
+
+        // The strip we're building.
+        let mut strip = Strip::new(
+            prev_tile.x * Tile::WIDTH,
+            prev_tile.y * Tile::HEIGHT,
+            alpha_buf.len() as u32,
+            false,
+        );
+
+        for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
+            // Push out the winding as an alpha mask when we move to the next location (i.e., a tile
+            // without the same location).
+            if !prev_tile.same_loc(&tile) {
+                // WRITE TO ALPHAS GOES HERE
+
+                let w = (winding_delta as i8 as u32) * 0x1010101u32 + 0x80808080u32;
+                #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
+                for y in 0..Tile::HEIGHT as usize {
+                    mask[y] = u32x8::splat(s, w);
+                }
+            }
+
+            // Push out the strip if we're moving to a next strip.
+            if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
+                debug_assert_eq!(
+                    (prev_tile.x as u32 + 1) * Tile::WIDTH as u32 - strip.x as u32,
+                    ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT))
+                        as u32,
+                    "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
+                );
+                strip_buf.push(strip);
+
+                let is_sentinel = tile_idx == tiles.len() as usize;
+                if !prev_tile.same_row(&tile) {
+                    // Emit a final strip in the row if there is non-zero winding for the sparse fill,
+                    // or unconditionally if we've reached the sentinel tile to end the path (the
+                    // `alpha_idx` field is used for width calculations).
+                    if winding_delta != 0 || is_sentinel {
+                        strip_buf.push(Strip::new(
+                            u16::MAX,
+                            prev_tile.y * Tile::HEIGHT,
+                            alpha_buf.len() as u32,
+                            should_fill(winding_delta),
+                        ));
+                    }
+
+                    winding_delta = 0;
+                    #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
+                    for y in 0..Tile::HEIGHT as usize {
+                        mask[y] = u32x8::splat(s, 0x80808080u32);
+                    }
+                }
+
+                if is_sentinel {
+                    break;
+                }
+
+                strip = Strip::new(
+                    tile.x * Tile::WIDTH,
+                    tile.y * Tile::HEIGHT,
+                    alpha_buf.len() as u32,
+                    should_fill(winding_delta),
+                );
+            }
+            prev_tile = tile;
+
+            let line = lines[tile.line_idx() as usize];
+
+            let p0_x = line.p0.x;
+            let p0_y = line.p0.y;
+            let p1_x = line.p1.x;
+            let p1_y = line.p1.y;
+
+            let canonical_x_dir = p1_x >= p0_x;
+            let canonical_y_dir = p1_y >= p0_y;
+
+            let sign = if canonical_y_dir { 1i32 } else { -1i32 };
+            let signed_winding = sign * tile.winding() as i32;
+            winding_delta += signed_winding;
+
+            // If the rightmost point of a line is left of the viewport, no further processing is
+            // required. The coarse mask is the only dependency which need be passed on.
+            let right = if canonical_x_dir { p1_x } else { p0_x };
+            let right_in_viewport = right >= 0.0;
+            if !right_in_viewport {
+                continue;
+            }
+
+            let dx = p1_x - p0_x;
+            let dy = p1_y - p0_y;
+            let is_vertical = dx.abs() <= f32::EPSILON;
+            let is_horizontal = dy.abs() <= f32::EPSILON;
+            let idx = if is_vertical { 0.0 } else { 1.0 / dx };
+            let idy = if is_horizontal { 0.0 } else { 1.0 / dy };
+            let dxdy = dx * idy;
+            let dydx = dy * idx;
+
+            let tile_min_x_u32 = (tile.x as u32) * (Tile::WIDTH as u32);
+            let tile_min_y_u32 = (tile.y as u32) * (Tile::HEIGHT as u32);
+
+            let tile_min_x_px = tile_min_x_u32 as f32;
+            let tile_min_y_px = tile_min_y_u32 as f32;
+            let tile_max_x_px = (tile_min_x_u32 + (Tile::WIDTH as u32)) as f32;
+            let tile_max_y_px = (tile_min_y_u32 + (Tile::HEIGHT as u32)) as f32;
+
+            let bounds = [tile_min_x_px, tile_min_y_px, tile_max_x_px, tile_max_y_px];
+
+            let derivatives = [dx, dy, idx, idy];
+            let [clipped_top, clipped_bot] = clip_to_tile(
+                &line,
+                &bounds,
+                &derivatives,
+                tile.intersection_mask(),
+                canonical_x_dir,
+                canonical_y_dir,
+            );
+
+            let left = tile.intersects_left();
+            if left {
+                let y_edge = if clipped_top[0] <= clipped_bot[0] {
+                    clipped_top[1]
+                } else {
+                    clipped_bot[1]
+                };
+                let v = if canonical_x_dir {
+                    u32x8::splat(s, 0xfefefeffu32)
+                } else {
+                    u32x8::splat(s, 0x1010101u32)
+                };
+                let y_cross = y_edge.ceil() as u32 as usize; //Double cast necessary?
+                for y in y_cross..Tile::HEIGHT as usize {
+                    mask[y] += v;
+                }
+            }
+
+            // Discard perfectly axis aligned horizontal lines as the vertical mask produces the correct
+            // value. This also ensures that the ceil call for end_y will always produce a value
+            // distinct from start_y.
+            if is_horizontal && clipped_top[1] == clipped_top[1].floor() {
+                continue;
+            }
+
+        }
+    }
+}
+
+impl MsaaMask for u16 {
+    fn set_bit(&mut self, bit: usize) {
+        *self |= 1 << bit;
+    }
+
+    fn render_msaa<S: Simd>(
+        _s: S,
+        _tiles: &Tiles,
+        _strip_buf: &mut Vec<Strip>,
+        _alpha_buf: &mut Vec<u8>,
+        _fill_rule: Fill,
+        _aliasing_threshold: Option<u8>,
+        _lines: &[Line],
+        _mask_lut: &[Self],
+    ) {
+        // MSAA16 stub
     }
 }

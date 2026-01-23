@@ -5,7 +5,7 @@
 
 use crate::kurbo::{Affine, BezPath};
 use crate::strip::Strip;
-use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use crate::strip_generator::{Analytic, GenerationMode, StripGenerator, StripStorage};
 use crate::tile::Tile;
 use crate::util::normalized_mul_u8x16;
 use alloc::vec;
@@ -82,7 +82,7 @@ impl ClipContext {
     pub fn push_clip(
         &mut self,
         clip_path: &BezPath,
-        strip_generator: &mut StripGenerator,
+        strip_generator: &mut StripGenerator<Analytic>,
         fill_rule: Fill,
         transform: Affine,
         aliasing_threshold: Option<u8>,

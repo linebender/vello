@@ -8,11 +8,92 @@ use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::kurbo::{Affine, PathEl, Stroke};
 use crate::peniko::Fill;
-use crate::strip::Strip;
+use crate::peniko::kurbo::StrokeCtx;
+use crate::strip::{MsaaMask, Strip};
 use crate::tile::Tiles;
 use crate::{flatten, strip};
 use alloc::vec::Vec;
-use peniko::kurbo::StrokeCtx;
+use core::fmt::Debug;
+
+/// a
+pub trait AliasingConfig: Debug + Default + 'static {
+    /// The type of mask used for this aliasing mode (u8 or u16).
+    type Mask: MsaaMask;
+
+    /// Returns the Lookup Table (LUT) for this mode.
+    fn get_lut(&self) -> &[Self::Mask];
+
+    /// dispatch method to call the correct tile generation logic.
+    fn make_tiles(tiles: &mut Tiles, lines: &[Line], width: u16, height: u16);
+}
+
+/// Analytic Anti-Aliasing (Default).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Analytic;
+
+impl AliasingConfig for Analytic {
+    type Mask = u8;
+
+    fn get_lut(&self) -> &[Self::Mask] {
+        &[]
+    }
+
+    fn make_tiles(tiles: &mut Tiles, lines: &[Line], width: u16, height: u16) {
+        tiles.make_tiles_analytic_aa(lines, width, height);
+    }
+}
+
+/// 8-sample Multi-Sample Anti-Aliasing.
+#[derive(Debug, Clone)]
+pub struct Msaa8 {
+    lut: Vec<u8>,
+}
+
+impl Default for Msaa8 {
+    fn default() -> Self {
+        Self {
+            lut: strip::generate_mask_lut_msaa8(),
+        }
+    }
+}
+
+impl AliasingConfig for Msaa8 {
+    type Mask = u8;
+
+    fn get_lut(&self) -> &[Self::Mask] {
+        &self.lut
+    }
+
+    fn make_tiles(tiles: &mut Tiles, lines: &[Line], width: u16, height: u16) {
+        tiles.make_tiles_msaa(lines, width, height);
+    }
+}
+
+/// 16-sample Multi-Sample Anti-Aliasing.
+#[derive(Debug, Clone)]
+pub struct Msaa16 {
+    lut: Vec<u16>,
+}
+
+impl Default for Msaa16 {
+    fn default() -> Self {
+        Self {
+            lut: strip::generate_mask_lut_msaa16(),
+        }
+    }
+}
+
+impl AliasingConfig for Msaa16 {
+    type Mask = u16;
+
+    fn get_lut(&self) -> &[Self::Mask] {
+        &self.lut
+    }
+
+    fn make_tiles(tiles: &mut Tiles, lines: &[Line], width: u16, height: u16) {
+        tiles.make_tiles_msaa(lines, width, height);
+    }
+}
 
 /// A storage for storing strip-related data.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -21,6 +102,7 @@ pub struct StripStorage {
     pub strips: Vec<Strip>,
     /// The alphas in the storage.
     pub alphas: Vec<u8>,
+    /// The generation mode of the strip storage.
     generation_mode: GenerationMode,
 }
 
@@ -60,7 +142,7 @@ impl StripStorage {
 
 /// An object for easily generating strips for a filled/stroked path.
 #[derive(Debug)]
-pub struct StripGenerator {
+pub struct StripGenerator<C: AliasingConfig> {
     pub(crate) level: Level,
     line_buf: Vec<Line>,
     flatten_ctx: FlattenCtx,
@@ -69,9 +151,10 @@ pub struct StripGenerator {
     tiles: Tiles,
     width: u16,
     height: u16,
+    config: C,
 }
 
-impl StripGenerator {
+impl<C: AliasingConfig> StripGenerator<C> {
     /// Create a new strip generator.
     pub fn new(width: u16, height: u16, level: Level) -> Self {
         Self {
@@ -83,6 +166,7 @@ impl StripGenerator {
             temp_storage: StripStorage::default(),
             width,
             height,
+            config: C::default(),
         }
     }
 
@@ -140,9 +224,10 @@ impl StripGenerator {
             strip_storage.strips.clear();
         }
 
-        self.tiles
-            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
+        C::make_tiles(&mut self.tiles, &self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
+
+        let mask_lut = self.config.get_lut();
 
         if let Some(clip_path) = clip_path {
             self.temp_storage.clear();
@@ -155,6 +240,7 @@ impl StripGenerator {
                 fill_rule,
                 aliasing_threshold,
                 &self.line_buf,
+                mask_lut,
             );
             let path_data = PathDataRef {
                 strips: &self.temp_storage.strips,
@@ -171,6 +257,7 @@ impl StripGenerator {
                 fill_rule,
                 aliasing_threshold,
                 &self.line_buf,
+                mask_lut,
             );
         }
     }
@@ -188,11 +275,11 @@ mod tests {
     use crate::fearless_simd::Level;
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::peniko::Fill;
-    use crate::strip_generator::{StripGenerator, StripStorage};
+    use crate::strip_generator::{Analytic, Msaa16, StripGenerator, StripStorage};
 
     #[test]
-    fn reset() {
-        let mut generator = StripGenerator::new(100, 100, Level::fallback());
+    fn reset_analytic() {
+        let mut generator = StripGenerator::<Analytic>::new(100, 100, Level::fallback());
         let mut storage = StripStorage::default();
         let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
 
@@ -213,5 +300,22 @@ mod tests {
 
         assert!(generator.line_buf.is_empty());
         assert!(storage.is_empty());
+    }
+
+    #[test]
+    fn msaa_generation() {
+        let mut generator = StripGenerator::<Msaa16>::new(100, 100, Level::fallback());
+        let mut storage = StripStorage::default();
+        let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+
+        generator.generate_filled_path(
+            rect.to_path(0.1),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+            &mut storage,
+            None,
+        );
+        assert!(!storage.is_empty());
     }
 }

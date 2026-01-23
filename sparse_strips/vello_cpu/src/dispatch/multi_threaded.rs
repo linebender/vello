@@ -30,7 +30,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
-use vello_common::strip_generator::{StripGenerator, StripStorage};
+use vello_common::strip_generator::{Analytic, StripGenerator, StripStorage};
 
 mod cost;
 mod worker;
@@ -99,7 +99,7 @@ pub(crate) struct MultiThreadedDispatcher {
     /// The number of threads active in the thread pool.
     num_threads: u16,
     /// The strip generator for the main thread, only used for recordings.
-    strip_generator: StripGenerator,
+    strip_generator: StripGenerator<Analytic>,
     strip_storage: StripStorage,
     level: Level,
     flushed: bool,
