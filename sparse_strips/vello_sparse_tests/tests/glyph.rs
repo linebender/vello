@@ -296,6 +296,43 @@ fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
+/// Test COLR emoji with 45-degree rotation.
+/// This tests that rotation transforms are properly applied to COLR glyphs.
+/// Hinting is disabled to preserve the rotation in the transform passed to `prepare_colr_glyph`.
+#[vello_test(width = 350, height = 350, skip_hybrid, cpu_u8_tolerance = 1)]
+fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let angle = std::f64::consts::FRAC_PI_4; // 45 degrees
+    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
+
+    ctx.set_transform(
+        Affine::translate((175., 100.)) * Affine::rotate(angle),
+    );
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter());
+}
+
+/// Test COLR emoji with 45-degree rotation and 2x scale.
+/// This tests that both rotation and scaling transforms are properly applied to COLR glyphs.
+/// Hinting is disabled to preserve the transform passed to `prepare_colr_glyph`.
+#[vello_test(width = 600, height = 600, skip_hybrid, cpu_u8_tolerance = 1)]
+fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let angle = std::f64::consts::FRAC_PI_4; // 45 degrees
+    let scale = 2.0;
+    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
+
+    ctx.set_transform(
+        Affine::translate((300., 150.)) * Affine::rotate(angle) * Affine::scale(scale),
+    );
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter());
+}
+
 #[cfg(target_os = "macos")]
 #[vello_test(width = 200, height = 70, skip_hybrid, cpu_u8_tolerance = 2)]
 fn glyphs_bitmap_apple(ctx: &mut impl Renderer) {

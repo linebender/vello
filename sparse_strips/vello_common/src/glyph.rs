@@ -448,11 +448,30 @@ fn prepare_colr_glyph<'a>(
     // coordinates.
     let scaled_bbox = bbox.scale_from_origin(scale_factor);
 
-    // The scale is already baked into scaled_bbox dimensions, so applying transform's
-    // scale again would cause double-scaling; just use the translation vector.
-    let translation = transform.translation();
+    // Remove the scale component from the transform while preserving rotation, skew, and translation.
+    // The scale is already baked into scaled_bbox dimensions, so applying transform's scale
+    // again would cause double-scaling.
+    //
+    // We decompose the matrix to extract scale factors from the basis vectors, then reconstruct
+    // the matrix with unit-length basis vectors (preserving rotation/skew but removing scale).
+    let [a, b, c, d, tx, ty] = transform.as_coeffs();
 
-    let glyph_transform = Affine::translate(translation)
+    // Calculate scale factors from the lengths of the basis vectors
+    let sx = (a * a + b * b).sqrt();
+    let sy = (c * c + d * d).sqrt();
+
+    // Reconstruct transform without scale (divide basis vectors by their lengths)
+    // This preserves rotation and skew while removing scale
+    let transform_without_scale = Affine::new([
+        a / sx,
+        b / sx,
+        c / sy,
+        d / sy,
+        tx,
+        ty,
+    ]);
+
+    let glyph_transform = transform_without_scale
         // There are two things going on here:
         // - On the one hand, for images, the position (0, 0) will be at the top-left, while
         //   for images, the position will be at the bottom-left.
