@@ -34,20 +34,27 @@ impl<'a, S: Simd> GradientPainter<'a, S> {
 }
 
 impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
+    #[inline(never)]
     fn paint_u8(&mut self, buf: &mut [u8]) {
         self.simd.vectorize(
             #[inline(always)]
             || {
-                let src: &[u32] = bytemuck::cast_slice(&self.lut);
-                let dest: &mut [u32] = bytemuck::cast_slice_mut(buf);
-                
-                for chunk in dest.chunks_exact_mut(16) {
-                    let extend = self.gradient.extend;
-                    let pos = f32x16::from_slice(self.simd, self.t_vals.next().unwrap());
-                    let t_vals = apply_extend(pos, extend);
-                    let indices = (t_vals * self.scale_factor).to_int::<u32x16<S>>();
-                    indices.gather_into(src, chunk);
-                }
+                self.simd.vectorize(
+                    #[inline(always)]
+                    || {
+                        
+                        let extend = self.gradient.extend;
+                        for chunk in buf.chunks_exact_mut(64) {
+                            let pos = f32x16::from_slice(self.simd, self.t_vals.next().unwrap());
+                            let t_vals = apply_extend(pos, extend);
+                            let indices = (t_vals * self.scale_factor).to_int::<u32x16<S>>();
+
+                            for (val, idx) in chunk.chunks_exact_mut(4).zip(*indices) {
+                                val.copy_from_slice(&self.lut[idx as usize]);
+                            }
+                        }
+                    },
+                );
             },
         );
     }
