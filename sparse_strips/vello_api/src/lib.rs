@@ -137,6 +137,7 @@ extern crate alloc;
 
 mod painter;
 
+pub mod exact;
 pub mod paths;
 pub mod scene;
 pub mod texture;
