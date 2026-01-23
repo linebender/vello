@@ -149,6 +149,8 @@ impl Scene {
 pub fn extract_integer_translation(transform: Affine) -> Option<(f64, f64)> {
     fn is_nearly(a: f64, b: f64) -> bool {
         // TODO: This is a very arbitrary threshold.
+        // It's valid for it to be as high as it is, because this is in units of a pixel,
+        // so 1/100th of a pixel is negligible.
         (a - b).abs() < 0.01
     }
     let [a, b, c, d, dx, dy] = transform.as_coeffs();
@@ -294,5 +296,52 @@ impl PaintScene for Scene {
     }
     fn pop_layer(&mut self) {
         self.commands.push(RenderCommand::PopLayer);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use core::f64::consts::{FRAC_PI_2, FRAC_PI_3, PI};
+
+    use peniko::kurbo::Affine;
+
+    use crate::scene::extract_integer_translation;
+
+    #[test]
+    fn integer_translations() {
+        let coords = [
+            (10., 10.),
+            (1.00001, 1.),
+            (0.99999998, 1.),
+            (0.0000001, 0.),
+            (10_000., 10_000.),
+        ];
+        for (real_x, rounded_x) in coords {
+            for (real_y, rounded_y) in coords {
+                let xform = Affine::translate((real_x, real_y));
+                let (extracted_x, extracted_y) = extract_integer_translation(xform)
+                    .expect("Passed coordinates are all near integers.");
+                assert_eq!(extracted_x, rounded_x);
+                assert_eq!(extracted_y, rounded_y);
+            }
+        }
+    }
+
+    #[test]
+    fn unhintable_transforms() {
+        let transforms = [
+            Affine::translate((10.5, 0.)),
+            Affine::skew(1.0, 0.5),
+            // Technically, PI/2 and PI *could* be hinted, but they can't reuse the cached strips.
+            Affine::rotate(FRAC_PI_2),
+            Affine::rotate(PI),
+            Affine::rotate(FRAC_PI_3),
+        ];
+        for xform in transforms {
+            assert!(
+                extract_integer_translation(xform).is_none(),
+                "{xform:?} unexpectedly was treated as hintable."
+            );
+        }
     }
 }
