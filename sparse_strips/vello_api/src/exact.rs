@@ -3,7 +3,7 @@
 
 //! Turning shapes into Bézier paths without approximation.
 
-use kurbo::{BezPath, CubicBez, Line, PathEl, QuadBez, Rect, Segments, Shape, Triangle, segments};
+use kurbo::{BezPath, CubicBez, Line, QuadBez, Rect, Segments, Shape, Triangle, segments};
 use peniko::kurbo;
 
 /// A generic trait for shapes that can be mapped exactly to Bézier path elements (i.e., without
@@ -17,14 +17,10 @@ use peniko::kurbo;
 /// [`RoundedRect`](kurbo::RoundedRect)), you can use [`within`].
 /// Note that the returned shape will use.
 /// This however requires you to provide the tolerance.
+///
+/// It is a requirement of this trait that [`Shape::path_elements`] returns the same iterator
+/// as [`ExactPathElements::exact_path_elements`] for any provided tolerance value.
 pub trait ExactPathElements: Shape {
-    /// The iterator returned by the [`Self::exact_path_elements`] method.
-    ///
-    /// In many cases, this will be the same iterator as [`Shape::path_elements`]
-    type ExactPathElementsIter<'iter>: Iterator<Item = PathEl> + 'iter
-    where
-        Self: 'iter;
-
     /// Returns an iterator over this shape expressed as exact [`PathEl`]s;
     /// that is, as exact Bézier path _elements_.
     ///
@@ -39,29 +35,23 @@ pub trait ExactPathElements: Shape {
     /// allocating; however creating a [`BezPath`] object always allocates.
     /// If you need an owned [`BezPath`] you can use [`BezPath::from_iter`] (or
     /// [`Iterator::collect`]).
-    fn exact_path_elements(&self) -> Self::ExactPathElementsIter<'_>;
+    fn exact_path_elements(&self) -> Self::PathElementsIter<'_>;
 
     /// Returns an iterator over this shape expressed as exact Bézier path
     /// _segments_ ([`PathSeg`]s).
     ///
     /// The allocation behaviour is the same as for [`ExactPathElements::exact_path_elements`].
     ///
-    /// [`PathSeg`]: crate::PathSeg
+    /// [`PathSeg`]: kurbo::PathSeg
     #[inline]
-    fn exact_path_segments(&self) -> Segments<Self::ExactPathElementsIter<'_>> {
+    fn exact_path_segments(&self) -> Segments<Self::PathElementsIter<'_>> {
         segments(self.exact_path_elements())
     }
 }
 
-impl<'a, T: ExactPathElements> ExactPathElements for &'a T {
-    type ExactPathElementsIter<'iter>
-        = T::ExactPathElementsIter<'iter>
-    where
-        T: 'iter,
-        'a: 'iter;
-
+impl<T: ExactPathElements> ExactPathElements for &T {
     #[inline]
-    fn exact_path_elements(&self) -> Self::ExactPathElementsIter<'_> {
+    fn exact_path_elements(&self) -> Self::PathElementsIter<'_> {
         (*self).exact_path_elements()
     }
 }
@@ -73,7 +63,7 @@ impl<'a, T: ExactPathElements> ExactPathElements for &'a T {
 /// to renderers which use Vello API.
 ///
 /// As the user of this function, you are responsible for determining the correct tolerance for your use case.
-/// A reasonable approach might be to select a tolerance which allows scaling up ("zooming in") by 8x to be
+/// A reasonable approach might be to select a tolerance which allows scaling up ("zooming in") by 4x to be
 /// within your intended tolernace bound, then recomputing the [`Scene`](crate::Scene) from your base data
 /// representation once that is exceeded.
 /// If you know that the shape will not be scaled, you can use [`UNSCALED_TOLERANCE`].
@@ -94,19 +84,14 @@ pub struct WithTolerance<S: Shape> {
 }
 
 impl<S: Shape> ExactPathElements for WithTolerance<S> {
-    type ExactPathElementsIter<'iter>
-        = S::PathElementsIter<'iter>
-    where
-        S: 'iter;
-
-    fn exact_path_elements(&self) -> Self::ExactPathElementsIter<'_> {
+    fn exact_path_elements(&self) -> Self::PathElementsIter<'_> {
         self.shape.path_elements(self.tolerance)
     }
 }
 
 impl<S: Shape> Shape for WithTolerance<S> {
     type PathElementsIter<'iter>
-        = <Self as ExactPathElements>::ExactPathElementsIter<'iter>
+        = S::PathElementsIter<'iter>
     where
         S: 'iter;
 
@@ -147,9 +132,7 @@ pub const UNSCALED_TOLERANCE: f64 = 0.1;
 macro_rules! passthrough {
     ($ty: ty) => {
         impl ExactPathElements for $ty {
-            type ExactPathElementsIter<'iter> = <$ty as Shape>::PathElementsIter<'iter>;
-
-            fn exact_path_elements(&self) -> Self::ExactPathElementsIter<'_> {
+            fn exact_path_elements(&self) -> Self::PathElementsIter<'_> {
                 // We use a tolerance of zero here because we know this to be exact.
                 self.path_elements(0.)
             }

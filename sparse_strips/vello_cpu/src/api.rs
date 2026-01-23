@@ -18,7 +18,7 @@ use vello_api::{
     texture::TextureId,
 };
 use vello_common::{
-    kurbo::{self, Affine, BezPath, Shape},
+    kurbo::{self, Affine, BezPath},
     paint::{ImageId, ImageSource},
     peniko::{BlendMode, Brush, Color, Fill, ImageBrush},
 };
@@ -137,13 +137,22 @@ impl PaintScene for CPUScenePainter {
     fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl ExactPathElements) {
         self.render_context.set_transform(transform);
         self.render_context.set_fill_rule(fill_rule);
-        // TODO: Tweak inner `fill_path` API to either take a `Shape` or an &[PathEl]
+        // This tolerance parameter is meaningless, because this is an `ExactPathElements`
+        // However, using `to_path` avoids allocation in some cases.
+        // TODO: Tweak inner API to accept an `ExactPathElements` (or at least, the resultant iterator)
+        // That would also fix the need for the tolerance parameter.
         self.render_context.fill_path(&path.into_path(0.1));
     }
 
-    fn stroke_path(&mut self, transform: Affine, stroke_params: &kurbo::Stroke, path: impl Shape) {
+    fn stroke_path(
+        &mut self,
+        transform: Affine,
+        stroke_params: &kurbo::Stroke,
+        path: impl ExactPathElements,
+    ) {
         self.render_context.set_transform(transform);
         self.render_context.set_stroke(stroke_params.clone());
+        // TODO: As in `fill_path`
         self.render_context.stroke_path(&path.into_path(0.1));
     }
 
@@ -209,6 +218,7 @@ impl PaintScene for CPUScenePainter {
         self.render_context.set_fill_rule(Fill::NonZero);
         self.render_context.set_transform(clip_transform);
         self.render_context.push_layer(
+            // TODO: As in `fill_path`
             clip_path.map(|it| it.into_path(0.1)).as_ref(),
             blend_mode,
             opacity,
@@ -217,13 +227,11 @@ impl PaintScene for CPUScenePainter {
         );
     }
 
-    fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape) {
+    fn push_clip_layer(&mut self, clip_transform: Affine, path: impl ExactPathElements) {
         self.render_context.set_fill_rule(Fill::NonZero);
         self.render_context.set_transform(clip_transform);
-        self.render_context.push_clip_layer(
-            // TODO: Not allocate
-            &path.into_path(0.1),
-        );
+        // TODO: As in `fill_path`
+        self.render_context.push_clip_layer(&path.into_path(0.1));
     }
 
     fn pop_layer(&mut self) {
