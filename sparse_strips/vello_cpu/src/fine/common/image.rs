@@ -6,7 +6,7 @@ use crate::fine::{PosExt, Splat4thExt, u8_to_f32};
 use crate::kurbo::Point;
 use crate::peniko::ImageQuality;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4};
+use vello_common::fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4, SimdGather};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::element_wise_splat;
 
@@ -333,6 +333,7 @@ pub(crate) struct ImagePainterData<'a, S: Simd> {
     pub(crate) cur_pos: Point,
     pub(crate) image: &'a EncodedImage,
     pub(crate) pixmap: &'a Pixmap,
+    pub(crate) pixmap_data: &'a [u32],
     pub(crate) x_advances: (f32, f32),
     pub(crate) y_advances: (f32, f32),
     pub(crate) height: f32x4<S>,
@@ -368,6 +369,7 @@ impl<'a, S: Simd> ImagePainterData<'a, S> {
             pixmap,
             x_advances,
             y_advances,
+            pixmap_data: bytemuck::cast_slice(pixmap.data()),
             image,
             width,
             height,
@@ -386,17 +388,8 @@ pub(crate) fn sample<S: Simd>(
     y_positions: f32x4<S>,
 ) -> u8x16<S> {
     let idx = x_positions.to_int::<u32x4<S>>() + y_positions.to_int::<u32x4<S>>() * data.width_u32;
-
-    u32x4::from_slice(
-        simd,
-        &[
-            data.pixmap.sample_idx(idx[0]).to_u32(),
-            data.pixmap.sample_idx(idx[1]).to_u32(),
-            data.pixmap.sample_idx(idx[2]).to_u32(),
-            data.pixmap.sample_idx(idx[3]).to_u32(),
-        ],
-    )
-    .to_bytes()
+    
+    u32x4::from_slice(simd, &idx.gather(data.pixmap_data)).to_bytes()
 }
 
 #[inline(always)]

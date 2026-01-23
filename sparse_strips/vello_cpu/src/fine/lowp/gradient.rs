@@ -38,13 +38,13 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
         self.simd.vectorize(
             #[inline(always)]
             || {
+                let casted: &[u32] = bytemuck::cast_slice(&self.lut);
+                
                 for chunk in buf.chunks_exact_mut(64) {
                     let extend = self.gradient.extend;
                     let pos = f32x16::from_slice(self.simd, self.t_vals.next().unwrap());
                     let t_vals = apply_extend(pos, extend);
                     let indices = (t_vals * self.scale_factor).to_int::<u32x16<S>>();
-
-                    let casted: &[u32] = bytemuck::cast_slice(&self.lut);
                     indices.gather_into(casted, bytemuck::cast_slice_mut(chunk));
                 }
             },
