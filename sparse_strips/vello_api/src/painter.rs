@@ -73,6 +73,8 @@ pub trait PaintScene: Any {
     ///   For hinted scenes, the only valid transforms are integer translations.
     /// - `scene` does not apply to the same renderer as `self`.
     /// - `scene` has unbalanced layers (TODO: This isn't implemented yet).
+    // TODO: The reason this method doesn't have a default impl is because of future support for custom paint commands.
+    // However, it might be possible to also implement those directly in a generic impl.
     fn append(&mut self, transform: Affine, scene: &Scene) -> Result<(), ()>;
 
     /// Fill the interior of `shape` with the current brush.
