@@ -12,6 +12,7 @@
 
 use vello_api::{
     PaintScene, Scene,
+    exact::ExactPathElements,
     peniko::Style,
     scene::{RenderCommand, extract_integer_translation},
     texture::TextureId,
@@ -133,7 +134,7 @@ impl PaintScene for CPUScenePainter {
         Ok(())
     }
 
-    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape) {
+    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl ExactPathElements) {
         self.render_context.set_transform(transform);
         self.render_context.set_fill_rule(fill_rule);
         // TODO: Tweak inner `fill_path` API to either take a `Shape` or an &[PathEl]
@@ -198,7 +199,7 @@ impl PaintScene for CPUScenePainter {
     fn push_layer(
         &mut self,
         clip_transform: Affine,
-        clip_path: Option<impl Shape>,
+        clip_path: Option<impl ExactPathElements>,
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         // mask: Option<Mask>,

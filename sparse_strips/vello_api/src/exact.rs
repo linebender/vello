@@ -17,7 +17,7 @@ use peniko::kurbo;
 /// [`RoundedRect`](kurbo::RoundedRect)), you can use [`within`].
 /// Note that the returned shape will use.
 /// This however requires you to provide the tolerance.
-pub trait ExactPathElements {
+pub trait ExactPathElements: Shape {
     /// The iterator returned by the [`Self::exact_path_elements`] method.
     ///
     /// In many cases, this will be the same iterator as [`Shape::path_elements`]
@@ -77,10 +77,8 @@ impl<'a, T: ExactPathElements> ExactPathElements for &'a T {
 /// within your intended tolernace bound, then recomputing the [`Scene`](crate::Scene) from your base data
 /// representation once that is exceeded.
 /// If you know that the shape will not be scaled, you can use [`UNSCALED_TOLERANCE`].
-// TODO: Ideally, we would say something like: "the resulting path will be within a 1/10th
-// of a pixel of the actual shape, which is a negligible difference for rendering"
-// but we probably can't, because Kurbo doesn't document the properties of their tolerance
-// (at least, I've not found where it is documented...)
+/// The resulting path will be within 1/10th of a pixel of the actual shape, which is a negligible
+/// difference for rendering.
 // TODO: Provide as an extension trait?
 pub fn within<S: Shape>(shape: S, tolerance: f64) -> WithTolerance<S> {
     WithTolerance { shape, tolerance }
@@ -103,6 +101,36 @@ impl<S: Shape> ExactPathElements for WithTolerance<S> {
 
     fn exact_path_elements(&self) -> Self::ExactPathElementsIter<'_> {
         self.shape.path_elements(self.tolerance)
+    }
+}
+
+impl<S: Shape> Shape for WithTolerance<S> {
+    type PathElementsIter<'iter>
+        = <Self as ExactPathElements>::ExactPathElementsIter<'iter>
+    where
+        S: 'iter;
+
+    fn path_elements(&self, _tolerance: f64) -> Self::PathElementsIter<'_> {
+        self.exact_path_elements()
+    }
+
+    fn area(&self) -> f64 {
+        self.shape.area()
+    }
+
+    fn perimeter(&self, accuracy: f64) -> f64 {
+        // TODO: Is this correct? Should it instead be based on the result of evaluating with the stored tolerance?
+        self.shape.perimeter(accuracy)
+    }
+
+    fn winding(&self, pt: kurbo::Point) -> i32 {
+        // TODO: Is this correct?
+        self.shape.winding(pt)
+    }
+
+    fn bounding_box(&self) -> Rect {
+        // TODO: Is this correct?
+        self.shape.bounding_box()
     }
 }
 
