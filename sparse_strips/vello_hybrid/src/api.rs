@@ -89,7 +89,7 @@ impl PaintScene for HybridScenePainter {
                             .get(usize::try_from(path_id.0).unwrap() + 1)
                             .map_or(input_paths.elements.len(), |it| it.start_index);
                         let segments = &input_paths.elements[path.start_index..*path_end];
-                        // Obviously, ideally we'd not be allocating here. This is forced by the current public API of Vello CPU.
+                        // TODO: Obviously, ideally we'd not be allocating here. This is forced by the current public API of Vello CPU.
                         let bezpath = BezPath::from_iter(segments.iter().cloned());
                         Some(bezpath)
                     } else {
