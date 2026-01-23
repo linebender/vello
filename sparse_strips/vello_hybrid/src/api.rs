@@ -135,13 +135,13 @@ impl PaintScene for HybridScenePainter {
         self.scene.set_transform(transform);
         self.scene.set_fill_rule(fill_rule);
         // TODO: Tweak inner `fill_path` API to either take a `Shape` or an &[PathEl]
-        self.scene.fill_path(&path.to_path(0.1));
+        self.scene.fill_path(&path.into_path(0.1));
     }
 
     fn stroke_path(&mut self, transform: Affine, stroke_params: &kurbo::Stroke, path: impl Shape) {
         self.scene.set_transform(transform);
         self.scene.set_stroke(stroke_params.clone());
-        self.scene.stroke_path(&path.to_path(0.1));
+        self.scene.stroke_path(&path.into_path(0.1));
     }
 
     fn set_brush(
@@ -189,7 +189,7 @@ impl PaintScene for HybridScenePainter {
         self.scene.set_fill_rule(Fill::NonZero);
         self.scene.set_transform(clip_transform);
         self.scene.push_layer(
-            clip_path.map(|it| it.to_path(0.1)).as_ref(),
+            clip_path.map(|it| it.into_path(0.1)).as_ref(),
             blend_mode,
             opacity,
             None,
@@ -201,7 +201,7 @@ impl PaintScene for HybridScenePainter {
         self.scene.set_transform(clip_transform);
         self.scene.push_clip_layer(
             // TODO: Not allocate
-            &path.to_path(0.1),
+            &path.into_path(0.1),
         );
     }
 
