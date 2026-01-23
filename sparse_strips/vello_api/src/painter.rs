@@ -75,16 +75,14 @@ pub trait PaintScene: Any {
     /// - `scene` has unbalanced layers (TODO: This isn't implemented yet).
     fn append(&mut self, transform: Affine, scene: &Scene) -> Result<(), ()>;
 
-    /// Fill the interior of the closed path described by `path` with the current brush.
+    /// Fill the interior of `shape` with the current brush.
     ///
-    /// Both `path` and the current brush will be transformed using the 2d affine `transform`.
-    /// For self-intersecting or nested paths, the areas which are treated as the interior
-    /// will be determined using the given `fill_rule`.
-    /// See the documentation on [`Fill`]'s variants for details on when you might choose a given
-    /// fill rule.
+    /// The shape may contain multiple subpaths (e.g., for shapes with holes like a donut).
+    /// Each subpath is implicitly closed if needed with a straight line.
+    /// For self-intersecting or nested subpaths, the `fill_rule` determines which areas are considered interior.
     ///
-    /// If `path` is not a closed path, a fallback straight-line closing segment may be appended.
-    /// (TODO: Should we give a warning of some kind as well?)
+    /// Both `shape` and the current brush will be transformed using the 2d affine `transform`.
+    /// See the documentation on [`Fill`]'s variants for details on when you might choose a given fill rule.
     // It would be really nice to have images of nested paths here, to explain winding numbers.
     fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape);
 
