@@ -234,6 +234,7 @@ impl PaintScene for Scene {
         let idx = self.paths.prepare_shape(&path, fill_rule);
         self.commands.push(RenderCommand::DrawPath(transform, idx));
     }
+
     fn stroke_path(
         &mut self,
         transform: Affine,
@@ -294,6 +295,7 @@ impl PaintScene for Scene {
                 opacity,
             }));
     }
+
     fn pop_layer(&mut self) {
         self.commands.push(RenderCommand::PopLayer);
     }
