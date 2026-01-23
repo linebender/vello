@@ -184,6 +184,9 @@ impl PaintScene for HybridScenePainter {
         opacity: Option<f32>,
         // mask: Option<Mask>,
     ) {
+        // We set the fill rule to nonzero for the clip path as a reasonable default.
+        // We should make it user provided in the future
+        self.scene.set_fill_rule(Fill::NonZero);
         self.scene.set_transform(clip_transform);
         self.scene.push_layer(
             clip_path.map(|it| it.to_path(0.1)).as_ref(),
