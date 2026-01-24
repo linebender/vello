@@ -440,7 +440,11 @@ fn render_analytic_impl<S: Simd>(
 }
 
 const MASK_WIDTH: u32 = 64;
+const MASK_WIDTH_F: f32 = MASK_WIDTH as f32;
+const MASK_WIDTH_EXCL: u32 = MASK_WIDTH - 1;
 const MASK_HEIGHT: u32 = 64;
+const MASK_HEIGHT_F: f32 = MASK_HEIGHT as f32;
+const MASK_HEIGHT_EXCL: u32 = MASK_HEIGHT - 1;
 const PACKING_SCALE: f32 = 0.5;
 
 fn generate_mask_lut_generic<const N: usize, T: MsaaMask>(pattern: [u8; N]) -> Vec<T> {
@@ -504,48 +508,6 @@ pub fn generate_mask_lut_msaa8() -> Vec<u8> {
 pub fn generate_mask_lut_msaa16() -> Vec<u16> {
     const PATTERN_16: [u8; 16] = [1, 8, 4, 11, 15, 7, 3, 12, 0, 9, 5, 13, 2, 10, 6, 14];
     generate_mask_lut_generic::<16, u16>(PATTERN_16)
-}
-
-fn algorithm_lut_mask_halfplane(line_p0: [f32; 2], line_p1: [f32; 2], lut: &[u8]) -> u8 {
-    let p0 = line_p0;
-    let p1 = line_p1;
-
-    let dir = (p1[0] - p0[0], p1[1] - p0[1]);
-    let n_unnormalized = (dir.1, -dir.0);
-
-    let mut len = n_unnormalized.0.hypot(n_unnormalized.1);
-    if len < 1e-9 {
-        len = 1e-9;
-    }
-
-    let n = (n_unnormalized.0 / len, n_unnormalized.1 / len);
-    let mut c = n.0 * p0[0] + n.1 * p0[1];
-    c -= 0.5 * (n.0 + n.1);
-
-    let c_lookup = c;
-    let sign = if c < 0.0 { -1.0 } else { 1.0 };
-
-    let c2 = (1.0 - c_lookup * PACKING_SCALE * sign).max(0.0);
-
-    let n_rev = (c2 * n.0 * sign, c2 * n.1 * sign);
-
-    let mut uv = (n_rev.0 * 0.5 + 0.5, n_rev.1 * 0.5 + 0.5);
-
-    if sign < 0.0 && uv.0 == 0.5 {
-        uv.0 = 0.5f32.next_down();
-    }
-
-    let u_f = (uv.0 * MASK_WIDTH as f32).floor();
-    let v_f = (uv.1 * MASK_HEIGHT as f32).floor();
-
-    let mask_width_m1 = (MASK_WIDTH - 1) as i32;
-    let mask_height_m1 = (MASK_HEIGHT - 1) as i32;
-
-    let u = (u_f as i32).max(0).min(mask_width_m1) as u32;
-    let v = (v_f as i32).max(0).min(mask_height_m1) as u32;
-
-    let index = (v * MASK_WIDTH + u) as usize;
-    lut[index]
 }
 
 /// Clips a line segment to a tile.
@@ -710,21 +672,12 @@ impl MsaaMask for u8 {
             Fill::EvenOdd => winding % 2 != 0,
         };
 
-        // The accumulated tile winding delta. A line that crosses the top edge of a tile
-        // increments the delta if the line is directed upwards, and decrements it if goes
-        // downwards. Horizontal lines leave it unchanged.
         let mut winding_delta: i32 = 0;
-
-        // The previous tile visited.
         let mut prev_tile = *tiles.get(0);
-
-        // Winding Counts
         let mut mask = [u32x8::splat(s, 0x80808080u32); Tile::HEIGHT as usize];
 
-        /// A special tile to keep the logic below simple.
         const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, 0);
 
-        // The strip we're building.
         let mut strip = Strip::new(
             prev_tile.x * Tile::WIDTH,
             prev_tile.y * Tile::HEIGHT,
@@ -732,13 +685,23 @@ impl MsaaMask for u8 {
             false,
         );
 
-        let tile_min_x_u32 = (prev_tile.x as u32) * (Tile::WIDTH as u32);
-        let tile_min_y_u32 = (prev_tile.y as u32) * (Tile::HEIGHT as u32);
+        let mut tile_min_x_px = (prev_tile.x as u32 * Tile::WIDTH as u32) as f32;
+        let mut tile_min_y_px = (prev_tile.y as u32 * Tile::HEIGHT as u32) as f32;
+        let mut tile_max_x_px = tile_min_x_px + Tile::WIDTH as f32;
+        let mut tile_max_y_px = tile_min_y_px + Tile::HEIGHT as f32;
 
-        let mut tile_min_x_px = tile_min_x_u32 as f32;
-        let mut tile_min_y_px = tile_min_y_u32 as f32;
-        let mut tile_max_x_px = (tile_min_x_u32 + (Tile::WIDTH as u32)) as f32;
-        let mut tile_max_y_px = (tile_min_y_u32 + (Tile::HEIGHT as u32)) as f32;
+        // SIMD Constants
+        let vec_indices_f = f32x4::from_slice(s, &[0.0, 1.0, 2.0, 3.0]);
+        let vec_indices_i = i32x4::from_slice(s, &[0, 1, 2, 3]);
+
+        let v_zero_f = f32x4::splat(s, 0.0);
+        let v_one_f = f32x4::splat(s, 1.0);
+        let v_neg_one_f = f32x4::splat(s, -1.0);
+        let v_one_u32_packed = u32x4::splat(s, 0x01010101);
+
+        // Comparison Masks
+        let mask_true = v_zero_f.simd_eq(v_zero_f);
+        let mask_false = v_zero_f.simd_eq(v_one_f);
 
         for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
             let tile_start = !prev_tile.same_loc(&tile);
@@ -751,7 +714,6 @@ impl MsaaMask for u8 {
                     let ones = u32x8::splat(s, 0x01010101u32);
                     let scale_mul = u32x8::splat(s, 255);
                     let scale_add = u32x8::splat(s, 4);
-
 
                     let mut computed_rows = [u32x8::splat(s, 0); Tile::HEIGHT as usize];
                     for y in 0..Tile::HEIGHT as usize {
@@ -767,7 +729,6 @@ impl MsaaMask for u8 {
                         computed_rows[y] = pixel_counts.mul(scale_mul).add(scale_add).shr(3);
                     }
 
-                    // Transpose, wasteful?
                     for x in 0..4 {
                         for y in 0..Tile::HEIGHT as usize {
                             let val = computed_rows[y].as_slice()[x];
@@ -789,21 +750,17 @@ impl MsaaMask for u8 {
                 }
             }
 
-            // Push out the strip if we're moving to a next strip.
             if seg_start {
                 debug_assert_eq!(
                     (prev_tile.x as u32 + 1) * Tile::WIDTH as u32 - strip.x as u32,
                     ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT))
                         as u32,
-                    "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
+                    "Strip column mismatch"
                 );
                 strip_buf.push(strip);
 
                 let is_sentinel = tile_idx == tiles.len() as usize;
                 if row_start {
-                    // Emit a final strip in the row if there is non-zero winding for the sparse fill,
-                    // or unconditionally if we've reached the sentinel tile to end the path (the
-                    // `alpha_idx` field is used for width calculations).
                     if winding_delta != 0 || is_sentinel {
                         strip_buf.push(Strip::new(
                             u16::MAX,
@@ -812,9 +769,8 @@ impl MsaaMask for u8 {
                             should_fill(winding_delta),
                         ));
                     }
-
                     winding_delta = 0;
-                    #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
+                    #[expect(clippy::needless_range_loop)]
                     for y in 0..Tile::HEIGHT as usize {
                         mask[y] = u32x8::splat(s, 0x80808080u32);
                     }
@@ -834,7 +790,6 @@ impl MsaaMask for u8 {
             prev_tile = tile;
 
             let line = lines[tile.line_idx() as usize];
-
             let p0_x = line.p0.x;
             let p0_y = line.p0.y;
             let p1_x = line.p1.x;
@@ -844,14 +799,10 @@ impl MsaaMask for u8 {
             let canonical_y_dir = p1_y >= p0_y;
 
             let sign = if canonical_y_dir { 1i32 } else { -1i32 };
-            let signed_winding = sign * tile.winding() as i32;
-            winding_delta += signed_winding;
+            winding_delta += sign * tile.winding() as i32;
 
-            // If the rightmost point of a line is left of the viewport, no further processing is
-            // required. The coarse mask is the only dependency which need be passed on.
             let right = if canonical_x_dir { p1_x } else { p0_x };
-            let right_in_viewport = right >= 0.0;
-            if !right_in_viewport {
+            if right < 0.0 {
                 continue;
             }
 
@@ -866,11 +817,10 @@ impl MsaaMask for u8 {
             if tile_start {
                 let min_x_u32 = (tile.x as u32) * (Tile::WIDTH as u32);
                 let min_y_u32 = (tile.y as u32) * (Tile::HEIGHT as u32);
-
                 tile_min_x_px = min_x_u32 as f32;
                 tile_min_y_px = min_y_u32 as f32;
-                tile_max_x_px = (min_x_u32 + (Tile::WIDTH as u32)) as f32;
-                tile_max_y_px = (min_y_u32 + (Tile::HEIGHT as u32)) as f32;
+                tile_max_x_px = tile_min_x_px + Tile::WIDTH as f32;
+                tile_max_y_px = tile_min_y_px + Tile::HEIGHT as f32;
             }
 
             let derivatives = [dx, dy, idx, idy];
@@ -883,8 +833,7 @@ impl MsaaMask for u8 {
                 canonical_y_dir,
             );
 
-            let left = tile.intersects_left();
-            if left {
+            if tile.intersects_left() {
                 let y_edge = if clipped_top[0] <= clipped_bot[0] {
                     clipped_top[1]
                 } else {
@@ -893,17 +842,13 @@ impl MsaaMask for u8 {
                 let v = if canonical_x_dir {
                     u32x8::splat(s, 0xfefefeffu32)
                 } else {
-                    u32x8::splat(s, 0x1010101u32)
+                    u32x8::splat(s, 0x01010101u32)
                 };
-                let y_cross = y_edge.ceil() as usize;
-                for y in y_cross..Tile::HEIGHT as usize {
+                for y in (y_edge.ceil() as usize)..Tile::HEIGHT as usize {
                     mask[y] += v;
                 }
             }
 
-            // Discard perfectly axis aligned horizontal lines as the vertical mask produces the correct
-            // value. This also ensures that the ceil call for end_y will always produce a value
-            // distinct from start_y.
             if is_horizontal && clipped_top[1] == clipped_top[1].floor() {
                 continue;
             }
@@ -911,17 +856,40 @@ impl MsaaMask for u8 {
             let start_y = clipped_top[1].floor() as usize;
             let end_y = clipped_bot[1].ceil() as usize;
             let mut top_row = [[f32::NAN; 2]; (Tile::HEIGHT + 1) as usize];
-            {
-                top_row[start_y] = clipped_top;
-                for y_idx in (start_y + 1)..end_y {
-                    let grid_y = y_idx as f32;
-                    let grid_x = clipped_top[0] + (grid_y - clipped_top[1]) * dxdy;
-                    top_row[y_idx] = [grid_x, grid_y];
-                }
-                top_row[end_y] = clipped_bot;
-            }
 
+            top_row[start_y] = clipped_top;
+            for y_idx in (start_y + 1)..end_y {
+                let grid_y = y_idx as f32;
+                let grid_x = clipped_top[0] + (grid_y - clipped_top[1]) * dxdy;
+                top_row[y_idx] = [grid_x, grid_y];
+            }
+            top_row[end_y] = clipped_bot;
+
+            let delta_sq = dx * dx + dy * dy;
+            let nx = dy
+                * (if delta_sq < 1e-12 {
+                    0.0
+                } else {
+                    1.0 / delta_sq.sqrt()
+                });
+            let ny = -dx
+                * (if delta_sq < 1e-12 {
+                    0.0
+                } else {
+                    1.0 / delta_sq.sqrt()
+                });
+            let c_anchor = clipped_top[0] * nx + clipped_top[1] * ny - 0.5 * (nx + ny);
             let x_dir = clipped_top[0] <= clipped_bot[0];
+
+            let v_nx = f32x4::splat(s, nx);
+            let v_ny = f32x4::splat(s, ny);
+            let v_c_anchor = f32x4::splat(s, c_anchor);
+            let v_mask_width_f = f32x4::splat(s, MASK_WIDTH_F);
+            let v_mask_height_f = f32x4::splat(s, MASK_HEIGHT_F);
+            let v_mask_width_excl = u32x4::splat(s, MASK_WIDTH_EXCL);
+            let v_mask_height_excl = u32x4::splat(s, MASK_HEIGHT_EXCL);
+            let v_packing = f32x4::splat(s, PACKING_SCALE);
+
             for y in start_y..end_y {
                 let p_top = top_row[y];
                 let p_bottom = top_row[y + 1];
@@ -932,81 +900,129 @@ impl MsaaMask for u8 {
 
                 let x_min = p_top[0].min(p_bottom[0]);
                 let x_max = p_top[0].max(p_bottom[0]);
-                let x_start = (x_min.floor() as i32).clamp(0, Tile::WIDTH as i32 - 1) as usize;
-                let x_end = (x_max.floor() as i32).clamp(0, Tile::WIDTH as i32 - 1) as usize;
+                let x_start = (x_min.floor() as i32).clamp(0, Tile::WIDTH as i32 - 1);
+                let x_end = (x_max.floor() as i32).clamp(0, Tile::WIDTH as i32 - 1);
+
+                let v_x_start = i32x4::splat(s, x_start);
+                let v_x_end = i32x4::splat(s, x_end);
+                let active_mask = vec_indices_i.simd_ge(v_x_start) & vec_indices_i.simd_le(v_x_end);
 
                 let py = y as f32;
+                let v_py = f32x4::splat(s, py);
+
+                let dist = v_c_anchor.sub(vec_indices_f.mul(v_nx).add(v_py.mul(v_ny)));
+
+                let dist_ge_0 = dist.simd_ge(v_zero_f);
+                let dist_sign = dist_ge_0.select(v_one_f, v_neg_one_f);
+                let dist_abs = dist.mul(dist_sign);
+
+                let c2 = v_one_f.sub(dist_abs.mul(v_packing)).max(v_zero_f);
+                let uv_scale = c2.mul(dist_sign).mul(f32x4::splat(s, 0.5));
+
+                let u_f = uv_scale
+                    .mul(v_nx)
+                    .add(f32x4::splat(s, 0.5))
+                    .mul(v_mask_width_f);
+                let v_f = uv_scale
+                    .mul(v_ny)
+                    .add(f32x4::splat(s, 0.5))
+                    .mul(v_mask_height_f);
+
+                let u = u_f.max(v_zero_f).cvt_u32().min(v_mask_width_excl);
+                let v = v_f.max(v_zero_f).cvt_u32().min(v_mask_height_excl);
+                let lut_indices = v.mul(u32x4::splat(s, MASK_WIDTH)).add(u);
+
+                let idx_arr = lut_indices.as_slice();
+                let msaa_masks = u32x4::from_slice(
+                    s,
+                    &[
+                        mask_lut[idx_arr[0] as usize] as u32,
+                        mask_lut[idx_arr[1] as usize] as u32,
+                        mask_lut[idx_arr[2] as usize] as u32,
+                        mask_lut[idx_arr[3] as usize] as u32,
+                    ],
+                );
+
                 let dy_top = p_top[1] - py;
                 let dy_bot = p_bottom[1] - py;
                 let pixel_top_touch = p_top[1] != p_top[1].floor();
 
                 let mask_shift_top = (8.0 * dy_top).round() as u32;
-                let top_clip_mask = 0xffu32 << mask_shift_top;
+                let top_clip_val = 0xffu32 << mask_shift_top;
+                let top_clip_mask = u32x4::splat(s, top_clip_val);
 
                 let mask_shift_bot = (8.0 * dy_bot).round() as u32;
-                let bot_clip_mask = !(0xffu32 << mask_shift_bot);
+                let bot_clip_val = !(0xffu32 << mask_shift_bot);
+                let bot_clip_mask = u32x4::splat(s, bot_clip_val);
 
-                let mut row_mask = [0x80808080u32; Tile::WIDTH as usize * 2];
-                for x in x_start..=x_end {
-                    let px = x as f32;
+                let is_start = vec_indices_i.simd_eq(v_x_start);
+                let is_end = vec_indices_i.simd_eq(v_x_end);
 
-                    let mut msaa_mask = algorithm_lut_mask_halfplane(
-                        [(p_top[0] - px), dy_top],
-                        [(p_bottom[0] - px), dy_bot],
-                        &mask_lut,
-                    ) as u32;
+                let v_x_dir = if x_dir { mask_true } else { mask_false };
+                let v_not_x_dir = if !x_dir { mask_true } else { mask_false };
 
-                    let is_start = x == x_start;
-                    let is_end = x == x_end;
-                    let canonical_start = (x_dir && is_start) || (!x_dir && is_end);
-                    let canonical_end = (x_dir && is_end) || (!x_dir && is_start);
-                    let line_top = canonical_start && y == start_y;
+                let canonical_start = (v_x_dir & is_start) | (v_not_x_dir & is_end);
+                let canonical_end = (v_x_dir & is_end) | (v_not_x_dir & is_start);
 
-                    let bumped = (line_top && p_top[0] == 0.0 && pixel_top_touch)
-                        || (!line_top && pixel_top_touch && x_dir);
+                let line_top = canonical_start
+                    & i32x4::splat(s, y as i32).simd_eq(i32x4::splat(s, start_y as i32));
 
-                    if line_top && !bumped {
-                        msaa_mask &= top_clip_mask;
-                    }
+                let v_p_top_0 = f32x4::splat(s, p_top[0]);
 
-                    if canonical_end && y == end_y - 1 && p_bottom[0] != 0.0 {
-                        msaa_mask &= bot_clip_mask;
-                    }
+                let bumped = if pixel_top_touch {
+                    let p_top_zero = v_p_top_0.simd_eq(v_zero_f);
+                    let cond1 = line_top & p_top_zero;
+                    let cond2 = (!line_top) & v_x_dir;
+                    cond1 | cond2
+                } else {
+                    mask_false
+                };
 
-                    let mask_a = msaa_mask ^ (msaa_mask << 7u32);
-                    let mask_b = mask_a ^ (mask_a << 14u32);
-                    let mut mask_lo = mask_b & 0x1010101u32;
-                    let mut mask_hi = mask_b >> 4 & 0x1010101u32;
+                let bumped = bumped & active_mask;
+                let apply_top = line_top & (!bumped);
+                let msaa_masks = apply_top.select(msaa_masks.and(top_clip_mask), msaa_masks);
 
-                    if bumped {
-                        let ones = 0x1010101u32;
-                        mask_lo = mask_lo.wrapping_sub(ones);
-                        mask_hi = mask_hi.wrapping_sub(ones);
-                    }
+                let is_last_y =
+                    i32x4::splat(s, y as i32).simd_eq(i32x4::splat(s, (end_y - 1) as i32));
+                let pb_nz = f32x4::splat(s, p_bottom[0]).simd_eq(v_zero_f).not();
+                let apply_bot = canonical_end & is_last_y & pb_nz;
 
-                    if canonical_y_dir {
-                        row_mask[x << 1] += mask_lo;
-                        row_mask[(x << 1) + 1] += mask_hi;
-                    } else {
-                        row_mask[x << 1] -= mask_lo;
-                        row_mask[(x << 1) + 1] -= mask_hi;
-                    }
-                }
+                let msaa_masks = apply_bot.select(msaa_masks.and(bot_clip_mask), msaa_masks);
+
+                let msaa_masks = active_mask.select(msaa_masks, u32x4::splat(s, 0));
+                let mask_a = msaa_masks.xor(msaa_masks.shl(7));
+                let mask_b = mask_a.xor(mask_a.shl(14));
+
+                let mut mask_lo = mask_b.and(v_one_u32_packed);
+                let mut mask_hi = mask_b.shr(4).and(v_one_u32_packed);
+
+                let bumped_vals = bumped.select(v_one_u32_packed, u32x4::splat(s, 0));
+                mask_lo = mask_lo.sub(bumped_vals);
+                mask_hi = mask_hi.sub(bumped_vals);
+                let lo_interleaved = mask_lo.zip_low(mask_hi);
+                let hi_interleaved = mask_lo.zip_high(mask_hi);
+                let res_lo_hi = lo_interleaved.combine(hi_interleaved);
 
                 let crossed_top = y > start_y || p_top[1] == p_top[1].floor();
                 if crossed_top {
-                    let f = if canonical_y_dir {
+                    let fill_val = if canonical_y_dir {
                         0x1010101u32
                     } else {
                         0xfefefeffu32
                     };
-                    for x in (x_end + 1)..Tile::WIDTH as usize {
-                        row_mask[x << 1] = row_mask[x << 1].wrapping_add(f);
-                        row_mask[(x << 1) + 1] = row_mask[(x << 1) + 1].wrapping_add(f);
-                    }
+                    let fill_mask_x = vec_indices_i.simd_gt(v_x_end);
+                    let v_fill = fill_mask_x.select(u32x4::splat(s, fill_val), u32x4::splat(s, 0));
+                    let fill_lo = v_fill.zip_low(v_fill);
+                    let fill_hi = v_fill.zip_high(v_fill);
+                    let v_fill_8 = fill_lo.combine(fill_hi);
+                    mask[y] += v_fill_8;
                 }
 
-                mask[y] += u32x8::from_slice(s, &row_mask) - u32x8::splat(s, 0x80808080u32);
+                if canonical_y_dir {
+                    mask[y] += res_lo_hi;
+                } else {
+                    mask[y] -= res_lo_hi;
+                }
             }
         }
     }
