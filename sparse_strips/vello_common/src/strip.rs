@@ -439,11 +439,11 @@ fn render_analytic_impl<S: Simd>(
     }
 }
 
-fn generate_mask_lut_generic<const N: usize, T: MsaaMask>(pattern: [u8; N]) -> Vec<T> {
-    const MASK_WIDTH: u32 = 64;
-    const MASK_HEIGHT: u32 = 64;
-    const PACKING_SCALE: f32 = 0.5;
+const MASK_WIDTH: u32 = 64;
+const MASK_HEIGHT: u32 = 64;
+const PACKING_SCALE: f32 = 0.5;
 
+fn generate_mask_lut_generic<const N: usize, T: MsaaMask>(pattern: [u8; N]) -> Vec<T> {
     let scale = 1.0 / (N as f32);
 
     let mut sub_x = [0.0; N];
@@ -506,6 +506,48 @@ pub fn generate_mask_lut_msaa16() -> Vec<u16> {
     generate_mask_lut_generic::<16, u16>(PATTERN_16)
 }
 
+fn algorithm_lut_mask_halfplane(line_p0: [f32; 2], line_p1: [f32; 2], lut: &[u8]) -> u8 {
+    let p0 = line_p0;
+    let p1 = line_p1;
+
+    let dir = (p1[0] - p0[0], p1[1] - p0[1]);
+    let n_unnormalized = (dir.1, -dir.0);
+
+    let mut len = n_unnormalized.0.hypot(n_unnormalized.1);
+    if len < 1e-9 {
+        len = 1e-9;
+    }
+
+    let n = (n_unnormalized.0 / len, n_unnormalized.1 / len);
+    let mut c = n.0 * p0[0] + n.1 * p0[1];
+    c -= 0.5 * (n.0 + n.1);
+
+    let c_lookup = c;
+    let sign = if c < 0.0 { -1.0 } else { 1.0 };
+
+    let c2 = (1.0 - c_lookup * PACKING_SCALE * sign).max(0.0);
+
+    let n_rev = (c2 * n.0 * sign, c2 * n.1 * sign);
+
+    let mut uv = (n_rev.0 * 0.5 + 0.5, n_rev.1 * 0.5 + 0.5);
+
+    if sign < 0.0 && uv.0 == 0.5 {
+        uv.0 = 0.5f32.next_down();
+    }
+
+    let u_f = (uv.0 * MASK_WIDTH as f32).floor();
+    let v_f = (uv.1 * MASK_HEIGHT as f32).floor();
+
+    let mask_width_m1 = (MASK_WIDTH - 1) as i32;
+    let mask_height_m1 = (MASK_HEIGHT - 1) as i32;
+
+    let u = (u_f as i32).max(0).min(mask_width_m1) as u32;
+    let v = (v_f as i32).max(0).min(mask_height_m1) as u32;
+
+    let index = (v * MASK_WIDTH + u) as usize;
+    lut[index]
+}
+
 /// Clips a line segment to a tile.
 ///
 /// Returns the start and end points of the clipped line segment relative to the tile origin.
@@ -566,40 +608,6 @@ pub fn clip_to_tile(
         )
     };
 
-    // let slope_v = dy * derivatives[2];
-    // let slope_h = dx * derivatives[3];
-    // let entry_hits = intersection_data & (mask_v_in | mask_h_in);
-    // if entry_hits != 0 {
-    //     let use_h = (intersection_data & mask_h_in) != 0;
-
-    //     let base = if use_h { line.p0.x } else { line.p0.y };
-    //     let ortho = if use_h { line.p0.y } else { line.p0.x };
-    //     let bound = if use_h { bound_h_in } else { bound_v_in };
-    //     let slope = if use_h { slope_h } else { slope_v };
-
-    //     let calculated = base + (bound - ortho) * slope;
-    //     let axis = if use_h { 0 } else { 1 };
-
-    //     p_entry[axis] = calculated;
-    //     p_entry[1 - axis] = bound;
-    // }
-
-    // let exit_hits = intersection_data & (mask_v_out | mask_h_out);
-    // if exit_hits != 0 {
-    //     let use_h = (intersection_data & mask_h_out) != 0;
-
-    //     let base = if use_h { line.p0.x } else { line.p0.y };
-    //     let ortho = if use_h { line.p0.y } else { line.p0.x };
-    //     let bound = if use_h { bound_h_out } else { bound_v_out };
-    //     let slope = if use_h { slope_h } else { slope_v };
-
-    //     let calculated = base + (bound - ortho) * slope;
-    //     let axis = if use_h { 0 } else { 1 };
-
-    //     p_exit[axis] = calculated;
-    //     p_exit[1 - axis] = bound;
-    // }
-
     let idx = derivatives[2];
     let idy = derivatives[3];
 
@@ -631,30 +639,6 @@ pub fn clip_to_tile(
         p_exit[0] = line.p0.x + t * dx;
         p_exit[1] = line.p0.y + t * dy;
         p_exit[if use_h { 1 } else { 0 }] = bound;
-    }
-
-    // TODO: The perfect bit can be removed; this means less cpu side work, but this check becomes
-    // less specific, so EVERY single intersection hits the bounds checks
-    //
-    // If we have a perfect corner intersection (PERFECT_MASK is set) AND the intersection has been
-    // tie-broken to a single edge (only 1 bit set in 0-3), we duplicate the intersection point.
-    // Otherwise, the raw endpoint would be returned. In these single intersection cases, this
-    // creates valid non-deleterious logic.
-    let is_perfect = (intersection_data & PERFECT_MASK) != 0;
-    let single_hit = (exit_hits ^ entry_hits) != 0;
-    if is_perfect && single_hit {
-        let (target, source) = if entry_hits == 0 {
-            (&mut p_entry, p_exit)
-        } else {
-            (&mut p_exit, p_entry)
-        };
-        if target[0] < tile_min_x
-            || target[0] > tile_max_x
-            || target[1] < tile_min_y
-            || target[1] > tile_max_y
-        {
-            *target = source;
-        }
     }
 
     let mut result = if p_exit[1] >= p_entry[1] {
@@ -748,21 +732,65 @@ impl MsaaMask for u8 {
             false,
         );
 
-        for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
-            // Push out the winding as an alpha mask when we move to the next location (i.e., a tile
-            // without the same location).
-            if !prev_tile.same_loc(&tile) {
-                // WRITE TO ALPHAS GOES HERE
+        let tile_min_x_u32 = (prev_tile.x as u32) * (Tile::WIDTH as u32);
+        let tile_min_y_u32 = (prev_tile.y as u32) * (Tile::HEIGHT as u32);
 
-                let w = (winding_delta as i8 as u32) * 0x1010101u32 + 0x80808080u32;
-                #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
-                for y in 0..Tile::HEIGHT as usize {
-                    mask[y] = u32x8::splat(s, w);
+        let mut tile_min_x_px = tile_min_x_u32 as f32;
+        let mut tile_min_y_px = tile_min_y_u32 as f32;
+        let mut tile_max_x_px = (tile_min_x_u32 + (Tile::WIDTH as u32)) as f32;
+        let mut tile_max_y_px = (tile_min_y_u32 + (Tile::HEIGHT as u32)) as f32;
+
+        for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
+            let tile_start = !prev_tile.same_loc(&tile);
+            let row_start = !prev_tile.same_row(&tile);
+            let seg_start = tile_start && !prev_tile.prev_loc(&tile);
+
+            if tile_start {
+                if tile.x > 0 {
+                    let bias = u32x8::splat(s, 0x80808080u32);
+                    let ones = u32x8::splat(s, 0x01010101u32);
+                    let scale_mul = u32x8::splat(s, 255);
+                    let scale_add = u32x8::splat(s, 4);
+
+
+                    let mut computed_rows = [u32x8::splat(s, 0); Tile::HEIGHT as usize];
+                    for y in 0..Tile::HEIGHT as usize {
+                        let v = mask[y];
+                        let diff = v.xor(bias);
+                        let subbed = diff.sub(ones);
+                        let zero_markers = subbed.and(diff.not()).and(bias);
+                        let active_markers = zero_markers.xor(bias);
+                        let counts = active_markers.shr(7).mul(ones).shr(24);
+                        let evens = counts.unzip_low(counts);
+                        let odds = counts.unzip_high(counts);
+                        let pixel_counts = evens.add(odds);
+                        computed_rows[y] = pixel_counts.mul(scale_mul).add(scale_add).shr(3);
+                    }
+
+                    // Transpose, wasteful?
+                    for x in 0..4 {
+                        for y in 0..Tile::HEIGHT as usize {
+                            let val = computed_rows[y].as_slice()[x];
+                            alpha_buf.push(val as u8);
+                        }
+                    }
+                } else {
+                    alpha_buf
+                        .extend(core::iter::repeat(0).take((Tile::WIDTH * Tile::HEIGHT) as usize));
+                }
+
+                if !row_start {
+                    let w = u32x8::splat(
+                        s,
+                        0x80808080u32
+                            .wrapping_add((winding_delta as i8 as u32).wrapping_mul(0x01010101u32)),
+                    );
+                    mask.fill(w);
                 }
             }
 
             // Push out the strip if we're moving to a next strip.
-            if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
+            if seg_start {
                 debug_assert_eq!(
                     (prev_tile.x as u32 + 1) * Tile::WIDTH as u32 - strip.x as u32,
                     ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT))
@@ -772,7 +800,7 @@ impl MsaaMask for u8 {
                 strip_buf.push(strip);
 
                 let is_sentinel = tile_idx == tiles.len() as usize;
-                if !prev_tile.same_row(&tile) {
+                if row_start {
                     // Emit a final strip in the row if there is non-zero winding for the sparse fill,
                     // or unconditionally if we've reached the sentinel tile to end the path (the
                     // `alpha_idx` field is used for width calculations).
@@ -834,22 +862,21 @@ impl MsaaMask for u8 {
             let idx = if is_vertical { 0.0 } else { 1.0 / dx };
             let idy = if is_horizontal { 0.0 } else { 1.0 / dy };
             let dxdy = dx * idy;
-            let dydx = dy * idx;
 
-            let tile_min_x_u32 = (tile.x as u32) * (Tile::WIDTH as u32);
-            let tile_min_y_u32 = (tile.y as u32) * (Tile::HEIGHT as u32);
+            if tile_start {
+                let min_x_u32 = (tile.x as u32) * (Tile::WIDTH as u32);
+                let min_y_u32 = (tile.y as u32) * (Tile::HEIGHT as u32);
 
-            let tile_min_x_px = tile_min_x_u32 as f32;
-            let tile_min_y_px = tile_min_y_u32 as f32;
-            let tile_max_x_px = (tile_min_x_u32 + (Tile::WIDTH as u32)) as f32;
-            let tile_max_y_px = (tile_min_y_u32 + (Tile::HEIGHT as u32)) as f32;
-
-            let bounds = [tile_min_x_px, tile_min_y_px, tile_max_x_px, tile_max_y_px];
+                tile_min_x_px = min_x_u32 as f32;
+                tile_min_y_px = min_y_u32 as f32;
+                tile_max_x_px = (min_x_u32 + (Tile::WIDTH as u32)) as f32;
+                tile_max_y_px = (min_y_u32 + (Tile::HEIGHT as u32)) as f32;
+            }
 
             let derivatives = [dx, dy, idx, idy];
             let [clipped_top, clipped_bot] = clip_to_tile(
                 &line,
-                &bounds,
+                &[tile_min_x_px, tile_min_y_px, tile_max_x_px, tile_max_y_px],
                 &derivatives,
                 tile.intersection_mask(),
                 canonical_x_dir,
@@ -868,7 +895,7 @@ impl MsaaMask for u8 {
                 } else {
                     u32x8::splat(s, 0x1010101u32)
                 };
-                let y_cross = y_edge.ceil() as u32 as usize; //Double cast necessary?
+                let y_cross = y_edge.ceil() as usize;
                 for y in y_cross..Tile::HEIGHT as usize {
                     mask[y] += v;
                 }
@@ -881,6 +908,106 @@ impl MsaaMask for u8 {
                 continue;
             }
 
+            let start_y = clipped_top[1].floor() as usize;
+            let end_y = clipped_bot[1].ceil() as usize;
+            let mut top_row = [[f32::NAN; 2]; (Tile::HEIGHT + 1) as usize];
+            {
+                top_row[start_y] = clipped_top;
+                for y_idx in (start_y + 1)..end_y {
+                    let grid_y = y_idx as f32;
+                    let grid_x = clipped_top[0] + (grid_y - clipped_top[1]) * dxdy;
+                    top_row[y_idx] = [grid_x, grid_y];
+                }
+                top_row[end_y] = clipped_bot;
+            }
+
+            let x_dir = clipped_top[0] <= clipped_bot[0];
+            for y in start_y..end_y {
+                let p_top = top_row[y];
+                let p_bottom = top_row[y + 1];
+
+                if p_top[0].is_nan() || p_bottom[0].is_nan() {
+                    continue;
+                }
+
+                let x_min = p_top[0].min(p_bottom[0]);
+                let x_max = p_top[0].max(p_bottom[0]);
+                let x_start = (x_min.floor() as i32).clamp(0, Tile::WIDTH as i32 - 1) as usize;
+                let x_end = (x_max.floor() as i32).clamp(0, Tile::WIDTH as i32 - 1) as usize;
+
+                let py = y as f32;
+                let dy_top = p_top[1] - py;
+                let dy_bot = p_bottom[1] - py;
+                let pixel_top_touch = p_top[1] != p_top[1].floor();
+
+                let mask_shift_top = (8.0 * dy_top).round() as u32;
+                let top_clip_mask = 0xffu32 << mask_shift_top;
+
+                let mask_shift_bot = (8.0 * dy_bot).round() as u32;
+                let bot_clip_mask = !(0xffu32 << mask_shift_bot);
+
+                let mut row_mask = [0x80808080u32; Tile::WIDTH as usize * 2];
+                for x in x_start..=x_end {
+                    let px = x as f32;
+
+                    let mut msaa_mask = algorithm_lut_mask_halfplane(
+                        [(p_top[0] - px), dy_top],
+                        [(p_bottom[0] - px), dy_bot],
+                        &mask_lut,
+                    ) as u32;
+
+                    let is_start = x == x_start;
+                    let is_end = x == x_end;
+                    let canonical_start = (x_dir && is_start) || (!x_dir && is_end);
+                    let canonical_end = (x_dir && is_end) || (!x_dir && is_start);
+                    let line_top = canonical_start && y == start_y;
+
+                    let bumped = (line_top && p_top[0] == 0.0 && pixel_top_touch)
+                        || (!line_top && pixel_top_touch && x_dir);
+
+                    if line_top && !bumped {
+                        msaa_mask &= top_clip_mask;
+                    }
+
+                    if canonical_end && y == end_y - 1 && p_bottom[0] != 0.0 {
+                        msaa_mask &= bot_clip_mask;
+                    }
+
+                    let mask_a = msaa_mask ^ (msaa_mask << 7u32);
+                    let mask_b = mask_a ^ (mask_a << 14u32);
+                    let mut mask_lo = mask_b & 0x1010101u32;
+                    let mut mask_hi = mask_b >> 4 & 0x1010101u32;
+
+                    if bumped {
+                        let ones = 0x1010101u32;
+                        mask_lo = mask_lo.wrapping_sub(ones);
+                        mask_hi = mask_hi.wrapping_sub(ones);
+                    }
+
+                    if canonical_y_dir {
+                        row_mask[x << 1] += mask_lo;
+                        row_mask[(x << 1) + 1] += mask_hi;
+                    } else {
+                        row_mask[x << 1] -= mask_lo;
+                        row_mask[(x << 1) + 1] -= mask_hi;
+                    }
+                }
+
+                let crossed_top = y > start_y || p_top[1] == p_top[1].floor();
+                if crossed_top {
+                    let f = if canonical_y_dir {
+                        0x1010101u32
+                    } else {
+                        0xfefefeffu32
+                    };
+                    for x in (x_end + 1)..Tile::WIDTH as usize {
+                        row_mask[x << 1] = row_mask[x << 1].wrapping_add(f);
+                        row_mask[(x << 1) + 1] = row_mask[(x << 1) + 1].wrapping_add(f);
+                    }
+                }
+
+                mask[y] += u32x8::from_slice(s, &row_mask) - u32x8::splat(s, 0x80808080u32);
+            }
         }
     }
 }

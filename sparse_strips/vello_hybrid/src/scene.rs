@@ -20,7 +20,9 @@ use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
 use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
-use vello_common::strip_generator::{Analytic, GenerationMode, StripGenerator, StripStorage};
+use vello_common::strip_generator::{
+    Analytic, GenerationMode, Msaa8, StripGenerator, StripStorage,
+};
 
 use crate::AtlasConfig;
 
@@ -105,7 +107,7 @@ pub struct Scene {
     /// Current blend mode for compositing.
     pub(crate) blend_mode: BlendMode,
     /// Generator for converting paths to strips.
-    pub(crate) strip_generator: StripGenerator<Analytic>,
+    pub(crate) strip_generator: StripGenerator<Msaa8>,
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: StripStorage,
     /// Cache for rasterized glyphs to improve text rendering performance.
