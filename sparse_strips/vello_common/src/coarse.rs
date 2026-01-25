@@ -285,6 +285,8 @@ impl Wide<MODE_HYBRID> {
     }
 }
 
+// TODO: Ensure that all of the calculations below are compatible with i16.
+
 impl<const MODE: u8> Wide<MODE> {
     /// Create a new container for wide tiles.
     fn new_internal(width: u16, height: u16) -> Self {
@@ -438,18 +440,18 @@ impl<const MODE: u8> Wide<MODE> {
             let strip = &strip_buf[i];
 
             debug_assert!(
-                strip.y < self.height,
+                strip.y() < self.height,
                 "Strips below the viewport should have been culled prior to this stage."
             );
 
             // Don't render strips that are outside the viewport width
-            if strip.x >= self.width {
+            if strip.x() >= self.width {
                 continue;
             }
 
             let next_strip = &strip_buf[i + 1];
-            let x0 = strip.x;
-            let strip_y = strip.strip_y();
+            let x0 = strip.x();
+            let strip_y = strip.tile_y();
 
             // Skip strips outside the current clip bounding box
             if strip_y < bbox.y0() {
@@ -507,10 +509,10 @@ impl<const MODE: u8> Wide<MODE> {
 
             // If region should be filled and both strips are on the same row,
             // generate fill commands for the region between them
-            if active_fill && strip_y == next_strip.strip_y() {
+            if active_fill && strip_y == next_strip.tile_y() {
                 // Clamp the fill to the clip bounding box
                 x = x1.max(bbox.x0() * WideTile::WIDTH);
-                let x2 = next_strip.x.min(
+                let x2 = next_strip.x().min(
                     self.width
                         .checked_next_multiple_of(WideTile::WIDTH)
                         .unwrap_or(u16::MAX),
@@ -808,18 +810,18 @@ impl<const MODE: u8> Wide<MODE> {
             WideTilesBbox::empty()
         } else {
             // Calculate the y range from first to last strip in wide tile coordinates
-            let wtile_y0 = strips[0].strip_y();
-            let wtile_y1 = strips[n_strips.saturating_sub(1)].strip_y() + 1;
+            let wtile_y0 = strips[0].tile_y();
+            let wtile_y1 = strips[n_strips.saturating_sub(1)].tile_y() + 1;
 
             // Calculate the x range by examining all strips in wide tile coordinates
-            let mut wtile_x0 = strips[0].x / WideTile::WIDTH;
+            let mut wtile_x0 = strips[0].x() / WideTile::WIDTH;
             let mut wtile_x1 = wtile_x0;
             for i in 0..n_strips.saturating_sub(1) {
                 let strip = &strips[i];
                 let next_strip = &strips[i + 1];
                 let width =
                     ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
-                let x = strip.x;
+                let x = strip.x();
                 wtile_x0 = wtile_x0.min(x / WideTile::WIDTH);
                 wtile_x1 = wtile_x1.max((x + width).div_ceil(WideTile::WIDTH));
             }
@@ -848,7 +850,7 @@ impl<const MODE: u8> Wide<MODE> {
         // Process strips to determine the clipping state for each wide tile
         for i in 0..n_strips.saturating_sub(1) {
             let strip = &strips[i];
-            let strip_y = strip.strip_y();
+            let strip_y = strip.tile_y();
 
             // Skip strips before current wide tile row
             if strip_y < cur_wtile_y {
@@ -875,7 +877,7 @@ impl<const MODE: u8> Wide<MODE> {
             }
 
             // Process wide tiles to the left of this strip in the same row
-            let x = strip.x;
+            let x = strip.x();
             let wtile_x_clamped = (x / WideTile::WIDTH).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x_clamped {
                 // If winding is zero or doesn't match fill rule, these wide tiles are outside the path
@@ -978,7 +980,7 @@ impl<const MODE: u8> Wide<MODE> {
         // Process each strip to determine the clipping state for each tile
         for i in 0..n_strips.saturating_sub(1) {
             let strip = &strips[i];
-            let strip_y = strip.strip_y();
+            let strip_y = strip.tile_y();
 
             // Skip strips before current tile row
             if strip_y < cur_wtile_y {
@@ -1010,7 +1012,7 @@ impl<const MODE: u8> Wide<MODE> {
             }
 
             // Process tiles to the left of this strip in the same row
-            let x0 = strip.x;
+            let x0 = strip.x();
             let wtile_x_clamped = (x0 / WideTile::WIDTH).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x_clamped {
                 // Handle any pending clip pop from previous iteration
@@ -1082,12 +1084,12 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Handle fill regions between strips based on fill rule
             let is_inside = next_strip.fill_gap();
-            if is_inside && strip_y == next_strip.strip_y() {
+            if is_inside && strip_y == next_strip.tile_y() {
                 if cur_wtile_x >= clip_bbox.x1() {
                     continue;
                 }
 
-                let x2 = next_strip.x;
+                let x2 = next_strip.x();
                 let clipped_x2 = x2.min((cur_wtile_x + 1) * WideTile::WIDTH);
                 let width = clipped_x2.saturating_sub(clipped_x1);
 

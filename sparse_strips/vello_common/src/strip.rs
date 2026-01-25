@@ -13,10 +13,13 @@ use fearless_simd::*;
 /// A strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Strip {
-    /// The x coordinate of the strip, in user coordinates.
-    pub x: u16,
-    /// The y coordinate of the strip, in user coordinates.
-    pub y: u16,
+    /// The x coordinate of the strip, in tile units.
+    tile_x: u16,
+    /// The y coordinate of the strip, in tile units.
+    tile_y: u16,
+    // TODO: Change it so that alpha_idx is stored divided by Tile::WIDTH * TIlE::HEIGHT.
+    // This will free up 4 more bits we can use in the future (or just increase the
+    // number of permissible alpha values).
     /// Packed alpha index and fill gap flag.
     ///
     /// Bit layout (u32):
@@ -30,7 +33,7 @@ impl Strip {
     const FILL_GAP_MASK: u32 = 1 << 31;
 
     /// Creates a new strip.
-    pub fn new(x: u16, y: u16, alpha_idx: u32, fill_gap: bool) -> Self {
+    pub fn new(tile_x: u16, tile_y: u16, alpha_idx: u32, fill_gap: bool) -> Self {
         // Ensure `alpha_idx` does not collide with the fill flag bit.
         assert!(
             alpha_idx & Self::FILL_GAP_MASK == 0,
@@ -38,20 +41,44 @@ impl Strip {
         );
         let fill_gap = u32::from(fill_gap) << 31;
         Self {
-            x,
-            y,
+            tile_x,
+            tile_y,
             packed_alpha_idx_fill_gap: alpha_idx | fill_gap,
         }
     }
 
-    /// Return whether the strip is a sentinel strip.
-    pub fn is_sentinel(&self) -> bool {
-        self.x == u16::MAX
+    /// Creates a new sentinel strip.
+    pub fn new_sentinel(tile_y: u16, alpha_idx: u32) -> Self {
+        Self::new(u16::MAX, tile_y, alpha_idx, false)
     }
 
-    /// Return the y coordinate of the strip, in strip units.
-    pub fn strip_y(&self) -> u16 {
-        self.y / Tile::HEIGHT
+    /// Return whether the strip is a sentinel strip.
+    pub fn is_sentinel(&self) -> bool {
+        self.tile_x == u16::MAX
+    }
+
+    /// Return the x coordinate of the strip, in user coordinates.
+    pub fn x(&self) -> u16 {
+        if self.is_sentinel() {
+            u16::MAX
+        } else {
+            self.tile_x * Tile::WIDTH
+        }
+    }
+
+    /// Return the y coordinate of the strip, in user coordinates.
+    pub fn y(&self) -> u16 {
+        self.tile_y * Tile::HEIGHT
+    }
+
+    /// Return the x coordinate of the strip, in tile units.
+    pub fn tile_x(&self) -> u16 {
+        self.tile_x
+    }
+
+    /// Return the y coordinate of the strip, in tile units.
+    pub fn tile_y(&self) -> u16 {
+        self.tile_y
     }
 
     /// Returns the alpha index.
@@ -141,12 +168,7 @@ fn render_impl<S: Simd>(
     const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, 0);
 
     // The strip we're building.
-    let mut strip = Strip::new(
-        prev_tile.x * Tile::WIDTH,
-        prev_tile.y * Tile::HEIGHT,
-        alpha_buf.len() as u32,
-        false,
-    );
+    let mut strip = Strip::new(prev_tile.x, prev_tile.y, alpha_buf.len() as u32, false);
 
     for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
         let line = lines[tile.line_idx() as usize];
@@ -219,7 +241,7 @@ fn render_impl<S: Simd>(
         // Push out the strip if we're moving to a next strip.
         if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
             debug_assert_eq!(
-                (prev_tile.x as u32 + 1) * Tile::WIDTH as u32 - strip.x as u32,
+                (prev_tile.x as u32 + 1) * Tile::WIDTH as u32 - strip.x() as u32,
                 ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT)) as u32,
                 "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
             );
@@ -233,7 +255,7 @@ fn render_impl<S: Simd>(
                 if winding_delta != 0 || is_sentinel {
                     strip_buf.push(Strip::new(
                         u16::MAX,
-                        prev_tile.y * Tile::HEIGHT,
+                        prev_tile.y,
                         alpha_buf.len() as u32,
                         should_fill(winding_delta),
                     ));
@@ -253,8 +275,8 @@ fn render_impl<S: Simd>(
             }
 
             strip = Strip::new(
-                tile.x * Tile::WIDTH,
-                tile.y * Tile::HEIGHT,
+                tile.x,
+                tile.y,
                 alpha_buf.len() as u32,
                 should_fill(winding_delta),
             );
