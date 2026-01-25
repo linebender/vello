@@ -513,6 +513,7 @@ pub fn generate_mask_lut_msaa16() -> Vec<u16> {
 /// Clips a line segment to a tile.
 ///
 /// Returns the start and end points of the clipped line segment relative to the tile origin.
+#[inline]
 pub fn clip_to_tile(
     line: &Line,
     bounds: &[f32; 4],
@@ -620,12 +621,12 @@ pub fn clip_to_tile(
     //    set to 0. This causes the intersection calculation to return the original coordinate.
     //    While the coordinate fixed to the tile edge is explicitly set (and guaranteed valid),
     //    clamping forces the coordinate along that edge to be in bounds and watertight.
-    let width = Tile::WIDTH as f32;
-    let height = Tile::HEIGHT as f32;
-    result[0][0] = result[0][0].clamp(0.0, width);
-    result[0][1] = result[0][1].clamp(0.0, height);
-    result[1][0] = result[1][0].clamp(0.0, width);
-    result[1][1] = result[1][1].clamp(0.0, height);
+    const WIDTH: f32 = Tile::WIDTH as f32;
+    const HEIGHT: f32 = Tile::HEIGHT as f32;
+    result[0][0] = result[0][0].clamp(0.0, WIDTH);
+    result[0][1] = result[0][1].clamp(0.0, HEIGHT);
+    result[1][0] = result[1][0].clamp(0.0, WIDTH);
+    result[1][1] = result[1][1].clamp(0.0, HEIGHT);
 
     result
 }
