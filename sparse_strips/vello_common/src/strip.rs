@@ -93,6 +93,61 @@ impl Strip {
     }
 }
 
+
+
+/// This struct acts as a cache for expensive per-line calculations (square roots,
+/// divisions) that would otherwise happen per-tile.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PreprocessedLine {
+    /// 1.0 / (dx^2 + dy^2).sqrt()
+    pub recip_len: f32,
+    /// p1.x - p0.x
+    pub dx: f32,
+    /// p1.y - p0.y
+    pub dy: f32,
+    /// 1.0 / dx (or 0.0 if vertical)
+    pub idx: f32,
+    /// 1.0 / dy (or 0.0 if horizontal)
+    pub idy: f32,
+    /// dx / dy (slope relative to y)
+    pub dxdy: f32,
+}
+
+/// Calculate per line information
+pub fn preprocess_lines(lines: &[Line]) -> Vec<PreprocessedLine> {
+    lines
+        .iter()
+        .map(|line| {
+            let dx = line.p1.x - line.p0.x;
+            let dy = line.p1.y - line.p0.y;
+
+            let delta_sq = dx * dx + dy * dy;
+            let recip_len = if delta_sq < 1e-12 {
+                0.0
+            } else {
+                1.0 / delta_sq.sqrt()
+            };
+
+            let is_vertical = dx.abs() <= f32::EPSILON;
+            let is_horizontal = dy.abs() <= f32::EPSILON;
+
+            let idx = if is_vertical { 0.0 } else { 1.0 / dx };
+            let idy = if is_horizontal { 0.0 } else { 1.0 / dy };
+
+            let dxdy = dx * idy;
+
+            PreprocessedLine {
+                recip_len,
+                dx,
+                dy,
+                idx,
+                idy,
+                dxdy,
+            }
+        })
+        .collect()
+}
+
 /// Render the tiles stored in `tiles` into the strip and alpha buffer.
 pub fn render<T: MsaaMask>(
     level: Level,
@@ -113,13 +168,14 @@ pub fn render<T: MsaaMask>(
                                                       aliasing_threshold,
                                                       lines));
     } else {
+        let preprocessed = preprocess_lines(lines);
         dispatch!(level, simd => T::render_msaa(simd,
                                                 tiles,
                                                 strip_buf,
                                                 alpha_buf,
                                                 fill_rule,
-                                                aliasing_threshold,
                                                 lines,
+                                                &preprocessed,
                                                 mask_lut));
     }
 }
@@ -643,8 +699,8 @@ pub trait MsaaMask: Copy + Default + Debug + 'static {
         strip_buf: &mut Vec<Strip>,
         alpha_buf: &mut Vec<u8>,
         fill_rule: Fill,
-        aliasing_threshold: Option<u8>,
         lines: &[Line],
+        preprocessed: &[PreprocessedLine],
         mask_lut: &[Self],
     );
 }
@@ -660,8 +716,8 @@ impl MsaaMask for u8 {
         strip_buf: &mut Vec<Strip>,
         alpha_buf: &mut Vec<u8>,
         fill_rule: Fill,
-        aliasing_threshold: Option<u8>,
         lines: &[Line],
+        preprocessed: &[PreprocessedLine],
         mask_lut: &[Self],
     ) {
         if tiles.is_empty() {
@@ -791,6 +847,7 @@ impl MsaaMask for u8 {
             prev_tile = tile;
 
             let line = lines[tile.line_idx() as usize];
+            let pre = preprocessed[tile.line_idx() as usize];
             let p0_x = line.p0.x;
             let p0_y = line.p0.y;
             let p1_x = line.p1.x;
@@ -807,13 +864,12 @@ impl MsaaMask for u8 {
                 continue;
             }
 
-            let dx = p1_x - p0_x;
-            let dy = p1_y - p0_y;
-            let is_vertical = dx.abs() <= f32::EPSILON;
-            let is_horizontal = dy.abs() <= f32::EPSILON;
-            let idx = if is_vertical { 0.0 } else { 1.0 / dx };
-            let idy = if is_horizontal { 0.0 } else { 1.0 / dy };
-            let dxdy = dx * idy;
+            let dx = pre.dx;
+            let dy = pre.dy;
+            let idx = pre.idx;
+            let idy = pre.idy;
+            let dxdy = pre.dxdy;
+            let is_horizontal = idx == 0.0;
 
             if tile_start {
                 let min_x_u32 = (tile.x as u32) * (Tile::WIDTH as u32);
@@ -866,19 +922,8 @@ impl MsaaMask for u8 {
             }
             top_row[end_y] = clipped_bot;
 
-            let delta_sq = dx * dx + dy * dy;
-            let nx = dy
-                * (if delta_sq < 1e-12 {
-                    0.0
-                } else {
-                    1.0 / delta_sq.sqrt()
-                });
-            let ny = -dx
-                * (if delta_sq < 1e-12 {
-                    0.0
-                } else {
-                    1.0 / delta_sq.sqrt()
-                });
+            let nx = dy * pre.recip_len;
+            let ny = -dx * pre.recip_len;
             let c_anchor = clipped_top[0] * nx + clipped_top[1] * ny - 0.5 * (nx + ny);
             let x_dir = clipped_top[0] <= clipped_bot[0];
 
@@ -1040,8 +1085,8 @@ impl MsaaMask for u16 {
         _strip_buf: &mut Vec<Strip>,
         _alpha_buf: &mut Vec<u8>,
         _fill_rule: Fill,
-        _aliasing_threshold: Option<u8>,
         _lines: &[Line],
+        preprocessed: &[PreprocessedLine],
         _mask_lut: &[Self],
     ) {
         // MSAA16 stub
