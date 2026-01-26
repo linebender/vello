@@ -168,21 +168,21 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     let mut prev_tile = *tiles.get(0);
 
     let emit_background =
-        |start: u16, end: u16, strip_buf: &mut Vec<Strip>, alpha_buf: &mut Vec<u8>| {
+        |start: u16, end: u16, strips: &mut Vec<Strip>, alphas: &mut Vec<u8>| {
             for row in start..end {
-                let winding_delta = row_windings[row as usize] as i32;
-                if should_fill(winding_delta) {
-                    strip_buf.push(Strip::new(
+                let winding = row_windings[row as usize] as i32;
+                if should_fill(winding) {
+                    strips.push(Strip::new(
                         0,
                         row * Tile::HEIGHT,
-                        alpha_buf.len() as u32,
+                        alphas.len() as u32,
                         false,
                     ));
-                    alpha_buf.extend([255u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
-                    strip_buf.push(Strip::new(
+                    alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
+                    strips.push(Strip::new(
                         u16::MAX,
                         row * Tile::HEIGHT,
-                        alpha_buf.len() as u32,
+                        alphas.len() as u32,
                         true,
                     ));
                 }
@@ -230,7 +230,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
         should_fill(winding_delta),
     );
 
-    for (_tile_idx, tile) in tiles.iter().copied().enumerate() {
+    for tile in tiles.iter().copied() {
         let line = lines[tile.line_idx() as usize];
         let tile_left_x = f32::from(tile.x) * f32::from(Tile::WIDTH);
         let tile_top_y = f32::from(tile.y) * f32::from(Tile::HEIGHT);

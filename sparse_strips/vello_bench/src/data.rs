@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 use usvg::tiny_skia_path::PathSegment;
 use usvg::{Group, Node};
-use vello_common::fearless_simd::Level;
+use vello_common::fearless_simd::{self, Level};
 use vello_common::flatten::{FlattenCtx, Line};
 use vello_common::kurbo::{Affine, BezPath, Stroke, StrokeCtx};
 use vello_common::peniko::Fill;
@@ -132,6 +132,7 @@ impl DataItem {
         let mut tiles = Tiles::new(Level::new());
         let lines = self.lines();
         tiles.make_tiles_analytic_aa::<false>(
+            fearless_simd::Level::fallback(),
             &lines,
             self.width,
             self.height,
