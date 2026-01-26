@@ -6,7 +6,7 @@
 use crate::flatten::Line;
 use alloc::vec;
 use alloc::vec::Vec;
-use fearless_simd::Level;
+use fearless_simd::*;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 
@@ -207,15 +207,12 @@ impl Tile {
         ((self.y as u64) << 48) | ((self.x as u64) << 32) | self.packed_winding_line_idx as u64
     }
 
+    /// Whether the tile is the "SENTINEL"
+    ///
     /// An organic tile cannot have this coordinate because of the division by tile size on creation.
     #[inline(always)]
     pub const fn is_sentinel(&self) -> bool {
         self.x == u16::MAX
-    }
-
-    #[inline(always)]
-    pub fn is_valid(&self) -> bool {
-        !self.is_sentinel()
     }
 }
 
@@ -270,6 +267,12 @@ impl Tiles {
         self.tile_buf.is_empty()
     }
 
+    /// Returns `true` if the buffer contains tiles other than the sentinel. Note, this should only
+    /// be used *AFTER* the sentinel is injected (occurs after sorting).
+    pub fn is_valid(&self) -> bool {
+        self.tile_buf.len() > 1
+    }
+
     /// Reset the tiles' container.
     pub fn reset(&mut self) {
         self.tile_buf.clear();
@@ -321,6 +324,26 @@ impl Tiles {
     /// coverage to `strip::render`.
     pub fn make_tiles_analytic_aa<const USE_EARLY_CULL: bool>(
         &mut self,
+        level: Level,
+        lines: &[Line],
+        width: u16,
+        height: u16,
+        partial_windings: &mut [[f32; Tile::WIDTH as usize]],
+        coarse_windings: &mut [i8],
+    ) -> bool {
+        dispatch!(level, simd => self.make_tiles_analytic_aa_impl::<_, USE_EARLY_CULL>(
+            simd,
+            lines,
+            width,
+            height,
+            partial_windings,
+            coarse_windings,
+        ))
+    }
+
+    fn make_tiles_analytic_aa_impl<S: Simd, const USE_EARLY_CULL: bool>(
+        &mut self,
+        s: S,
         lines: &[Line],
         width: u16,
         height: u16,
@@ -410,15 +433,22 @@ impl Tiles {
                             let local_y_end =
                                 (line_bottom_y - y_top_tile_f32).min(1.0) * (Tile::HEIGHT as f32);
 
-                            #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
-                            for i in 0..Tile::HEIGHT as usize {
-                                let px_top = i as f32;
-                                let px_bottom = px_top + 1.0;
-                                let clipped_min = px_top.max(local_y_start);
-                                let clipped_max = px_bottom.min(local_y_end);
-                                let h = (clipped_max - clipped_min).max(0.0);
-                                partial_windings[y_top_tiles as usize][i] += h * f_dir;
-                            }
+                            let px_top: f32x4<_> = [0.0, 1.0, 2.0, 3.0].simd_into(s);
+                            let px_bottom = px_top + f32x4::splat(s, 1.0);
+                            let start_v = f32x4::splat(s, local_y_start);
+                            let end_v = f32x4::splat(s, local_y_end);
+
+                            let clipped_min = px_top.max(start_v);
+                            let clipped_max = px_bottom.min(end_v);
+                            let h = (clipped_max - clipped_min).max(f32x4::splat(s, 0.0));
+
+                            let winding_update = h * f32x4::splat(s, f_dir);
+
+                            let target_row = &mut partial_windings[y_top_tiles as usize];
+                            let current = f32x4::from_slice(s, target_row);
+                            let next = current + winding_update;
+
+                            target_row.copy_from_slice(next.as_slice());
                         }
                     }
 
@@ -442,13 +472,18 @@ impl Tiles {
                         let y_end_idx_f32 = f32::from(y_end_idx);
                         let local_y_end = (line_bottom_y - y_end_idx_f32) * (Tile::HEIGHT as f32);
 
-                        #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
-                        for i in 0..Tile::HEIGHT as usize {
-                            let px_top = i as f32;
-                            let clipped_max = (px_top + 1.0).min(local_y_end);
-                            let h = (clipped_max - px_top).max(0.0);
-                            partial_windings[y_end_idx as usize][i] += h * f_dir - f_dir;
-                        }
+                        let px_top: f32x4<_> = [0.0, 1.0, 2.0, 3.0].simd_into(s);
+                        let end_v = f32x4::splat(s, local_y_end);
+
+                        let clipped_max = (px_top + f32x4::splat(s, 1.0)).min(end_v);
+                        let h = (clipped_max - px_top).max(f32x4::splat(s, 0.0));
+                        let f_dir_v = f32x4::splat(s, f_dir);
+
+                        let target_row = &mut partial_windings[y_end_idx as usize];
+                        let current = f32x4::from_slice(s, target_row);
+                        let result = current + h.madd(f_dir_v, -f_dir_v);
+
+                        target_row.copy_from_slice(result.as_slice());
                     }
                     continue;
                 }
@@ -1064,6 +1099,7 @@ mod tests {
             assert_eq!(self.tile_buf, expected, "MSAA: Tile buffer mismatch");
 
             self.make_tiles_analytic_aa::<NO_EARLY_CULL>(
+                fearless_simd::Level::fallback(),
                 lines,
                 width,
                 height,
@@ -2083,6 +2119,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles_msaa(&[line], 600, 600);
         tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(
+            fearless_simd::Level::fallback(),
             &[line],
             600,
             600,
@@ -2107,6 +2144,7 @@ mod tests {
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(
+            fearless_simd::Level::fallback(),
             &[line],
             200,
             100,
@@ -2149,6 +2187,7 @@ mod tests {
         check_sorted(&tiles.tile_buf);
 
         tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(
+            fearless_simd::Level::fallback(),
             &lines,
             VIEW_DIM,
             VIEW_DIM,

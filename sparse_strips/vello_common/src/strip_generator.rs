@@ -151,6 +151,7 @@ impl StripGenerator {
             self.partial_windings.fill([0.0; Tile::HEIGHT as usize]);
             self.coarse_windings.fill(0);
             self.tiles.make_tiles_analytic_aa::<true>(
+                self.level,
                 &self.line_buf,
                 self.width,
                 self.height,
@@ -159,6 +160,7 @@ impl StripGenerator {
             )
         } else {
             self.tiles.make_tiles_analytic_aa::<false>(
+                self.level,
                 &self.line_buf,
                 self.width,
                 self.height,

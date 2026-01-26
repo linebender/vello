@@ -141,7 +141,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     // so it is empty. If we *are* early culling, we still need to iterate throw the windings, as
     // even though the tile buffer is empty, something might have been culled offscreen that still
     // needs to be rendered.
-    if !USE_EARLY_CULL && tiles.len() <= 1 {
+    if !USE_EARLY_CULL && !tiles.is_valid() {
         return;
     }
 
@@ -200,7 +200,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     if USE_EARLY_CULL {
         let row_max = prev_tile.y.min(row_windings.len() as u16);
         emit_background(0, row_max, strip_buf, alpha_buf);
-        if tiles.len() > 1 {
+        if tiles.is_valid() {
             winding_delta = row_windings[prev_tile.y as usize] as i32;
             let left_viewport = prev_tile.x == 0;
             if should_fill(winding_delta) && !left_viewport {
