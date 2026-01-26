@@ -15,8 +15,8 @@ use peniko::kurbo;
 /// This is implemented for [`Shape`]s from Kurbo that can be exactly mapped to Bézier path elements.
 /// To convert a [`Shape`] which requires approximation (such as [`Circle`](kurbo::Circle) or
 /// [`RoundedRect`](kurbo::RoundedRect)), you can use [`within`].
-/// Note that the returned shape will use.
 /// This however requires you to provide the tolerance.
+/// See the docs of `within` for more details.
 ///
 /// It is a requirement of this trait that [`Shape::path_elements`] returns the same iterator
 /// as [`ExactPathElements::exact_path_elements`] for any provided tolerance value.
