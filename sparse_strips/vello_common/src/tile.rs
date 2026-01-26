@@ -1099,7 +1099,7 @@ mod tests {
             assert_eq!(self.tile_buf, expected, "MSAA: Tile buffer mismatch");
 
             self.make_tiles_analytic_aa::<NO_EARLY_CULL>(
-                fearless_simd::Level::fallback(),
+                Level::fallback(),
                 lines,
                 width,
                 height,
@@ -2119,7 +2119,7 @@ mod tests {
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles_msaa(&[line], 600, 600);
         tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(
-            fearless_simd::Level::fallback(),
+            Level::fallback(),
             &[line],
             600,
             600,
@@ -2144,7 +2144,7 @@ mod tests {
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
         tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(
-            fearless_simd::Level::fallback(),
+            Level::fallback(),
             &[line],
             200,
             100,
@@ -2187,7 +2187,7 @@ mod tests {
         check_sorted(&tiles.tile_buf);
 
         tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(
-            fearless_simd::Level::fallback(),
+            Level::fallback(),
             &lines,
             VIEW_DIM,
             VIEW_DIM,
