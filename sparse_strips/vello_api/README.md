@@ -113,7 +113,7 @@ This includes:
 - Renderer specific painting commands (i.e. using downcasting).
   This is intended to be an immediate follow-up to the MVP landing.
 - Pushing/popping clip paths (i.e. non-isolated clipping).
-  This feature should be easy to restore, although it isn't clear how it will work with "Vello GPU", i.e. Hybrid with GPU rasterisation
+  This feature should be easy to restore, although it isn't clear how it will work with "Vello GPU", i.e. Hybrid with GPU sparse strip rendering.
 - Downloading rendered textures back to the CPU/host.
   This is currently supported through individual methods on the renderers, but we hope to have a portable API for coordinating this.
 - Anti-aliasing threshold.

@@ -91,7 +91,7 @@ impl PaintScene for CPUScenePainter {
                             .get(usize::try_from(path_id.0).unwrap() + 1)
                             .map_or(input_paths.elements.len(), |it| it.start_index);
                         let segments = &input_paths.elements[path.start_index..*path_end];
-                        // Obviously, ideally we'd not be allocating here. This is forced by the current public API of Vello CPU.
+                        // TODO: Obviously, ideally we'd not be allocating here. This is forced by the current public API of Vello CPU.
                         let bezpath = BezPath::from_iter(segments.iter().cloned());
                         Some(bezpath)
                     } else {
@@ -137,13 +137,13 @@ impl PaintScene for CPUScenePainter {
         self.render_context.set_transform(transform);
         self.render_context.set_fill_rule(fill_rule);
         // TODO: Tweak inner `fill_path` API to either take a `Shape` or an &[PathEl]
-        self.render_context.fill_path(&path.to_path(0.1));
+        self.render_context.fill_path(&path.into_path(0.1));
     }
 
     fn stroke_path(&mut self, transform: Affine, stroke_params: &kurbo::Stroke, path: impl Shape) {
         self.render_context.set_transform(transform);
         self.render_context.set_stroke(stroke_params.clone());
-        self.render_context.stroke_path(&path.to_path(0.1));
+        self.render_context.stroke_path(&path.into_path(0.1));
     }
 
     fn set_brush(
@@ -208,7 +208,7 @@ impl PaintScene for CPUScenePainter {
         self.render_context.set_fill_rule(Fill::NonZero);
         self.render_context.set_transform(clip_transform);
         self.render_context.push_layer(
-            clip_path.map(|it| it.to_path(0.1)).as_ref(),
+            clip_path.map(|it| it.into_path(0.1)).as_ref(),
             blend_mode,
             opacity,
             None,
@@ -221,7 +221,7 @@ impl PaintScene for CPUScenePainter {
         self.render_context.set_transform(clip_transform);
         self.render_context.push_clip_layer(
             // TODO: Not allocate
-            &path.to_path(0.1),
+            &path.into_path(0.1),
         );
     }
 

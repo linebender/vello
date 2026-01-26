@@ -89,7 +89,7 @@ impl PaintScene for HybridScenePainter {
                             .get(usize::try_from(path_id.0).unwrap() + 1)
                             .map_or(input_paths.elements.len(), |it| it.start_index);
                         let segments = &input_paths.elements[path.start_index..*path_end];
-                        // Obviously, ideally we'd not be allocating here. This is forced by the current public API of Vello CPU.
+                        // TODO: Obviously, ideally we'd not be allocating here. This is forced by the current public API of Vello CPU.
                         let bezpath = BezPath::from_iter(segments.iter().cloned());
                         Some(bezpath)
                     } else {
@@ -135,13 +135,13 @@ impl PaintScene for HybridScenePainter {
         self.scene.set_transform(transform);
         self.scene.set_fill_rule(fill_rule);
         // TODO: Tweak inner `fill_path` API to either take a `Shape` or an &[PathEl]
-        self.scene.fill_path(&path.to_path(0.1));
+        self.scene.fill_path(&path.into_path(0.1));
     }
 
     fn stroke_path(&mut self, transform: Affine, stroke_params: &kurbo::Stroke, path: impl Shape) {
         self.scene.set_transform(transform);
         self.scene.set_stroke(stroke_params.clone());
-        self.scene.stroke_path(&path.to_path(0.1));
+        self.scene.stroke_path(&path.into_path(0.1));
     }
 
     fn set_brush(
@@ -184,9 +184,12 @@ impl PaintScene for HybridScenePainter {
         opacity: Option<f32>,
         // mask: Option<Mask>,
     ) {
+        // We set the fill rule to nonzero for the clip path as a reasonable default.
+        // We should make it user provided in the future
+        self.scene.set_fill_rule(Fill::NonZero);
         self.scene.set_transform(clip_transform);
         self.scene.push_layer(
-            clip_path.map(|it| it.to_path(0.1)).as_ref(),
+            clip_path.map(|it| it.into_path(0.1)).as_ref(),
             blend_mode,
             opacity,
             None,
@@ -198,7 +201,7 @@ impl PaintScene for HybridScenePainter {
         self.scene.set_transform(clip_transform);
         self.scene.push_clip_layer(
             // TODO: Not allocate
-            &path.to_path(0.1),
+            &path.into_path(0.1),
         );
     }
 
