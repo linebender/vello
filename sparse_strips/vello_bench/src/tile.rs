@@ -3,7 +3,7 @@
 
 use crate::data::get_data_items;
 use criterion::Criterion;
-use vello_common::fearless_simd::{self, Level};
+use vello_common::fearless_simd::Level;
 use vello_common::tile::Tiles;
 
 pub fn tile(c: &mut Criterion) {
@@ -18,7 +18,7 @@ pub fn tile(c: &mut Criterion) {
                 b.iter(|| {
                     let mut tiler = Tiles::new(Level::new());
                     tiler.make_tiles_analytic_aa::<false>(
-                        fearless_simd::Level::fallback(),
+                        Level::fallback(),
                         &lines,
                         $item.width,
                         $item.height,
