@@ -167,27 +167,26 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     // The previous tile visited.
     let mut prev_tile = *tiles.get(0);
 
-    let emit_background =
-        |start: u16, end: u16, strips: &mut Vec<Strip>, alphas: &mut Vec<u8>| {
-            for row in start..end {
-                let winding = row_windings[row as usize] as i32;
-                if should_fill(winding) {
-                    strips.push(Strip::new(
-                        0,
-                        row * Tile::HEIGHT,
-                        alphas.len() as u32,
-                        false,
-                    ));
-                    alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
-                    strips.push(Strip::new(
-                        u16::MAX,
-                        row * Tile::HEIGHT,
-                        alphas.len() as u32,
-                        true,
-                    ));
-                }
+    let emit_background = |start: u16, end: u16, strips: &mut Vec<Strip>, alphas: &mut Vec<u8>| {
+        for row in start..end {
+            let winding = row_windings[row as usize] as i32;
+            if should_fill(winding) {
+                strips.push(Strip::new(
+                    0,
+                    row * Tile::HEIGHT,
+                    alphas.len() as u32,
+                    false,
+                ));
+                alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
+                strips.push(Strip::new(
+                    u16::MAX,
+                    row * Tile::HEIGHT,
+                    alphas.len() as u32,
+                    true,
+                ));
             }
-        };
+        }
+    };
 
     // When early culling is active, geometry fully to the left of the viewport creates no tiles.
     // However, if that geometry has a non-zero winding (e.g. a large shape surrounding the

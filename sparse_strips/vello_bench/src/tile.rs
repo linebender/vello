@@ -3,8 +3,8 @@
 
 use crate::data::get_data_items;
 use criterion::Criterion;
-use vello_common::tile::Tiles;
 use vello_common::fearless_simd::{self, Level};
+use vello_common::tile::Tiles;
 
 pub fn tile(c: &mut Criterion) {
     let mut g = c.benchmark_group("tile");
