@@ -76,6 +76,9 @@ impl Tile {
     /// The height of a tile in pixels.
     pub const HEIGHT: u16 = 4;
 
+    /// A special tile used to signal the end of a tile stream during rendering.
+    pub const SENTINEL: Self = Self::new(u16::MAX, u16::MAX, 0, 0);
+
     /// Create a new tile.
     /// `x` and `y` will be clamped to the largest possible coordinate if they are too large.
     ///
@@ -203,6 +206,17 @@ impl Tile {
     const fn to_bits(self) -> u64 {
         ((self.y as u64) << 48) | ((self.x as u64) << 32) | self.packed_winding_line_idx as u64
     }
+
+    /// An organic tile cannot have this coordinate because of the division by tile size on creation.
+    #[inline(always)]
+    pub const fn is_sentinel(&self) -> bool {
+        self.x == u16::MAX
+    }
+
+    #[inline(always)]
+    pub fn is_valid(&self) -> bool {
+        !self.is_sentinel()
+    }
 }
 
 impl PartialEq for Tile {
@@ -267,6 +281,12 @@ impl Tiles {
         self.sorted = true;
         // To enable auto-vectorization.
         self.level.dispatch(|_| self.tile_buf.sort_unstable());
+    }
+
+    /// Pushes a sentinel tile to the end of the tile buffer. This is called after all geometry has
+    /// been tiled and sorted to simplify the rendering loop iteration.
+    pub fn inject_sentinel(&mut self) {
+        self.tile_buf.push(Tile::SENTINEL);
     }
 
     /// Get the tile at a certain index.

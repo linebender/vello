@@ -168,6 +168,7 @@ impl StripGenerator {
         };
 
         self.tiles.sort_tiles();
+        self.tiles.inject_sentinel();
 
         if let Some(clip_path) = clip_path {
             self.temp_storage.clear();
