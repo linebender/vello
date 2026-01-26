@@ -12,7 +12,7 @@ use peniko::kurbo;
 /// The methods on [`PaintScene`](crate::PaintScene) use this trait ensure that consistent behaviour
 /// is maintained when Vello API is used to render content which might be rescaled.
 ///
-/// This is implemented for several [`Shape`]s from Kurbo.
+/// This is implemented for [`Shape`]s from Kurbo that can be exactly mapped to Bézier path elements.
 /// To convert a [`Shape`] which requires approximation (such as [`Circle`](kurbo::Circle) or
 /// [`RoundedRect`](kurbo::RoundedRect)), you can use [`within`].
 /// Note that the returned shape will use.
@@ -59,16 +59,18 @@ impl<T: ExactPathElements> ExactPathElements for &T {
 /// Use an approximated shape where an [`ExactPathElements`] is required, by approximating it to
 /// within the given tolerance.
 ///
-/// This is useful for drawing shapes such as [`Circle`](kurbo::Circle)s and [`RoundedRect`](kurbo::RoundedRect)s
-/// to renderers which use Vello API.
+/// *WARNING*: Unlike [`ExactPathElements`], which will produce correct renderings for any scale, this
+/// approximation is only valid for a fixed range of transforms.
 ///
 /// As the user of this function, you are responsible for determining the correct tolerance for your use case.
-/// A reasonable approach might be to select a tolerance which allows scaling up ("zooming in") by 4x to be
-/// within your intended tolernace bound, then recomputing the [`Scene`](crate::Scene) from your base data
+/// A reasonable approach might be to select a tolerance which allows scaling up ("zooming in") by 4x (for example, 0.00001) to be
+/// within your intended tolerance bound, then recomputing the [`Scene`](crate::Scene) from your base data
 /// representation once that is exceeded.
 /// If you know that the shape will not be scaled, you can use [`UNSCALED_TOLERANCE`].
 /// The resulting path will be within 1/10th of a pixel of the actual shape, which is a negligible
 /// difference for rendering.
+///
+/// This is useful for drawing shapes such as [`Circle`](kurbo::Circle)s and [`RoundedRect`](kurbo::RoundedRect)s.
 // TODO: Provide as an extension trait?
 pub fn within<S: Shape>(shape: S, tolerance: f64) -> WithTolerance<S> {
     WithTolerance { shape, tolerance }
@@ -139,8 +141,8 @@ macro_rules! passthrough {
         }
     };
 }
-passthrough!(BezPath);
 
+passthrough!(BezPath);
 passthrough!(CubicBez);
 passthrough!(Line);
 passthrough!(QuadBez);
