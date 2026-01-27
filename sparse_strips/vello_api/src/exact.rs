@@ -28,7 +28,7 @@ pub trait ExactPathElements {
     where
         Self: 'iter;
 
-    /// Returns an iterator over this shape expressed as exact [`PathEl`](kurbo::PathEl)s;
+    /// Returns an iterator over this shape expressed as exact [`PathEl`]s;
     /// that is, as exact Bézier path _elements_.
     ///
     /// These path elements are exact, in the sense that no approximation is required
