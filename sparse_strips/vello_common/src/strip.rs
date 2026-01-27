@@ -33,6 +33,7 @@ impl Strip {
     const FILL_GAP_MASK: u32 = 1 << 31;
 
     /// Creates a new strip.
+    #[inline]
     pub fn new(tile_x: u16, tile_y: u16, alpha_idx: u32, fill_gap: bool) -> Self {
         // Ensure `alpha_idx` does not collide with the fill flag bit.
         assert!(
@@ -48,16 +49,19 @@ impl Strip {
     }
 
     /// Creates a new sentinel strip.
+    #[inline]
     pub fn new_sentinel(tile_y: u16, alpha_idx: u32) -> Self {
         Self::new(u16::MAX, tile_y, alpha_idx, false)
     }
 
     /// Return whether the strip is a sentinel strip.
+    #[inline]
     pub fn is_sentinel(&self) -> bool {
         self.tile_x == u16::MAX
     }
 
     /// Return the x coordinate of the strip, in user coordinates.
+    #[inline]
     pub fn x(&self) -> u16 {
         if self.is_sentinel() {
             u16::MAX
@@ -67,16 +71,19 @@ impl Strip {
     }
 
     /// Return the y coordinate of the strip, in user coordinates.
+    #[inline]
     pub fn y(&self) -> u16 {
         self.tile_y * Tile::HEIGHT
     }
 
     /// Return the x coordinate of the strip, in tile units.
+    #[inline]
     pub fn tile_x(&self) -> u16 {
         self.tile_x
     }
 
     /// Return the y coordinate of the strip, in tile units.
+    #[inline]
     pub fn tile_y(&self) -> u16 {
         self.tile_y
     }
