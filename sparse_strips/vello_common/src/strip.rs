@@ -17,7 +17,7 @@ pub struct Strip {
     tile_x: u16,
     /// The y coordinate of the strip, in tile units.
     tile_y: u16,
-    // TODO: Change it so that alpha_idx is stored divided by Tile::WIDTH * TIlE::HEIGHT.
+    // TODO: Change it so that alpha_idx is stored divided by Tile::WIDTH * Tile::HEIGHT.
     // This will free up 4 more bits we can use in the future (or just increase the
     // number of permissible alpha values).
     /// Packed alpha index and fill gap flag.
