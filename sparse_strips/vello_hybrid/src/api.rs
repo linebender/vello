@@ -184,7 +184,10 @@ impl PaintScene for HybridScenePainter {
         _radius: f32,
         _std_dev: f32,
     ) {
-        unimplemented!("Vello Hybrid doesn't support drawing blurred rounded rectangles yet.")
+        unimplemented!(
+            "Vello Hybrid doesn't support drawing blurred rounded rectangles yet.\n\
+            This is tracked in https://github.com/linebender/vello/issues/1373."
+        )
     }
 
     fn push_layer(
