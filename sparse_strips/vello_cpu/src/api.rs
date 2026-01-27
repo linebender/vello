@@ -140,8 +140,9 @@ impl PaintScene for CPUScenePainter {
         // This tolerance parameter is meaningless, because this is an `ExactPathElements`
         // However, using `to_path` avoids allocation in some cases.
         // TODO: Tweak inner API to accept an `ExactPathElements` (or at least, the resultant iterator)
-        // That would also fix the need for the tolerance parameter.
-        self.render_context.fill_path(&path.into_path(0.1));
+        // That would avoid the superfluous allocation here.
+        self.render_context
+            .fill_path(&path.exact_path_elements().collect());
     }
 
     fn stroke_path(
@@ -153,7 +154,8 @@ impl PaintScene for CPUScenePainter {
         self.render_context.set_transform(transform);
         self.render_context.set_stroke(stroke_params.clone());
         // TODO: As in `fill_path`
-        self.render_context.stroke_path(&path.into_path(0.1));
+        self.render_context
+            .stroke_path(&path.exact_path_elements().collect());
     }
 
     fn set_brush(
@@ -219,7 +221,9 @@ impl PaintScene for CPUScenePainter {
         self.render_context.set_transform(clip_transform);
         self.render_context.push_layer(
             // TODO: As in `fill_path`
-            clip_path.map(|it| it.into_path(0.1)).as_ref(),
+            clip_path
+                .map(|it| it.exact_path_elements().collect())
+                .as_ref(),
             blend_mode,
             opacity,
             None,
@@ -231,7 +235,8 @@ impl PaintScene for CPUScenePainter {
         self.render_context.set_fill_rule(Fill::NonZero);
         self.render_context.set_transform(clip_transform);
         // TODO: As in `fill_path`
-        self.render_context.push_clip_layer(&path.into_path(0.1));
+        self.render_context
+            .push_clip_layer(&path.exact_path_elements().collect());
     }
 
     fn pop_layer(&mut self) {
