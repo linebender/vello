@@ -333,6 +333,48 @@ fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
+/// Test COLR emoji with non-uniform scale (1x, 2x).
+/// This tests that non-uniform scaling is properly applied to COLR glyphs.
+/// Hinting is disabled to preserve the scale in the transform passed to `prepare_colr_glyph`.
+#[vello_test(width = 250, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
+fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let scale_x = 1.0;
+    let scale_y = 2.0;
+    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
+
+    ctx.set_transform(
+        Affine::translate((0., f64::from(font_size)))
+            * Affine::scale_non_uniform(scale_x, scale_y),
+    );
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter());
+}
+
+/// Test COLR emoji with 45-degree rotation and non-uniform scale (1x, 2x).
+/// This tests that both rotation and non-uniform scaling are properly applied to COLR glyphs.
+/// Hinting is disabled to preserve the transform passed to `prepare_colr_glyph`.
+#[vello_test(width = 300, height = 300, skip_hybrid, cpu_u8_tolerance = 1)]
+fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let angle = std::f64::consts::FRAC_PI_4; // 45 degrees
+    let scale_x = 1.0;
+    let scale_y = 2.0;
+    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
+
+    ctx.set_transform(
+        Affine::translate((150., 150.))
+            * Affine::rotate(angle)
+            * Affine::scale_non_uniform(scale_x, scale_y),
+    );
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter());
+}
+
 #[cfg(target_os = "macos")]
 #[vello_test(width = 200, height = 70, skip_hybrid, cpu_u8_tolerance = 2)]
 fn glyphs_bitmap_apple(ctx: &mut impl Renderer) {
