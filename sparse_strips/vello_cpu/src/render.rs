@@ -724,7 +724,7 @@ impl GlyphRenderer for RenderContext {
                             // Even though the pixmap has the "correct" size, the rotation
                             // might cause aliasing artifacts, so we use bilinear scaling here.
                             crate::peniko::ImageQuality::Medium
-                        }   else {
+                        } else {
                             // Since the pixmap will already have the correct size, no need to
                             // use a different image quality here.
                             crate::peniko::ImageQuality::Low

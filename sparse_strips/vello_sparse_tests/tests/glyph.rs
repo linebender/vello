@@ -305,9 +305,7 @@ fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer) {
     let angle = std::f64::consts::FRAC_PI_4; // 45 degrees
     let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
 
-    ctx.set_transform(
-        Affine::translate((175., 100.)) * Affine::rotate(angle),
-    );
+    ctx.set_transform(Affine::translate((175., 100.)) * Affine::rotate(angle));
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(false)
@@ -344,8 +342,7 @@ fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer) {
     let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
 
     ctx.set_transform(
-        Affine::translate((0., f64::from(font_size)))
-            * Affine::scale_non_uniform(scale_x, scale_y),
+        Affine::translate((0., f64::from(font_size))) * Affine::scale_non_uniform(scale_x, scale_y),
     );
     ctx.glyph_run(&font)
         .font_size(font_size)
