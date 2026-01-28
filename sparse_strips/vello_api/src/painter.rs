@@ -3,9 +3,10 @@
 
 use core::any::Any;
 
-use peniko::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
+use peniko::kurbo::{Affine, BezPath, Rect, Stroke};
 use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
 
+use crate::exact::ExactPathElements;
 use crate::scene::Scene;
 use crate::texture::TextureId;
 
@@ -86,13 +87,18 @@ pub trait PaintScene: Any {
     /// Both `shape` and the current brush will be transformed using the 2d affine `transform`.
     /// See the documentation on [`Fill`]'s variants for details on when you might choose a given fill rule.
     // It would be really nice to have images of nested paths here, to explain winding numbers.
-    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape);
+    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: &impl ExactPathElements);
 
     /// Stroke along `path` with the current brush, following the given stroke parameters.
     ///
     /// Both the stroked area and the current brush will be transformed using the 2d affine `transform`.
     /// Dashes configured in the stroke parameter will be expanded.
-    fn stroke_path(&mut self, transform: Affine, stroke_params: &Stroke, path: impl Shape);
+    fn stroke_path(
+        &mut self,
+        transform: Affine,
+        stroke_params: &Stroke,
+        path: &impl ExactPathElements,
+    );
 
     /// Set the current brush to `brush`.
     ///
@@ -174,7 +180,7 @@ pub trait PaintScene: Any {
         let kernel_size = (2.5 * std_dev) as f64;
 
         let shape: Rect = rect.inflate(kernel_size, kernel_size);
-        self.fill_path(transform, Fill::EvenOdd, shape);
+        self.fill_path(transform, Fill::EvenOdd, &shape);
     }
 
     /// Pushes a new layer clipped by the specified shape (if provided) and composed with
@@ -198,7 +204,7 @@ pub trait PaintScene: Any {
     fn push_layer(
         &mut self,
         clip_transform: Affine,
-        clip_path: Option<impl Shape>,
+        clip_path: Option<&impl ExactPathElements>,
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
     );
@@ -212,7 +218,7 @@ pub trait PaintScene: Any {
     ///
     /// **However, the transforms are *not* saved or modified by the layer stack.**
     /// That is, the `transform` argument to this function only applies a transform to the `clip` shape.
-    fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape) {
+    fn push_clip_layer(&mut self, clip_transform: Affine, path: &impl ExactPathElements) {
         self.push_layer(clip_transform, Some(path), None, None);
     }
 
@@ -224,7 +230,7 @@ pub trait PaintScene: Any {
         self.push_layer(
             Affine::IDENTITY,
             // This needing to be turbofished shows a real footgun with the proposed "push_layer" API here.
-            None::<BezPath>,
+            None::<&BezPath>,
             Some(blend_mode),
             None,
         );
@@ -239,7 +245,7 @@ pub trait PaintScene: Any {
     /// Every drawing command after this call will be composed as described
     /// until the layer is [popped](PaintScene::pop_layer).
     fn push_opacity_layer(&mut self, opacity: f32) {
-        self.push_layer(Affine::IDENTITY, None::<BezPath>, None, Some(opacity));
+        self.push_layer(Affine::IDENTITY, None::<&BezPath>, None, Some(opacity));
     }
 
     /// Pop the most recently pushed layer.
