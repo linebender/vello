@@ -435,9 +435,9 @@ fn prepare_colr_glyph<'a>(
     // exactly one pixel (or more) per device pixel, to ensure that no quality is lost. Therefore,
     // we simply use the scaling/skewing factor to calculate how much to scale by, and use the
     // maximum of both dimensions.
-    let scale_factor = {
+    let (scale_factor_x, scale_factor_y) = {
         let (x_vec, y_vec) = x_y_advances(&transform.pre_scale(f64::from(font_size_scale)));
-        x_vec.length().max(y_vec.length())
+        (x_vec.length(), y_vec.length())
     };
 
     let bbox = color_glyph
@@ -447,7 +447,12 @@ fn prepare_colr_glyph<'a>(
 
     // Calculate the position of the rectangle that will contain the rendered pixmap in device
     // coordinates.
-    let scaled_bbox = bbox.scale_from_origin(scale_factor);
+    let scaled_bbox = Rect {
+        x0: bbox.x0 * scale_factor_x,
+        y0: bbox.y0 * scale_factor_y,
+        x1: bbox.x1 * scale_factor_x,
+        y1: bbox.y1 * scale_factor_y,
+    };
 
     let glyph_transform = transform
         // There are two things going on here:
@@ -460,7 +465,14 @@ fn prepare_colr_glyph<'a>(
         // time also flips from having the origin in the top-left to having the origin in the
         // bottom-right.
         * Affine::scale_non_uniform(1.0, -1.0)
-        * Affine::scale_non_uniform(font_size_scale / scale_factor, font_size_scale / scale_factor)
+        // Overall, the whole pixmap is scaled by `scale_factor_x` and `scale_factor_y`. `scale_factor_x`
+        // and `scale_factor_y` are composed by the scale necessary to adjust for the glyph size,
+        // as well as the scale that has been applied to the whole glyph run. However, the scale
+        // of the whole glyph run will be applied layer on in the render context. If
+        // we didn't do anything, the scales would be applied twice (see https://github.com/linebender/vello/pull/1370).
+        // Therefore, we apply another scale factor that unapplies the effect of the glyph run transform
+        // and only retains the transform necessary to account for the size of the glyph.
+        * Affine::scale_non_uniform(font_size_scale / scale_factor_x, font_size_scale / scale_factor_y)
         // Shift the pixmap back so that the bbox aligns with the original position
         // of where the glyph should be placed.
         * Affine::translate((scaled_bbox.x0, scaled_bbox.y0));
@@ -475,7 +487,7 @@ fn prepare_colr_glyph<'a>(
         // the glyph will be contained in the intermediate pixmap.
         Affine::translate((-scaled_bbox.x0, -scaled_bbox.y0)) *
         // Scale down to the actual size that the COLR glyph will have in device units.
-        Affine::scale(scale_factor);
+        Affine::scale_non_uniform(scale_factor_x, scale_factor_y);
 
     // The shift-back happens in `glyph_transform`, so here we can assume (0.0, 0.0) as the origin
     // of the area we want to draw to.
