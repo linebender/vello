@@ -426,7 +426,8 @@ fn prepare_colr_glyph<'a>(
     // finally when positioning the actual pixmap in the scene, we reverse that transform so that
     // the position stays the same as the original one.
 
-    let scale = font_size / upem;
+    // The scale factor we need to apply to scale from font units to our font size.
+    let font_size_scale = (font_size / upem) as f64;
 
     let transform = run_transform.pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()));
 
@@ -435,7 +436,7 @@ fn prepare_colr_glyph<'a>(
     // we simply use the scaling/skewing factor to calculate how much to scale by, and use the
     // maximum of both dimensions.
     let scale_factor = {
-        let (x_vec, y_vec) = x_y_advances(&transform.pre_scale(f64::from(scale)));
+        let (x_vec, y_vec) = x_y_advances(&transform.pre_scale(f64::from(font_size_scale)));
         x_vec.length().max(y_vec.length())
     };
 
@@ -448,30 +449,7 @@ fn prepare_colr_glyph<'a>(
     // coordinates.
     let scaled_bbox = bbox.scale_from_origin(scale_factor);
 
-    // Remove the scale component from the transform while preserving rotation, skew, and translation.
-    // The scale is already baked into scaled_bbox dimensions, so applying transform's scale
-    // again would cause double-scaling.
-    //
-    // We decompose the matrix to extract scale factors from the basis vectors, then reconstruct
-    // the matrix with unit-length basis vectors (preserving rotation/skew but removing scale).
-    let [a, b, c, d, tx, ty] = transform.as_coeffs();
-
-    // Calculate scale factors from the lengths of the basis vectors
-    let sx = (a * a + b * b).sqrt();
-    let sy = (c * c + d * d).sqrt();
-
-    // Reconstruct transform without scale (divide basis vectors by their lengths)
-    // This preserves rotation and skew while removing scale
-    let transform_without_scale = Affine::new([
-        a / sx,
-        b / sx,
-        c / sy,
-        d / sy,
-        tx,
-        ty,
-    ]);
-
-    let glyph_transform = transform_without_scale
+    let glyph_transform = transform
         // There are two things going on here:
         // - On the one hand, for images, the position (0, 0) will be at the top-left, while
         //   for images, the position will be at the bottom-left.
@@ -482,6 +460,7 @@ fn prepare_colr_glyph<'a>(
         // time also flips from having the origin in the top-left to having the origin in the
         // bottom-right.
         * Affine::scale_non_uniform(1.0, -1.0)
+        * Affine::scale_non_uniform(font_size_scale / scale_factor, font_size_scale / scale_factor)
         // Shift the pixmap back so that the bbox aligns with the original position
         // of where the glyph should be placed.
         * Affine::translate((scaled_bbox.x0, scaled_bbox.y0));
