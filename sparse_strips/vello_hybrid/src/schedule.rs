@@ -579,12 +579,11 @@ impl Scheduler {
         for annotated_cmd in cmds {
             // Note: this starts at 1 (for the final target)
             let depth = state.stack.len();
-            let cmd = annotated_cmd.as_cmd();
-            if cmd.is_none() {
+            let Some(cmd) = annotated_cmd.as_cmd() else {
                 continue;
-            }
+            };
 
-            match cmd.unwrap() {
+            match cmd {
                 Cmd::Fill(fill) => {
                     let el = state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
