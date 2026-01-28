@@ -711,14 +711,24 @@ impl GlyphRenderer for RenderContext {
                     pix
                 };
 
+                let has_skew = prepared_glyph.transform.as_coeffs()[1] != 0.0
+                    || prepared_glyph.transform.as_coeffs()[2] != 0.0;
+
                 let image = vello_common::paint::Image {
                     image: ImageSource::Pixmap(Arc::new(glyph_pixmap)),
                     sampler: ImageSampler {
                         x_extend: crate::peniko::Extend::Pad,
                         y_extend: crate::peniko::Extend::Pad,
-                        // Since the pixmap will already have the correct size, no need to
-                        // use a different image quality here.
-                        quality: crate::peniko::ImageQuality::Low,
+
+                        quality: if has_skew {
+                            // Even though the pixmap has the "correct" size, the rotation
+                            // might cause aliasing artifacts, so we use bilinear scaling here.
+                            crate::peniko::ImageQuality::Medium
+                        }   else {
+                            // Since the pixmap will already have the correct size, no need to
+                            // use a different image quality here.
+                            crate::peniko::ImageQuality::Low
+                        },
                         alpha: 1.0,
                     },
                 };
