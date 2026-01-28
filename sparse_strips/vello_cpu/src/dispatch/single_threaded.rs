@@ -19,7 +19,7 @@ use vello_common::paint::{Paint, PremulColor};
 use vello_common::pixmap::Pixmap;
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::strip::Strip;
-use vello_common::strip_generator::{StripGenerator, StripStorage};
+use vello_common::strip_generator::{Analytic, Msaa8, StripGenerator, StripStorage};
 
 /// Single-threaded implementation of the rendering dispatcher.
 ///
@@ -34,7 +34,8 @@ pub(crate) struct SingleThreadedDispatcher {
     /// Clip context for managing non-isolated clipping.
     clip_context: ClipContext,
     /// Generator for converting paths into coverage strips.
-    strip_generator: StripGenerator,
+    //strip_generator: StripGenerator<Analytic>,
+    strip_generator: StripGenerator<Msaa8>,
     /// Storage for alpha coverage data from strip generation.
     strip_storage: StripStorage,
     /// SIMD level for fearless SIMD dispatch.
