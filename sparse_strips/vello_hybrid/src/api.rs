@@ -85,6 +85,7 @@ impl PaintScene for HybridScenePainter {
                     self.scene.set_transform(push_layer_command.clip_transform);
                     let clip_path = if let Some(path_id) = push_layer_command.clip_path {
                         let path = &input_paths.meta[usize::try_from(path_id.0).unwrap()];
+                        // TODO: Also correctly support the case where the meta has a `Style::Stroke`
                         let path_end = &input_paths
                             .meta
                             .get(usize::try_from(path_id.0).unwrap() + 1)
@@ -215,6 +216,7 @@ impl PaintScene for HybridScenePainter {
     }
 
     fn push_clip_layer(&mut self, clip_transform: Affine, path: &impl ExactPathElements) {
+        self.scene.set_fill_rule(Fill::NonZero);
         self.scene.set_transform(clip_transform);
         self.scene.push_clip_layer(
             // TODO: As in `fill_path`
