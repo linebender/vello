@@ -433,8 +433,7 @@ fn prepare_colr_glyph<'a>(
 
     // Estimate the size of the intermediate pixmap. Ideally, the intermediate bitmap should have
     // exactly one pixel (or more) per device pixel, to ensure that no quality is lost. Therefore,
-    // we simply use the scaling/skewing factor to calculate how much to scale by, and use the
-    // maximum of both dimensions.
+    // we simply use the scaling/skewing factor to calculate how much to scale each axis by.
     let (scale_factor_x, scale_factor_y) = {
         let (x_vec, y_vec) = x_y_advances(&transform.pre_scale(f64::from(font_size_scale)));
         (x_vec.length(), y_vec.length())
@@ -468,7 +467,7 @@ fn prepare_colr_glyph<'a>(
         // Overall, the whole pixmap is scaled by `scale_factor_x` and `scale_factor_y`. `scale_factor_x`
         // and `scale_factor_y` are composed by the scale necessary to adjust for the glyph size,
         // as well as the scale that has been applied to the whole glyph run. However, the scale
-        // of the whole glyph run will be applied layer on in the render context. If
+        // of the whole glyph run will be applied later on in the render context. If
         // we didn't do anything, the scales would be applied twice (see https://github.com/linebender/vello/pull/1370).
         // Therefore, we apply another scale factor that unapplies the effect of the glyph run transform
         // and only retains the transform necessary to account for the size of the glyph.

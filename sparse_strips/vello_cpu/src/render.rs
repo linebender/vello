@@ -721,8 +721,9 @@ impl GlyphRenderer for RenderContext {
                         y_extend: crate::peniko::Extend::Pad,
 
                         quality: if has_skew {
-                            // Even though the pixmap has the "correct" size, the rotation
-                            // might cause aliasing artifacts, so we use bilinear scaling here.
+                            // Even though the pixmap has the "correct" size, the skewing
+                            // might cause aliasing artifacts since the pixels don't map
+                            // perfectly to the pixmap, so we use bilinear scaling here.
                             crate::peniko::ImageQuality::Medium
                         } else {
                             // Since the pixmap will already have the correct size, no need to
