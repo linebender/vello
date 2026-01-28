@@ -367,7 +367,7 @@ pub(crate) fn check_ref(
         .into_rgba8();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
-    let diff_result = get_diff(&ref_image, &actual, threshold, diff_pixels);
+    let diff_result = get_diff(&ref_image, &actual, threshold, diff_pixels as u32);
 
     if let Some((diff_image, diff_data)) = diff_result {
         if should_replace() && is_reference {
@@ -430,7 +430,7 @@ pub(crate) fn check_ref(
 
     let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
 
-    let diff_image = get_diff(&ref_image, &actual, threshold, diff_pixels);
+    let diff_image = get_diff(&ref_image, &actual, threshold, diff_pixels as u32);
     if let Some((ref img, _)) = diff_image {
         append_diff_image_to_browser_document(specific_name, img);
         panic!("test didn't match reference image. Scroll to bottom of browser to view diff.");
@@ -510,7 +510,7 @@ fn get_diff(
     expected_image: &RgbaImage,
     actual_image: &RgbaImage,
     threshold: u8,
-    diff_pixels: u16,
+    diff_pixels: u32,
 ) -> Option<(RgbaImage, Vec<PixelDiff>)> {
     let width = max(expected_image.width(), actual_image.width());
     let height = max(expected_image.height(), actual_image.height());
