@@ -235,7 +235,7 @@ impl PaintScene for Scene {
         &mut self,
         transform: Affine,
         fill_rule: peniko::Fill,
-        path: impl ExactPathElements,
+        path: &impl ExactPathElements,
     ) {
         let idx = self.paths.prepare_shape(&path, fill_rule);
         self.commands.push(RenderCommand::DrawPath(transform, idx));
@@ -245,7 +245,7 @@ impl PaintScene for Scene {
         &mut self,
         transform: Affine,
         stroke_params: &kurbo::Stroke,
-        path: impl ExactPathElements,
+        path: &impl ExactPathElements,
     ) {
         let idx = self.paths.prepare_shape(&path, stroke_params.clone());
         self.commands.push(RenderCommand::DrawPath(transform, idx));
@@ -279,7 +279,7 @@ impl PaintScene for Scene {
     fn push_layer(
         &mut self,
         clip_transform: Affine,
-        clip_path: Option<impl ExactPathElements>,
+        clip_path: Option<&impl ExactPathElements>,
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         // mask: Option<Mask>,

@@ -134,7 +134,7 @@ impl PaintScene for CPUScenePainter {
         Ok(())
     }
 
-    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl ExactPathElements) {
+    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: &impl ExactPathElements) {
         self.render_context.set_transform(transform);
         self.render_context.set_fill_rule(fill_rule);
         // This tolerance parameter is meaningless, because this is an `ExactPathElements`
@@ -149,7 +149,7 @@ impl PaintScene for CPUScenePainter {
         &mut self,
         transform: Affine,
         stroke_params: &kurbo::Stroke,
-        path: impl ExactPathElements,
+        path: &impl ExactPathElements,
     ) {
         self.render_context.set_transform(transform);
         self.render_context.set_stroke(stroke_params.clone());
@@ -210,7 +210,7 @@ impl PaintScene for CPUScenePainter {
     fn push_layer(
         &mut self,
         clip_transform: Affine,
-        clip_path: Option<impl ExactPathElements>,
+        clip_path: Option<&impl ExactPathElements>,
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         // mask: Option<Mask>,
@@ -231,7 +231,7 @@ impl PaintScene for CPUScenePainter {
         );
     }
 
-    fn push_clip_layer(&mut self, clip_transform: Affine, path: impl ExactPathElements) {
+    fn push_clip_layer(&mut self, clip_transform: Affine, path: &impl ExactPathElements) {
         self.render_context.set_fill_rule(Fill::NonZero);
         self.render_context.set_transform(clip_transform);
         // TODO: As in `fill_path`

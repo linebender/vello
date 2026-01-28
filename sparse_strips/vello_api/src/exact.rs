@@ -89,7 +89,7 @@ pub fn within<S: Shape>(shape: S, tolerance: f64) -> WithTolerance<S> {
 }
 
 /// The type used to implement [`within`].
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct WithTolerance<S: Shape> {
     /// The shape to be approximated.
     pub shape: S,
