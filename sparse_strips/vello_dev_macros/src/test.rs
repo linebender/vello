@@ -485,14 +485,10 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "diff_pixels" => args.diff_pixels = parse_int_lit(expr, "diff_pixels"),
                     "height" => args.height = parse_int_lit(expr, "height"),
                     "cpu_u8_tolerance" => {
-                        args.cpu_u8_tolerance = parse_int_lit::<u8>(expr, "cpu_u8_tolerance")
-                            .try_into()
-                            .expect("value to fit for cpu_tolerance.");
+                        args.cpu_u8_tolerance = parse_int_lit::<u8>(expr, "cpu_u8_tolerance");
                     }
                     "hybrid_tolerance" => {
-                        args.hybrid_tolerance = parse_int_lit::<u8>(expr, "hybrid_tolerance")
-                            .try_into()
-                            .expect("value to fit for hybrid_tolerance.");
+                        args.hybrid_tolerance = parse_int_lit::<u8>(expr, "hybrid_tolerance");
                     }
                     _ => panic!("unknown pair attribute {key_str}"),
                 }
