@@ -831,6 +831,8 @@ impl Programs {
             INITIAL_ALPHA_TEXTURE_HEIGHT,
         );
         let alpha_data =
+            // We are doing << 4 because we need to multiply by 16: The texture format is Rgba32Uint,
+            // so 4 bytes per channel and 4 channels --> 16.
             vec![0; ((max_texture_dimension_2d * INITIAL_ALPHA_TEXTURE_HEIGHT) << 4) as usize];
         let view_config_buffer = Self::create_config_buffer(
             device,
