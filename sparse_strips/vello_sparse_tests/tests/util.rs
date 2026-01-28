@@ -335,7 +335,7 @@ pub(crate) fn check_ref(
     specific_name: &str,
     // Tolerance for pixel differences.
     threshold: u8,
-    diff_pixels: u16,
+    diff_pixels: u32,
     // Whether the test instance is the "gold standard" and should be used
     // for creating reference images.
     is_reference: bool,
@@ -417,7 +417,7 @@ pub(crate) fn check_ref(
     specific_name: &str,
     // Tolerance for pixel differences.
     threshold: u8,
-    diff_pixels: u16,
+    diff_pixels: u32,
     // Must be `false` on `wasm32` as reference image cannot be written to filesystem.
     is_reference: bool,
     ref_data: &[u8],
@@ -510,7 +510,7 @@ fn get_diff(
     expected_image: &RgbaImage,
     actual_image: &RgbaImage,
     threshold: u8,
-    diff_pixels: u16,
+    diff_pixels: u32,
 ) -> Option<(RgbaImage, Vec<PixelDiff>)> {
     let width = max(expected_image.width(), actual_image.width());
     let height = max(expected_image.height(), actual_image.height());

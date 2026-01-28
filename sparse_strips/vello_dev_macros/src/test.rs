@@ -35,7 +35,7 @@ struct Arguments {
     /// images. This attribute mainly exists because there are some test cases (like gradients),
     /// where, due to floating point inaccuracies, some pixels might land on a different color
     /// stop and thus yield a different value in CI.
-    diff_pixels: u16,
+    diff_pixels: u32,
     /// Whether no reference image should actually be created (for tests that only check
     /// for panics, but are not interested in the actual output).
     no_ref: bool,
@@ -485,14 +485,10 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "diff_pixels" => args.diff_pixels = parse_int_lit(expr, "diff_pixels"),
                     "height" => args.height = parse_int_lit(expr, "height"),
                     "cpu_u8_tolerance" => {
-                        args.cpu_u8_tolerance = parse_int_lit(expr, "cpu_u8_tolerance")
-                            .try_into()
-                            .expect("value to fit for cpu_tolerance.");
+                        args.cpu_u8_tolerance = parse_int_lit::<u8>(expr, "cpu_u8_tolerance");
                     }
                     "hybrid_tolerance" => {
-                        args.hybrid_tolerance = parse_int_lit(expr, "hybrid_tolerance")
-                            .try_into()
-                            .expect("value to fit for hybrid_tolerance.");
+                        args.hybrid_tolerance = parse_int_lit::<u8>(expr, "hybrid_tolerance");
                     }
                     _ => panic!("unknown pair attribute {key_str}"),
                 }

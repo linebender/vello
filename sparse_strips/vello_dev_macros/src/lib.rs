@@ -25,6 +25,8 @@ const DEFAULT_HYBRID_TOLERANCE: u8 = 1;
 use crate::bench::vello_bench_inner;
 use crate::test::vello_test_inner;
 use proc_macro::TokenStream;
+use std::fmt::Display;
+use std::str::FromStr;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Expr, Ident, Token};
@@ -109,13 +111,17 @@ impl Parse for AttributeInput {
     }
 }
 
-fn parse_int_lit(expr: &Expr, name: &str) -> u16 {
+fn parse_int_lit<N>(expr: &Expr, name: &str) -> N
+where
+    N: FromStr,
+    N::Err: Display,
+{
     if let Expr::Lit(syn::ExprLit {
         lit: syn::Lit::Int(lit_int),
         ..
     }) = expr
     {
-        lit_int.base10_parse::<u16>().unwrap()
+        lit_int.base10_parse::<N>().unwrap()
     } else {
         panic!("invalid expression supplied to `{name}`")
     }
