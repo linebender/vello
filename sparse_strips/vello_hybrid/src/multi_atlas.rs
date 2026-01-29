@@ -63,7 +63,7 @@ impl MultiAtlasManager {
     }
 
     pub(crate) fn next_atlas_id(&self) -> u32 {
-        self.atlases.len() as u32
+        u32::try_from(self.atlases.len()).unwrap()
     }
 
     /// Try to allocate space for an image with the given dimensions.
