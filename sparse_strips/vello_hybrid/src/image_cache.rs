@@ -9,8 +9,6 @@ use vello_common::paint::ImageId;
 /// Represents an image resource for rendering.
 #[derive(Debug)]
 pub(crate) struct ImageResource {
-    /// The ID of the image.
-    pub(crate) id: ImageId,
     /// The width of the image.
     pub(crate) width: u16,
     /// The height of the image.
@@ -79,7 +77,6 @@ impl ImageCache {
 
         let image_id = ImageId::new(slot_idx as u32);
         let image_resource = ImageResource {
-            id: image_id,
             width: width as u16,
             height: height as u16,
             atlas_id: atlas_alloc.atlas_id,
@@ -90,7 +87,8 @@ impl ImageCache {
             atlas_alloc_id: atlas_alloc.allocation.id,
         };
         self.slots[slot_idx] = Some(image_resource);
-        Ok(self.slots[slot_idx].as_ref().unwrap().id)
+
+        Ok(image_id)
     }
 
     /// Deallocate an image from the cache, returning the image resource if it existed.
@@ -141,7 +139,6 @@ mod tests {
 
         assert_eq!(id.as_u32(), 0);
         let resource = cache.get(id).unwrap();
-        assert_eq!(resource.id, id);
         assert_eq!(resource.width, 100);
         assert_eq!(resource.height, 100);
         // First image should be at origin
