@@ -39,7 +39,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler},
+    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
 };
 use bytemuck::{Pod, Zeroable};
 use vello_common::{
@@ -83,6 +83,8 @@ pub struct Renderer {
     programs: Programs,
     /// Scheduler for scheduling draws.
     scheduler: Scheduler,
+    /// The state used by the scheduler.
+    scheduler_state: SchedulerState,
     /// Image cache for storing images atlas allocations.
     image_cache: ImageCache,
     /// Encoded paints for storing encoded paints.
@@ -119,6 +121,7 @@ impl Renderer {
         Self {
             programs: Programs::new(device, &image_cache, render_target_config, total_slots),
             scheduler: Scheduler::new(total_slots),
+            scheduler_state: SchedulerState::default(),
             image_cache,
             gradient_cache,
             encoded_paints: Vec::new(),
@@ -160,7 +163,12 @@ impl Renderer {
             view,
         };
 
-        let result = self.scheduler.do_scene(&mut junk, scene, &self.paint_idxs);
+        let result = self.scheduler.do_scene(
+            &mut self.scheduler_state,
+            &mut junk,
+            scene,
+            &self.paint_idxs,
+        );
         self.gradient_cache.maintain();
 
         result
