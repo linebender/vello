@@ -915,7 +915,7 @@ impl WebGlPrograms {
         );
 
         // Pack alpha values into RGBA uint32 texture
-        let alpha_data_as_u32 = bytemuck::cast_slice::<u8, u32>(&alphas);
+        let alpha_data_as_u32 = bytemuck::cast_slice::<u8, u32>(alphas);
         let packed_array = js_sys::Uint32Array::from(alpha_data_as_u32);
 
         gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
