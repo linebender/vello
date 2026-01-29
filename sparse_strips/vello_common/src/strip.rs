@@ -141,7 +141,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     // so it is empty. If we *are* early culling, we still need to iterate throw the windings, as
     // even though the tile buffer is empty, something might have been culled offscreen that still
     // needs to be rendered.
-    if !USE_EARLY_CULL && !tiles.is_valid() {
+    if !USE_EARLY_CULL && tiles.is_empty() {
         return;
     }
 
@@ -165,7 +165,11 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     let mut accumulated_winding = f32x4::splat(s, 0.0);
 
     // The previous tile visited.
-    let mut prev_tile = *tiles.get(0);
+    let mut prev_tile = if USE_EARLY_CULL && tiles.is_empty() {
+        Tile::SENTINEL
+    } else {
+        *tiles.get(0)
+    };
 
     let emit_background = |start: u16, end: u16, strips: &mut Vec<Strip>, alphas: &mut Vec<u8>| {
         for row in start..end {
@@ -199,7 +203,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     if USE_EARLY_CULL {
         let row_max = prev_tile.y.min(row_windings.len() as u16);
         emit_background(0, row_max, strip_buf, alpha_buf);
-        if tiles.is_valid() {
+        if !tiles.is_empty() {
             winding_delta = row_windings[prev_tile.y as usize] as i32;
             let left_viewport = prev_tile.x == 0;
             if should_fill(winding_delta) && !left_viewport {
@@ -229,7 +233,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
         should_fill(winding_delta),
     );
 
-    for tile in tiles.iter().copied() {
+    for tile in tiles.iter().copied().chain([Tile::SENTINEL]) {
         let line = lines[tile.line_idx() as usize];
         let tile_left_x = f32::from(tile.x) * f32::from(Tile::WIDTH);
         let tile_top_y = f32::from(tile.y) * f32::from(Tile::HEIGHT);

@@ -69,7 +69,7 @@ pub struct StripGenerator {
     tiles: Tiles,
     width: u16,
     height: u16,
-    use_early_culling: bool,
+    culled_tiles: bool,
     partial_windings: Vec<[f32; Tile::WIDTH as usize]>,
     coarse_windings: Vec<i8>,
 }
@@ -87,7 +87,7 @@ impl StripGenerator {
             temp_storage: StripStorage::default(),
             width,
             height,
-            use_early_culling: false,
+            culled_tiles: true,
             partial_windings: vec![[0.0; Tile::HEIGHT as usize]; num_rows],
             coarse_windings: vec![0; num_rows],
         }
@@ -143,13 +143,12 @@ impl StripGenerator {
         fill_rule: Fill,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        if strip_storage.generation_mode == GenerationMode::Replace {
+        self.culled_tiles = if strip_storage.generation_mode == GenerationMode::Replace {
+            if self.culled_tiles {
+                self.partial_windings.fill([0.0; Tile::HEIGHT as usize]);
+                self.coarse_windings.fill(0);
+            }
             strip_storage.strips.clear();
-        }
-
-        let culling_opportunity = if self.use_early_culling {
-            self.partial_windings.fill([0.0; Tile::HEIGHT as usize]);
-            self.coarse_windings.fill(0);
             self.tiles.make_tiles_analytic_aa::<true>(
                 self.level,
                 &self.line_buf,
@@ -170,7 +169,6 @@ impl StripGenerator {
         };
 
         self.tiles.sort_tiles();
-        self.tiles.inject_sentinel();
 
         if let Some(clip_path) = clip_path {
             self.temp_storage.clear();
@@ -183,7 +181,7 @@ impl StripGenerator {
                 fill_rule,
                 aliasing_threshold,
                 &self.line_buf,
-                self.use_early_culling,
+                self.culled_tiles,
                 &self.partial_windings,
                 &self.coarse_windings,
             );
@@ -202,13 +200,11 @@ impl StripGenerator {
                 fill_rule,
                 aliasing_threshold,
                 &self.line_buf,
-                self.use_early_culling,
+                self.culled_tiles,
                 &self.partial_windings,
                 &self.coarse_windings,
             );
         }
-
-        self.use_early_culling = culling_opportunity;
     }
 
     /// Reset the strip generator.

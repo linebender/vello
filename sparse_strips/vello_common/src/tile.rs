@@ -267,12 +267,6 @@ impl Tiles {
         self.tile_buf.is_empty()
     }
 
-    /// Returns `true` if the buffer contains tiles other than the sentinel. Note, this should only
-    /// be used *AFTER* the sentinel is injected (occurs after sorting).
-    pub fn is_valid(&self) -> bool {
-        self.tile_buf.len() > 1
-    }
-
     /// Reset the tiles' container.
     pub fn reset(&mut self) {
         self.tile_buf.clear();
@@ -284,12 +278,6 @@ impl Tiles {
         self.sorted = true;
         // To enable auto-vectorization.
         self.level.dispatch(|_| self.tile_buf.sort_unstable());
-    }
-
-    /// Pushes a sentinel tile to the end of the tile buffer. This is called after all geometry has
-    /// been tiled and sorted to simplify the rendering loop iteration.
-    pub fn inject_sentinel(&mut self) {
-        self.tile_buf.push(Tile::SENTINEL);
     }
 
     /// Get the tile at a certain index.
@@ -351,10 +339,10 @@ impl Tiles {
         coarse_windings: &mut [i8],
     ) -> bool {
         self.reset();
-        let mut culling_opportunity = false;
+        let mut culled_tiles = false;
 
         if width == 0 || height == 0 {
-            return culling_opportunity;
+            return culled_tiles;
         }
 
         debug_assert!(
@@ -417,7 +405,6 @@ impl Tiles {
             // Note: Lines that cross the left edge (start < 0, end > 0) are NOT handled here. They
             // will naturally generate a tile at x=0 in the standard path.
             if line_right_x < 0.0 {
-                culling_opportunity = true;
                 if USE_EARLY_CULL {
                     let dir = if p0_y >= p1_y { 1 } else { -1 };
                     let f_dir = dir as f32;
@@ -485,6 +472,8 @@ impl Tiles {
 
                         target_row.copy_from_slice(result.as_slice());
                     }
+
+                    culled_tiles = true;
                     continue;
                 }
             }
@@ -613,7 +602,7 @@ impl Tiles {
             }
         }
 
-        culling_opportunity
+        culled_tiles
     }
 
     /// Generates tile commands for MSAA (Multisample Anti-Aliasing) rasterization.
