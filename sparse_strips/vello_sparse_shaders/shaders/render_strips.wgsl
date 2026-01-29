@@ -165,6 +165,11 @@ struct StripInstance {
     // [width, dense_width] packed as u16's
     // width — width of the strip
     // dense_width — width of the portion where alpha blending should be applied
+    // Note that currently, if the strip instance represents an actual strip (i.e. an anti-aliased region),
+    // width = dense_width. If the StripInstance represents a sparse fill region, then dense_width = 0.
+    // TODO: In the future, this could be optimized such that `width` always represents the width and a simple
+    // 1-bit flag is used to distinguish between sparse fill region and strip. This frees up 15 other bits.
+    // Otherwise, it might also be possible to merge a strip and sparse fill command into a single strip instance.
     @location(1) widths: u32,
     // Alpha texture column index where this strip's alpha values begin
     // There are [`Config::strip_height`] alpha values per column.
@@ -275,9 +280,11 @@ var clip_input_texture: texture_2d<f32>;
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let x = u32(floor(in.tex_coord.x));
     var alpha = 1.0;
-    // Determine if the current fragment is within the dense (alpha) region
-    // If so, sample the alpha value from the texture; otherwise, alpha remains fully opaque (1.0)
-    if x < in.dense_end {
+    // This if condition essentially checks whether the current pixel lies within a strip or a sparse
+    // fill region. In the former case, `dense_end` will be bigger than 0 since `dense_width` != 0. In the latter
+    // case, `dense_end` will always be zero since for sparse regions `col_idx` and `dense_width` are both set to
+    // zero.
+    if in.dense_end != 0 {
         let y = u32(floor(in.tex_coord.y));
         // Retrieve alpha value from the texture. We store 16 1-byte alpha
         // values per texel, with each color channel packing 4 alpha values.
