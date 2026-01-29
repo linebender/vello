@@ -148,7 +148,7 @@ impl Renderer {
             queue,
             &mut self.gradient_cache,
             &self.encoded_paints,
-            &scene.strip_storage.alphas,
+            &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
             &self.paint_idxs,
         );
@@ -455,8 +455,6 @@ struct Programs {
     resources: GpuResources,
     /// Dimensions of the rendering target
     render_size: RenderSize,
-    /// Scratch buffer for staging alpha texture data.
-    alpha_data: Vec<u8>,
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
 }
@@ -830,8 +828,6 @@ impl Programs {
             max_texture_dimension_2d,
             INITIAL_ALPHA_TEXTURE_HEIGHT,
         );
-        let alpha_data =
-            vec![0; ((max_texture_dimension_2d * INITIAL_ALPHA_TEXTURE_HEIGHT) << 4) as usize];
         let view_config_buffer = Self::create_config_buffer(
             device,
             &RenderSize {
@@ -921,7 +917,6 @@ impl Programs {
             gradient_bind_group_layout,
             atlas_bind_group_layout,
             resources,
-            alpha_data,
             encoded_paints_data,
             render_size: RenderSize {
                 width: render_target_config.width,
@@ -1173,12 +1168,12 @@ impl Programs {
         queue: &Queue,
         gradient_cache: &mut GradientRampCache,
         encoded_paints: &[GpuEncodedPaint],
-        alphas: &[u8],
+        alphas: &mut Vec<u8>,
         new_render_size: &RenderSize,
         paint_idxs: &[u32],
     ) {
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas);
+        self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
         self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
 
@@ -1197,9 +1192,9 @@ impl Programs {
         &mut self,
         device: &Device,
         max_texture_dimension_2d: u32,
-        alphas: &[u8],
+        alphas_len: usize,
     ) {
-        let required_alpha_height = u32::try_from(alphas.len())
+        let required_alpha_height = u32::try_from(alphas_len)
             .unwrap()
             // There are 16 1-byte alpha values per texel.
             .div_ceil(max_texture_dimension_2d << 4);
@@ -1215,9 +1210,6 @@ impl Programs {
                 "Alpha texture height exceeds max texture dimensions"
             );
 
-            // Resize the alpha texture staging buffer.
-            let required_alpha_size = (max_texture_dimension_2d * required_alpha_height) << 4;
-            self.alpha_data.resize(required_alpha_size as usize, 0);
             // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
             let alphas_texture = Self::create_alphas_texture(
                 device,
@@ -1419,20 +1411,16 @@ impl Programs {
     }
 
     /// Upload alpha data to the texture.
-    fn upload_alpha_texture(&mut self, queue: &Queue, alphas: &[u8]) {
+    fn upload_alpha_texture(&mut self, queue: &Queue, alphas: &mut Vec<u8>) {
         let texture_width = self.resources.alphas_texture.width();
         let texture_height = self.resources.alphas_texture.height();
-        debug_assert!(
-            alphas.len() <= (texture_width * texture_height * 16) as usize,
-            "Alpha texture dimensions are too small to fit the alpha data"
-        );
+        let total_size = texture_width as usize * texture_height as usize * 16;
 
-        // After this copy to `self.alpha_data`, there may be stale trailing alpha values. These
-        // are not sampled, so can be left as-is.
-        // TODO: Apply the same optimization as gradient texture upload - use alphas directly
-        // instead of copying to staging buffer, by taking alphas from strip generator as a vec,
-        // resizing appropriately, truncating, and restoring back to the generator.
-        self.alpha_data[0..alphas.len()].copy_from_slice(alphas);
+        let original_len = alphas.len();
+
+        // Temporarily pad the length of the alphas to the texture size before uploading.
+        alphas.resize(total_size, 0);
+
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.resources.alphas_texture,
@@ -1440,7 +1428,7 @@ impl Programs {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &self.alpha_data,
+            &alphas,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), which is equivalent to
@@ -1454,6 +1442,9 @@ impl Programs {
                 depth_or_array_layers: 1,
             },
         );
+
+        // Truncate back to the original size.
+        alphas.truncate(original_len);
     }
 
     /// Upload encoded paints to the texture.
