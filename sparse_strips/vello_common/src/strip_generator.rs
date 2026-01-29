@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Abstraction for generating strips from paths.
-
 use crate::clip::{PathDataRef, intersect};
 use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
 use crate::kurbo::{Affine, PathEl, Stroke};
 use crate::peniko::Fill;
 use crate::strip::Strip;
-use crate::tile::Tiles;
+use crate::tile::{Tile, Tiles};
 use crate::{flatten, strip};
+use alloc::vec;
 use alloc::vec::Vec;
 use peniko::kurbo::StrokeCtx;
 
@@ -69,11 +69,15 @@ pub struct StripGenerator {
     tiles: Tiles,
     width: u16,
     height: u16,
+    culled_tiles: bool,
+    partial_windings: Vec<[f32; Tile::WIDTH as usize]>,
+    coarse_windings: Vec<i8>,
 }
 
 impl StripGenerator {
     /// Create a new strip generator.
     pub fn new(width: u16, height: u16, level: Level) -> Self {
+        let num_rows = (height.div_ceil(Tile::HEIGHT) + 1) as usize;
         Self {
             level,
             line_buf: Vec::new(),
@@ -83,6 +87,9 @@ impl StripGenerator {
             temp_storage: StripStorage::default(),
             width,
             height,
+            culled_tiles: true,
+            partial_windings: vec![[0.0; Tile::HEIGHT as usize]; num_rows],
+            coarse_windings: vec![0; num_rows],
         }
     }
 
@@ -136,12 +143,31 @@ impl StripGenerator {
         fill_rule: Fill,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        if strip_storage.generation_mode == GenerationMode::Replace {
+        self.culled_tiles = if strip_storage.generation_mode == GenerationMode::Replace {
+            if self.culled_tiles {
+                self.partial_windings.fill([0.0; Tile::HEIGHT as usize]);
+                self.coarse_windings.fill(0);
+            }
             strip_storage.strips.clear();
-        }
+            self.tiles.make_tiles_analytic_aa::<true>(
+                self.level,
+                &self.line_buf,
+                self.width,
+                self.height,
+                &mut self.partial_windings,
+                &mut self.coarse_windings,
+            )
+        } else {
+            self.tiles.make_tiles_analytic_aa::<false>(
+                self.level,
+                &self.line_buf,
+                self.width,
+                self.height,
+                &mut self.partial_windings,
+                &mut self.coarse_windings,
+            )
+        };
 
-        self.tiles
-            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
         self.tiles.sort_tiles();
 
         if let Some(clip_path) = clip_path {
@@ -155,6 +181,9 @@ impl StripGenerator {
                 fill_rule,
                 aliasing_threshold,
                 &self.line_buf,
+                self.culled_tiles,
+                &self.partial_windings,
+                &self.coarse_windings,
             );
             let path_data = PathDataRef {
                 strips: &self.temp_storage.strips,
@@ -171,6 +200,9 @@ impl StripGenerator {
                 fill_rule,
                 aliasing_threshold,
                 &self.line_buf,
+                self.culled_tiles,
+                &self.partial_windings,
+                &self.coarse_windings,
             );
         }
     }

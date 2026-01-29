@@ -3,8 +3,8 @@
 
 use crate::data::get_data_items;
 use criterion::Criterion;
+use vello_common::fearless_simd::Level;
 use vello_common::tile::Tiles;
-use vello_cpu::Level;
 
 pub fn tile(c: &mut Criterion) {
     let mut g = c.benchmark_group("tile");
@@ -17,7 +17,14 @@ pub fn tile(c: &mut Criterion) {
             g.bench_function($item.name.clone(), |b| {
                 b.iter(|| {
                     let mut tiler = Tiles::new(Level::new());
-                    tiler.make_tiles_analytic_aa(&lines, $item.width, $item.height);
+                    tiler.make_tiles_analytic_aa::<false>(
+                        Level::fallback(),
+                        &lines,
+                        $item.width,
+                        $item.height,
+                        &mut Vec::new(),
+                        &mut Vec::new(),
+                    );
                 })
             });
         };
