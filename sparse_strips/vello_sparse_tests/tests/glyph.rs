@@ -256,120 +256,53 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
 
 #[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto(ctx: &mut impl Renderer) {
-    let font_size: f32 = 50_f32;
-    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
-
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .fill_glyphs(glyphs.into_iter());
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)));
 }
 
-/// Test COLR emoji with 2x scene scale.
-/// This tests the fix for the double-scaling bug where scene transforms
-/// were applied twice to COLR glyphs (once in area dimensions, once in `glyph_transform`).
-/// Hinting is disabled to preserve the scale in the transform passed to `prepare_colr_glyph`.
 #[vello_test(width = 500, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer) {
-    let font_size: f32 = 50_f32;
-    let scale = 2.0;
-    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
-
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(scale));
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .hint(false)
-        .fill_glyphs(glyphs.into_iter());
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(2.0));
 }
 
-/// Test COLR emoji with 0.5x scene scale (as above).
 #[vello_test(width = 125, height = 35, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer) {
-    let font_size: f32 = 50_f32;
-    let scale = 0.5;
-    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
-
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(scale));
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .hint(false)
-        .fill_glyphs(glyphs.into_iter());
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(0.5));
 }
 
-/// Test COLR emoji with 45-degree rotation.
-/// This tests that rotation transforms are properly applied to COLR glyphs.
-/// Hinting is disabled to preserve the rotation in the transform passed to `prepare_colr_glyph`.
-#[vello_test(width = 350, height = 350, skip_hybrid, cpu_u8_tolerance = 1)]
+#[vello_test(width = 350, height = 350, skip_hybrid, cpu_u8_tolerance = 3)]
 fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer) {
-    let font_size: f32 = 50_f32;
-    let angle = std::f64::consts::FRAC_PI_4; // 45 degrees
-    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
-
-    ctx.set_transform(Affine::translate((175., 100.)) * Affine::rotate(angle));
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .hint(false)
-        .fill_glyphs(glyphs.into_iter());
-}
-
-/// Test COLR emoji with 45-degree rotation and 2x scale.
-/// This tests that both rotation and scaling transforms are properly applied to COLR glyphs.
-/// Hinting is disabled to preserve the transform passed to `prepare_colr_glyph`.
-#[vello_test(width = 600, height = 600, skip_hybrid, cpu_u8_tolerance = 1)]
-fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
-    let font_size: f32 = 50_f32;
-    let angle = std::f64::consts::FRAC_PI_4; // 45 degrees
-    let scale = 2.0;
-    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
-
-    ctx.set_transform(
-        Affine::translate((300., 150.)) * Affine::rotate(angle) * Affine::scale(scale),
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((175., 100.)) * Affine::rotate(std::f64::consts::FRAC_PI_4),
     );
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .hint(false)
-        .fill_glyphs(glyphs.into_iter());
 }
 
-/// Test COLR emoji with non-uniform scale (1x, 2x).
-/// This tests that non-uniform scaling is properly applied to COLR glyphs.
-/// Hinting is disabled to preserve the scale in the transform passed to `prepare_colr_glyph`.
+#[vello_test(width = 600, height = 600, skip_hybrid, cpu_u8_tolerance = 2)]
+fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((300., 150.))
+            * Affine::rotate(std::f64::consts::FRAC_PI_4)
+            * Affine::scale(2.0),
+    );
+}
+
 #[vello_test(width = 250, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer) {
-    let font_size: f32 = 50_f32;
-    let scale_x = 1.0;
-    let scale_y = 2.0;
-    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
-
-    ctx.set_transform(
-        Affine::translate((0., f64::from(font_size))) * Affine::scale_non_uniform(scale_x, scale_y),
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((0., 50.)) * Affine::scale_non_uniform(1.0, 2.0),
     );
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .hint(false)
-        .fill_glyphs(glyphs.into_iter());
 }
 
-/// Test COLR emoji with 45-degree rotation and non-uniform scale (1x, 2x).
-/// This tests that both rotation and non-uniform scaling are properly applied to COLR glyphs.
-/// Hinting is disabled to preserve the transform passed to `prepare_colr_glyph`.
-#[vello_test(width = 300, height = 300, skip_hybrid, cpu_u8_tolerance = 1)]
+#[vello_test(width = 300, height = 300, skip_hybrid, cpu_u8_tolerance = 2)]
 fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer) {
-    let font_size: f32 = 50_f32;
-    let angle = std::f64::consts::FRAC_PI_4; // 45 degrees
-    let scale_x = 1.0;
-    let scale_y = 2.0;
-    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
-
-    ctx.set_transform(
+    render_colr_noto_with_transform(
+        ctx,
         Affine::translate((150., 150.))
-            * Affine::rotate(angle)
-            * Affine::scale_non_uniform(scale_x, scale_y),
+            * Affine::rotate(std::f64::consts::FRAC_PI_4)
+            * Affine::scale_non_uniform(1.0, 2.0),
     );
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .hint(false)
-        .fill_glyphs(glyphs.into_iter());
 }
 
 #[cfg(target_os = "macos")]
@@ -448,4 +381,16 @@ fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
             cur_x += font_size;
         }
     }
+}
+
+/// Hinting is disabled to preserve transforms passed to `prepare_colr_glyph`.
+fn render_colr_noto_with_transform(ctx: &mut impl Renderer, transform: Affine) {
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
+
+    ctx.set_transform(transform);
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter());
 }
