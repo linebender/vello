@@ -61,11 +61,6 @@ impl MultiAtlasManager {
         Ok(atlas_id)
     }
 
-    /// Check if a new atlas can be created.
-    pub(crate) fn can_create_new_atlas(&self) -> bool {
-        self.atlases.len() < self.config.max_atlases
-    }
-
     /// Try to allocate space for an image with the given dimensions.
     pub(crate) fn try_allocate(
         &mut self,
@@ -102,7 +97,7 @@ impl MultiAtlasManager {
         }
 
         // Try creating a new atlas if auto-grow is enabled
-        if self.config.auto_grow && self.can_create_new_atlas() {
+        if self.config.auto_grow {
             let atlas_id = self.create_atlas()?;
             let atlas = self.atlases.last_mut().unwrap();
             if let Some(allocation) = atlas.allocate(width, height) {
@@ -210,7 +205,7 @@ impl MultiAtlasManager {
         }
 
         // Try creating a new atlas if auto-grow is enabled
-        if self.config.auto_grow && self.can_create_new_atlas() {
+        if self.config.auto_grow {
             let atlas_id = self.create_atlas()?;
             let atlas = self.atlases.last_mut().unwrap();
             if let Some(allocation) = atlas.allocate(width, height) {
