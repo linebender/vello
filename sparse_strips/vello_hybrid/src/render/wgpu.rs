@@ -1428,7 +1428,7 @@ impl Programs {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &alphas,
+            alphas,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), which is equivalent to
