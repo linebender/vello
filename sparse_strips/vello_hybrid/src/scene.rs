@@ -5,6 +5,7 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
+use core::cell::RefCell;
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
@@ -107,7 +108,7 @@ pub struct Scene {
     /// Generator for converting paths to strips.
     pub(crate) strip_generator: StripGenerator,
     /// Storage for generated strips and alpha values.
-    pub(crate) strip_storage: StripStorage,
+    pub(crate) strip_storage: RefCell<StripStorage>,
     /// Cache for rasterized glyphs to improve text rendering performance.
     pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Dependency graph for managing layer rendering order and filter effects.
@@ -136,7 +137,7 @@ impl Scene {
             paint_visible: true,
             stroke: render_state.stroke,
             strip_generator: StripGenerator::new(width, height, settings.level),
-            strip_storage: StripStorage::default(),
+            strip_storage: RefCell::new(StripStorage::default()),
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
             blend_mode: render_state.blend_mode,
@@ -220,16 +221,17 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
+        let strip_storage = &mut self.strip_storage.borrow_mut();
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
             transform,
             aliasing_threshold,
-            &mut self.strip_storage,
+            strip_storage,
             self.clip_context.get(),
         );
         wide.generate(
-            &self.strip_storage.strips,
+            &strip_storage.strips,
             paint,
             self.blend_mode,
             0,
@@ -284,18 +286,19 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let wide = &mut self.wide;
+        let strip_storage = &mut self.strip_storage.borrow_mut();
 
         self.strip_generator.generate_stroked_path(
             path,
             &self.stroke,
             transform,
             aliasing_threshold,
-            &mut self.strip_storage,
+            strip_storage,
             self.clip_context.get(),
         );
 
         wide.generate(
-            &self.strip_storage.strips,
+            &strip_storage.strips,
             paint,
             self.blend_mode,
             0,
@@ -350,17 +353,19 @@ impl Scene {
             unimplemented!("Filter effects are not yet supported in vello_hybrid");
         }
 
+        let mut strip_storage = self.strip_storage.borrow_mut();
+
         let clip = if let Some(c) = clip_path {
             self.strip_generator.generate_filled_path(
                 c,
                 self.fill_rule,
                 self.transform,
                 self.aliasing_threshold,
-                &mut self.strip_storage,
+                &mut strip_storage,
                 self.clip_context.get(),
             );
 
-            Some(self.strip_storage.strips.as_slice())
+            Some(strip_storage.strips.as_slice())
         } else {
             None
         };
@@ -469,7 +474,7 @@ impl Scene {
         self.wide.reset();
         self.strip_generator.reset();
         self.clip_context.reset();
-        self.strip_storage.clear();
+        self.strip_storage.borrow_mut().clear();
         self.encoded_paints.clear();
 
         let render_state = Self::default_render_state();
@@ -781,10 +786,11 @@ impl Scene {
         cached_strips: &[Strip],
         cached_alphas: &[u8],
     ) -> Vec<Strip> {
+        let mut strip_storage = self.strip_storage.borrow_mut();
         // Calculate offset for alpha indices based on current buffer size.
-        let alpha_offset = self.strip_storage.alphas.len() as u32;
+        let alpha_offset = strip_storage.alphas.len() as u32;
         // Extend current alpha buffer with cached alphas.
-        self.strip_storage.alphas.extend(cached_alphas);
+        strip_storage.alphas.extend(cached_alphas);
         // Create adjusted strips with corrected alpha indices
         cached_strips
             .iter()
