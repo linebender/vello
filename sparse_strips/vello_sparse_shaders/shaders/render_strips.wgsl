@@ -169,7 +169,7 @@ struct StripInstance {
     // width = dense_width. If the StripInstance represents a sparse fill region, then dense_width = 0.
     // TODO: In the future, this could be optimized such that `width` always represents the width and a simple
     // 1-bit flag is used to distinguish between sparse fill region and strip. This frees up 15 other bits.
-    // Otherwise, it might also be possible to merge a strip and sparse region command into a single command.
+    // Otherwise, it might also be possible to merge a strip and sparse fill command into a single strip instance.
     @location(1) widths: u32,
     // Alpha texture column index where this strip's alpha values begin
     // There are [`Config::strip_height`] alpha values per column.
