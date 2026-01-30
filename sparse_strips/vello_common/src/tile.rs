@@ -38,7 +38,7 @@ const INT_MASK_SHIFT: u32 = INTERSECTION_MASK.count_ones();
 /// The max number of lines per path.
 ///
 /// Trying to render a path with more lines than this may result in visual artifacts.
-pub const MAX_LINES_PER_PATH: u32 = 1 << 32 - INT_MASK_SHIFT;
+pub const MAX_LINES_PER_PATH: u32 = 1 << (32 - INT_MASK_SHIFT);
 
 /// A tile represents an aligned area on the pixmap, used to subdivide the viewport into sub-areas
 /// (currently 4x4) and analyze line intersections inside each such area.
@@ -383,7 +383,8 @@ impl Tiles {
                     // Row Start, not culled.
                     let is_start_culled = line_top_y < 0.0;
                     if !is_start_culled {
-                        let winding = ((f32::from(y_top_tiles) >= line_top_y) as u32) << WINDING_SHIFT;
+                        let winding =
+                            ((f32::from(y_top_tiles) >= line_top_y) as u32) << WINDING_SHIFT;
                         let tile = Tile::new_clamped(x, y_top_tiles, line_idx, winding);
                         self.tile_buf.push(tile);
                     }
@@ -600,7 +601,8 @@ impl Tiles {
                     // Row Start, not culled.
                     let is_start_culled = line_top_y < 0.0;
                     if !is_start_culled {
-                        let winding = ((f32::from(y_top_tiles) >= line_top_y) as u32) << WINDING_SHIFT;
+                        let winding =
+                            ((f32::from(y_top_tiles) >= line_top_y) as u32) << WINDING_SHIFT;
                         let intersection_mask = B | winding;
                         let tile = Tile::new_clamped(x, y_top_tiles, line_idx, intersection_mask);
                         self.tile_buf.push(tile);
@@ -752,7 +754,8 @@ impl Tiles {
                                 );
 
                                 for x_idx in x_start.saturating_add(1)..x_end {
-                                    self.tile_buf.push(Tile::new(x_idx, $y_idx, line_idx, R | L));
+                                    self.tile_buf
+                                        .push(Tile::new(x_idx, $y_idx, line_idx, R | L));
                                 }
 
                                 if x_start < x_end {
@@ -801,8 +804,8 @@ impl Tiles {
                             let line_bottom_floor = line_bottom_y.floor();
                             let y_end_middle = (line_bottom_floor as u16).min(tile_rows);
                             let has_separate_bottom_row = line_bottom_y != line_bottom_floor
-                                      && y_end_middle < tile_rows
-                                      && (is_start_culled || y_end_middle != y_top_tiles);
+                                && y_end_middle < tile_rows
+                                && (is_start_culled || y_end_middle != y_top_tiles);
 
                             if y_start_middle < y_end_middle {
                                 for y_idx in y_start_middle..y_end_middle {
@@ -864,7 +867,7 @@ impl Tiles {
 mod tests {
     use crate::flatten::{FlattenCtx, Line, Point, fill};
     use crate::kurbo::{Affine, BezPath};
-    use crate::tile::{Tile, Tiles, W, R, L, B, T};
+    use crate::tile::{B, L, R, T, Tile, Tiles, W};
     use fearless_simd::Level;
     use std::vec;
 
