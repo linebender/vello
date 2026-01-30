@@ -256,13 +256,53 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
 
 #[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto(ctx: &mut impl Renderer) {
-    let font_size: f32 = 50_f32;
-    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)));
+}
 
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .fill_glyphs(glyphs.into_iter());
+#[vello_test(width = 500, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
+fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer) {
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(2.0));
+}
+
+#[vello_test(width = 125, height = 35, skip_hybrid, cpu_u8_tolerance = 1)]
+fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer) {
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(0.5));
+}
+
+#[vello_test(width = 350, height = 350, skip_hybrid, cpu_u8_tolerance = 3)]
+fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer) {
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((175., 100.)) * Affine::rotate(std::f64::consts::FRAC_PI_4),
+    );
+}
+
+#[vello_test(width = 600, height = 600, skip_hybrid, cpu_u8_tolerance = 2)]
+fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((300., 150.))
+            * Affine::rotate(std::f64::consts::FRAC_PI_4)
+            * Affine::scale(2.0),
+    );
+}
+
+#[vello_test(width = 250, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
+fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer) {
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((0., 50.)) * Affine::scale_non_uniform(1.0, 2.0),
+    );
+}
+
+#[vello_test(width = 300, height = 300, skip_hybrid, cpu_u8_tolerance = 2)]
+fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer) {
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((150., 150.))
+            * Affine::rotate(std::f64::consts::FRAC_PI_4)
+            * Affine::scale_non_uniform(1.0, 2.0),
+    );
 }
 
 #[cfg(target_os = "macos")]
@@ -341,4 +381,16 @@ fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
             cur_x += font_size;
         }
     }
+}
+
+/// Hinting is disabled to preserve transforms passed to `prepare_colr_glyph`.
+fn render_colr_noto_with_transform(ctx: &mut impl Renderer, transform: Affine) {
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
+
+    ctx.set_transform(transform);
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(false)
+        .fill_glyphs(glyphs.into_iter());
 }
