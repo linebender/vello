@@ -11,15 +11,15 @@ use fearless_simd::Level;
 use peniko::kurbo::common::FloatFuncs as _;
 
 /// T-op bit
-const T: u32 = 1 << 0;
+const T: u32 = 0b00001;
 /// B-ottom bit
-const B: u32 = 1 << 1;
+const B: u32 = 0b00010;
 /// L-eft bit
-const L: u32 = 1 << 2;
+const L: u32 = 0b00100;
 /// R-ight bit
-const R: u32 = 1 << 3;
+const R: u32 = 0b01000;
 /// W-inding bit
-const W: u32 = 1 << 4;
+const W: u32 = 0b10000;
 
 /// Shift amount corresponding to the bottom bit.
 const BOT_SHIFT: u32 = B.trailing_zeros();
