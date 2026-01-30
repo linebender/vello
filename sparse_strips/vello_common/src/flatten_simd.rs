@@ -526,7 +526,10 @@ fn flatten_cubic_simd<S: Simd>(simd: S, c: CubicBez, ctx: &mut FlattenCtx, accur
     estimate_subdiv_simd(simd, sqrt_tol, ctx);
     let sum: f32 = ctx.val[..n_quads].iter().sum();
     let n = ((0.5 * sum / sqrt_tol).ceil() as usize).max(1);
-    ctx.flattened_cubics.resize(n + 4, Point32::default());
+    let target_len = n + 4;
+    if target_len > ctx.flattened_cubics.len() {
+        ctx.flattened_cubics.resize(target_len, Point32::default());
+    }
 
     let step = sum / (n as f32);
     let step_recip = 1.0 / step;
