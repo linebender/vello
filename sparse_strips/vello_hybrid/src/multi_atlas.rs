@@ -16,8 +16,6 @@ pub(crate) struct MultiAtlasManager {
     atlases: Vec<Atlas>,
     /// Configuration for atlas management.
     config: AtlasConfig,
-    /// Next atlas Id to assign.
-    next_atlas_id: u32,
     /// Round-robin counter for allocation strategy.
     round_robin_counter: usize,
 }
@@ -28,7 +26,6 @@ impl MultiAtlasManager {
         let mut manager = Self {
             atlases: Vec::new(),
             config,
-            next_atlas_id: 0,
             round_robin_counter: 0,
         };
 
@@ -52,13 +49,16 @@ impl MultiAtlasManager {
             return Err(AtlasError::AtlasLimitReached);
         }
 
-        let atlas_id = AtlasId::new(self.next_atlas_id);
-        self.next_atlas_id += 1;
+        let atlas_id = AtlasId::new(self.next_atlas_id());
 
         let atlas = Atlas::new(atlas_id, self.config.atlas_size.0, self.config.atlas_size.1);
         self.atlases.push(atlas);
 
         Ok(atlas_id)
+    }
+
+    pub(crate) fn next_atlas_id(&self) -> u32 {
+        u32::try_from(self.atlases.len()).unwrap()
     }
 
     /// Try to allocate space for an image with the given dimensions.
@@ -257,7 +257,7 @@ impl core::fmt::Debug for MultiAtlasManager {
         f.debug_struct("MultiAtlasManager")
             .field("atlas_count", &self.atlases.len())
             .field("config", &self.config)
-            .field("next_atlas_id", &self.next_atlas_id)
+            .field("next_atlas_id", &self.next_atlas_id())
             .field("round_robin_counter", &self.round_robin_counter)
             .field("atlases", &self.atlases)
             .finish()
