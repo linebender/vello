@@ -515,6 +515,7 @@ impl Scheduler {
     }
 
     // Find the appropriate round for rendering.
+    #[inline(always)]
     fn get_round(&mut self, el_round: usize) -> &mut Round {
         let rel_round = el_round.saturating_sub(self.round);
         if self.rounds_queue.len() == rel_round {
@@ -897,6 +898,7 @@ impl Scheduler {
     }
 
     /// Process a paint and return (`payload`, `paint`)
+    #[inline(always)]
     fn process_paint(
         paint: &Paint,
         scene: &Scene,
