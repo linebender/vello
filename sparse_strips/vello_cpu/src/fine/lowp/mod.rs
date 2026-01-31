@@ -102,7 +102,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
             #[inline(always)]
             || {
                 let target: &mut [u32] = bytemuck::cast_slice_mut(dest);
-                target.fill(u32::from_ne_bytes(src))
+                target.fill(u32::from_ne_bytes(src));
             },
         );
     }
