@@ -101,12 +101,8 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         simd.vectorize(
             #[inline(always)]
             || {
-                let color =
-                    u8x64::block_splat(u32x4::splat(simd, u32::from_ne_bytes(src)).to_bytes());
-
-                for el in dest.chunks_exact_mut(64) {
-                    el.copy_from_slice(color.as_slice());
-                }
+                let target: &mut [u32] = bytemuck::cast_slice_mut(dest);
+                target.fill(u32::from_ne_bytes(src))
             },
         );
     }
