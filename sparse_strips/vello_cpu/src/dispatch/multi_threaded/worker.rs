@@ -7,11 +7,14 @@ use crate::dispatch::multi_threaded::{
 };
 use std::vec::Vec;
 use vello_common::clip::PathDataRef;
-use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::strip_generator::{
+    Analytic, GenerationMode, Msaa8, StripGenerator, StripStorage,
+};
 
 #[derive(Debug)]
 pub(crate) struct Worker {
-    strip_generator: StripGenerator,
+    //strip_generator: StripGenerator<Analytic>,
+    strip_generator: StripGenerator<Msaa8>,
     strip_storage: StripStorage,
     thread_id: u8,
 }
