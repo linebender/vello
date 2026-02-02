@@ -768,8 +768,8 @@ impl<const MODE: u8> Wide<MODE> {
                     let t = self.get_mut(x, y);
 
                     // We only need to blend if there is content in the buffer, or if the blend
-                    // more is destructive (in which case the blend operations interact with the
-                    // layer above).
+                    // mode is destructive (in which case blending doesn't only depend on the
+                    // contents of src).
                     let should_apply_layer_ops =
                         t.current_buffer_has_content() || layer.blend_mode.is_destructive();
                     if should_apply_layer_ops {
