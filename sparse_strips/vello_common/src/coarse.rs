@@ -328,6 +328,8 @@ impl<const MODE: u8> Wide<MODE> {
             tile.layer_cmd_ranges.clear();
             tile.layer_cmd_ranges
                 .insert(0, LayerCommandRanges::default());
+            tile.buf_has_content.clear();
+            tile.buf_has_content.push(false);
         }
         self.attrs.clear();
         self.layer_stack.clear();
@@ -765,11 +767,15 @@ impl<const MODE: u8> Wide<MODE> {
                 for y in 0..self.height_tiles() {
                     let t = self.get_mut(x, y);
 
-                    if let Some(mask) = layer.mask.clone() {
-                        t.mask(mask);
+                    // There is content in the buffer, so we need to blend.
+                    if t.current_buffer_has_content() {
+                        if let Some(mask) = layer.mask.clone() {
+                            t.mask(mask);
+                        }
+                        t.opacity(layer.opacity);
+                        t.blend(layer.blend_mode);
                     }
-                    t.opacity(layer.opacity);
-                    t.blend(layer.blend_mode);
+
                     t.pop_buf();
                 }
             }
@@ -1179,6 +1185,8 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     pub layer_cmd_ranges: HashMap<LayerId, LayerCommandRanges>,
     /// Vector of layer IDs this tile participates in.
     pub layer_ids: Vec<LayerKind>,
+    /// Stack tracking whether the current buffer has any content.
+    pub buf_has_content: Vec<bool>,
 }
 
 impl WideTile {
@@ -1218,6 +1226,7 @@ impl<const MODE: u8> WideTile<MODE> {
             in_clipped_filter_layer: false,
             layer_cmd_ranges,
             layer_ids: vec![LayerKind::Regular(0)],
+            buf_has_content: vec![false],
         }
     }
 
@@ -1292,6 +1301,7 @@ impl<const MODE: u8> WideTile<MODE> {
                         width,
                         attrs_idx,
                     }));
+                    self.mark_buffer_has_content();
                 }
                 MODE_HYBRID => {
                     self.record_fill_cmd(current_layer_id, self.cmds.len());
@@ -1300,6 +1310,7 @@ impl<const MODE: u8> WideTile<MODE> {
                         width,
                         attrs_idx,
                     }));
+                    self.mark_buffer_has_content();
                 }
                 _ => unreachable!(),
             }
@@ -1315,6 +1326,7 @@ impl<const MODE: u8> WideTile<MODE> {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             self.record_fill_cmd(current_layer_id, self.cmds.len());
             self.cmds.push(Cmd::AlphaFill(cmd_strip));
+            self.mark_buffer_has_content();
         }
     }
 
@@ -1352,6 +1364,7 @@ impl<const MODE: u8> WideTile<MODE> {
         if self.in_clipped_filter_layer {
             // Generate explicit command for filter processing
             self.cmds.push(Cmd::PushZeroClip(layer_id));
+            self.mark_buffer_has_content();
         }
         self.n_zero_clip += 1;
     }
@@ -1361,6 +1374,7 @@ impl<const MODE: u8> WideTile<MODE> {
         if self.in_clipped_filter_layer {
             // Generate explicit command for filter processing
             self.cmds.push(Cmd::PopZeroClip);
+            self.mark_buffer_has_content();
         }
         self.n_zero_clip -= 1;
     }
@@ -1378,6 +1392,7 @@ impl<const MODE: u8> WideTile<MODE> {
     pub fn clip_strip(&mut self, cmd_clip_strip: CmdClipAlphaFill) {
         if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(_))) {
             self.cmds.push(Cmd::ClipStrip(cmd_clip_strip));
+            self.mark_buffer_has_content();
         }
     }
 
@@ -1385,6 +1400,7 @@ impl<const MODE: u8> WideTile<MODE> {
     pub fn clip_fill(&mut self, x: u16, width: u16) {
         if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(_))) {
             self.cmds.push(Cmd::ClipFill(CmdClipFill { x, width }));
+            self.mark_buffer_has_content();
         }
     }
 
@@ -1398,6 +1414,18 @@ impl<const MODE: u8> WideTile<MODE> {
                 ranges.render_range.end = cmd_idx + 1;
             }
         });
+    }
+
+    /// Mark the wide tile as having content in its topmost buffer.
+    #[inline]
+    fn mark_buffer_has_content(&mut self) {
+        *self.buf_has_content.last_mut().unwrap() = true;
+    }
+
+    /// Whether the wide tile has content in its topmost buffer.
+    #[inline]
+    fn current_buffer_has_content(&self) -> bool {
+        *self.buf_has_content.last().unwrap()
     }
 
     /// Push a buffer for a new layer.
@@ -1426,6 +1454,7 @@ impl<const MODE: u8> WideTile<MODE> {
         }
         self.cmds.push(Cmd::PushBuf(layer_kind));
         self.layer_ids.push(layer_kind);
+        self.buf_has_content.push(false);
         self.n_bufs += 1;
     }
 
@@ -1433,11 +1462,16 @@ impl<const MODE: u8> WideTile<MODE> {
     pub fn pop_buf(&mut self) {
         let top_layer = self.layer_ids.pop().unwrap();
         let mut next_layer = *self.layer_ids.last().unwrap();
+        let had_content = self.buf_has_content.pop().unwrap();
 
         if matches!(self.cmds.last(), Some(&Cmd::PushBuf(_))) {
             // Optimization: If no drawing happened between the last `PushBuf`,
             // we can just pop it instead.
             self.cmds.pop();
+            debug_assert!(
+                !had_content,
+                "buffer had content but no commands were emitted"
+            );
         } else {
             self.layer_cmd_ranges
                 .entry(top_layer.id())
@@ -1458,6 +1492,9 @@ impl<const MODE: u8> WideTile<MODE> {
                     ranges.render_range.end = self.cmds.len() + 1;
                 });
             self.cmds.push(Cmd::PopBuf);
+            if had_content {
+                self.mark_buffer_has_content();
+            }
         }
         self.n_bufs -= 1;
     }
@@ -1466,17 +1503,20 @@ impl<const MODE: u8> WideTile<MODE> {
     pub fn opacity(&mut self, opacity: f32) {
         if opacity != 1.0 {
             self.cmds.push(Cmd::Opacity(opacity));
+            self.mark_buffer_has_content();
         }
     }
 
     /// Apply a filter effect to the whole buffer.
     pub fn filter(&mut self, layer_id: LayerId, filter: Filter) {
         self.cmds.push(Cmd::Filter(layer_id, filter));
+        self.mark_buffer_has_content();
     }
 
     /// Apply a mask to the whole buffer.
     pub fn mask(&mut self, mask: Mask) {
         self.cmds.push(Cmd::Mask(mask));
+        self.mark_buffer_has_content();
     }
 
     /// Blend the current buffer into the previous buffer in the stack.
@@ -1485,6 +1525,7 @@ impl<const MODE: u8> WideTile<MODE> {
         // is not destructive, we do not need to do any blending at all.
         if !matches!(self.cmds.last(), Some(&Cmd::PushBuf(_))) || blend_mode.is_destructive() {
             self.cmds.push(Cmd::Blend(blend_mode));
+            self.mark_buffer_has_content();
         }
     }
 }
