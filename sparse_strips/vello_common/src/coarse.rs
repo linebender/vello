@@ -1464,7 +1464,9 @@ impl<const MODE: u8> WideTile<MODE> {
 
     /// Apply an opacity to the whole buffer.
     pub fn opacity(&mut self, opacity: f32) {
-        if opacity != 1.0 {
+        // Only apply the operation if the buffer is not empty, i.e. the last
+        // command isn't a `PushBuf` command.
+        if opacity != 1.0 && !matches!(self.cmds.last(), Some(&Cmd::PushBuf(_))) {
             self.cmds.push(Cmd::Opacity(opacity));
         }
     }
@@ -1476,7 +1478,11 @@ impl<const MODE: u8> WideTile<MODE> {
 
     /// Apply a mask to the whole buffer.
     pub fn mask(&mut self, mask: Mask) {
-        self.cmds.push(Cmd::Mask(mask));
+        // Only apply the operation if the buffer is not empty, i.e. the last
+        // command isn't a `PushBuf` command.
+        if !matches!(self.cmds.last(), Some(&Cmd::PushBuf(_))) {
+            self.cmds.push(Cmd::Mask(mask));
+        }
     }
 
     /// Blend the current buffer into the previous buffer in the stack.
