@@ -1126,7 +1126,9 @@ fn prepare_cmds(cmds: &[Cmd], state: &mut SchedulerState) {
     annotated_commands.reserve(cmds.len() + 3);
 
     // We pretend that the surface might be blended into. This will be removed if no blends occur to
-    // the surface.
+    // the surface. The reason is that surfaces themselves cannot act as texture attachments. So
+    // if there is a blending operation at the lowest level, we need to ensure everything is drawn
+    // into an intermediate slot instead of directly into the surface.
     pointer_to_push_buf_stack.push(0);
     annotated_commands.push(AnnotatedCmd::PushBuf);
 
