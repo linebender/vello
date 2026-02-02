@@ -1143,6 +1143,8 @@ fn prepare_cmds(cmds: &[Cmd], state: &mut SchedulerState) {
                 // For blending of two layers to work in vello_hybrid, the two slots being blended
                 // must be on the same texture. Hence, annotate the next-on-stack (nos) tile such
                 // that it uses a temporary slot on the same texture as this blend.
+                // See https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/Hybrid.20Blending/with/536597802
+                // for some information on how blending works.
                 if pointer_to_push_buf_stack.len() >= 2 {
                     let push_buf_idx =
                         pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 2];
