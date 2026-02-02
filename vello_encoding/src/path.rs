@@ -31,6 +31,15 @@ pub struct Style {
 
     /// Encodes the stroke width. This field is ignored for fills.
     pub line_width: f32,
+
+    /// Encodes per-draw compositing state (blend mode + global alpha) for subsequent
+    /// draw operations that use this style.
+    ///
+    /// This word is interpreted by the GPU flatten stage and gets copied into the
+    /// per-draw `draw_flags` entry (along with the fill rule bit).
+    ///
+    /// Bit 0 is reserved for the fill rule and must remain clear.
+    pub composite: u32,
 }
 
 impl Style {
@@ -73,9 +82,16 @@ impl Style {
             Fill::NonZero => 0,
             Fill::EvenOdd => Self::FLAGS_FILL_BIT,
         };
+        // Default to normal + src_over with global alpha = 1.
+        //
+        // Note: this is the shader-facing packed blend mode value, matching
+        // `blend_mix_compose` in `vello_shaders/shader/shared/blend.wgsl`.
+        let default_blend_mode = 3u32;
         Self {
             flags_and_miter_limit: fill_bit,
             line_width: 0.,
+            composite: (default_blend_mode << crate::DRAW_INFO_FLAGS_BLEND_SHIFT)
+                | (crate::DRAW_INFO_FLAGS_ALPHA_DEFAULT << crate::DRAW_INFO_FLAGS_ALPHA_SHIFT),
         }
     }
 
@@ -103,9 +119,16 @@ impl Style {
             Cap::Round => Self::FLAGS_END_CAP_BITS_ROUND,
         };
         let miter_limit = crate::math::f32_to_f16(stroke.miter_limit as f32) as u32;
+        // Default to normal + src_over with global alpha = 1.
+        //
+        // Note: this is the shader-facing packed blend mode value, matching
+        // `blend_mix_compose` in `vello_shaders/shader/shared/blend.wgsl`.
+        let default_blend_mode = 3u32;
         Some(Self {
             flags_and_miter_limit: style | join | start_cap | end_cap | miter_limit,
             line_width: stroke.width as f32,
+            composite: (default_blend_mode << crate::DRAW_INFO_FLAGS_BLEND_SHIFT)
+                | (crate::DRAW_INFO_FLAGS_ALPHA_DEFAULT << crate::DRAW_INFO_FLAGS_ALPHA_SHIFT),
         })
     }
 

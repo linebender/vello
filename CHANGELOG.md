@@ -15,6 +15,10 @@ You can find its changes [documented below](#070---2026-01-13).
 
 This release has an [MSRV][] of 1.88.
 
+### Changed
+
+- Breaking change: `vello_encoding::Style` now includes a `composite` word used for per-draw compositing state.
+
 ## [0.7.0][] - 2026-01-13
 
 This release has an [MSRV][] of 1.88.
