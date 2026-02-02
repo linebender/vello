@@ -11,7 +11,7 @@
 //! ```
 
 use vello::Scene;
-use vello::kurbo::{Affine, Rect};
+use vello::kurbo::{Affine, Circle, Rect};
 use vello::peniko::{
     BlendMode, Compose, Fill, Gradient, ImageAlphaType, ImageBrush, ImageData, ImageFormat,
     ImageQuality, ImageSampler, Mix, color::palette,
@@ -520,4 +520,177 @@ fn stateful_global_alpha_applies_to_blur_rect() {
     // On an opaque checkerboard, SrcOver yields opaque output; verify global alpha by checking
     // the expected tint over a white checker cell.
     assert_half_alpha_skyblue_over_white_square(pixel_rgba8(&snapshot.raw_rendered, 16, 16));
+}
+
+/// Visual proof that stateful blend changes between draws are not equivalent to "put each draw in
+/// its own isolated layer".
+///
+/// Left half: stateful `set_blend_mode` changes (new capability).
+/// Right half: per-draw isolated layers (old workaround).
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn stateful_vs_layer_emulation_blend_switch_image_grad_blur() {
+    let mut scene = Scene::new();
+
+    draw_checkerboard(&mut scene, 64, 64, 8);
+
+    let image = ImageBrush {
+        image: ImageData {
+            // 2x2 RGBA8: red, green / blue, white
+            data: vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+            ]
+            .into(),
+            format: ImageFormat::Rgba8,
+            width: 2,
+            height: 2,
+            alpha_type: ImageAlphaType::Alpha,
+        },
+        sampler: ImageSampler {
+            quality: ImageQuality::Low,
+            ..Default::default()
+        },
+    };
+
+    let grad = Gradient::new_linear((0.0, 0.0), (28.0, 0.0))
+        .with_stops([palette::css::ORANGE_RED, palette::css::DEEP_SKY_BLUE]);
+
+    // Left half: stateful blend changes.
+    scene.set_global_alpha(1.0);
+    scene.set_blend_mode(Mix::Multiply);
+    scene.draw_image(&image, Affine::translate((2.0, 2.0)) * Affine::scale(14.0));
+    scene.set_blend_mode(Mix::Screen);
+    scene.fill(
+        Fill::NonZero,
+        Affine::translate((2.0, 34.0)),
+        &grad,
+        None,
+        &rect(0.0, 0.0, 28.0, 26.0),
+    );
+    scene.set_blend_mode(Mix::Difference);
+    scene.set_global_alpha(0.8);
+    scene.draw_blurred_rounded_rect(
+        Affine::translate((2.0, 2.0)),
+        rect(0.0, 0.0, 28.0, 58.0),
+        palette::css::LIME,
+        4.0,
+        3.0,
+    );
+    scene.set_global_alpha(1.0);
+    scene.set_blend_mode(Mix::Normal);
+
+    // Right half: isolated layers per draw.
+    let clip = rect(32.0, 0.0, 32.0, 64.0);
+
+    scene.push_layer(Fill::NonZero, Mix::Multiply, 1.0, Affine::IDENTITY, &clip);
+    scene.draw_image(&image, Affine::translate((34.0, 2.0)) * Affine::scale(14.0));
+    scene.pop_layer();
+
+    scene.push_layer(Fill::NonZero, Mix::Screen, 1.0, Affine::IDENTITY, &clip);
+    scene.fill(
+        Fill::NonZero,
+        Affine::translate((34.0, 34.0)),
+        &grad,
+        None,
+        &rect(0.0, 0.0, 28.0, 26.0),
+    );
+    scene.pop_layer();
+
+    scene.push_layer(Fill::NonZero, Mix::Difference, 0.8, Affine::IDENTITY, &clip);
+    scene.draw_blurred_rounded_rect(
+        Affine::translate((34.0, 2.0)),
+        rect(0.0, 0.0, 28.0, 58.0),
+        palette::css::LIME,
+        4.0,
+        3.0,
+    );
+    scene.pop_layer();
+
+    let params = TestParams::new("stateful_vs_layer_blend_switch", 64, 64);
+    smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
+}
+
+/// Visual proof that `Compose::Copy` with anti-aliased edges preserves the destination outside the
+/// covered area (coverage is applied after compositing).
+///
+/// This hits `draw_image`, gradients, and `draw_blurred_rounded_rect` under `copy`.
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn stateful_copy_aa_edges_preserve_background_image_grad_blur() {
+    let mut scene = Scene::new();
+
+    draw_checkerboard(&mut scene, 64, 64, 8);
+
+    let image = ImageBrush {
+        image: ImageData {
+            // 2x2 RGBA8: red, green / blue, white
+            data: vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+            ]
+            .into(),
+            format: ImageFormat::Rgba8,
+            width: 2,
+            height: 2,
+            alpha_type: ImageAlphaType::Alpha,
+        },
+        sampler: ImageSampler {
+            quality: ImageQuality::Low,
+            ..Default::default()
+        },
+    };
+
+    let sweep = Gradient::new_sweep((32.0, 32.0), 0.0_f32, std::f32::consts::TAU).with_stops([
+        palette::css::RED,
+        palette::css::LIME,
+        palette::css::BLUE,
+        palette::css::RED,
+    ]);
+
+    scene.set_composite(
+        BlendMode {
+            mix: Mix::Normal,
+            compose: Compose::Copy,
+        },
+        1.0,
+    );
+
+    // Rotated image rect (diagonal AA edges).
+    let img_t = Affine::translate((32.0, 32.0))
+        * Affine::rotate(0.45)
+        * Affine::translate((-1.0, -1.0))
+        * Affine::scale(12.0);
+    scene.draw_image(&image, img_t);
+
+    // Gradient circle (AA boundary).
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &sweep,
+        None,
+        &Circle::new((32.0, 32.0), 18.0),
+    );
+
+    // Blurred rect covering much of the frame.
+    //
+    // Use the `_in` variant so the coverage/affected area stays well inside the frame; otherwise
+    // `draw_blurred_rounded_rect` inflates the computed shape by ~2.5*std_dev, which can cover the
+    // entire image and makes this a poor visual proof for `copy`.
+    let blur_clip = Circle::new((32.0, 32.0), 22.0);
+    scene.draw_blurred_rounded_rect_in(
+        &blur_clip,
+        Affine::IDENTITY,
+        rect(20.0, 20.0, 24.0, 24.0),
+        palette::css::DEEP_SKY_BLUE,
+        6.0,
+        2.5,
+    );
+
+    assert_no_layers(&scene);
+
+    let params = TestParams::new("stateful_copy_aa_edges_preserve_background", 64, 64);
+    smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
 }
