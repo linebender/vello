@@ -1098,6 +1098,11 @@ fn main(
                 /// See https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html
 
                 let blur = read_blur_rect(cmd_ix);
+                let blend_mode =
+                    (current_composite >> DRAW_INFO_FLAGS_BLEND_SHIFT) & DRAW_INFO_FLAGS_BLEND_MASK;
+                let alpha_u14 =
+                    (current_composite >> DRAW_INFO_FLAGS_ALPHA_SHIFT) & DRAW_INFO_FLAGS_ALPHA_MASK;
+                let global_alpha = f32(alpha_u14) * (1.0 / f32(DRAW_INFO_FLAGS_ALPHA_MASK));
 
                 // Avoid division by 0
                 let std_dev = max(blur.std_dev, 1e-5);
@@ -1121,6 +1126,10 @@ fn main(
                 let blur_rgba = unpack4x8unorm(blur.rgba_color);
 
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    let coverage = area[i];
+                    if coverage == 0.0 {
+                        continue;
+                    }
                     // Transform fragment location to local 'uv' space of the rounded rectangle.
                     let my_xy = vec2(xy.x + f32(i), xy.y);
                     let local_xy = blur.matrx.xy * my_xy.x + blur.matrx.zw * my_xy.y + blur.xlat;
@@ -1138,26 +1147,43 @@ fn main(
                     let d = d_pos + d_neg - r1;
                     let alpha = scale * (erf7(inv_std_dev * (min_edge + d)) - erf7(inv_std_dev * d));
 
-                    let fg_rgba = blur_rgba * alpha;
-                    let fg_i = fg_rgba * area[i];
-                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                    let src = blur_rgba * alpha * global_alpha;
+                    let dst = rgba[i];
+                    let composed = blend_mix_compose(dst, src, blend_mode);
+                    rgba[i] = mix(dst, composed, coverage);
                 }
                 cmd_ix += 3u;
             }
             case CMD_LIN_GRAD: {
                 let lin = read_lin_grad(cmd_ix);
+                let blend_mode =
+                    (current_composite >> DRAW_INFO_FLAGS_BLEND_SHIFT) & DRAW_INFO_FLAGS_BLEND_MASK;
+                let alpha_u14 =
+                    (current_composite >> DRAW_INFO_FLAGS_ALPHA_SHIFT) & DRAW_INFO_FLAGS_ALPHA_MASK;
+                let global_alpha = f32(alpha_u14) * (1.0 / f32(DRAW_INFO_FLAGS_ALPHA_MASK));
                 let d = lin.line_x * xy.x + lin.line_y * xy.y + lin.line_c;
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    let coverage = area[i];
+                    if coverage == 0.0 {
+                        continue;
+                    }
                     let my_d = d + lin.line_x * f32(i);
                     let x = i32(round(extend_mode_normalized(my_d, lin.extend_mode) * f32(GRADIENT_WIDTH - 1)));
                     let fg_rgba = textureLoad(gradients, vec2(x, i32(lin.index)), 0);
-                    let fg_i = fg_rgba * area[i];
-                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                    let src = fg_rgba * global_alpha;
+                    let dst = rgba[i];
+                    let composed = blend_mix_compose(dst, src, blend_mode);
+                    rgba[i] = mix(dst, composed, coverage);
                 }
                 cmd_ix += 3u;
             }
             case CMD_RAD_GRAD: {
                 let rad = read_rad_grad(cmd_ix);
+                let blend_mode =
+                    (current_composite >> DRAW_INFO_FLAGS_BLEND_SHIFT) & DRAW_INFO_FLAGS_BLEND_MASK;
+                let alpha_u14 =
+                    (current_composite >> DRAW_INFO_FLAGS_ALPHA_SHIFT) & DRAW_INFO_FLAGS_ALPHA_MASK;
+                let global_alpha = f32(alpha_u14) * (1.0 / f32(DRAW_INFO_FLAGS_ALPHA_MASK));
                 let focal_x = rad.focal_x;
                 let radius = rad.radius;
                 let is_strip = rad.kind == RAD_GRAD_KIND_STRIP;
@@ -1168,6 +1194,10 @@ fn main(
                 let less_scale = select(1.0, -1.0, is_swapped || (1.0 - focal_x) < 0.0);
                 let t_sign = sign(1.0 - focal_x);
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    let coverage = area[i];
+                    if coverage == 0.0 {
+                        continue;
+                    }
                     let my_xy = vec2(xy.x + f32(i), xy.y);
                     let local_xy = rad.matrx.xy * my_xy.x + rad.matrx.zw * my_xy.y + rad.xlat;
                     let x = local_xy.x;
@@ -1195,16 +1225,27 @@ fn main(
                         t = select(t, 1.0 - t, is_swapped);
                         let x = i32(round(t * f32(GRADIENT_WIDTH - 1)));
                         let fg_rgba = textureLoad(gradients, vec2(x, i32(rad.index)), 0);
-                        let fg_i = fg_rgba * area[i];
-                        rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                        let src = fg_rgba * global_alpha;
+                        let dst = rgba[i];
+                        let composed = blend_mix_compose(dst, src, blend_mode);
+                        rgba[i] = mix(dst, composed, coverage);
                     }
                 }
                 cmd_ix += 3u;
             }
             case CMD_SWEEP_GRAD: {
                 let sweep = read_sweep_grad(cmd_ix);
+                let blend_mode =
+                    (current_composite >> DRAW_INFO_FLAGS_BLEND_SHIFT) & DRAW_INFO_FLAGS_BLEND_MASK;
+                let alpha_u14 =
+                    (current_composite >> DRAW_INFO_FLAGS_ALPHA_SHIFT) & DRAW_INFO_FLAGS_ALPHA_MASK;
+                let global_alpha = f32(alpha_u14) * (1.0 / f32(DRAW_INFO_FLAGS_ALPHA_MASK));
                 let scale = 1.0 / (sweep.t1 - sweep.t0);
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                    let coverage = area[i];
+                    if coverage == 0.0 {
+                        continue;
+                    }
                     let my_xy = vec2(xy.x + f32(i), xy.y);
                     let local_xy = sweep.matrx.xy * my_xy.x + sweep.matrx.zw * my_xy.y + sweep.xlat;
                     let x = local_xy.x;
@@ -1229,58 +1270,76 @@ fn main(
                     let t = extend_mode_normalized(phi, sweep.extend_mode);
                     let ramp_x = i32(round(t * f32(GRADIENT_WIDTH - 1)));
                     let fg_rgba = textureLoad(gradients, vec2(ramp_x, i32(sweep.index)), 0);
-                    let fg_i = fg_rgba * area[i];
-                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                    let src = fg_rgba * global_alpha;
+                    let dst = rgba[i];
+                    let composed = blend_mix_compose(dst, src, blend_mode);
+                    rgba[i] = mix(dst, composed, coverage);
                 }
                 cmd_ix += 3u;
             }
             case CMD_IMAGE: {
                 let image = read_image(cmd_ix);
+                let blend_mode =
+                    (current_composite >> DRAW_INFO_FLAGS_BLEND_SHIFT) & DRAW_INFO_FLAGS_BLEND_MASK;
+                let alpha_u14 =
+                    (current_composite >> DRAW_INFO_FLAGS_ALPHA_SHIFT) & DRAW_INFO_FLAGS_ALPHA_MASK;
+                let global_alpha = f32(alpha_u14) * (1.0 / f32(DRAW_INFO_FLAGS_ALPHA_MASK));
                 let atlas_max = image.atlas_offset + image.extents - vec2(1.0);
                 switch image.quality {
                     case IMAGE_QUALITY_LOW: {
                         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                             // We only need to load from the textures if the value will be used.
-                            if area[i] != 0.0 {
-                                let my_xy = vec2(xy.x + f32(i), xy.y);
-                                var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
-                                atlas_uv.x = extend_mode(atlas_uv.x, image.x_extend_mode, image.extents.x);
-                                atlas_uv.y = extend_mode(atlas_uv.y, image.y_extend_mode, image.extents.y);
-                                atlas_uv = atlas_uv + image.atlas_offset;
-                                // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
-                                let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
-                                // Nearest neighbor sampling
-                                let fg_rgba = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(atlas_uv_clamped), 0), image.alpha_type);
-                                let fg_i = pixel_format(fg_rgba * area[i] * image.alpha, image.format);
-                                rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                            let coverage = area[i];
+                            if coverage == 0.0 {
+                                continue;
                             }
+                            let my_xy = vec2(xy.x + f32(i), xy.y);
+                            var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
+                            atlas_uv.x = extend_mode(atlas_uv.x, image.x_extend_mode, image.extents.x);
+                            atlas_uv.y = extend_mode(atlas_uv.y, image.y_extend_mode, image.extents.y);
+                            atlas_uv = atlas_uv + image.atlas_offset;
+                            // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
+                            let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
+                            // Nearest neighbor sampling
+                            let fg_rgba = pixel_format(
+                                maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(atlas_uv_clamped), 0), image.alpha_type),
+                                image.format
+                            );
+                            let src = fg_rgba * image.alpha * global_alpha;
+                            let dst = rgba[i];
+                            let composed = blend_mix_compose(dst, src, blend_mode);
+                            rgba[i] = mix(dst, composed, coverage);
                         }
                     }
                     case IMAGE_QUALITY_MEDIUM, default: {
                         // We don't have an implementation for `IMAGE_QUALITY_HIGH` yet, just use the same as medium
                         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                             // We only need to load from the textures if the value will be used.
-                            if area[i] != 0.0 {
-                                let my_xy = vec2(xy.x + f32(i), xy.y);
-                                var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
-                                atlas_uv.x = extend_mode(atlas_uv.x, image.x_extend_mode, image.extents.x);
-                                atlas_uv.y = extend_mode(atlas_uv.y, image.y_extend_mode, image.extents.y);
-                                atlas_uv = atlas_uv + image.atlas_offset - vec2(0.5);
-                                // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
-                                let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
-                                // We know that the floor and ceil are within the atlas area because atlas_max and
-                                // atlas_offset are integers
-                                let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
-                                let uv_frac = fract(atlas_uv);
-                                let a = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xy), 0), image.alpha_type);
-                                let b = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xw), 0), image.alpha_type);
-                                let c = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zy), 0), image.alpha_type);
-                                let d = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), 0), image.alpha_type);
-                                // Bilinear sampling
-                                let fg_rgba = mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
-                                let fg_i = pixel_format(fg_rgba * area[i] * image.alpha, image.format);
-                                rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                            let coverage = area[i];
+                            if coverage == 0.0 {
+                                continue;
                             }
+                            let my_xy = vec2(xy.x + f32(i), xy.y);
+                            var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
+                            atlas_uv.x = extend_mode(atlas_uv.x, image.x_extend_mode, image.extents.x);
+                            atlas_uv.y = extend_mode(atlas_uv.y, image.y_extend_mode, image.extents.y);
+                            atlas_uv = atlas_uv + image.atlas_offset - vec2(0.5);
+                            // TODO: If the image couldn't be added to the atlas (i.e. was too big), this isn't robust
+                            let atlas_uv_clamped = clamp(atlas_uv, image.atlas_offset, atlas_max);
+                            // We know that the floor and ceil are within the atlas area because atlas_max and
+                            // atlas_offset are integers
+                            let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
+                            let uv_frac = fract(atlas_uv);
+                            let a = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xy), 0), image.alpha_type);
+                            let b = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.xw), 0), image.alpha_type);
+                            let c = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zy), 0), image.alpha_type);
+                            let d = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), 0), image.alpha_type);
+                            // Bilinear sampling
+                            let fg_rgba = pixel_format(mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x), image.format);
+                            let src = fg_rgba * image.alpha * global_alpha;
+                            let dst = rgba[i];
+                            let composed = blend_mix_compose(dst, src, blend_mode);
+                            rgba[i] = mix(dst, composed, coverage);
                         }
                     }
                 }
