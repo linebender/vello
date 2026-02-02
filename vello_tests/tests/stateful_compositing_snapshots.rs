@@ -194,3 +194,73 @@ fn stateful_compose_xor() {
         .unwrap()
         .assert_mean_less_than(0.001);
 }
+
+/// Visual proof that "emulate stateful blending by using a single layer" is not equivalent.
+///
+/// Left half: stateful per-draw `multiply` (new capability).
+/// Right half: a single isolated `multiply` layer (old workaround).
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn stateful_vs_isolated_layer_multiply() {
+    let mut scene = Scene::new();
+
+    // Background (same for both halves).
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        palette::css::WHITE,
+        None,
+        &rect(0.0, 0.0, 64.0, 64.0),
+    );
+    // Two-tone backdrop so differences are easier to see.
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        palette::css::LIGHT_GRAY,
+        None,
+        &rect(0.0, 0.0, 64.0, 32.0),
+    );
+
+    // Left half: stateful multiply.
+    scene.set_blend_mode(Mix::Multiply);
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        palette::css::DEEP_SKY_BLUE,
+        None,
+        &rect(4.0, 8.0, 24.0, 48.0),
+    );
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        palette::css::YELLOW,
+        None,
+        &rect(12.0, 16.0, 24.0, 24.0),
+    );
+    scene.set_blend_mode(Mix::Normal);
+
+    // Right half: isolated layer multiply (single group blend).
+    let clip = rect(32.0, 0.0, 32.0, 64.0);
+    scene.push_layer(Fill::NonZero, Mix::Multiply, 1.0, Affine::IDENTITY, &clip);
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        palette::css::DEEP_SKY_BLUE,
+        None,
+        &rect(36.0, 8.0, 24.0, 48.0),
+    );
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        palette::css::YELLOW,
+        None,
+        &rect(44.0, 16.0, 24.0, 24.0),
+    );
+    scene.pop_layer();
+
+    let mut params = TestParams::new("stateful_vs_isolated_layer_multiply", 64, 64);
+    params.base_color = Some(palette::css::BLACK);
+    smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
+}
