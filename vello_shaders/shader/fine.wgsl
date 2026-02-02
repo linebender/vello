@@ -1025,15 +1025,17 @@ fn main(
                     (current_composite >> DRAW_INFO_FLAGS_ALPHA_SHIFT) & DRAW_INFO_FLAGS_ALPHA_MASK;
                 let global_alpha = f32(alpha_u14) * (1.0 / f32(DRAW_INFO_FLAGS_ALPHA_MASK));
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                    let coverage = area[i] * global_alpha;
-                    // Many Porter-Duff composition ops (e.g. `copy`) do not reduce to a no-op when
-                    // the source alpha is zero. However, a draw should not affect pixels outside
-                    // the covered area, so skip compositing when coverage is zero.
+                    let coverage = area[i];
                     if coverage == 0.0 {
                         continue;
                     }
-                    let fg_i = fg * coverage;
-                    rgba[i] = blend_mix_compose(rgba[i], fg_i, blend_mode);
+                    // Apply global alpha to the premultiplied source. Coverage (from rasterization)
+                    // is applied *after* compositing, so Porter-Duff modes like `copy` don't affect
+                    // pixels outside the covered area.
+                    let src = fg * global_alpha;
+                    let dst = rgba[i];
+                    let composed = blend_mix_compose(dst, src, blend_mode);
+                    rgba[i] = mix(dst, composed, coverage);
                 }
                 cmd_ix += 2u;
             }
