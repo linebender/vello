@@ -4,13 +4,15 @@
 use std::cmp::max;
 
 use vello_encoding::{
-    BinHeader, BumpAllocators, ConfigUniform, DRAW_INFO_FLAGS_FILL_RULE_BIT, DrawMonoid, DrawTag,
-    Path, Tile,
+    BinHeader, BumpAllocators, ConfigUniform, DRAW_INFO_FLAGS_ALPHA_DEFAULT,
+    DRAW_INFO_FLAGS_ALPHA_SHIFT, DRAW_INFO_FLAGS_BLEND_SHIFT, DRAW_INFO_FLAGS_FILL_RULE_BIT,
+    DrawMonoid, DrawTag, Path, Tile,
 };
 
 use super::{
     CMD_BEGIN_CLIP, CMD_BLUR_RECT, CMD_COLOR, CMD_END, CMD_END_CLIP, CMD_FILL, CMD_IMAGE, CMD_JUMP,
-    CMD_LIN_GRAD, CMD_RAD_GRAD, CMD_SOLID, CMD_SWEEP_GRAD, CpuBinding, PTCL_INITIAL_ALLOC,
+    CMD_LIN_GRAD, CMD_RAD_GRAD, CMD_SET_COMPOSITE, CMD_SOLID, CMD_SWEEP_GRAD, CpuBinding,
+    PTCL_INITIAL_ALLOC,
 };
 
 // Tiles per bin
@@ -106,6 +108,19 @@ impl TileState {
         self.alloc_cmd(2, config, bump, ptcl);
         self.write(ptcl, 0, CMD_COLOR);
         self.write(ptcl, 1, rgba_color);
+        self.cmd_offset += 2;
+    }
+
+    fn write_set_composite(
+        &mut self,
+        config: &ConfigUniform,
+        bump: &mut BumpAllocators,
+        ptcl: &mut [u32],
+        composite: u32,
+    ) {
+        self.alloc_cmd(2, config, bump, ptcl);
+        self.write(ptcl, 0, CMD_SET_COMPOSITE);
+        self.write(ptcl, 1, composite);
         self.cmd_offset += 2;
     }
 
@@ -247,6 +262,9 @@ fn coarse_main(
             let mut render_blend_depth = 0;
             let mut max_blend_depth = 0_u32;
             let mut clip_zero_depth = 0;
+            let default_composite = (3u32 << DRAW_INFO_FLAGS_BLEND_SHIFT)
+                | (DRAW_INFO_FLAGS_ALPHA_DEFAULT << DRAW_INFO_FLAGS_ALPHA_SHIFT);
+            let mut current_composite = default_composite;
             for drawobj_ix in &compacted[tile_ix] {
                 let drawtag = scene[(drawtag_base + drawobj_ix) as usize];
                 if clip_zero_depth == 0 {
@@ -269,6 +287,7 @@ fn coarse_main(
                     }
 
                     let draw_flags = info_bin_data[di as usize];
+                    let desired_composite = draw_flags & !DRAW_INFO_FLAGS_FILL_RULE_BIT;
                     let even_odd = (draw_flags & DRAW_INFO_FLAGS_FILL_RULE_BIT) != 0;
                     let n_segs = tile.segment_count_or_ix;
 
@@ -285,15 +304,42 @@ fn coarse_main(
                         match DrawTag(drawtag) {
                             DrawTag::COLOR => {
                                 tile_state.write_path(config, bump, ptcl, tile, draw_flags);
+                                if desired_composite != current_composite {
+                                    tile_state.write_set_composite(
+                                        config,
+                                        bump,
+                                        ptcl,
+                                        desired_composite,
+                                    );
+                                    current_composite = desired_composite;
+                                }
                                 let rgba_color = scene[dd as usize];
                                 tile_state.write_color(config, bump, ptcl, rgba_color);
                             }
                             DrawTag::IMAGE => {
                                 tile_state.write_path(config, bump, ptcl, tile, draw_flags);
+                                if desired_composite != current_composite {
+                                    tile_state.write_set_composite(
+                                        config,
+                                        bump,
+                                        ptcl,
+                                        desired_composite,
+                                    );
+                                    current_composite = desired_composite;
+                                }
                                 tile_state.write_image(config, bump, ptcl, di + 1);
                             }
                             DrawTag::LINEAR_GRADIENT => {
                                 tile_state.write_path(config, bump, ptcl, tile, draw_flags);
+                                if desired_composite != current_composite {
+                                    tile_state.write_set_composite(
+                                        config,
+                                        bump,
+                                        ptcl,
+                                        desired_composite,
+                                    );
+                                    current_composite = desired_composite;
+                                }
                                 let index = scene[dd as usize];
                                 tile_state.write_grad(
                                     config,
@@ -306,6 +352,15 @@ fn coarse_main(
                             }
                             DrawTag::RADIAL_GRADIENT => {
                                 tile_state.write_path(config, bump, ptcl, tile, draw_flags);
+                                if desired_composite != current_composite {
+                                    tile_state.write_set_composite(
+                                        config,
+                                        bump,
+                                        ptcl,
+                                        desired_composite,
+                                    );
+                                    current_composite = desired_composite;
+                                }
                                 let index = scene[dd as usize];
                                 tile_state.write_grad(
                                     config,
@@ -318,6 +373,15 @@ fn coarse_main(
                             }
                             DrawTag::SWEEP_GRADIENT => {
                                 tile_state.write_path(config, bump, ptcl, tile, draw_flags);
+                                if desired_composite != current_composite {
+                                    tile_state.write_set_composite(
+                                        config,
+                                        bump,
+                                        ptcl,
+                                        desired_composite,
+                                    );
+                                    current_composite = desired_composite;
+                                }
                                 let index = scene[dd as usize];
                                 tile_state.write_grad(
                                     config,
@@ -330,6 +394,15 @@ fn coarse_main(
                             }
                             DrawTag::BLUR_RECT => {
                                 tile_state.write_path(config, bump, ptcl, tile, draw_flags);
+                                if desired_composite != current_composite {
+                                    tile_state.write_set_composite(
+                                        config,
+                                        bump,
+                                        ptcl,
+                                        desired_composite,
+                                    );
+                                    current_composite = desired_composite;
+                                }
                                 let rgba_color = scene[dd as usize];
                                 tile_state.write_blur_rect(config, bump, ptcl, rgba_color, di + 1);
                             }

@@ -20,6 +20,7 @@ var<uniform> config: Config;
 @group(0) @binding(1)
 var<storage> segments: array<Segment>;
 
+#import drawtag
 #import blend
 #import ptcl
 
@@ -983,6 +984,9 @@ fn main(
     var blend_stack: array<array<u32, PIXELS_PER_THREAD>, BLEND_STACK_SPLIT>;
     var clip_depth = 0u;
     var area: array<f32, PIXELS_PER_THREAD>;
+    let default_composite = (3u << DRAW_INFO_FLAGS_BLEND_SHIFT) |
+        (DRAW_INFO_FLAGS_ALPHA_DEFAULT << DRAW_INFO_FLAGS_ALPHA_SHIFT);
+    var current_composite = default_composite;
     var cmd_ix = tile_ix * PTCL_INITIAL_ALLOC;
     let blend_offset = ptcl[cmd_ix];
     cmd_ix += 1u;
@@ -1007,6 +1011,10 @@ fn main(
                     area[i] = 1.0;
                 }
                 cmd_ix += 1u;
+            }
+            case CMD_SET_COMPOSITE: {
+                current_composite = ptcl[cmd_ix + 1u];
+                cmd_ix += 2u;
             }
             case CMD_COLOR: {
                 let color = read_color(cmd_ix);

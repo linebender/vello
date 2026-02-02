@@ -23,6 +23,7 @@ const CMD_BEGIN_CLIP = 10u;
 const CMD_END_CLIP = 11u;
 const CMD_JUMP = 12u;
 const CMD_BLUR_RECT = 13u;
+const CMD_SET_COMPOSITE = 14u;
 
 // The individual PTCL structs are written here, but read/write is by
 // hand in the relevant shaders

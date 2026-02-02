@@ -116,6 +116,13 @@ fn write_color(color: CmdColor) {
     cmd_offset += 2u;
 }
 
+fn write_set_composite(composite: u32) {
+    alloc_cmd(2u);
+    ptcl[cmd_offset] = CMD_SET_COMPOSITE;
+    ptcl[cmd_offset + 1u] = composite;
+    cmd_offset += 2u;
+}
+
 fn write_grad(ty: u32, index: u32, info_offset: u32) {
     alloc_cmd(3u);
     ptcl[cmd_offset] = ty;
@@ -204,6 +211,9 @@ fn main(
     // blend state
     var render_blend_depth = 0u;
     var max_blend_depth = 0u;
+    let default_composite = (3u << DRAW_INFO_FLAGS_BLEND_SHIFT) |
+        (DRAW_INFO_FLAGS_ALPHA_DEFAULT << DRAW_INFO_FLAGS_ALPHA_SHIFT);
+    var current_composite = default_composite;
 
     let blend_offset = cmd_offset;
     cmd_offset += 1u;
@@ -372,41 +382,66 @@ fn main(
             let dd = config.drawdata_base + dm.scene_offset;
             let di = dm.info_offset;
             let draw_flags = info_bin_data[di];
+            let desired_composite = draw_flags & ~DRAW_INFO_FLAGS_FILL_RULE_BIT;
             if clip_zero_depth == 0u {
                 let tile_ix = sh_tile_base[el_ix] + sh_tile_stride[el_ix] * tile_y + tile_x;
                 let tile = tiles[tile_ix];
                 switch drawtag {
                     case DRAWTAG_FILL_COLOR: {
                         write_path(tile, tile_ix, draw_flags);
+                        if desired_composite != current_composite {
+                            write_set_composite(desired_composite);
+                            current_composite = desired_composite;
+                        }
                         let rgba_color = scene[dd];
                         write_color(CmdColor(rgba_color));
                     }
                     case DRAWTAG_BLURRED_ROUNDED_RECT: {
                         write_path(tile, tile_ix, draw_flags);
+                        if desired_composite != current_composite {
+                            write_set_composite(desired_composite);
+                            current_composite = desired_composite;
+                        }
                         let rgba_color = scene[dd];
                         let info_offset = di + 1u;
                         write_blurred_rounded_rect(CmdColor(rgba_color), info_offset);
                     }
                     case DRAWTAG_FILL_LIN_GRADIENT: {
                         write_path(tile, tile_ix, draw_flags);
+                        if desired_composite != current_composite {
+                            write_set_composite(desired_composite);
+                            current_composite = desired_composite;
+                        }
                         let index = scene[dd];
                         let info_offset = di + 1u;
                         write_grad(CMD_LIN_GRAD, index, info_offset);
                     }
                     case DRAWTAG_FILL_RAD_GRADIENT: {
                         write_path(tile, tile_ix, draw_flags);
+                        if desired_composite != current_composite {
+                            write_set_composite(desired_composite);
+                            current_composite = desired_composite;
+                        }
                         let index = scene[dd];
                         let info_offset = di + 1u;
                         write_grad(CMD_RAD_GRAD, index, info_offset);
                     }
                     case DRAWTAG_FILL_SWEEP_GRADIENT: {
                         write_path(tile, tile_ix, draw_flags);
+                        if desired_composite != current_composite {
+                            write_set_composite(desired_composite);
+                            current_composite = desired_composite;
+                        }
                         let index = scene[dd];
                         let info_offset = di + 1u;
                         write_grad(CMD_SWEEP_GRAD, index, info_offset);
                     }                    
                     case DRAWTAG_FILL_IMAGE: {
                         write_path(tile, tile_ix, draw_flags);
+                        if desired_composite != current_composite {
+                            write_set_composite(desired_composite);
+                            current_composite = desired_composite;
+                        }
                         write_image(di + 1u);
                     }
                     case DRAWTAG_BEGIN_CLIP: {
