@@ -420,11 +420,17 @@ impl Scheduler {
 
         let slot_ix = self.free[texture].pop().unwrap();
 
-        match texture {
-            0 => Ok(ClaimedSlot::Texture0(slot_ix)),
-            1 => Ok(ClaimedSlot::Texture1(slot_ix)),
+        let slot = match texture {
+            0 => ClaimedSlot::Texture0(slot_ix),
+            1 => ClaimedSlot::Texture1(slot_ix),
             _ => panic!("invalid slot texture"),
-        }
+        };
+
+        // Since the slot was claimed, it needs to be cleared in the given round.
+        let round = self.get_round(self.round);
+        round.clear[slot.get_texture()].push(slot.get_idx() as u32);
+
+        Ok(slot)
     }
 
     pub(crate) fn do_scene<R: RendererBackend>(
@@ -705,8 +711,10 @@ impl Scheduler {
                             // operations.
                             tos.round = el_round + 1;
 
-                            // Make sure the destination slot and temporary slot are cleared
-                            // appropriately.
+                            // First, we clear the temp slot. THEN, in the same round, we copy the data
+                            // from dest slot to temp slot. THEN, in the round after that, we clear
+                            // dest slot, so that in a future blending operation, we can store
+                            // results into dest slot again.
                             let dest_slot = tos.dest_slot;
                             let round = self.get_round(el_round);
                             round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
@@ -723,15 +731,9 @@ impl Scheduler {
                     // Push a new tile.
                     let ix = depth % 2;
                     let slot = self.claim_free_slot(ix, renderer)?;
-                    {
-                        let round = self.get_round(self.round);
-                        round.clear[slot.get_texture()].push(slot.get_idx() as u32);
-                    }
                     let temporary_slot =
                         if matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot) {
                             let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
-                            let round = self.get_round(self.round);
-                            round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
                             debug_assert_ne!(
                                 slot.get_texture(),
                                 temp_slot.get_texture(),
