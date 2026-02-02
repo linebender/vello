@@ -1019,9 +1019,14 @@ fn main(
             case CMD_COLOR: {
                 let color = read_color(cmd_ix);
                 let fg = unpack4x8unorm(color.rgba_color);
+                let blend_mode =
+                    (current_composite >> DRAW_INFO_FLAGS_BLEND_SHIFT) & DRAW_INFO_FLAGS_BLEND_MASK;
+                let alpha_u14 =
+                    (current_composite >> DRAW_INFO_FLAGS_ALPHA_SHIFT) & DRAW_INFO_FLAGS_ALPHA_MASK;
+                let global_alpha = f32(alpha_u14) * (1.0 / f32(DRAW_INFO_FLAGS_ALPHA_MASK));
                 for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
-                    let fg_i = fg * area[i];
-                    rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                    let fg_i = fg * (area[i] * global_alpha);
+                    rgba[i] = blend_mix_compose(rgba[i], fg_i, blend_mode);
                 }
                 cmd_ix += 2u;
             }
