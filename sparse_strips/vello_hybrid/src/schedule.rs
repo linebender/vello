@@ -540,6 +540,7 @@ impl Scheduler {
     }
 
     // Find the appropriate draw call for rendering.
+    #[inline(always)]
     fn draw_mut(&mut self, el_round: usize, texture_idx: usize) -> &mut Draw {
         &mut self.get_round(el_round).draws[texture_idx]
     }
