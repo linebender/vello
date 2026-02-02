@@ -420,11 +420,17 @@ impl Scheduler {
 
         let slot_ix = self.free[texture].pop().unwrap();
 
-        match texture {
-            0 => Ok(ClaimedSlot::Texture0(slot_ix)),
-            1 => Ok(ClaimedSlot::Texture1(slot_ix)),
+        let slot = match texture {
+            0 => ClaimedSlot::Texture0(slot_ix),
+            1 => ClaimedSlot::Texture1(slot_ix),
             _ => panic!("invalid slot texture"),
-        }
+        };
+
+        // Since the slot was claimed, it needs to be cleared in the given round.
+        let round = self.get_round(self.round);
+        round.clear[slot.get_texture()].push(slot.get_idx() as u32);
+
+        Ok(slot)
     }
 
     pub(crate) fn do_scene<R: RendererBackend>(
@@ -723,15 +729,9 @@ impl Scheduler {
                     // Push a new tile.
                     let ix = depth % 2;
                     let slot = self.claim_free_slot(ix, renderer)?;
-                    {
-                        let round = self.get_round(self.round);
-                        round.clear[slot.get_texture()].push(slot.get_idx() as u32);
-                    }
                     let temporary_slot =
                         if matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot) {
                             let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
-                            let round = self.get_round(self.round);
-                            round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
                             debug_assert_ne!(
                                 slot.get_texture(),
                                 temp_slot.get_texture(),
