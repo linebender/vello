@@ -67,6 +67,64 @@ pub const MODE_HYBRID: u8 = 1;
 /// destination surface.
 const TARGET_SURFACE_PUSH_BUF_IDX: usize = usize::MAX;
 
+#[derive(Debug)]
+struct LayerKindAndOccupiedTiles {
+    /// The
+    kind: LayerKind,
+    /// The indices into [`Wide::tiles`] of wide tiles that occupy this layer. These are the wide
+    /// tiles that have pushed a buffer and need to be popped when the layer is popped.
+    occupied_tiles: Vec<usize>,
+}
+
+/// For layers that require allocating a new scratch buffer for drawing its contents, this stores
+/// the layer kind and the occupied wide tiles.
+///
+/// The wide tile push buffer command [`WideTile::push_buf`] is performed lazily upon actually
+/// being drawn into.
+///
+/// See [`LayerKindAndOccupiedTiles`].
+///
+/// This is a small wrapper around [`Vec`] so we can keep the
+/// [`LayerKindAndOccupiedTiles::occupied_tiles`] allocations around.
+#[derive(Debug, Default)]
+struct NeedsBufLayerStack {
+    stack: Vec<LayerKindAndOccupiedTiles>,
+    /// The actual length of the stack above, as we never actually shrink it (see the note above
+    /// about keeping allocations around).
+    len: usize,
+}
+
+impl NeedsBufLayerStack {
+    fn clear(&mut self) {
+        for idx in 0..self.len {
+            self.stack[idx].occupied_tiles.clear();
+        }
+        self.len = 0;
+    }
+
+    fn push(&mut self, kind: LayerKind) {
+        if self.len == self.stack.len() {
+            self.stack.push(LayerKindAndOccupiedTiles {
+                kind,
+                occupied_tiles: vec![],
+            });
+        } else {
+            self.stack[self.len].kind = kind;
+        }
+        self.len += 1;
+    }
+
+    fn pop(&mut self) {
+        debug_assert!(self.len > 0, "Called `pop` at the root");
+        self.len -= 1;
+        self.stack[self.len].occupied_tiles.clear();
+    }
+
+    fn last(&self) -> Option<&LayerKindAndOccupiedTiles> {
+        self.len.checked_sub(1).map(|idx| &self.stack[idx])
+    }
+}
+
 /// A container for wide tiles.
 #[derive(Debug)]
 pub struct Wide<const MODE: u8 = MODE_CPU> {
@@ -80,6 +138,11 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     pub attrs: CommandAttrs,
     /// The stack of layers.
     layer_stack: Vec<Layer>,
+    /// The stack of layer kinds and occupied tiles for layers that require buffers.
+    ///
+    /// This contains exactly one entry for each layer with [`Layer::needs_buf`] in
+    /// [`Self::layer_stack`].
+    layers_needing_buf_stack: NeedsBufLayerStack,
     /// The stack of active clip regions.
     clip_stack: Vec<Clip>,
     /// Stack of filter layer node IDs for render graph dependency tracking.
@@ -315,6 +378,29 @@ impl<const MODE: u8> Wide<MODE> {
             // Start with root node 0.
             filter_node_stack: vec![0],
             clipped_filter_layer_depth: 0,
+            layers_needing_buf_stack: NeedsBufLayerStack::default(),
+        }
+    }
+
+    /// Push all layer buffers that have not yet been pushed for the tile at index `tile_idx`.
+    ///
+    /// We push wide tile layer buffers lazily. Calling this before performing other commands on a
+    /// wide tile ensures all layer stack buffers are pushed for the wide tile. Calling this
+    /// multiple times won't push additional buffers beyond the first call (until the layer stack
+    /// changes).
+    #[inline]
+    fn ensure_layer_stack_bufs(&mut self, tile_idx: usize) {
+        let tile = &mut self.tiles[tile_idx];
+        let layer_bufs = tile.n_bufs - tile.n_clip;
+        debug_assert!(
+            layer_bufs <= self.layers_needing_buf_stack.len,
+            "tile `layer_buf_depth` exceeds active layer stack"
+        );
+        for idx in layer_bufs..self.layers_needing_buf_stack.len {
+            self.layers_needing_buf_stack.stack[idx]
+                .occupied_tiles
+                .push(tile_idx);
+            tile.push_buf(self.layers_needing_buf_stack.stack[idx].kind);
         }
     }
 
@@ -344,6 +430,7 @@ impl<const MODE: u8> Wide<MODE> {
         }
         self.attrs.clear();
         self.layer_stack.clear();
+        self.layers_needing_buf_stack.clear();
         self.clip_stack.clear();
         self.filter_node_stack.truncate(1);
         self.clipped_filter_layer_depth = 0;
@@ -359,28 +446,32 @@ impl<const MODE: u8> Wide<MODE> {
         self.height.div_ceil(Tile::HEIGHT)
     }
 
-    /// Get the wide tile at a certain index.
+    /// Get the index of the wide tile at the given coordinates.
     ///
-    /// Panics if the index is out-of-range.
-    pub fn get(&self, x: u16, y: u16) -> &WideTile<MODE> {
+    /// Panics if the coordinates are out-of-range.
+    #[inline]
+    pub fn get_idx(&self, x: u16, y: u16) -> usize {
         assert!(
             x < self.width_tiles() && y < self.height_tiles(),
             "attempted to access out-of-bounds wide tile"
         );
 
-        &self.tiles[usize::from(y) * usize::from(self.width_tiles()) + usize::from(x)]
+        usize::from(y) * usize::from(self.width_tiles()) + usize::from(x)
     }
 
-    /// Get mutable access to the wide tile at a certain index.
+    /// Get the index of the wide tile at the given coordinates.
     ///
-    /// Panics if the index is out-of-range.
-    pub fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile<MODE> {
-        assert!(
-            x < self.width_tiles() && y < self.height_tiles(),
-            "attempted to access out-of-bounds wide tile"
-        );
+    /// Panics if the coordinates are out-of-range.
+    pub fn get(&self, x: u16, y: u16) -> &WideTile<MODE> {
+        let idx = self.get_idx(x, y);
+        &self.tiles[idx]
+    }
 
-        let idx = usize::from(y) * usize::from(self.width_tiles()) + usize::from(x);
+    /// Get mutable access to the wide tile at the given coordinates.
+    ///
+    /// Panics if the coordinates are out-of-range.
+    pub fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile<MODE> {
+        let idx = self.get_idx(x, y);
         &mut self.tiles[idx]
     }
 
@@ -511,7 +602,9 @@ impl<const MODE: u8> Wide<MODE> {
                 };
                 x += width;
                 col += u32::from(width);
-                self.get_mut(wtile_x, strip_y).strip(cmd, current_layer_id);
+                let idx = self.get_idx(wtile_x, strip_y);
+                self.ensure_layer_stack_bufs(idx);
+                self.tiles[idx].strip(cmd, current_layer_id);
                 self.update_current_layer_bbox(wtile_x, strip_y);
             }
 
@@ -566,7 +659,9 @@ impl<const MODE: u8> Wide<MODE> {
                             * WideTile::WIDTH,
                     ) - x;
                     x += width;
-                    self.get_mut(wtile_x, strip_y).fill(
+                    let idx = self.get_idx(wtile_x, strip_y);
+                    self.ensure_layer_stack_bufs(idx);
+                    self.tiles[idx].fill(
                         x_wtile_rel,
                         width,
                         attrs_idx,
@@ -687,13 +782,23 @@ impl<const MODE: u8> Wide<MODE> {
         // - Filtered layers are materialized in persistent layer storage for filter processing
         // - Clip layers have special handling for clipping operations
         if layer.needs_buf() {
-            for x in 0..self.width_tiles() {
-                for y in 0..self.height_tiles() {
-                    let tile = self.get_mut(x, y);
-                    tile.push_buf(layer_kind);
+            self.layers_needing_buf_stack.push(layer_kind);
+
+            // We eagerly push buffers for the entire viewport if this is a filter layer, a
+            // destructive blend, or if we are (nested in) a clipped filter layer.
+            //
+            // TODO: We may be able to do away with some or all of this eager pushing in the
+            // future, but for now these types of layers need buffers for all wide tiles regardless
+            // of whether they're drawn on.
+            if has_filter
+                || layer.blend_mode.is_destructive()
+                || self.clipped_filter_layer_depth > 0
+            {
+                for idx in 0..self.tiles.len() {
+                    self.ensure_layer_stack_bufs(idx);
                     // Mark tiles that are in a clipped filter layer so they generate
                     // explicit clip commands for proper filter processing.
-                    tile.in_clipped_filter_layer = in_clipped_filter_layer;
+                    self.tiles[idx].in_clipped_filter_layer = in_clipped_filter_layer;
                 }
             }
         }
@@ -774,36 +879,43 @@ impl<const MODE: u8> Wide<MODE> {
             self.pop_clip();
         }
 
-        let needs_buf = layer.needs_buf();
+        if layer.needs_buf() {
+            for &tile_idx in self
+                .layers_needing_buf_stack
+                .last()
+                .unwrap()
+                .occupied_tiles
+                .iter()
+            {
+                let tile = &mut self.tiles[tile_idx];
 
-        if needs_buf {
-            for x in 0..self.width_tiles() {
-                for y in 0..self.height_tiles() {
-                    let t = self.get_mut(x, y);
-
-                    // Optimization: If no drawing happened since the last `PushBuf`, then we don't
-                    // need to do any masking or buffer-wide opacity work. The same holds for
-                    // blending, unless it is destructive blending.
-                    let has_draw_commands = !matches!(t.cmds.last().unwrap(), &Cmd::PushBuf(..));
-                    if has_draw_commands {
-                        if let Some(mask) = layer.mask.clone() {
-                            t.mask(mask);
-                        }
-                        t.opacity(layer.opacity);
+                // Optimization: If no drawing happened since the last `PushBuf`, then we don't
+                // need to do any masking or buffer-wide opacity work. The same holds for
+                // blending, unless it is destructive blending.
+                let has_draw_commands = !matches!(tile.cmds.last().unwrap(), &Cmd::PushBuf(..));
+                if has_draw_commands {
+                    if let Some(mask) = layer.mask.clone() {
+                        tile.mask(mask);
                     }
-                    if has_draw_commands || layer.blend_mode.is_destructive() {
-                        t.blend(layer.blend_mode);
-                    }
-
-                    t.pop_buf();
+                    tile.opacity(layer.opacity);
                 }
+                if has_draw_commands || layer.blend_mode.is_destructive() {
+                    tile.blend(layer.blend_mode);
+                }
+                tile.pop_buf();
             }
+            self.layers_needing_buf_stack.pop();
         }
 
         let in_clipped_filter_layer = layer.filter.is_some() && layer.clip;
         // Decrement the depth counter after popping a filtered layer with clip
         if in_clipped_filter_layer {
             self.clipped_filter_layer_depth -= 1;
+            if self.clipped_filter_layer_depth == 0 {
+                for tile in &mut self.tiles {
+                    tile.in_clipped_filter_layer = false;
+                }
+            }
         }
     }
 
@@ -884,7 +996,9 @@ impl<const MODE: u8> Wide<MODE> {
             // These wide tiles are all zero-winding (outside the path)
             while cur_wtile_y < strip_y.min(clip_bbox.y1()) {
                 for wtile_x in cur_wtile_x..clip_bbox.x1() {
-                    self.get_mut(wtile_x, cur_wtile_y).push_zero_clip(layer_id);
+                    let idx = self.get_idx(wtile_x, cur_wtile_y);
+                    self.ensure_layer_stack_bufs(idx);
+                    self.tiles[idx].push_zero_clip(layer_id);
                 }
                 // Reset x to the left edge of the clip bounding box
                 cur_wtile_x = clip_bbox.x0();
@@ -907,7 +1021,9 @@ impl<const MODE: u8> Wide<MODE> {
                 let is_inside = strip.fill_gap();
                 if !is_inside {
                     for wtile_x in cur_wtile_x..wtile_x_clamped {
-                        self.get_mut(wtile_x, cur_wtile_y).push_zero_clip(layer_id);
+                        let idx = self.get_idx(wtile_x, cur_wtile_y);
+                        self.ensure_layer_stack_bufs(idx);
+                        self.tiles[idx].push_zero_clip(layer_id);
                     }
                 }
                 // If winding is nonzero, then wide tiles covered entirely
@@ -922,7 +1038,9 @@ impl<const MODE: u8> Wide<MODE> {
             let wtile_x1 = (x + width).div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x1 {
                 for wtile_x in cur_wtile_x..wtile_x1 {
-                    self.get_mut(wtile_x, cur_wtile_y).push_clip(layer_id);
+                    let idx = self.get_idx(wtile_x, cur_wtile_y);
+                    self.ensure_layer_stack_bufs(idx);
+                    self.tiles[idx].push_clip(layer_id);
                 }
                 cur_wtile_x = wtile_x1;
             }
@@ -931,7 +1049,9 @@ impl<const MODE: u8> Wide<MODE> {
         // Process any remaining wide tiles in the bounding box (all zero-winding)
         while cur_wtile_y < clip_bbox.y1() {
             for wtile_x in cur_wtile_x..clip_bbox.x1() {
-                self.get_mut(wtile_x, cur_wtile_y).push_zero_clip(layer_id);
+                let idx = self.get_idx(wtile_x, cur_wtile_y);
+                self.ensure_layer_stack_bufs(idx);
+                self.tiles[idx].push_zero_clip(layer_id);
             }
             cur_wtile_x = clip_bbox.x0();
             cur_wtile_y += 1;
@@ -1198,7 +1318,9 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     pub n_zero_clip: usize,
     /// The number of non-zero-winding clips.
     pub n_clip: usize,
-    /// The number of pushed buffers.
+    /// The number of pushed buffers, including buffers for clips.
+    ///
+    /// Note not all layers require their own buffers.
     pub n_bufs: usize,
     /// True when this tile is in a filtered layer with clipping applied.
     /// When set, clip operations generate explicit commands instead of just
@@ -1271,7 +1393,7 @@ impl<const MODE: u8> WideTile<MODE> {
     /// - `OpaqueSolid(color)`: Paint is an opaque solid color, can replace background
     /// - `OpaqueImage`: Paint is an opaque image, can clear previous commands
     /// - `None`: No optimization available
-    pub(crate) fn fill(
+    fn fill(
         &mut self,
         x: u16,
         width: u16,
@@ -1334,7 +1456,7 @@ impl<const MODE: u8> WideTile<MODE> {
     /// Generates alpha fill commands unless the tile is in a zero-clip region (fully clipped out).
     /// For clipped filter layers, commands are always generated since filters need the full
     /// layer content rendered before applying the clip as a mask.
-    pub(crate) fn strip(&mut self, cmd_strip: CmdAlphaFill, current_layer_id: LayerId) {
+    fn strip(&mut self, cmd_strip: CmdAlphaFill, current_layer_id: LayerId) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             self.record_fill_cmd(current_layer_id, self.cmds.len());
             self.cmds.push(Cmd::AlphaFill(cmd_strip));
@@ -1346,7 +1468,7 @@ impl<const MODE: u8> WideTile<MODE> {
     /// Pushes a clip buffer unless the tile is in a zero-clip region (fully clipped out).
     /// For clipped filter layers, clip buffers are always pushed since filters need explicit
     /// clip state to process the full layer before applying the clip as a mask.
-    pub fn push_clip(&mut self, layer_id: LayerId) {
+    fn push_clip(&mut self, layer_id: LayerId) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             self.push_buf(LayerKind::Clip(layer_id));
             self.n_clip += 1;
@@ -1358,7 +1480,7 @@ impl<const MODE: u8> WideTile<MODE> {
     /// Pops a clip buffer unless the tile is in a zero-clip region (fully clipped out).
     /// For clipped filter layers, clip buffers are always popped since filters need explicit
     /// clip state to process the full layer before applying the clip as a mask.
-    pub fn pop_clip(&mut self) {
+    fn pop_clip(&mut self) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             self.pop_buf();
             self.n_clip -= 1;
@@ -1371,7 +1493,7 @@ impl<const MODE: u8> WideTile<MODE> {
     /// Normally these just increment a counter to suppress drawing, but for
     /// clipped filter layers we generate explicit commands so filters can
     /// process the entire layer before applying the clip as a mask.
-    pub fn push_zero_clip(&mut self, layer_id: LayerId) {
+    fn push_zero_clip(&mut self, layer_id: LayerId) {
         if self.in_clipped_filter_layer {
             // Generate explicit command for filter processing
             self.cmds.push(Cmd::PushZeroClip(layer_id));
@@ -1380,7 +1502,7 @@ impl<const MODE: u8> WideTile<MODE> {
     }
 
     /// Removes the most recently added zero-winding clip region.
-    pub fn pop_zero_clip(&mut self) {
+    fn pop_zero_clip(&mut self) {
         if self.in_clipped_filter_layer {
             // Generate explicit command for filter processing
             self.cmds.push(Cmd::PopZeroClip);
@@ -1389,7 +1511,7 @@ impl<const MODE: u8> WideTile<MODE> {
     }
 
     /// Checks if the current clip region is a zero-winding clip.
-    pub fn is_zero_clip(&mut self) -> bool {
+    fn is_zero_clip(&mut self) -> bool {
         self.n_zero_clip > 0
     }
 
@@ -1398,21 +1520,21 @@ impl<const MODE: u8> WideTile<MODE> {
     /// Note: Unlike content operations (`strip`, `push_clip`, etc.), clip operations don't need
     /// the `|| self.in_clipped_filter_layer` check. Filter effects need full layer *content*
     /// rendered (even in zero-clip areas).
-    pub fn clip_strip(&mut self, cmd_clip_strip: CmdClipAlphaFill) {
+    fn clip_strip(&mut self, cmd_clip_strip: CmdClipAlphaFill) {
         if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(..))) {
             self.cmds.push(Cmd::ClipStrip(cmd_clip_strip));
         }
     }
 
     /// Applies a clip fill operation at the specified position and width.
-    pub fn clip_fill(&mut self, x: u16, width: u16) {
+    fn clip_fill(&mut self, x: u16, width: u16) {
         if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(..))) {
             self.cmds.push(Cmd::ClipFill(CmdClipFill { x, width }));
         }
     }
 
     /// Records the fill command for a specific layer.
-    pub fn record_fill_cmd(&mut self, layer_id: LayerId, cmd_idx: usize) {
+    fn record_fill_cmd(&mut self, layer_id: LayerId, cmd_idx: usize) {
         self.layer_cmd_ranges.entry(layer_id).and_modify(|ranges| {
             ranges.full_range.end = cmd_idx + 1;
             if ranges.render_range.is_empty() {
