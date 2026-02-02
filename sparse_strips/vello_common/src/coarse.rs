@@ -767,8 +767,12 @@ impl<const MODE: u8> Wide<MODE> {
                 for y in 0..self.height_tiles() {
                     let t = self.get_mut(x, y);
 
-                    // There is content in the buffer, so we need to blend.
-                    if t.current_buffer_has_content() {
+                    // We only need to blend if there is content in the buffer, or if the blend
+                    // more is destructive (in which case the blend operations interact with the
+                    // layer above).
+                    let should_apply_layer_ops =
+                        t.current_buffer_has_content() || layer.blend_mode.is_destructive();
+                    if should_apply_layer_ops {
                         if let Some(mask) = layer.mask.clone() {
                             t.mask(mask);
                         }
