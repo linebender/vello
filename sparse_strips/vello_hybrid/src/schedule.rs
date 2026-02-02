@@ -231,6 +231,23 @@ pub(crate) struct Scheduler {
     free: [Vec<usize>; 2],
     /// Rounds are enqueued on push clip commands and dequeued on flush.
     rounds_queue: VecDeque<Round>,
+    /// A pool of `Round` objects that can be reused, so that we can reduce
+    /// the number of allocations.
+    round_pool: Vec<Round>,
+}
+
+impl Scheduler {
+    fn submit_round(&mut self, round: Round) {
+        self.round_pool.push(round);
+    }
+
+    fn fetch_round(&mut self) -> Round {
+        let mut round = self.round_pool.pop().unwrap_or_default();
+        // Reset it in case it's a reused one.
+        round.clear();
+
+        round
+    }
 }
 
 /// A "round" is a coarse scheduling quantum.
@@ -245,6 +262,20 @@ struct Round {
     free: [Vec<usize>; 2],
     /// Slots that will be cleared in the two slot textures (0, 1) before drawing this round.
     clear: [Vec<u32>; 2],
+}
+
+impl Round {
+    fn clear(&mut self) {
+        self.draws[0].clear();
+        self.draws[1].clear();
+        self.draws[2].clear();
+
+        self.free[0].clear();
+        self.free[1].clear();
+
+        self.clear[0].clear();
+        self.clear[1].clear();
+    }
 }
 
 /// Reusable state used by the scheduler. We are holding this separately instead of integrating
@@ -391,6 +422,10 @@ impl Draw {
     fn push(&mut self, gpu_strip: GpuStrip) {
         self.0.push(gpu_strip);
     }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
 }
 
 impl Scheduler {
@@ -403,6 +438,7 @@ impl Scheduler {
             total_slots,
             free,
             rounds_queue: VecDeque::new(),
+            round_pool: Vec::new(),
         }
     }
 
@@ -537,6 +573,8 @@ impl Scheduler {
             self.free[i].extend(&round.free[i]);
         }
         self.round += 1;
+
+        self.submit_round(round);
     }
 
     // Find the appropriate draw call for rendering.
@@ -550,7 +588,8 @@ impl Scheduler {
     fn get_round(&mut self, el_round: usize) -> &mut Round {
         let rel_round = el_round.saturating_sub(self.round);
         if self.rounds_queue.len() == rel_round {
-            self.rounds_queue.push_back(Round::default());
+            let round = self.fetch_round();
+            self.rounds_queue.push_back(round);
         }
         &mut self.rounds_queue[rel_round]
     }
