@@ -5,7 +5,7 @@
 //! well as some code that was copied from kurbo, which is needed to reimplement the
 //! full `flatten` method.
 
-use crate::flatten::TOL_2;
+use crate::flatten::{SQRT_TOL, TOL, TOL_2};
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
 use crate::kurbo::{CubicBez, Line, ParamCurve, ParamCurveNearest, PathEl, Point, QuadBez};
@@ -44,13 +44,11 @@ pub(crate) trait Callback {
 pub(crate) fn flatten<S: Simd>(
     simd: S,
     path: impl IntoIterator<Item = PathEl>,
-    tolerance: f64,
     callback: &mut impl Callback,
     flatten_ctx: &mut FlattenCtx,
 ) {
     flatten_ctx.flattened_cubics.clear();
 
-    let sqrt_tol = tolerance.sqrt();
     let mut closed = true;
     let mut start_pt = Point::ZERO;
     let mut last_pt = Point::ZERO;
@@ -95,8 +93,8 @@ pub(crate) fn flatten<S: Simd>(
                     callback.callback(LinePathEl::LineTo(p2));
                 } else {
                     let q = QuadBez::new(p0, p1, p2);
-                    let params = q.estimate_subdiv(sqrt_tol);
-                    let n = ((0.5 * params.val / sqrt_tol).ceil() as usize).max(1);
+                    let params = q.estimate_subdiv(SQRT_TOL);
+                    let n = ((0.5 * params.val / SQRT_TOL).ceil() as usize).max(1);
                     let step = 1.0 / (n as f64);
                     for i in 1..n {
                         let u = (i as f64) * step;
@@ -139,7 +137,7 @@ pub(crate) fn flatten<S: Simd>(
                     callback.callback(LinePathEl::LineTo(p3));
                 } else {
                     let c = CubicBez::new(p0, p1, p2, p3);
-                    let max = flatten_cubic_simd(simd, c, flatten_ctx, tolerance as f32);
+                    let max = flatten_cubic_simd(simd, c, flatten_ctx, TOL as f32);
 
                     for p in &flatten_ctx.flattened_cubics[1..max] {
                         callback.callback(LinePathEl::LineTo(Point::new(p.x as f64, p.y as f64)));
