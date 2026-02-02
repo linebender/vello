@@ -1412,6 +1412,10 @@ impl Programs {
 
     /// Upload alpha data to the texture.
     fn upload_alpha_texture(&mut self, queue: &Queue, alphas: &mut Vec<u8>) {
+        if alphas.is_empty() {
+            return;
+        }
+
         let texture_width = self.resources.alphas_texture.width();
         let texture_height = self.resources.alphas_texture.height();
         let total_size = texture_width as usize * texture_height as usize * 16;
