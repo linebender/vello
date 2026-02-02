@@ -17,7 +17,11 @@ This release has an [MSRV][] of 1.88.
 
 ### Changed
 
-- Breaking change: `vello_encoding::Style` now includes a `composite` word used for per-draw compositing state.
+- Breaking change: `vello_encoding::Style` now includes a `composite` word used for per-draw compositing state (the style stream size is now 3 words).
+
+### Added
+
+- `Scene::{set_composite, set_blend_mode, set_global_alpha}` for stateful compositing (Canvas-style).
 
 ## [0.7.0][] - 2026-01-13
 

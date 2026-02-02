@@ -12,7 +12,7 @@ use super::{
 use peniko::color::{DynamicColor, palette};
 use peniko::kurbo::{Shape, Stroke};
 use peniko::{
-    BrushRef, ColorStop, Extend, Fill, GradientKind, ImageBrushRef, ImageSampler,
+    BlendMode, BrushRef, ColorStop, Extend, Fill, GradientKind, ImageBrushRef, ImageSampler,
     LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
 };
 
@@ -22,7 +22,7 @@ use peniko::{
 ///
 /// * At least one transform and style must be encoded before any path data
 ///   or draw object.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Encoding {
     /// The path tag stream.
     pub path_tags: Vec<PathTag>,
@@ -50,6 +50,29 @@ pub struct Encoding {
     pub n_open_clips: u32,
     /// Flags that capture the current state of the encoding.
     pub flags: u32,
+
+    /// Current compositing state captured into subsequent styles.
+    pub current_composite: u32,
+}
+
+impl Default for Encoding {
+    fn default() -> Self {
+        Self {
+            path_tags: Vec::new(),
+            path_data: Vec::new(),
+            draw_tags: Vec::new(),
+            draw_data: Vec::new(),
+            transforms: Vec::new(),
+            styles: Vec::new(),
+            resources: Resources::default(),
+            n_paths: 0,
+            n_path_segments: 0,
+            n_clips: 0,
+            n_open_clips: 0,
+            flags: 0,
+            current_composite: crate::pack_style_composite(crate::BLEND_MODE_SRC_OVER, 1.0),
+        }
+    }
 }
 
 impl Encoding {
@@ -87,6 +110,7 @@ impl Encoding {
         self.n_clips = 0;
         self.n_open_clips = 0;
         self.flags = 0;
+        self.current_composite = crate::pack_style_composite(crate::BLEND_MODE_SRC_OVER, 1.0);
         self.resources.reset();
     }
 
@@ -169,6 +193,33 @@ impl Encoding {
             self.transforms.extend_from_slice(&other.transforms);
         }
         self.styles.extend_from_slice(&other.styles);
+        self.current_composite = other.current_composite;
+    }
+
+    /// Sets the compositing state (blend mode + global alpha) that will apply to subsequent draws.
+    pub fn set_composite(&mut self, blend_mode: BlendMode, global_alpha: f32) {
+        self.current_composite =
+            crate::pack_style_composite_from_blend_mode(blend_mode, global_alpha);
+    }
+
+    /// Sets the blend mode for subsequent draws.
+    pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        let alpha_u14 = (self.current_composite >> crate::DRAW_INFO_FLAGS_ALPHA_SHIFT)
+            & crate::DRAW_INFO_FLAGS_ALPHA_MASK;
+        let blend_bits = (((blend_mode.mix as u32) << 8) | blend_mode.compose as u32)
+            & crate::DRAW_INFO_FLAGS_BLEND_MASK;
+        self.current_composite = (blend_bits << crate::DRAW_INFO_FLAGS_BLEND_SHIFT)
+            | (alpha_u14 << crate::DRAW_INFO_FLAGS_ALPHA_SHIFT);
+    }
+
+    /// Sets the global alpha for subsequent draws.
+    pub fn set_global_alpha(&mut self, global_alpha: f32) {
+        let blend_bits = (self.current_composite >> crate::DRAW_INFO_FLAGS_BLEND_SHIFT)
+            & crate::DRAW_INFO_FLAGS_BLEND_MASK;
+        let alpha_u14 =
+            crate::pack_global_alpha_u14(global_alpha) & crate::DRAW_INFO_FLAGS_ALPHA_MASK;
+        self.current_composite = (blend_bits << crate::DRAW_INFO_FLAGS_BLEND_SHIFT)
+            | (alpha_u14 << crate::DRAW_INFO_FLAGS_ALPHA_SHIFT);
     }
 
     /// Returns a snapshot of the current stream offsets.
@@ -185,7 +236,9 @@ impl Encoding {
 
     /// Encodes a fill style.
     pub fn encode_fill_style(&mut self, fill: Fill) {
-        self.encode_style(Style::from_fill(fill));
+        let mut style = Style::from_fill(fill);
+        style.composite = self.current_composite;
+        self.encode_style(style);
     }
 
     /// Encodes a stroke style.
@@ -195,6 +248,8 @@ impl Encoding {
     pub fn encode_stroke_style(&mut self, stroke: &Stroke) -> bool {
         let style = Style::from_stroke(stroke);
         if let Some(style) = style {
+            let mut style = style;
+            style.composite = self.current_composite;
             self.encode_style(style);
             true
         } else {

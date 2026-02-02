@@ -82,16 +82,10 @@ impl Style {
             Fill::NonZero => 0,
             Fill::EvenOdd => Self::FLAGS_FILL_BIT,
         };
-        // Default to normal + src_over with global alpha = 1.
-        //
-        // Note: this is the shader-facing packed blend mode value, matching
-        // `blend_mix_compose` in `vello_shaders/shader/shared/blend.wgsl`.
-        let default_blend_mode = 3u32;
         Self {
             flags_and_miter_limit: fill_bit,
             line_width: 0.,
-            composite: (default_blend_mode << crate::DRAW_INFO_FLAGS_BLEND_SHIFT)
-                | (crate::DRAW_INFO_FLAGS_ALPHA_DEFAULT << crate::DRAW_INFO_FLAGS_ALPHA_SHIFT),
+            composite: crate::pack_style_composite(crate::BLEND_MODE_SRC_OVER, 1.0),
         }
     }
 
@@ -119,16 +113,10 @@ impl Style {
             Cap::Round => Self::FLAGS_END_CAP_BITS_ROUND,
         };
         let miter_limit = crate::math::f32_to_f16(stroke.miter_limit as f32) as u32;
-        // Default to normal + src_over with global alpha = 1.
-        //
-        // Note: this is the shader-facing packed blend mode value, matching
-        // `blend_mix_compose` in `vello_shaders/shader/shared/blend.wgsl`.
-        let default_blend_mode = 3u32;
         Some(Self {
             flags_and_miter_limit: style | join | start_cap | end_cap | miter_limit,
             line_width: stroke.width as f32,
-            composite: (default_blend_mode << crate::DRAW_INFO_FLAGS_BLEND_SHIFT)
-                | (crate::DRAW_INFO_FLAGS_ALPHA_DEFAULT << crate::DRAW_INFO_FLAGS_ALPHA_SHIFT),
+            composite: crate::pack_style_composite(crate::BLEND_MODE_SRC_OVER, 1.0),
         })
     }
 

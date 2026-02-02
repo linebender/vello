@@ -79,6 +79,28 @@ impl Scene {
         &mut self.encoding
     }
 
+    /// Sets the compositing state that applies to subsequent drawing commands.
+    ///
+    /// This is similar to the HTML Canvas 2D `globalCompositeOperation` (via `blend_mode`)
+    /// combined with `globalAlpha` (via `global_alpha`).
+    ///
+    /// Note that this compositing state is separate from the blend/alpha used by
+    /// [`push_layer`](Self::push_layer). Clip/layer semantics are unchanged by this method.
+    pub fn set_composite(&mut self, blend_mode: impl Into<BlendMode>, global_alpha: f32) {
+        self.encoding
+            .set_composite(blend_mode.into(), global_alpha.clamp(0.0, 1.0));
+    }
+
+    /// Sets the blend mode for subsequent drawing commands.
+    pub fn set_blend_mode(&mut self, blend_mode: impl Into<BlendMode>) {
+        self.encoding.set_blend_mode(blend_mode.into());
+    }
+
+    /// Sets the global alpha for subsequent drawing commands.
+    pub fn set_global_alpha(&mut self, global_alpha: f32) {
+        self.encoding.set_global_alpha(global_alpha.clamp(0.0, 1.0));
+    }
+
     /// Pushes a new layer clipped by the specified shape and composed with
     /// previous layers using the specified blend mode.
     ///

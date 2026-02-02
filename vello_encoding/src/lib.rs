@@ -53,11 +53,12 @@ pub use config::{
     RenderConfig, WorkgroupCounts, WorkgroupSize,
 };
 pub use draw::{
-    DRAW_INFO_FLAGS_ALPHA_BITS, DRAW_INFO_FLAGS_ALPHA_DEFAULT, DRAW_INFO_FLAGS_ALPHA_MASK,
-    DRAW_INFO_FLAGS_ALPHA_SHIFT, DRAW_INFO_FLAGS_BLEND_BITS, DRAW_INFO_FLAGS_BLEND_MASK,
-    DRAW_INFO_FLAGS_BLEND_SHIFT, DRAW_INFO_FLAGS_FILL_RULE_BIT, DrawBbox, DrawBeginClip,
-    DrawBlurRoundedRect, DrawColor, DrawImage, DrawLinearGradient, DrawMonoid, DrawRadialGradient,
-    DrawSweepGradient, DrawTag,
+    BLEND_MODE_SRC_OVER, DRAW_INFO_FLAGS_ALPHA_BITS, DRAW_INFO_FLAGS_ALPHA_DEFAULT,
+    DRAW_INFO_FLAGS_ALPHA_MASK, DRAW_INFO_FLAGS_ALPHA_SHIFT, DRAW_INFO_FLAGS_BLEND_BITS,
+    DRAW_INFO_FLAGS_BLEND_MASK, DRAW_INFO_FLAGS_BLEND_SHIFT, DRAW_INFO_FLAGS_FILL_RULE_BIT,
+    DrawBbox, DrawBeginClip, DrawBlurRoundedRect, DrawColor, DrawImage, DrawLinearGradient,
+    DrawMonoid, DrawRadialGradient, DrawSweepGradient, DrawTag, pack_global_alpha_u14,
+    pack_style_composite, pack_style_composite_from_blend_mode,
 };
 pub use encoding::{Encoding, Resources, StreamOffsets};
 pub use glyph::{Glyph, GlyphRun};
