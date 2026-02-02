@@ -1097,20 +1097,18 @@ fn prepare_cmds(cmds: &[Cmd], state: &mut SchedulerState) {
         match cmd {
             Cmd::PushBuf(_layer_id) => {
                 // TODO: Handle layer_id for filter effects when implemented.
-                state
-                    .pointer_to_push_buf_stack
-                    .push(annotated_commands.len());
+                pointer_to_push_buf_stack.push(annotated_commands.len());
             }
             Cmd::PopBuf => {
-                state.pointer_to_push_buf_stack.pop();
+                pointer_to_push_buf_stack.pop();
             }
             Cmd::Blend(_) => {
                 // For blending of two layers to work in vello_hybrid, the two slots being blended
                 // must be on the same texture. Hence, annotate the next-on-stack (nos) tile such
                 // that it uses a temporary slot on the same texture as this blend.
-                if state.pointer_to_push_buf_stack.len() >= 2 {
+                if pointer_to_push_buf_stack.len() >= 2 {
                     let push_buf_idx =
-                        state.pointer_to_push_buf_stack[state.pointer_to_push_buf_stack.len() - 2];
+                        pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 2];
                     annotated_commands[push_buf_idx] = AnnotatedCmd::PushBufWithTemporarySlot;
                 }
             }
