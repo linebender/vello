@@ -27,13 +27,6 @@ where
 }
 
 pub fn tile(c: &mut Criterion) {
-    #[expect(clippy::type_complexity, reason = "tiler variants")]
-    let methods: &[(&str, fn(&mut Tiles, &[Line], u16, u16))] = &[
-        ("tile_aaa", |t, l, w, h| t.make_tiles_analytic_aa(l, w, h)),
-        ("tile_msaa", |t, l, w, h| t.make_tiles_msaa(l, w, h)),
-    ];
-
-    for (name, op) in methods {
-        run_tile_benchmark(c, name, *op);
-    }
+    run_tile_benchmark(c, "tile_aaa", Tiles::make_tiles_analytic_aa);
+    run_tile_benchmark(c, "tile_msaa", Tiles::make_tiles_msaa);
 }
