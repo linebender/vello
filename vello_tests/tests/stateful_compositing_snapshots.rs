@@ -16,7 +16,7 @@ use vello::peniko::{
     BlendMode, Compose, Fill, Gradient, ImageAlphaType, ImageBrush, ImageData, ImageFormat,
     ImageQuality, ImageSampler, Mix, color::palette,
 };
-use vello_tests::{TestParams, smoke_snapshot_test_sync};
+use vello_tests::{TestParams, compare_gpu_cpu_sync, smoke_snapshot_test_sync};
 
 fn rect(x: f64, y: f64, w: f64, h: f64) -> Rect {
     Rect::from_origin_size((x, y), (w, h))
@@ -693,4 +693,124 @@ fn stateful_copy_aa_edges_preserve_background_image_grad_blur() {
     smoke_snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.001);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn stateful_use_cpu_matches_gpu_blend_switch_image_grad_blur() {
+    // Reuse the snapshot scene so we cover images + gradients + blur, and blend switches.
+    let mut scene = Scene::new();
+    draw_checkerboard(&mut scene, 64, 64, 8);
+    // Use the same function body as the snapshot test (kept intentionally duplicated so the
+    // snapshot remains readable).
+    let image = ImageBrush {
+        image: ImageData {
+            data: vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+            ]
+            .into(),
+            format: ImageFormat::Rgba8,
+            width: 2,
+            height: 2,
+            alpha_type: ImageAlphaType::Alpha,
+        },
+        sampler: ImageSampler {
+            quality: ImageQuality::Low,
+            ..Default::default()
+        },
+    };
+    let grad = Gradient::new_linear((0.0, 0.0), (28.0, 0.0))
+        .with_stops([palette::css::ORANGE_RED, palette::css::DEEP_SKY_BLUE]);
+
+    scene.set_global_alpha(1.0);
+    scene.set_blend_mode(Mix::Multiply);
+    scene.draw_image(&image, Affine::translate((2.0, 2.0)) * Affine::scale(14.0));
+    scene.set_blend_mode(Mix::Screen);
+    scene.fill(
+        Fill::NonZero,
+        Affine::translate((2.0, 34.0)),
+        &grad,
+        None,
+        &rect(0.0, 0.0, 28.0, 26.0),
+    );
+    scene.set_blend_mode(Mix::Difference);
+    scene.set_global_alpha(0.8);
+    scene.draw_blurred_rounded_rect(
+        Affine::translate((2.0, 2.0)),
+        rect(0.0, 0.0, 28.0, 58.0),
+        palette::css::LIME,
+        4.0,
+        3.0,
+    );
+    scene.set_global_alpha(1.0);
+    scene.set_blend_mode(Mix::Normal);
+
+    let params = TestParams::new("stateful_cpu_matches_gpu_blend_switch", 64, 64);
+    compare_gpu_cpu_sync(scene, params)
+        .unwrap()
+        .assert_mean_less_than(0.01);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn stateful_use_cpu_matches_gpu_copy_aa_edges_image_grad_blur() {
+    let mut scene = Scene::new();
+    draw_checkerboard(&mut scene, 64, 64, 8);
+
+    let image = ImageBrush {
+        image: ImageData {
+            data: vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+            ]
+            .into(),
+            format: ImageFormat::Rgba8,
+            width: 2,
+            height: 2,
+            alpha_type: ImageAlphaType::Alpha,
+        },
+        sampler: ImageSampler {
+            quality: ImageQuality::Low,
+            ..Default::default()
+        },
+    };
+    let sweep = Gradient::new_sweep((32.0, 32.0), 0.0_f32, std::f32::consts::TAU).with_stops([
+        palette::css::RED,
+        palette::css::LIME,
+        palette::css::BLUE,
+        palette::css::RED,
+    ]);
+    scene.set_composite(
+        BlendMode {
+            mix: Mix::Normal,
+            compose: Compose::Copy,
+        },
+        1.0,
+    );
+    let img_t = Affine::translate((32.0, 32.0))
+        * Affine::rotate(0.45)
+        * Affine::translate((-1.0, -1.0))
+        * Affine::scale(12.0);
+    scene.draw_image(&image, img_t);
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &sweep,
+        None,
+        &Circle::new((32.0, 32.0), 18.0),
+    );
+    let blur_clip = Circle::new((32.0, 32.0), 22.0);
+    scene.draw_blurred_rounded_rect_in(
+        &blur_clip,
+        Affine::IDENTITY,
+        rect(20.0, 20.0, 24.0, 24.0),
+        palette::css::DEEP_SKY_BLUE,
+        6.0,
+        2.5,
+    );
+    assert_no_layers(&scene);
+
+    let params = TestParams::new("stateful_cpu_matches_gpu_copy_aa_edges", 64, 64);
+    compare_gpu_cpu_sync(scene, params)
+        .unwrap()
+        .assert_mean_less_than(0.01);
 }
