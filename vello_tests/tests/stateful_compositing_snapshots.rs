@@ -12,7 +12,10 @@
 
 use vello::Scene;
 use vello::kurbo::{Affine, Rect};
-use vello::peniko::{BlendMode, Compose, Fill, Mix, color::palette};
+use vello::peniko::{
+    BlendMode, Compose, Fill, Gradient, ImageAlphaType, ImageBrush, ImageData, ImageFormat,
+    ImageQuality, ImageSampler, Mix, color::palette,
+};
 use vello_tests::{TestParams, smoke_snapshot_test_sync};
 
 fn rect(x: f64, y: f64, w: f64, h: f64) -> Rect {
@@ -31,6 +34,60 @@ fn assert_no_layers(scene: &Scene) {
             .iter()
             .any(|tag| tag.0 == 0x49 || tag.0 == 0x21),
         "stateful compositing should not be emulated by inserting layers"
+    );
+}
+
+fn pixel_rgba8(image: &ImageData, x: u32, y: u32) -> [u8; 4] {
+    assert!(
+        x < image.width && y < image.height,
+        "pixel ({x},{y}) out of bounds for {}x{}",
+        image.width,
+        image.height
+    );
+    let i = ((y * image.width + x) * 4) as usize;
+    let bytes = image.data.data();
+    [bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]
+}
+
+fn draw_checkerboard(scene: &mut Scene, width: u32, height: u32, cell: u32) {
+    let light = palette::css::WHITE;
+    let dark = palette::css::BLACK;
+    let cells_x = width.div_ceil(cell);
+    let cells_y = height.div_ceil(cell);
+    for y in 0..cells_y {
+        for x in 0..cells_x {
+            let is_light = ((x + y) & 1) == 0;
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                if is_light { light } else { dark },
+                None,
+                &rect(
+                    x as f64 * f64::from(cell),
+                    y as f64 * f64::from(cell),
+                    f64::from(cell),
+                    f64::from(cell),
+                ),
+            );
+        }
+    }
+}
+
+fn assert_half_alpha_over_white_square(rgba: [u8; 4]) {
+    // With an opaque background, SrcOver yields opaque output; we check that global alpha had an
+    // effect by requiring the output not be a pure primary color.
+    let [r, g, b, a] = rgba;
+    assert!(
+        a >= 250,
+        "expected opaque output over opaque background, got {rgba:?}"
+    );
+    assert!(
+        r > 30 && b > 30,
+        "expected tinted color (alpha applied), got {rgba:?}"
+    );
+    assert!(
+        g >= 200,
+        "expected strong green-ish component, got {rgba:?}"
     );
 }
 
@@ -263,4 +320,184 @@ fn stateful_vs_isolated_layer_multiply() {
     smoke_snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.001);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn stateful_global_alpha_applies_to_linear_gradient() {
+    let mut scene = Scene::new();
+
+    draw_checkerboard(&mut scene, 32, 32, 8);
+
+    scene.set_composite(
+        BlendMode {
+            mix: Mix::Normal,
+            compose: Compose::SrcOver,
+        },
+        0.5,
+    );
+
+    let grad = Gradient::new_linear((0.0, 0.0), (32.0, 0.0)).with_stops([palette::css::LIME; 2]);
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &grad,
+        None,
+        &rect(0.0, 0.0, 32.0, 32.0),
+    );
+
+    assert_no_layers(&scene);
+
+    let params = TestParams::new("stateful_alpha_lin_grad", 32, 32);
+    let mut snapshot = smoke_snapshot_test_sync(scene, &params).unwrap();
+    snapshot.assert_mean_less_than(0.001);
+    assert_half_alpha_over_white_square(pixel_rgba8(&snapshot.raw_rendered, 4, 4));
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn stateful_global_alpha_applies_to_radial_gradient() {
+    let mut scene = Scene::new();
+
+    draw_checkerboard(&mut scene, 32, 32, 8);
+
+    scene.set_composite(
+        BlendMode {
+            mix: Mix::Normal,
+            compose: Compose::SrcOver,
+        },
+        0.5,
+    );
+
+    let grad = Gradient::new_two_point_radial((16.0, 16.0), 0.0_f32, (16.0, 16.0), 16.0_f32)
+        .with_stops([palette::css::LIME; 2]);
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &grad,
+        None,
+        &rect(0.0, 0.0, 32.0, 32.0),
+    );
+
+    assert_no_layers(&scene);
+
+    let params = TestParams::new("stateful_alpha_rad_grad", 32, 32);
+    let mut snapshot = smoke_snapshot_test_sync(scene, &params).unwrap();
+    snapshot.assert_mean_less_than(0.001);
+    assert_half_alpha_over_white_square(pixel_rgba8(&snapshot.raw_rendered, 4, 4));
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn stateful_global_alpha_applies_to_sweep_gradient() {
+    let mut scene = Scene::new();
+
+    draw_checkerboard(&mut scene, 32, 32, 8);
+
+    scene.set_composite(
+        BlendMode {
+            mix: Mix::Normal,
+            compose: Compose::SrcOver,
+        },
+        0.5,
+    );
+
+    let grad = Gradient::new_sweep((16.0, 16.0), 0.0_f32, std::f32::consts::TAU)
+        .with_stops([palette::css::LIME; 2]);
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &grad,
+        None,
+        &rect(0.0, 0.0, 32.0, 32.0),
+    );
+
+    assert_no_layers(&scene);
+
+    let params = TestParams::new("stateful_alpha_sweep_grad", 32, 32);
+    let mut snapshot = smoke_snapshot_test_sync(scene, &params).unwrap();
+    snapshot.assert_mean_less_than(0.001);
+    assert_half_alpha_over_white_square(pixel_rgba8(&snapshot.raw_rendered, 4, 4));
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn stateful_global_alpha_applies_to_images() {
+    let mut scene = Scene::new();
+
+    draw_checkerboard(&mut scene, 32, 32, 8);
+
+    scene.set_composite(
+        BlendMode {
+            mix: Mix::Normal,
+            compose: Compose::SrcOver,
+        },
+        0.5,
+    );
+
+    let image = ImageBrush {
+        image: ImageData {
+            // 2x2 RGBA8: red, green / blue, white
+            data: vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+            ]
+            .into(),
+            format: ImageFormat::Rgba8,
+            width: 2,
+            height: 2,
+            alpha_type: ImageAlphaType::Alpha,
+        },
+        sampler: ImageSampler {
+            quality: ImageQuality::Low,
+            ..Default::default()
+        },
+    };
+    scene.draw_image(&image, Affine::scale(16.0));
+
+    assert_no_layers(&scene);
+
+    let params = TestParams::new("stateful_alpha_image", 32, 32);
+    let mut snapshot = smoke_snapshot_test_sync(scene, &params).unwrap();
+    snapshot.assert_mean_less_than(0.001);
+    // (4,4) is inside the top-left source pixel (red) and inside a white checker square.
+    let rgba = pixel_rgba8(&snapshot.raw_rendered, 4, 4);
+    assert!(rgba[3] >= 250, "expected opaque output, got {rgba:?}");
+    assert!(
+        rgba[1] > 30 && rgba[2] > 30,
+        "expected tint from alpha, got {rgba:?}"
+    );
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn stateful_global_alpha_applies_to_blur_rect() {
+    let mut scene = Scene::new();
+
+    draw_checkerboard(&mut scene, 32, 32, 8);
+
+    scene.set_composite(
+        BlendMode {
+            mix: Mix::Normal,
+            compose: Compose::SrcOver,
+        },
+        0.5,
+    );
+    scene.draw_blurred_rounded_rect(
+        Affine::IDENTITY,
+        rect(0.0, 0.0, 32.0, 32.0),
+        palette::css::DEEP_SKY_BLUE,
+        0.0,
+        2.0,
+    );
+
+    assert_no_layers(&scene);
+
+    let params = TestParams::new("stateful_alpha_blur_rect", 32, 32);
+    let mut snapshot = smoke_snapshot_test_sync(scene, &params).unwrap();
+    snapshot.assert_mean_less_than(0.001);
+    let rgba = pixel_rgba8(&snapshot.raw_rendered, 16, 16);
+    assert!(
+        (80..=175).contains(&rgba[3]),
+        "expected alpha affected by global alpha, got {rgba:?}"
+    );
 }
