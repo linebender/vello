@@ -797,12 +797,12 @@ impl Scheduler {
 
                     // Remember that in a single round, we perform the following operations in
                     // the following order:
-                    // 1) Write to slot in texture 0, potentially read from slot in texture 1.
-                    // 2) Write to slot in texture 1, potentially read from slot in texture 0.
-                    // 3) Write to final view, potentially read from slot in texture 1.
+                    // 1) Draw to slot in texture 0, potentially read from slot in texture 1.
+                    // 2) Draw to slot in texture 1, potentially read from slot in texture 0.
+                    // 3) Draw to final view, potentially read from slot in texture 1.
                     // Therefore, for each depth, we can do the following (note that depths
-                    // are processed inversely, i.e. depth 3 is handled before depth 2, since there
-                    // is a dependency):
+                    // are processed inversely, i.e. depth 3 is handled before depth 2, since depth
+                    // 2 depends on the contents of depth 3):
                     // depth = 1 -> do 3).
                     // depth = 2 -> do 2).
                     // depth = 3 -> do 1).
@@ -810,7 +810,7 @@ impl Scheduler {
                     // because depth = 3 depends on the result from depth = 4, and there is no write
                     // operation to texture 1 that we can allocate in the same round before 1)
                     // happens. Therefore, we need to allocate a second round so that we have
-                    // enough draw calls to resolve all dependencies.
+                    // enough "ping-ponging" to resolve all dependencies.
                     let next_round = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
                     if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
