@@ -711,8 +711,10 @@ impl Scheduler {
                             // operations.
                             tos.round = el_round + 1;
 
-                            // Make sure the destination slot and temporary slot are cleared
-                            // appropriately.
+                            // First, we clear the temp slot. THEN, in the same round, we copy the data
+                            // from dest slot to temp slot. THEN, in the round after that, we clear
+                            // dest slot, so that in a future blending operation, we can store
+                            // results into dest slot again.
                             let dest_slot = tos.dest_slot;
                             let round = self.get_round(el_round);
                             round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
