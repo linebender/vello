@@ -91,6 +91,28 @@ fn assert_half_alpha_over_white_square(rgba: [u8; 4]) {
     );
 }
 
+fn assert_half_alpha_skyblue_over_white_square(rgba: [u8; 4]) {
+    // DeepSkyBlue (0,191,255) over white (255,255,255) with alpha=0.5 gives ~ (128,223,255).
+    // This isn't exact (premul/rounding), but should stay comfortably in these ranges.
+    let [r, g, b, a] = rgba;
+    assert!(
+        a >= 250,
+        "expected opaque output over opaque background, got {rgba:?}"
+    );
+    assert!(
+        (90..=170).contains(&r),
+        "expected ~half-mix red channel, got {rgba:?}"
+    );
+    assert!(
+        (190..=255).contains(&g),
+        "expected high green channel, got {rgba:?}"
+    );
+    assert!(
+        (230..=255).contains(&b),
+        "expected high blue channel, got {rgba:?}"
+    );
+}
+
 #[test]
 fn stateful_compositing_encodes_without_layers() {
     let mut scene = Scene::new();
@@ -495,9 +517,7 @@ fn stateful_global_alpha_applies_to_blur_rect() {
     let params = TestParams::new("stateful_alpha_blur_rect", 32, 32);
     let mut snapshot = smoke_snapshot_test_sync(scene, &params).unwrap();
     snapshot.assert_mean_less_than(0.001);
-    let rgba = pixel_rgba8(&snapshot.raw_rendered, 16, 16);
-    assert!(
-        (80..=175).contains(&rgba[3]),
-        "expected alpha affected by global alpha, got {rgba:?}"
-    );
+    // On an opaque checkerboard, SrcOver yields opaque output; verify global alpha by checking
+    // the expected tint over a white checker cell.
+    assert_half_alpha_skyblue_over_white_square(pixel_rgba8(&snapshot.raw_rendered, 16, 16));
 }
