@@ -36,7 +36,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler},
+    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
 };
 
 use alloc::sync::Arc;
@@ -82,6 +82,8 @@ pub struct WebGlRenderer {
     programs: WebGlPrograms,
     /// Scheduler for scheduling draws.
     scheduler: Scheduler,
+    /// The state used by the scheduler.
+    scheduler_state: SchedulerState,
     /// WebGL context.
     gl: WebGl2RenderingContext,
     /// Image cache for storing images atlas allocations.
@@ -152,6 +154,7 @@ impl WebGlRenderer {
         Self {
             programs: WebGlPrograms::new(gl.clone(), &image_cache, total_slots),
             scheduler: Scheduler::new(total_slots),
+            scheduler_state: SchedulerState::default(),
             gl,
             image_cache,
             encoded_paints: Vec::new(),
@@ -189,7 +192,8 @@ impl WebGlRenderer {
             programs: &mut self.programs,
             gl: &self.gl,
         };
-        self.scheduler.do_scene(&mut ctx, scene, &self.paint_idxs)?;
+        self.scheduler
+            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
         self.gradient_cache.maintain();
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
