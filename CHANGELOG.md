@@ -21,7 +21,7 @@ This release has an [MSRV][] of 1.88.
 
 ### Added
 
-- `Scene::{set_composite, set_blend_mode, set_global_alpha}` for stateful compositing (Canvas-style).
+- `Scene::{set_composite, set_blend_mode, set_global_alpha}` for stateful compositing (Canvas-style per-draw blend/composite + global alpha).
 
 ## [0.7.0][] - 2026-01-13
 

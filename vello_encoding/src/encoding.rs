@@ -197,12 +197,16 @@ impl Encoding {
     }
 
     /// Sets the compositing state (blend mode + global alpha) that will apply to subsequent draws.
+    ///
+    /// This state is captured into the style stream and applied *per draw* by the GPU pipeline.
     pub fn set_composite(&mut self, blend_mode: BlendMode, global_alpha: f32) {
         self.current_composite =
             crate::pack_style_composite_from_blend_mode(blend_mode, global_alpha);
     }
 
     /// Sets the blend mode for subsequent draws.
+    ///
+    /// This preserves the current global alpha.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
         let alpha_u14 = (self.current_composite >> crate::DRAW_INFO_FLAGS_ALPHA_SHIFT)
             & crate::DRAW_INFO_FLAGS_ALPHA_MASK;
@@ -213,6 +217,8 @@ impl Encoding {
     }
 
     /// Sets the global alpha for subsequent draws.
+    ///
+    /// This preserves the current blend mode.
     pub fn set_global_alpha(&mut self, global_alpha: f32) {
         let blend_bits = (self.current_composite >> crate::DRAW_INFO_FLAGS_BLEND_SHIFT)
             & crate::DRAW_INFO_FLAGS_BLEND_MASK;
