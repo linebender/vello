@@ -260,8 +260,8 @@ pub(crate) struct SchedulerState {
 }
 
 impl SchedulerState {
-    fn reset(&mut self) {
-        self.tile_state.reset();
+    fn clear(&mut self) {
+        self.tile_state.clear();
         self.annotated_commands.clear();
         self.pointer_to_push_buf_stack.clear();
     }
@@ -274,7 +274,7 @@ struct TileState {
 }
 
 impl TileState {
-    fn reset(&mut self) {
+    fn clear(&mut self) {
         self.stack.clear();
     }
 }
@@ -444,7 +444,7 @@ impl Scheduler {
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
 
-                state.reset();
+                state.clear();
 
                 self.initialize_tile_state(
                     &mut state.tile_state,
