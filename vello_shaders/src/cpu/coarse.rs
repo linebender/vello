@@ -262,7 +262,7 @@ fn coarse_main(
             let mut render_blend_depth = 0;
             let mut max_blend_depth = 0_u32;
             let mut clip_zero_depth = 0;
-            let default_composite = (3u32 << DRAW_INFO_FLAGS_BLEND_SHIFT)
+            let default_composite = (3_u32 << DRAW_INFO_FLAGS_BLEND_SHIFT)
                 | (DRAW_INFO_FLAGS_ALPHA_DEFAULT << DRAW_INFO_FLAGS_ALPHA_SHIFT);
             let mut current_composite = default_composite;
             for drawobj_ix in &compacted[tile_ix] {

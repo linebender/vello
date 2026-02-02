@@ -14,7 +14,7 @@ use vello_shaders::cpu::{CpuBinding, coarse};
 #[test]
 fn coarse_emits_set_composite_before_color() {
     // Multiply + SrcOver, matching `vello_shaders/shader/shared/blend.wgsl`.
-    let blend_mode = (1u32 << 8) | 3u32;
+    let blend_mode = (1_u32 << 8) | 3_u32;
     let composite = vello_encoding::pack_style_composite(blend_mode, 0.5);
     assert_eq!(composite & 1, 0, "style composite must keep bit 0 clear");
 
@@ -75,7 +75,7 @@ fn coarse_emits_set_composite_before_color() {
         .to_vec(),
     );
     let bump_bytes = RefCell::new(bytes_of(&BumpAllocators::default()).to_vec());
-    let ptcl_bytes = RefCell::new(cast_slice::<u32, u8>(&vec![0u32; 64]).to_vec());
+    let ptcl_bytes = RefCell::new(cast_slice::<u32, u8>(&vec![0_u32; 64]).to_vec());
 
     let resources: [CpuBinding<'_>; 9] = [
         CpuBinding::Buffer(bytes_of(&config)),

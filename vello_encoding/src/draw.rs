@@ -86,7 +86,7 @@ pub const DRAW_INFO_FLAGS_ALPHA_BITS: u32 = 14;
 pub const DRAW_INFO_FLAGS_ALPHA_MASK: u32 = (1 << DRAW_INFO_FLAGS_ALPHA_BITS) - 1;
 pub const DRAW_INFO_FLAGS_ALPHA_DEFAULT: u32 = DRAW_INFO_FLAGS_ALPHA_MASK;
 
-/// Packed shader blend mode for the common "normal + src_over" case.
+/// Packed shader blend mode for the common "normal + `src_over`" case.
 ///
 /// This is the `compose` opcode `SrcOver` (3) with `mix` set to `Normal` (0).
 pub const BLEND_MODE_SRC_OVER: u32 = 3;
