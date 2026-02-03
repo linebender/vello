@@ -269,15 +269,17 @@ struct Round {
 impl Round {
     #[inline]
     fn clear(&mut self) {
-        self.draws[0].clear();
-        self.draws[1].clear();
-        self.draws[2].clear();
+        for draw in &mut self.draws {
+            draw.clear();
+        }
 
-        self.free[0].clear();
-        self.free[1].clear();
+        for free in &mut self.free {
+            free.clear();
+        }
 
-        self.clear[0].clear();
-        self.clear[1].clear();
+        for clear in &mut self.clear {
+            clear.clear();
+        }
     }
 }
 
