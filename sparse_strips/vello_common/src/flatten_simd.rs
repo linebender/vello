@@ -8,7 +8,7 @@
 use crate::flatten::TOL_2;
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
-use crate::kurbo::{CubicBez, ParamCurve, PathEl, Point, QuadBez};
+use crate::kurbo::{CubicBez, Line, ParamCurve, ParamCurveNearest, PathEl, Point, QuadBez};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
@@ -75,24 +75,23 @@ pub(crate) fn flatten<S: Simd>(
                 debug_assert!(!closed, "Expected a `MoveTo` before a `QuadTo`");
                 let p0 = last_pt;
                 // An upper bound on the shortest distance of any point on the quadratic Bezier
-                // curve to the line segment [p0, p2] is 1/2 of the maximum of the
-                // endpoint-to-control-point distances.
+                // curve to the line segment [p0, p2] is 1/2 of the control-point-to-line-segment
+                // distance.
                 //
                 // The derivation is similar to that for the cubic Bezier (see below). In
                 // short:
                 //
-                // q}(t) = B0(t) p0 + B1(t) p1 + B2(t) p2
+                // q(t) = B0(t) p0 + B1(t) p1 + B2(t) p2
                 // dist(q(t), [p0, p1]) <= B1(t) dist(p1, [p0, p1])
                 //                       = 2 (1-t)t dist(p1, [p0, p1]).
                 //
                 // The maximum occurs at t=1/2, hence
                 // max(dist(q(t), [p0, p1] <= 1/2 dist(p1, [p0, p1])).
                 //
-                // A cheap upper bound for dist(p1, [p0, p1]) is max(dist(p1, p0), dist(p1, p2)).
-                //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
-                if f64::max((p1 - p0).hypot2(), (p1 - p2).hypot2()) <= 4. * TOL_2 {
+                let line = Line::new(p0, p2);
+                if line.nearest(p1, 0.).distance_sq <= 4. * TOL_2 {
                     callback.callback(LinePathEl::LineTo(p2));
                 } else {
                     let q = QuadBez::new(p0, p1, p2);
@@ -114,7 +113,7 @@ pub(crate) fn flatten<S: Simd>(
                 let p0 = last_pt;
                 // An upper bound on the shortest distance of any point on the cubic Bezier
                 // curve to the line segment [p0, p3] is 3/4 of the maximum of the
-                // endpoint-to-control-point distances.
+                // control-point-to-line-segment distances.
                 //
                 // With Bernstein weights Bi(t), we have
                 // c(t) = B0(t) p0 + B1(t) p1 + B2(t) p2 + B3(t) p3
@@ -123,16 +122,20 @@ pub(crate) fn flatten<S: Simd>(
                 // Through convexivity of the Euclidean distance function and the line segment,
                 // we have
                 // dist(c(t), [p0, p3]) <= B1(t) dist(p1, [p0, p3]) + B2(t) dist(p2, [p0, p3])
-                //                      <= B1(t) ||p1-p0|| + B2(t) ||p2-p3||
-                //                      <= (B1(t) + B2(t)) max(||p1-p0||, ||p2-p3|||)
-                //                       = 3 ((1-t)t^2 + (1-t)^2t) max(||p1-p0||, ||p2-p3||).
+                //                      <= (B1(t) + B2(t)) max(dist(p1, [p0, p3]), dist(p2, [p0, p3]))
+                //                       = 3 ((1-t)t^2 + (1-t)^2t) max(dist(p1, [p0, p3]), dist(p2, [p0, p3])).
                 //
                 // The inner polynomial has its maximum of 1/4 at t=1/2, hence
-                // max(dist(c(t), [p0, p3])) <= 3/4 max(||p1-p0||, ||p2-p3||).
+                // max(dist(c(t), [p0, p3])) <= 3/4 max(dist(p1, [p0, p3]), dist(p2, [p0, p3])).
                 //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
-                if f64::max((p0 - p1).hypot2(), (p3 - p2).hypot2()) <= 16. / 9. * TOL_2 {
+                let line = Line::new(p0, p3);
+                if f64::max(
+                    line.nearest(p1, 0.).distance_sq,
+                    line.nearest(p2, 0.).distance_sq,
+                ) <= 16. / 9. * TOL_2
+                {
                     callback.callback(LinePathEl::LineTo(p3));
                 } else {
                     let c = CubicBez::new(p0, p1, p2, p3);
@@ -523,7 +526,10 @@ fn flatten_cubic_simd<S: Simd>(simd: S, c: CubicBez, ctx: &mut FlattenCtx, accur
     estimate_subdiv_simd(simd, sqrt_tol, ctx);
     let sum: f32 = ctx.val[..n_quads].iter().sum();
     let n = ((0.5 * sum / sqrt_tol).ceil() as usize).max(1);
-    ctx.flattened_cubics.resize(n + 4, Point32::default());
+    let target_len = n + 4;
+    if target_len > ctx.flattened_cubics.len() {
+        ctx.flattened_cubics.resize(target_len, Point32::default());
+    }
 
     let step = sum / (n as f32);
     let step_recip = 1.0 / step;

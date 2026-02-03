@@ -250,7 +250,7 @@ fn circular_star(center: Point, n: usize, inner: f64, outer: f64) -> BezPath {
     let start_angle = -std::f64::consts::FRAC_PI_2;
     path.move_to(center + outer * Vec2::from_angle(start_angle));
     for i in 1..n * 2 {
-        let th = start_angle + i as f64 * std::f64::consts::PI / n as f64;
+        let th = start_angle + i as f64 * PI / n as f64;
         let r = if i % 2 == 0 { outer } else { inner };
         path.line_to(center + r * Vec2::from_angle(th));
     }

@@ -1,7 +1,7 @@
 [package]
 name = "vello_cpu"
 # When moving past 0.0.x, also update caveats in the README
-version = "0.0.5"
+version = "0.0.6"
 description = "A CPU-based renderer for Vello, optimized for SIMD and multithreaded execution."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
@@ -24,14 +24,15 @@ crossbeam-channel = { workspace = true, optional = true }
 ordered-channel = { workspace = true, optional = true, features = ["crossbeam-channel"] }
 rayon = { workspace = true, optional = true }
 thread_local = { workspace = true, optional = true }
+vello_api.workspace = true
 
 [features]
 # If adding new features, also add to `src/lib.rs`
 default = ["std", "png", "text", "u8_pipeline"]
 # Get floating point functions from the standard library (likely using your target’s libc).
-std = ["vello_common/std"]
+std = ["vello_common/std", "vello_api/std"]
 # Use floating point implementations from libm.
-libm = ["vello_common/libm"]
+libm = ["vello_common/libm", "vello_api/libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
 png = ["vello_common/png"]
 # Enable multi-threaded rendering.

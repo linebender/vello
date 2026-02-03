@@ -101,12 +101,8 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         simd.vectorize(
             #[inline(always)]
             || {
-                let color =
-                    u8x64::block_splat(u32x4::splat(simd, u32::from_ne_bytes(src)).to_bytes());
-
-                for el in dest.chunks_exact_mut(64) {
-                    el.copy_from_slice(color.as_slice());
-                }
+                let target: &mut [u32] = bytemuck::cast_slice_mut(dest);
+                target.fill(u32::from_ne_bytes(src));
             },
         );
     }
@@ -206,7 +202,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                 simd,
                 dest,
                 src,
-                bytemuck::cast_slice::<u8, [u8; 8]>(alphas).iter().copied(),
+                cast_slice::<u8, [u8; 8]>(alphas).iter().copied(),
             );
         } else {
             fill::alpha_composite_solid(simd, dest, src);
@@ -231,7 +227,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                 simd,
                 dest,
                 src_iter,
-                bytemuck::cast_slice::<u8, [u8; 8]>(alphas).iter().copied(),
+                cast_slice::<u8, [u8; 8]>(alphas).iter().copied(),
             );
         } else {
             fill::alpha_composite(simd, dest, src_iter);
@@ -252,7 +248,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         alphas: Option<&[u8]>,
         mask: Option<&Mask>,
     ) {
-        let alpha_iter = alphas.map(|a| bytemuck::cast_slice::<u8, [u8; 8]>(a).iter().copied());
+        let alpha_iter = alphas.map(|a| cast_slice::<u8, [u8; 8]>(a).iter().copied());
 
         let mask_iter = mask.map(|m| {
             iter::from_fn(|| {

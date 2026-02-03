@@ -247,10 +247,36 @@ struct Round {
     clear: [Vec<u32>; 2],
 }
 
+/// Reusable state used by the scheduler. We are holding this separately instead of integrating
+/// it into `Scheduler` because it avoids some borrowing issues.
+#[derive(Debug, Default)]
+pub(crate) struct SchedulerState {
+    /// The state of the current wide tile that is being processed.
+    tile_state: TileState,
+    /// Annotated commands for the current wide tile.
+    annotated_commands: Vec<AnnotatedCmd>,
+    /// Pointers to `PushBuf` commands.
+    pointer_to_push_buf_stack: Vec<usize>,
+}
+
+impl SchedulerState {
+    fn clear(&mut self) {
+        self.tile_state.clear();
+        self.annotated_commands.clear();
+        self.pointer_to_push_buf_stack.clear();
+    }
+}
+
 /// State for a single wide tile.
 #[derive(Debug, Default)]
 struct TileState {
     stack: Vec<TileEl>,
+}
+
+impl TileState {
+    fn clear(&mut self) {
+        self.stack.clear();
+    }
 }
 
 /// A claimed slot into one of the two slot textures (0, 1).
@@ -282,9 +308,9 @@ impl ClaimedSlot {
 /// TODO: In the future these annotations could be optionally enabled in coarse.rs directly avoiding
 /// the need to do linear scans.
 #[derive(Debug)]
-enum AnnotatedCmd<'a> {
-    /// A wrapped command - no semantic meaning added.
-    IdentityBorrowed(&'a Cmd),
+enum AnnotatedCmd {
+    /// The index of a wrapped command - no semantic meaning added.
+    Identity(usize),
     PushBuf,
     Empty,
     SrcOverNormalBlend,
@@ -294,18 +320,18 @@ enum AnnotatedCmd<'a> {
     PushBufWithTemporarySlot,
 }
 
-impl<'a> AnnotatedCmd<'a> {
-    fn as_cmd<'b: 'a>(&'b self) -> Option<&'a Cmd> {
+impl AnnotatedCmd {
+    fn as_cmd<'a>(&self, cmds: &'a [Cmd]) -> Option<&'a Cmd> {
         match self {
-            AnnotatedCmd::IdentityBorrowed(cmd) => Some(cmd),
-            AnnotatedCmd::PushBufWithTemporarySlot => Some(&Cmd::PushBuf(LayerKind::Regular(0))),
-            AnnotatedCmd::PushBuf => Some(&Cmd::PushBuf(LayerKind::Regular(0))),
-            AnnotatedCmd::SrcOverNormalBlend => Some(&Cmd::Blend(BlendMode {
+            Self::Identity(idx) => Some(&cmds[*idx]),
+            Self::PushBufWithTemporarySlot => Some(&Cmd::PushBuf(LayerKind::Regular(0))),
+            Self::PushBuf => Some(&Cmd::PushBuf(LayerKind::Regular(0))),
+            Self::SrcOverNormalBlend => Some(&Cmd::Blend(BlendMode {
                 mix: Mix::Normal,
                 compose: Compose::SrcOver,
             })),
-            AnnotatedCmd::PopBuf => Some(&Cmd::PopBuf),
-            AnnotatedCmd::Empty => None,
+            Self::PopBuf => Some(&Cmd::PopBuf),
+            Self::Empty => None,
         }
     }
 }
@@ -376,7 +402,7 @@ impl Scheduler {
             round: 0,
             total_slots,
             free,
-            rounds_queue: Default::default(),
+            rounds_queue: VecDeque::new(),
         }
     }
 
@@ -394,15 +420,22 @@ impl Scheduler {
 
         let slot_ix = self.free[texture].pop().unwrap();
 
-        match texture {
-            0 => Ok(ClaimedSlot::Texture0(slot_ix)),
-            1 => Ok(ClaimedSlot::Texture1(slot_ix)),
+        let slot = match texture {
+            0 => ClaimedSlot::Texture0(slot_ix),
+            1 => ClaimedSlot::Texture1(slot_ix),
             _ => panic!("invalid slot texture"),
-        }
+        };
+
+        // Since the slot was claimed, it needs to be cleared in the given round.
+        let round = self.get_round(self.round);
+        round.clear[slot.get_texture()].push(slot.get_idx() as u32);
+
+        Ok(slot)
     }
 
     pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
+        state: &mut SchedulerState,
         renderer: &mut R,
         scene: &Scene,
         paint_idxs: &[u32],
@@ -417,21 +450,24 @@ impl Scheduler {
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
 
-                let tile_state = self.initialize_tile_state(
+                state.clear();
+
+                self.initialize_tile_state(
+                    &mut state.tile_state,
                     wide_tile,
                     wide_tile_x,
                     wide_tile_y,
                     scene,
                     paint_idxs,
                 );
-                let annotated_cmds = prepare_cmds(&wide_tile.cmds);
+                prepare_cmds(&wide_tile.cmds, state);
                 self.do_tile(
+                    state,
                     renderer,
                     scene,
                     wide_tile_x,
                     wide_tile_y,
-                    &annotated_cmds,
-                    tile_state,
+                    &wide_tile.cmds,
                     paint_idxs,
                     &scene.wide.attrs,
                 )?;
@@ -510,11 +546,13 @@ impl Scheduler {
     }
 
     // Find the appropriate draw call for rendering.
+    #[inline(always)]
     fn draw_mut(&mut self, el_round: usize, texture_idx: usize) -> &mut Draw {
         &mut self.get_round(el_round).draws[texture_idx]
     }
 
     // Find the appropriate round for rendering.
+    #[inline(always)]
     fn get_round(&mut self, el_round: usize) -> &mut Round {
         let rel_round = el_round.saturating_sub(self.round);
         if self.rounds_queue.len() == rel_round {
@@ -525,16 +563,16 @@ impl Scheduler {
 
     fn initialize_tile_state(
         &mut self,
+        tile_state: &mut TileState,
         tile: &WideTile<MODE_HYBRID>,
         wide_tile_x: u16,
         wide_tile_y: u16,
         scene: &Scene,
         idxs: &[u32],
-    ) -> TileState {
-        let mut state = TileState::default();
+    ) {
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
         // commands to the final target.
-        state.stack.push(TileEl {
+        tile_state.stack.push(TileEl {
             dest_slot: ClaimedSlot::Texture0(SENTINEL_SLOT_IDX),
             temporary_slot: TemporarySlot::None,
             round: self.round,
@@ -558,35 +596,33 @@ impl Scheduler {
                 );
             }
         }
-        state
     }
 
     /// Iterates over wide tile commands and schedules them for rendering.
     ///
     /// Returns `Some(command_idx)` if there is more work to be done. Returns `None` if the wide
     /// tile has been fully consumed.
-    fn do_tile<'a, R: RendererBackend>(
+    fn do_tile<R: RendererBackend>(
         &mut self,
+        state: &mut SchedulerState,
         renderer: &mut R,
         scene: &Scene,
         wide_tile_x: u16,
         wide_tile_y: u16,
-        cmds: &'a [AnnotatedCmd<'a>],
-        mut state: TileState,
+        wide_tile_cmds: &[Cmd],
         paint_idxs: &[u32],
         attrs: &CommandAttrs,
     ) -> Result<(), RenderError> {
-        for annotated_cmd in cmds {
+        for annotated_cmd in &state.annotated_commands {
             // Note: this starts at 1 (for the final target)
-            let depth = state.stack.len();
-            let cmd = annotated_cmd.as_cmd();
-            if cmd.is_none() {
+            let depth = state.tile_state.stack.len();
+            let Some(cmd) = annotated_cmd.as_cmd(wide_tile_cmds) else {
                 continue;
-            }
+            };
 
-            match cmd.unwrap() {
+            match cmd {
                 Cmd::Fill(fill) => {
-                    let el = state.stack.last_mut().unwrap();
+                    let el = state.tile_state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
                     let fill_attrs = &attrs.fill[fill.attrs_idx as usize];
@@ -612,7 +648,7 @@ impl Scheduler {
                     draw.push(gpu_strip_builder.paint(payload, paint));
                 }
                 Cmd::AlphaFill(alpha_fill) => {
-                    let el = state.stack.last_mut().unwrap();
+                    let el = state.tile_state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
                     let fill_attrs = &attrs.fill[alpha_fill.attrs_idx as usize];
@@ -660,7 +696,7 @@ impl Scheduler {
                     // buffer is being pushed that will be blended back to `tos`, copy contents from
                     // `tos.dest_slot` to `tos.temporary_slot` ready for future blending.
                     {
-                        let tos: &mut TileEl = state.stack.last_mut().unwrap();
+                        let tos: &mut TileEl = state.tile_state.stack.last_mut().unwrap();
                         if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
                             let next_round = depth.is_multiple_of(2);
                             let el_round = tos.round + usize::from(next_round);
@@ -675,8 +711,10 @@ impl Scheduler {
                             // operations.
                             tos.round = el_round + 1;
 
-                            // Make sure the destination slot and temporary slot are cleared
-                            // appropriately.
+                            // First, we clear the temp slot. THEN, in the same round, we copy the data
+                            // from dest slot to temp slot. THEN, in the round after that, we clear
+                            // dest slot, so that in a future blending operation, we can store
+                            // results into dest slot again.
                             let dest_slot = tos.dest_slot;
                             let round = self.get_round(el_round);
                             round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
@@ -693,15 +731,9 @@ impl Scheduler {
                     // Push a new tile.
                     let ix = depth % 2;
                     let slot = self.claim_free_slot(ix, renderer)?;
-                    {
-                        let round = self.get_round(self.round);
-                        round.clear[slot.get_texture()].push(slot.get_idx() as u32);
-                    }
                     let temporary_slot =
                         if matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot) {
                             let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
-                            let round = self.get_round(self.round);
-                            round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
                             debug_assert_ne!(
                                 slot.get_texture(),
                                 temp_slot.get_texture(),
@@ -711,7 +743,7 @@ impl Scheduler {
                         } else {
                             TemporarySlot::None
                         };
-                    state.stack.push(TileEl {
+                    state.tile_state.stack.push(TileEl {
                         dest_slot: slot,
                         temporary_slot,
                         round: self.round,
@@ -719,8 +751,8 @@ impl Scheduler {
                     });
                 }
                 Cmd::PopBuf => {
-                    let tos = state.stack.pop().unwrap();
-                    let nos = state.stack.last_mut().unwrap();
+                    let tos = state.tile_state.stack.pop().unwrap();
+                    let nos = state.tile_state.stack.last_mut().unwrap();
                     let next_round = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
                     nos.round = round;
@@ -743,8 +775,8 @@ impl Scheduler {
                     }
                 }
                 Cmd::ClipFill(clip_fill) => {
-                    let tos: &TileEl = &state.stack[depth - 1];
-                    let nos = &state.stack[depth - 2];
+                    let tos: &TileEl = &state.tile_state.stack[depth - 1];
+                    let nos = &state.tile_state.stack[depth - 2];
 
                     // Basically if we are writing onto the even texture, we need to go up a round
                     // to target it.
@@ -781,12 +813,12 @@ impl Scheduler {
                     };
                     draw.push(gpu_strip_builder.copy_from_slot(tos.dest_slot.get_idx(), 0xFF));
 
-                    let nos_ptr = state.stack.len() - 2;
-                    state.stack[nos_ptr].temporary_slot.invalidate();
+                    let nos_ptr = state.tile_state.stack.len() - 2;
+                    state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
                 }
                 Cmd::ClipStrip(clip_alpha_fill) => {
-                    let tos = &state.stack[depth - 1];
-                    let nos = &state.stack[depth - 2];
+                    let tos = &state.tile_state.stack[depth - 1];
+                    let nos = &state.tile_state.stack[depth - 2];
 
                     let next_round = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
@@ -831,15 +863,15 @@ impl Scheduler {
                             .with_sparse(clip_alpha_fill.width, col_idx)
                             .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
                     );
-                    let nos_ptr = state.stack.len() - 2;
-                    state.stack[nos_ptr].temporary_slot.invalidate();
+                    let nos_ptr = state.tile_state.stack.len() - 2;
+                    state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
                 }
                 Cmd::Opacity(opacity) => {
-                    state.stack.last_mut().unwrap().opacity = *opacity;
+                    state.tile_state.stack.last_mut().unwrap().opacity = *opacity;
                 }
                 Cmd::Blend(mode) => {
-                    let tos = state.stack.last().unwrap();
-                    let nos = &state.stack[state.stack.len() - 2];
+                    let tos = state.tile_state.stack.last().unwrap();
+                    let nos = &state.tile_state.stack[state.tile_state.stack.len() - 2];
 
                     let next_round: bool = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
@@ -871,8 +903,8 @@ impl Scheduler {
                             compose_mode,
                         ));
                         // Invalidate the temporary slot after use
-                        let nos_ptr = state.stack.len() - 2;
-                        state.stack[nos_ptr].temporary_slot.invalidate();
+                        let nos_ptr = state.tile_state.stack.len() - 2;
+                        state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
                     } else {
                         assert_eq!(
                             nos.dest_slot.get_idx(),
@@ -898,6 +930,7 @@ impl Scheduler {
     }
 
     /// Process a paint and return (`payload`, `paint`)
+    #[inline(always)]
     fn process_paint(
         paint: &Paint,
         scene: &Scene,
@@ -1053,15 +1086,19 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 ///
 /// TODO: Can be triggered via a const generic on coarse draw cmd generation which will avoid
 /// a linear scan.
-fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
+fn prepare_cmds(cmds: &[Cmd], state: &mut SchedulerState) {
+    let annotated_commands = &mut state.annotated_commands;
+    let pointer_to_push_buf_stack = &mut state.pointer_to_push_buf_stack;
+
     // Reserve room for three extra items such that we can prevent repeated blends into the surface.
-    let mut annotated_commands: Vec<AnnotatedCmd<'a>> = Vec::with_capacity(cmds.len() + 3);
-    let mut pointer_to_push_buf_stack: Vec<usize> = Default::default();
+    annotated_commands.reserve(cmds.len() + 3);
+
     // We pretend that the surface might be blended into. This will be removed if no blends occur to
     // the surface.
     pointer_to_push_buf_stack.push(0);
     annotated_commands.push(AnnotatedCmd::PushBuf);
-    for cmd in cmds {
+
+    for (cmd_idx, cmd) in cmds.iter().enumerate() {
         match cmd {
             Cmd::PushBuf(_layer_id) => {
                 // TODO: Handle layer_id for filter effects when implemented.
@@ -1083,7 +1120,7 @@ fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
             _ => {}
         };
 
-        annotated_commands.push(AnnotatedCmd::IdentityBorrowed(cmd));
+        annotated_commands.push(AnnotatedCmd::Identity(cmd_idx));
     }
 
     if matches!(
@@ -1098,5 +1135,4 @@ fn prepare_cmds<'a>(cmds: &'a [Cmd]) -> Vec<AnnotatedCmd<'a>> {
         // This extra wrapping can be removed.
         annotated_commands[0] = AnnotatedCmd::Empty;
     }
-    annotated_commands
 }

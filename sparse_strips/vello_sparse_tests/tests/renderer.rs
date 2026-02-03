@@ -385,12 +385,7 @@ impl Renderer for HybridRenderer {
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
-        let paint_type: PaintType = paint.into();
-        match paint_type {
-            PaintType::Solid(s) => self.scene.set_paint(s),
-            PaintType::Gradient(g) => self.scene.set_paint(g),
-            PaintType::Image(i) => self.scene.set_paint(i),
-        }
+        self.scene.set_paint(paint);
     }
 
     fn set_paint_transform(&mut self, affine: Affine) {
@@ -705,12 +700,7 @@ impl Renderer for HybridRenderer {
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
-        let paint_type: PaintType = paint.into();
-        match paint_type {
-            PaintType::Solid(s) => self.scene.set_paint(s),
-            PaintType::Gradient(g) => self.scene.set_paint(g),
-            PaintType::Image(i) => self.scene.set_paint(i),
-        }
+        self.scene.set_paint(paint);
     }
 
     fn set_paint_transform(&mut self, affine: Affine) {

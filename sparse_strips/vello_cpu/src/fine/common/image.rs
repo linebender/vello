@@ -4,7 +4,6 @@
 use crate::fine::macros::{f32x16_painter, u8x16_painter};
 use crate::fine::{PosExt, Splat4thExt, u8_to_f32};
 use crate::kurbo::Point;
-use crate::peniko::ImageQuality;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4};
 use vello_common::pixmap::Pixmap;
@@ -145,13 +144,21 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
 u8x16_painter!(NNImagePainter<'_, S>);
 
 /// A painter for images with bilinear or bicubic filtering.
+///
+/// The painter is generic over sampler quality using the const-generic `QUALITY` parameter.
+///
+/// - Set `QUALITY` to `1` for bilinear sampling; or
+/// - set `QUALITY` to `2` for bicubic sampling.
+///
+/// These values for `QUALITY` are the same numeric values as defined by
+/// [`crate::peniko::ImageQuality`].
 #[derive(Debug)]
-pub(crate) struct FilteredImagePainter<'a, S: Simd> {
+pub(crate) struct FilteredImagePainter<'a, S: Simd, const QUALITY: u8> {
     data: ImagePainterData<'a, S>,
     simd: S,
 }
 
-impl<'a, S: Simd> FilteredImagePainter<'a, S> {
+impl<'a, S: Simd, const QUALITY: u8> FilteredImagePainter<'a, S, QUALITY> {
     pub(crate) fn new(
         simd: S,
         image: &'a EncodedImage,
@@ -165,7 +172,7 @@ impl<'a, S: Simd> FilteredImagePainter<'a, S> {
     }
 }
 
-impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
+impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALITY> {
     type Item = f32x16<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -226,9 +233,9 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
             };
         }
 
-        match self.data.image.sampler.quality {
-            ImageQuality::Low => unreachable!(),
-            ImageQuality::Medium => {
+        match QUALITY {
+            // medium quality: bilinear
+            1 => {
                 // <https://github.com/google/skia/blob/220738774f7a0ce4a6c7bd17519a336e5e5dea5b/src/opts/SkRasterPipeline_opts.h#L5039-L5078>
                 let cx = [1.0 - x_fract, x_fract];
                 let cy = [1.0 - y_fract, y_fract];
@@ -258,7 +265,8 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
 
                 interpolated_color *= f32x16::splat(self.simd, 1.0 / 255.0);
             }
-            ImageQuality::High => {
+            // high quality: bicubic
+            2 => {
                 // Compare to <https://github.com/google/skia/blob/84ff153b0093fc83f6c77cd10b025c06a12c5604/src/opts/SkRasterPipeline_opts.h#L5030-L5075>.
                 let cx = weights(self.simd, x_fract);
                 let cy = weights(self.simd, y_fract);
@@ -310,6 +318,9 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
                     .max(f32x16::splat(self.simd, 0.0))
                     .min(alphas);
             }
+            _ => panic!(
+                "Unknown value for `FilteredImagePainter`'s const-generic `QUALITY` parameter. Expected `1` for bilinear or `2` for bicubic, got: `{QUALITY}`."
+            ),
         }
 
         self.data.cur_pos += self.data.image.x_advance;
@@ -318,7 +329,10 @@ impl<S: Simd> Iterator for FilteredImagePainter<'_, S> {
     }
 }
 
-f32x16_painter!(FilteredImagePainter<'_, S>);
+// Bilinear
+f32x16_painter!(FilteredImagePainter<'_, S, 1>);
+// Bicubic
+f32x16_painter!(FilteredImagePainter<'_, S, 2>);
 
 /// Computes the positive fractional part of a value: `val - val.floor()`.
 ///

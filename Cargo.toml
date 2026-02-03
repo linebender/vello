@@ -48,8 +48,7 @@ license = "Apache-2.0 OR MIT"
 repository = "https://github.com/linebender/vello"
 
 [workspace.lints]
-
-# LINEBENDER LINT SET - Cargo.toml - v5
+# LINEBENDER LINT SET - Cargo.toml - v7
 # See https://linebender.org/wiki/canonical-lints/
 rust.keyword_idents_2024 = "forbid"
 rust.non_ascii_idents = "forbid"
@@ -60,18 +59,19 @@ rust.elided_lifetimes_in_paths = "warn"
 rust.missing_debug_implementations = "warn"
 rust.missing_docs = "warn"
 rust.trivial_numeric_casts = "warn"
-rust.unexpected_cfgs = "warn"
 rust.unnameable_types = "warn"
 rust.unreachable_pub = "warn"
 rust.unused_import_braces = "warn"
 rust.unused_lifetimes = "warn"
 rust.unused_macro_rules = "warn"
+rust.unused_qualifications = "warn"
 
 clippy.too_many_arguments = "allow"
 
 clippy.allow_attributes_without_reason = "warn"
 clippy.cast_possible_truncation = "warn"
 clippy.collection_is_never_read = "warn"
+clippy.default_trait_access = "warn"
 clippy.dbg_macro = "warn"
 clippy.debug_assert_with_mut_call = "warn"
 clippy.doc_markdown = "warn"
@@ -83,7 +83,6 @@ clippy.missing_assert_message = "warn"
 clippy.missing_fields_in_debug = "warn"
 clippy.same_functions_in_if_condition = "warn"
 clippy.semicolon_if_nothing_returned = "warn"
-clippy.shadow_unrelated = "warn"
 clippy.should_panic_without_expect = "warn"
 clippy.todo = "warn"
 clippy.unseparated_literal_suffix = "warn"
@@ -121,10 +120,10 @@ fearless_simd = { version = "0.3.0", default-features = false }
 
 # The below crates are experimental!
 vello_api = { path = "sparse_strips/vello_api", default-features = false }
-vello_common = { version = "0.0.5", path = "sparse_strips/vello_common", default-features = false }
-vello_cpu = { version = "0.0.5", path = "sparse_strips/vello_cpu" }
-vello_hybrid = { version = "0.0.5", path = "sparse_strips/vello_hybrid" }
-vello_sparse_shaders = { version = "0.0.5", path = "sparse_strips/vello_sparse_shaders" }
+vello_common = { version = "0.0.6", path = "sparse_strips/vello_common", default-features = false }
+vello_cpu = { version = "0.0.6", path = "sparse_strips/vello_cpu" }
+vello_hybrid = { version = "0.0.6", path = "sparse_strips/vello_hybrid" }
+vello_sparse_shaders = { version = "0.0.6", path = "sparse_strips/vello_sparse_shaders" }
 vello_example_scenes = { path = "sparse_strips/vello_example_scenes" }
 vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
 

@@ -27,7 +27,7 @@ struct RendererWrapper {
 }
 
 impl RendererWrapper {
-    fn new(canvas: web_sys::HtmlCanvasElement) -> Self {
+    fn new(canvas: HtmlCanvasElement) -> Self {
         let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
 
         Self { renderer }
@@ -38,7 +38,7 @@ impl RendererWrapper {
 struct AppState {
     scenes: Box<[AnyScene<Scene>]>,
     current_scene: usize,
-    scene: vello_hybrid::Scene,
+    scene: Scene,
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Vec2>,
@@ -59,7 +59,7 @@ impl AppState {
         let mut app_state = Self {
             scenes,
             current_scene: 0,
-            scene: vello_hybrid::Scene::new(width as u16, height as u16),
+            scene: Scene::new(width as u16, height as u16),
             transform: Affine::IDENTITY,
             mouse_down: false,
             last_cursor_position: None,
@@ -103,7 +103,7 @@ impl AppState {
         self.width = width;
         self.height = height;
 
-        self.scene = vello_hybrid::Scene::new(width as u16, height as u16);
+        self.scene = Scene::new(width as u16, height as u16);
 
         self.need_render = true;
     }
@@ -264,7 +264,7 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         .unwrap()
         .create_element("canvas")
         .unwrap()
-        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .dyn_into::<HtmlCanvasElement>()
         .unwrap();
     canvas.set_width(canvas_width as u32);
     canvas.set_height(canvas_height as u32);
@@ -433,12 +433,12 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
 }
 
 /// Creates a `HTMLCanvasElement` and renders a single scene into it
-pub async fn render_scene(scene: vello_hybrid::Scene, width: u16, height: u16) {
+pub async fn render_scene(scene: Scene, width: u16, height: u16) {
     let canvas = web_sys::Window::document(&web_sys::window().unwrap())
         .unwrap()
         .create_element("canvas")
         .unwrap()
-        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .dyn_into::<HtmlCanvasElement>()
         .unwrap();
     canvas.set_width(width as u32);
     canvas.set_height(height as u32);

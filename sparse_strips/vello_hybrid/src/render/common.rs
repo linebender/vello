@@ -11,14 +11,12 @@
 use bytemuck::{Pod, Zeroable};
 
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
-pub(crate) const GPU_ENCODED_IMAGE_SIZE_TEXELS: u32 =
-    (core::mem::size_of::<GpuEncodedImage>() / 16) as u32;
+pub(crate) const GPU_ENCODED_IMAGE_SIZE_TEXELS: u32 = (size_of::<GpuEncodedImage>() / 16) as u32;
 pub(crate) const GPU_LINEAR_GRADIENT_SIZE_TEXELS: u32 =
-    (core::mem::size_of::<GpuLinearGradient>() / 16) as u32;
+    (size_of::<GpuLinearGradient>() / 16) as u32;
 pub(crate) const GPU_RADIAL_GRADIENT_SIZE_TEXELS: u32 =
-    (core::mem::size_of::<GpuRadialGradient>() / 16) as u32;
-pub(crate) const GPU_SWEEP_GRADIENT_SIZE_TEXELS: u32 =
-    (core::mem::size_of::<GpuSweepGradient>() / 16) as u32;
+    (size_of::<GpuRadialGradient>() / 16) as u32;
+pub(crate) const GPU_SWEEP_GRADIENT_SIZE_TEXELS: u32 = (size_of::<GpuSweepGradient>() / 16) as u32;
 
 /// Dimensions of the rendering target.
 #[derive(Debug, PartialEq, Eq, Clone)]

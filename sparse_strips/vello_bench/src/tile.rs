@@ -4,10 +4,15 @@
 use crate::data::get_data_items;
 use criterion::Criterion;
 use vello_common::fearless_simd::Level;
+use criterion::{BenchmarkId, Criterion};
+use vello_common::flatten::Line;
 use vello_common::tile::Tiles;
 
-pub fn tile(c: &mut Criterion) {
-    let mut g = c.benchmark_group("tile");
+fn run_tile_benchmark<F>(c: &mut Criterion, group_name: &str, op: F)
+where
+    F: Fn(&mut Tiles, &[Line], u16, u16) + Copy,
+{
+    let mut g = c.benchmark_group(group_name);
     g.sample_size(50);
 
     macro_rules! tile_single {
@@ -26,11 +31,19 @@ pub fn tile(c: &mut Criterion) {
                         &mut Vec::new(),
                     );
                 })
-            });
-        };
-    }
-
     for item in get_data_items() {
-        tile_single!(item);
+        let lines = item.lines();
+        g.bench_with_input(BenchmarkId::from_parameter(&item.name), &item, |b, item| {
+            b.iter(|| {
+                let mut tiler = Tiles::new(Level::new());
+                op(&mut tiler, &lines, item.width, item.height);
+            });
+        });
     }
+    g.finish();
+}
+
+pub fn tile(c: &mut Criterion) {
+    run_tile_benchmark(c, "tile_aaa", Tiles::make_tiles_analytic_aa);
+    run_tile_benchmark(c, "tile_msaa", Tiles::make_tiles_msaa);
 }

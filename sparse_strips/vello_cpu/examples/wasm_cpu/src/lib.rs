@@ -20,25 +20,25 @@ use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
 /// State that handles scene rendering and interactions
 struct AppState {
-    scenes: Box<[AnyScene<vello_cpu::RenderContext>]>,
+    scenes: Box<[AnyScene<RenderContext>]>,
     current_scene: usize,
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Vec2>,
     width: u32,
     height: u32,
-    renderer: vello_cpu::RenderContext,
+    renderer: RenderContext,
     pixmap: vello_common::pixmap::Pixmap,
     need_render: bool,
     canvas: HtmlCanvasElement,
 }
 
 impl AppState {
-    fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<vello_cpu::RenderContext>]>) -> Self {
+    fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<RenderContext>]>) -> Self {
         let width = canvas.width();
         let height = canvas.height();
 
-        let renderer = vello_cpu::RenderContext::new_with(
+        let renderer = RenderContext::new_with(
             width as u16,
             height as u16,
             vello_cpu::RenderSettings {
@@ -101,7 +101,7 @@ impl AppState {
         self.height = height;
 
         self.pixmap.resize(width as u16, height as u16);
-        self.renderer = vello_cpu::RenderContext::new_with(
+        self.renderer = RenderContext::new_with(
             width as u16,
             height as u16,
             vello_cpu::RenderSettings {
@@ -200,7 +200,7 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         .unwrap()
         .create_element("canvas")
         .unwrap()
-        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .dyn_into::<HtmlCanvasElement>()
         .unwrap();
     canvas.set_width(canvas_width as u32);
     canvas.set_height(canvas_height as u32);

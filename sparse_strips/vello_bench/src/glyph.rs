@@ -28,7 +28,7 @@ pub fn glyph(c: &mut Criterion) {
             Level::try_detect().unwrap_or(Level::fallback()),
         ),
         strip_storage: StripStorage::default(),
-        glyph_caches: Default::default(),
+        glyph_caches: None,
     };
 
     const TEXT: &str = "The quick brown fox jumps over the lazy dog 0123456789";

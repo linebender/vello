@@ -36,14 +36,14 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler},
+    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
 };
 
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
-use core::{fmt::Debug, mem};
+use core::fmt::Debug;
 use vello_common::{
     coarse::WideTile,
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
@@ -82,6 +82,8 @@ pub struct WebGlRenderer {
     programs: WebGlPrograms,
     /// Scheduler for scheduling draws.
     scheduler: Scheduler,
+    /// The state used by the scheduler.
+    scheduler_state: SchedulerState,
     /// WebGL context.
     gl: WebGl2RenderingContext,
     /// Image cache for storing images atlas allocations.
@@ -152,6 +154,7 @@ impl WebGlRenderer {
         Self {
             programs: WebGlPrograms::new(gl.clone(), &image_cache, total_slots),
             scheduler: Scheduler::new(total_slots),
+            scheduler_state: SchedulerState::default(),
             gl,
             image_cache,
             encoded_paints: Vec::new(),
@@ -181,7 +184,7 @@ impl WebGlRenderer {
             &self.gl,
             &mut self.gradient_cache,
             &self.encoded_paints,
-            &scene.strip_storage.alphas,
+            &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
             &self.paint_idxs,
         );
@@ -189,7 +192,8 @@ impl WebGlRenderer {
             programs: &mut self.programs,
             gl: &self.gl,
         };
-        self.scheduler.do_scene(&mut ctx, scene, &self.paint_idxs)?;
+        self.scheduler
+            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
         self.gradient_cache.maintain();
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
@@ -506,8 +510,6 @@ struct WebGlPrograms {
     resources: WebGlResources,
     /// Dimensions of the rendering target.
     render_size: RenderSize,
-    /// Scratch buffer for staging alpha texture data.
-    alpha_data: Vec<u8>,
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
 }
@@ -625,7 +627,6 @@ impl WebGlPrograms {
         initialize_strip_vao(&gl, &resources);
         initialize_clear_vao(&gl, &resources);
 
-        let alpha_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
         let encoded_paints_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
 
         gl.enable(WebGl2RenderingContext::BLEND);
@@ -644,7 +645,6 @@ impl WebGlPrograms {
                 width: 0,
                 height: 0,
             },
-            alpha_data,
             encoded_paints_data,
         }
     }
@@ -655,13 +655,13 @@ impl WebGlPrograms {
         gl: &WebGl2RenderingContext,
         gradient_cache: &mut GradientRampCache,
         encoded_paints: &[GpuEncodedPaint],
-        alphas: &[u8],
+        alphas: &mut Vec<u8>,
         render_size: &RenderSize,
         paint_idxs: &[u32],
     ) {
         let max_texture_dimension_2d = self.resources.max_texture_dimension_2d;
 
-        self.maybe_resize_alphas_tex(max_texture_dimension_2d, alphas);
+        self.maybe_resize_alphas_tex(max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(max_texture_dimension_2d, paint_idxs);
         self.maybe_update_config_buffer(gl, max_texture_dimension_2d, render_size);
 
@@ -734,8 +734,8 @@ impl WebGlPrograms {
     }
 
     /// Update the alpha texture size if needed.
-    fn maybe_resize_alphas_tex(&mut self, max_texture_dimension_2d: u32, alphas: &[u8]) {
-        let required_alpha_height = (alphas.len() as u32)
+    fn maybe_resize_alphas_tex(&mut self, max_texture_dimension_2d: u32, alphas_len: usize) {
+        let required_alpha_height = (alphas_len as u32)
             // There are 16 1-byte alpha values per texel.
             .div_ceil(max_texture_dimension_2d << 4);
 
@@ -746,10 +746,6 @@ impl WebGlPrograms {
                 required_alpha_height <= max_texture_dimension_2d,
                 "Alpha texture height exceeds max texture dimensions"
             );
-
-            // Resize the alpha texture staging buffer.
-            let required_alpha_size = (max_texture_dimension_2d * required_alpha_height) << 4;
-            self.alpha_data.resize(required_alpha_size as usize, 0);
 
             // Track the new height.
             self.resources.alpha_texture_height = required_alpha_height;
@@ -902,45 +898,45 @@ impl WebGlPrograms {
     }
 
     /// Upload alpha data to the texture.
-    fn upload_alpha_texture(&mut self, gl: &WebGl2RenderingContext, alphas: &[u8]) {
-        if !alphas.is_empty() {
-            let alpha_texture_width = self.resources.max_texture_dimension_2d;
-            let alpha_texture_height = self.resources.alpha_texture_height;
-
-            debug_assert!(
-                alphas.len() <= (alpha_texture_width * alpha_texture_height * 16) as usize,
-                "Alpha texture dimensions are too small to fit the alpha data"
-            );
-
-            // After this copy to `self.alpha_data`, there may be stale trailing alpha values. These
-            // are not sampled, so can be left as-is.
-            // TODO: Apply the same optimization as gradient texture upload - use alphas directly
-            // instead of copying to staging buffer, by taking alphas from strip generator as a vec,
-            // resizing appropriately, truncating, and restoring back to the generator.
-            self.alpha_data[0..alphas.len()].copy_from_slice(alphas);
-            gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-            gl.bind_texture(
-                WebGl2RenderingContext::TEXTURE_2D,
-                Some(&self.resources.alphas_texture),
-            );
-
-            // Pack alpha values into RGBA uint32 texture
-            let alpha_data_as_u32 = bytemuck::cast_slice::<u8, u32>(&self.alpha_data);
-            let packed_array = js_sys::Uint32Array::from(alpha_data_as_u32);
-
-            gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-                WebGl2RenderingContext::TEXTURE_2D,
-                0,
-                WebGl2RenderingContext::RGBA32UI as i32,
-                alpha_texture_width as i32,
-                alpha_texture_height as i32,
-                0,
-                WebGl2RenderingContext::RGBA_INTEGER,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                Some(&packed_array),
-            )
-            .unwrap();
+    fn upload_alpha_texture(&mut self, gl: &WebGl2RenderingContext, alphas: &mut Vec<u8>) {
+        if alphas.is_empty() {
+            return;
         }
+
+        let alpha_texture_width = self.resources.max_texture_dimension_2d;
+        let alpha_texture_height = self.resources.alpha_texture_height;
+        let total_size = alpha_texture_width as usize * alpha_texture_height as usize * 16;
+
+        let original_len = alphas.len();
+
+        // Temporarily pad the length of the alphas to the texture size before uploading.
+        alphas.resize(total_size, 0);
+
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.resources.alphas_texture),
+        );
+
+        // Pack alpha values into RGBA uint32 texture
+        let alpha_data_as_u32 = bytemuck::cast_slice::<u8, u32>(alphas);
+        let packed_array = js_sys::Uint32Array::from(alpha_data_as_u32);
+
+        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+            WebGl2RenderingContext::TEXTURE_2D,
+            0,
+            WebGl2RenderingContext::RGBA32UI as i32,
+            alpha_texture_width as i32,
+            alpha_texture_height as i32,
+            0,
+            WebGl2RenderingContext::RGBA_INTEGER,
+            WebGl2RenderingContext::UNSIGNED_INT,
+            Some(&packed_array),
+        )
+        .unwrap();
+
+        // Truncate back to the original size.
+        alphas.truncate(original_len);
     }
 
     /// Upload encoded paints to the texture.
@@ -1057,9 +1053,9 @@ impl WebGlPrograms {
 struct WebGlStateGuard<'a> {
     gl: &'a WebGl2RenderingContext,
     config: WebGlStateConfig,
-    original_framebuffer: Option<web_sys::WebGlFramebuffer>,
-    original_read_framebuffer: Option<web_sys::WebGlFramebuffer>,
-    original_texture_2d_array: Option<web_sys::WebGlTexture>,
+    original_framebuffer: Option<WebGlFramebuffer>,
+    original_read_framebuffer: Option<WebGlFramebuffer>,
+    original_texture_2d_array: Option<WebGlTexture>,
     scissor_enabled: bool,
     viewport: [i32; 4],
 }
@@ -1071,7 +1067,7 @@ impl<'a> WebGlStateGuard<'a> {
         let original_framebuffer = if config.framebuffer {
             gl.get_parameter(WebGl2RenderingContext::FRAMEBUFFER_BINDING)
                 .ok()
-                .and_then(|v| v.dyn_into::<web_sys::WebGlFramebuffer>().ok())
+                .and_then(|v| v.dyn_into::<WebGlFramebuffer>().ok())
         } else {
             None
         };
@@ -1080,7 +1076,7 @@ impl<'a> WebGlStateGuard<'a> {
         let original_read_framebuffer = if config.read_framebuffer {
             gl.get_parameter(WebGl2RenderingContext::READ_FRAMEBUFFER_BINDING)
                 .ok()
-                .and_then(|v| v.dyn_into::<web_sys::WebGlFramebuffer>().ok())
+                .and_then(|v| v.dyn_into::<WebGlFramebuffer>().ok())
         } else {
             None
         };
@@ -1089,7 +1085,7 @@ impl<'a> WebGlStateGuard<'a> {
         let original_texture_2d_array = if config.texture_2d_array {
             gl.get_parameter(WebGl2RenderingContext::TEXTURE_BINDING_2D_ARRAY)
                 .ok()
-                .and_then(|v| v.dyn_into::<web_sys::WebGlTexture>().ok())
+                .and_then(|v| v.dyn_into::<WebGlTexture>().ok())
         } else {
             None
         };
@@ -1658,7 +1654,7 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
         Some(&resources.strips_buffer),
     );
 
-    let stride = mem::size_of::<GpuStrip>() as i32;
+    let stride = size_of::<GpuStrip>() as i32;
     debug_assert_eq!(stride, 20, "expected stride of 20");
 
     // Configure attributes.
@@ -2142,7 +2138,7 @@ struct WebGlTextureSize {
 fn copy_to_texture_array_layer(
     gl: &WebGl2RenderingContext,
     source_setup: impl FnOnce(&WebGl2RenderingContext),
-    dest_texture_array: &web_sys::WebGlTexture,
+    dest_texture_array: &WebGlTexture,
     dest_layer: u32,
     dest_offset: [u32; 2],
     copy_size: [u32; 2],

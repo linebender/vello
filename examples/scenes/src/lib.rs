@@ -11,7 +11,6 @@
     unreachable_pub,
     missing_docs,
     clippy::cast_possible_truncation,
-    clippy::shadow_unrelated,
     clippy::allow_attributes_without_reason
 )]
 

@@ -113,7 +113,10 @@ jobs:
         run: cargo rdme --check --workspace-project=vello_common
     
       - name: Run cargo rdme (vello_api)
-        run: cargo rdme --check --heading-base-level=0 --workspace-project=vello_api
+        run: cargo rdme --check --workspace-project=vello_api
+
+      - name: Run cargo rdme (vello_hybrid)
+        run: cargo rdme --check --workspace-project=vello_hybrid
 
   clippy-stable:
     name: cargo clippy

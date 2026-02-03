@@ -165,6 +165,11 @@ struct StripInstance {
     // [width, dense_width] packed as u16's
     // width — width of the strip
     // dense_width — width of the portion where alpha blending should be applied
+    // Note that currently, if the strip instance represents an actual strip (i.e. an anti-aliased region),
+    // width = dense_width. If the StripInstance represents a sparse fill region, then dense_width = 0.
+    // TODO: In the future, this could be optimized such that `width` always represents the width and a simple
+    // 1-bit flag is used to distinguish between sparse fill region and strip. This frees up 15 other bits.
+    // Otherwise, it might also be possible to merge a strip and sparse fill command into a single strip instance.
     @location(1) widths: u32,
     // Alpha texture column index where this strip's alpha values begin
     // There are [`Config::strip_height`] alpha values per column.
@@ -275,9 +280,11 @@ var clip_input_texture: texture_2d<f32>;
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let x = u32(floor(in.tex_coord.x));
     var alpha = 1.0;
-    // Determine if the current fragment is within the dense (alpha) region
-    // If so, sample the alpha value from the texture; otherwise, alpha remains fully opaque (1.0)
-    if x < in.dense_end {
+    // This if condition essentially checks whether the current pixel lies within a strip or a sparse
+    // fill region. In the former case, `dense_end` will be bigger than 0 since `dense_width` != 0. In the latter
+    // case, `dense_end` will always be zero since for sparse regions `col_idx` and `dense_width` are both set to
+    // zero.
+    if in.dense_end != 0 {
         let y = u32(floor(in.tex_coord.y));
         // Retrieve alpha value from the texture. We store 16 1-byte alpha
         // values per texel, with each color channel packing 4 alpha values.
@@ -413,7 +420,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             
             // Calculate fragment position and apply transform
             let fragment_pos = in.sample_xy;
-            let grad_pos = vec2<f32>(
+            var grad_pos = vec2<f32>(
                 sweep_gradient.transform[0] * fragment_pos.x + 
                 sweep_gradient.transform[2] * fragment_pos.y + 
                 sweep_gradient.transform[4],
@@ -421,6 +428,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 sweep_gradient.transform[3] * fragment_pos.y + 
                 sweep_gradient.transform[5]
             );
+
+            // Before passing the position to the angle calculation, we bias
+            // very small coordinates to 0. Otherwise the sweep gradient's seam
+            // may flicker, because the angle calculation uses the coordinates'
+            // signs to select a quadrant. For coordinates around 0, slight
+            // noise in the coordinate calculation can then land the
+            // calculation in different quadrants. That flickering is quite
+            // noticeable as the seam is not anti-aliased. The flickering may
+            // vary across machines. See
+            // <https://github.com/linebender/vello/pull/1352>.
+            grad_pos = select(grad_pos, vec2(0.0), abs(grad_pos) < vec2(NEARLY_ZERO_TOLERANCE));
             
             // For sweep gradient, calculate angle from center using fast polynomial approximation
             let unit_angle = xy_to_unit_angle(grad_pos.x, grad_pos.y);

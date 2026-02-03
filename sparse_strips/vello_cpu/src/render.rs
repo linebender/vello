@@ -21,8 +21,6 @@ use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use vello_common::mask::Mask;
-#[cfg(feature = "text")]
-use vello_common::paint::ImageSource;
 use vello_common::paint::{Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
@@ -34,7 +32,8 @@ use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage
 use vello_common::{
     color::{AlphaColor, Srgb},
     colr::{ColrPainter, ColrRenderer},
-    glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph},
+    glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph},
+    paint::ImageSource,
 };
 
 /// A render context for CPU-based 2D graphics rendering.
@@ -75,7 +74,7 @@ pub struct RenderContext {
     pub(crate) render_settings: RenderSettings,
     dispatcher: Box<dyn Dispatcher>,
     #[cfg(feature = "text")]
-    pub(crate) glyph_caches: Option<vello_common::glyph::GlyphCaches>,
+    pub(crate) glyph_caches: Option<GlyphCaches>,
 }
 
 /// Settings to apply to the render context.
@@ -170,7 +169,7 @@ impl RenderContext {
             encoded_paints,
             filter: None,
             #[cfg(feature = "text")]
-            glyph_caches: Some(Default::default()),
+            glyph_caches: Some(GlyphCaches::default()),
         }
     }
 
@@ -712,14 +711,25 @@ impl GlyphRenderer for RenderContext {
                     pix
                 };
 
+                let has_skew = prepared_glyph.transform.as_coeffs()[1] != 0.0
+                    || prepared_glyph.transform.as_coeffs()[2] != 0.0;
+
                 let image = vello_common::paint::Image {
                     image: ImageSource::Pixmap(Arc::new(glyph_pixmap)),
                     sampler: ImageSampler {
                         x_extend: crate::peniko::Extend::Pad,
                         y_extend: crate::peniko::Extend::Pad,
-                        // Since the pixmap will already have the correct size, no need to
-                        // use a different image quality here.
-                        quality: crate::peniko::ImageQuality::Low,
+
+                        quality: if has_skew {
+                            // Even though the pixmap has the "correct" size, the skewing
+                            // might cause aliasing artifacts since the pixels don't map
+                            // perfectly to the pixmap, so we use bilinear scaling here.
+                            crate::peniko::ImageQuality::Medium
+                        } else {
+                            // Since the pixmap will already have the correct size, no need to
+                            // use a different image quality here.
+                            crate::peniko::ImageQuality::Low
+                        },
                         alpha: 1.0,
                     },
                 };
@@ -758,11 +768,11 @@ impl GlyphRenderer for RenderContext {
         }
     }
 
-    fn take_glyph_caches(&mut self) -> vello_common::glyph::GlyphCaches {
+    fn take_glyph_caches(&mut self) -> GlyphCaches {
         self.glyph_caches.take().unwrap()
     }
 
-    fn restore_glyph_caches(&mut self, cache: vello_common::glyph::GlyphCaches) {
+    fn restore_glyph_caches(&mut self, cache: GlyphCaches) {
         self.glyph_caches = Some(cache);
     }
 }

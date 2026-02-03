@@ -100,7 +100,7 @@ fn test_layer_size() {
         vello::peniko::Fill::NonZero,
         vello::peniko::Compose::Clear,
         1.0,
-        vello::kurbo::Affine::IDENTITY,
+        Affine::IDENTITY,
         &Rect::from_origin_size((20.0, 20.0), (20., 20.)),
     );
     scene.pop_layer();

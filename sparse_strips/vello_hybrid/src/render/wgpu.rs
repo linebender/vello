@@ -20,8 +20,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
-use core::{fmt::Debug, mem, num::NonZeroU64};
-use wgpu::Extent3d;
+use core::{fmt::Debug, num::NonZeroU64};
 
 use crate::AtlasConfig;
 use crate::multi_atlas::AtlasId;
@@ -40,7 +39,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler},
+    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
 };
 use bytemuck::{Pod, Zeroable};
 use vello_common::{
@@ -54,8 +53,9 @@ use vello_common::{
 };
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
-    Device, PipelineCompilationOptions, Queue, RenderPassColorAttachment, RenderPassDescriptor,
-    RenderPipeline, Texture, TextureView, util::DeviceExt,
+    Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment,
+    RenderPassDescriptor, RenderPipeline, Texture, TextureView, TextureViewDescriptor,
+    util::DeviceExt,
 };
 
 /// Placeholder value for uninitialized GPU encoded paints.
@@ -83,6 +83,8 @@ pub struct Renderer {
     programs: Programs,
     /// Scheduler for scheduling draws.
     scheduler: Scheduler,
+    /// The state used by the scheduler.
+    scheduler_state: SchedulerState,
     /// Image cache for storing images atlas allocations.
     image_cache: ImageCache,
     /// Encoded paints for storing encoded paints.
@@ -119,6 +121,7 @@ impl Renderer {
         Self {
             programs: Programs::new(device, &image_cache, render_target_config, total_slots),
             scheduler: Scheduler::new(total_slots),
+            scheduler_state: SchedulerState::default(),
             image_cache,
             gradient_cache,
             encoded_paints: Vec::new(),
@@ -148,7 +151,7 @@ impl Renderer {
             queue,
             &mut self.gradient_cache,
             &self.encoded_paints,
-            &scene.strip_storage.alphas,
+            &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
             &self.paint_idxs,
         );
@@ -160,7 +163,12 @@ impl Renderer {
             view,
         };
 
-        let result = self.scheduler.do_scene(&mut junk, scene, &self.paint_idxs);
+        let result = self.scheduler.do_scene(
+            &mut self.scheduler_state,
+            &mut junk,
+            scene,
+            &self.paint_idxs,
+        );
         self.gradient_cache.maintain();
 
         result
@@ -254,7 +262,7 @@ impl Renderer {
             self.programs
                 .resources
                 .atlas_texture_array
-                .create_view(&wgpu::TextureViewDescriptor {
+                .create_view(&TextureViewDescriptor {
                     label: Some("Atlas Layer Clear View"),
                     format: Some(wgpu::TextureFormat::Rgba8Unorm),
                     dimension: Some(wgpu::TextureViewDimension::D2),
@@ -267,9 +275,9 @@ impl Renderer {
                     usage: None,
                 });
 
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Clear Atlas Region"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            color_attachments: &[Some(RenderPassColorAttachment {
                 view: &layer_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
@@ -455,8 +463,6 @@ struct Programs {
     resources: GpuResources,
     /// Dimensions of the rendering target
     render_size: RenderSize,
-    /// Scratch buffer for staging alpha texture data.
-    alpha_data: Vec<u8>,
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
 }
@@ -774,7 +780,7 @@ impl Programs {
             device
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some("Slot Texture"),
-                    size: wgpu::Extent3d {
+                    size: Extent3d {
                         width: u32::from(WideTile::WIDTH),
                         height: u32::from(Tile::HEIGHT) * slot_count as u32,
                         depth_or_array_layers: 1,
@@ -788,7 +794,7 @@ impl Programs {
                         | wgpu::TextureUsages::COPY_SRC,
                     view_formats: &[],
                 })
-                .create_view(&wgpu::TextureViewDescriptor::default())
+                .create_view(&TextureViewDescriptor::default())
         });
 
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -830,8 +836,6 @@ impl Programs {
             max_texture_dimension_2d,
             INITIAL_ALPHA_TEXTURE_HEIGHT,
         );
-        let alpha_data =
-            vec![0; ((max_texture_dimension_2d * INITIAL_ALPHA_TEXTURE_HEIGHT) << 4) as usize];
         let view_config_buffer = Self::create_config_buffer(
             device,
             &RenderSize {
@@ -872,7 +876,7 @@ impl Programs {
         let encoded_paints_bind_group = Self::create_encoded_paints_bind_group(
             device,
             &encoded_paints_bind_group_layout,
-            &encoded_paints_texture.create_view(&Default::default()),
+            &encoded_paints_texture.create_view(&TextureViewDescriptor::default()),
         );
 
         const INITIAL_GRADIENT_TEXTURE_HEIGHT: u32 = 1;
@@ -884,13 +888,13 @@ impl Programs {
         let gradient_bind_group = Self::create_gradient_bind_group(
             device,
             &gradient_bind_group_layout,
-            &gradient_texture.create_view(&Default::default()),
+            &gradient_texture.create_view(&TextureViewDescriptor::default()),
         );
 
         let slot_bind_groups = Self::create_strip_bind_groups(
             device,
             &strip_bind_group_layout,
-            &alphas_texture.create_view(&Default::default()),
+            &alphas_texture.create_view(&TextureViewDescriptor::default()),
             &slot_config_buffer,
             &view_config_buffer,
             &slot_texture_views,
@@ -921,7 +925,6 @@ impl Programs {
             gradient_bind_group_layout,
             atlas_bind_group_layout,
             resources,
-            alpha_data,
             encoded_paints_data,
             render_size: RenderSize {
                 width: render_target_config.width,
@@ -970,7 +973,7 @@ impl Programs {
     fn create_alphas_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Alpha Texture"),
-            size: wgpu::Extent3d {
+            size: Extent3d {
                 width,
                 height,
                 depth_or_array_layers: 1,
@@ -993,7 +996,7 @@ impl Programs {
         // Create a single texture array with multiple layers
         let atlas_texture_array = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture Array"),
-            size: wgpu::Extent3d {
+            size: Extent3d {
                 width,
                 height,
                 depth_or_array_layers: atlas_count,
@@ -1009,18 +1012,17 @@ impl Programs {
             view_formats: &[],
         });
 
-        let atlas_texture_array_view =
-            atlas_texture_array.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("Atlas Texture Array View"),
-                format: None,
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
-                aspect: wgpu::TextureAspect::All,
-                base_mip_level: 0,
-                mip_level_count: None,
-                base_array_layer: 0,
-                array_layer_count: Some(atlas_count),
-                usage: None,
-            });
+        let atlas_texture_array_view = atlas_texture_array.create_view(&TextureViewDescriptor {
+            label: Some("Atlas Texture Array View"),
+            format: None,
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            aspect: wgpu::TextureAspect::All,
+            base_mip_level: 0,
+            mip_level_count: None,
+            base_array_layer: 0,
+            array_layer_count: Some(atlas_count),
+            usage: None,
+        });
 
         (atlas_texture_array, atlas_texture_array_view)
     }
@@ -1043,7 +1045,7 @@ impl Programs {
     fn create_encoded_paints_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Encoded Paints Texture"),
-            size: wgpu::Extent3d {
+            size: Extent3d {
                 width,
                 height,
                 depth_or_array_layers: 1,
@@ -1075,7 +1077,7 @@ impl Programs {
     fn create_gradient_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Gradient Texture"),
-            size: wgpu::Extent3d {
+            size: Extent3d {
                 width,
                 height,
                 depth_or_array_layers: 1,
@@ -1174,12 +1176,12 @@ impl Programs {
         queue: &Queue,
         gradient_cache: &mut GradientRampCache,
         encoded_paints: &[GpuEncodedPaint],
-        alphas: &[u8],
+        alphas: &mut Vec<u8>,
         new_render_size: &RenderSize,
         paint_idxs: &[u32],
     ) {
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas);
+        self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
         self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
 
@@ -1198,9 +1200,9 @@ impl Programs {
         &mut self,
         device: &Device,
         max_texture_dimension_2d: u32,
-        alphas: &[u8],
+        alphas_len: usize,
     ) {
-        let required_alpha_height = u32::try_from(alphas.len())
+        let required_alpha_height = u32::try_from(alphas_len)
             .unwrap()
             // There are 16 1-byte alpha values per texel.
             .div_ceil(max_texture_dimension_2d << 4);
@@ -1216,9 +1218,6 @@ impl Programs {
                 "Alpha texture height exceeds max texture dimensions"
             );
 
-            // Resize the alpha texture staging buffer.
-            let required_alpha_size = (max_texture_dimension_2d * required_alpha_height) << 4;
-            self.alpha_data.resize(required_alpha_size as usize, 0);
             // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
             let alphas_texture = Self::create_alphas_texture(
                 device,
@@ -1234,7 +1233,7 @@ impl Programs {
                 &self
                     .resources
                     .alphas_texture
-                    .create_view(&Default::default()),
+                    .create_view(&TextureViewDescriptor::default()),
                 &self.resources.slot_config_buffer,
                 &self.resources.view_config_buffer,
                 &self.resources.slot_texture_views,
@@ -1279,7 +1278,7 @@ impl Programs {
                 &self
                     .resources
                     .encoded_paints_texture
-                    .create_view(&Default::default()),
+                    .create_view(&TextureViewDescriptor::default()),
             );
         }
     }
@@ -1317,7 +1316,7 @@ impl Programs {
                 &self
                     .resources
                     .gradient_texture
-                    .create_view(&Default::default()),
+                    .create_view(&TextureViewDescriptor::default()),
             );
         }
     }
@@ -1411,7 +1410,7 @@ impl Programs {
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::Extent3d {
+            Extent3d {
                 width,
                 height,
                 depth_or_array_layers: layer_count_to_copy,
@@ -1420,20 +1419,20 @@ impl Programs {
     }
 
     /// Upload alpha data to the texture.
-    fn upload_alpha_texture(&mut self, queue: &Queue, alphas: &[u8]) {
+    fn upload_alpha_texture(&mut self, queue: &Queue, alphas: &mut Vec<u8>) {
+        if alphas.is_empty() {
+            return;
+        }
+
         let texture_width = self.resources.alphas_texture.width();
         let texture_height = self.resources.alphas_texture.height();
-        debug_assert!(
-            alphas.len() <= (texture_width * texture_height * 16) as usize,
-            "Alpha texture dimensions are too small to fit the alpha data"
-        );
+        let total_size = texture_width as usize * texture_height as usize * 16;
 
-        // After this copy to `self.alpha_data`, there may be stale trailing alpha values. These
-        // are not sampled, so can be left as-is.
-        // TODO: Apply the same optimization as gradient texture upload - use alphas directly
-        // instead of copying to staging buffer, by taking alphas from strip generator as a vec,
-        // resizing appropriately, truncating, and restoring back to the generator.
-        self.alpha_data[0..alphas.len()].copy_from_slice(alphas);
+        let original_len = alphas.len();
+
+        // Temporarily pad the length of the alphas to the texture size before uploading.
+        alphas.resize(total_size, 0);
+
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.resources.alphas_texture,
@@ -1441,7 +1440,7 @@ impl Programs {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &self.alpha_data,
+            alphas,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), which is equivalent to
@@ -1449,12 +1448,15 @@ impl Programs {
                 bytes_per_row: Some(texture_width << 4),
                 rows_per_image: Some(texture_height),
             },
-            wgpu::Extent3d {
+            Extent3d {
                 width: texture_width,
                 height: texture_height,
                 depth_or_array_layers: 1,
             },
         );
+
+        // Truncate back to the original size.
+        alphas.truncate(original_len);
     }
 
     /// Upload encoded paints to the texture.
@@ -1478,7 +1480,7 @@ impl Programs {
                 bytes_per_row: Some(encoded_paints_texture_width << 4),
                 rows_per_image: Some(encoded_paints_texture_height),
             },
-            wgpu::Extent3d {
+            Extent3d {
                 width: encoded_paints_texture_width,
                 height: encoded_paints_texture_height,
                 depth_or_array_layers: 1,
@@ -1515,7 +1517,7 @@ impl Programs {
                     bytes_per_row: Some(gradient_texture_width << 2),
                     rows_per_image: Some(gradient_texture_height),
                 },
-                wgpu::Extent3d {
+                Extent3d {
                     width: gradient_texture_width,
                     height: gradient_texture_height,
                     depth_or_array_layers: 1,
@@ -1605,7 +1607,7 @@ impl RendererContext<'_> {
         }
 
         let resources = &mut self.programs.resources;
-        let size = mem::size_of_val(slot_indices) as u64;
+        let size = size_of_val(slot_indices) as u64;
         // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
         // approach would be to re-use buffers or slices of a larger buffer.
         resources.clear_slot_indices_buffer =
@@ -1654,12 +1656,7 @@ impl RendererBackend for RendererContext<'_> {
     }
 
     /// Execute the render pass for rendering strips.
-    fn render_strips(
-        &mut self,
-        strips: &[GpuStrip],
-        target_index: usize,
-        load_op: crate::schedule::LoadOp,
-    ) {
+    fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp) {
         let wgpu_load_op = match load_op {
             LoadOp::Load => wgpu::LoadOp::Load,
             LoadOp::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
@@ -1687,7 +1684,7 @@ pub trait AtlasWriter {
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-        atlas_texture: &wgpu::Texture,
+        atlas_texture: &Texture,
         layer: u32,
         offset: [u32; 2],
         width: u32,
@@ -1696,7 +1693,7 @@ pub trait AtlasWriter {
 }
 
 /// Implementation for `wgpu::Texture` - uses texture-to-texture copy
-impl AtlasWriter for wgpu::Texture {
+impl AtlasWriter for Texture {
     fn width(&self) -> u32 {
         self.width()
     }
@@ -1710,7 +1707,7 @@ impl AtlasWriter for wgpu::Texture {
         _device: &Device,
         _queue: &Queue,
         encoder: &mut CommandEncoder,
-        atlas_texture: &wgpu::Texture,
+        atlas_texture: &Texture,
         layer: u32,
         offset: [u32; 2],
         width: u32,
@@ -1733,7 +1730,7 @@ impl AtlasWriter for wgpu::Texture {
                 },
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::Extent3d {
+            Extent3d {
                 width,
                 height,
                 depth_or_array_layers: 1,
@@ -1757,7 +1754,7 @@ impl AtlasWriter for Pixmap {
         _device: &Device,
         queue: &Queue,
         _encoder: &mut CommandEncoder,
-        atlas_texture: &wgpu::Texture,
+        atlas_texture: &Texture,
         layer: u32,
         offset: [u32; 2],
         width: u32,
@@ -1780,7 +1777,7 @@ impl AtlasWriter for Pixmap {
                 bytes_per_row: Some(4 * width),
                 rows_per_image: Some(height),
             },
-            wgpu::Extent3d {
+            Extent3d {
                 width,
                 height,
                 depth_or_array_layers: 1,
@@ -1804,7 +1801,7 @@ impl AtlasWriter for Arc<Pixmap> {
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-        atlas_texture: &wgpu::Texture,
+        atlas_texture: &Texture,
         layer: u32,
         offset: [u32; 2],
         width: u32,
