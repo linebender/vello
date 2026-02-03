@@ -238,17 +238,15 @@ pub(crate) struct Scheduler {
 
 impl Scheduler {
     #[inline]
-    fn submit_round(&mut self, round: Round) {
+    fn submit_round(&mut self, mut round: Round) {
+        // Make sure the round is resetted if we reuse it in the future.
+        round.clear();
         self.round_pool.push(round);
     }
 
     #[inline]
     fn fetch_round(&mut self) -> Round {
-        let mut round = self.round_pool.pop().unwrap_or_default();
-        // Reset it in case it's a reused one.
-        round.clear();
-
-        round
+        self.round_pool.pop().unwrap_or_default()
     }
 }
 
