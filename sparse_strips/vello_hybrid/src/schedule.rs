@@ -242,10 +242,15 @@ struct RoundPool(Vec<Round>);
 impl RoundPool {
     #[inline]
     fn return_to_pool(&mut self, mut round: Round) {
-        // Make sure the round is resetted if we reuse it in the future.
-        round.clear();
+        const MAX_ELEMENTS: usize = 10;
 
-        self.0.push(round);
+        // Avoid caching too many objects in adversarial scenarios.
+        if self.0.len() < MAX_ELEMENTS {
+            // Make sure the round is resetted if we reuse it in the future.
+            round.clear();
+
+            self.0.push(round);
+        }
     }
 
     #[inline]
