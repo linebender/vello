@@ -137,7 +137,7 @@ pub(crate) fn flatten<S: Simd>(
                     callback.callback(LinePathEl::LineTo(p3));
                 } else {
                     let c = CubicBez::new(p0, p1, p2, p3);
-                    let max = flatten_cubic_simd(simd, c, flatten_ctx, TOL as f32);
+                    let max = flatten_cubic_simd(simd, c, flatten_ctx);
 
                     for p in &flatten_ctx.flattened_cubics[1..max] {
                         callback.callback(LinePathEl::LineTo(Point::new(p.x as f64, p.y as f64)));
@@ -516,10 +516,10 @@ fn output_lines_simd<S: Simd>(
 }
 
 #[inline(always)]
-fn flatten_cubic_simd<S: Simd>(simd: S, c: CubicBez, ctx: &mut FlattenCtx, accuracy: f32) -> usize {
-    let n_quads = estimate_num_quads(c, accuracy);
+fn flatten_cubic_simd<S: Simd>(simd: S, c: CubicBez, ctx: &mut FlattenCtx) -> usize {
+    let n_quads = estimate_num_quads(c, TOL as f32);
     eval_cubics_simd(simd, &c, n_quads, ctx);
-    let tol = accuracy * (1.0 - TO_QUAD_TOL);
+    let tol = (TOL as f32) * (1.0 - TO_QUAD_TOL);
     let sqrt_tol = tol.sqrt();
     estimate_subdiv_simd(simd, sqrt_tol, ctx);
     let sum: f32 = ctx.val[..n_quads].iter().sum();
