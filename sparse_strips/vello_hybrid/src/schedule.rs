@@ -231,6 +231,32 @@ pub(crate) struct Scheduler {
     free: [Vec<usize>; 2],
     /// Rounds are enqueued on push clip commands and dequeued on flush.
     rounds_queue: VecDeque<Round>,
+    /// A pool of `Round` objects that can be reused, so that we can reduce
+    /// the number of allocations.
+    round_pool: RoundPool,
+}
+
+#[derive(Debug, Default)]
+struct RoundPool(Vec<Round>);
+
+impl RoundPool {
+    #[inline]
+    fn return_to_pool(&mut self, mut round: Round) {
+        const MAX_ELEMENTS: usize = 10;
+
+        // Avoid caching too many objects in adversarial scenarios.
+        if self.0.len() < MAX_ELEMENTS {
+            // Make sure the round is reset if we reuse it in the future.
+            round.clear();
+
+            self.0.push(round);
+        }
+    }
+
+    #[inline]
+    fn take_from_pool(&mut self) -> Round {
+        self.0.pop().unwrap_or_default()
+    }
 }
 
 /// A "round" is a coarse scheduling quantum.
@@ -245,6 +271,23 @@ struct Round {
     free: [Vec<usize>; 2],
     /// Slots that will be cleared in the two slot textures (0, 1) before drawing this round.
     clear: [Vec<u32>; 2],
+}
+
+impl Round {
+    #[inline]
+    fn clear(&mut self) {
+        for draw in &mut self.draws {
+            draw.clear();
+        }
+
+        for free in &mut self.free {
+            free.clear();
+        }
+
+        for clear in &mut self.clear {
+            clear.clear();
+        }
+    }
 }
 
 /// Reusable state used by the scheduler. We are holding this separately instead of integrating
@@ -391,6 +434,10 @@ impl Draw {
     fn push(&mut self, gpu_strip: GpuStrip) {
         self.0.push(gpu_strip);
     }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
 }
 
 impl Scheduler {
@@ -403,6 +450,7 @@ impl Scheduler {
             total_slots,
             free,
             rounds_queue: VecDeque::new(),
+            round_pool: RoundPool::default(),
         }
     }
 
@@ -543,6 +591,8 @@ impl Scheduler {
             self.free[i].extend(&round.free[i]);
         }
         self.round += 1;
+
+        self.round_pool.return_to_pool(round);
     }
 
     // Find the appropriate draw call for rendering.
@@ -556,7 +606,8 @@ impl Scheduler {
     fn get_round(&mut self, el_round: usize) -> &mut Round {
         let rel_round = el_round.saturating_sub(self.round);
         if self.rounds_queue.len() == rel_round {
-            self.rounds_queue.push_back(Round::default());
+            let round = self.round_pool.take_from_pool();
+            self.rounds_queue.push_back(round);
         }
         &mut self.rounds_queue[rel_round]
     }
