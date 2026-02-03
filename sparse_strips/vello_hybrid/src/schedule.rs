@@ -246,7 +246,7 @@ impl RoundPool {
 
         // Avoid caching too many objects in adversarial scenarios.
         if self.0.len() < MAX_ELEMENTS {
-            // Make sure the round is resetted if we reuse it in the future.
+            // Make sure the round is reset if we reuse it in the future.
             round.clear();
 
             self.0.push(round);
