@@ -76,9 +76,10 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     fn unpack(simd: S, region: &mut Region<'_>, blend_buf: &mut [Self::Numeric]) {
         if region.width != WideTile::WIDTH || region.height != Tile::HEIGHT {
             // Use scalar path for non-standard tile sizes.
-            // Note that right now, this path is unused, because when using filters we always
-            // allocate pixmaps of the same size as a wide tile. Nevertheless, we still keep this
-            // function here for reference, or in case that changes in the future.
+            // Note that right now, this path is unused (only for benchmarking), because when
+            // using filters we always allocate pixmaps of the same size as a wide tile.
+            // Nevertheless, we still keep this function here for reference, or in case that
+            // changes in the future.
             unpack(region, blend_buf);
         } else {
             simd.vectorize(
