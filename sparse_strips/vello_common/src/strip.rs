@@ -88,6 +88,108 @@ impl Strip {
         self.packed_alpha_idx_fill_gap =
             (self.packed_alpha_idx_fill_gap & !Self::FILL_GAP_MASK) | fill;
     }
+
+    /// When early culling is active, geometry fully to the left of the viewport creates no tiles.
+    /// However, if that geometry has a non-zero winding (e.g. a large shape surrounding the
+    /// viewport), the fill must persist.
+    ///
+    /// We reconstruct this "background" fill using `row_windings` (the winding at x=0) to emit solid
+    /// strips for:
+    ///      1. All rows vertically above the first visible tile.
+    ///      3. 'Captive' rows between two tile-containing rows.
+    ///      3. All rows vertically below the last visible tile.
+    #[inline(always)]
+    fn emit_culled_background<F>(
+        start: u16,
+        end: u16,
+        strips: &mut Vec<Self>,
+        alphas: &mut Vec<u8>,
+        active_rows: &[u32],
+        row_windings: &[i8],
+        should_fill: F,
+    ) where
+        F: Fn(i32) -> bool,
+    {
+        if start >= end {
+            return;
+        }
+
+        // TODO (thomsmit): Perhaps default initialize the alpha buffer with a single solid alpha
+        // tile when early culling is enabled, but for now this should be sufficient.
+        //
+        // Note: This is currently deferred because sharing the index previously caused a regression
+        // where final unconditional strip was incorrectly rendered with solid alpha.
+        let mut push_strip = |y_pos: u16| {
+            strips.push(Self::new(0, y_pos, alphas.len() as u32, false));
+            alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
+            strips.push(Self::new(u16::MAX, y_pos, alphas.len() as u32, true));
+        };
+
+        let start_word = (start >> 5) as usize;
+        let end_word = ((end - 1) >> 5) as usize;
+
+        // Start Word
+        if active_rows[start_word] != 0 {
+            let mut word = active_rows[start_word];
+            let start_bit = (start & 31) as usize;
+            let loop_limit = if start_word == end_word {
+                ((end - 1) & 31) as usize + 1
+            } else {
+                32
+            };
+
+            word >>= start_bit;
+
+            for bit in start_bit..loop_limit {
+                if (word & 1) != 0 {
+                    let row = (start_word << 5) + bit;
+                    if should_fill(row_windings[row] as i32) {
+                        let y_pos = row as u16 * Tile::HEIGHT;
+                        push_strip(y_pos);
+                    }
+                }
+                word >>= 1;
+            }
+        }
+
+        // Middle Words
+        for (word_idx, &word_val) in active_rows
+            .iter()
+            .enumerate()
+            .take(end_word)
+            .skip(start_word + 1)
+        {
+            if word_val != 0 {
+                let mut word = word_val;
+                for bit in 0..32 {
+                    if (word & 1) != 0 {
+                        let row = (word_idx << 5) + bit;
+                        if should_fill(row_windings[row] as i32) {
+                            let y_pos = row as u16 * Tile::HEIGHT;
+                            push_strip(y_pos);
+                        }
+                    }
+                    word >>= 1;
+                }
+            }
+        }
+
+        // End Word
+        if start_word != end_word && active_rows[end_word] != 0 {
+            let mut word = active_rows[end_word];
+            let loop_limit = ((end - 1) & 31) as usize + 1;
+            for bit in 0..loop_limit {
+                if (word & 1) != 0 {
+                    let row = (end_word << 5) + bit;
+                    if should_fill(row_windings[row] as i32) {
+                        let y_pos = row as u16 * Tile::HEIGHT;
+                        push_strip(y_pos);
+                    }
+                }
+                word >>= 1;
+            }
+        }
+    }
 }
 
 /// Render the tiles stored in `tiles` into the strip and alpha buffer.
@@ -102,6 +204,7 @@ pub fn render(
     use_early_culling: bool,
     partial_windings: &[[f32; Tile::HEIGHT as usize]],
     row_windings: &[i8],
+    active_rows: &[u32],
 ) {
     if use_early_culling {
         dispatch!(level, simd => render_impl::<_, true>(simd,
@@ -112,7 +215,8 @@ pub fn render(
                                                         aliasing_threshold,
                                                         lines,
                                                         partial_windings,
-                                                        row_windings));
+                                                        row_windings,
+                                                        active_rows));
     } else {
         dispatch!(level, simd => render_impl::<_, false>(simd,
                                                          tiles,
@@ -122,7 +226,8 @@ pub fn render(
                                                          aliasing_threshold,
                                                          lines,
                                                          partial_windings,
-                                                         row_windings));
+                                                         row_windings,
+                                                         active_rows));
     }
 }
 
@@ -136,6 +241,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     lines: &[Line],
     partial_windings: &[[f32; Tile::HEIGHT as usize]],
     row_windings: &[i8],
+    active_rows: &[u32],
 ) {
     // If we're not early culling, if the tile buffer has only one element, it must be the sentinel,
     // so it is empty. If we *are* early culling, we still need to iterate throw the windings, as
@@ -171,38 +277,17 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
         *tiles.get(0)
     };
 
-    let emit_background = |start: u16, end: u16, strips: &mut Vec<Strip>, alphas: &mut Vec<u8>| {
-        for row in start..end {
-            let winding = row_windings[row as usize] as i32;
-            if should_fill(winding) {
-                strips.push(Strip::new(
-                    0,
-                    row * Tile::HEIGHT,
-                    alphas.len() as u32,
-                    false,
-                ));
-                alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
-                strips.push(Strip::new(
-                    u16::MAX,
-                    row * Tile::HEIGHT,
-                    alphas.len() as u32,
-                    true,
-                ));
-            }
-        }
-    };
-
-    // When early culling is active, geometry fully to the left of the viewport creates no tiles.
-    // However, if that geometry has a non-zero winding (e.g. a large shape surrounding the
-    // viewport), the fill must persist.
-    //
-    // We reconstruct this "background" fill using `row_windings` (the winding at x=0) to emit solid
-    // strips for:
-    //      1. All rows vertically above the first visible tile.
-    //      2. The horizontal gap to the left of the first visible tile.
     if USE_EARLY_CULL {
         let row_max = prev_tile.y.min(row_windings.len() as u16);
-        emit_background(0, row_max, strip_buf, alpha_buf);
+        Strip::emit_culled_background(
+            0,
+            row_max,
+            strip_buf,
+            alpha_buf,
+            active_rows,
+            row_windings,
+            should_fill,
+        );
         if !tiles.is_empty() {
             winding_delta = row_windings[prev_tile.y as usize] as i32;
             let left_viewport = prev_tile.x == 0;
@@ -327,7 +412,15 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                 // Logic identical to the start (see above): fill any vertical gaps (empty rows)
                 // between the previous and current tile using the row windings.
                 if USE_EARLY_CULL && !is_sentinel {
-                    emit_background(prev_tile.y + 1, tile.y, strip_buf, alpha_buf);
+                    Strip::emit_culled_background(
+                        prev_tile.y + 1,
+                        tile.y,
+                        strip_buf,
+                        alpha_buf,
+                        active_rows,
+                        row_windings,
+                        should_fill,
+                    );
                     winding_delta = row_windings[tile.y as usize] as i32;
                     let left_viewport = tile.x == 0;
                     if should_fill(winding_delta) && !left_viewport {
@@ -530,7 +623,14 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     }
 
     if USE_EARLY_CULL {
-        let row_start = (prev_tile.y + 1).min(row_windings.len() as u16);
-        emit_background(row_start, row_windings.len() as u16, strip_buf, alpha_buf);
+        Strip::emit_culled_background(
+            (prev_tile.y + 1).min(row_windings.len() as u16),
+            row_windings.len() as u16,
+            strip_buf,
+            alpha_buf,
+            active_rows,
+            row_windings,
+            should_fill,
+        );
     }
 }

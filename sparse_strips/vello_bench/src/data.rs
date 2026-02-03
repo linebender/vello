@@ -138,6 +138,7 @@ impl DataItem {
             self.height,
             &mut Vec::new(),
             &mut Vec::new(),
+            &mut Vec::new(),
         );
 
         tiles
@@ -167,6 +168,7 @@ impl DataItem {
             None,
             &lines,
             false,
+            &Vec::new(),
             &Vec::new(),
             &Vec::new(),
         );

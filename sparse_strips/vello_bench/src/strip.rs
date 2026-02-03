@@ -34,6 +34,7 @@ pub fn render_strips(c: &mut Criterion) {
                         false,
                         &Vec::new(),
                         &Vec::new(),
+                        &Vec::new(),
                     );
                     std::hint::black_box((&strip_buf, &alpha_buf));
                 })

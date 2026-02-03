@@ -38,6 +38,7 @@ fn run_aaa_benchmark(c: &mut Criterion) {
                     item.height,
                     &mut Vec::new(),
                     &mut Vec::new(),
+                    &mut Vec::new(),
                 );
             });
         });

@@ -78,6 +78,7 @@ fn main() {
             args.height,
             &mut Vec::new(),
             &mut Vec::new(),
+            &mut Vec::new(),
         );
         tiles.sort_tiles();
     }
@@ -92,6 +93,7 @@ fn main() {
             None,
             &line_buf,
             false,
+            &Vec::new(),
             &Vec::new(),
             &Vec::new(),
         );

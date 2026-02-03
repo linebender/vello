@@ -314,6 +314,12 @@ impl Tiles {
         self.tile_buf.iter()
     }
 
+    /// Marks if a row was culled early for faster traversal in strip generation.
+    #[inline(always)]
+    pub fn mark_row_active(active_rows: &mut [u32], row_idx: usize) {
+        active_rows[row_idx >> 5] |= 1 << (row_idx & 31);
+    }
+
     /// Generates tile commands for Analytic Anti-Aliasing rasterization. Unlike the MSAA path, this
     /// function performs "coarse binning" to simply identify every tile a line segment traverses.
     /// It encodes the line index and winding direction, delegating the precise calculation of pixel
@@ -324,8 +330,9 @@ impl Tiles {
         lines: &[Line],
         width: u16,
         height: u16,
-        partial_windings: &mut [[f32; Tile::WIDTH as usize]],
+        partial_windings: &mut [[f32; Tile::HEIGHT as usize]],
         coarse_windings: &mut [i8],
+        active_rows: &mut [u32],
     ) -> bool {
         dispatch!(level, simd => self.make_tiles_analytic_aa_impl::<_, USE_EARLY_CULL>(
             simd,
@@ -334,6 +341,7 @@ impl Tiles {
             height,
             partial_windings,
             coarse_windings,
+            active_rows,
         ))
     }
 
@@ -343,8 +351,9 @@ impl Tiles {
         lines: &[Line],
         width: u16,
         height: u16,
-        partial_windings: &mut [[f32; Tile::WIDTH as usize]],
+        partial_windings: &mut [[f32; Tile::HEIGHT as usize]],
         coarse_windings: &mut [i8],
+        active_rows: &mut [u32],
     ) -> bool {
         self.reset();
         let mut culled_tiles = false;
@@ -419,6 +428,8 @@ impl Tiles {
                 let is_start_culled = line_top_y < 0.0;
                 if !is_start_culled {
                     let y_top_tile_f32 = f32::from(y_top_tiles);
+                    Self::mark_row_active(active_rows, y_top_tiles as usize);
+
                     if y_top_tile_f32 >= line_top_y {
                         coarse_windings[y_top_tiles as usize] += dir;
                     } else {
@@ -453,6 +464,7 @@ impl Tiles {
                 let line_bottom_floor = line_bottom_y.floor();
                 let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
                 for y_idx in y_start..y_end_idx {
+                    Self::mark_row_active(active_rows, y_idx as usize);
                     coarse_windings[y_idx as usize] += dir;
                 }
 
@@ -461,6 +473,7 @@ impl Tiles {
                     && (is_start_culled || y_end_idx != y_top_tiles)
                 {
                     coarse_windings[y_end_idx as usize] += dir;
+                    Self::mark_row_active(active_rows, y_end_idx as usize);
 
                     let y_end_idx_f32 = f32::from(y_end_idx);
                     let local_y_end = (line_bottom_y - y_end_idx_f32) * (Tile::HEIGHT as f32);
@@ -999,6 +1012,7 @@ mod tests {
                 lines,
                 width,
                 height,
+                &mut Vec::new(),
                 &mut Vec::new(),
                 &mut Vec::new(),
             );
@@ -2021,6 +2035,7 @@ mod tests {
             600,
             &mut Vec::new(),
             &mut Vec::new(),
+            &mut Vec::new(),
         );
     }
 
@@ -2044,6 +2059,7 @@ mod tests {
             &[line],
             200,
             100,
+            &mut Vec::new(),
             &mut Vec::new(),
             &mut Vec::new(),
         );
@@ -2087,6 +2103,7 @@ mod tests {
             &lines,
             VIEW_DIM,
             VIEW_DIM,
+            &mut Vec::new(),
             &mut Vec::new(),
             &mut Vec::new(),
         );
