@@ -12,7 +12,7 @@ use log::warn;
 pub use crate::flatten_simd::FlattenCtx;
 
 // The current tolerance is set to 0.25. Since `sqrt` doesn't work in const contexts, we instead
-// hardcode the squared tolerance and derive the other's from that.
+// hardcode the squared tolerance and derive the others from that.
 pub(crate) const SQRT_TOL: f64 = 0.5;
 pub(crate) const TOL: f64 = SQRT_TOL * SQRT_TOL;
 pub(crate) const TOL_2: f64 = TOL * TOL;
