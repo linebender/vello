@@ -715,7 +715,7 @@ mod tests {
         let mut unpacked_buf = vec![0u8; SCRATCH_BUF_SIZE];
         unpack_fn(&mut region, &mut unpacked_buf);
 
-        assert_eq!(&blend_buf, &unpacked_buf,);
+        assert_eq!(&blend_buf, &unpacked_buf);
     }
 
     #[test]
