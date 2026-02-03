@@ -237,10 +237,12 @@ pub(crate) struct Scheduler {
 }
 
 impl Scheduler {
+    #[inline]
     fn submit_round(&mut self, round: Round) {
         self.round_pool.push(round);
     }
 
+    #[inline]
     fn fetch_round(&mut self) -> Round {
         let mut round = self.round_pool.pop().unwrap_or_default();
         // Reset it in case it's a reused one.
@@ -265,6 +267,7 @@ struct Round {
 }
 
 impl Round {
+    #[inline]
     fn clear(&mut self) {
         self.draws[0].clear();
         self.draws[1].clear();
