@@ -701,7 +701,7 @@ mod tests {
             .map(|n| ((n * 7 + 13) % 256) as u8)
             .collect::<Vec<_>>();
 
-        let mut region_data = vec![0u8; width as usize * height as usize * COLOR_COMPONENTS];
+        let mut region_data = vec![0_u8; width as usize * height as usize * COLOR_COMPONENTS];
         let row_len = width as usize * COLOR_COMPONENTS;
         let (r0, rest) = region_data.split_at_mut(row_len);
         let (r1, rest) = rest.split_at_mut(row_len);
@@ -712,7 +712,7 @@ mod tests {
         pack_fn(&mut region, &blend_buf);
 
         // Now reverse the process, unpacking into a new buffer.
-        let mut unpacked_buf = vec![0u8; SCRATCH_BUF_SIZE];
+        let mut unpacked_buf = vec![0_u8; SCRATCH_BUF_SIZE];
         unpack_fn(&mut region, &mut unpacked_buf);
 
         assert_eq!(&blend_buf, &unpacked_buf);
@@ -720,10 +720,7 @@ mod tests {
 
     #[test]
     fn pack_unpack_roundtrip() {
-        test_pack_unpack_roundtrip(
-            |region, buf| pack(region, buf),
-            |region, buf| unpack(region, buf),
-        );
+        test_pack_unpack_roundtrip(pack, unpack);
     }
 
     #[test]
