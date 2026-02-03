@@ -412,78 +412,75 @@ impl Tiles {
             //
             // Note: Lines that cross the left edge (start < 0, end > 0) are NOT handled here. They
             // will naturally generate a tile at x=0 in the standard path.
-            if line_right_x < 0.0 {
-                if USE_EARLY_CULL {
-                    let dir = if p0_y >= p1_y { 1 } else { -1 };
-                    let f_dir = dir as f32;
+            if USE_EARLY_CULL && line_right_x < 0.0 {
+                let dir = if p0_y >= p1_y { 1 } else { -1 };
+                let f_dir = dir as f32;
 
-                    let is_start_culled = line_top_y < 0.0;
-                    if !is_start_culled {
-                        let y_top_tile_f32 = f32::from(y_top_tiles);
-                        if y_top_tile_f32 >= line_top_y {
-                            coarse_windings[y_top_tiles as usize] += dir;
-                        } else {
-                            let local_y_start =
-                                (line_top_y - y_top_tile_f32) * (Tile::HEIGHT as f32);
-                            let local_y_end =
-                                (line_bottom_y - y_top_tile_f32).min(1.0) * (Tile::HEIGHT as f32);
-
-                            let px_top: f32x4<_> = [0.0, 1.0, 2.0, 3.0].simd_into(s);
-                            let px_bottom = px_top + f32x4::splat(s, 1.0);
-                            let start_v = f32x4::splat(s, local_y_start);
-                            let end_v = f32x4::splat(s, local_y_end);
-
-                            let clipped_min = px_top.max(start_v);
-                            let clipped_max = px_bottom.min(end_v);
-                            let h = (clipped_max - clipped_min).max(f32x4::splat(s, 0.0));
-
-                            let winding_update = h * f32x4::splat(s, f_dir);
-
-                            let target_row = &mut partial_windings[y_top_tiles as usize];
-                            let current = f32x4::from_slice(s, target_row);
-                            let next = current + winding_update;
-
-                            target_row.copy_from_slice(next.as_slice());
-                        }
-                    }
-
-                    let y_start = if is_start_culled {
-                        y_top_tiles
+                let is_start_culled = line_top_y < 0.0;
+                if !is_start_culled {
+                    let y_top_tile_f32 = f32::from(y_top_tiles);
+                    if y_top_tile_f32 >= line_top_y {
+                        coarse_windings[y_top_tiles as usize] += dir;
                     } else {
-                        y_top_tiles + 1
-                    };
-                    let line_bottom_floor = line_bottom_y.floor();
-                    let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
-                    for y_idx in y_start..y_end_idx {
-                        coarse_windings[y_idx as usize] += dir;
-                    }
-
-                    if line_bottom_y != line_bottom_floor
-                        && y_end_idx < tile_rows
-                        && (is_start_culled || y_end_idx != y_top_tiles)
-                    {
-                        coarse_windings[y_end_idx as usize] += dir;
-
-                        let y_end_idx_f32 = f32::from(y_end_idx);
-                        let local_y_end = (line_bottom_y - y_end_idx_f32) * (Tile::HEIGHT as f32);
+                        let local_y_start = (line_top_y - y_top_tile_f32) * (Tile::HEIGHT as f32);
+                        let local_y_end =
+                            (line_bottom_y - y_top_tile_f32).min(1.0) * (Tile::HEIGHT as f32);
 
                         let px_top: f32x4<_> = [0.0, 1.0, 2.0, 3.0].simd_into(s);
+                        let px_bottom = px_top + f32x4::splat(s, 1.0);
+                        let start_v = f32x4::splat(s, local_y_start);
                         let end_v = f32x4::splat(s, local_y_end);
 
-                        let clipped_max = (px_top + f32x4::splat(s, 1.0)).min(end_v);
-                        let h = (clipped_max - px_top).max(f32x4::splat(s, 0.0));
-                        let f_dir_v = f32x4::splat(s, f_dir);
+                        let clipped_min = px_top.max(start_v);
+                        let clipped_max = px_bottom.min(end_v);
+                        let h = (clipped_max - clipped_min).max(f32x4::splat(s, 0.0));
 
-                        let target_row = &mut partial_windings[y_end_idx as usize];
+                        let winding_update = h * f32x4::splat(s, f_dir);
+
+                        let target_row = &mut partial_windings[y_top_tiles as usize];
                         let current = f32x4::from_slice(s, target_row);
-                        let result = current + h.madd(f_dir_v, -f_dir_v);
+                        let next = current + winding_update;
 
-                        target_row.copy_from_slice(result.as_slice());
+                        target_row.copy_from_slice(next.as_slice());
                     }
-
-                    culled_tiles = true;
-                    continue;
                 }
+
+                let y_start = if is_start_culled {
+                    y_top_tiles
+                } else {
+                    y_top_tiles + 1
+                };
+                let line_bottom_floor = line_bottom_y.floor();
+                let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
+                for y_idx in y_start..y_end_idx {
+                    coarse_windings[y_idx as usize] += dir;
+                }
+
+                if line_bottom_y != line_bottom_floor
+                    && y_end_idx < tile_rows
+                    && (is_start_culled || y_end_idx != y_top_tiles)
+                {
+                    coarse_windings[y_end_idx as usize] += dir;
+
+                    let y_end_idx_f32 = f32::from(y_end_idx);
+                    let local_y_end = (line_bottom_y - y_end_idx_f32) * (Tile::HEIGHT as f32);
+
+                    let px_top: f32x4<_> = [0.0, 1.0, 2.0, 3.0].simd_into(s);
+                    let end_v = f32x4::splat(s, local_y_end);
+
+                    let clipped_max = (px_top + f32x4::splat(s, 1.0)).min(end_v);
+                    let h = (clipped_max - px_top).max(f32x4::splat(s, 0.0));
+                    let f_dir_v = f32x4::splat(s, f_dir);
+
+                    let target_row = &mut partial_windings[y_end_idx as usize];
+                    let current = f32x4::from_slice(s, target_row);
+                    let result = current + h.madd(f_dir_v, -f_dir_v);
+
+                    target_row.copy_from_slice(result.as_slice());
+                }
+
+                culled_tiles = true;
+                continue;
             }
 
             // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
