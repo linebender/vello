@@ -11,8 +11,10 @@ use log::warn;
 
 pub use crate::flatten_simd::FlattenCtx;
 
-/// The flattening tolerance.
-const TOL: f64 = 0.25;
+// The current tolerance is set to 0.25. Since `sqrt` doesn't work in const contexts, we instead
+// hardcode the squared tolerance and derive the others from that.
+pub(crate) const SQRT_TOL: f64 = 0.5;
+pub(crate) const TOL: f64 = SQRT_TOL * SQRT_TOL;
 pub(crate) const TOL_2: f64 = TOL * TOL;
 
 /// A point.
@@ -107,7 +109,7 @@ pub fn fill_impl<S: Simd>(
         is_nan: false,
     };
 
-    crate::flatten_simd::flatten(simd, iter, TOL, &mut lb, flatten_ctx);
+    crate::flatten_simd::flatten(simd, iter, &mut lb, flatten_ctx);
 
     // A path that contains NaN is ill-defined, so ignore it.
     if lb.is_nan {
