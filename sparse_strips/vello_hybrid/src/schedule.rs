@@ -233,20 +233,24 @@ pub(crate) struct Scheduler {
     rounds_queue: VecDeque<Round>,
     /// A pool of `Round` objects that can be reused, so that we can reduce
     /// the number of allocations.
-    round_pool: Vec<Round>,
+    round_pool: RoundPool,
 }
 
-impl Scheduler {
+#[derive(Debug, Default)]
+struct RoundPool(Vec<Round>);
+
+impl RoundPool {
     #[inline]
-    fn submit_round(&mut self, mut round: Round) {
+    fn return_to_pool(&mut self, mut round: Round) {
         // Make sure the round is resetted if we reuse it in the future.
         round.clear();
-        self.round_pool.push(round);
+
+        self.0.push(round);
     }
 
     #[inline]
-    fn fetch_round(&mut self) -> Round {
-        self.round_pool.pop().unwrap_or_default()
+    fn take_from_pool(&mut self) -> Round {
+        self.0.pop().unwrap_or_default()
     }
 }
 
@@ -441,7 +445,7 @@ impl Scheduler {
             total_slots,
             free,
             rounds_queue: VecDeque::new(),
-            round_pool: Vec::new(),
+            round_pool: RoundPool::default(),
         }
     }
 
@@ -577,7 +581,7 @@ impl Scheduler {
         }
         self.round += 1;
 
-        self.submit_round(round);
+        self.round_pool.return_to_pool(round);
     }
 
     // Find the appropriate draw call for rendering.
@@ -591,7 +595,7 @@ impl Scheduler {
     fn get_round(&mut self, el_round: usize) -> &mut Round {
         let rel_round = el_round.saturating_sub(self.round);
         if self.rounds_queue.len() == rel_round {
-            let round = self.fetch_round();
+            let round = self.round_pool.take_from_pool();
             self.rounds_queue.push_back(round);
         }
         &mut self.rounds_queue[rel_round]
