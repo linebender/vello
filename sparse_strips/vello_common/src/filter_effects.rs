@@ -813,50 +813,7 @@ pub enum CompositeOperator {
 /// focus on color mixing while preserving the compositing behavior.
 ///
 /// See: <https://drafts.fxtf.org/compositing/#blending>
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlendMode {
-    /// Normal blending (simple alpha over, no color mixing).
-    Normal,
-    /// Multiply colors (darkening - like overlaying transparencies).
-    /// Result color is always darker unless one color is white.
-    Multiply,
-    /// Screen colors (lightening - opposite of multiply).
-    /// Result color is always lighter unless one color is black.
-    Screen,
-    /// Overlay blending (multiply if dark, screen if light).
-    /// Combines multiply and screen, preserving highlights and shadows.
-    Overlay,
-    /// Darken (select darker of source and destination per channel).
-    Darken,
-    /// Lighten (select lighter of source and destination per channel).
-    Lighten,
-    /// Color dodge (brightens destination based on source).
-    /// Divides destination by inverted source, creating intense highlights.
-    ColorDodge,
-    /// Color burn (darkens destination based on source).
-    /// Inverts destination, divides by source, and inverts again.
-    ColorBurn,
-    /// Hard light (source overlay - strong effect).
-    /// Like overlay but with source and destination swapped.
-    HardLight,
-    /// Soft light (subtle contrast adjustment).
-    /// Similar to overlay but with a softer, more gentle effect.
-    SoftLight,
-    /// Difference (absolute difference of colors).
-    /// Subtracts the darker from the lighter color, creating inversions.
-    Difference,
-    /// Exclusion (similar to difference but lower contrast).
-    /// Like difference but with less extreme results, more grays.
-    Exclusion,
-    /// Hue blending (hue of source, saturation and luminosity of destination).
-    Hue,
-    /// Saturation blending (saturation of source, hue and luminosity of destination).
-    Saturation,
-    /// Color blending (hue and saturation of source, luminosity of destination).
-    Color,
-    /// Luminosity blending (luminosity of source, hue and saturation of destination).
-    Luminosity,
-}
+pub type BlendMode = peniko::Mix;
 
 /// Morphological operators for dilate/erode operations.
 ///
