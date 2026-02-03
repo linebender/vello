@@ -522,8 +522,6 @@ impl Scheduler {
             };
 
             if draw.0.is_empty() {
-                // TODO: Isn't this only necessary if round.clear[i].len() was > 0? i.e. if all
-                // slots are free, we don't need to clear.
                 if load == LoadOp::Clear {
                     // There are no strips to render, so `render_strips` will not run and won't clear
                     // the texture. We still have slots to clear this round so explicitly clear
