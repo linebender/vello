@@ -18,6 +18,7 @@ This release has an [MSRV][] of 1.88.
 ### Changed
 
 - Improved Bézier flattening performance by catching more Béziers whose chords are immediately within rendering tolerance. ([#1216][] by [@tomcur][])
+- Significantly improved rendering performance of scenes including blend layers by ensuring no commands are generated for wide tiles without layer content. ([#1399][] by [@tomcur][])
 
 ## [0.0.6][] - 2026-01-15
 
@@ -119,6 +120,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1349]: https://github.com/linebender/vello/pull/1349
 [#1353]: https://github.com/linebender/vello/pull/1353
 [#1354]: https://github.com/linebender/vello/pull/1354
+[#1399]: https://github.com/linebender/vello/pull/1399
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...HEAD
 [0.0.6]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.5...sparse-strips-v0.0.6

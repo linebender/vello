@@ -765,11 +765,20 @@ impl<const MODE: u8> Wide<MODE> {
                 for y in 0..self.height_tiles() {
                     let t = self.get_mut(x, y);
 
-                    if let Some(mask) = layer.mask.clone() {
-                        t.mask(mask);
+                    // Optimization: If no drawing happened since the last `PushBuf`, then we don't
+                    // need to do any masking or buffer-wide opacity work. The same holds for
+                    // blending, unless it is destructive blending.
+                    let has_draw_commands = !matches!(t.cmds.last().unwrap(), &Cmd::PushBuf(_));
+                    if has_draw_commands {
+                        if let Some(mask) = layer.mask.clone() {
+                            t.mask(mask);
+                        }
+                        t.opacity(layer.opacity);
                     }
-                    t.opacity(layer.opacity);
-                    t.blend(layer.blend_mode);
+                    if has_draw_commands || layer.blend_mode.is_destructive() {
+                        t.blend(layer.blend_mode);
+                    }
+
                     t.pop_buf();
                 }
             }
@@ -1406,7 +1415,7 @@ impl<const MODE: u8> WideTile<MODE> {
     /// - Regular layers: Use local `blend_buf` stack for temporary storage
     /// - Filtered layers: Materialized in persistent layer storage for filter processing
     /// - Clip layers: Special handling for clipping operations
-    pub fn push_buf(&mut self, layer_kind: LayerKind) {
+    fn push_buf(&mut self, layer_kind: LayerKind) {
         let top_layer = layer_kind.id();
         if matches!(layer_kind, LayerKind::Filtered(_)) {
             self.layer_cmd_ranges.insert(
@@ -1430,7 +1439,7 @@ impl<const MODE: u8> WideTile<MODE> {
     }
 
     /// Pop the most recent buffer.
-    pub fn pop_buf(&mut self) {
+    fn pop_buf(&mut self) {
         let top_layer = self.layer_ids.pop().unwrap();
         let mut next_layer = *self.layer_ids.last().unwrap();
 
@@ -1463,7 +1472,7 @@ impl<const MODE: u8> WideTile<MODE> {
     }
 
     /// Apply an opacity to the whole buffer.
-    pub fn opacity(&mut self, opacity: f32) {
+    fn opacity(&mut self, opacity: f32) {
         if opacity != 1.0 {
             self.cmds.push(Cmd::Opacity(opacity));
         }
@@ -1475,17 +1484,13 @@ impl<const MODE: u8> WideTile<MODE> {
     }
 
     /// Apply a mask to the whole buffer.
-    pub fn mask(&mut self, mask: Mask) {
+    fn mask(&mut self, mask: Mask) {
         self.cmds.push(Cmd::Mask(mask));
     }
 
     /// Blend the current buffer into the previous buffer in the stack.
-    pub fn blend(&mut self, blend_mode: BlendMode) {
-        // Optimization: If no drawing happened since the last `PushBuf` and the blend mode
-        // is not destructive, we do not need to do any blending at all.
-        if !matches!(self.cmds.last(), Some(&Cmd::PushBuf(_))) || blend_mode.is_destructive() {
-            self.cmds.push(Cmd::Blend(blend_mode));
-        }
+    fn blend(&mut self, blend_mode: BlendMode) {
+        self.cmds.push(Cmd::Blend(blend_mode));
     }
 }
 
