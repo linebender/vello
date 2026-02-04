@@ -96,7 +96,7 @@ impl Strip {
     /// We reconstruct this "background" fill using `row_windings` (the winding at x=0) to emit solid
     /// strips for:
     ///      1. All rows vertically above the first visible tile.
-    ///      3. 'Captive' rows between two tile-containing rows.
+    ///      2. 'Captive' rows between two tile-containing rows.
     ///      3. All rows vertically below the last visible tile.
     #[inline(always)]
     fn emit_culled_background<F>(
