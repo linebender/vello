@@ -94,7 +94,7 @@ pub(crate) fn flatten<S: Simd>(
                 } else {
                     let q = QuadBez::new(p0, p1, p2);
                     let params = q.estimate_subdiv(SQRT_TOL);
-                    let n = ((0.5 * params.val / SQRT_TOL).ceil() as usize).max(1);
+                    let n = ((0.5 / SQRT_TOL * params.val).ceil() as usize).max(1);
                     let step = 1.0 / (n as f64);
                     for i in 1..n {
                         let u = (i as f64) * step;
