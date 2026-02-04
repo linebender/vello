@@ -35,12 +35,12 @@ There are currently two [supported Vello renderers](#renderers), each with diffe
 This crate allows you to write the majority of your application logic to support either of those renderers.
 These renderers are [Vello CPU](todo) and [Vello Hybrid](todo).
 
-## Usage
+# Usage
 
 TODO: Mention Renderer trait when it exists. Otherwise, this code isn't really usable yet.
 TODO: This is a stub just to have an outline to push.
 
-## Renderers
+# Renderers
 
 The Vello renderers which support this API are:
 
@@ -68,7 +68,7 @@ Vello API guarantees identical rendering between renderers which implement it, b
 This doesn't apply to renderer-specific features.
 <!-- TODO: Is ^ true? -->
 
-## Abstraction Boundaries
+# Abstraction Boundaries
 
 The abstractions in this crate are focused on 2D rendering, and the resources required to perform that.
 In particular, this does not abstract over strategies for:
@@ -81,7 +81,7 @@ These functionalities are however catered for where applicable by APIs on the sp
 The renderer API supports downcasting to the specific renderer, so that these extensions can be called.
 Each supported renderer will/does have examples showing how to achieve this yourself.
 
-## Text
+# Text
 
 Vello API does not handle text/glyph rendering itself.
 This allows for improved resource sharing of intermediate text layout data, for hinting and ink splitting underlines.
@@ -91,7 +91,7 @@ Note that this crate is not currently implemented; design work is ongoing.
 We also support rendering using using traditional glyph atlases, which may be preferred by some consumers.
 This is especially useful to achieve subpixel rendering, such as ClearType, which Vello doesn't currently support directly.
 
-## Unimplemented Features
+# Unimplemented Features
 
 NOTE: This section is not complete; in particular, we have only pushed a half-version of this API to make review more scoped.
 
@@ -99,7 +99,7 @@ The current version of Vello API is a minimal viable product for exploration and
 As such, there are several features which we expect to be included in this API, but which are not yet exposed in this crate.
 These are categorised as follows:
 
-### Out of scope/Renderer specific
+## Out of scope/Renderer specific
 
 <!-- This section can be removed once the other three classes are empty -->
 As discussed above, some features are out-of-scope, as they have concerns which need to be handled individually by each renderer.
@@ -108,7 +108,7 @@ This includes:
 - Rendering directly to a surface.
 - Importing "external" textures (e.g. from a `wgpu::Texture`)
 
-### Excluded for expedience
+## Excluded for expedience
 
 - Renderer specific painting commands (i.e. using downcasting).
   This is intended to be an immediate follow-up to the MVP landing.
@@ -125,7 +125,7 @@ This includes:
 - "Unsetting" the brush; this is mostly useful for append style operations, which may unexpectedly change the brush.
 - Dynamic version of `PaintScene`, allowing `dyn PaintScene` for cases where that would be relevant.
 
-### Not cross-renderer
+## Not cross-renderer
 
 There are some features which are only implemented in one of our target renderers, so cannot yet be included in the generalised API.
 As an interim solution, we intend to expose these features as renderer specific extensions (see the "excluded for expedience section").
@@ -139,7 +139,7 @@ For Vello CPU, these are (i.e. Vello Hybrid does not implement these):
 
 There are currently no such features the other way around (i.e. which only Vello Hybrid supports).
 
-### Not implemented
+## Not implemented
 
 - Path caching. This feature is intended to allow re-using paths efficiently, primarily for glyphs.
 - Blurred rounded rectangle paints in custom shapes (e.g. to exclude the unblurred parts).
