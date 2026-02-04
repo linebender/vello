@@ -660,7 +660,7 @@ fn pack_block<S: Simd>(simd: S, region: &mut Region<'_>, mut buf: &[u8]) {
 /// See the [`unpack`] method for more information.
 #[inline(always)]
 fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, buf: &mut [u8]) {
-    let buf: &mut [u32] = bytemuck::cast_slice_mut(&mut buf[..SCRATCH_BUF_SIZE]);
+    let buf: &mut [f32] = bytemuck::cast_slice_mut(&mut buf[..SCRATCH_BUF_SIZE]);
     const CHUNK_LENGTH: usize = 16;
 
     let region_areas = region.areas();
@@ -669,16 +669,17 @@ fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, buf: &mut [u8]) {
     for (idx, col) in buf.as_chunks_mut::<CHUNK_LENGTH>().0.iter_mut().enumerate() {
         let src_idx = idx * CHUNK_LENGTH;
 
-        let f1 = u8x16::from_slice(simd, &s1[src_idx..][..CHUNK_LENGTH]);
-        let f2 = u8x16::from_slice(simd, &s2[src_idx..][..CHUNK_LENGTH]);
-        let f3 = u8x16::from_slice(simd, &s3[src_idx..][..CHUNK_LENGTH]);
-        let f4 = u8x16::from_slice(simd, &s4[src_idx..][..CHUNK_LENGTH]);
+        // Note: We experimented with using u32 vs. f32 for this, but it seems like for some reason
+        // f32 works better on M1, while on M4 they are the same. Probably worth doing more
+        // benchmarks on different systems.
+        let r0 = f32x4::from_bytes(u8x16::from_slice(simd, &s1[src_idx..][..16]));
+        let r1 = f32x4::from_bytes(u8x16::from_slice(simd, &s2[src_idx..][..16]));
+        let r2 = f32x4::from_bytes(u8x16::from_slice(simd, &s3[src_idx..][..16]));
+        let r3 = f32x4::from_bytes(u8x16::from_slice(simd, &s4[src_idx..][..16]));
 
-        let c1 = simd.combine_u8x16(f1, f2);
-        let c2 = simd.combine_u8x16(f3, f4);
-        let c = u32x16::from_bytes(simd.combine_u8x32(c1, c2));
+        let combined = simd.combine_f32x8(simd.combine_f32x4(r0, r1), simd.combine_f32x4(r2, r3));
 
-        simd.store_interleaved_128_u32x16(c, col);
+        simd.store_interleaved_128_f32x16(combined, col);
     }
 }
 
