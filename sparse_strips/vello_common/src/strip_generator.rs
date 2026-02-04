@@ -70,7 +70,7 @@ pub struct StripGenerator {
     width: u16,
     height: u16,
     culled_tiles: bool,
-    partial_windings: Vec<[f32; Tile::WIDTH as usize]>,
+    partial_windings: Vec<[f32; Tile::HEIGHT as usize]>,
     coarse_windings: Vec<i8>,
     active_rows: Vec<u32>,
 }
