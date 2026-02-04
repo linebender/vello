@@ -30,7 +30,7 @@ See https://linebender.org/blog/doc-include/ for related discussion. -->
 
 This crate includes common geometry representations, tiling logic, and other fundamental components used by both [Vello CPU][vello_cpu] and Vello Hybrid.
 
-## Usage
+# Usage
 
 This crate should not be used on its own, and you should instead use one of the renderers which use it.
 At the moment, only [Vello CPU][vello_cpu] is published, and you probably want to use that.
@@ -39,7 +39,7 @@ We also develop [Vello](https://crates.io/crates/vello), which makes use of the 
 Vello CPU is being developed as part of work to address shortcomings in Vello.
 Vello does not use this crate.
 
-## Features
+# Features
 
 - `std` (enabled by default): Get floating point functions from the standard library
   (likely using your target's libc).
@@ -51,7 +51,7 @@ Vello does not use this crate.
 
 At least one of `std` and `libm` is required; `std` overrides `libm`.
 
-## Contents
+# Contents
 
 - Shared data structures for paths, tiles, and strips
 - Geometry processing utilities

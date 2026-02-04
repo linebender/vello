@@ -39,7 +39,7 @@ Vello CPU is a 2D graphics rendering engine written in Rust, for devices with no
 We also develop [Vello](https://crates.io/crates/vello), which makes use of the GPU for 2D rendering and has higher performance than Vello CPU.
 Vello CPU is being developed as part of work to address shortcomings in Vello.
 
-## Usage
+# Usage
 
 To use Vello CPU, you need to:
 
@@ -90,7 +90,7 @@ Feel free to take a look at some further
 [examples](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
 to better understand how to interact with Vello CPU's API,
 
-## Features
+# Features
 
 - `std` (enabled by default): Get floating point functions from the standard library
   (likely using your target's libc).
@@ -111,7 +111,7 @@ At least one of `u8_pipeline` and `f32_pipeline` must be enabled.
 You might choose to disable one of these pipelines if your application
 won't use it, so as to reduce binary size.
 
-## Caveats
+# Caveats
 
 Overall, Vello CPU is already very feature-rich and should be ready for
 production use cases. The main caveat at the moment is that the API is
@@ -126,14 +126,14 @@ Another caveat is that multi-threading with large thread counts
 (more than 4) might give diminishing returns, especially when
 making heavy use of layers and clip paths.
 
-## Performance
+# Performance
 
 Performance benchmarks can be found [here](https://laurenzv.github.io/vello_chart/),
 As can be seen, Vello CPU achieves compelling performance on both,
 aarch64 and x86 platforms. We also have SIMD optimizations for WASM SIMD,
 meaning that you can expect good performance there as well.
 
-## Implementation
+# Implementation
 
 If you want to gain a better understanding of Vello CPU and the
 sparse strips paradigm, you can take a look at the [accompanying
