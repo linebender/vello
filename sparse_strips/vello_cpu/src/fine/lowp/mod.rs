@@ -74,12 +74,21 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     /// This is the inverse operation of `pack`.
     #[inline(always)]
     fn unpack(simd: S, region: &mut Region<'_>, blend_buf: &mut [Self::Numeric]) {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                unpack(region, blend_buf);
-            },
-        );
+        if region.width != WideTile::WIDTH || region.height != Tile::HEIGHT {
+            // Use scalar path for non-standard tile sizes.
+            // Note that right now, this path is unused (only for benchmarking), because when
+            // using filters we always allocate pixmaps of the same size as a wide tile.
+            // Nevertheless, we still keep this function here for reference, or in case that
+            // changes in the future.
+            unpack(region, blend_buf);
+        } else {
+            simd.vectorize(
+                #[inline(always)]
+                || {
+                    unpack_block(simd, region, blend_buf);
+                },
+            );
+        }
     }
 
     /// Applies a filter effect to a rendered layer.
@@ -643,5 +652,85 @@ fn pack_block<S: Simd>(simd: S, region: &mut Region<'_>, mut buf: &[u8]) {
         dest_slices[1][dest_idx..][..16].copy_from_slice(&loaded.as_slice()[16..32]);
         dest_slices[2][dest_idx..][..16].copy_from_slice(&loaded.as_slice()[32..48]);
         dest_slices[3][dest_idx..][..16].copy_from_slice(&loaded.as_slice()[48..64]);
+    }
+}
+
+/// The pendant to `pack_block`, but for unpacking.
+///
+/// See the [`unpack`] method for more information.
+#[inline(always)]
+fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, buf: &mut [u8]) {
+    let buf: &mut [f32] = bytemuck::cast_slice_mut(&mut buf[..SCRATCH_BUF_SIZE]);
+    const CHUNK_LENGTH: usize = 16;
+
+    let region_areas = region.areas();
+    let [s1, s2, s3, s4] = region_areas;
+
+    for (idx, col) in buf.as_chunks_mut::<CHUNK_LENGTH>().0.iter_mut().enumerate() {
+        let src_idx = idx * CHUNK_LENGTH;
+
+        // Note: We experimented with using u32 vs. f32 for this, but it seems like for some reason
+        // f32 works better on M1, while on M4 they are the same. Probably worth doing more
+        // benchmarks on different systems.
+        let r0 = f32x4::from_bytes(u8x16::from_slice(simd, &s1[src_idx..][..16]));
+        let r1 = f32x4::from_bytes(u8x16::from_slice(simd, &s2[src_idx..][..16]));
+        let r2 = f32x4::from_bytes(u8x16::from_slice(simd, &s3[src_idx..][..16]));
+        let r3 = f32x4::from_bytes(u8x16::from_slice(simd, &s4[src_idx..][..16]));
+
+        let combined = simd.combine_f32x8(simd.combine_f32x4(r0, r1), simd.combine_f32x4(r2, r3));
+
+        simd.store_interleaved_128_f32x16(combined, col);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
+    use vello_common::fearless_simd::dispatch;
+
+    fn test_pack_unpack_roundtrip(
+        pack_fn: impl FnOnce(&mut Region<'_>, &[u8]),
+        unpack_fn: impl FnOnce(&mut Region<'_>, &mut [u8]),
+    ) {
+        let width = WideTile::WIDTH;
+        let height = Tile::HEIGHT;
+
+        // Just some pseudo-random numbers.
+        let blend_buf = (0..SCRATCH_BUF_SIZE)
+            .map(|n| ((n * 7 + 13) % 256) as u8)
+            .collect::<Vec<_>>();
+
+        let mut region_data = vec![0_u8; width as usize * height as usize * COLOR_COMPONENTS];
+        let row_len = width as usize * COLOR_COMPONENTS;
+        let (r0, rest) = region_data.split_at_mut(row_len);
+        let (r1, rest) = rest.split_at_mut(row_len);
+        let (r2, r3) = rest.split_at_mut(row_len);
+        let mut region = Region::new([r0, r1, r2, r3], 0, 0, width, height);
+
+        // First pack.
+        pack_fn(&mut region, &blend_buf);
+
+        // Now reverse the process, unpacking into a new buffer.
+        let mut unpacked_buf = vec![0_u8; SCRATCH_BUF_SIZE];
+        unpack_fn(&mut region, &mut unpacked_buf);
+
+        assert_eq!(&blend_buf, &unpacked_buf);
+    }
+
+    #[test]
+    fn pack_unpack_roundtrip() {
+        test_pack_unpack_roundtrip(pack, unpack);
+    }
+
+    #[test]
+    fn pack_block_unpack_block_roundtrip() {
+        dispatch!(Level::try_detect().unwrap_or(Level::fallback()), simd => {
+            test_pack_unpack_roundtrip(
+                |region, buf| simd.vectorize(|| pack_block(simd, region, buf)),
+                |region, buf| simd.vectorize(|| unpack_block(simd, region, buf)),
+            );
+        });
     }
 }
