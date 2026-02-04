@@ -369,10 +369,10 @@ impl SingleThreadedDispatcher {
         height: u16,
         encoded_paints: &[EncodedPaint],
     ) {
-        let mut buffer = Regions::new(width, height, buffer);
+        let mut regions = Regions::new(width, height, buffer);
         let mut fine = Fine::<S, F>::new(simd);
 
-        buffer.update_regions(|region| {
+        regions.update_regions(|region| {
             let x = region.x;
             let y = region.y;
 
@@ -397,6 +397,93 @@ impl SingleThreadedDispatcher {
     /// Returns true if the scene contains any filter effects.
     fn has_filters(&self) -> bool {
         self.render_graph.has_filters()
+    }
+
+    /// Rasterizes at an offset using f32 precision (high quality).
+    #[cfg(feature = "f32_pipeline")]
+    fn rasterize_at_offset_f32(
+        &self,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
+        use crate::fine::F32Kernel;
+        use vello_common::fearless_simd::dispatch;
+        dispatch!(self.level, simd => self.rasterize_at_offset_with::<_, F32Kernel>(
+            simd, buffer, width, height, dst_x, dst_y, dst_buffer_width, dst_buffer_height, encoded_paints
+        ));
+    }
+
+    /// Rasterizes at an offset using u8 precision (fast).
+    #[cfg(feature = "u8_pipeline")]
+    fn rasterize_at_offset_u8(
+        &self,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
+        use crate::fine::U8Kernel;
+        use vello_common::fearless_simd::dispatch;
+        dispatch!(self.level, simd => self.rasterize_at_offset_with::<_, U8Kernel>(
+            simd, buffer, width, height, dst_x, dst_y, dst_buffer_width, dst_buffer_height, encoded_paints
+        ));
+    }
+
+    /// Core implementation for rendering at an offset.
+    ///
+    /// Renders tiles sequentially, writing directly to the destination buffer
+    /// at the specified offset.
+    fn rasterize_at_offset_with<S: Simd, F: FineKernel<S>>(
+        &self,
+        simd: S,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
+        encoded_paints: &[EncodedPaint],
+    ) {
+        let mut regions = Regions::new_at_offset(
+            width,
+            height,
+            dst_x,
+            dst_y,
+            dst_buffer_width,
+            dst_buffer_height,
+            buffer,
+        );
+        let mut fine = Fine::<S, F>::new(simd);
+
+        regions.update_regions(|region| {
+            let x = region.x;
+            let y = region.y;
+
+            let wtile = self.wide.get(x, y);
+            fine.set_coords(x, y);
+
+            fine.unpack(region);
+            for cmd in &wtile.cmds {
+                fine.run_cmd(
+                    cmd,
+                    &self.strip_storage.alphas,
+                    encoded_paints,
+                    &self.wide.attrs,
+                );
+            }
+            fine.pack(region);
+        });
     }
 }
 
@@ -591,6 +678,92 @@ impl Dispatcher for SingleThreadedDispatcher {
             // This case never gets hit because there is a compile_error in the root.
             // But have this code disables some warnings and makes the compile error easier to read
             let _ = (buffer, render_mode, width, height, encoded_paints);
+        }
+    }
+
+    fn rasterize_at_offset(
+        &self,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
+        render_mode: RenderMode,
+        encoded_paints: &[EncodedPaint],
+    ) {
+        #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
+        {
+            let _ = render_mode;
+            self.rasterize_at_offset_u8(
+                buffer,
+                width,
+                height,
+                dst_x,
+                dst_y,
+                dst_buffer_width,
+                dst_buffer_height,
+                encoded_paints,
+            );
+        }
+
+        #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
+        {
+            let _ = render_mode;
+            self.rasterize_at_offset_f32(
+                buffer,
+                width,
+                height,
+                dst_x,
+                dst_y,
+                dst_buffer_width,
+                dst_buffer_height,
+                encoded_paints,
+            );
+        }
+
+        #[cfg(all(feature = "u8_pipeline", feature = "f32_pipeline"))]
+        match render_mode {
+            RenderMode::OptimizeSpeed => {
+                self.rasterize_at_offset_u8(
+                    buffer,
+                    width,
+                    height,
+                    dst_x,
+                    dst_y,
+                    dst_buffer_width,
+                    dst_buffer_height,
+                    encoded_paints,
+                );
+            }
+            RenderMode::OptimizeQuality => {
+                self.rasterize_at_offset_f32(
+                    buffer,
+                    width,
+                    height,
+                    dst_x,
+                    dst_y,
+                    dst_buffer_width,
+                    dst_buffer_height,
+                    encoded_paints,
+                );
+            }
+        }
+
+        #[cfg(all(not(feature = "u8_pipeline"), not(feature = "f32_pipeline")))]
+        {
+            let _ = (
+                buffer,
+                width,
+                height,
+                dst_x,
+                dst_y,
+                dst_buffer_width,
+                dst_buffer_height,
+                render_mode,
+                encoded_paints,
+            );
         }
     }
 

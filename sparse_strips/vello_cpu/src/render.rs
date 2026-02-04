@@ -594,6 +594,33 @@ impl RenderContext {
         );
     }
 
+    /// Render the current context into a region of a pixmap.
+    ///
+    /// The context's content (sized `self.width × self.height`) is rendered
+    /// directly to the destination pixmap starting at `(dst_x, dst_y)`.
+    /// If the region extends beyond the pixmap bounds, it is clipped.
+    ///
+    /// This method composites on top of existing pixmap content rather than
+    /// clearing it first, allowing multiple renders to accumulate.
+    ///
+    /// This is useful for rendering individual elements (like glyphs) into
+    /// a spritesheet at specific coordinates.
+    pub fn render_to_pixmap_at_offset(&self, pixmap: &mut Pixmap, dst_x: u16, dst_y: u16) {
+        let dst_buffer_width = pixmap.width();
+        let dst_buffer_height = pixmap.height();
+        self.dispatcher.rasterize_at_offset(
+            pixmap.data_as_u8_slice_mut(),
+            self.width,
+            self.height,
+            dst_x,
+            dst_y,
+            dst_buffer_width,
+            dst_buffer_height,
+            self.render_settings.render_mode,
+            &self.encoded_paints,
+        );
+    }
+
     /// Return the width of the pixmap.
     pub fn width(&self) -> u16 {
         self.width

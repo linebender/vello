@@ -28,6 +28,7 @@ use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
+use vello_common::pixmap::Pixmap;
 use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
@@ -602,6 +603,22 @@ impl Dispatcher for MultiThreadedDispatcher {
                 self.rasterize_f32(buffer, width, height, encoded_paints);
             }
         }
+    }
+
+    fn rasterize_at_offset(
+        &self,
+        _buffer: &mut [u8],
+        _width: u16,
+        _height: u16,
+        _dst_x: u16,
+        _dst_y: u16,
+        _dst_buffer_width: u16,
+        _dst_buffer_height: u16,
+        _render_mode: RenderMode,
+        _encoded_paints: &[EncodedPaint],
+    ) {
+        // TODO: Implement rasterize_at_offset for multi-threaded dispatcher.
+        unimplemented!("rasterize_at_offset is not implemented for multi-threaded dispatcher");
     }
 
     fn generate_wide_cmd(
