@@ -146,33 +146,24 @@ impl StripGenerator {
         fill_rule: Fill,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        self.culled_tiles = if strip_storage.generation_mode == GenerationMode::Replace {
+        if self.culled_tiles {
+            self.active_rows.fill(0);
+            self.partial_windings.fill([0.0; Tile::HEIGHT as usize]);
+            self.coarse_windings.fill(0);
+        }
+        if strip_storage.generation_mode == GenerationMode::Replace {
             strip_storage.strips.clear();
-            if self.culled_tiles {
-                self.active_rows.fill(0);
-                self.partial_windings.fill([0.0; Tile::HEIGHT as usize]);
-                self.coarse_windings.fill(0);
-            }
-            self.tiles.make_tiles_analytic_aa::<true>(
-                self.level,
-                &self.line_buf,
-                self.width,
-                self.height,
-                &mut self.partial_windings,
-                &mut self.coarse_windings,
-                &mut self.active_rows,
-            )
-        } else {
-            self.tiles.make_tiles_analytic_aa::<false>(
-                self.level,
-                &self.line_buf,
-                self.width,
-                self.height,
-                &mut self.partial_windings,
-                &mut self.coarse_windings,
-                &mut self.active_rows,
-            )
-        };
+        }
+
+        self.culled_tiles = self.tiles.make_tiles_analytic_aa::<true>(
+            self.level,
+            &self.line_buf,
+            self.width,
+            self.height,
+            &mut self.partial_windings,
+            &mut self.coarse_windings,
+            &mut self.active_rows,
+        );
 
         self.tiles.sort_tiles();
 
