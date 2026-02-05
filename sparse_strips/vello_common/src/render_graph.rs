@@ -80,6 +80,7 @@ pub struct RenderGraph {
     /// Flag indicating whether the graph contains any filter layers.
     /// Set to true when a `FilterLayer` node is added.
     has_filters: bool,
+    largest_bbox: (u16, u16),
 }
 
 /// The type of dependency between nodes.
@@ -114,6 +115,7 @@ impl RenderGraph {
             node_execution_order: Vec::new(),
             root_node: None,
             has_filters: false,
+            largest_bbox: (0, 0),
         }
     }
 
@@ -132,6 +134,7 @@ impl RenderGraph {
         self.node_execution_order.clear();
         self.root_node = None;
         self.has_filters = false;
+        self.largest_bbox = (0, 0);
     }
 
     /// Add a node to the graph and return its ID.
@@ -142,15 +145,22 @@ impl RenderGraph {
         let id = self.next_node_id;
         self.next_node_id += 1;
 
-        // Track root node separately since it's never popped and executes last
-        if matches!(kind, RenderNodeKind::RootLayer { .. }) {
-            self.root_node = Some(id);
+        let bbox;
+        match kind {
+            RenderNodeKind::RootLayer { wtile_bbox, .. } => {
+                // Track root node separately since it's never popped and executes last
+                self.root_node = Some(id);
+                bbox = wtile_bbox;
+            }
+            RenderNodeKind::FilterLayer { wtile_bbox, .. } => {
+                // Track if we have any filters to avoid scanning nodes later
+                self.has_filters = true;
+                bbox = wtile_bbox;
+            }
         }
 
-        // Track if we have any filters to avoid scanning nodes later
-        if matches!(kind, RenderNodeKind::FilterLayer { .. }) {
-            self.has_filters = true;
-        }
+        self.largest_bbox.0 = self.largest_bbox.0.max(bbox.width_tiles());
+        self.largest_bbox.1 = self.largest_bbox.1.max(bbox.height_tiles());
 
         self.nodes.push(RenderNode { id, kind });
         id
