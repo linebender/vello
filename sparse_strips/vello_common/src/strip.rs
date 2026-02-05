@@ -409,8 +409,9 @@ fn render_impl<S: Simd>(
             let h = (line_px_right_y - line_px_left_y).abs();
 
             // The trapezoidal area enclosed between the line and the right edge of the pixel
-            // square.
-            let area = 0.5 * h * (2. * px_right_x - line_px_right_yx - line_px_left_yx);
+            // square. More straightforwardly written as follows, but the `madd` is faster.
+            // 0.5 * h * (2. * px_right_x - line_px_right_yx - line_px_left_yx).
+            let area = h * (line_px_right_yx + line_px_left_yx).madd(-0.5, px_right_x);
             location_winding[x_idx as usize] += area.madd(sign, acc);
             acc = h.madd(sign, acc);
         }
