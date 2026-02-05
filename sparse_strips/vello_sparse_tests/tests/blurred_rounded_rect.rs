@@ -14,6 +14,16 @@ fn rect_with(ctx: &mut impl Renderer, radius: f32, std_dev: f32, affine: Affine)
 }
 
 #[vello_test]
+fn blurred_rounded_rect_zero(ctx: &mut impl Renderer) {
+    rect_with(ctx, 0.0, 0.0, Affine::IDENTITY);
+}
+
+#[vello_test]
+fn blurred_rounded_rect_zero_with_radius(ctx: &mut impl Renderer) {
+    rect_with(ctx, 10.0, 0.0, Affine::IDENTITY);
+}
+
+#[vello_test]
 fn blurred_rounded_rect_none(ctx: &mut impl Renderer) {
     rect_with(ctx, 0.0, 0.1, Affine::IDENTITY);
 }
