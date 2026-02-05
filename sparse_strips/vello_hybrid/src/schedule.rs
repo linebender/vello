@@ -624,6 +624,8 @@ impl Scheduler {
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
         // commands to the final target.
         tile_state.stack.push(TileEl {
+            // Note that the sentinel state doesn't actually do any rendering to texture 0,
+            // we just need to put _something_ there.
             dest_slot: ClaimedSlot::Texture0(SENTINEL_SLOT_IDX),
             temporary_slot: TemporarySlot::None,
             round: self.round,
@@ -806,6 +808,19 @@ impl Scheduler {
                     let nos = state.tile_state.stack.last_mut().unwrap();
                     let next_round = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
+                    // Why do we have to need to change the round here? Let's assume that we are drawing 3
+                    // nested clip paths. The sequence of commands might look as follows:
+                    // PushBuf, Fill, PushBuf, Fill, PushBuf, Fill, ClipFill, PopBuf, ClipFill, PopBuf,
+                    // ClipFill, PopBuf.
+                    // When executing the first 6 commands, we will happily schedule everything in the
+                    // first round, since there are no dependencies yet; the contents of each clip
+                    // layer can be drawn independently. However, upon executing the first ClipFill
+                    // command, we realize that we need another round: The first fill used texture 1,
+                    // the second fill used texture 0, and the third fill texture 1 again. Since we
+                    // cannot read from texture 1 twice within a single round, we need to schedule the
+                    // `PopBuf` operation for round 1. All subsequent operations that depend on this
+                    // result must therefore also execute in a later round, and this is achieved by
+                    // updating `nos` with the new round.
                     nos.round = round;
                     // free slot after draw
                     debug_assert!(round >= self.round, "round must be after current round");
@@ -813,7 +828,8 @@ impl Scheduler {
                         round - self.round < self.rounds_queue.len(),
                         "round must be in queue"
                     );
-
+                    // Since we pop the buffer, the slot is not needed anymore. Thus, mark it to be
+                    // freed after the round so that it can be reused in the future.
                     self.rounds_queue[round - self.round].free[tos.dest_slot.get_texture()]
                         .push(tos.dest_slot.get_idx());
                     // If a TileEl was not used for blending the temporary slot may still be in use
@@ -829,8 +845,22 @@ impl Scheduler {
                     let tos: &TileEl = &state.tile_state.stack[depth - 1];
                     let nos = &state.tile_state.stack[depth - 2];
 
-                    // Basically if we are writing onto the even texture, we need to go up a round
-                    // to target it.
+                    // Remember that in a single round, we perform the following operations in
+                    // the following order:
+                    // 1) Draw to slot in texture 0, potentially read from slot in texture 1.
+                    // 2) Draw to slot in texture 1, potentially read from slot in texture 0.
+                    // 3) Draw to final view, potentially read from slot in texture 1.
+                    // Therefore, for each depth, we can do the following (note that depths
+                    // are processed inversely, i.e. depth 3 is handled before depth 2, since depth
+                    // 2 depends on the contents of depth 3):
+                    // depth = 1 -> do 3).
+                    // depth = 2 -> do 2).
+                    // depth = 3 -> do 1).
+                    // depth = 4 -> We want to do 2) again, but it can't happen in the same round
+                    // because depth = 3 depends on the result from depth = 4, and there is no write
+                    // operation to texture 1 that we can allocate in the same round before 1)
+                    // happens. Therefore, we need to allocate a second round so that we have
+                    // enough "ping-ponging" to resolve all dependencies.
                     let next_round = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
                     if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
@@ -871,6 +901,7 @@ impl Scheduler {
                     let tos = &state.tile_state.stack[depth - 1];
                     let nos = &state.tile_state.stack[depth - 2];
 
+                    // See the comments in `ClipFill` for an explanation.
                     let next_round = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
@@ -1145,7 +1176,9 @@ fn prepare_cmds(cmds: &[Cmd], state: &mut SchedulerState) {
     annotated_commands.reserve(cmds.len() + 3);
 
     // We pretend that the surface might be blended into. This will be removed if no blends occur to
-    // the surface.
+    // the surface. The reason is that surfaces themselves cannot act as texture attachments. So
+    // if there is a blending operation at the lowest level, we need to ensure everything is drawn
+    // into an intermediate slot instead of directly into the surface.
     pointer_to_push_buf_stack.push(0);
     annotated_commands.push(AnnotatedCmd::PushBuf);
 
@@ -1162,6 +1195,9 @@ fn prepare_cmds(cmds: &[Cmd], state: &mut SchedulerState) {
                 // For blending of two layers to work in vello_hybrid, the two slots being blended
                 // must be on the same texture. Hence, annotate the next-on-stack (nos) tile such
                 // that it uses a temporary slot on the same texture as this blend.
+                // See https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/Hybrid.20Blending/with/536597802
+                // and https://github.com/linebender/vello/pull/1155 for some information on
+                // how blending works.
                 if pointer_to_push_buf_stack.len() >= 2 {
                     let push_buf_idx =
                         pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 2];
