@@ -396,6 +396,23 @@ impl Scene {
         self.push_layer(Some(path), None, None, None, None);
     }
 
+    /// Push a new blend layer.
+    pub fn push_blend_layer(&mut self, blend_mode: BlendMode) {
+        self.push_layer(None, Some(blend_mode), None, None, None);
+    }
+
+    /// Push a new opacity layer.
+    pub fn push_opacity_layer(&mut self, opacity: f32) {
+        self.push_layer(None, None, Some(opacity), None, None);
+    }
+
+    /// Push a new mask layer.
+    ///
+    /// Note that masks are not yet supported in `vello_hybrid`.
+    pub fn push_mask_layer(&mut self, mask: Mask) {
+        self.push_layer(None, None, None, Some(mask), None);
+    }
+
     /// Push a new filter layer.
     ///
     /// Note that filters are currently ignored in `vello_hybrid`.
