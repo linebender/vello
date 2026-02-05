@@ -129,11 +129,11 @@ impl Strip {
         {
             let mut word = active_rows[start_word];
             let start_bit = start & 31;
-            word &= !((1u32 << start_bit) - 1);
+            word &= !((1 << start_bit) - 1);
             if start_word == end_word {
                 let end_limit = ((end - 1) & 31) + 1;
                 if end_limit < 32 {
-                    word &= (1u32 << end_limit) - 1;
+                    word &= (1 << end_limit) - 1;
                 }
             }
 
@@ -174,7 +174,7 @@ impl Strip {
                 let mut word = active_rows[end_word];
                 let end_limit = ((end - 1) & 31) + 1;
                 if end_limit < 32 {
-                    word &= (1u32 << end_limit) - 1;
+                    word &= (1 << end_limit) - 1;
                 }
 
                 while word != 0 {
