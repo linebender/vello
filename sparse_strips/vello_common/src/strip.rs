@@ -116,9 +116,6 @@ impl Strip {
 
         // TODO (thomsmit): Perhaps default initialize the alpha buffer with a single solid alpha
         // tile when early culling is enabled, but for now this should be sufficient.
-        //
-        // Note: This is currently deferred because sharing the index previously caused a regression
-        // where final unconditional strip was incorrectly rendered with solid alpha.
         let mut push_strip = |y_pos: u16| {
             strips.push(Self::new(0, y_pos, alphas.len() as u32, false));
             alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
@@ -129,64 +126,66 @@ impl Strip {
         let end_word = ((end - 1) >> 5) as usize;
 
         // Start Word
-        if active_rows[start_word] != 0 {
+        {
             let mut word = active_rows[start_word];
-            let start_bit = (start & 31) as usize;
-            let loop_limit = if start_word == end_word {
-                ((end - 1) & 31) as usize + 1
-            } else {
-                32
-            };
-
-            word >>= start_bit;
-
-            for bit in start_bit..loop_limit {
-                if (word & 1) != 0 {
-                    let row = (start_word << 5) + bit;
-                    if should_fill(row_windings[row] as i32) {
-                        let y_pos = row as u16 * Tile::HEIGHT;
-                        push_strip(y_pos);
-                    }
+            let start_bit = start & 31;
+            word &= !((1u32 << start_bit) - 1);
+            if start_word == end_word {
+                let end_limit = ((end - 1) & 31) + 1;
+                if end_limit < 32 {
+                    word &= (1u32 << end_limit) - 1;
                 }
-                word >>= 1;
+            }
+
+            while word != 0 {
+                let bit = word.trailing_zeros();
+                word &= !(1 << bit);
+                let row = (start_word << 5) + bit as usize;
+                if should_fill(row_windings[row] as i32) {
+                    let y_pos = row as u16 * Tile::HEIGHT;
+                    push_strip(y_pos);
+                }
             }
         }
 
         // Middle Words
-        for (word_idx, &word_val) in active_rows
-            .iter()
-            .enumerate()
-            .take(end_word)
-            .skip(start_word + 1)
-        {
-            if word_val != 0 {
+        if start_word < end_word {
+            for (word_idx, &word_val) in active_rows
+                .iter()
+                .enumerate()
+                .take(end_word)
+                .skip(start_word + 1)
+            {
                 let mut word = word_val;
-                for bit in 0..32 {
-                    if (word & 1) != 0 {
-                        let row = (word_idx << 5) + bit;
-                        if should_fill(row_windings[row] as i32) {
-                            let y_pos = row as u16 * Tile::HEIGHT;
-                            push_strip(y_pos);
-                        }
-                    }
-                    word >>= 1;
-                }
-            }
-        }
+                while word != 0 {
+                    let bit = word.trailing_zeros();
+                    word &= !(1 << bit);
 
-        // End Word
-        if start_word != end_word && active_rows[end_word] != 0 {
-            let mut word = active_rows[end_word];
-            let loop_limit = ((end - 1) & 31) as usize + 1;
-            for bit in 0..loop_limit {
-                if (word & 1) != 0 {
-                    let row = (end_word << 5) + bit;
+                    let row = (word_idx << 5) + bit as usize;
                     if should_fill(row_windings[row] as i32) {
                         let y_pos = row as u16 * Tile::HEIGHT;
                         push_strip(y_pos);
                     }
                 }
-                word >>= 1;
+            }
+
+            // End Word
+            {
+                let mut word = active_rows[end_word];
+                let end_limit = ((end - 1) & 31) + 1;
+                if end_limit < 32 {
+                    word &= (1u32 << end_limit) - 1;
+                }
+
+                while word != 0 {
+                    let bit = word.trailing_zeros();
+                    word &= !(1 << bit);
+                    let row = (end_word << 5) + bit as usize;
+                    if should_fill(row_windings[row] as i32) {
+                        let y_pos = row as u16 * Tile::HEIGHT;
+                        push_strip(y_pos);
+                    }
+                }
             }
         }
     }
