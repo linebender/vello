@@ -505,9 +505,9 @@ struct GpuResources {
     filter_texture: Texture,
     /// Bind group for filter texture
     filter_bind_group: BindGroup,
-    /// Intermediate textures for layers with filter effects, keyed by layer ID.
-    /// These textures hold the rendered content before filter effects are applied.
-    intermediate_textures: HashMap<LayerId, Texture>,
+    /// Intermediate texture views for layers with filter effects, keyed by layer ID.
+    /// These hold the rendered content before filter effects are applied.
+    intermediate_texture_views: HashMap<LayerId, TextureView>,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
@@ -966,7 +966,7 @@ impl Programs {
             gradient_bind_group,
             filter_texture,
             filter_bind_group,
-            intermediate_textures: HashMap::new(),
+            intermediate_texture_views: HashMap::new(),
             view_config_buffer,
         };
 
@@ -1720,14 +1720,13 @@ struct RendererContext<'a> {
 }
 
 impl RendererContext<'_> {
-    /// Render the strips to either the view or a slot texture (depending on `ix`).
+    /// Render the strips to the specified target.
     fn do_strip_render_pass(
         &mut self,
         strips: &[GpuStrip],
-        ix: usize,
+        target: RenderTarget,
         load: wgpu::LoadOp<wgpu::Color>,
     ) {
-        debug_assert!(ix < 3, "Invalid texture index");
         if strips.is_empty() {
             return;
         }
@@ -1735,14 +1734,26 @@ impl RendererContext<'_> {
         // approach would be to re-use buffers or slices of a larger buffer.
         self.programs.upload_strips(self.device, self.queue, strips);
 
+        let (view, bind_group_index): (&TextureView, usize) = match target {
+            RenderTarget::FinalView => (self.view, 2),
+            RenderTarget::SlotTexture(idx) => {
+                (&self.programs.resources.slot_texture_views[idx as usize], idx as usize)
+            }
+            RenderTarget::IntermediateTexture(layer_id) => {
+                let view = self
+                    .programs
+                    .resources
+                    .intermediate_texture_views
+                    .get(&layer_id)
+                    .expect("intermediate texture view should exist for layer");
+                (view, 2)
+            }
+        };
+
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Render to Texture Pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
-                view: if ix == 2 {
-                    self.view
-                } else {
-                    &self.programs.resources.slot_texture_views[ix]
-                },
+                view,
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
@@ -1755,7 +1766,11 @@ impl RendererContext<'_> {
             timestamp_writes: None,
         });
         render_pass.set_pipeline(&self.programs.strip_pipeline);
-        render_pass.set_bind_group(0, &self.programs.resources.slot_bind_groups[ix], &[]);
+        render_pass.set_bind_group(
+            0,
+            &self.programs.resources.slot_bind_groups[bind_group_index],
+            &[],
+        );
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
@@ -1824,15 +1839,7 @@ impl RendererBackend for RendererContext<'_> {
             LoadOp::Load => wgpu::LoadOp::Load,
             LoadOp::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
         };
-
-        let target_index = match target {
-            RenderTarget::FinalView => 2,
-            RenderTarget::SlotTexture(idx) => idx as usize,
-            RenderTarget::IntermediateTexture(_) => {
-                unimplemented!("IntermediateTexture rendering not yet implemented")
-            }
-        };
-        self.do_strip_render_pass(strips, target_index, wgpu_load_op);
+        self.do_strip_render_pass(strips, target, wgpu_load_op);
     }
 }
 
