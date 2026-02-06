@@ -8,7 +8,6 @@
 use bytemuck::{Pod, Zeroable};
 
 const BYTES_PER_TEXEL: usize = 16;
-use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{GaussianBlur, MAX_KERNEL_SIZE};
@@ -76,7 +75,7 @@ impl GpuFlood {
 impl From<&Flood> for GpuFlood {
     fn from(flood: &Flood) -> Self {
         Self {
-            color: pack_color_srgb(&flood.color),
+            color: flood.color.premultiply().to_rgba8().to_u32(),
             _padding: [0; 3],
         }
     }
@@ -134,7 +133,7 @@ impl From<&DropShadow> for GpuDropShadow {
         Self {
             dx: shadow.dx,
             dy: shadow.dy,
-            color: pack_color_srgb(&shadow.color),
+            color: shadow.color.premultiply().to_rgba8().to_u32(),
             edge_mode: edge_mode_to_gpu(shadow.edge_mode),
             std_deviation: shadow.std_deviation,
             n_decimations: shadow.n_decimations as u32,
@@ -195,12 +194,6 @@ impl From<&InstantiatedFilter> for GpuFilter {
             InstantiatedFilter::DropShadow(f) => Self::DropShadow(GpuDropShadow::from(f)),
         }
     }
-}
-
-#[inline]
-fn pack_color_srgb(color: &AlphaColor<Srgb>) -> u32 {
-    let premul = color.premultiply().to_rgba8();
-    u32::from_le_bytes([premul.r, premul.g, premul.b, premul.a])
 }
 
 #[cfg(test)]
