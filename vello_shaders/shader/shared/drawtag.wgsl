@@ -31,6 +31,20 @@ const DRAWTAG_END_CLIP = 0x21u;
 /// 0 represents a non-zero fill. 1 represents an even-odd fill.
 const DRAW_INFO_FLAGS_FILL_RULE_BIT = 1u;
 
+// Per-draw compositing state is packed into the same `draw_flags` word:
+//
+// bits:  0          1..=17            18..=31
+//        fill_rule  blend_mode(17b)   global_alpha_u14
+//
+const DRAW_INFO_FLAGS_BLEND_SHIFT = 1u;
+const DRAW_INFO_FLAGS_BLEND_BITS = 17u;
+const DRAW_INFO_FLAGS_BLEND_MASK = (1u << DRAW_INFO_FLAGS_BLEND_BITS) - 1u;
+
+const DRAW_INFO_FLAGS_ALPHA_SHIFT = DRAW_INFO_FLAGS_BLEND_SHIFT + DRAW_INFO_FLAGS_BLEND_BITS;
+const DRAW_INFO_FLAGS_ALPHA_BITS = 14u;
+const DRAW_INFO_FLAGS_ALPHA_MASK = (1u << DRAW_INFO_FLAGS_ALPHA_BITS) - 1u;
+const DRAW_INFO_FLAGS_ALPHA_DEFAULT = DRAW_INFO_FLAGS_ALPHA_MASK;
+
 fn draw_monoid_identity() -> DrawMonoid {
     return DrawMonoid();
 }

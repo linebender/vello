@@ -31,6 +31,15 @@ pub struct Style {
 
     /// Encodes the stroke width. This field is ignored for fills.
     pub line_width: f32,
+
+    /// Encodes per-draw compositing state (blend mode + global alpha) for subsequent
+    /// draw operations that use this style.
+    ///
+    /// This word is interpreted by the GPU flatten stage and gets copied into the
+    /// per-draw `draw_flags` entry (along with the fill rule bit).
+    ///
+    /// Bit 0 is reserved for the fill rule and must remain clear.
+    pub composite: u32,
 }
 
 impl Style {
@@ -76,6 +85,7 @@ impl Style {
         Self {
             flags_and_miter_limit: fill_bit,
             line_width: 0.,
+            composite: crate::pack_style_composite(crate::BLEND_MODE_SRC_OVER, 1.0),
         }
     }
 
@@ -106,6 +116,7 @@ impl Style {
         Some(Self {
             flags_and_miter_limit: style | join | start_cap | end_cap | miter_limit,
             line_width: stroke.width as f32,
+            composite: crate::pack_style_composite(crate::BLEND_MODE_SRC_OVER, 1.0),
         })
     }
 

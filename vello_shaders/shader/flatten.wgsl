@@ -844,8 +844,9 @@ fn main(
 
     let out = &path_bboxes[path_ix];
     let style_flags = scene[config.style_base + style_ix];
+    let style_composite = scene[config.style_base + style_ix + 2u];
     // The fill bit is always set to 0 for strokes which represents a non-zero fill.
-    let draw_flags = select(DRAW_INFO_FLAGS_FILL_RULE_BIT, 0u, (style_flags & STYLE_FLAGS_FILL) == 0u);
+    let draw_flags = select(DRAW_INFO_FLAGS_FILL_RULE_BIT, 0u, (style_flags & STYLE_FLAGS_FILL) == 0u) | style_composite;
     if (tag.tag_byte & PATH_TAG_PATH) != 0u {
         (*out).draw_flags = draw_flags;
         (*out).trans_ix = trans_ix;

@@ -67,7 +67,13 @@ impl GlyphCache {
             Style::Fill(fill) => super::path::Style::from_fill(*fill),
             Style::Stroke(stroke) => super::path::Style::from_stroke(stroke)?,
         };
-        let style_bits: [u32; 2] = bytemuck::cast(style_bits);
+        // Glyph caching depends on stroke/fill geometry parameters, but not on per-draw compositing
+        // state (blend mode / global alpha). Keep the cache key stable even if the encoded style
+        // gains extra words.
+        let style_bits: [u32; 2] = [
+            style_bits.flags_and_miter_limit,
+            style_bits.line_width.to_bits(),
+        ];
         Some(GlyphCacheSession {
             free_list: &mut self.free_list,
             map,

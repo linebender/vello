@@ -683,13 +683,15 @@ fn flatten_main(
         let style_ix = tag.monoid.style_ix;
         let trans_ix = tag.monoid.trans_ix;
         let style_flags = scene[(config.layout.style_base.wrapping_add(style_ix)) as usize];
+        let style_composite = scene[(config.layout.style_base.wrapping_add(style_ix + 2)) as usize];
         if (tag.tag_byte & PATH_TAG_PATH) != 0 {
             let out = &mut path_bboxes[path_ix as usize];
-            out.draw_flags = if (style_flags & Style::FLAGS_FILL_BIT) == 0 {
+            let fill_rule_bit = if (style_flags & Style::FLAGS_FILL_BIT) == 0 {
                 0
             } else {
                 DRAW_INFO_FLAGS_FILL_RULE_BIT
             };
+            out.draw_flags = fill_rule_bit | style_composite;
             out.trans_ix = trans_ix;
         }
 

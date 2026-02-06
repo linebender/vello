@@ -57,6 +57,63 @@ impl DrawTag {
 /// `1` represents an even-odd fill.
 pub const DRAW_INFO_FLAGS_FILL_RULE_BIT: u32 = 1;
 
+/// Bit packing for per-draw compositing state stored in the *same* `u32` as
+/// [`DRAW_INFO_FLAGS_FILL_RULE_BIT`].
+///
+/// Layout:
+///
+/// ```text
+/// bits:  0          1..=17            18..=31
+///        fill_rule  blend_mode(17b)   global_alpha_u14
+/// ```
+///
+/// - `fill_rule` matches the existing meaning: `0` for non-zero, `1` for even-odd.
+/// - `blend_mode` is the shader-facing packed blend mode used by
+///   `blend_mix_compose` (`(mix << 8) | compose`, plus reserved higher bits such
+///   as `0x10000`).
+/// - `global_alpha_u14` is `global_alpha` encoded as `u14` unorm, where
+///   `1.0 -> 0x3FFF`.
+///
+/// This scheme avoids increasing any per-draw info sizes (important for tags
+/// like radial gradients, which are already near their scene-data budget).
+pub const DRAW_INFO_FLAGS_BLEND_SHIFT: u32 = 1;
+pub const DRAW_INFO_FLAGS_BLEND_BITS: u32 = 17;
+pub const DRAW_INFO_FLAGS_BLEND_MASK: u32 = (1 << DRAW_INFO_FLAGS_BLEND_BITS) - 1;
+
+pub const DRAW_INFO_FLAGS_ALPHA_SHIFT: u32 =
+    DRAW_INFO_FLAGS_BLEND_SHIFT + DRAW_INFO_FLAGS_BLEND_BITS;
+pub const DRAW_INFO_FLAGS_ALPHA_BITS: u32 = 14;
+pub const DRAW_INFO_FLAGS_ALPHA_MASK: u32 = (1 << DRAW_INFO_FLAGS_ALPHA_BITS) - 1;
+pub const DRAW_INFO_FLAGS_ALPHA_DEFAULT: u32 = DRAW_INFO_FLAGS_ALPHA_MASK;
+
+/// Packed shader blend mode for the common "normal + `src_over`" case.
+///
+/// This is the `compose` opcode `SrcOver` (3) with `mix` set to `Normal` (0).
+pub const BLEND_MODE_SRC_OVER: u32 = 3;
+
+/// Packs a global alpha into a `u14` unorm suitable for storage in `draw_flags`.
+pub fn pack_global_alpha_u14(alpha: f32) -> u32 {
+    let clamped = alpha.clamp(0.0, 1.0);
+    (clamped * DRAW_INFO_FLAGS_ALPHA_MASK as f32).round() as u32
+}
+
+/// Packs compositing state (blend mode + global alpha) into the `Style::composite` word.
+///
+/// The returned word always has bit 0 clear.
+pub fn pack_style_composite(blend_mode: u32, global_alpha: f32) -> u32 {
+    let blend = blend_mode & DRAW_INFO_FLAGS_BLEND_MASK;
+    let alpha_u14 = pack_global_alpha_u14(global_alpha) & DRAW_INFO_FLAGS_ALPHA_MASK;
+    (blend << DRAW_INFO_FLAGS_BLEND_SHIFT) | (alpha_u14 << DRAW_INFO_FLAGS_ALPHA_SHIFT)
+}
+
+/// Packs compositing state (blend mode + global alpha) from a Peniko blend mode.
+pub fn pack_style_composite_from_blend_mode(blend_mode: BlendMode, global_alpha: f32) -> u32 {
+    pack_style_composite(
+        ((blend_mode.mix as u32) << 8) | blend_mode.compose as u32,
+        global_alpha,
+    )
+}
+
 /// Draw object bounding box.
 #[derive(Copy, Clone, Pod, Zeroable, Debug, Default)]
 #[repr(C)]
