@@ -318,6 +318,9 @@ pub(crate) struct SchedulerState {
     annotated_commands: Vec<AnnotatedCmd>,
     /// Pointers to `PushBuf` commands.
     pointer_to_push_buf_stack: Vec<usize>,
+    /// When rendering to an intermediate texture for a filter layer, this holds
+    /// the layer ID and bounding box. None when rendering to the final view.
+    intermediate_target: Option<(LayerId, WideTilesBbox)>,
 }
 
 impl SchedulerState {
@@ -325,6 +328,23 @@ impl SchedulerState {
         self.tile_state.clear();
         self.annotated_commands.clear();
         self.pointer_to_push_buf_stack.clear();
+        // Note: intermediate_target is not cleared here as it persists across wide tiles
+    }
+
+    /// Returns the pixel offset to subtract from strip coordinates.
+    ///
+    /// When rendering to an intermediate texture, strips need to be offset
+    /// so they render relative to the texture's origin (0,0) rather than
+    /// scene coordinates.
+    #[inline]
+    fn strip_offset(&self) -> (u16, u16) {
+        match &self.intermediate_target {
+            None => (0, 0),
+            Some((_, bbox)) => (
+                bbox.x0() * WideTile::WIDTH,
+                bbox.y0() * Tile::HEIGHT,
+            ),
+        }
     }
 }
 
@@ -518,6 +538,7 @@ impl Scheduler {
 
                 state.clear();
 
+                let offset = state.strip_offset();
                 self.initialize_tile_state(
                     &mut state.tile_state,
                     wide_tile,
@@ -525,6 +546,7 @@ impl Scheduler {
                     wide_tile_y,
                     scene,
                     paint_idxs,
+                    offset,
                 );
                 prepare_cmds(&wide_tile.cmds, state);
                 self.do_tile(
@@ -643,6 +665,7 @@ impl Scheduler {
         wide_tile_y: u16,
         scene: &Scene,
         idxs: &[u32],
+        offset: (u16, u16),
     ) {
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
         // commands to the final target.
@@ -665,7 +688,7 @@ impl Scheduler {
 
                 let draw = self.draw_mut(self.round, 2);
                 draw.push(
-                    GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+                    GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
                         .paint(payload, paint),
                 );
             }
@@ -687,6 +710,7 @@ impl Scheduler {
         paint_idxs: &[u32],
         attrs: &CommandAttrs,
     ) -> Result<(), RenderError> {
+        let offset = state.strip_offset();
         for annotated_cmd in &state.annotated_commands {
             // Note: this starts at 1 (for the final target)
             let depth = state.tile_state.stack.len();
@@ -709,7 +733,7 @@ impl Scheduler {
                     );
 
                     let gpu_strip_builder = if depth == 1 {
-                        GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, fill.width)
+                        GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, fill.width, offset)
                     } else {
                         let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
                             temp_slot.get_idx()
@@ -737,7 +761,7 @@ impl Scheduler {
                     );
 
                     let gpu_strip_builder = if depth == 1 {
-                        GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, alpha_fill.width)
+                        GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, alpha_fill.width, offset)
                     } else {
                         let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
                             temp_slot.get_idx()
@@ -877,6 +901,7 @@ impl Scheduler {
                             wide_tile_x + clip_fill.x,
                             wide_tile_y,
                             clip_fill.width,
+                            offset,
                         )
                     } else {
                         GpuStripBuilder::at_slot(
@@ -919,6 +944,7 @@ impl Scheduler {
                             wide_tile_x + clip_alpha_fill.x,
                             wide_tile_y,
                             clip_alpha_fill.width,
+                            offset,
                         )
                     } else {
                         GpuStripBuilder::at_slot(
@@ -964,7 +990,7 @@ impl Scheduler {
                         let compose_mode = mode.compose as u8;
 
                         let gpu_strip_builder = if depth <= 2 {
-                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
                         } else {
                             GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
                         };
@@ -988,7 +1014,7 @@ impl Scheduler {
 
                         let draw = self.draw_mut(round, tos.get_draw_texture(depth - 1));
                         draw.push(
-                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
                                 .copy_from_slot(
                                     tos.dest_slot.get_idx(),
                                     (tos.opacity * 255.0) as u8,
@@ -1069,11 +1095,14 @@ struct GpuStripBuilder {
 }
 
 impl GpuStripBuilder {
-    /// Position at surface coordinates.
-    fn at_surface(x: u16, y: u16, width: u16) -> Self {
+    /// Position at surface coordinates, with an optional offset for intermediate textures.
+    ///
+    /// The offset is subtracted from `x` and `y` to convert from scene coordinates
+    /// to texture-relative coordinates when rendering to intermediate textures.
+    fn at_surface(x: u16, y: u16, width: u16, offset: (u16, u16)) -> Self {
         Self {
-            x,
-            y,
+            x: x - offset.0,
+            y: y - offset.1,
             width,
             dense_width: 0,
             col_idx: 0,
