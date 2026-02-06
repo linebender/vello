@@ -75,9 +75,9 @@ impl<T: ExactPathElements> ExactPathElements for &T {
 /// approximation is only valid for a fixed range of transforms.
 ///
 /// As the user of this function, you are responsible for determining the correct tolerance for your use case.
-/// A reasonable approach might be to select a tolerance which allows scaling up ("zooming in") by 4x (for example, 0.00001) to be
-/// within your intended tolerance bound, then recomputing the [`Scene`](crate::Scene) from your base data
-/// representation once that is exceeded.
+/// A reasonable approach might be to select a tolerance which allows scaling up ("zooming in") by 4x (for example;
+/// you should evaluate the correct value yourself) and remaining within your intended tolerance bound.
+/// If the user zoomed past that limit, you would then recomputing the [`Scene`](crate::Scene) from your base data representation once that is exceeded.
 /// If you know that the shape will not be scaled, you can use [`UNSCALED_TOLERANCE`].
 /// The resulting path will be within 1/10th of a pixel of the actual shape, which is a negligible
 /// difference for rendering.
