@@ -136,7 +136,6 @@ impl PaintScene for HybridScenePainter {
     fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: &impl ExactPathElements) {
         self.scene.set_transform(transform);
         self.scene.set_fill_rule(fill_rule);
-        // This tolerance parameter is meaningless, because this is an `ExactPathElements`
         // However, using `to_path` avoids allocation in some cases.
         // TODO: Tweak inner API to accept an `ExactPathElements` (or at least, the resultant iterator)
         // That would avoid the superfluous allocation here.
