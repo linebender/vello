@@ -1,17 +1,22 @@
-// Copyright 2025 the Vello Authors
+// Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// Keep in sync with filter_type module in vello_hybrid/src/filter.rs
 const FILTER_TYPE_OFFSET: u32 = 0u;
 const FILTER_TYPE_FLOOD: u32 = 1u;
 const FILTER_TYPE_GAUSSIAN_BLUR: u32 = 2u;
 const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
 
+// Keep in sync with EdgeMode in vello_common/src/filter_effects.rs
+// and edge_mode module in vello_hybrid/src/filter.rs
 const EDGE_MODE_DUPLICATE: u32 = 0u;
 const EDGE_MODE_WRAP: u32 = 1u;
 const EDGE_MODE_MIRROR: u32 = 2u;
 const EDGE_MODE_NONE: u32 = 3u;
 
+// Keep in sync with MAX_KERNEL_SIZE in vello_common/src/filter/gaussian_blur.rs
 const MAX_KERNEL_SIZE: u32 = 13u;
+// Keep in sync with FILTER_SIZE_U32 in vello_hybrid/src/filter.rs
 const FILTER_SIZE_U32: u32 = 24u;
 
 struct GpuFilterData {
@@ -50,6 +55,7 @@ fn get_filter_type(filter: GpuFilterData) -> u32 {
     return filter.data[0];
 }
 
+// Keep in sync with GpuOffset in vello_hybrid/src/filter.rs
 fn unpack_offset_filter(filter: GpuFilterData) -> OffsetFilter {
     return OffsetFilter(
         bitcast<f32>(filter.data[1]),
@@ -57,10 +63,12 @@ fn unpack_offset_filter(filter: GpuFilterData) -> OffsetFilter {
     );
 }
 
+// Keep in sync with GpuFlood in vello_hybrid/src/filter.rs
 fn unpack_flood_filter(filter: GpuFilterData) -> FloodFilter {
     return FloodFilter(filter.data[1]);
 }
 
+// Keep in sync with GpuGaussianBlur in vello_hybrid/src/filter.rs
 fn unpack_gaussian_blur_filter(filter: GpuFilterData) -> GaussianBlurFilter {
     var kernel: array<f32, 13>;
     for (var i = 0u; i < 13u; i++) {
@@ -75,6 +83,7 @@ fn unpack_gaussian_blur_filter(filter: GpuFilterData) -> GaussianBlurFilter {
     );
 }
 
+// Keep in sync with GpuDropShadow in vello_hybrid/src/filter.rs
 fn unpack_drop_shadow_filter(filter: GpuFilterData) -> DropShadowFilter {
     var kernel: array<f32, 13>;
     for (var i = 0u; i < 13u; i++) {

@@ -30,6 +30,7 @@ pub(crate) fn transform_blur_params(std_deviation: f32, transform: &Affine) -> f
 /// The multi-scale decimation algorithm guarantees that kernel size never exceeds this value.
 /// Decimation stops when remaining variance ≤ 4.0 (σ ≤ 2.0), which produces kernels of size
 /// at most 13 (radius = ceil(3σ) = 6, size = 1 + 2×6 = 13).
+// Keep in sync with MAX_KERNEL_SIZE in vello_sparse_shaders/shaders/filters.wgsl
 pub const MAX_KERNEL_SIZE: usize = 13;
 
 #[cfg(test)]

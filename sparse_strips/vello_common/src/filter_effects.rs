@@ -317,6 +317,8 @@ pub enum FilterFunction {
 /// convolution operations near edges.
 ///
 /// See: <https://drafts.fxtf.org/filter-effects/#element-attrdef-filter-primitive-edgemode>
+// Keep variant order in sync with edge_mode module in vello_hybrid/src/filter.rs
+// and EDGE_MODE_* in vello_sparse_shaders/shaders/filters.wgsl
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeMode {
     /// Extend by duplicating edge pixels (clamp to edge).
