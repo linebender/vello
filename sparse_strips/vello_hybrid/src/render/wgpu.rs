@@ -23,7 +23,7 @@ use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, num::NonZeroU64};
 
 use crate::AtlasConfig;
-use crate::filter::FilterData;
+use crate::filter::FilterContext;
 use crate::multi_atlas::AtlasId;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
@@ -95,7 +95,7 @@ pub struct Renderer {
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
     /// Filter data for layers with filter effects.
-    filter_data: FilterData,
+    filter_context: FilterContext,
 }
 
 impl Renderer {
@@ -129,7 +129,7 @@ impl Renderer {
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
-            filter_data: FilterData::new(),
+            filter_context: FilterContext::new(),
         }
     }
 
@@ -147,7 +147,7 @@ impl Renderer {
         view: &TextureView,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
-        self.filter_data.prepare(&scene.render_graph);
+        self.filter_context.prepare(&scene.render_graph);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -159,7 +159,7 @@ impl Renderer {
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
             &self.paint_idxs,
-            &self.filter_data,
+            &self.filter_context,
         );
         let mut junk = RendererContext {
             programs: &mut self.programs,
@@ -1258,17 +1258,17 @@ impl Programs {
         alphas: &mut Vec<u8>,
         new_render_size: &RenderSize,
         paint_idxs: &[u32],
-        filter_data: &FilterData,
+        filter_context: &FilterContext,
     ) {
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
-        self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_data);
+        self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
         self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
 
         self.upload_alpha_texture(queue, alphas);
         self.upload_encoded_paints_texture(queue, encoded_paints);
-        self.upload_filter_texture(queue, filter_data);
+        self.upload_filter_texture(queue, filter_context);
 
         if gradient_cache.has_changed() {
             self.maybe_resize_gradient_tex(device, max_texture_dimension_2d, gradient_cache);
@@ -1409,9 +1409,9 @@ impl Programs {
         &mut self,
         device: &Device,
         max_texture_dimension_2d: u32,
-        filter_data: &FilterData,
+        filter_context: &FilterContext,
     ) {
-        let required_texels = filter_data.total_texels();
+        let required_texels = filter_context.total_texels();
         if required_texels == 0 {
             return;
         }
@@ -1614,15 +1614,15 @@ impl Programs {
 
     /// Upload filter data to the texture.
     // TODO: Unify with the other upload methods.
-    fn upload_filter_texture(&self, queue: &Queue, filter_data: &FilterData) {
-        if filter_data.is_empty() {
+    fn upload_filter_texture(&self, queue: &Queue, filter_context: &FilterContext) {
+        if filter_context.is_empty() {
             return;
         }
         let filter_texture = &self.resources.filter_texture;
         let filter_texture_width = filter_texture.width();
         let filter_texture_height = filter_texture.height();
 
-        let data = filter_data.as_bytes();
+        let data = filter_context.as_bytes();
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: filter_texture,

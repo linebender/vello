@@ -214,12 +214,15 @@ impl From<&InstantiatedFilter> for GpuFilterData {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct FilterData {
+pub(crate) struct FilterContext {
+    /// The encoded data for each filter used in the current scene that will be uploaded to the
+    /// filter texture.
     filters: Vec<GpuFilterData>,
+    /// At what texel offset the filter data for the given layer ID is stored in the texture.
     offsets: HashMap<LayerId, u32>,
 }
 
-impl FilterData {
+impl FilterContext {
     pub(crate) fn new() -> Self {
         Self::default()
     }
