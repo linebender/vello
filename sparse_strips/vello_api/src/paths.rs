@@ -15,10 +15,9 @@
 //! for each path).
 
 use alloc::vec::Vec;
-use peniko::{
-    Style,
-    kurbo::{PathEl, Shape},
-};
+use peniko::{Style, kurbo::PathEl};
+
+use crate::exact::ExactPathElements;
 
 /// The id for a single path within a given [`PathSet`].
 /// This is an index into the [`meta`](PathSet::meta) field.
@@ -87,13 +86,13 @@ impl PathSet {
     /// See the docs on [`append`](PathSet::append) for how this changes when path sets are combined.
     ///
     /// This method is generally only expected to be used by [`Scene`](crate::Scene).
-    pub fn prepare_shape(&mut self, shape: &impl Shape, style: impl Into<Style>) -> PathId {
+    pub fn prepare_shape(
+        &mut self,
+        shape: &impl ExactPathElements,
+        style: impl Into<Style>,
+    ) -> PathId {
         let start_index = self.elements.len();
-        // TODO: We hard-code this tolerance to be 0.1, as every other call does so.
-        // We should maybe change that at some point?
-        // https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/Determining.20correct.20.60Shape.60.20tolerance/with/565793178
-        // If you need a different tolerance, you should pass in a `BezPath` (i.e. using Shape::to_path with the tolerance you require)
-        self.elements.extend(shape.path_elements(0.1));
+        self.elements.extend(shape.exact_path_elements());
         let meta_index = self.meta.len();
         self.meta.push(PathMeta {
             start_index,

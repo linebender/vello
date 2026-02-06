@@ -12,12 +12,13 @@
 
 use vello_api::{
     PaintScene, Scene,
+    exact::ExactPathElements,
     peniko::Style,
     scene::{RenderCommand, extract_integer_translation},
     texture::TextureId,
 };
 use vello_common::{
-    kurbo::{self, Affine, BezPath, Shape},
+    kurbo::{self, Affine, BezPath},
     paint::{ImageId, ImageSource},
     peniko::{BlendMode, Brush, Color, Fill, ImageBrush},
 };
@@ -86,6 +87,7 @@ impl PaintScene for CPUScenePainter {
                         .set_transform(push_layer_command.clip_transform);
                     let clip_path = if let Some(path_id) = push_layer_command.clip_path {
                         let path = &input_paths.meta[usize::try_from(path_id.0).unwrap()];
+                        // TODO: Also correctly support the case where the meta has a `Style::Stroke`
                         let path_end = &input_paths
                             .meta
                             .get(usize::try_from(path_id.0).unwrap() + 1)
@@ -133,17 +135,27 @@ impl PaintScene for CPUScenePainter {
         Ok(())
     }
 
-    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: impl Shape) {
+    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: &impl ExactPathElements) {
         self.render_context.set_transform(transform);
         self.render_context.set_fill_rule(fill_rule);
-        // TODO: Tweak inner `fill_path` API to either take a `Shape` or an &[PathEl]
-        self.render_context.fill_path(&path.into_path(0.1));
+        // However, using `to_path` avoids allocation in some cases.
+        // TODO: Tweak inner API to accept an `ExactPathElements` (or at least, the resultant iterator)
+        // That would avoid the superfluous allocation here.
+        self.render_context
+            .fill_path(&path.exact_path_elements().collect());
     }
 
-    fn stroke_path(&mut self, transform: Affine, stroke_params: &kurbo::Stroke, path: impl Shape) {
+    fn stroke_path(
+        &mut self,
+        transform: Affine,
+        stroke_params: &kurbo::Stroke,
+        path: &impl ExactPathElements,
+    ) {
         self.render_context.set_transform(transform);
         self.render_context.set_stroke(stroke_params.clone());
-        self.render_context.stroke_path(&path.into_path(0.1));
+        // TODO: As in `fill_path`
+        self.render_context
+            .stroke_path(&path.exact_path_elements().collect());
     }
 
     fn set_brush(
@@ -198,7 +210,7 @@ impl PaintScene for CPUScenePainter {
     fn push_layer(
         &mut self,
         clip_transform: Affine,
-        clip_path: Option<impl Shape>,
+        clip_path: Option<&impl ExactPathElements>,
         blend_mode: Option<BlendMode>,
         opacity: Option<f32>,
         // mask: Option<Mask>,
@@ -208,7 +220,10 @@ impl PaintScene for CPUScenePainter {
         self.render_context.set_fill_rule(Fill::NonZero);
         self.render_context.set_transform(clip_transform);
         self.render_context.push_layer(
-            clip_path.map(|it| it.into_path(0.1)).as_ref(),
+            // TODO: As in `fill_path`
+            clip_path
+                .map(|it| it.exact_path_elements().collect())
+                .as_ref(),
             blend_mode,
             opacity,
             None,
@@ -216,13 +231,12 @@ impl PaintScene for CPUScenePainter {
         );
     }
 
-    fn push_clip_layer(&mut self, clip_transform: Affine, path: impl Shape) {
+    fn push_clip_layer(&mut self, clip_transform: Affine, path: &impl ExactPathElements) {
         self.render_context.set_fill_rule(Fill::NonZero);
         self.render_context.set_transform(clip_transform);
-        self.render_context.push_clip_layer(
-            // TODO: Not allocate
-            &path.into_path(0.1),
-        );
+        // TODO: As in `fill_path`
+        self.render_context
+            .push_clip_layer(&path.exact_path_elements().collect());
     }
 
     fn pop_layer(&mut self) {
