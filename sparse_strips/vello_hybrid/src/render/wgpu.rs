@@ -21,6 +21,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, num::NonZeroU64};
+use hashbrown::HashMap;
 
 use crate::AtlasConfig;
 use crate::filter::FilterContext;
@@ -40,7 +41,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
+    schedule::{LoadOp, RenderTarget, RendererBackend, Scheduler, SchedulerState},
 };
 use bytemuck::{Pod, Zeroable};
 use vello_common::{
@@ -50,6 +51,7 @@ use vello_common::{
     paint::ImageSource,
     peniko,
     pixmap::Pixmap,
+    render_graph::LayerId,
     tile::Tile,
 };
 use wgpu::{
@@ -503,6 +505,9 @@ struct GpuResources {
     filter_texture: Texture,
     /// Bind group for filter texture
     filter_bind_group: BindGroup,
+    /// Intermediate textures for layers with filter effects, keyed by layer ID.
+    /// These textures hold the rendered content before filter effects are applied.
+    intermediate_textures: HashMap<LayerId, Texture>,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
@@ -961,6 +966,7 @@ impl Programs {
             gradient_bind_group,
             filter_texture,
             filter_bind_group,
+            intermediate_textures: HashMap::new(),
             view_config_buffer,
         };
 
@@ -1813,12 +1819,19 @@ impl RendererBackend for RendererContext<'_> {
     }
 
     /// Execute the render pass for rendering strips.
-    fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp) {
+    fn render_strips(&mut self, strips: &[GpuStrip], target: RenderTarget, load_op: LoadOp) {
         let wgpu_load_op = match load_op {
             LoadOp::Load => wgpu::LoadOp::Load,
             LoadOp::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
         };
 
+        let target_index = match target {
+            RenderTarget::FinalView => 2,
+            RenderTarget::SlotTexture(idx) => idx as usize,
+            RenderTarget::IntermediateTexture(_) => {
+                unimplemented!("IntermediateTexture rendering not yet implemented")
+            }
+        };
         self.do_strip_render_pass(strips, target_index, wgpu_load_op);
     }
 }

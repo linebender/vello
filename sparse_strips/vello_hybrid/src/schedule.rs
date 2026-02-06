@@ -185,6 +185,7 @@ use vello_common::{
     coarse::{Cmd, LayerKind, WideTile},
     encode::EncodedPaint,
     paint::{ImageSource, Paint},
+    render_graph::LayerId,
     tile::Tile,
 };
 
@@ -202,13 +203,24 @@ const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
 // The sentinel tile index representing the surface.
 const SENTINEL_SLOT_IDX: usize = usize::MAX;
 
+/// Specifies the target for a render pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RenderTarget {
+    /// Render to the final output view/surface.
+    FinalView,
+    /// Render to one of the slot textures used for clipping/blending.
+    SlotTexture(u8),
+    /// Render to an intermediate texture for a layer with filter effects.
+    IntermediateTexture(LayerId),
+}
+
 /// Trait for abstracting the renderer backend from the scheduler.
 pub(crate) trait RendererBackend {
     /// Clear specific slots in a texture.
     fn clear_slots(&mut self, texture_index: usize, slots: &[u32]);
 
     /// Execute a render pass for strips.
-    fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp);
+    fn render_strips(&mut self, strips: &[GpuStrip], target: RenderTarget, load_op: LoadOp);
 }
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
@@ -585,7 +597,12 @@ impl Scheduler {
                 continue;
             }
 
-            renderer.render_strips(&draw.0, i, load);
+            let target = if i == 2 {
+                RenderTarget::FinalView
+            } else {
+                RenderTarget::SlotTexture(i as u8)
+            };
+            renderer.render_strips(&draw.0, target, load);
         }
         for i in 0..2 {
             self.free[i].extend(&round.free[i]);

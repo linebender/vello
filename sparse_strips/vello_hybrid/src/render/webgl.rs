@@ -36,7 +36,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
+    schedule::{LoadOp, RenderTarget, RendererBackend, Scheduler, SchedulerState},
 };
 
 use alloc::sync::Arc;
@@ -1916,7 +1916,14 @@ impl RendererBackend for WebGlRendererContext<'_> {
     }
 
     /// Execute a render pass for strips.
-    fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp) {
+    fn render_strips(&mut self, strips: &[GpuStrip], target: RenderTarget, load_op: LoadOp) {
+        let target_index = match target {
+            RenderTarget::FinalView => 2,
+            RenderTarget::SlotTexture(idx) => idx as usize,
+            RenderTarget::IntermediateTexture(_) => {
+                unimplemented!("IntermediateTexture rendering not yet implemented in WebGL")
+            }
+        };
         self.do_strip_render_pass(strips, target_index, load_op);
     }
 }
