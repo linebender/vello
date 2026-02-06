@@ -44,6 +44,7 @@
 
 extern crate alloc;
 
+pub(crate) mod filter;
 mod gradient_cache;
 mod image_cache;
 mod multi_atlas;
