@@ -1101,6 +1101,9 @@ impl GpuStripBuilder {
     /// to texture-relative coordinates when rendering to intermediate textures.
     fn at_surface(x: u16, y: u16, width: u16, offset: (u16, u16)) -> Self {
         Self {
+            // It should never happen that this underflows, since an offset is only applied
+            // for filter layers, and all strips in the filter layout should be at a position that
+            // is at least the offset.
             x: x - offset.0,
             y: y - offset.1,
             width,
