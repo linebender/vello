@@ -45,7 +45,7 @@ use crate::{
 };
 use bytemuck::{Pod, Zeroable};
 use vello_common::{
-    coarse::WideTile,
+    coarse::{WideTile, WideTilesBbox},
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
     kurbo::Affine,
     paint::ImageSource,
@@ -476,6 +476,8 @@ struct Programs {
     render_size: RenderSize,
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
+    /// Texture format for the render target.
+    target_format: wgpu::TextureFormat,
 }
 
 /// Contains all GPU resources needed for rendering
@@ -985,6 +987,7 @@ impl Programs {
             },
             clear_pipeline,
             atlas_clear_pipeline,
+            target_format: render_target_config.format,
         }
     }
 
@@ -1840,6 +1843,32 @@ impl RendererBackend for RendererContext<'_> {
             LoadOp::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
         };
         self.do_strip_render_pass(strips, target, wgpu_load_op);
+    }
+
+    fn create_intermediate_texture(&mut self, layer_id: LayerId, bbox: &WideTilesBbox) {
+        let width = u32::from(bbox.width_px());
+        let height = u32::from(bbox.height_px());
+
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Intermediate Filter Texture"),
+            size: Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.programs.target_format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        self.programs
+            .resources
+            .intermediate_texture_views
+            .insert(layer_id, view);
     }
 }
 

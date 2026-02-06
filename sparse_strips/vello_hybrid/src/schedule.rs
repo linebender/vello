@@ -182,7 +182,7 @@ use alloc::vec::Vec;
 use vello_common::coarse::{CommandAttrs, MODE_HYBRID};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
-    coarse::{Cmd, LayerKind, WideTile},
+    coarse::{Cmd, LayerKind, WideTile, WideTilesBbox},
     encode::EncodedPaint,
     paint::{ImageSource, Paint},
     render_graph::LayerId,
@@ -221,6 +221,12 @@ pub(crate) trait RendererBackend {
 
     /// Execute a render pass for strips.
     fn render_strips(&mut self, strips: &[GpuStrip], target: RenderTarget, load_op: LoadOp);
+
+    /// Create an intermediate texture for a layer with filter effects.
+    ///
+    /// The texture dimensions are derived from the bounding box in wide tile coordinates.
+    /// The texture view is stored internally and can be accessed via `RenderTarget::IntermediateTexture`.
+    fn create_intermediate_texture(&mut self, layer_id: LayerId, bbox: &WideTilesBbox);
 }
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the

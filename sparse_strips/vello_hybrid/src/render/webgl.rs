@@ -45,12 +45,13 @@ use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::fmt::Debug;
 use vello_common::{
-    coarse::WideTile,
+    coarse::{WideTile, WideTilesBbox},
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
     kurbo::Affine,
     paint::ImageSource,
     peniko,
     pixmap::Pixmap,
+    render_graph::LayerId,
     tile::Tile,
 };
 use vello_sparse_shaders::{clear_slots, render_strips};
@@ -1925,6 +1926,10 @@ impl RendererBackend for WebGlRendererContext<'_> {
             }
         };
         self.do_strip_render_pass(strips, target_index, load_op);
+    }
+
+    fn create_intermediate_texture(&mut self, _layer_id: LayerId, _bbox: &WideTilesBbox) {
+        unimplemented!("create_intermediate_texture not yet implemented in WebGL")
     }
 }
 
