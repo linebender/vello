@@ -159,6 +159,7 @@ impl Renderer {
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
             &self.paint_idxs,
+            &mut self.filter_data,
         );
         let mut junk = RendererContext {
             programs: &mut self.programs,
@@ -460,6 +461,9 @@ struct Programs {
     gradient_bind_group_layout: BindGroupLayout,
     /// Bind group layout for atlas textures
     atlas_bind_group_layout: BindGroupLayout,
+    /// Bind group layout for filter texture
+    // TODO: Consider unifying with encoded_paints_bind_group_layout since they have identical structure
+    filter_bind_group_layout: BindGroupLayout,
     /// Pipeline for clearing slots in slot textures.
     clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
@@ -493,6 +497,12 @@ struct GpuResources {
     gradient_texture: Texture,
     /// Bind group for gradient texture
     gradient_bind_group: BindGroup,
+    /// Texture for filter data
+    // TODO: Maybe unify with encoded paint texture? However, encoded paints currently have variable
+    // offsets, while each filters always have the same size.
+    filter_texture: Texture,
+    /// Bind group for filter texture
+    filter_bind_group: BindGroup,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
@@ -601,6 +611,22 @@ impl Programs {
         let encoded_paints_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Encoded Paints Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    // TODO: Do we need access in vertex shader?
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+
+        let filter_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Filter Bind Group Layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
@@ -896,6 +922,19 @@ impl Programs {
             &gradient_texture.create_view(&TextureViewDescriptor::default()),
         );
 
+        // TODO: We should unify the handling of this (as well as the other textures...)
+        const INITIAL_FILTER_TEXTURE_HEIGHT: u32 = 1;
+        let filter_texture = Self::create_filter_texture(
+            device,
+            max_texture_dimension_2d,
+            INITIAL_FILTER_TEXTURE_HEIGHT,
+        );
+        let filter_bind_group = Self::create_filter_bind_group(
+            device,
+            &filter_bind_group_layout,
+            &filter_texture.create_view(&TextureViewDescriptor::default()),
+        );
+
         let slot_bind_groups = Self::create_strip_bind_groups(
             device,
             &strip_bind_group_layout,
@@ -920,6 +959,8 @@ impl Programs {
             encoded_paints_bind_group,
             gradient_texture,
             gradient_bind_group,
+            filter_texture,
+            filter_bind_group,
             view_config_buffer,
         };
 
@@ -929,6 +970,7 @@ impl Programs {
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
             atlas_bind_group_layout,
+            filter_bind_group_layout,
             resources,
             encoded_paints_data,
             render_size: RenderSize {
@@ -1079,6 +1121,38 @@ impl Programs {
         })
     }
 
+    fn create_filter_texture(device: &Device, width: u32, height: u32) -> Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Filter Texture"),
+            size: Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Uint,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        })
+    }
+
+    fn create_filter_bind_group(
+        device: &Device,
+        filter_bind_group_layout: &BindGroupLayout,
+        filter_texture_view: &TextureView,
+    ) -> BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Filter Bind Group"),
+            layout: filter_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(filter_texture_view),
+            }],
+        })
+    }
+
     fn create_gradient_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Gradient Texture"),
@@ -1184,14 +1258,17 @@ impl Programs {
         alphas: &mut Vec<u8>,
         new_render_size: &RenderSize,
         paint_idxs: &[u32],
+        filter_data: &mut FilterData,
     ) {
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
+        self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_data);
         self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
 
         self.upload_alpha_texture(queue, alphas);
         self.upload_encoded_paints_texture(queue, encoded_paints);
+        self.upload_filter_texture(queue, filter_data);
 
         if gradient_cache.has_changed() {
             self.maybe_resize_gradient_tex(device, max_texture_dimension_2d, gradient_cache);
@@ -1321,6 +1398,48 @@ impl Programs {
                 &self
                     .resources
                     .gradient_texture
+                    .create_view(&TextureViewDescriptor::default()),
+            );
+        }
+    }
+
+    /// Update the filter texture size if needed.
+    // TODO: Deduplicate with the other methods
+    fn maybe_resize_filter_tex(
+        &mut self,
+        device: &Device,
+        max_texture_dimension_2d: u32,
+        filter_data: &FilterData,
+    ) {
+        let required_texels = filter_data.total_texels();
+        if required_texels == 0 {
+            return;
+        }
+        let required_filter_height = required_texels.div_ceil(max_texture_dimension_2d);
+        debug_assert!(
+            self.resources.filter_texture.width() == max_texture_dimension_2d,
+            "Filter texture width must match max texture dimensions"
+        );
+        let current_filter_height = self.resources.filter_texture.height();
+        if required_filter_height > current_filter_height {
+            assert!(
+                required_filter_height <= max_texture_dimension_2d,
+                "Filter texture height exceeds max texture dimensions"
+            );
+            let filter_texture = Self::create_filter_texture(
+                device,
+                max_texture_dimension_2d,
+                required_filter_height,
+            );
+            self.resources.filter_texture = filter_texture;
+
+            // Since the filter texture has changed, we need to update the filter bind group.
+            self.resources.filter_bind_group = Self::create_filter_bind_group(
+                device,
+                &self.filter_bind_group_layout,
+                &self
+                    .resources
+                    .filter_texture
                     .create_view(&TextureViewDescriptor::default()),
             );
         }
@@ -1488,6 +1607,39 @@ impl Programs {
             Extent3d {
                 width: encoded_paints_texture_width,
                 height: encoded_paints_texture_height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    /// Upload filter data to the texture.
+    // TODO: Unify with the other upload methods.
+    fn upload_filter_texture(&self, queue: &Queue, filter_data: &mut FilterData) {
+        if filter_data.is_empty() {
+            return;
+        }
+        let filter_texture = &self.resources.filter_texture;
+        let filter_texture_width = filter_texture.width();
+        let filter_texture_height = filter_texture.height();
+
+        let data = filter_data.serialize();
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: filter_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), equivalent to bit shift of 4
+                bytes_per_row: Some(filter_texture_width << 4),
+                rows_per_image: Some(filter_texture_height),
+            },
+            Extent3d {
+                width: filter_texture_width,
+                height: filter_texture_height,
                 depth_or_array_layers: 1,
             },
         );
