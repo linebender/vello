@@ -328,7 +328,7 @@ impl SchedulerState {
         self.tile_state.clear();
         self.annotated_commands.clear();
         self.pointer_to_push_buf_stack.clear();
-        // Note: intermediate_target is not cleared here as it persists across wide tiles
+        // TODO: Intermediate target?
     }
 
     /// Returns the pixel offset to subtract from strip coordinates.
