@@ -159,7 +159,7 @@ impl Renderer {
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
             &self.paint_idxs,
-            &mut self.filter_data,
+            &self.filter_data,
         );
         let mut junk = RendererContext {
             programs: &mut self.programs,
@@ -1258,7 +1258,7 @@ impl Programs {
         alphas: &mut Vec<u8>,
         new_render_size: &RenderSize,
         paint_idxs: &[u32],
-        filter_data: &mut FilterData,
+        filter_data: &FilterData,
     ) {
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
@@ -1614,7 +1614,7 @@ impl Programs {
 
     /// Upload filter data to the texture.
     // TODO: Unify with the other upload methods.
-    fn upload_filter_texture(&self, queue: &Queue, filter_data: &mut FilterData) {
+    fn upload_filter_texture(&self, queue: &Queue, filter_data: &FilterData) {
         if filter_data.is_empty() {
             return;
         }
@@ -1622,7 +1622,7 @@ impl Programs {
         let filter_texture_width = filter_texture.width();
         let filter_texture_height = filter_texture.height();
 
-        let data = filter_data.serialize();
+        let data = filter_data.as_bytes();
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: filter_texture,

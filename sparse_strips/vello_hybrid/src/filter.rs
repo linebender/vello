@@ -217,7 +217,6 @@ impl From<&InstantiatedFilter> for GpuFilterData {
 pub(crate) struct FilterData {
     filters: Vec<GpuFilterData>,
     offsets: HashMap<LayerId, u32>,
-    buffer: Vec<u8>,
 }
 
 impl FilterData {
@@ -228,7 +227,6 @@ impl FilterData {
     fn clear(&mut self) {
         self.filters.clear();
         self.offsets.clear();
-        self.buffer.clear();
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -270,6 +268,10 @@ impl FilterData {
                 current_offset += GpuFilterData::SIZE_TEXELS;
             }
         }
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        bytemuck::cast_slice(&self.filters)
     }
 }
 
