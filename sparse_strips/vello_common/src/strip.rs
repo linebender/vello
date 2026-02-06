@@ -103,6 +103,7 @@ pub fn render(
     dispatch!(level, simd => render_impl(simd, tiles, strip_buf, alpha_buf, fill_rule, aliasing_threshold, lines));
 }
 
+#[inline(always)]
 fn render_impl<S: Simd>(
     s: S,
     tiles: &Tiles,
