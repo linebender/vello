@@ -3,9 +3,9 @@
 
 //! Tests demonstrating the filter effects API usage.
 
-use vello_api::peniko::color::palette::css::RED;
 use crate::util::circular_star;
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
+use vello_api::peniko::color::palette::css::RED;
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
     BLACK, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET, WHITE,
@@ -58,10 +58,7 @@ fn filter_flood(ctx: &mut impl Renderer) {
 
 #[vello_test(skip_hybrid, skip_multithreaded)]
 fn filter_offset_simple(ctx: &mut impl Renderer) {
-    let filter = Filter::from_primitive(FilterPrimitive::Offset {
-        dx: 15.0,
-        dy: 15.0,
-    });
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 15.0, dy: 15.0 });
     ctx.push_filter_layer(filter);
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(25.0, 25.0, 75.0, 75.0));

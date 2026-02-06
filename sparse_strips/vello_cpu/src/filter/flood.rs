@@ -5,19 +5,8 @@
 
 use super::FilterEffect;
 use crate::layer_manager::LayerManager;
-use vello_common::color::{AlphaColor, Srgb};
+use vello_common::filter::flood::Flood;
 use vello_common::pixmap::Pixmap;
-
-pub(crate) struct Flood {
-    pub color: AlphaColor<Srgb>,
-}
-
-impl Flood {
-    /// Create a new flood filter with the specified color.
-    pub(crate) fn new(color: AlphaColor<Srgb>) -> Self {
-        Self { color }
-    }
-}
 
 impl FilterEffect for Flood {
     fn execute_lowp(&self, pixmap: &mut Pixmap, _layer_manager: &mut LayerManager) {
@@ -34,6 +23,7 @@ mod tests {
     use super::*;
     use crate::layer_manager::LayerManager;
     use vello_common::color::{PremulRgba8, Srgb};
+    use crate::color::AlphaColor;
 
     /// Test flood with semi-transparent color - verifies correct premultiplication.
     #[test]

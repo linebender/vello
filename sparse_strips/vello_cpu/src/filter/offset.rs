@@ -3,38 +3,20 @@
 
 //! `feOffset` filter primitive implementation.
 
+use vello_common::filter::offset::Offset;
 use vello_common::pixmap::Pixmap;
 
 use super::FilterEffect;
 use super::shift::offset_pixels;
 use crate::layer_manager::LayerManager;
 
-/// Translation/shift filter.
-///
-/// This shifts the input image by `(dx, dy)` in device pixel space.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Offset {
-    dx: f32,
-    dy: f32,
-}
-
-impl Offset {
-    pub(crate) fn new(dx: f32, dy: f32) -> Self {
-        Self { dx, dy }
-    }
-
-    fn execute(self, pixmap: &mut Pixmap, _layer_manager: &mut LayerManager) {
+impl FilterEffect for Offset {
+    fn execute_lowp(&self, pixmap: &mut Pixmap, _: &mut LayerManager) {
         offset_pixels(pixmap, self.dx, self.dy);
     }
-}
 
-impl FilterEffect for Offset {
-    fn execute_lowp(&self, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
-        self.execute(pixmap, layer_manager);
-    }
-
-    fn execute_highp(&self, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
-        self.execute(pixmap, layer_manager);
+    fn execute_highp(&self, pixmap: &mut Pixmap, _: &mut LayerManager) {
+        offset_pixels(pixmap, self.dx, self.dy);
     }
 }
 
