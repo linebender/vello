@@ -5,13 +5,16 @@
 
 #![allow(missing_docs)]
 
+use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
+use hashbrown::HashMap;
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{GaussianBlur, MAX_KERNEL_SIZE};
 use vello_common::filter::offset::Offset;
 use vello_common::filter::InstantiatedFilter;
 use vello_common::filter_effects::EdgeMode;
+use vello_common::render_graph::{LayerId, RenderGraph, RenderNodeKind};
 
 const BYTES_PER_TEXEL: usize = 16;
 const FILTER_SIZE_BYTES: usize = 96;
@@ -20,19 +23,19 @@ const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
 
 // Keep in sync with FILTER_TYPE_* in filters.wgsl
 pub(crate) mod filter_type {
-    pub const OFFSET: u32 = 0;
-    pub const FLOOD: u32 = 1;
-    pub const GAUSSIAN_BLUR: u32 = 2;
-    pub const DROP_SHADOW: u32 = 3;
+    pub(crate) const OFFSET: u32 = 0;
+    pub(crate) const FLOOD: u32 = 1;
+    pub(crate) const GAUSSIAN_BLUR: u32 = 2;
+    pub(crate) const DROP_SHADOW: u32 = 3;
 }
 
 // Keep in sync with EdgeMode in vello_common/src/filter_effects.rs
 // and EDGE_MODE_* in filters.wgsl
 pub(crate) mod edge_mode {
-    pub const DUPLICATE: u32 = 0;
-    pub const WRAP: u32 = 1;
-    pub const MIRROR: u32 = 2;
-    pub const NONE: u32 = 3;
+    pub(crate) const DUPLICATE: u32 = 0;
+    pub(crate) const WRAP: u32 = 1;
+    pub(crate) const MIRROR: u32 = 2;
+    pub(crate) const NONE: u32 = 3;
 }
 
 #[inline]
@@ -56,7 +59,7 @@ pub(crate) struct GpuOffset {
 }
 
 impl GpuOffset {
-    pub const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
+    const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 }
 
 impl From<&Offset> for GpuOffset {
@@ -80,7 +83,7 @@ pub(crate) struct GpuFlood {
 }
 
 impl GpuFlood {
-    pub const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
+    const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 }
 
 impl From<&Flood> for GpuFlood {
@@ -107,7 +110,7 @@ pub(crate) struct GpuGaussianBlur {
 }
 
 impl GpuGaussianBlur {
-    pub const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
+    const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 }
 
 impl From<&GaussianBlur> for GpuGaussianBlur {
@@ -141,7 +144,7 @@ pub(crate) struct GpuDropShadow {
 }
 
 impl GpuDropShadow {
-    pub const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
+    const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 }
 
 impl From<&DropShadow> for GpuDropShadow {
@@ -168,9 +171,9 @@ pub(crate) struct GpuFilterData {
 }
 
 impl GpuFilterData {
-    pub const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
+    const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 
-    pub fn filter_type(&self) -> u32 {
+    fn filter_type(&self) -> u32 {
         self.data[0]
     }
 }
@@ -206,6 +209,66 @@ impl From<&InstantiatedFilter> for GpuFilterData {
             InstantiatedFilter::Flood(f) => GpuFlood::from(f).into(),
             InstantiatedFilter::GaussianBlur(f) => GpuGaussianBlur::from(f).into(),
             InstantiatedFilter::DropShadow(f) => GpuDropShadow::from(f).into(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct FilterData {
+    filters: Vec<GpuFilterData>,
+    offsets: HashMap<LayerId, u32>,
+    buffer: Vec<u8>,
+}
+
+impl FilterData {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    fn clear(&mut self) {
+        self.filters.clear();
+        self.offsets.clear();
+        self.buffer.clear();
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.filters.is_empty()
+    }
+
+    pub(crate) fn filters(&self) -> &[GpuFilterData] {
+        &self.filters
+    }
+
+    pub(crate) fn offsets(&self) -> &HashMap<LayerId, u32> {
+        &self.offsets
+    }
+
+    pub(crate) fn total_texels(&self) -> u32 {
+        self.filters.len() as u32 * GpuFilterData::SIZE_TEXELS
+    }
+
+    pub(crate) fn prepare(&mut self, render_graph: &RenderGraph) {
+        self.clear();
+
+        if !render_graph.has_filters() {
+            return;
+        }
+
+        let mut current_offset = 0u32;
+        for node in &render_graph.nodes {
+            if let RenderNodeKind::FilterLayer {
+                layer_id,
+                filter,
+                transform,
+                ..
+            } = &node.kind
+            {
+                let instantiated = InstantiatedFilter::new(filter, transform);
+                let gpu_filter = GpuFilterData::from(&instantiated);
+                self.filters.push(gpu_filter);
+                self.offsets.insert(*layer_id, current_offset);
+                current_offset += GpuFilterData::SIZE_TEXELS;
+            }
         }
     }
 }

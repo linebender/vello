@@ -23,6 +23,7 @@ use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, num::NonZeroU64};
 
 use crate::AtlasConfig;
+use crate::filter::FilterData;
 use crate::multi_atlas::AtlasId;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
@@ -93,6 +94,8 @@ pub struct Renderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
+    /// Filter data for layers with filter effects.
+    filter_data: FilterData,
 }
 
 impl Renderer {
@@ -126,6 +129,7 @@ impl Renderer {
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
+            filter_data: FilterData::new(),
         }
     }
 
@@ -143,6 +147,7 @@ impl Renderer {
         view: &TextureView,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        self.filter_data.prepare(&scene.render_graph);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
