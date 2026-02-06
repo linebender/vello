@@ -273,7 +273,7 @@ impl RenderContext {
         self.temp_path.push(PathEl::ClosePath);
     }
 
-    /// Fill a blurred rectangle with the given radius and standard deviation.
+    /// Fill a blurred rectangle with the given corner radius and standard deviation.
     ///
     /// Note that this only works properly if the current paint is set to a solid color.
     /// If not, it will fall back to using black as the fill color.

@@ -12,7 +12,7 @@ pub struct BlurredRoundedRectangle {
     pub rect: Rect,
     /// The color of the blurred rectangle.
     pub color: AlphaColor<Srgb>,
-    /// The radius of the blur effect.
+    /// The radius of the rounded rectangle's corners.
     pub radius: f32,
     /// The standard deviation of the blur effect.
     pub std_dev: f32,
