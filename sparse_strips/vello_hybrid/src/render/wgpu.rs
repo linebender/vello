@@ -507,9 +507,8 @@ struct GpuResources {
     filter_texture: Texture,
     /// Bind group for filter texture
     filter_bind_group: BindGroup,
-    /// Intermediate texture views for layers with filter effects, keyed by layer ID.
-    /// These hold the rendered content before filter effects are applied.
-    intermediate_texture_views: HashMap<LayerId, TextureView>,
+    /// Textures for layers with filter effects, keyed by layer ID.
+    filter_textures: HashMap<LayerId, FilterTextures>,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
@@ -528,6 +527,20 @@ struct GpuResources {
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
+
+// TODO: Use texture arrays?
+/// Textures used for rendering and filtering a layer with filter effects.
+#[derive(Debug)]
+struct FilterTextures {
+    /// The main texture holding the raw painted version of the layer.
+    /// This is the render target when drawing the layer's content.
+    main_texture: TextureView,
+    /// The destination texture holding the final filtered version.
+    dest_texture: TextureView,
+    /// Optional scratch texture for multi-pass filter operations.
+    /// Currently always None, reserved for future use.
+    scratch_texture: Option<TextureView>,
+}
 
 /// Config for the clear slots pipeline
 #[repr(C)]
@@ -968,7 +981,7 @@ impl Programs {
             gradient_bind_group,
             filter_texture,
             filter_bind_group,
-            intermediate_texture_views: HashMap::new(),
+            filter_textures: HashMap::new(),
             view_config_buffer,
         };
 
@@ -1743,13 +1756,13 @@ impl RendererContext<'_> {
                 (&self.programs.resources.slot_texture_views[idx as usize], idx as usize)
             }
             RenderTarget::IntermediateTexture(layer_id) => {
-                let view = self
+                let filter_textures = self
                     .programs
                     .resources
-                    .intermediate_texture_views
+                    .filter_textures
                     .get(&layer_id)
-                    .expect("intermediate texture view should exist for layer");
-                (view, 2)
+                    .expect("filter textures should exist for layer");
+                (&filter_textures.main_texture, 2)
             }
         };
 
@@ -1849,26 +1862,46 @@ impl RendererBackend for RendererContext<'_> {
         let width = u32::from(bbox.width_px());
         let height = u32::from(bbox.height_px());
 
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Intermediate Filter Texture"),
-            size: Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
+        let size = Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let format = self.programs.target_format;
+        let usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT;
+
+        let main_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Filter Main Texture"),
+            size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: self.programs.target_format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            usage,
             view_formats: &[],
         });
 
-        let view = texture.create_view(&TextureViewDescriptor::default());
+        let dest_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Filter Dest Texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage,
+            view_formats: &[],
+        });
+
+        let filter_textures = FilterTextures {
+            main_texture: main_texture.create_view(&TextureViewDescriptor::default()),
+            dest_texture: dest_texture.create_view(&TextureViewDescriptor::default()),
+            scratch_texture: None,
+        };
+
         self.programs
             .resources
-            .intermediate_texture_views
-            .insert(layer_id, view);
+            .filter_textures
+            .insert(layer_id, filter_textures);
     }
 }
 
