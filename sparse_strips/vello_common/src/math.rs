@@ -11,6 +11,10 @@ use peniko::kurbo::common::FloatFuncs as _;
 // explanation of this approximation to the erf function.
 /// Approximate the erf function.
 pub fn compute_erf7(x: f32) -> f32 {
+    // Clamp `x`, because for large `x` the terms here become `inf`, causing the result to be 0 or
+    // `NaN`. This clamping doesn't lose any information, because `erf(±10) ≈ 1` well within `f64`
+    // machine precision, let alone `f32`.
+    let x = x.clamp(-10., 10.);
     let x = x * core::f32::consts::FRAC_2_SQRT_PI;
     let xx = x * x;
     let x = x + (0.24295 + (0.03395 + 0.0104 * xx) * xx) * (x * xx);

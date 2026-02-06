@@ -220,6 +220,10 @@ trait FloatExt<S: Simd> {
 
 impl<S: Simd> FloatExt<S> for f32x8<S> {
     fn compute_erf7(simd: S, x: Self) -> Self {
+        // Clamp `x`, because for large `x` the terms here become `inf`, causing the result to be 0 or
+        // `NaN`. This clamping doesn't lose any information, because `erf(±10) ≈ 1` well within `f64`
+        // machine precision, let alone `f32`.
+        let x = x.max(Self::splat(simd, -10.0)).min(Self::splat(simd, 10.0));
         let x = x * Self::splat(simd, core::f32::consts::FRAC_2_SQRT_PI);
         let xx = x * x;
         let p1 = Self::splat(simd, 0.0104).madd(xx, Self::splat(simd, 0.03395));
