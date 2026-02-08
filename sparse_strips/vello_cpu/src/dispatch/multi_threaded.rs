@@ -604,7 +604,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         }
     }
 
-    fn rasterize_at_offset(
+    fn composite_at_offset(
         &self,
         _buffer: &mut [u8],
         _width: u16,
@@ -616,8 +616,8 @@ impl Dispatcher for MultiThreadedDispatcher {
         _render_mode: RenderMode,
         _encoded_paints: &[EncodedPaint],
     ) {
-        // TODO: Implement rasterize_at_offset for multi-threaded dispatcher.
-        unimplemented!("rasterize_at_offset is not implemented for multi-threaded dispatcher");
+        // TODO: Implement composite_at_offset for multi-threaded dispatcher.
+        unimplemented!("composite_at_offset is not implemented for multi-threaded dispatcher");
     }
 
     fn generate_wide_cmd(

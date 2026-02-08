@@ -399,9 +399,9 @@ impl SingleThreadedDispatcher {
         self.render_graph.has_filters()
     }
 
-    /// Rasterizes at an offset using f32 precision (high quality).
+    /// Composites at an offset using f32 precision (high quality).
     #[cfg(feature = "f32_pipeline")]
-    fn rasterize_at_offset_f32(
+    fn composite_at_offset_f32(
         &self,
         buffer: &mut [u8],
         width: u16,
@@ -414,14 +414,14 @@ impl SingleThreadedDispatcher {
     ) {
         use crate::fine::F32Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_at_offset_with::<_, F32Kernel>(
+        dispatch!(self.level, simd => self.composite_at_offset_with::<_, F32Kernel>(
             simd, buffer, width, height, dst_x, dst_y, dst_buffer_width, dst_buffer_height, encoded_paints
         ));
     }
 
-    /// Rasterizes at an offset using u8 precision (fast).
+    /// Composites at an offset using u8 precision (fast).
     #[cfg(feature = "u8_pipeline")]
-    fn rasterize_at_offset_u8(
+    fn composite_at_offset_u8(
         &self,
         buffer: &mut [u8],
         width: u16,
@@ -434,16 +434,16 @@ impl SingleThreadedDispatcher {
     ) {
         use crate::fine::U8Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_at_offset_with::<_, U8Kernel>(
+        dispatch!(self.level, simd => self.composite_at_offset_with::<_, U8Kernel>(
             simd, buffer, width, height, dst_x, dst_y, dst_buffer_width, dst_buffer_height, encoded_paints
         ));
     }
 
-    /// Core implementation for rendering at an offset.
+    /// Core implementation for compositing at an offset.
     ///
-    /// Renders tiles sequentially, writing directly to the destination buffer
+    /// Composites tiles sequentially, writing directly to the destination buffer
     /// at the specified offset.
-    fn rasterize_at_offset_with<S: Simd, F: FineKernel<S>>(
+    fn composite_at_offset_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
         buffer: &mut [u8],
@@ -473,6 +473,8 @@ impl SingleThreadedDispatcher {
             let wtile = self.wide.get(x, y);
             fine.set_coords(x, y);
 
+            // Unpack existing pixel data from the region instead of clearing,
+            // so that rendering composites onto the existing pixmap contents.
             fine.unpack(region);
             for cmd in &wtile.cmds {
                 fine.run_cmd(
@@ -681,7 +683,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         }
     }
 
-    fn rasterize_at_offset(
+    fn composite_at_offset(
         &self,
         buffer: &mut [u8],
         width: u16,
@@ -696,7 +698,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
         {
             let _ = render_mode;
-            self.rasterize_at_offset_u8(
+            self.composite_at_offset_u8(
                 buffer,
                 width,
                 height,
@@ -711,7 +713,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
         {
             let _ = render_mode;
-            self.rasterize_at_offset_f32(
+            self.composite_at_offset_f32(
                 buffer,
                 width,
                 height,
@@ -726,7 +728,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         #[cfg(all(feature = "u8_pipeline", feature = "f32_pipeline"))]
         match render_mode {
             RenderMode::OptimizeSpeed => {
-                self.rasterize_at_offset_u8(
+                self.composite_at_offset_u8(
                     buffer,
                     width,
                     height,
@@ -738,7 +740,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 );
             }
             RenderMode::OptimizeQuality => {
-                self.rasterize_at_offset_f32(
+                self.composite_at_offset_f32(
                     buffer,
                     width,
                     height,

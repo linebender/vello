@@ -17,7 +17,7 @@ This release has an [MSRV][] of 1.88.
 
 ### Added
 
-- Added `render_to_pixmap_at_offset` method to `RenderContext` for rendering at specific offsets within a larger pixmap, enabling spritesheet/atlas support. ([#1416][] by [@grebmeg][])
+- Added `composite_to_pixmap_at_offset` method to `RenderContext` for compositing at specific offsets within a larger pixmap, enabling spritesheet/atlas support. ([#1416][] by [@grebmeg][])
 
 ### Changed
 

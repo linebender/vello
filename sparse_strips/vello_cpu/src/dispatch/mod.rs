@@ -78,7 +78,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         height: u16,
         encoded_paints: &[EncodedPaint],
     );
-    fn rasterize_at_offset(
+    fn composite_at_offset(
         &self,
         buffer: &mut [u8],
         width: u16,

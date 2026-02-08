@@ -594,21 +594,27 @@ impl RenderContext {
         );
     }
 
-    /// Render the current context into a region of a pixmap.
+    /// Composite the current context into a region of a pixmap.
     ///
-    /// The context's content (sized `self.width × self.height`) is rendered
+    /// The context's content (sized `self.width × self.height`) is composited
     /// directly to the destination pixmap starting at `(dst_x, dst_y)`.
     /// If the region extends beyond the pixmap bounds, it is clipped.
     ///
-    /// This method composites on top of existing pixmap content rather than
-    /// clearing it first, allowing multiple renders to accumulate.
+    /// Unlike [`render_to_pixmap`](Self::render_to_pixmap), this method composites on top of
+    /// existing pixmap content rather than clearing it first, allowing multiple
+    /// renders to accumulate.
     ///
     /// This is useful for rendering individual elements (like glyphs) into
     /// a spritesheet at specific coordinates.
-    pub fn render_to_pixmap_at_offset(&self, pixmap: &mut Pixmap, dst_x: u16, dst_y: u16) {
+    ///
+    /// # Panics
+    ///
+    /// This method is only supported with the single-threaded dispatcher and will
+    /// **panic** if called on a `RenderContext` using the multi-threaded dispatcher.
+    pub fn composite_to_pixmap_at_offset(&self, pixmap: &mut Pixmap, dst_x: u16, dst_y: u16) {
         let dst_buffer_width = pixmap.width();
         let dst_buffer_height = pixmap.height();
-        self.dispatcher.rasterize_at_offset(
+        self.dispatcher.composite_at_offset(
             pixmap.data_as_u8_slice_mut(),
             self.width,
             self.height,

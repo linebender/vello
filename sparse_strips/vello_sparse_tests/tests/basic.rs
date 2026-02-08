@@ -457,14 +457,14 @@ fn test_cmd_size(_: &mut impl Renderer) {
     );
 }
 
-/// Test rendering a single glyph to a specific region of a larger spritesheet pixmap using `vello_cpu`.
+/// Test compositing a single glyph to a specific region of a larger spritesheet pixmap using `vello_cpu`.
 ///
 /// This demonstrates the glyph caching workflow:
 /// 1. Create a small `RenderContext` sized for a single glyph
 /// 2. Render the glyph into that context
-/// 3. Use `render_to_pixmap_at_offset` to blit it to a specific (x, y) position in a larger spritesheet
+/// 3. Use `composite_to_pixmap_at_offset` to blit it to a specific (x, y) position in a larger spritesheet
 #[test]
-fn render_to_pixmap_at_offset() {
+fn composite_to_pixmap_at_offset() {
     let settings = RenderSettings {
         level: Level::try_detect().unwrap_or(Level::fallback()),
         num_threads: 0,
@@ -501,7 +501,7 @@ fn render_to_pixmap_at_offset() {
     let positions: [(u16, u16); 3] = [(15, 15), (30, 30), (0, 0)];
 
     for (dst_x, dst_y) in positions {
-        glyph_renderer.render_to_pixmap_at_offset(&mut spritesheet, dst_x, dst_y);
+        glyph_renderer.composite_to_pixmap_at_offset(&mut spritesheet, dst_x, dst_y);
     }
 
     // Now render the glyphs directly at the same positions to a reference pixmap
@@ -538,12 +538,12 @@ fn render_to_pixmap_at_offset() {
     //     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs");
     // let _ = std::fs::create_dir_all(&diffs_path);
     // let png_data = spritesheet.clone().into_png().unwrap();
-    // std::fs::write(diffs_path.join("render_to_pixmap_at_offset.png"), png_data).unwrap();
+    // std::fs::write(diffs_path.join("composite_to_pixmap_at_offset.png"), png_data).unwrap();
 
     // Compare the two pixmaps
     assert_eq!(
         spritesheet.data_as_u8_slice(),
         reference_pixmap.data_as_u8_slice(),
-        "render_to_pixmap_at_offset result should match direct rendering"
+        "composite_to_pixmap_at_offset result should match direct rendering"
     );
 }
