@@ -650,12 +650,10 @@ impl Scheduler {
                     let Some(ranges) = wide_tile.layer_cmd_ranges.get(&layer_id) else {
                         continue;
                     };
-                    if ranges.render_range.is_empty() {
-                        continue;
-                    }
 
                     let attrs = &scene.wide.attrs;
                     let mut cmd_idx = ranges.render_range.start;
+
                     while cmd_idx < ranges.render_range.end {
                         let cmd = &wide_tile.cmds[cmd_idx];
                         match cmd {
