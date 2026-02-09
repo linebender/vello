@@ -205,15 +205,25 @@ const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
 // The sentinel tile index representing the surface.
 const SENTINEL_SLOT_IDX: usize = usize::MAX;
 
+/// The output target for the final composite draw in a round.
+///
+/// This distinguishes between rendering to the user-visible surface and
+/// rendering to an intermediate texture for a filter layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OutputTarget {
+    /// Render to the final output view/surface.
+    FinalView,
+    /// Render to an intermediate texture for a layer with filter effects.
+    IntermediateTexture(LayerId),
+}
+
 /// Specifies the target for a render pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RenderTarget {
-    /// Render to the final output view/surface.
-    FinalView,
+    /// Render to the final output or an intermediate texture.
+    Output(OutputTarget),
     /// Render to one of the slot textures used for clipping/blending.
     SlotTexture(u8),
-    /// Render to an intermediate texture for a layer with filter effects.
-    IntermediateTexture(LayerId),
 }
 
 /// Trait for abstracting the renderer backend from the scheduler.
@@ -254,6 +264,10 @@ pub(crate) struct Scheduler {
     /// A pool of `Round` objects that can be reused, so that we can reduce
     /// the number of allocations.
     round_pool: RoundPool,
+    /// The output target for our "main" rendering operations. This represents
+    /// the final surface in the normal case, or an intermediate texture if we are rendering
+    /// a filter layer.
+    output_target: OutputTarget,
 }
 
 #[derive(Debug, Default)]
@@ -320,9 +334,15 @@ pub(crate) struct SchedulerState {
     annotated_commands: Vec<AnnotatedCmd>,
     /// Pointers to `PushBuf` commands.
     pointer_to_push_buf_stack: Vec<usize>,
-    /// When rendering to an intermediate texture for a filter layer, this holds
-    /// the layer ID and bounding box. None when rendering to the final view.
-    intermediate_target: Option<(LayerId, WideTilesBbox)>,
+    /// Pixel offset to subtract from strip coordinates.
+    ///
+    /// We need this because when rendering filtered layers, we only allocate a texture
+    /// the size of the bounding box of the filter layer. For example, let's say that the
+    /// bounding box is from (256, 8) to (512, 12). In this case, we will allocate a texture of
+    /// size (256, 4). However, since for example the original x coordinates range from 256-512, we
+    /// need to translate all of them by -x_offset so that they are correctly positioned in the
+    /// new texture.
+    strip_offset: (u16, u16),
 }
 
 impl SchedulerState {
@@ -330,20 +350,6 @@ impl SchedulerState {
         self.tile_state.clear();
         self.annotated_commands.clear();
         self.pointer_to_push_buf_stack.clear();
-        // TODO: Intermediate target?
-    }
-
-    /// Returns the pixel offset to subtract from strip coordinates.
-    ///
-    /// When rendering to an intermediate texture, strips need to be offset
-    /// so they render relative to the texture's origin (0,0) rather than
-    /// scene coordinates.
-    #[inline]
-    fn strip_offset(&self) -> (u16, u16) {
-        match &self.intermediate_target {
-            None => (0, 0),
-            Some((_, bbox)) => (bbox.x0() * WideTile::WIDTH, bbox.y0() * Tile::HEIGHT),
-        }
     }
 }
 
@@ -488,6 +494,7 @@ impl Scheduler {
             free,
             rounds_queue: VecDeque::new(),
             round_pool: RoundPool::default(),
+            output_target: OutputTarget::FinalView,
         }
     }
 
@@ -564,7 +571,7 @@ impl Scheduler {
 
                 state.clear();
 
-                let offset = state.strip_offset();
+                let offset = state.strip_offset;
                 self.initialize_tile_state(
                     &mut state.tile_state,
                     wide_tile,
@@ -614,14 +621,17 @@ impl Scheduler {
                     ..
                 } => {
                     renderer.create_intermediate_texture(*layer_id, wtile_bbox);
-                    state.intermediate_target = Some((*layer_id, *wtile_bbox));
+                    state.strip_offset =
+                        (wtile_bbox.x0() * WideTile::WIDTH, wtile_bbox.y0() * Tile::HEIGHT);
+                    self.output_target = OutputTarget::IntermediateTexture(*layer_id);
                     (*layer_id, *wtile_bbox)
                 }
                 RenderNodeKind::RootLayer {
                     layer_id,
                     wtile_bbox,
                 } => {
-                    state.intermediate_target = None;
+                    state.strip_offset = (0, 0);
+                    self.output_target = OutputTarget::FinalView;
                     (*layer_id, *wtile_bbox)
                 }
             };
@@ -634,7 +644,7 @@ impl Scheduler {
 
                     state.clear();
 
-                    let offset = state.strip_offset();
+                    let offset = state.strip_offset;
                     self.initialize_tile_state(
                         &mut state.tile_state,
                         wide_tile,
@@ -774,7 +784,7 @@ impl Scheduler {
             }
 
             let target = if i == 2 {
-                RenderTarget::FinalView
+                RenderTarget::Output(self.output_target)
             } else {
                 RenderTarget::SlotTexture(i as u8)
             };
@@ -928,7 +938,7 @@ impl Scheduler {
         wide_tile_y: u16,
         attrs: &CommandAttrs,
     ) {
-        let offset = state.strip_offset();
+        let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
 
         let el = state.tile_state.stack.last_mut().unwrap();
@@ -974,7 +984,7 @@ impl Scheduler {
         wide_tile_y: u16,
         attrs: &CommandAttrs,
     ) {
-        let offset = state.strip_offset();
+        let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
 
         let el = state.tile_state.stack.last_mut().unwrap();
@@ -1117,7 +1127,7 @@ impl Scheduler {
         wide_tile_y: u16,
         cmd: &CmdClipFill,
     ) {
-        let offset = state.strip_offset();
+        let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
         let tos: &TileEl = &state.tile_state.stack[depth - 1];
         let nos = &state.tile_state.stack[depth - 2];
@@ -1161,7 +1171,7 @@ impl Scheduler {
         cmd: &CmdClipAlphaFill,
         attrs: &CommandAttrs,
     ) {
-        let offset = state.strip_offset();
+        let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
         let tos = &state.tile_state.stack[depth - 1];
         let nos = &state.tile_state.stack[depth - 2];
@@ -1212,7 +1222,7 @@ impl Scheduler {
         wide_tile_y: u16,
         mode: &BlendMode,
     ) {
-        let offset = state.strip_offset();
+        let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
         let tos = state.tile_state.stack.last().unwrap();
         let nos = &state.tile_state.stack[state.tile_state.stack.len() - 2];

@@ -41,7 +41,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RenderTarget, RendererBackend, Scheduler, SchedulerState},
+    schedule::{LoadOp, OutputTarget, RenderTarget, RendererBackend, Scheduler, SchedulerState},
 };
 use bytemuck::{Pod, Zeroable};
 use vello_common::{
@@ -1762,12 +1762,8 @@ impl RendererContext<'_> {
         self.programs.upload_strips(self.device, self.queue, strips);
 
         let (view, bind_group_index): (&TextureView, usize) = match target {
-            RenderTarget::FinalView => (self.view, 2),
-            RenderTarget::SlotTexture(idx) => (
-                &self.programs.resources.slot_texture_views[idx as usize],
-                idx as usize,
-            ),
-            RenderTarget::IntermediateTexture(layer_id) => {
+            RenderTarget::Output(OutputTarget::FinalView) => (self.view, 2),
+            RenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
                 let filter_textures = self
                     .programs
                     .resources
@@ -1776,6 +1772,10 @@ impl RendererContext<'_> {
                     .expect("filter textures should exist for layer");
                 (&filter_textures.main_texture, 2)
             }
+            RenderTarget::SlotTexture(idx) => (
+                &self.programs.resources.slot_texture_views[idx as usize],
+                idx as usize,
+            ),
         };
 
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
