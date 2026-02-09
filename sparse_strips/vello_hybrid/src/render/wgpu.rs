@@ -1216,7 +1216,7 @@ impl Programs {
 
     fn create_filter_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Filter Texture"),
+            label: Some("Filter Data Texture"),
             size: Extent3d {
                 width,
                 height,
@@ -1836,7 +1836,10 @@ impl RendererContext<'_> {
                     .filter_textures
                     .get(&layer_id)
                     .expect("filter textures should exist for layer");
-                (&filter_textures.main_texture, &filter_textures.strip_bind_group)
+                (
+                    &filter_textures.main_texture,
+                    &filter_textures.strip_bind_group,
+                )
             }
             RenderTarget::SlotTexture(idx) => (
                 &self.programs.resources.slot_texture_views[idx as usize],
@@ -1945,7 +1948,7 @@ impl RendererBackend for RendererContext<'_> {
         let usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT;
 
         let main_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Filter Main Texture"),
+            label: Some("Filter Target Texture"),
             size,
             mip_level_count: 1,
             sample_count: 1,
