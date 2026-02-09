@@ -22,6 +22,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::{
     AtlasConfig, GpuStrip, RenderError, RenderSettings, RenderSize,
+    filter::FilterContext,
     gradient_cache::GradientRampCache,
     image_cache::{ImageCache, ImageResource},
     multi_atlas::AtlasId,
@@ -193,8 +194,14 @@ impl WebGlRenderer {
             programs: &mut self.programs,
             gl: &self.gl,
         };
-        self.scheduler
-            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
+        let filter_context = FilterContext::new();
+        self.scheduler.do_scene(
+            &mut self.scheduler_state,
+            &mut ctx,
+            scene,
+            &self.paint_idxs,
+            &filter_context,
+        )?;
         self.gradient_cache.maintain();
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
@@ -1930,6 +1937,10 @@ impl RendererBackend for WebGlRendererContext<'_> {
 
     fn create_intermediate_texture(&mut self, _layer_id: LayerId, _bbox: &WideTilesBbox) {
         unimplemented!("create_intermediate_texture not yet implemented in WebGL")
+    }
+
+    fn apply_filter(&mut self, _layer_id: LayerId, _filter_offset: u32) {
+        unimplemented!("apply_filter not yet implemented in WebGL")
     }
 }
 

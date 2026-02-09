@@ -176,6 +176,7 @@ impl Renderer {
             &mut junk,
             scene,
             &self.paint_idxs,
+            &self.filter_context,
         );
         self.gradient_cache.maintain();
 
@@ -466,6 +467,10 @@ struct Programs {
     /// Bind group layout for filter texture
     // TODO: Consider unifying with encoded_paints_bind_group_layout since they have identical structure
     filter_bind_group_layout: BindGroupLayout,
+    /// Pipeline for applying filter effects to intermediate textures.
+    filter_pipeline: RenderPipeline,
+    /// Bind group layout for the filter pipeline.
+    filter_input_bind_group_layout: BindGroupLayout,
     /// Pipeline for clearing slots in slot textures.
     clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
@@ -829,6 +834,62 @@ impl Programs {
             cache: None,
         });
 
+        let filter_input_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Filter Input Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+
+        let filter_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Filter Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::FILTERS.into()),
+        });
+
+        let filter_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Filter Pipeline Layout"),
+                bind_group_layouts: &[&filter_bind_group_layout, &filter_input_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let filter_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Filter Pipeline"),
+            layout: Some(&filter_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &filter_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &filter_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: render_target_config.format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         let slot_texture_views: [TextureView; 2] = core::array::from_fn(|_| {
             device
                 .create_texture(&wgpu::TextureDescriptor {
@@ -996,6 +1057,8 @@ impl Programs {
             gradient_bind_group_layout,
             atlas_bind_group_layout,
             filter_bind_group_layout,
+            filter_pipeline,
+            filter_input_bind_group_layout,
             resources,
             encoded_paints_data,
             filter_data,
@@ -1911,6 +1974,53 @@ impl RendererBackend for RendererContext<'_> {
             .resources
             .filter_textures
             .insert(layer_id, filter_textures);
+    }
+
+    fn apply_filter(&mut self, layer_id: LayerId, filter_offset: u32) {
+        use crate::filter::GpuFilterData;
+
+        let filter_textures = self
+            .programs
+            .resources
+            .filter_textures
+            .get(&layer_id)
+            .unwrap();
+
+        let input_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Filter Input Bind Group"),
+            layout: &self.programs.filter_input_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&filter_textures.main_texture),
+            }],
+        });
+
+        let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Filter Render Pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: &filter_textures.dest_texture,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        // We use vertex indices to pass implicit information about the offset
+        // of the data of the filter.
+        let filter_index = filter_offset / GpuFilterData::SIZE_TEXELS;
+        let vertex_start = filter_index * 4;
+        let vertex_end = vertex_start + 4;
+
+        render_pass.set_pipeline(&self.programs.filter_pipeline);
+        render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
+        render_pass.set_bind_group(1, &input_bind_group, &[]);
+        render_pass.draw(vertex_start..vertex_end, 0..1);
     }
 }
 

@@ -171,7 +171,7 @@ pub(crate) struct GpuFilterData {
 }
 
 impl GpuFilterData {
-    const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
+    pub(crate) const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 
     fn filter_type(&self) -> u32 {
         self.data[0]

@@ -176,6 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::filter::FilterContext;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -239,6 +240,8 @@ pub(crate) trait RendererBackend {
     /// The texture dimensions are derived from the bounding box in wide tile coordinates.
     /// The texture view is stored internally and can be accessed via `RenderTarget::IntermediateTexture`.
     fn create_intermediate_texture(&mut self, layer_id: LayerId, bbox: &WideTilesBbox);
+
+    fn apply_filter(&mut self, layer_id: LayerId, filter_offset: u32);
 }
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
@@ -531,9 +534,10 @@ impl Scheduler {
         renderer: &mut R,
         scene: &Scene,
         paint_idxs: &[u32],
+        filter_context: &FilterContext,
     ) -> Result<(), RenderError> {
         if scene.render_graph.has_filters() {
-            self.do_scene_with_filters(state, renderer, scene, paint_idxs)?;
+            self.do_scene_with_filters(state, renderer, scene, paint_idxs, filter_context)?;
         } else {
             self.do_scene_no_filters(state, renderer, scene, paint_idxs)?;
         }
@@ -608,6 +612,7 @@ impl Scheduler {
         renderer: &mut R,
         scene: &Scene,
         paint_idxs: &[u32],
+        filter_context: &FilterContext,
     ) -> Result<(), RenderError> {
         // TODO: Since this code is very similar to vello_cpu, maybe most of it can be
         // put into vello_common, with some callbacks to implement renderer-specific
@@ -732,6 +737,12 @@ impl Scheduler {
 
             while !self.rounds_queue.is_empty() {
                 self.flush(renderer);
+            }
+
+            // If we are rendering a filtered layer, apply the filter now.
+            if let OutputTarget::IntermediateTexture(layer_id) = self.output_target {
+                let filter_offset = filter_context.offsets().get(&layer_id).copied().unwrap();
+                renderer.apply_filter(layer_id, filter_offset);
             }
         }
 
