@@ -8,11 +8,11 @@
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use hashbrown::HashMap;
+use vello_common::filter::InstantiatedFilter;
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{GaussianBlur, MAX_KERNEL_SIZE};
 use vello_common::filter::offset::Offset;
-use vello_common::filter::InstantiatedFilter;
 use vello_common::filter_effects::EdgeMode;
 use vello_common::render_graph::{LayerId, RenderGraph, RenderNodeKind};
 

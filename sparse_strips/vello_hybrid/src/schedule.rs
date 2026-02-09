@@ -342,10 +342,7 @@ impl SchedulerState {
     fn strip_offset(&self) -> (u16, u16) {
         match &self.intermediate_target {
             None => (0, 0),
-            Some((_, bbox)) => (
-                bbox.x0() * WideTile::WIDTH,
-                bbox.y0() * Tile::HEIGHT,
-            ),
+            Some((_, bbox)) => (bbox.x0() * WideTile::WIDTH, bbox.y0() * Tile::HEIGHT),
         }
     }
 }
@@ -530,7 +527,7 @@ impl Scheduler {
     ) -> Result<(), RenderError> {
         if scene.render_graph.has_filters() {
             unimplemented!();
-        }   else {
+        } else {
             self.do_scene_no_filters(state, renderer, scene, paint_idxs)?;
         }
 
@@ -742,12 +739,24 @@ impl Scheduler {
             match cmd {
                 Cmd::Fill(fill) => {
                     self.do_fill(
-                        state, scene, fill, paint_idxs, wide_tile_x, wide_tile_y, attrs,
+                        state,
+                        scene,
+                        fill,
+                        paint_idxs,
+                        wide_tile_x,
+                        wide_tile_y,
+                        attrs,
                     );
                 }
                 Cmd::AlphaFill(alpha_fill) => {
                     self.do_alpha_fill(
-                        state, scene, alpha_fill, paint_idxs, wide_tile_x, wide_tile_y, attrs,
+                        state,
+                        scene,
+                        alpha_fill,
+                        paint_idxs,
+                        wide_tile_x,
+                        wide_tile_y,
+                        attrs,
                     );
                 }
                 Cmd::PushBuf(_) => {
@@ -776,14 +785,15 @@ impl Scheduler {
     }
 
     #[inline]
-    fn do_alpha_fill(&mut self,
-                     state: &mut SchedulerState,
-                     scene: &Scene,
-                     cmd: &CmdAlphaFill,
-                     paint_idxs: &[u32],
-                     wide_tile_x: u16,
-                     wide_tile_y: u16,
-                     attrs: &CommandAttrs,
+    fn do_alpha_fill(
+        &mut self,
+        state: &mut SchedulerState,
+        scene: &Scene,
+        cmd: &CmdAlphaFill,
+        paint_idxs: &[u32],
+        wide_tile_x: u16,
+        wide_tile_y: u16,
+        attrs: &CommandAttrs,
     ) {
         let offset = state.strip_offset();
         let depth = state.tile_state.stack.len();
@@ -858,7 +868,6 @@ impl Scheduler {
         };
 
         draw.push(gpu_strip_builder.paint(payload, paint));
-
     }
 
     fn do_push_buf<R: RendererBackend>(
@@ -920,18 +929,17 @@ impl Scheduler {
         // Push a new tile.
         let ix = depth % 2;
         let slot = self.claim_free_slot(ix, renderer)?;
-        let temporary_slot =
-            if needs_temporary_slot {
-                let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
-                debug_assert_ne!(
-                    slot.get_texture(),
-                    temp_slot.get_texture(),
-                    "slot and temporary slot must be on opposite textures."
-                );
-                TemporarySlot::Valid(temp_slot)
-            } else {
-                TemporarySlot::None
-            };
+        let temporary_slot = if needs_temporary_slot {
+            let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
+            debug_assert_ne!(
+                slot.get_texture(),
+                temp_slot.get_texture(),
+                "slot and temporary slot must be on opposite textures."
+            );
+            TemporarySlot::Valid(temp_slot)
+        } else {
+            TemporarySlot::None
+        };
 
         state.tile_state.stack.push(TileEl {
             dest_slot: slot,
@@ -1002,18 +1010,9 @@ impl Scheduler {
             },
         );
         let gpu_strip_builder = if depth <= 2 {
-            GpuStripBuilder::at_surface(
-                wide_tile_x + cmd.x,
-                wide_tile_y,
-                cmd.width,
-                offset,
-            )
+            GpuStripBuilder::at_surface(wide_tile_x + cmd.x, wide_tile_y, cmd.width, offset)
         } else {
-            GpuStripBuilder::at_slot(
-                nos.dest_slot.get_idx(),
-                cmd.x,
-                cmd.width,
-            )
+            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), cmd.x, cmd.width)
         };
         draw.push(gpu_strip_builder.copy_from_slot(tos.dest_slot.get_idx(), 0xFF));
 
@@ -1055,18 +1054,9 @@ impl Scheduler {
             },
         );
         let gpu_strip_builder = if depth <= 2 {
-            GpuStripBuilder::at_surface(
-                wide_tile_x + cmd.x,
-                wide_tile_y,
-                cmd.width,
-                offset,
-            )
+            GpuStripBuilder::at_surface(wide_tile_x + cmd.x, wide_tile_y, cmd.width, offset)
         } else {
-            GpuStripBuilder::at_slot(
-                nos.dest_slot.get_idx(),
-                cmd.x,
-                cmd.width,
-            )
+            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), cmd.x, cmd.width)
         };
 
         let clip_attrs = &attrs.clip[cmd.attrs_idx as usize];
@@ -1136,10 +1126,7 @@ impl Scheduler {
             let draw = self.draw_mut(round, tos.get_draw_texture(depth - 1));
             draw.push(
                 GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
-                    .copy_from_slot(
-                        tos.dest_slot.get_idx(),
-                        (tos.opacity * 255.0) as u8,
-                    ),
+                    .copy_from_slot(tos.dest_slot.get_idx(), (tos.opacity * 255.0) as u8),
             );
         }
     }

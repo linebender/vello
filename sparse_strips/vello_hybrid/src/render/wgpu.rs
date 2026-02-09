@@ -1752,9 +1752,10 @@ impl RendererContext<'_> {
 
         let (view, bind_group_index): (&TextureView, usize) = match target {
             RenderTarget::FinalView => (self.view, 2),
-            RenderTarget::SlotTexture(idx) => {
-                (&self.programs.resources.slot_texture_views[idx as usize], idx as usize)
-            }
+            RenderTarget::SlotTexture(idx) => (
+                &self.programs.resources.slot_texture_views[idx as usize],
+                idx as usize,
+            ),
             RenderTarget::IntermediateTexture(layer_id) => {
                 let filter_textures = self
                     .programs

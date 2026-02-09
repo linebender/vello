@@ -21,9 +21,9 @@ impl FilterEffect for Flood {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::AlphaColor;
     use crate::layer_manager::LayerManager;
     use vello_common::color::{PremulRgba8, Srgb};
-    use crate::color::AlphaColor;
 
     /// Test flood with semi-transparent color - verifies correct premultiplication.
     #[test]
