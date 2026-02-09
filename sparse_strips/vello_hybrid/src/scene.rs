@@ -7,7 +7,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use vello_common::clip::ClipContext;
-use vello_common::coarse::{MODE_HYBRID, Wide};
+use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
@@ -19,7 +19,7 @@ use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
-use vello_common::render_graph::RenderGraph;
+use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
@@ -111,6 +111,8 @@ pub struct Scene {
     pub(crate) strip_storage: RefCell<StripStorage>,
     /// Cache for rasterized glyphs to improve text rendering performance.
     pub(crate) glyph_caches: Option<GlyphCaches>,
+    /// Counter for generating unique layer IDs.
+    layer_id_next: u32,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
 }
@@ -124,11 +126,22 @@ impl Scene {
     /// Create a new render context with specific settings.
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         let render_state = Self::default_render_state();
-        let render_graph = RenderGraph::new();
+        let wide = Wide::<MODE_HYBRID>::new(width, height);
+        let mut render_graph = RenderGraph::new();
+
+        // Create root node (layer_id 0) as the first node (will be node 0).
+        // This ensures the root layer is always rendered last in the execution order.
+        let wtile_bbox = WideTilesBbox::new([0, 0, wide.width_tiles(), wide.height_tiles()]);
+        let root_node = render_graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox,
+        });
+        assert_eq!(root_node, 0, "Root node must be node 0");
+
         Self {
             width,
             height,
-            wide: Wide::<MODE_HYBRID>::new(width, height),
+            wide,
             clip_context: ClipContext::new(),
             aliasing_threshold: None,
             paint: render_state.paint,
@@ -142,6 +155,7 @@ impl Scene {
             fill_rule: render_state.fill_rule,
             blend_mode: render_state.blend_mode,
             glyph_caches: Some(GlyphCaches::default()),
+            layer_id_next: 0,
             render_graph,
         }
     }
@@ -338,9 +352,6 @@ impl Scene {
     }
 
     /// Push a new layer with the given properties.
-    ///
-    /// Only `clip_path` is supported for now.
-    // TODO: Implement filter integration.
     pub fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -349,9 +360,7 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
-        if filter.is_some() {
-            unimplemented!("Filter effects are not yet supported in vello_hybrid");
-        }
+        self.layer_id_next += 1;
 
         let mut strip_storage = self.strip_storage.borrow_mut();
 
@@ -376,12 +385,12 @@ impl Scene {
         }
 
         self.wide.push_layer(
-            0,
+            self.layer_id_next,
             clip,
             blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
             None,
             opacity.unwrap_or(1.),
-            None,
+            filter,
             self.transform,
             &mut self.render_graph,
             0,
@@ -414,8 +423,6 @@ impl Scene {
     }
 
     /// Push a new filter layer.
-    ///
-    /// Note that filters are currently ignored in `vello_hybrid`.
     pub fn push_filter_layer(&mut self, filter: Filter) {
         self.push_layer(None, None, None, None, Some(filter));
     }
@@ -501,6 +508,20 @@ impl Scene {
         self.paint = render_state.paint;
         self.stroke = render_state.stroke;
         self.blend_mode = render_state.blend_mode;
+
+        self.render_graph.clear();
+        self.layer_id_next = 0;
+
+        let root_node = self.render_graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox: WideTilesBbox::new([
+                0,
+                0,
+                self.wide.width_tiles(),
+                self.wide.height_tiles(),
+            ]),
+        });
+        debug_assert_eq!(root_node, 0, "Root node must be node 0");
 
         self.glyph_caches.as_mut().unwrap().maintain();
     }
