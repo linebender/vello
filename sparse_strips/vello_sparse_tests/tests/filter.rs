@@ -21,6 +21,19 @@ use vello_cpu::kurbo::Dashes;
 use vello_cpu::peniko::LinearGradientPosition;
 use vello_dev_macros::vello_test;
 
+// TODO: We are purposefully using multiple of WideTile width/height here, because the implementation
+// currently works incorrectly if it's not the case. Once the issue as been fixed, we should update
+// this test to use normal dimensions.
+#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 40)]
+fn filter_flood(ctx: &mut impl Renderer) {
+    let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
+
+    ctx.push_filter_layer(filter_flood);
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&Rect::new(0.0, 8.0, 256.0, 32.0));
+    ctx.pop_layer();
+}
+
 /// Test flood filter filling a star shape with solid color using a mask.
 ///
 /// Note: SVG-compliant flood would use `feComposite` with `operator="in"`, which requires
@@ -35,7 +48,7 @@ fn filter_flood_star(ctx: &mut impl Renderer) {
     // of combining the both, because doing both at the same time is a special case which we are
     // not trying to test here.
     ctx.push_clip_layer(&star_path);
-    ctx.push_layer(None, None, None, None, Some(filter_flood));
+    ctx.push_filter_layer(filter_flood);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_path(&star_path);
     ctx.pop_layer();
@@ -1132,7 +1145,6 @@ fn filter_gaussian_blur_edge_mode_mirror(ctx: &mut impl Renderer) {
 fn filter_issue_1421(ctx: &mut impl Renderer) {
     let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
     let star_path = circular_star(Point::new(50.0, 50.0), 5, 20.0, 40.0);
-
 
     ctx.push_layer(Some(&star_path), None, None, None, Some(filter_flood));
     ctx.set_paint(REBECCA_PURPLE);
