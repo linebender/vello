@@ -602,12 +602,10 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
     ) -> Result<(), RenderError> {
-        let execution_order: Vec<usize> = scene.render_graph.execution_order().collect();
-
         // TODO: Since this code is very similar to vello_cpu, maybe most of it can be
         // put into vello_common, with some callbacks to implement renderer-specific
         // actions.
-        for node_id in execution_order {
+        for node_id in scene.render_graph.execution_order() {
             let node = &scene.render_graph.nodes[node_id];
             let (layer_id, wtile_bbox) = match &node.kind {
                 RenderNodeKind::FilterLayer {
