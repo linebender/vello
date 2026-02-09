@@ -621,8 +621,10 @@ impl Scheduler {
                     ..
                 } => {
                     renderer.create_intermediate_texture(*layer_id, wtile_bbox);
-                    state.strip_offset =
-                        (wtile_bbox.x0() * WideTile::WIDTH, wtile_bbox.y0() * Tile::HEIGHT);
+                    state.strip_offset = (
+                        wtile_bbox.x0() * WideTile::WIDTH,
+                        wtile_bbox.y0() * Tile::HEIGHT,
+                    );
                     self.output_target = OutputTarget::IntermediateTexture(*layer_id);
                     (*layer_id, *wtile_bbox)
                 }

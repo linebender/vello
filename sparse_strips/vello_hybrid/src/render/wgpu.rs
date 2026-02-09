@@ -946,10 +946,8 @@ impl Programs {
 
         // TODO: We should unify the handling of this (as well as the other textures...)
         const INITIAL_FILTER_TEXTURE_HEIGHT: u32 = 1;
-        let filter_data = vec![
-            0;
-            ((max_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4) as usize
-        ];
+        let filter_data =
+            vec![0; ((max_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4) as usize];
         let filter_texture = Self::create_filter_texture(
             device,
             max_texture_dimension_2d,
@@ -1455,8 +1453,7 @@ impl Programs {
                 required_filter_height <= max_texture_dimension_2d,
                 "Filter texture height exceeds max texture dimensions"
             );
-            let required_filter_size =
-                (max_texture_dimension_2d * required_filter_height) << 4;
+            let required_filter_size = (max_texture_dimension_2d * required_filter_height) << 4;
             self.filter_data.resize(required_filter_size as usize, 0);
 
             let filter_texture = Self::create_filter_texture(
