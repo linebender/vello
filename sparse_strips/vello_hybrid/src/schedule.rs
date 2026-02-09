@@ -179,7 +179,9 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::{CmdAlphaFill, CommandAttrs, MODE_HYBRID};
+use vello_common::coarse::{
+    CmdAlphaFill, CmdClipAlphaFill, CmdClipFill, CmdFill, CommandAttrs, MODE_HYBRID,
+};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, LayerKind, WideTile, WideTilesBbox},
@@ -726,291 +728,45 @@ impl Scheduler {
         paint_idxs: &[u32],
         attrs: &CommandAttrs,
     ) -> Result<(), RenderError> {
-        let offset = state.strip_offset();
-
-        for annotated_cmd in &state.annotated_commands {
-            // Note: this starts at 1 (for the final target)
-            let depth = state.tile_state.stack.len();
+        for i in 0..state.annotated_commands.len() {
+            let annotated_cmd = &state.annotated_commands[i];
             let Some(cmd) = annotated_cmd.as_cmd(wide_tile_cmds) else {
                 continue;
             };
 
+            // Clone the small data we need from the annotated command before
+            // borrowing state mutably. `AnnotatedCmd` references are only needed
+            // to distinguish PushBufWithTemporarySlot from PushBuf.
+            let is_push_with_temp = matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot);
+
             match cmd {
                 Cmd::Fill(fill) => {
-                    let el = state.tile_state.stack.last_mut().unwrap();
-                    let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
-
-                    let fill_attrs = &attrs.fill[fill.attrs_idx as usize];
-                    let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
-                    let (payload, paint) = Self::process_paint(
-                        &fill_attrs.paint,
-                        scene,
-                        (scene_strip_x, scene_strip_y),
-                        paint_idxs,
+                    self.do_fill(
+                        state, scene, fill, paint_idxs, wide_tile_x, wide_tile_y, attrs,
                     );
-
-                    let gpu_strip_builder = if depth == 1 {
-                        GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, fill.width, offset)
-                    } else {
-                        let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
-                            temp_slot.get_idx()
-                        } else {
-                            el.dest_slot.get_idx()
-                        };
-                        GpuStripBuilder::at_slot(slot_idx, fill.x, fill.width)
-                    };
-
-                    draw.push(gpu_strip_builder.paint(payload, paint));
                 }
                 Cmd::AlphaFill(alpha_fill) => {
                     self.do_alpha_fill(
-                        state, scene, alpha_fill, paint_idxs, wide_tile_x, wide_tile_y, attrs
+                        state, scene, alpha_fill, paint_idxs, wide_tile_x, wide_tile_y, attrs,
                     );
                 }
-                Cmd::PushBuf(_layer_id) => {
-                    // TODO: Handle layer_id for filter effects when implemented.
-                    // `wgpu` does not allow reading/writing from the same slot texture. This means
-                    // that to represent the binary function `Blend(src_tile, dest_tile)` we need
-                    // both slots being blended to be on the same texture. This is accomplished as
-                    // the lower destination tile (`nos`) maintains a proxy slot in the texture
-                    // above. Blending consumes both the top-of-stack (`tos`) slot, the `src_tile`,
-                    // and blends it with `nos.temporary_slot` (`dest_tile`). The results of the
-                    // blend are written to `nos.dest_slot`.
-                    //
-                    // This works well _once_. Unfortunately, to blend to `nos` again we need to
-                    // copy the contents of `dest_slot` back to `temporary_slot` such that it can be
-                    // composited again. Without this, the tile will not accumulate blends, and
-                    // instead will have repeated blends clobber the prior blends. Hence, if a
-                    // buffer is being pushed that will be blended back to `tos`, copy contents from
-                    // `tos.dest_slot` to `tos.temporary_slot` ready for future blending.
-                    {
-                        let tos: &mut TileEl = state.tile_state.stack.last_mut().unwrap();
-                        if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
-                            let next_round = depth.is_multiple_of(2);
-                            let el_round = tos.round + usize::from(next_round);
-                            let draw = self.draw_mut(el_round, temp_slot.get_texture());
-                            draw.push(
-                                GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
-                                    .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
-                            );
-
-                            tos.temporary_slot = TemporarySlot::Valid(temp_slot);
-                            // Signal when this tile will be ready to use for future blend/pop/clip
-                            // operations.
-                            tos.round = el_round + 1;
-
-                            // First, we clear the temp slot. THEN, in the same round, we copy the data
-                            // from dest slot to temp slot. THEN, in the round after that, we clear
-                            // dest slot, so that in a future blending operation, we can store
-                            // results into dest slot again.
-                            let dest_slot = tos.dest_slot;
-                            let round = self.get_round(el_round);
-                            round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
-                            debug_assert_ne!(
-                                dest_slot.get_idx(),
-                                SENTINEL_SLOT_IDX,
-                                "surface cannot be read"
-                            );
-                            let round1 = self.get_round(tos.round);
-                            round1.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
-                        }
-                    }
-
-                    // Push a new tile.
-                    let ix = depth % 2;
-                    let slot = self.claim_free_slot(ix, renderer)?;
-                    let temporary_slot =
-                        if matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot) {
-                            let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
-                            debug_assert_ne!(
-                                slot.get_texture(),
-                                temp_slot.get_texture(),
-                                "slot and temporary slot must be on opposite textures."
-                            );
-                            TemporarySlot::Valid(temp_slot)
-                        } else {
-                            TemporarySlot::None
-                        };
-                    state.tile_state.stack.push(TileEl {
-                        dest_slot: slot,
-                        temporary_slot,
-                        round: self.round,
-                        opacity: 1.,
-                    });
+                Cmd::PushBuf(_) => {
+                    self.do_push_buf(state, renderer, is_push_with_temp)?;
                 }
                 Cmd::PopBuf => {
-                    let tos = state.tile_state.stack.pop().unwrap();
-                    let nos = state.tile_state.stack.last_mut().unwrap();
-                    let next_round = depth.is_multiple_of(2) && depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
-                    nos.round = round;
-                    // free slot after draw
-                    debug_assert!(round >= self.round, "round must be after current round");
-                    debug_assert!(
-                        round - self.round < self.rounds_queue.len(),
-                        "round must be in queue"
-                    );
-
-                    self.rounds_queue[round - self.round].free[tos.dest_slot.get_texture()]
-                        .push(tos.dest_slot.get_idx());
-                    // If a TileEl was not used for blending the temporary slot may still be in use
-                    // and needs to be cleared.
-                    if let TemporarySlot::Valid(temp_slot) | TemporarySlot::Invalid(temp_slot) =
-                        tos.temporary_slot
-                    {
-                        self.rounds_queue[round - self.round].free[temp_slot.get_texture()]
-                            .push(temp_slot.get_idx());
-                    }
+                    self.do_pop_buf(state);
                 }
                 Cmd::ClipFill(clip_fill) => {
-                    let tos: &TileEl = &state.tile_state.stack[depth - 1];
-                    let nos = &state.tile_state.stack[depth - 2];
-
-                    // Basically if we are writing onto the even texture, we need to go up a round
-                    // to target it.
-                    let next_round = depth.is_multiple_of(2) && depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
-                    if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
-                        let draw = self.draw_mut(round, nos.dest_slot.get_texture());
-                        draw.push(
-                            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
-                                .copy_from_slot(temp_slot.get_idx(), 0xFF),
-                        );
-                    }
-
-                    let draw = self.draw_mut(
-                        round,
-                        if (depth - 1) <= 1 {
-                            2
-                        } else {
-                            nos.dest_slot.get_texture()
-                        },
-                    );
-                    let gpu_strip_builder = if depth <= 2 {
-                        GpuStripBuilder::at_surface(
-                            wide_tile_x + clip_fill.x,
-                            wide_tile_y,
-                            clip_fill.width,
-                            offset,
-                        )
-                    } else {
-                        GpuStripBuilder::at_slot(
-                            nos.dest_slot.get_idx(),
-                            clip_fill.x,
-                            clip_fill.width,
-                        )
-                    };
-                    draw.push(gpu_strip_builder.copy_from_slot(tos.dest_slot.get_idx(), 0xFF));
-
-                    let nos_ptr = state.tile_state.stack.len() - 2;
-                    state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
+                    self.do_clip_fill(state, wide_tile_x, wide_tile_y, clip_fill);
                 }
                 Cmd::ClipStrip(clip_alpha_fill) => {
-                    let tos = &state.tile_state.stack[depth - 1];
-                    let nos = &state.tile_state.stack[depth - 2];
-
-                    let next_round = depth.is_multiple_of(2) && depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
-
-                    // If nos has a temporary slot, copy it to `dest_slot` first
-                    if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
-                        let draw = self.draw_mut(round, nos.dest_slot.get_texture());
-                        draw.push(
-                            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
-                                .copy_from_slot(temp_slot.get_idx(), 0xFF),
-                        );
-                    }
-
-                    let draw = self.draw_mut(
-                        round,
-                        if (depth - 1) <= 1 {
-                            2
-                        } else {
-                            nos.dest_slot.get_texture()
-                        },
-                    );
-                    let gpu_strip_builder = if depth <= 2 {
-                        GpuStripBuilder::at_surface(
-                            wide_tile_x + clip_alpha_fill.x,
-                            wide_tile_y,
-                            clip_alpha_fill.width,
-                            offset,
-                        )
-                    } else {
-                        GpuStripBuilder::at_slot(
-                            nos.dest_slot.get_idx(),
-                            clip_alpha_fill.x,
-                            clip_alpha_fill.width,
-                        )
-                    };
-
-                    let clip_attrs = &attrs.clip[clip_alpha_fill.attrs_idx as usize];
-                    let alpha_idx = clip_attrs.alpha_idx(clip_alpha_fill.alpha_offset);
-                    let col_idx = alpha_idx / u32::from(Tile::HEIGHT);
-
-                    draw.push(
-                        gpu_strip_builder
-                            .with_sparse(clip_alpha_fill.width, col_idx)
-                            .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
-                    );
-                    let nos_ptr = state.tile_state.stack.len() - 2;
-                    state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
+                    self.do_clip_strip(state, wide_tile_x, wide_tile_y, clip_alpha_fill, attrs);
                 }
                 Cmd::Opacity(opacity) => {
-                    state.tile_state.stack.last_mut().unwrap().opacity = *opacity;
+                    self.do_opacity(state, *opacity);
                 }
                 Cmd::Blend(mode) => {
-                    let tos = state.tile_state.stack.last().unwrap();
-                    let nos = &state.tile_state.stack[state.tile_state.stack.len() - 2];
-
-                    let next_round: bool = depth.is_multiple_of(2) && depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
-
-                    if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
-                        let draw = self.draw_mut(
-                            round,
-                            if depth <= 2 {
-                                2
-                            } else {
-                                nos.dest_slot.get_texture()
-                            },
-                        );
-                        let opacity_u8 = (tos.opacity * 255.0) as u8;
-                        let mix_mode = mode.mix as u8;
-                        let compose_mode = mode.compose as u8;
-
-                        let gpu_strip_builder = if depth <= 2 {
-                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
-                        } else {
-                            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
-                        };
-
-                        draw.push(gpu_strip_builder.blend(
-                            tos.dest_slot.get_idx(),
-                            temp_slot.get_idx(),
-                            opacity_u8,
-                            mix_mode,
-                            compose_mode,
-                        ));
-                        // Invalidate the temporary slot after use
-                        let nos_ptr = state.tile_state.stack.len() - 2;
-                        state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
-                    } else {
-                        assert_eq!(
-                            nos.dest_slot.get_idx(),
-                            SENTINEL_SLOT_IDX,
-                            "code path only for copying to sentinel slot, {mode:?}"
-                        );
-
-                        let draw = self.draw_mut(round, tos.get_draw_texture(depth - 1));
-                        draw.push(
-                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
-                                .copy_from_slot(
-                                    tos.dest_slot.get_idx(),
-                                    (tos.opacity * 255.0) as u8,
-                                ),
-                        );
-                    }
+                    self.do_blend(state, wide_tile_x, wide_tile_y, mode);
                 }
                 _ => unimplemented!(),
             }
@@ -1062,6 +818,335 @@ impl Scheduler {
                 .with_sparse(cmd.width, col_idx)
                 .paint(payload, paint),
         );
+    }
+
+    #[inline]
+    fn do_fill(
+        &mut self,
+        state: &mut SchedulerState,
+        scene: &Scene,
+        cmd: &CmdFill,
+        paint_idxs: &[u32],
+        wide_tile_x: u16,
+        wide_tile_y: u16,
+        attrs: &CommandAttrs,
+    ) {
+        let offset = state.strip_offset();
+        let depth = state.tile_state.stack.len();
+
+        let el = state.tile_state.stack.last_mut().unwrap();
+        let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
+
+        let fill_attrs = &attrs.fill[cmd.attrs_idx as usize];
+        let (scene_strip_x, scene_strip_y) = (wide_tile_x + cmd.x, wide_tile_y);
+        let (payload, paint) = Self::process_paint(
+            &fill_attrs.paint,
+            scene,
+            (scene_strip_x, scene_strip_y),
+            paint_idxs,
+        );
+
+        let gpu_strip_builder = if depth == 1 {
+            GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, cmd.width, offset)
+        } else {
+            let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
+                temp_slot.get_idx()
+            } else {
+                el.dest_slot.get_idx()
+            };
+            GpuStripBuilder::at_slot(slot_idx, cmd.x, cmd.width)
+        };
+
+        draw.push(gpu_strip_builder.paint(payload, paint));
+
+    }
+
+    fn do_push_buf<R: RendererBackend>(
+        &mut self,
+        state: &mut SchedulerState,
+        renderer: &mut R,
+        needs_temporary_slot: bool,
+    ) -> Result<(), RenderError> {
+        let depth = state.tile_state.stack.len();
+
+        // TODO: Handle layer_id for filter effects when implemented.
+        // `wgpu` does not allow reading/writing from the same slot texture. This means
+        // that to represent the binary function `Blend(src_tile, dest_tile)` we need
+        // both slots being blended to be on the same texture. This is accomplished as
+        // the lower destination tile (`nos`) maintains a proxy slot in the texture
+        // above. Blending consumes both the top-of-stack (`tos`) slot, the `src_tile`,
+        // and blends it with `nos.temporary_slot` (`dest_tile`). The results of the
+        // blend are written to `nos.dest_slot`.
+        //
+        // This works well _once_. Unfortunately, to blend to `nos` again we need to
+        // copy the contents of `dest_slot` back to `temporary_slot` such that it can be
+        // composited again. Without this, the tile will not accumulate blends, and
+        // instead will have repeated blends clobber the prior blends. Hence, if a
+        // buffer is being pushed that will be blended back to `tos`, copy contents from
+        // `tos.dest_slot` to `tos.temporary_slot` ready for future blending.
+        {
+            let tos: &mut TileEl = state.tile_state.stack.last_mut().unwrap();
+            if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
+                let next_round = depth.is_multiple_of(2);
+                let el_round = tos.round + usize::from(next_round);
+                let draw = self.draw_mut(el_round, temp_slot.get_texture());
+                draw.push(
+                    GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
+                        .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
+                );
+
+                tos.temporary_slot = TemporarySlot::Valid(temp_slot);
+                // Signal when this tile will be ready to use for future blend/pop/clip
+                // operations.
+                tos.round = el_round + 1;
+
+                // First, we clear the temp slot. THEN, in the same round, we copy the data
+                // from dest slot to temp slot. THEN, in the round after that, we clear
+                // dest slot, so that in a future blending operation, we can store
+                // results into dest slot again.
+                let dest_slot = tos.dest_slot;
+                let round = self.get_round(el_round);
+                round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
+                debug_assert_ne!(
+                    dest_slot.get_idx(),
+                    SENTINEL_SLOT_IDX,
+                    "surface cannot be read"
+                );
+                let round1 = self.get_round(tos.round);
+                round1.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
+            }
+        }
+
+        // Push a new tile.
+        let ix = depth % 2;
+        let slot = self.claim_free_slot(ix, renderer)?;
+        let temporary_slot =
+            if needs_temporary_slot {
+                let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
+                debug_assert_ne!(
+                    slot.get_texture(),
+                    temp_slot.get_texture(),
+                    "slot and temporary slot must be on opposite textures."
+                );
+                TemporarySlot::Valid(temp_slot)
+            } else {
+                TemporarySlot::None
+            };
+
+        state.tile_state.stack.push(TileEl {
+            dest_slot: slot,
+            temporary_slot,
+            round: self.round,
+            opacity: 1.,
+        });
+
+        Ok(())
+    }
+
+    fn do_pop_buf(&mut self, state: &mut SchedulerState) {
+        let depth = state.tile_state.stack.len();
+        let tos = state.tile_state.stack.pop().unwrap();
+        let nos = state.tile_state.stack.last_mut().unwrap();
+        let next_round = depth.is_multiple_of(2) && depth > 2;
+        let round = nos.round.max(tos.round + usize::from(next_round));
+        nos.round = round;
+        // free slot after draw
+        debug_assert!(round >= self.round, "round must be after current round");
+        debug_assert!(
+            round - self.round < self.rounds_queue.len(),
+            "round must be in queue"
+        );
+
+        self.rounds_queue[round - self.round].free[tos.dest_slot.get_texture()]
+            .push(tos.dest_slot.get_idx());
+        // If a TileEl was not used for blending the temporary slot may still be in use
+        // and needs to be cleared.
+        if let TemporarySlot::Valid(temp_slot) | TemporarySlot::Invalid(temp_slot) =
+            tos.temporary_slot
+        {
+            self.rounds_queue[round - self.round].free[temp_slot.get_texture()]
+                .push(temp_slot.get_idx());
+        }
+    }
+
+    fn do_clip_fill(
+        &mut self,
+        state: &mut SchedulerState,
+        wide_tile_x: u16,
+        wide_tile_y: u16,
+        cmd: &CmdClipFill,
+    ) {
+        let offset = state.strip_offset();
+        let depth = state.tile_state.stack.len();
+        let tos: &TileEl = &state.tile_state.stack[depth - 1];
+        let nos = &state.tile_state.stack[depth - 2];
+
+        // Basically if we are writing onto the even texture, we need to go up a round
+        // to target it.
+        let next_round = depth.is_multiple_of(2) && depth > 2;
+        let round = nos.round.max(tos.round + usize::from(next_round));
+        if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
+            let draw = self.draw_mut(round, nos.dest_slot.get_texture());
+            draw.push(
+                GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+                    .copy_from_slot(temp_slot.get_idx(), 0xFF),
+            );
+        }
+
+        let draw = self.draw_mut(
+            round,
+            if (depth - 1) <= 1 {
+                2
+            } else {
+                nos.dest_slot.get_texture()
+            },
+        );
+        let gpu_strip_builder = if depth <= 2 {
+            GpuStripBuilder::at_surface(
+                wide_tile_x + cmd.x,
+                wide_tile_y,
+                cmd.width,
+                offset,
+            )
+        } else {
+            GpuStripBuilder::at_slot(
+                nos.dest_slot.get_idx(),
+                cmd.x,
+                cmd.width,
+            )
+        };
+        draw.push(gpu_strip_builder.copy_from_slot(tos.dest_slot.get_idx(), 0xFF));
+
+        let nos_ptr = state.tile_state.stack.len() - 2;
+        state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
+    }
+
+    fn do_clip_strip(
+        &mut self,
+        state: &mut SchedulerState,
+        wide_tile_x: u16,
+        wide_tile_y: u16,
+        cmd: &CmdClipAlphaFill,
+        attrs: &CommandAttrs,
+    ) {
+        let offset = state.strip_offset();
+        let depth = state.tile_state.stack.len();
+        let tos = &state.tile_state.stack[depth - 1];
+        let nos = &state.tile_state.stack[depth - 2];
+
+        let next_round = depth.is_multiple_of(2) && depth > 2;
+        let round = nos.round.max(tos.round + usize::from(next_round));
+
+        // If nos has a temporary slot, copy it to `dest_slot` first
+        if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
+            let draw = self.draw_mut(round, nos.dest_slot.get_texture());
+            draw.push(
+                GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+                    .copy_from_slot(temp_slot.get_idx(), 0xFF),
+            );
+        }
+
+        let draw = self.draw_mut(
+            round,
+            if (depth - 1) <= 1 {
+                2
+            } else {
+                nos.dest_slot.get_texture()
+            },
+        );
+        let gpu_strip_builder = if depth <= 2 {
+            GpuStripBuilder::at_surface(
+                wide_tile_x + cmd.x,
+                wide_tile_y,
+                cmd.width,
+                offset,
+            )
+        } else {
+            GpuStripBuilder::at_slot(
+                nos.dest_slot.get_idx(),
+                cmd.x,
+                cmd.width,
+            )
+        };
+
+        let clip_attrs = &attrs.clip[cmd.attrs_idx as usize];
+        let alpha_idx = clip_attrs.alpha_idx(cmd.alpha_offset);
+        let col_idx = alpha_idx / u32::from(Tile::HEIGHT);
+
+        draw.push(
+            gpu_strip_builder
+                .with_sparse(cmd.width, col_idx)
+                .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
+        );
+        let nos_ptr = state.tile_state.stack.len() - 2;
+        state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
+    }
+
+    fn do_blend(
+        &mut self,
+        state: &mut SchedulerState,
+        wide_tile_x: u16,
+        wide_tile_y: u16,
+        mode: &BlendMode,
+    ) {
+        let offset = state.strip_offset();
+        let depth = state.tile_state.stack.len();
+        let tos = state.tile_state.stack.last().unwrap();
+        let nos = &state.tile_state.stack[state.tile_state.stack.len() - 2];
+
+        let next_round: bool = depth.is_multiple_of(2) && depth > 2;
+        let round = nos.round.max(tos.round + usize::from(next_round));
+
+        if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
+            let draw = self.draw_mut(
+                round,
+                if depth <= 2 {
+                    2
+                } else {
+                    nos.dest_slot.get_texture()
+                },
+            );
+            let opacity_u8 = (tos.opacity * 255.0) as u8;
+            let mix_mode = mode.mix as u8;
+            let compose_mode = mode.compose as u8;
+
+            let gpu_strip_builder = if depth <= 2 {
+                GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
+            } else {
+                GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+            };
+
+            draw.push(gpu_strip_builder.blend(
+                tos.dest_slot.get_idx(),
+                temp_slot.get_idx(),
+                opacity_u8,
+                mix_mode,
+                compose_mode,
+            ));
+            // Invalidate the temporary slot after use
+            let nos_ptr = state.tile_state.stack.len() - 2;
+            state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
+        } else {
+            assert_eq!(
+                nos.dest_slot.get_idx(),
+                SENTINEL_SLOT_IDX,
+                "code path only for copying to sentinel slot, {mode:?}"
+            );
+
+            let draw = self.draw_mut(round, tos.get_draw_texture(depth - 1));
+            draw.push(
+                GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
+                    .copy_from_slot(
+                        tos.dest_slot.get_idx(),
+                        (tos.opacity * 255.0) as u8,
+                    ),
+            );
+        }
+    }
+
+    #[inline]
+    fn do_opacity(&self, state: &mut SchedulerState, opacity: f32) {
+        state.tile_state.stack.last_mut().unwrap().opacity = opacity;
     }
 
     /// Process a paint and return (`payload`, `paint`)
