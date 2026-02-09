@@ -476,6 +476,8 @@ struct Programs {
     render_size: RenderSize,
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
+    /// Scratch buffer for staging filter texture data.
+    filter_data: Vec<u8>,
     /// Texture format for the render target.
     target_format: wgpu::TextureFormat,
 }
@@ -944,6 +946,10 @@ impl Programs {
 
         // TODO: We should unify the handling of this (as well as the other textures...)
         const INITIAL_FILTER_TEXTURE_HEIGHT: u32 = 1;
+        let filter_data = vec![
+            0;
+            ((max_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4) as usize
+        ];
         let filter_texture = Self::create_filter_texture(
             device,
             max_texture_dimension_2d,
@@ -994,6 +1000,7 @@ impl Programs {
             filter_bind_group_layout,
             resources,
             encoded_paints_data,
+            filter_data,
             render_size: RenderSize {
                 width: render_target_config.width,
                 height: render_target_config.height,
@@ -1448,6 +1455,10 @@ impl Programs {
                 required_filter_height <= max_texture_dimension_2d,
                 "Filter texture height exceeds max texture dimensions"
             );
+            let required_filter_size =
+                (max_texture_dimension_2d * required_filter_height) << 4;
+            self.filter_data.resize(required_filter_size as usize, 0);
+
             let filter_texture = Self::create_filter_texture(
                 device,
                 max_texture_dimension_2d,
@@ -1636,7 +1647,7 @@ impl Programs {
 
     /// Upload filter data to the texture.
     // TODO: Unify with the other upload methods.
-    fn upload_filter_texture(&self, queue: &Queue, filter_context: &FilterContext) {
+    fn upload_filter_texture(&mut self, queue: &Queue, filter_context: &FilterContext) {
         if filter_context.is_empty() {
             return;
         }
@@ -1644,7 +1655,7 @@ impl Programs {
         let filter_texture_width = filter_texture.width();
         let filter_texture_height = filter_texture.height();
 
-        let data = filter_context.as_bytes();
+        filter_context.serialize_to_buffer(&mut self.filter_data);
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: filter_texture,
@@ -1652,7 +1663,7 @@ impl Programs {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            data,
+            &self.filter_data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), equivalent to bit shift of 4

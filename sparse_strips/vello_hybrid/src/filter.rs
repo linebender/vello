@@ -236,10 +236,6 @@ impl FilterContext {
         self.filters.is_empty()
     }
 
-    pub(crate) fn filters(&self) -> &[GpuFilterData] {
-        &self.filters
-    }
-
     pub(crate) fn offsets(&self) -> &HashMap<LayerId, u32> {
         &self.offsets
     }
@@ -273,8 +269,9 @@ impl FilterContext {
         }
     }
 
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        bytemuck::cast_slice(&self.filters)
+    pub(crate) fn serialize_to_buffer(&self, buffer: &mut [u8]) {
+        let src = bytemuck::cast_slice::<GpuFilterData, u8>(&self.filters);
+        buffer[..src.len()].copy_from_slice(src);
     }
 }
 
