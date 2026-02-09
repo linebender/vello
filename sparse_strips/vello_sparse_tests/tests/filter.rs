@@ -3,19 +3,22 @@
 
 //! Tests demonstrating the filter effects API usage.
 
-use crate::util::circular_star;
+use crate::util::{circular_star, stops_blue_green_red_yellow};
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
-use vello_common::color::AlphaColor;
+use smallvec::smallvec;
 use vello_common::color::palette::css::{
-    BLACK, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET, WHITE,
+    BLACK, BLUE, GREEN, PURPLE, REBECCA_PURPLE, RED, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET, WHITE,
+    YELLOW,
 };
+use vello_common::color::{AlphaColor, DynamicColor};
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
-use vello_common::peniko::{BlendMode, Compose, Mix};
+use vello_common::peniko::{BlendMode, ColorStop, ColorStops, Compose, Gradient, Mix};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::RenderContext;
 use vello_cpu::kurbo::Dashes;
+use vello_cpu::peniko::LinearGradientPosition;
 use vello_dev_macros::vello_test;
 
 /// Test flood filter filling a star shape with solid color using a mask.
@@ -1090,4 +1093,52 @@ fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
     ctx.set_paint(VIOLET);
     ctx.fill_path(&rect_br);
     ctx.pop_layer();
+}
+
+fn blur_with_edge_mode(ctx: &mut impl Renderer, edge_mode: EdgeMode) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 6.0,
+        edge_mode,
+    });
+
+    let rect = Rect::new(0.0, 0.0, 256.0, 100.0);
+    let gradient = Gradient {
+        kind: LinearGradientPosition {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(256.0, 0.0),
+        }
+        .into(),
+        stops: stops_blue_green_red_yellow(),
+        ..Default::default()
+    };
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
+}
+
+// TODO: Currently, these tests have a width/height that is a multiple of a wide tile,
+// because edge modes currently don't handle other widths/heights correctly. Once that is
+// fixed, we should change the tests back to 100x100 to exercise that path as well.
+
+#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 100)]
+fn filter_gaussian_blur_edge_mode_none(ctx: &mut impl Renderer) {
+    // TODO: The bottom part looks wrong compared to the other edges.
+    blur_with_edge_mode(ctx, EdgeMode::None);
+}
+
+#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 100)]
+fn filter_gaussian_blur_edge_mode_duplicate(ctx: &mut impl Renderer) {
+    blur_with_edge_mode(ctx, EdgeMode::Duplicate);
+}
+
+#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 100)]
+fn filter_gaussian_blur_edge_mode_wrap(ctx: &mut impl Renderer) {
+    blur_with_edge_mode(ctx, EdgeMode::Wrap);
+}
+
+#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 100)]
+fn filter_gaussian_blur_edge_mode_mirror(ctx: &mut impl Renderer) {
+    blur_with_edge_mode(ctx, EdgeMode::Mirror);
 }
