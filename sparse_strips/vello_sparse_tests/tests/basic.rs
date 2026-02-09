@@ -4,7 +4,7 @@
 //! Tests for basic functionality.
 
 use crate::renderer::Renderer;
-use crate::util::{circular_star, crossed_line_star, miter_stroke_2};
+use crate::util::{circular_star, crossed_line_star, layout_glyphs_roboto, miter_stroke_2};
 use std::f64::consts::PI;
 use vello_common::coarse::Cmd;
 use vello_common::color::palette::css::{
@@ -12,6 +12,8 @@ use vello_common::color::palette::css::{
 };
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
+use vello_cpu::color::palette::css::BLACK;
+use vello_cpu::{Glyph, Level, Pixmap, RenderContext, RenderMode, RenderSettings};
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 8, height = 8)]
@@ -452,5 +454,96 @@ fn test_cmd_size(_: &mut impl Renderer) {
         size_of::<Cmd>(),
         16,
         "size of a command didn't match the expected value"
+    );
+}
+
+/// Test compositing a single glyph to a specific region of a larger spritesheet pixmap using `vello_cpu`.
+///
+/// This demonstrates the glyph caching workflow:
+/// 1. Create a small `RenderContext` sized for a single glyph
+/// 2. Render the glyph into that context
+/// 3. Use `composite_to_pixmap_at_offset` to blit it to a specific (x, y) position in a larger spritesheet
+#[test]
+fn composite_to_pixmap_at_offset() {
+    let settings = RenderSettings {
+        level: Level::try_detect().unwrap_or(Level::fallback()),
+        num_threads: 0,
+        render_mode: RenderMode::OptimizeQuality,
+    };
+    let spritesheet_width: u16 = 100;
+    let spritesheet_height: u16 = 100;
+    let mut spritesheet = Pixmap::new(spritesheet_width, spritesheet_height);
+
+    // Layout a single character to get glyph metrics
+    let font_size: f32 = 50.0;
+    let (font, glyphs) = layout_glyphs_roboto("B", font_size);
+    let glyph = &glyphs[0];
+
+    // For simplicity, use a fixed glyph size
+    let max_glyph_size: u16 = 55;
+    // Create a small `RenderContext` sized for the glyph
+    let mut glyph_renderer = RenderContext::new_with(max_glyph_size, max_glyph_size, settings);
+
+    glyph_renderer.set_transform(Affine::translate((0.0, f64::from(font_size))));
+    glyph_renderer.set_paint(BLACK);
+    glyph_renderer
+        .glyph_run(&font)
+        .font_size(font_size)
+        .hint(true)
+        .fill_glyphs(std::iter::once(Glyph {
+            id: glyph.id,
+            x: 0.0,
+            y: 0.0,
+        }));
+    glyph_renderer.flush();
+
+    // Positions where we'll blit the glyph
+    let positions: [(u16, u16); 3] = [(15, 15), (30, 30), (0, 0)];
+
+    for (dst_x, dst_y) in positions {
+        glyph_renderer.composite_to_pixmap_at_offset(&mut spritesheet, dst_x, dst_y);
+    }
+
+    // Now render the glyphs directly at the same positions to a reference pixmap
+    // to verify that the glyphs are rendered correctly at the same positions.
+    let mut reference_renderer =
+        RenderContext::new_with(spritesheet_width, spritesheet_height, settings);
+    reference_renderer.set_paint(BLACK);
+
+    for (dst_x, dst_y) in positions {
+        // The glyph in glyph_renderer was rendered at (0, font_size).
+        // When blitted to (dst_x, dst_y), it appears at (dst_x + 0, dst_y + font_size).
+        // So we need to render at transform (dst_x, dst_y + font_size) in the reference.
+        reference_renderer.set_transform(Affine::translate((
+            f64::from(dst_x),
+            f64::from(dst_y) + f64::from(font_size),
+        )));
+        reference_renderer
+            .glyph_run(&font)
+            .font_size(font_size)
+            .hint(true)
+            .fill_glyphs(std::iter::once(Glyph {
+                id: glyph.id,
+                x: 0.0,
+                y: 0.0,
+            }));
+    }
+    reference_renderer.flush();
+
+    let mut reference_pixmap = Pixmap::new(spritesheet_width, spritesheet_height);
+    reference_renderer.render_to_pixmap(&mut reference_pixmap);
+
+    // Uncomment to save the spritesheet as PNG for visual inspection
+    // let diffs_path =
+    //     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs");
+    // let _ = std::fs::create_dir_all(&diffs_path);
+    // let png_data = spritesheet.clone().into_png().unwrap();
+    // std::fs::write(diffs_path.join("composite_to_pixmap_at_offset.png"), png_data).unwrap();
+
+    // Compare the two pixmaps
+    assert_eq!(
+        spritesheet.data_as_u8_slice(),
+        reference_pixmap.data_as_u8_slice(),
+        "composite_to_pixmap_at_offset result should match direct rendering"
     );
 }

@@ -78,5 +78,17 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         height: u16,
         encoded_paints: &[EncodedPaint],
     );
+    fn composite_at_offset(
+        &self,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
+        render_mode: RenderMode,
+        encoded_paints: &[EncodedPaint],
+    );
     fn strip_storage_mut(&mut self) -> &mut StripStorage;
 }

@@ -604,6 +604,22 @@ impl Dispatcher for MultiThreadedDispatcher {
         }
     }
 
+    fn composite_at_offset(
+        &self,
+        _buffer: &mut [u8],
+        _width: u16,
+        _height: u16,
+        _dst_x: u16,
+        _dst_y: u16,
+        _dst_buffer_width: u16,
+        _dst_buffer_height: u16,
+        _render_mode: RenderMode,
+        _encoded_paints: &[EncodedPaint],
+    ) {
+        // TODO: Implement composite_at_offset for multi-threaded dispatcher.
+        unimplemented!("composite_at_offset is not implemented for multi-threaded dispatcher");
+    }
+
     fn generate_wide_cmd(
         &mut self,
         strip_buf: &[Strip],
