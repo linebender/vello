@@ -179,7 +179,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::{CommandAttrs, MODE_HYBRID};
+use vello_common::coarse::{CmdAlphaFill, CommandAttrs, MODE_HYBRID};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, LayerKind, WideTile, WideTilesBbox},
@@ -727,6 +727,7 @@ impl Scheduler {
         attrs: &CommandAttrs,
     ) -> Result<(), RenderError> {
         let offset = state.strip_offset();
+
         for annotated_cmd in &state.annotated_commands {
             // Note: this starts at 1 (for the final target)
             let depth = state.tile_state.stack.len();
@@ -762,35 +763,8 @@ impl Scheduler {
                     draw.push(gpu_strip_builder.paint(payload, paint));
                 }
                 Cmd::AlphaFill(alpha_fill) => {
-                    let el = state.tile_state.stack.last_mut().unwrap();
-                    let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
-
-                    let fill_attrs = &attrs.fill[alpha_fill.attrs_idx as usize];
-                    let alpha_idx = fill_attrs.alpha_idx(alpha_fill.alpha_offset);
-                    let col_idx = alpha_idx / u32::from(Tile::HEIGHT);
-                    let (scene_strip_x, scene_strip_y) = (wide_tile_x + alpha_fill.x, wide_tile_y);
-                    let (payload, paint) = Self::process_paint(
-                        &fill_attrs.paint,
-                        scene,
-                        (scene_strip_x, scene_strip_y),
-                        paint_idxs,
-                    );
-
-                    let gpu_strip_builder = if depth == 1 {
-                        GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, alpha_fill.width, offset)
-                    } else {
-                        let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
-                            temp_slot.get_idx()
-                        } else {
-                            el.dest_slot.get_idx()
-                        };
-                        GpuStripBuilder::at_slot(slot_idx, alpha_fill.x, alpha_fill.width)
-                    };
-
-                    draw.push(
-                        gpu_strip_builder
-                            .with_sparse(alpha_fill.width, col_idx)
-                            .paint(payload, paint),
+                    self.do_alpha_fill(
+                        state, scene, alpha_fill, paint_idxs, wide_tile_x, wide_tile_y, attrs
                     );
                 }
                 Cmd::PushBuf(_layer_id) => {
@@ -1043,6 +1017,51 @@ impl Scheduler {
         }
 
         Ok(())
+    }
+
+    #[inline]
+    fn do_alpha_fill(&mut self,
+                     state: &mut SchedulerState,
+                     scene: &Scene,
+                     cmd: &CmdAlphaFill,
+                     paint_idxs: &[u32],
+                     wide_tile_x: u16,
+                     wide_tile_y: u16,
+                     attrs: &CommandAttrs,
+    ) {
+        let offset = state.strip_offset();
+        let depth = state.tile_state.stack.len();
+
+        let el = state.tile_state.stack.last_mut().unwrap();
+        let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
+
+        let fill_attrs = &attrs.fill[cmd.attrs_idx as usize];
+        let alpha_idx = fill_attrs.alpha_idx(cmd.alpha_offset);
+        let col_idx = alpha_idx / u32::from(Tile::HEIGHT);
+        let (scene_strip_x, scene_strip_y) = (wide_tile_x + cmd.x, wide_tile_y);
+        let (payload, paint) = Self::process_paint(
+            &fill_attrs.paint,
+            scene,
+            (scene_strip_x, scene_strip_y),
+            paint_idxs,
+        );
+
+        let gpu_strip_builder = if depth == 1 {
+            GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, cmd.width, offset)
+        } else {
+            let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
+                temp_slot.get_idx()
+            } else {
+                el.dest_slot.get_idx()
+            };
+            GpuStripBuilder::at_slot(slot_idx, cmd.x, cmd.width)
+        };
+
+        draw.push(
+            gpu_strip_builder
+                .with_sparse(cmd.width, col_idx)
+                .paint(payload, paint),
+        );
     }
 
     /// Process a paint and return (`payload`, `paint`)
