@@ -547,6 +547,9 @@ struct FilterTextures {
     /// Optional scratch texture for multi-pass filter operations.
     /// Currently always None, reserved for future use.
     scratch_texture: Option<TextureView>,
+    /// Bind group for rendering strips into the intermediate texture.
+    /// Contains a config buffer sized to the intermediate texture dimensions.
+    strip_bind_group: BindGroup,
 }
 
 /// Config for the clear slots pipeline
@@ -1303,6 +1306,7 @@ impl Programs {
                 strip_bind_group_layout,
                 alphas_texture_view,
                 config_buffer,
+                // When changing this, also update it for the bind group of intermediate filter textures.
                 &strip_texture_views[1],
             ),
         ]
@@ -1821,8 +1825,10 @@ impl RendererContext<'_> {
         // approach would be to re-use buffers or slices of a larger buffer.
         self.programs.upload_strips(self.device, self.queue, strips);
 
-        let (view, bind_group_index): (&TextureView, usize) = match target {
-            RenderTarget::Output(OutputTarget::FinalView) => (self.view, 2),
+        let (view, bind_group): (&TextureView, &BindGroup) = match target {
+            RenderTarget::Output(OutputTarget::FinalView) => {
+                (self.view, &self.programs.resources.slot_bind_groups[2])
+            }
             RenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
                 let filter_textures = self
                     .programs
@@ -1830,11 +1836,11 @@ impl RendererContext<'_> {
                     .filter_textures
                     .get(&layer_id)
                     .expect("filter textures should exist for layer");
-                (&filter_textures.main_texture, 2)
+                (&filter_textures.main_texture, &filter_textures.strip_bind_group)
             }
             RenderTarget::SlotTexture(idx) => (
                 &self.programs.resources.slot_texture_views[idx as usize],
-                idx as usize,
+                &self.programs.resources.slot_bind_groups[idx as usize],
             ),
         };
 
@@ -1854,11 +1860,7 @@ impl RendererContext<'_> {
             timestamp_writes: None,
         });
         render_pass.set_pipeline(&self.programs.strip_pipeline);
-        render_pass.set_bind_group(
-            0,
-            &self.programs.resources.slot_bind_groups[bind_group_index],
-            &[],
-        );
+        render_pass.set_bind_group(0, bind_group, &[]);
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
@@ -1964,10 +1966,32 @@ impl RendererBackend for RendererContext<'_> {
             view_formats: &[],
         });
 
+        let config_buffer = Programs::create_config_buffer(
+            self.device,
+            &RenderSize { width, height },
+            self.device.limits().max_texture_dimension_2d,
+        );
+
+        let alphas_view = self
+            .programs
+            .resources
+            .alphas_texture
+            .create_view(&TextureViewDescriptor::default());
+        let strip_bind_group = Programs::create_strip_bind_group(
+            self.device,
+            &self.programs.strip_bind_group_layout,
+            &alphas_view,
+            &config_buffer,
+            // This needs to be the same as the view used by the bind group of the
+            // main surface.
+            &self.programs.resources.slot_texture_views[1],
+        );
+
         let filter_textures = FilterTextures {
             main_texture: main_texture.create_view(&TextureViewDescriptor::default()),
             dest_texture: dest_texture.create_view(&TextureViewDescriptor::default()),
             scratch_texture: None,
+            strip_bind_group,
         };
 
         self.programs
