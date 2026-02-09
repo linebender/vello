@@ -146,6 +146,40 @@ fn apply_gaussian_blur_horizontal(frag_coord: vec2<u32>, blur: GaussianBlurFilte
     return color;
 }
 
+fn apply_gaussian_blur_vertical(frag_coord: vec2<u32>, blur: GaussianBlurFilter) -> vec4<f32> {
+    let tex_size = vec2<i32>(textureDimensions(in_tex));
+    let radius = i32(blur.kernel_size / 2u);
+
+    var color = vec4<f32>(0.0);
+    for (var i: i32 = -radius; i <= radius; i++) {
+        let weight = blur.kernel[i + radius];
+        let src_x = i32(frag_coord.x);
+        let src_y = i32(frag_coord.y) + i;
+
+        // TODO: Apply edge mode
+        if src_x >= 0 && src_x < tex_size.x && src_y >= 0 && src_y < tex_size.y {
+            color += textureLoad(in_tex, vec2<u32>(vec2<i32>(src_x, src_y)), 0) * weight;
+        }
+    }
+
+    return color;
+}
+
+@fragment
+fn fs_main_vertical(in: FilterVertexOutput) -> @location(0) vec4<f32> {
+    let data = load_filter_data(in.filter_offset);
+    let frag_coord = vec2<u32>(in.position.xy);
+    let filter_type = get_filter_type(data);
+
+    if filter_type == FILTER_TYPE_GAUSSIAN_BLUR {
+        let blur = unpack_gaussian_blur_filter(data);
+        return apply_gaussian_blur_vertical(frag_coord, blur);
+    }
+
+    // This should never be reached.
+    return vec4<f32>(0.0);
+}
+
 // --- FOR LATER ---
 
 // const FILTER_TYPE_FLOOD: u32 = 1u;

@@ -176,6 +176,14 @@ impl GpuFilterData {
     fn filter_type(&self) -> u32 {
         self.data[0]
     }
+
+    /// Returns whether this filter requires a scratch buffer for multi-pass rendering.
+    pub(crate) fn needs_scratch_buffer(&self) -> bool {
+        matches!(
+            self.filter_type(),
+            filter_type::GAUSSIAN_BLUR | filter_type::DROP_SHADOW
+        )
+    }
 }
 
 impl From<GpuOffset> for GpuFilterData {
@@ -242,6 +250,13 @@ impl FilterContext {
 
     pub(crate) fn total_texels(&self) -> u32 {
         self.filters.len() as u32 * GpuFilterData::SIZE_TEXELS
+    }
+
+    /// Returns the filter data for the given layer ID.
+    pub(crate) fn get_filter_data(&self, layer_id: &LayerId) -> Option<&GpuFilterData> {
+        let offset = self.offsets.get(layer_id)?;
+        let index = (*offset / GpuFilterData::SIZE_TEXELS) as usize;
+        self.filters.get(index)
     }
 
     pub(crate) fn prepare(&mut self, render_graph: &RenderGraph) {

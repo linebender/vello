@@ -239,9 +239,14 @@ pub(crate) trait RendererBackend {
     ///
     /// The texture dimensions are derived from the bounding box in wide tile coordinates.
     /// The texture view is stored internally and can be accessed via `RenderTarget::IntermediateTexture`.
-    fn create_intermediate_texture(&mut self, layer_id: LayerId, bbox: &WideTilesBbox);
+    fn create_intermediate_texture(
+        &mut self,
+        layer_id: LayerId,
+        bbox: &WideTilesBbox,
+        needs_scratch: bool,
+    );
 
-    fn apply_filter(&mut self, layer_id: LayerId, filter_offset: u32);
+    fn apply_filter(&mut self, layer_id: LayerId, filter_offset: u32, needs_scratch: bool);
 }
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
@@ -625,7 +630,10 @@ impl Scheduler {
                     wtile_bbox,
                     ..
                 } => {
-                    renderer.create_intermediate_texture(*layer_id, wtile_bbox);
+                    let needs_scratch = filter_context
+                        .get_filter_data(layer_id)
+                        .is_some_and(|f| f.needs_scratch_buffer());
+                    renderer.create_intermediate_texture(*layer_id, wtile_bbox, needs_scratch);
                     state.strip_offset = (
                         wtile_bbox.x0() * WideTile::WIDTH,
                         wtile_bbox.y0() * Tile::HEIGHT,
@@ -742,7 +750,10 @@ impl Scheduler {
             // If we are rendering a filtered layer, apply the filter now.
             if let OutputTarget::IntermediateTexture(layer_id) = self.output_target {
                 let filter_offset = filter_context.offsets().get(&layer_id).copied().unwrap();
-                renderer.apply_filter(layer_id, filter_offset);
+                let needs_scratch = filter_context
+                    .get_filter_data(&layer_id)
+                    .is_some_and(|f| f.needs_scratch_buffer());
+                renderer.apply_filter(layer_id, filter_offset, needs_scratch);
             }
         }
 
