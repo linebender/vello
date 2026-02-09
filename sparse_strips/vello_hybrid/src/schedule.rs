@@ -526,6 +526,33 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
     ) -> Result<(), RenderError> {
+        if scene.render_graph.has_filters() {
+            unimplemented!();
+        }   else {
+            self.do_scene_no_filters(state, renderer, scene, paint_idxs)?;
+        }
+
+        // Restore state to reuse allocations.
+        self.round = 0;
+        #[cfg(debug_assertions)]
+        {
+            for i in 0..self.total_slots {
+                debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {i}");
+                debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {i}");
+            }
+        }
+        debug_assert!(self.rounds_queue.is_empty(), "rounds_queue is not empty");
+
+        Ok(())
+    }
+
+    pub(crate) fn do_scene_no_filters<R: RendererBackend>(
+        &mut self,
+        state: &mut SchedulerState,
+        renderer: &mut R,
+        scene: &Scene,
+        paint_idxs: &[u32],
+    ) -> Result<(), RenderError> {
         let wide_tiles_per_row = scene.wide.width_tiles();
         let wide_tiles_per_col = scene.wide.height_tiles();
 
@@ -565,17 +592,6 @@ impl Scheduler {
         while !self.rounds_queue.is_empty() {
             self.flush(renderer);
         }
-
-        // Restore state to reuse allocations.
-        self.round = 0;
-        #[cfg(debug_assertions)]
-        {
-            for i in 0..self.total_slots {
-                debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {i}");
-                debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {i}");
-            }
-        }
-        debug_assert!(self.rounds_queue.is_empty(), "rounds_queue is not empty");
 
         Ok(())
     }
