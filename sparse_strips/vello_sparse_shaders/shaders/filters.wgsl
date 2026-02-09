@@ -14,6 +14,13 @@ const FILTER_SIZE_U32: u32 = 24u;
 // Since the texture is packed into Uint32.
 const TEXELS_PER_FILTER: u32 = FILTER_SIZE_U32 / 4u;
 
+// Keep in sync with filter_type module in vello_hybrid/src/filter.rs
+const FILTER_TYPE_OFFSET: u32 = 0u;
+const FILTER_TYPE_GAUSSIAN_BLUR: u32 = 2u;
+
+// Keep in sync with MAX_KERNEL_SIZE in vello_common/src/filter/gaussian_blur.rs
+const MAX_KERNEL_SIZE: u32 = 13u;
+
 struct GpuFilterData {
     data: array<u32, 24>,
 }
@@ -21,6 +28,15 @@ struct GpuFilterData {
 struct OffsetFilter {
     dx: f32,
     dy: f32,
+}
+
+// Keep in sync with GpuGaussianBlur in vello_hybrid/src/filter.rs
+struct GaussianBlurFilter {
+    std_deviation: f32,
+    n_decimations: u32,
+    kernel_size: u32,
+    edge_mode: u32,
+    kernel: array<f32, 13>,
 }
 
 fn get_filter_type(data: GpuFilterData) -> u32 {
@@ -31,6 +47,21 @@ fn unpack_offset_filter(data: GpuFilterData) -> OffsetFilter {
     return OffsetFilter(
         bitcast<f32>(data.data[1]),
         bitcast<f32>(data.data[2])
+    );
+}
+
+// Keep in sync with GpuGaussianBlur in vello_hybrid/src/filter.rs
+fn unpack_gaussian_blur_filter(data: GpuFilterData) -> GaussianBlurFilter {
+    var kernel: array<f32, 13>;
+    for (var i = 0u; i < 13u; i++) {
+        kernel[i] = bitcast<f32>(data.data[5u + i]);
+    }
+    return GaussianBlurFilter(
+        bitcast<f32>(data.data[1]),
+        data.data[2],
+        data.data[3],
+        data.data[4],
+        kernel
     );
 }
 
@@ -73,8 +104,15 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FilterVertexOutput {
 fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
     let data = load_filter_data(in.filter_offset);
     let frag_coord = vec2<u32>(in.position.xy);
-    let offset = unpack_offset_filter(data);
-    return apply_offset(frag_coord, offset);
+    let filter_type = get_filter_type(data);
+
+    if filter_type == FILTER_TYPE_GAUSSIAN_BLUR {
+        let blur = unpack_gaussian_blur_filter(data);
+        return apply_gaussian_blur_horizontal(frag_coord, blur);
+    } else {
+        let offset = unpack_offset_filter(data);
+        return apply_offset(frag_coord, offset);
+    }
 }
 
 fn apply_offset(frag_coord: vec2<u32>, offset: OffsetFilter) -> vec4<f32> {
@@ -89,12 +127,28 @@ fn apply_offset(frag_coord: vec2<u32>, offset: OffsetFilter) -> vec4<f32> {
     return textureLoad(in_tex, vec2<u32>(src_coord), 0);
 }
 
+fn apply_gaussian_blur_horizontal(frag_coord: vec2<u32>, blur: GaussianBlurFilter) -> vec4<f32> {
+    let tex_size = vec2<i32>(textureDimensions(in_tex));
+    let radius = i32(blur.kernel_size / 2u);
+
+    var color = vec4<f32>(0.0);
+    for (var i: i32 = -radius; i <= radius; i++) {
+        let weight = blur.kernel[i + radius];
+        let src_x = i32(frag_coord.x) + i;
+        let src_y = i32(frag_coord.y);
+
+        // TODO: Apply edge mode
+        if src_x >= 0 && src_x < tex_size.x && src_y >= 0 && src_y < tex_size.y {
+            color += textureLoad(in_tex, vec2<u32>(vec2<i32>(src_x, src_y)), 0) * weight;
+        }
+    }
+
+    return color;
+}
+
 // --- FOR LATER ---
 
-// // Keep in sync with filter_type module in vello_hybrid/src/filter.rs
-// const FILTER_TYPE_OFFSET: u32 = 0u;
 // const FILTER_TYPE_FLOOD: u32 = 1u;
-// const FILTER_TYPE_GAUSSIAN_BLUR: u32 = 2u;
 // const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
 
 // // Keep in sync with EdgeMode in vello_common/src/filter_effects.rs
@@ -104,19 +158,8 @@ fn apply_offset(frag_coord: vec2<u32>, offset: OffsetFilter) -> vec4<f32> {
 // const EDGE_MODE_MIRROR: u32 = 2u;
 // const EDGE_MODE_NONE: u32 = 3u;
 
-// // Keep in sync with MAX_KERNEL_SIZE in vello_common/src/filter/gaussian_blur.rs
-// const MAX_KERNEL_SIZE: u32 = 13u;
-
 // struct FloodFilter {
 //     color: u32,
-// }
-
-// struct GaussianBlurFilter {
-//     std_deviation: f32,
-//     n_decimations: u32,
-//     kernel_size: u32,
-//     edge_mode: u32,
-//     kernel: array<f32, 13>,
 // }
 
 // struct DropShadowFilter {
@@ -133,21 +176,6 @@ fn apply_offset(frag_coord: vec2<u32>, offset: OffsetFilter) -> vec4<f32> {
 // // Keep in sync with GpuFlood in vello_hybrid/src/filter.rs
 // fn unpack_flood_filter(data: GpuFilterData) -> FloodFilter {
 //     return FloodFilter(data.data[1]);
-// }
-
-// // Keep in sync with GpuGaussianBlur in vello_hybrid/src/filter.rs
-// fn unpack_gaussian_blur_filter(data: GpuFilterData) -> GaussianBlurFilter {
-//     var kernel: array<f32, 13>;
-//     for (var i = 0u; i < 13u; i++) {
-//         kernel[i] = bitcast<f32>(data.data[5u + i]);
-//     }
-//     return GaussianBlurFilter(
-//         bitcast<f32>(data.data[1]),
-//         data.data[2],
-//         data.data[3],
-//         data.data[4],
-//         kernel
-//     );
 // }
 
 // // Keep in sync with GpuDropShadow in vello_hybrid/src/filter.rs
