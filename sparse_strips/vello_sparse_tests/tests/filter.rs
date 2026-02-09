@@ -61,7 +61,7 @@ fn filter_offset_simple(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 15.0, dy: 15.0 });
     ctx.push_filter_layer(filter);
     ctx.set_paint(RED);
-    ctx.fill_rect(&Rect::new(25.0, 25.0, 75.0, 75.0));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 75.0, 75.0));
     ctx.pop_layer();
 }
 
