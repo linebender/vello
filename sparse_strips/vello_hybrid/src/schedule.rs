@@ -751,6 +751,8 @@ impl Scheduler {
             let load = {
                 if i == 2 {
                     // We're rendering to the view, don't clear.
+                    // TODO: Once we add reusing of textures for filter layers, we do want to clear
+                    // those.
                     LoadOp::Load
                 } else if round.clear[i].len() + self.free[i].len() == self.total_slots {
                     // All slots are either unoccupied or need to be cleared. Simply clear the slots
