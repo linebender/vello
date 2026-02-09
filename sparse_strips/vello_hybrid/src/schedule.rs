@@ -187,7 +187,7 @@ use vello_common::{
     coarse::{Cmd, LayerKind, WideTile, WideTilesBbox},
     encode::EncodedPaint,
     paint::{ImageSource, Paint},
-    render_graph::LayerId,
+    render_graph::{LayerId, RenderNodeKind},
     tile::Tile,
 };
 
@@ -526,7 +526,7 @@ impl Scheduler {
         paint_idxs: &[u32],
     ) -> Result<(), RenderError> {
         if scene.render_graph.has_filters() {
-            unimplemented!();
+            self.do_scene_with_filters(state, renderer, scene, paint_idxs)?;
         } else {
             self.do_scene_no_filters(state, renderer, scene, paint_idxs)?;
         }
@@ -590,6 +590,141 @@ impl Scheduler {
 
         while !self.rounds_queue.is_empty() {
             self.flush(renderer);
+        }
+
+        Ok(())
+    }
+
+    fn do_scene_with_filters<R: RendererBackend>(
+        &mut self,
+        state: &mut SchedulerState,
+        renderer: &mut R,
+        scene: &Scene,
+        paint_idxs: &[u32],
+    ) -> Result<(), RenderError> {
+        let execution_order: Vec<usize> = scene.render_graph.execution_order().collect();
+
+        // TODO: Since this code is very similar to vello_cpu, maybe most of it can be
+        // put into vello_common, with some callbacks to implement renderer-specific
+        // actions.
+        for node_id in execution_order {
+            let node = &scene.render_graph.nodes[node_id];
+            let (layer_id, wtile_bbox) = match &node.kind {
+                RenderNodeKind::FilterLayer {
+                    layer_id,
+                    wtile_bbox,
+                    ..
+                } => {
+                    renderer.create_intermediate_texture(*layer_id, wtile_bbox);
+                    state.intermediate_target = Some((*layer_id, *wtile_bbox));
+                    (*layer_id, *wtile_bbox)
+                }
+                RenderNodeKind::RootLayer {
+                    layer_id,
+                    wtile_bbox,
+                } => {
+                    state.intermediate_target = None;
+                    (*layer_id, *wtile_bbox)
+                }
+            };
+
+            for y in wtile_bbox.y0()..wtile_bbox.y1() {
+                for x in wtile_bbox.x0()..wtile_bbox.x1() {
+                    let wide_tile = scene.wide.get(x, y);
+                    let wide_tile_x = x * WideTile::WIDTH;
+                    let wide_tile_y = y * Tile::HEIGHT;
+
+                    state.clear();
+
+                    let offset = state.strip_offset();
+                    self.initialize_tile_state(
+                        &mut state.tile_state,
+                        wide_tile,
+                        wide_tile_x,
+                        wide_tile_y,
+                        scene,
+                        paint_idxs,
+                        offset,
+                    );
+
+                    let Some(ranges) = wide_tile.layer_cmd_ranges.get(&layer_id) else {
+                        continue;
+                    };
+                    if ranges.render_range.is_empty() {
+                        continue;
+                    }
+
+                    let attrs = &scene.wide.attrs;
+                    let mut cmd_idx = ranges.render_range.start;
+                    while cmd_idx < ranges.render_range.end {
+                        let cmd = &wide_tile.cmds[cmd_idx];
+                        match cmd {
+                            Cmd::Fill(fill) => {
+                                self.do_fill(
+                                    state,
+                                    scene,
+                                    fill,
+                                    paint_idxs,
+                                    wide_tile_x,
+                                    wide_tile_y,
+                                    attrs,
+                                );
+                            }
+                            Cmd::AlphaFill(alpha_fill) => {
+                                self.do_alpha_fill(
+                                    state,
+                                    scene,
+                                    alpha_fill,
+                                    paint_idxs,
+                                    wide_tile_x,
+                                    wide_tile_y,
+                                    attrs,
+                                );
+                            }
+                            Cmd::PushBuf(LayerKind::Filtered(child_layer_id)) => {
+                                // Skip past nested filter layer commands; they have
+                                // already been rendered to their own intermediate texture.
+                                if let Some(child_ranges) =
+                                    wide_tile.layer_cmd_ranges.get(child_layer_id)
+                                {
+                                    cmd_idx = child_ranges.full_range.end.max(cmd_idx + 1);
+                                    continue;
+                                }
+                            }
+                            Cmd::PushBuf(_) => {
+                                self.do_push_buf(state, renderer, false)?;
+                            }
+                            Cmd::PopBuf => {
+                                self.do_pop_buf(state);
+                            }
+                            Cmd::ClipFill(clip_fill) => {
+                                self.do_clip_fill(state, wide_tile_x, wide_tile_y, clip_fill);
+                            }
+                            Cmd::ClipStrip(clip_alpha_fill) => {
+                                self.do_clip_strip(
+                                    state,
+                                    wide_tile_x,
+                                    wide_tile_y,
+                                    clip_alpha_fill,
+                                    attrs,
+                                );
+                            }
+                            Cmd::Opacity(opacity) => {
+                                self.do_opacity(state, *opacity);
+                            }
+                            Cmd::Blend(_) => {
+                                unimplemented!("Blend inside filter layers is not yet supported");
+                            }
+                            _ => unimplemented!(),
+                        }
+                        cmd_idx += 1;
+                    }
+                }
+            }
+
+            while !self.rounds_queue.is_empty() {
+                self.flush(renderer);
+            }
         }
 
         Ok(())
