@@ -1935,15 +1935,6 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.do_strip_render_pass(strips, target_index, load_op);
     }
 
-    fn create_intermediate_texture(
-        &mut self,
-        _layer_id: LayerId,
-        _bbox: &WideTilesBbox,
-        _needs_scratch: bool,
-    ) {
-        unimplemented!("create_intermediate_texture not yet implemented in WebGL")
-    }
-
     fn apply_filter(&mut self, _layer_id: LayerId, _filter_offset: u32, _needs_scratch: bool) {
         unimplemented!("apply_filter not yet implemented in WebGL")
     }

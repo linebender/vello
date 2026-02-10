@@ -235,17 +235,6 @@ pub(crate) trait RendererBackend {
     /// Execute a render pass for strips.
     fn render_strips(&mut self, strips: &[GpuStrip], target: RenderTarget, load_op: LoadOp);
 
-    /// Create an intermediate texture for a layer with filter effects.
-    ///
-    /// The texture dimensions are derived from the bounding box in wide tile coordinates.
-    /// The texture view is stored internally and can be accessed via `RenderTarget::IntermediateTexture`.
-    fn create_intermediate_texture(
-        &mut self,
-        layer_id: LayerId,
-        bbox: &WideTilesBbox,
-        needs_scratch: bool,
-    );
-
     fn apply_filter(&mut self, layer_id: LayerId, filter_offset: u32, needs_scratch: bool);
 }
 
@@ -630,10 +619,6 @@ impl Scheduler {
                     wtile_bbox,
                     ..
                 } => {
-                    let needs_scratch = filter_context
-                        .get_filter_data(layer_id)
-                        .is_some_and(|f| f.needs_scratch_buffer());
-                    renderer.create_intermediate_texture(*layer_id, wtile_bbox, needs_scratch);
                     state.strip_offset = (
                         wtile_bbox.x0() * WideTile::WIDTH,
                         wtile_bbox.y0() * Tile::HEIGHT,

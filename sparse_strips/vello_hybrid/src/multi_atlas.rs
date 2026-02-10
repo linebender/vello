@@ -84,10 +84,16 @@ impl MultiAtlasManager {
 
         // Try allocation based on strategy
         match self.config.allocation_strategy {
-            AllocationStrategy::FirstFit => self.allocate_first_fit(width, height, exclude_atlas_id),
+            AllocationStrategy::FirstFit => {
+                self.allocate_first_fit(width, height, exclude_atlas_id)
+            }
             AllocationStrategy::BestFit => self.allocate_best_fit(width, height, exclude_atlas_id),
-            AllocationStrategy::LeastUsed => self.allocate_least_used(width, height, exclude_atlas_id),
-            AllocationStrategy::RoundRobin => self.allocate_round_robin(width, height, exclude_atlas_id),
+            AllocationStrategy::LeastUsed => {
+                self.allocate_least_used(width, height, exclude_atlas_id)
+            }
+            AllocationStrategy::RoundRobin => {
+                self.allocate_round_robin(width, height, exclude_atlas_id)
+            }
         }
     }
 
@@ -685,14 +691,20 @@ mod tests {
 
         let allocation0 = manager.try_allocate(100, 100).unwrap();
         let first_atlas = allocation0.atlas_id;
-        let allocation1 = manager.try_allocate_excluding(256, 256, Some(first_atlas)).unwrap();
+        let allocation1 = manager
+            .try_allocate_excluding(256, 256, Some(first_atlas))
+            .unwrap();
         assert_ne!(allocation1.atlas_id, first_atlas);
 
         let second_atlas = allocation1.atlas_id;
-        let allocation2 = manager.try_allocate_excluding(100, 100, Some(second_atlas)).unwrap();
+        let allocation2 = manager
+            .try_allocate_excluding(100, 100, Some(second_atlas))
+            .unwrap();
         assert_ne!(allocation2.atlas_id, second_atlas);
 
-        let allocation3 = manager.try_allocate_excluding(100, 100, Some(first_atlas)).unwrap();
+        let allocation3 = manager
+            .try_allocate_excluding(100, 100, Some(first_atlas))
+            .unwrap();
         assert_ne!(allocation3.atlas_id, first_atlas);
     }
 

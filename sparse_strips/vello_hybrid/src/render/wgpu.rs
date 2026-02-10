@@ -180,27 +180,21 @@ impl Renderer {
                     // With scratch: main ≠ scratch, dest ≠ scratch
                     let main = self.image_cache.allocate(width, height)?;
                     let main_atlas = AtlasId(main.atlas_id());
-                    let scratch = self.image_cache.allocate_excluding(
-                        width,
-                        height,
-                        Some(main_atlas),
-                    )?;
+                    let scratch =
+                        self.image_cache
+                            .allocate_excluding(width, height, Some(main_atlas))?;
                     let scratch_atlas = AtlasId(scratch.atlas_id());
-                    let dest = self.image_cache.allocate_excluding(
-                        width,
-                        height,
-                        Some(scratch_atlas),
-                    )?;
+                    let dest =
+                        self.image_cache
+                            .allocate_excluding(width, height, Some(scratch_atlas))?;
                     (main, dest, Some(scratch))
                 } else {
                     // No scratch: main ≠ dest
                     let main = self.image_cache.allocate(width, height)?;
                     let main_atlas = AtlasId(main.atlas_id());
-                    let dest = self.image_cache.allocate_excluding(
-                        width,
-                        height,
-                        Some(main_atlas),
-                    )?;
+                    let dest =
+                        self.image_cache
+                            .allocate_excluding(width, height, Some(main_atlas))?;
                     (main, dest, None)
                 };
 
@@ -216,7 +210,9 @@ impl Renderer {
 
                 // Store filter data and offset (lifted from FilterContext::prepare)
                 self.filter_context.filters.push(gpu_filter);
-                self.filter_context.offsets.insert(*layer_id, current_offset);
+                self.filter_context
+                    .offsets
+                    .insert(*layer_id, current_offset);
                 current_offset += GpuFilterData::SIZE_TEXELS;
             }
         }
@@ -2007,190 +2003,98 @@ impl RendererBackend for RendererContext<'_> {
         self.do_strip_render_pass(strips, target, wgpu_load_op);
     }
 
-    fn create_intermediate_texture(
-        &mut self,
-        layer_id: LayerId,
-        bbox: &WideTilesBbox,
-        needs_scratch: bool,
-    ) {
-        // let width = u32::from(bbox.width_px());
-        // let height = u32::from(bbox.height_px());
-        //
-        // let size = Extent3d {
-        //     width,
-        //     height,
-        //     depth_or_array_layers: 1,
-        // };
-        // let format = self.programs.target_format;
-        // let usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT;
-        //
-        // let main_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-        //     label: Some("Filter Target Texture"),
-        //     size,
-        //     mip_level_count: 1,
-        //     sample_count: 1,
-        //     dimension: wgpu::TextureDimension::D2,
-        //     format,
-        //     usage,
-        //     view_formats: &[],
-        // });
-        //
-        // let dest_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-        //     label: Some("Filter Dest Texture"),
-        //     size,
-        //     mip_level_count: 1,
-        //     sample_count: 1,
-        //     dimension: wgpu::TextureDimension::D2,
-        //     format,
-        //     usage,
-        //     view_formats: &[],
-        // });
-        //
-        // let config_buffer = Programs::create_config_buffer(
-        //     self.device,
-        //     &RenderSize { width, height },
-        //     self.device.limits().max_texture_dimension_2d,
-        // );
-        //
-        // let alphas_view = self
-        //     .programs
-        //     .resources
-        //     .alphas_texture
-        //     .create_view(&TextureViewDescriptor::default());
-        // let strip_bind_group = Programs::create_strip_bind_group(
-        //     self.device,
-        //     &self.programs.strip_bind_group_layout,
-        //     &alphas_view,
-        //     &config_buffer,
-        //     // This needs to be the same as the view used by the bind group of the
-        //     // main surface.
-        //     &self.programs.resources.slot_texture_views[1],
-        // );
-        //
-        // let scratch_texture = if needs_scratch {
-        //     Some(
-        //         self.device
-        //             .create_texture(&wgpu::TextureDescriptor {
-        //                 label: Some("Filter Scratch Texture"),
-        //                 size,
-        //                 mip_level_count: 1,
-        //                 sample_count: 1,
-        //                 dimension: wgpu::TextureDimension::D2,
-        //                 format,
-        //                 usage,
-        //                 view_formats: &[],
-        //             })
-        //             .create_view(&TextureViewDescriptor::default()),
-        //     )
-        // } else {
-        //     None
-        // };
-        //
-        // let filter_textures = FilterTextures {
-        //     main_texture: main_texture.create_view(&TextureViewDescriptor::default()),
-        //     dest_texture: dest_texture.create_view(&TextureViewDescriptor::default()),
-        //     scratch_texture,
-        //     strip_bind_group,
-        // };
-        //
-        // self.programs
-        //     .resources
-        //     .filter_textures
-        //     .insert(layer_id, filter_textures);
-    }
-
     fn apply_filter(&mut self, layer_id: LayerId, filter_offset: u32, uses_scratch: bool) {
-    //     use crate::filter::GpuFilterData;
-    //
-    //     let filter_textures = self
-    //         .programs
-    //         .resources
-    //         .filter_textures
-    //         .get(&layer_id)
-    //         .unwrap();
-    //
-    //     // We use vertex indices to pass implicit information about the offset
-    //     // of the data of the filter.
-    //     let filter_index = filter_offset / GpuFilterData::SIZE_TEXELS;
-    //     let vertex_start = filter_index * 4;
-    //     let vertex_end = vertex_start + 4;
-    //
-    //     // For two-pass filters the first pass writes to the scratch texture;
-    //     // for single-pass filters it writes directly to the output view.
-    //     let first_pass_output = if uses_scratch {
-    //         filter_textures
-    //             .scratch_texture
-    //             .as_ref()
-    //             .expect("scratch texture must exist for multi-pass filter")
-    //     } else {
-    //         &self.view
-    //     };
-    //
-    //     let input_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-    //         label: Some("Filter Input Bind Group"),
-    //         layout: &self.programs.filter_input_bind_group_layout,
-    //         entries: &[wgpu::BindGroupEntry {
-    //             binding: 0,
-    //             resource: wgpu::BindingResource::TextureView(&filter_textures.main_texture),
-    //         }],
-    //     });
-    //
-    //     {
-    //         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-    //             label: Some("Filter Render Pass"),
-    //             color_attachments: &[Some(RenderPassColorAttachment {
-    //                 view: first_pass_output,
-    //                 depth_slice: None,
-    //                 resolve_target: None,
-    //                 ops: wgpu::Operations {
-    //                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-    //                     store: wgpu::StoreOp::Store,
-    //                 },
-    //             })],
-    //             depth_stencil_attachment: None,
-    //             occlusion_query_set: None,
-    //             timestamp_writes: None,
-    //         });
-    //
-    //         render_pass.set_pipeline(&self.programs.filter_pipelines[0]);
-    //         render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
-    //         render_pass.set_bind_group(1, &input_bind_group, &[]);
-    //         render_pass.draw(vertex_start..vertex_end, 0..1);
-    //     }
-    //
-    //     if uses_scratch {
-    //         let scratch_view = filter_textures.scratch_texture.as_ref().unwrap();
-    //
-    //         let input_bind_group_v = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-    //             label: Some("Filter Input Bind Group (Pass 2)"),
-    //             layout: &self.programs.filter_input_bind_group_layout,
-    //             entries: &[wgpu::BindGroupEntry {
-    //                 binding: 0,
-    //                 resource: wgpu::BindingResource::TextureView(scratch_view),
-    //             }],
-    //         });
-    //
-    //         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-    //             label: Some("Filter Render Pass (Pass 2)"),
-    //             color_attachments: &[Some(RenderPassColorAttachment {
-    //                 view: &self.view,
-    //                 depth_slice: None,
-    //                 resolve_target: None,
-    //                 ops: wgpu::Operations {
-    //                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-    //                     store: wgpu::StoreOp::Store,
-    //                 },
-    //             })],
-    //             depth_stencil_attachment: None,
-    //             occlusion_query_set: None,
-    //             timestamp_writes: None,
-    //         });
-    //
-    //         render_pass.set_pipeline(&self.programs.filter_pipelines[1]);
-    //         render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
-    //         render_pass.set_bind_group(1, &input_bind_group_v, &[]);
-    //         render_pass.draw(vertex_start..vertex_end, 0..1);
-    //     }
+        //     use crate::filter::GpuFilterData;
+        //
+        //     let filter_textures = self
+        //         .programs
+        //         .resources
+        //         .filter_textures
+        //         .get(&layer_id)
+        //         .unwrap();
+        //
+        //     // We use vertex indices to pass implicit information about the offset
+        //     // of the data of the filter.
+        //     let filter_index = filter_offset / GpuFilterData::SIZE_TEXELS;
+        //     let vertex_start = filter_index * 4;
+        //     let vertex_end = vertex_start + 4;
+        //
+        //     // For two-pass filters the first pass writes to the scratch texture;
+        //     // for single-pass filters it writes directly to the output view.
+        //     let first_pass_output = if uses_scratch {
+        //         filter_textures
+        //             .scratch_texture
+        //             .as_ref()
+        //             .expect("scratch texture must exist for multi-pass filter")
+        //     } else {
+        //         &self.view
+        //     };
+        //
+        //     let input_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        //         label: Some("Filter Input Bind Group"),
+        //         layout: &self.programs.filter_input_bind_group_layout,
+        //         entries: &[wgpu::BindGroupEntry {
+        //             binding: 0,
+        //             resource: wgpu::BindingResource::TextureView(&filter_textures.main_texture),
+        //         }],
+        //     });
+        //
+        //     {
+        //         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+        //             label: Some("Filter Render Pass"),
+        //             color_attachments: &[Some(RenderPassColorAttachment {
+        //                 view: first_pass_output,
+        //                 depth_slice: None,
+        //                 resolve_target: None,
+        //                 ops: wgpu::Operations {
+        //                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+        //                     store: wgpu::StoreOp::Store,
+        //                 },
+        //             })],
+        //             depth_stencil_attachment: None,
+        //             occlusion_query_set: None,
+        //             timestamp_writes: None,
+        //         });
+        //
+        //         render_pass.set_pipeline(&self.programs.filter_pipelines[0]);
+        //         render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
+        //         render_pass.set_bind_group(1, &input_bind_group, &[]);
+        //         render_pass.draw(vertex_start..vertex_end, 0..1);
+        //     }
+        //
+        //     if uses_scratch {
+        //         let scratch_view = filter_textures.scratch_texture.as_ref().unwrap();
+        //
+        //         let input_bind_group_v = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        //             label: Some("Filter Input Bind Group (Pass 2)"),
+        //             layout: &self.programs.filter_input_bind_group_layout,
+        //             entries: &[wgpu::BindGroupEntry {
+        //                 binding: 0,
+        //                 resource: wgpu::BindingResource::TextureView(scratch_view),
+        //             }],
+        //         });
+        //
+        //         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+        //             label: Some("Filter Render Pass (Pass 2)"),
+        //             color_attachments: &[Some(RenderPassColorAttachment {
+        //                 view: &self.view,
+        //                 depth_slice: None,
+        //                 resolve_target: None,
+        //                 ops: wgpu::Operations {
+        //                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+        //                     store: wgpu::StoreOp::Store,
+        //                 },
+        //             })],
+        //             depth_stencil_attachment: None,
+        //             occlusion_query_set: None,
+        //             timestamp_writes: None,
+        //         });
+        //
+        //         render_pass.set_pipeline(&self.programs.filter_pipelines[1]);
+        //         render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
+        //         render_pass.set_bind_group(1, &input_bind_group_v, &[]);
+        //         render_pass.draw(vertex_start..vertex_end, 0..1);
+        //     }
     }
 }
 

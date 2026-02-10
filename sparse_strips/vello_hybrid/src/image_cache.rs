@@ -79,7 +79,9 @@ impl ImageCache {
         height: u32,
         exclude_atlas: Option<AtlasId>,
     ) -> Result<ImageId, AtlasError> {
-        let atlas_alloc = self.atlas_manager.try_allocate_excluding(width, height, exclude_atlas)?;
+        let atlas_alloc =
+            self.atlas_manager
+                .try_allocate_excluding(width, height, exclude_atlas)?;
 
         let slot_idx = self.free_idxs.pop().unwrap_or_else(|| {
             // No free slots, append to vector
