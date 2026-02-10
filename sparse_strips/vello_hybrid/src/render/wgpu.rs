@@ -44,6 +44,8 @@ use crate::{
     schedule::{LoadOp, OutputTarget, RenderTarget, RendererBackend, Scheduler, SchedulerState},
 };
 use bytemuck::{Pod, Zeroable};
+use vello_api::peniko::{ImageQuality, ImageSampler};
+use vello_common::encode::EncodedImage;
 use vello_common::{
     coarse::{WideTile, WideTilesBbox},
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
@@ -61,8 +63,6 @@ use wgpu::{
     RenderPassDescriptor, RenderPipeline, Texture, TextureView, TextureViewDescriptor,
     util::DeviceExt,
 };
-use vello_api::peniko::{ImageQuality, ImageSampler};
-use vello_common::encode::EncodedImage;
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -103,7 +103,7 @@ pub struct Renderer {
     gradient_cache: GradientRampCache,
     /// Filter data for layers with filter effects.
     filter_context: FilterContext,
-    filter_encoded_paints: Vec<EncodedPaint>
+    filter_encoded_paints: Vec<EncodedPaint>,
 }
 
 impl Renderer {
@@ -158,7 +158,7 @@ impl Renderer {
         &mut self,
         render_graph: &RenderGraph,
         encoder: &mut CommandEncoder,
-        base_idx: usize
+        base_idx: usize,
     ) -> Result<(), AtlasError> {
         // Clear and deallocate old filter textures
         for filter_textures in self.filter_context.filter_textures().values() {
@@ -255,16 +255,19 @@ impl Renderer {
                 } else {
                     None
                 };
-                
+
                 let encoded_paint = EncodedPaint::Image(EncodedImage {
                     source: ImageSource::OpaqueId(main_image_id),
                     sampler: ImageSampler::new().with_quality(ImageQuality::Low),
                     may_have_opacities: true,
-                    transform: Affine::translate((wtile_bbox.x0() as f64 * WideTile::WIDTH as f64, wtile_bbox.y0() as f64 * Tile::HEIGHT as f64)),
+                    transform: Affine::translate((
+                        wtile_bbox.x0() as f64 * WideTile::WIDTH as f64,
+                        wtile_bbox.y0() as f64 * Tile::HEIGHT as f64,
+                    )),
                     x_advance: Default::default(),
                     y_advance: Default::default(),
                 });
-                
+
                 let idx = base_idx + self.filter_encoded_paints.len();
                 self.filter_encoded_paints.push(encoded_paint);
 
@@ -514,13 +517,17 @@ impl Renderer {
 
     fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
         let total_len = encoded_paints.len() + self.filter_encoded_paints.len();
-        
+
         self.encoded_paints
             .resize_with(total_len, || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(total_len + 1, 0);
 
         let mut current_idx = 0;
-        for (encoded_paint_idx, paint) in encoded_paints.iter().chain(self.filter_encoded_paints.iter()).enumerate() {
+        for (encoded_paint_idx, paint) in encoded_paints
+            .iter()
+            .chain(self.filter_encoded_paints.iter())
+            .enumerate()
+        {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {

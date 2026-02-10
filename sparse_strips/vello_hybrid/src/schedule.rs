@@ -1336,35 +1336,46 @@ impl Scheduler {
                 let paint_idx = paint_idxs.get(paint_id).copied().unwrap();
 
                 match scene.encoded_paints.get(paint_id) {
-                    Some(EncodedPaint::Image(encoded_image)) => match &encoded_image.source {
-                        ImageSource::OpaqueId(_) => {
-                            let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
-                                | (PAINT_TYPE_IMAGE << 27)
-                                | (paint_idx & 0x07FFFFFF);
-                            let scene_strip_xy =
-                                ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
-                            (scene_strip_xy, paint_packed)
-                        }
-                        _ => unimplemented!("Unsupported image source"),
-                    },
-                    Some(EncodedPaint::Gradient(gradient)) => {
-                        use vello_common::encode::EncodedKind;
-                        let gradient_paint_type = match &gradient.kind {
-                            EncodedKind::Linear(_) => PAINT_TYPE_LINEAR_GRADIENT,
-                            EncodedKind::Radial(_) => PAINT_TYPE_RADIAL_GRADIENT,
-                            EncodedKind::Sweep(_) => PAINT_TYPE_SWEEP_GRADIENT,
-                        };
-                        let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
-                            | (gradient_paint_type << 27)
-                            | (paint_idx & 0x07FFFFFF);
-                        let scene_strip_xy =
-                            ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
-                        (scene_strip_xy, paint_packed)
+                    Some(e) => {
+                        Self::process_encoded_paint(e, paint_idx, scene_strip_x, scene_strip_y)
                     }
-
-                    _ => unimplemented!("Unsupported paint type"),
+                    None => unimplemented!("Unsupported paint type"),
                 }
             }
+        }
+    }
+
+    fn process_encoded_paint(
+        encoded_paint: &EncodedPaint,
+        paint_idx: u32,
+        scene_strip_x: u16,
+        scene_strip_y: u16,
+    ) -> (u32, u32) {
+        match encoded_paint {
+            EncodedPaint::Image(encoded_image) => match &encoded_image.source {
+                ImageSource::OpaqueId(_) => {
+                    let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
+                        | (PAINT_TYPE_IMAGE << 27)
+                        | (paint_idx & 0x07FFFFFF);
+                    let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                    (scene_strip_xy, paint_packed)
+                }
+                _ => unimplemented!("Unsupported image source"),
+            },
+            EncodedPaint::Gradient(gradient) => {
+                use vello_common::encode::EncodedKind;
+                let gradient_paint_type = match &gradient.kind {
+                    EncodedKind::Linear(_) => PAINT_TYPE_LINEAR_GRADIENT,
+                    EncodedKind::Radial(_) => PAINT_TYPE_RADIAL_GRADIENT,
+                    EncodedKind::Sweep(_) => PAINT_TYPE_SWEEP_GRADIENT,
+                };
+                let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
+                    | (gradient_paint_type << 27)
+                    | (paint_idx & 0x07FFFFFF);
+                let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                (scene_strip_xy, paint_packed)
+            }
+            _ => unimplemented!("Unsupported paint type"),
         }
     }
 }
