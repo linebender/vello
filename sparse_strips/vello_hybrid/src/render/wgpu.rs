@@ -2066,7 +2066,14 @@ impl RendererContext<'_> {
             RenderTarget::Output(OutputTarget::FinalView) => {
                 (self.view.clone(), self.programs.resources.slot_bind_groups[2].clone())
             }
-            RenderTarget::Output(OutputTarget::IntermediateTexture(_, atlas_id)) => {
+            RenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
+                let image_id = self.filter_context
+                    .filter_textures
+                    .get(&layer_id)
+                    .unwrap()
+                    .main_image_id;
+                let resources = self.image_cache.get(image_id).unwrap();
+                
                 // Create a view of the specific atlas layer
                 let view = self.programs.resources.filter_atlas_texture_array
                     .create_view(&TextureViewDescriptor {
@@ -2076,7 +2083,7 @@ impl RendererContext<'_> {
                         aspect: wgpu::TextureAspect::All,
                         base_mip_level: 0,
                         mip_level_count: None,
-                        base_array_layer: atlas_id.as_u32(),
+                        base_array_layer: resources.atlas_id.as_u32(),
                         array_layer_count: Some(1),
                         usage: None,
                     });

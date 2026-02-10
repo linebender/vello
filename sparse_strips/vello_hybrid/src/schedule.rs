@@ -217,7 +217,7 @@ pub(crate) enum OutputTarget {
     /// Render to the final output view/surface.
     FinalView,
     /// Render to an intermediate texture for a layer with filter effects.
-    IntermediateTexture(LayerId, AtlasId),
+    IntermediateTexture(LayerId),
 }
 
 /// Specifies the target for a render pass.
@@ -622,7 +622,7 @@ impl Scheduler {
         // TODO: Since this code is very similar to vello_cpu, maybe most of it can be
         // put into vello_common, with some callbacks to implement renderer-specific
         // actions.
-        for node_id in scene.render_graph.execution_order() {
+        for node_id in scene.render_graph.execution_order().take(1) {
             let node = &scene.render_graph.nodes[node_id];
             let (layer_id, wtile_bbox) = match &node.kind {
                 RenderNodeKind::FilterLayer {
@@ -641,13 +641,14 @@ impl Scheduler {
                         .filter_textures
                         .get(layer_id)
                         .unwrap()
-                        .dest_image_id;
+                        .main_image_id;
                     let resources = image_cache.get(image_id).unwrap();
+                    // TODO: Move offset into the render_strips shader.
                     state.strip_offset = (
                         (wtile_bbox.x0() * WideTile::WIDTH) as i32 - resources.offset[0] as i32,
                         (wtile_bbox.y0() * Tile::HEIGHT) as i32 - resources.offset[1] as i32,
                     );
-                    self.output_target = OutputTarget::IntermediateTexture(*layer_id, resources.atlas_id);
+                    self.output_target = OutputTarget::IntermediateTexture(*layer_id);
                     (*layer_id, *wtile_bbox)
                 }
                 RenderNodeKind::RootLayer {
@@ -757,7 +758,7 @@ impl Scheduler {
             }
 
             // If we are rendering a filtered layer, apply the filter now.
-            // if let OutputTarget::IntermediateTexture(layer_id, atlas_id) = self.output_target {
+            // if let OutputTarget::IntermediateTexture(layer_id) = self.output_target {
             //     let filter_offset = filter_context.offsets().get(&layer_id).copied().unwrap();
             //     let needs_scratch = filter_context
             //         .get_filter_data(&layer_id)
