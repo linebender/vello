@@ -2062,9 +2062,9 @@ impl RendererContext<'_> {
         // approach would be to re-use buffers or slices of a larger buffer.
         self.programs.upload_strips(self.device, self.queue, strips);
 
-        let (view, bind_group): (TextureView, &BindGroup) = match target {
+        let (view, bind_group): (TextureView, BindGroup) = match target {
             RenderTarget::Output(OutputTarget::FinalView) => {
-                (self.view.clone(), &self.programs.resources.slot_bind_groups[2])
+                (self.view.clone(), self.programs.resources.slot_bind_groups[2].clone())
             }
             RenderTarget::Output(OutputTarget::IntermediateTexture(_, atlas_id)) => {
                 // Create a view of the specific atlas layer
@@ -2080,12 +2080,46 @@ impl RendererContext<'_> {
                         array_layer_count: Some(1),
                         usage: None,
                     });
-                (view, &self.programs.resources.slot_bind_groups[2])
+
+                let atlas_size = self.programs.resources.filter_atlas_texture_array.size();
+                let atlas_config_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Temporary Atlas Config Buffer"),
+                    contents: bytemuck::bytes_of(&Config {
+                        width: atlas_size.width,
+                        height: atlas_size.height,
+                        strip_height: Tile::HEIGHT.into(),
+                        alphas_tex_width_bits: self.programs.resources.alphas_texture.size().width.trailing_zeros(),
+                    }),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+
+                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Temporary Atlas Bind Group"),
+                    layout: &self.programs.strip_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.programs.resources.alphas_texture.create_view(&TextureViewDescriptor::default())
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: atlas_config_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&self.programs.resources.slot_texture_views[1]),
+                        },
+                    ],
+                });
+
+                (view, bind_group)
             }
             RenderTarget::SlotTexture(idx) => {
                 (
                     self.programs.resources.slot_texture_views[idx as usize].clone(),
-                    &self.programs.resources.slot_bind_groups[idx as usize]
+                    self.programs.resources.slot_bind_groups[idx as usize].clone()
                 )
             }
         };
@@ -2106,7 +2140,7 @@ impl RendererContext<'_> {
             timestamp_writes: None,
         });
         render_pass.set_pipeline(&self.programs.strip_pipeline);
-        render_pass.set_bind_group(0, bind_group, &[]);
+        render_pass.set_bind_group(0, &bind_group, &[]);
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
@@ -2203,7 +2237,7 @@ impl RendererBackend for RendererContext<'_> {
         let instance_data = FilterInstanceData {
             src_offset: [main_resource.offset[0] as u32, main_resource.offset[1] as u32],
             src_size: [main_resource.width as u32, main_resource.height as u32],
-            dest_offset: [0, 0],
+            dest_offset: [dest_resource.offset[0] as u32, dest_resource.offset[1] as u32],
             dest_size: [dest_resource.width as u32, dest_resource.height as u32],
             dest_atlas_size: [dest_atlas_size.width, dest_atlas_size.height],
             filter_offset,
