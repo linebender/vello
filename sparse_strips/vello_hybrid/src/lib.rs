@@ -79,6 +79,9 @@ pub enum RenderError {
     /// TODO: Consider supporting more than a single column of slots in slot textures.
     #[error("No slots available for rendering")]
     SlotsExhausted,
+    /// Atlas allocation error for filter textures.
+    #[error("Atlas allocation error: {0}")]
+    AtlasError(#[from] multi_atlas::AtlasError),
     // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
 

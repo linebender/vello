@@ -24,8 +24,8 @@ use core::{fmt::Debug, num::NonZeroU64};
 use hashbrown::HashMap;
 
 use crate::AtlasConfig;
-use crate::filter::FilterContext;
-use crate::multi_atlas::AtlasId;
+use crate::filter::{FilterContext, FilterTextures, GpuFilterData};
+use crate::multi_atlas::{AtlasError, AtlasId};
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
@@ -47,11 +47,12 @@ use bytemuck::{Pod, Zeroable};
 use vello_common::{
     coarse::{WideTile, WideTilesBbox},
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
+    filter::InstantiatedFilter,
     kurbo::Affine,
     paint::ImageSource,
     peniko,
     pixmap::Pixmap,
-    render_graph::LayerId,
+    render_graph::{LayerId, RenderGraph, RenderNodeKind},
     tile::Tile,
 };
 use wgpu::{
@@ -135,6 +136,94 @@ impl Renderer {
         }
     }
 
+    /// Prepares filter textures by allocating them from the image atlas.
+    ///
+    /// This must be called before `prepare_gpu_encoded_paints` to ensure filter
+    /// layer textures are allocated and available for rendering.
+    fn prepare_filter_textures(&mut self, render_graph: &RenderGraph) -> Result<(), AtlasError> {
+        // Clear existing filter data and deallocate old textures
+        for filter_textures in self.filter_context.filter_textures().values() {
+            self.image_cache.deallocate(filter_textures.main_image_id);
+            self.image_cache.deallocate(filter_textures.dest_image_id);
+            if let Some(scratch_id) = filter_textures.scratch_image_id {
+                self.image_cache.deallocate(scratch_id);
+            }
+        }
+        self.filter_context.clear();
+
+        // Early return if no filters in the scene
+        if !render_graph.has_filters() {
+            return Ok(());
+        }
+
+        // Iterate through filter nodes and allocate textures
+        let mut current_offset = 0u32;
+        for node in &render_graph.nodes {
+            if let RenderNodeKind::FilterLayer {
+                layer_id,
+                filter,
+                transform,
+                wtile_bbox,
+            } = &node.kind
+            {
+                // Calculate texture dimensions from bounding box
+                let width = wtile_bbox.width_px() as u32;
+                let height = wtile_bbox.height_px() as u32;
+
+                // Instantiate the filter to check if scratch buffer is needed
+                let instantiated = InstantiatedFilter::new(filter, transform);
+                let gpu_filter = GpuFilterData::from(&instantiated);
+                let needs_scratch = gpu_filter.needs_scratch_buffer();
+
+                // Allocate textures with exclusion rules to avoid read-write hazards
+                let (main_image_id, dest_image_id, scratch_image_id) = if needs_scratch {
+                    // With scratch: main ≠ scratch, dest ≠ scratch
+                    let main = self.image_cache.allocate(width, height)?;
+                    let main_atlas = AtlasId(main.atlas_id());
+                    let scratch = self.image_cache.allocate_excluding(
+                        width,
+                        height,
+                        Some(main_atlas),
+                    )?;
+                    let scratch_atlas = AtlasId(scratch.atlas_id());
+                    let dest = self.image_cache.allocate_excluding(
+                        width,
+                        height,
+                        Some(scratch_atlas),
+                    )?;
+                    (main, dest, Some(scratch))
+                } else {
+                    // No scratch: main ≠ dest
+                    let main = self.image_cache.allocate(width, height)?;
+                    let main_atlas = AtlasId(main.atlas_id());
+                    let dest = self.image_cache.allocate_excluding(
+                        width,
+                        height,
+                        Some(main_atlas),
+                    )?;
+                    (main, dest, None)
+                };
+
+                // Store the allocation
+                self.filter_context.filter_textures.insert(
+                    *layer_id,
+                    FilterTextures {
+                        main_image_id,
+                        dest_image_id,
+                        scratch_image_id,
+                    },
+                );
+
+                // Store filter data and offset (lifted from FilterContext::prepare)
+                self.filter_context.filters.push(gpu_filter);
+                self.filter_context.offsets.insert(*layer_id, current_offset);
+                current_offset += GpuFilterData::SIZE_TEXELS;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Render `scene` into the provided command encoder.
     ///
     /// This method creates GPU resources as needed and schedules potentially multiple
@@ -148,8 +237,8 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
+        self.prepare_filter_textures(&scene.render_graph)?;
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
-        self.filter_context.prepare(&scene.render_graph);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -515,8 +604,6 @@ struct GpuResources {
     filter_texture: Texture,
     /// Bind group for filter texture
     filter_bind_group: BindGroup,
-    /// Textures for layers with filter effects, keyed by layer ID.
-    filter_textures: HashMap<LayerId, FilterTextures>,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
@@ -537,21 +624,6 @@ struct GpuResources {
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
 
 // TODO: Use texture arrays?
-/// Textures used for rendering and filtering a layer with filter effects.
-#[derive(Debug)]
-struct FilterTextures {
-    /// The main texture holding the raw painted version of the layer.
-    /// This is the render target when drawing the layer's content.
-    main_texture: TextureView,
-    /// The destination texture holding the final filtered version.
-    dest_texture: TextureView,
-    /// Optional scratch texture for multi-pass filter operations.
-    /// Currently always None, reserved for future use.
-    scratch_texture: Option<TextureView>,
-    /// Bind group for rendering strips into the intermediate texture.
-    /// Contains a config buffer sized to the intermediate texture dimensions.
-    strip_bind_group: BindGroup,
-}
 
 /// Config for the clear slots pipeline
 #[repr(C)]
@@ -1057,7 +1129,6 @@ impl Programs {
             gradient_bind_group,
             filter_texture,
             filter_bind_group,
-            filter_textures: HashMap::new(),
             view_config_buffer,
         };
 
@@ -1837,17 +1908,10 @@ impl RendererContext<'_> {
             RenderTarget::Output(OutputTarget::FinalView) => {
                 (self.view, &self.programs.resources.slot_bind_groups[2])
             }
-            RenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
-                let filter_textures = self
-                    .programs
-                    .resources
-                    .filter_textures
-                    .get(&layer_id)
-                    .expect("filter textures should exist for layer");
-                (
-                    &filter_textures.main_texture,
-                    &filter_textures.strip_bind_group,
-                )
+            RenderTarget::Output(OutputTarget::IntermediateTexture(_layer_id)) => {
+                // TODO: Implement filter texture rendering
+                // For now, just render to final view
+                (self.view, &self.programs.resources.slot_bind_groups[2])
             }
             RenderTarget::SlotTexture(idx) => (
                 &self.programs.resources.slot_texture_views[idx as usize],
@@ -1949,184 +2013,184 @@ impl RendererBackend for RendererContext<'_> {
         bbox: &WideTilesBbox,
         needs_scratch: bool,
     ) {
-        let width = u32::from(bbox.width_px());
-        let height = u32::from(bbox.height_px());
-
-        let size = Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        };
-        let format = self.programs.target_format;
-        let usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT;
-
-        let main_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Filter Target Texture"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage,
-            view_formats: &[],
-        });
-
-        let dest_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Filter Dest Texture"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage,
-            view_formats: &[],
-        });
-
-        let config_buffer = Programs::create_config_buffer(
-            self.device,
-            &RenderSize { width, height },
-            self.device.limits().max_texture_dimension_2d,
-        );
-
-        let alphas_view = self
-            .programs
-            .resources
-            .alphas_texture
-            .create_view(&TextureViewDescriptor::default());
-        let strip_bind_group = Programs::create_strip_bind_group(
-            self.device,
-            &self.programs.strip_bind_group_layout,
-            &alphas_view,
-            &config_buffer,
-            // This needs to be the same as the view used by the bind group of the
-            // main surface.
-            &self.programs.resources.slot_texture_views[1],
-        );
-
-        let scratch_texture = if needs_scratch {
-            Some(
-                self.device
-                    .create_texture(&wgpu::TextureDescriptor {
-                        label: Some("Filter Scratch Texture"),
-                        size,
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format,
-                        usage,
-                        view_formats: &[],
-                    })
-                    .create_view(&TextureViewDescriptor::default()),
-            )
-        } else {
-            None
-        };
-
-        let filter_textures = FilterTextures {
-            main_texture: main_texture.create_view(&TextureViewDescriptor::default()),
-            dest_texture: dest_texture.create_view(&TextureViewDescriptor::default()),
-            scratch_texture,
-            strip_bind_group,
-        };
-
-        self.programs
-            .resources
-            .filter_textures
-            .insert(layer_id, filter_textures);
+        // let width = u32::from(bbox.width_px());
+        // let height = u32::from(bbox.height_px());
+        //
+        // let size = Extent3d {
+        //     width,
+        //     height,
+        //     depth_or_array_layers: 1,
+        // };
+        // let format = self.programs.target_format;
+        // let usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT;
+        //
+        // let main_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+        //     label: Some("Filter Target Texture"),
+        //     size,
+        //     mip_level_count: 1,
+        //     sample_count: 1,
+        //     dimension: wgpu::TextureDimension::D2,
+        //     format,
+        //     usage,
+        //     view_formats: &[],
+        // });
+        //
+        // let dest_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+        //     label: Some("Filter Dest Texture"),
+        //     size,
+        //     mip_level_count: 1,
+        //     sample_count: 1,
+        //     dimension: wgpu::TextureDimension::D2,
+        //     format,
+        //     usage,
+        //     view_formats: &[],
+        // });
+        //
+        // let config_buffer = Programs::create_config_buffer(
+        //     self.device,
+        //     &RenderSize { width, height },
+        //     self.device.limits().max_texture_dimension_2d,
+        // );
+        //
+        // let alphas_view = self
+        //     .programs
+        //     .resources
+        //     .alphas_texture
+        //     .create_view(&TextureViewDescriptor::default());
+        // let strip_bind_group = Programs::create_strip_bind_group(
+        //     self.device,
+        //     &self.programs.strip_bind_group_layout,
+        //     &alphas_view,
+        //     &config_buffer,
+        //     // This needs to be the same as the view used by the bind group of the
+        //     // main surface.
+        //     &self.programs.resources.slot_texture_views[1],
+        // );
+        //
+        // let scratch_texture = if needs_scratch {
+        //     Some(
+        //         self.device
+        //             .create_texture(&wgpu::TextureDescriptor {
+        //                 label: Some("Filter Scratch Texture"),
+        //                 size,
+        //                 mip_level_count: 1,
+        //                 sample_count: 1,
+        //                 dimension: wgpu::TextureDimension::D2,
+        //                 format,
+        //                 usage,
+        //                 view_formats: &[],
+        //             })
+        //             .create_view(&TextureViewDescriptor::default()),
+        //     )
+        // } else {
+        //     None
+        // };
+        //
+        // let filter_textures = FilterTextures {
+        //     main_texture: main_texture.create_view(&TextureViewDescriptor::default()),
+        //     dest_texture: dest_texture.create_view(&TextureViewDescriptor::default()),
+        //     scratch_texture,
+        //     strip_bind_group,
+        // };
+        //
+        // self.programs
+        //     .resources
+        //     .filter_textures
+        //     .insert(layer_id, filter_textures);
     }
 
     fn apply_filter(&mut self, layer_id: LayerId, filter_offset: u32, uses_scratch: bool) {
-        use crate::filter::GpuFilterData;
-
-        let filter_textures = self
-            .programs
-            .resources
-            .filter_textures
-            .get(&layer_id)
-            .unwrap();
-
-        // We use vertex indices to pass implicit information about the offset
-        // of the data of the filter.
-        let filter_index = filter_offset / GpuFilterData::SIZE_TEXELS;
-        let vertex_start = filter_index * 4;
-        let vertex_end = vertex_start + 4;
-
-        // For two-pass filters the first pass writes to the scratch texture;
-        // for single-pass filters it writes directly to the output view.
-        let first_pass_output = if uses_scratch {
-            filter_textures
-                .scratch_texture
-                .as_ref()
-                .expect("scratch texture must exist for multi-pass filter")
-        } else {
-            &self.view
-        };
-
-        let input_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Filter Input Bind Group"),
-            layout: &self.programs.filter_input_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&filter_textures.main_texture),
-            }],
-        });
-
-        {
-            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Filter Render Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: first_pass_output,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-
-            render_pass.set_pipeline(&self.programs.filter_pipelines[0]);
-            render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
-            render_pass.set_bind_group(1, &input_bind_group, &[]);
-            render_pass.draw(vertex_start..vertex_end, 0..1);
-        }
-
-        if uses_scratch {
-            let scratch_view = filter_textures.scratch_texture.as_ref().unwrap();
-
-            let input_bind_group_v = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Filter Input Bind Group (Pass 2)"),
-                layout: &self.programs.filter_input_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(scratch_view),
-                }],
-            });
-
-            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Filter Render Pass (Pass 2)"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-
-            render_pass.set_pipeline(&self.programs.filter_pipelines[1]);
-            render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
-            render_pass.set_bind_group(1, &input_bind_group_v, &[]);
-            render_pass.draw(vertex_start..vertex_end, 0..1);
-        }
+    //     use crate::filter::GpuFilterData;
+    //
+    //     let filter_textures = self
+    //         .programs
+    //         .resources
+    //         .filter_textures
+    //         .get(&layer_id)
+    //         .unwrap();
+    //
+    //     // We use vertex indices to pass implicit information about the offset
+    //     // of the data of the filter.
+    //     let filter_index = filter_offset / GpuFilterData::SIZE_TEXELS;
+    //     let vertex_start = filter_index * 4;
+    //     let vertex_end = vertex_start + 4;
+    //
+    //     // For two-pass filters the first pass writes to the scratch texture;
+    //     // for single-pass filters it writes directly to the output view.
+    //     let first_pass_output = if uses_scratch {
+    //         filter_textures
+    //             .scratch_texture
+    //             .as_ref()
+    //             .expect("scratch texture must exist for multi-pass filter")
+    //     } else {
+    //         &self.view
+    //     };
+    //
+    //     let input_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+    //         label: Some("Filter Input Bind Group"),
+    //         layout: &self.programs.filter_input_bind_group_layout,
+    //         entries: &[wgpu::BindGroupEntry {
+    //             binding: 0,
+    //             resource: wgpu::BindingResource::TextureView(&filter_textures.main_texture),
+    //         }],
+    //     });
+    //
+    //     {
+    //         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+    //             label: Some("Filter Render Pass"),
+    //             color_attachments: &[Some(RenderPassColorAttachment {
+    //                 view: first_pass_output,
+    //                 depth_slice: None,
+    //                 resolve_target: None,
+    //                 ops: wgpu::Operations {
+    //                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+    //                     store: wgpu::StoreOp::Store,
+    //                 },
+    //             })],
+    //             depth_stencil_attachment: None,
+    //             occlusion_query_set: None,
+    //             timestamp_writes: None,
+    //         });
+    //
+    //         render_pass.set_pipeline(&self.programs.filter_pipelines[0]);
+    //         render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
+    //         render_pass.set_bind_group(1, &input_bind_group, &[]);
+    //         render_pass.draw(vertex_start..vertex_end, 0..1);
+    //     }
+    //
+    //     if uses_scratch {
+    //         let scratch_view = filter_textures.scratch_texture.as_ref().unwrap();
+    //
+    //         let input_bind_group_v = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+    //             label: Some("Filter Input Bind Group (Pass 2)"),
+    //             layout: &self.programs.filter_input_bind_group_layout,
+    //             entries: &[wgpu::BindGroupEntry {
+    //                 binding: 0,
+    //                 resource: wgpu::BindingResource::TextureView(scratch_view),
+    //             }],
+    //         });
+    //
+    //         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+    //             label: Some("Filter Render Pass (Pass 2)"),
+    //             color_attachments: &[Some(RenderPassColorAttachment {
+    //                 view: &self.view,
+    //                 depth_slice: None,
+    //                 resolve_target: None,
+    //                 ops: wgpu::Operations {
+    //                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+    //                     store: wgpu::StoreOp::Store,
+    //                 },
+    //             })],
+    //             depth_stencil_attachment: None,
+    //             occlusion_query_set: None,
+    //             timestamp_writes: None,
+    //         });
+    //
+    //         render_pass.set_pipeline(&self.programs.filter_pipelines[1]);
+    //         render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
+    //         render_pass.set_bind_group(1, &input_bind_group_v, &[]);
+    //         render_pass.draw(vertex_start..vertex_end, 0..1);
+    //     }
     }
 }
 

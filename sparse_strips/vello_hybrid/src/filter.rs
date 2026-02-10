@@ -14,6 +14,7 @@ use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{GaussianBlur, MAX_KERNEL_SIZE};
 use vello_common::filter::offset::Offset;
 use vello_common::filter_effects::EdgeMode;
+use vello_common::paint::ImageId;
 use vello_common::render_graph::{LayerId, RenderGraph, RenderNodeKind};
 
 const BYTES_PER_TEXEL: usize = 16;
@@ -225,9 +226,22 @@ impl From<&InstantiatedFilter> for GpuFilterData {
 pub(crate) struct FilterContext {
     /// The encoded data for each filter used in the current scene that will be uploaded to the
     /// filter texture.
-    filters: Vec<GpuFilterData>,
+    pub(crate) filters: Vec<GpuFilterData>,
     /// At what texel offset the filter data for the given layer ID is stored in the texture.
-    offsets: HashMap<LayerId, u32>,
+    pub(crate) offsets: HashMap<LayerId, u32>,
+    /// Allocated filter textures (as ImageIds in the atlas) for each layer.
+    pub(crate) filter_textures: HashMap<LayerId, FilterTextures>,
+}
+
+/// Filter texture allocation for a single layer.
+#[derive(Debug, Clone)]
+pub(crate) struct FilterTextures {
+    /// Image ID for the main texture holding the raw painted version of the layer.
+    pub main_image_id: ImageId,
+    /// Image ID for the destination texture holding the final filtered version.
+    pub dest_image_id: ImageId,
+    /// Optional image ID for scratch texture used in multi-pass filter operations.
+    pub scratch_image_id: Option<ImageId>,
 }
 
 impl FilterContext {
@@ -235,9 +249,10 @@ impl FilterContext {
         Self::default()
     }
 
-    fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.filters.clear();
         self.offsets.clear();
+        self.filter_textures.clear();
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -246,6 +261,10 @@ impl FilterContext {
 
     pub(crate) fn offsets(&self) -> &HashMap<LayerId, u32> {
         &self.offsets
+    }
+
+    pub(crate) fn filter_textures(&self) -> &HashMap<LayerId, FilterTextures> {
+        &self.filter_textures
     }
 
     pub(crate) fn total_texels(&self) -> u32 {
