@@ -192,6 +192,7 @@ use vello_common::{
     render_graph::{LayerId, RenderNodeKind},
     tile::Tile,
 };
+use crate::multi_atlas::AtlasId;
 
 // Constants used for bit packing, matching `render_strips.wgsl`
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
@@ -216,7 +217,7 @@ pub(crate) enum OutputTarget {
     /// Render to the final output view/surface.
     FinalView,
     /// Render to an intermediate texture for a layer with filter effects.
-    IntermediateTexture(LayerId),
+    IntermediateTexture(LayerId, AtlasId),
 }
 
 /// Specifies the target for a render pass.
@@ -646,7 +647,7 @@ impl Scheduler {
                         (wtile_bbox.x0() * WideTile::WIDTH) as i32 - resources.offset[0] as i32,
                         (wtile_bbox.y0() * Tile::HEIGHT) as i32 - resources.offset[1] as i32,
                     );
-                    self.output_target = OutputTarget::IntermediateTexture(*layer_id);
+                    self.output_target = OutputTarget::IntermediateTexture(*layer_id, resources.atlas_id);
                     (*layer_id, *wtile_bbox)
                 }
                 RenderNodeKind::RootLayer {
@@ -756,13 +757,13 @@ impl Scheduler {
             }
 
             // If we are rendering a filtered layer, apply the filter now.
-            if let OutputTarget::IntermediateTexture(layer_id) = self.output_target {
-                let filter_offset = filter_context.offsets().get(&layer_id).copied().unwrap();
-                let needs_scratch = filter_context
-                    .get_filter_data(&layer_id)
-                    .is_some_and(|f| f.needs_scratch_buffer());
-                renderer.apply_filter(layer_id, filter_offset, needs_scratch);
-            }
+            // if let OutputTarget::IntermediateTexture(layer_id, atlas_id) = self.output_target {
+            //     let filter_offset = filter_context.offsets().get(&layer_id).copied().unwrap();
+            //     let needs_scratch = filter_context
+            //         .get_filter_data(&layer_id)
+            //         .is_some_and(|f| f.needs_scratch_buffer());
+            //     renderer.apply_filter(layer_id, filter_offset, needs_scratch);
+            // }
         }
 
         Ok(())
