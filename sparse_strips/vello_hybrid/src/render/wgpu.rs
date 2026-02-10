@@ -128,7 +128,7 @@ impl Renderer {
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
 
         Self {
-            programs: Programs::new(device, &image_cache, render_target_config, total_slots),
+            programs: Programs::new(device, &image_cache, &filter_texture_cache, render_target_config, total_slots),
             scheduler: Scheduler::new(total_slots),
             scheduler_state: SchedulerState::default(),
             image_cache,
@@ -252,6 +252,8 @@ impl Renderer {
             queue,
             encoder,
             view,
+            filter_texture_cache: &self.filter_texture_cache,
+            filter_context: &self.filter_context,
         };
 
         let result = self.scheduler.do_scene(
@@ -585,6 +587,8 @@ struct GpuResources {
     atlas_texture_array_view: TextureView,
     /// Bind group for atlas textures (as texture array)
     atlas_bind_group: BindGroup,
+    /// Filter atlas texture array for intermediate filter textures
+    filter_atlas_texture_array: Texture,
     /// Texture for encoded paints
     encoded_paints_texture: Texture,
     /// Bind group for encoded paints
@@ -651,6 +655,7 @@ impl Programs {
     fn new(
         device: &Device,
         image_cache: &ImageCache,
+        filter_texture_cache: &ImageCache,
         render_target_config: &RenderTargetConfig,
         slot_count: usize,
     ) -> Self {
@@ -1054,6 +1059,24 @@ impl Programs {
             &atlas_texture_array_view,
         );
 
+        // Create filter atlas texture array
+        let AtlasConfig {
+            atlas_size: (filter_atlas_width, filter_atlas_height),
+            initial_atlas_count: filter_initial_atlas_count,
+            ..
+        } = filter_texture_cache.atlas_manager().config();
+        let (filter_atlas_texture_array, filter_atlas_texture_array_view) = Self::create_atlas_texture_array(
+            device,
+            *filter_atlas_width,
+            *filter_atlas_height,
+            *filter_initial_atlas_count as u32,
+        );
+        let filter_atlas_bind_group = Self::create_atlas_bind_group(
+            device,
+            &atlas_bind_group_layout,
+            &filter_atlas_texture_array_view,
+        );
+
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
         let encoded_paints_data = vec![
             0;
@@ -1118,6 +1141,7 @@ impl Programs {
             atlas_texture_array,
             atlas_texture_array_view,
             atlas_bind_group,
+            filter_atlas_texture_array,
             encoded_paints_texture,
             encoded_paints_bind_group,
             gradient_texture,
@@ -1882,6 +1906,8 @@ struct RendererContext<'a> {
     queue: &'a Queue,
     encoder: &'a mut CommandEncoder,
     view: &'a TextureView,
+    filter_texture_cache: &'a ImageCache,
+    filter_context: &'a FilterContext,
 }
 
 impl RendererContext<'_> {
@@ -1899,25 +1925,38 @@ impl RendererContext<'_> {
         // approach would be to re-use buffers or slices of a larger buffer.
         self.programs.upload_strips(self.device, self.queue, strips);
 
-        let (view, bind_group): (&TextureView, &BindGroup) = match target {
+        let (view, bind_group): (TextureView, &BindGroup) = match target {
             RenderTarget::Output(OutputTarget::FinalView) => {
-                (self.view, &self.programs.resources.slot_bind_groups[2])
+                (self.view.clone(), &self.programs.resources.slot_bind_groups[2])
             }
-            RenderTarget::Output(OutputTarget::IntermediateTexture(_layer_id)) => {
-                // TODO: Implement filter texture rendering
-                // For now, just render to final view
-                (self.view, &self.programs.resources.slot_bind_groups[2])
+            RenderTarget::Output(OutputTarget::IntermediateTexture(_, atlas_id)) => {
+                // Create a view of the specific atlas layer
+                let view = self.programs.resources.filter_atlas_texture_array
+                    .create_view(&TextureViewDescriptor {
+                        label: Some("Filter Main Texture View"),
+                        format: None,
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        aspect: wgpu::TextureAspect::All,
+                        base_mip_level: 0,
+                        mip_level_count: None,
+                        base_array_layer: atlas_id.as_u32(),
+                        array_layer_count: Some(1),
+                        usage: None,
+                    });
+                (view, &self.programs.resources.slot_bind_groups[2])
             }
-            RenderTarget::SlotTexture(idx) => (
-                &self.programs.resources.slot_texture_views[idx as usize],
-                &self.programs.resources.slot_bind_groups[idx as usize],
-            ),
+            RenderTarget::SlotTexture(idx) => {
+                (
+                    self.programs.resources.slot_texture_views[idx as usize].clone(),
+                    &self.programs.resources.slot_bind_groups[idx as usize]
+                )
+            }
         };
 
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Render to Texture Pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
-                view,
+                view: &view,
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
