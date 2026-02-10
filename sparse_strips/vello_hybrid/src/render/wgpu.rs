@@ -1052,6 +1052,7 @@ impl Programs {
             *atlas_width,
             *atlas_height,
             *initial_atlas_count as u32,
+            wgpu::TextureFormat::Rgba8Unorm,
         );
         let atlas_bind_group = Self::create_atlas_bind_group(
             device,
@@ -1065,16 +1066,12 @@ impl Programs {
             initial_atlas_count: filter_initial_atlas_count,
             ..
         } = filter_texture_cache.atlas_manager().config();
-        let (filter_atlas_texture_array, filter_atlas_texture_array_view) = Self::create_atlas_texture_array(
+        let (filter_atlas_texture_array, _) = Self::create_atlas_texture_array(
             device,
             *filter_atlas_width,
             *filter_atlas_height,
             *filter_initial_atlas_count as u32,
-        );
-        let filter_atlas_bind_group = Self::create_atlas_bind_group(
-            device,
-            &atlas_bind_group_layout,
-            &filter_atlas_texture_array_view,
+            render_target_config.format,
         );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
@@ -1230,6 +1227,7 @@ impl Programs {
         width: u32,
         height: u32,
         atlas_count: u32,
+        format: wgpu::TextureFormat,
     ) -> (Texture, TextureView) {
         // Create a single texture array with multiple layers
         let atlas_texture_array = device.create_texture(&wgpu::TextureDescriptor {
@@ -1242,7 +1240,7 @@ impl Programs {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::COPY_SRC
@@ -1677,9 +1675,10 @@ impl Programs {
             depth_or_array_layers: current_atlas_count,
         } = resources.atlas_texture_array.size();
         if required_atlas_count > current_atlas_count {
+            let format = resources.atlas_texture_array.format();
             // Create new texture array with more layers
             let (new_atlas_texture_array, new_atlas_texture_array_view) =
-                Self::create_atlas_texture_array(device, width, height, required_atlas_count);
+                Self::create_atlas_texture_array(device, width, height, required_atlas_count, format);
 
             // Copy existing atlas data from old texture array to new one
             Self::copy_atlas_texture_data(
