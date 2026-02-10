@@ -262,6 +262,7 @@ impl Renderer {
             scene,
             &self.paint_idxs,
             &self.filter_context,
+            &self.image_cache
         );
         self.gradient_cache.maintain();
 

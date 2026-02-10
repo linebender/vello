@@ -191,6 +191,7 @@ use vello_common::{
     render_graph::{LayerId, RenderNodeKind},
     tile::Tile,
 };
+use crate::image_cache::{ImageCache};
 
 // Constants used for bit packing, matching `render_strips.wgsl`
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
@@ -339,7 +340,7 @@ pub(crate) struct SchedulerState {
     /// size (256, 4). However, since for example the original x coordinates range from 256-512, we
     /// need to translate all of them by -x_offset so that they are correctly positioned in the
     /// new texture.
-    strip_offset: (u16, u16),
+    strip_offset: (i32, i32),
 }
 
 impl SchedulerState {
@@ -529,9 +530,10 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
+        image_cache: &ImageCache
     ) -> Result<(), RenderError> {
         if scene.render_graph.has_filters() {
-            self.do_scene_with_filters(state, renderer, scene, paint_idxs, filter_context)?;
+            self.do_scene_with_filters(state, renderer, scene, paint_idxs, filter_context, image_cache)?;
         } else {
             self.do_scene_no_filters(state, renderer, scene, paint_idxs)?;
         }
@@ -607,6 +609,7 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
+        image_cache: &ImageCache
     ) -> Result<(), RenderError> {
         // TODO: Since this code is very similar to vello_cpu, maybe most of it can be
         // put into vello_common, with some callbacks to implement renderer-specific
@@ -619,9 +622,19 @@ impl Scheduler {
                     wtile_bbox,
                     ..
                 } => {
+                    // We need to apply two offsets:
+                    // First, we need to apply an offset to account for the fact that the
+                    // bbox of the filter layer itself might not start at (0, 0), but we only
+                    // allocate a texture large enough to hold the tight bounding box of the filter
+                    // layer.
+                    // Secondly, we need to apply another offset because our intermediate textures
+                    // are stored in the image atlas, where it could be allocated at any position.
+                    let image_id = filter_context.filter_textures.get(layer_id)
+                        .unwrap().dest_image_id;
+                    let resources = image_cache.get(image_id).unwrap();
                     state.strip_offset = (
-                        wtile_bbox.x0() * WideTile::WIDTH,
-                        wtile_bbox.y0() * Tile::HEIGHT,
+                        (wtile_bbox.x0() * WideTile::WIDTH) as i32 - resources.offset[0] as i32,
+                         (wtile_bbox.y0() * Tile::HEIGHT) as i32 - resources.offset[1] as i32,
                     );
                     self.output_target = OutputTarget::IntermediateTexture(*layer_id);
                     (*layer_id, *wtile_bbox)
@@ -832,7 +845,7 @@ impl Scheduler {
         wide_tile_y: u16,
         scene: &Scene,
         idxs: &[u32],
-        offset: (u16, u16),
+        offset: (i32, i32),
     ) {
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
         // commands to the final target.
@@ -1358,13 +1371,13 @@ impl GpuStripBuilder {
     ///
     /// The offset is subtracted from `x` and `y` to convert from scene coordinates
     /// to texture-relative coordinates when rendering to intermediate textures.
-    fn at_surface(x: u16, y: u16, width: u16, offset: (u16, u16)) -> Self {
+    fn at_surface(x: u16, y: u16, width: u16, offset: (i32, i32)) -> Self {
         Self {
             // It should never happen that this underflows, since an offset is only applied
             // for filter layers, and all strips in the filter layout should be at a position that
             // is at least the offset.
-            x: x - offset.0,
-            y: y - offset.1,
+            x: (x as i32 - offset.0) as u16,
+            y: (y as i32 - offset.1) as u16,
             width,
             dense_width: 0,
             col_idx: 0,
