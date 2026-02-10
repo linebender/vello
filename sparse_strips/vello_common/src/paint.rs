@@ -59,6 +59,7 @@ pub struct ImageId {
     slot_or_id: u32,
     /// In case the image has been created externally, this field is always `u32::MAX`. If
     /// it's been created by us, this field stores the ID of the atlas it's stored in.
+    // TODO: DO we really need this?
     atlas_id: u32,
 }
 
