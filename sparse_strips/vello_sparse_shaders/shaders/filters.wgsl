@@ -134,8 +134,17 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(0.0, 0.0, 1.0, 1.0);
+    let data = load_filter_data(in.filter_offset);
+    let frag_coord = vec2<u32>(in.position.xy);
+    let filter_type = get_filter_type(data);
 
+    if filter_type == FILTER_TYPE_GAUSSIAN_BLUR {
+        let blur = unpack_gaussian_blur_filter(data);
+        return apply_gaussian_blur_horizontal(frag_coord, blur);
+    } else {
+        let offset = unpack_offset_filter(data);
+        return apply_offset(in, frag_coord, offset);
+    }
 }
 
 fn apply_offset(in: FilterVertexOutput, frag_coord: vec2<u32>, offset: OffsetFilter) -> vec4<f32> {
