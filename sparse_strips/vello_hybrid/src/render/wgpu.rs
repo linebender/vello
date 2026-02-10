@@ -2073,7 +2073,7 @@ impl RendererContext<'_> {
                     .unwrap()
                     .main_image_id;
                 let resources = self.image_cache.get(image_id).unwrap();
-                
+
                 // Create a view of the specific atlas layer
                 let view = self.programs.resources.filter_atlas_texture_array
                     .create_view(&TextureViewDescriptor {
