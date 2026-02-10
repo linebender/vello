@@ -177,6 +177,7 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::filter::FilterContext;
+use crate::image_cache::ImageCache;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -191,7 +192,6 @@ use vello_common::{
     render_graph::{LayerId, RenderNodeKind},
     tile::Tile,
 };
-use crate::image_cache::{ImageCache};
 
 // Constants used for bit packing, matching `render_strips.wgsl`
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
@@ -530,10 +530,17 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
-        image_cache: &ImageCache
+        image_cache: &ImageCache,
     ) -> Result<(), RenderError> {
         if scene.render_graph.has_filters() {
-            self.do_scene_with_filters(state, renderer, scene, paint_idxs, filter_context, image_cache)?;
+            self.do_scene_with_filters(
+                state,
+                renderer,
+                scene,
+                paint_idxs,
+                filter_context,
+                image_cache,
+            )?;
         } else {
             self.do_scene_no_filters(state, renderer, scene, paint_idxs)?;
         }
@@ -609,7 +616,7 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
-        image_cache: &ImageCache
+        image_cache: &ImageCache,
     ) -> Result<(), RenderError> {
         // TODO: Since this code is very similar to vello_cpu, maybe most of it can be
         // put into vello_common, with some callbacks to implement renderer-specific
@@ -629,12 +636,15 @@ impl Scheduler {
                     // layer.
                     // Secondly, we need to apply another offset because our intermediate textures
                     // are stored in the image atlas, where it could be allocated at any position.
-                    let image_id = filter_context.filter_textures.get(layer_id)
-                        .unwrap().dest_image_id;
+                    let image_id = filter_context
+                        .filter_textures
+                        .get(layer_id)
+                        .unwrap()
+                        .dest_image_id;
                     let resources = image_cache.get(image_id).unwrap();
                     state.strip_offset = (
                         (wtile_bbox.x0() * WideTile::WIDTH) as i32 - resources.offset[0] as i32,
-                         (wtile_bbox.y0() * Tile::HEIGHT) as i32 - resources.offset[1] as i32,
+                        (wtile_bbox.y0() * Tile::HEIGHT) as i32 - resources.offset[1] as i32,
                     );
                     self.output_target = OutputTarget::IntermediateTexture(*layer_id);
                     (*layer_id, *wtile_bbox)

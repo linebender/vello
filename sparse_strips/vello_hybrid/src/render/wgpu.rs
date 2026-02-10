@@ -147,7 +147,8 @@ impl Renderer {
     fn prepare_filter_textures(&mut self, render_graph: &RenderGraph) -> Result<(), AtlasError> {
         // Clear existing filter data and deallocate old textures
         for filter_textures in self.filter_context.filter_textures().values() {
-            self.filter_texture_cache.deallocate(filter_textures.main_image_id);
+            self.filter_texture_cache
+                .deallocate(filter_textures.main_image_id);
             self.image_cache.deallocate(filter_textures.dest_image_id);
             if let Some(scratch_id) = filter_textures.scratch_image_id {
                 self.filter_texture_cache.deallocate(scratch_id);
@@ -186,7 +187,11 @@ impl Renderer {
                 let main_image_id = self.filter_texture_cache.allocate(width, height)?;
                 let dest_image_id = self.image_cache.allocate(width, height)?;
                 let scratch_image_id = if needs_scratch {
-                    Some(self.filter_texture_cache.allocate_excluding(width, height, Some(AtlasId(main_image_id.atlas_id())))?)
+                    Some(self.filter_texture_cache.allocate_excluding(
+                        width,
+                        height,
+                        Some(AtlasId(main_image_id.atlas_id())),
+                    )?)
                 } else {
                     None
                 };
@@ -255,7 +260,7 @@ impl Renderer {
             scene,
             &self.paint_idxs,
             &self.filter_context,
-            &self.image_cache
+            &self.image_cache,
         );
         self.gradient_cache.maintain();
 
