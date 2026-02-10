@@ -298,6 +298,7 @@ impl Renderer {
             queue,
             encoder,
             view,
+            image_cache: &self.image_cache,
             filter_texture_cache: &self.filter_texture_cache,
             filter_context: &self.filter_context,
         };
@@ -700,6 +701,8 @@ struct GpuResources {
 
     /// Buffer for slot indices used in `clear_slots`
     clear_slot_indices_buffer: Buffer,
+    /// Buffer for filter instance data (per-filter vertex attributes)
+    filter_instance_buffer: Buffer,
     // Bind groups for rendering with clip buffers
     slot_bind_groups: [BindGroup; 3],
     /// Slot texture views
@@ -725,6 +728,19 @@ struct ClearSlotsConfig {
     pub texture_height: u32,
     /// Padding for 16-byte alignment
     pub _padding: u32,
+}
+
+/// Per-instance vertex data for filter rendering
+#[repr(C, align(16))]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct FilterInstanceData {
+    src_offset: [u32; 2],
+    src_size: [u32; 2],
+    dest_offset: [u32; 2],
+    dest_size: [u32; 2],
+    dest_atlas_size: [u32; 2],
+    filter_offset: u32,
+    _padding: u32,  // Ensure 16-byte alignment
 }
 
 impl GpuStrip {
@@ -1038,14 +1054,25 @@ impl Programs {
                 vertex: wgpu::VertexState {
                     module: &filter_shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[],
+                    buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: size_of::<FilterInstanceData>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &wgpu::vertex_attr_array![
+                            0 => Uint32x2,  // src_offset
+                            1 => Uint32x2,  // src_size
+                            2 => Uint32x2,  // dest_offset
+                            3 => Uint32x2,  // dest_size
+                            4 => Uint32,    // filter_offset
+                            5 => Uint32x2,  // dest_atlas_size
+                        ],
+                    }],
                     compilation_options: PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &filter_shader,
                     entry_point: Some(filter_fragment_entry_points[i]),
                     targets: &[Some(ColorTargetState {
-                        format: render_target_config.format,
+                        format: wgpu::TextureFormat::Bgra8Unorm,  // Atlas texture format
                         blend: None,
                         write_mask: ColorWrites::ALL,
                     })],
@@ -1219,6 +1246,7 @@ impl Programs {
         let resources = GpuResources {
             strips_buffer: Self::create_strips_buffer(device, 0),
             clear_slot_indices_buffer,
+            filter_instance_buffer: Self::create_filter_instance_buffer(device, size_of::<FilterInstanceData>() as u64),
             slot_texture_views,
             slot_config_buffer,
             slot_bind_groups,
@@ -1271,6 +1299,15 @@ impl Programs {
     fn create_clear_slot_indices_buffer(device: &Device, required_size: u64) -> Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Slot Indices Buffer"),
+            size: required_size,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    }
+
+    fn create_filter_instance_buffer(device: &Device, required_size: u64) -> Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Filter Instance Buffer"),
             size: required_size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -1984,6 +2021,16 @@ impl Programs {
             .expect("Capacity handled in creation");
         buffer.copy_from_slice(bytemuck::cast_slice(strips));
     }
+
+    fn upload_filter_instance(&mut self, device: &Device, queue: &Queue, instance_data: &FilterInstanceData) {
+        let required_size = size_of::<FilterInstanceData>() as u64;
+        self.resources.filter_instance_buffer = Self::create_filter_instance_buffer(device, required_size);
+        queue.write_buffer(
+            &self.resources.filter_instance_buffer,
+            0,
+            bytemuck::bytes_of(instance_data),
+        );
+    }
 }
 
 /// A struct containing references to the many objects needed to get work
@@ -1994,6 +2041,7 @@ struct RendererContext<'a> {
     queue: &'a Queue,
     encoder: &'a mut CommandEncoder,
     view: &'a TextureView,
+    image_cache: &'a ImageCache,
     filter_texture_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
 }
@@ -2130,97 +2178,116 @@ impl RendererBackend for RendererContext<'_> {
     }
 
     fn apply_filter(&mut self, layer_id: LayerId, filter_offset: u32, uses_scratch: bool) {
-        //     use crate::filter::GpuFilterData;
-        //
-        //     let filter_textures = self
-        //         .programs
-        //         .resources
-        //         .filter_textures
-        //         .get(&layer_id)
-        //         .unwrap();
-        //
-        //     // We use vertex indices to pass implicit information about the offset
-        //     // of the data of the filter.
-        //     let filter_index = filter_offset / GpuFilterData::SIZE_TEXELS;
-        //     let vertex_start = filter_index * 4;
-        //     let vertex_end = vertex_start + 4;
-        //
-        //     // For two-pass filters the first pass writes to the scratch texture;
-        //     // for single-pass filters it writes directly to the output view.
-        //     let first_pass_output = if uses_scratch {
-        //         filter_textures
-        //             .scratch_texture
-        //             .as_ref()
-        //             .expect("scratch texture must exist for multi-pass filter")
-        //     } else {
-        //         &self.view
-        //     };
-        //
-        //     let input_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        //         label: Some("Filter Input Bind Group"),
-        //         layout: &self.programs.filter_input_bind_group_layout,
-        //         entries: &[wgpu::BindGroupEntry {
-        //             binding: 0,
-        //             resource: wgpu::BindingResource::TextureView(&filter_textures.main_texture),
-        //         }],
+        // 1. Get filter textures allocation from FilterContext
+        let filter_textures = self
+            .filter_context
+            .filter_textures()
+            .get(&layer_id)
+            .expect("Filter textures must exist");
+
+        // 2. Get image resources from caches
+        let main_resource = self
+            .filter_texture_cache
+            .get(filter_textures.main_image_id)
+            .expect("Main image must exist");
+        let dest_resource = self
+            .image_cache
+            .get(filter_textures.dest_image_id)
+            .expect("Dest image must exist");
+
+        // 3. Get dest atlas dimensions
+        let dest_atlas_size = self.programs.resources.atlas_texture_array.size();
+
+        // 4. Create instance buffer with atlas offset info
+        let instance_data = FilterInstanceData {
+            src_offset: [main_resource.offset[0] as u32, main_resource.offset[1] as u32],
+            src_size: [main_resource.width as u32, main_resource.height as u32],
+            dest_offset: [0, 0],
+            dest_size: [self.view.texture().width() as u32, self.view.texture().height() as u32],
+            dest_atlas_size: [self.view.texture().width() as u32, self.view.texture().height() as u32],
+            filter_offset,
+            _padding: 0,
+        };
+
+        // Upload instance data
+        self.programs.upload_filter_instance(self.device, self.queue, &instance_data);
+
+        // 5. Create input bind group for main_image atlas layer view
+        let main_texture_view = self
+            .programs
+            .resources
+            .filter_atlas_texture_array
+            .create_view(&TextureViewDescriptor {
+                label: Some("Filter Main Input View"),
+                format: None,
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                aspect: wgpu::TextureAspect::All,
+                base_mip_level: 0,
+                mip_level_count: None,
+                base_array_layer: main_resource.atlas_id.as_u32(),
+                array_layer_count: Some(1),
+                usage: None,
+            });
+
+        let input_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Filter Input Bind Group"),
+            layout: &self.programs.filter_input_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&main_texture_view),
+            }],
+        });
+
+
+        // // 6. Create dest texture view (in main atlas)
+        // let dest_texture_view = self
+        //     .programs
+        //     .resources
+        //     .atlas_texture_array
+        //     .create_view(&TextureViewDescriptor {
+        //         label: Some("Filter Dest Output View"),
+        //         format: None,
+        //         dimension: Some(wgpu::TextureViewDimension::D2),
+        //         aspect: wgpu::TextureAspect::All,
+        //         base_mip_level: 0,
+        //         mip_level_count: None,
+        //         base_array_layer: dest_resource.atlas_id.as_u32(),
+        //         array_layer_count: Some(1),
+        //         usage: None,
         //     });
-        //
-        //     {
-        //         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-        //             label: Some("Filter Render Pass"),
-        //             color_attachments: &[Some(RenderPassColorAttachment {
-        //                 view: first_pass_output,
-        //                 depth_slice: None,
-        //                 resolve_target: None,
-        //                 ops: wgpu::Operations {
-        //                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-        //                     store: wgpu::StoreOp::Store,
-        //                 },
-        //             })],
-        //             depth_stencil_attachment: None,
-        //             occlusion_query_set: None,
-        //             timestamp_writes: None,
-        //         });
-        //
-        //         render_pass.set_pipeline(&self.programs.filter_pipelines[0]);
-        //         render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
-        //         render_pass.set_bind_group(1, &input_bind_group, &[]);
-        //         render_pass.draw(vertex_start..vertex_end, 0..1);
-        //     }
-        //
-        //     if uses_scratch {
-        //         let scratch_view = filter_textures.scratch_texture.as_ref().unwrap();
-        //
-        //         let input_bind_group_v = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        //             label: Some("Filter Input Bind Group (Pass 2)"),
-        //             layout: &self.programs.filter_input_bind_group_layout,
-        //             entries: &[wgpu::BindGroupEntry {
-        //                 binding: 0,
-        //                 resource: wgpu::BindingResource::TextureView(scratch_view),
-        //             }],
-        //         });
-        //
-        //         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-        //             label: Some("Filter Render Pass (Pass 2)"),
-        //             color_attachments: &[Some(RenderPassColorAttachment {
-        //                 view: &self.view,
-        //                 depth_slice: None,
-        //                 resolve_target: None,
-        //                 ops: wgpu::Operations {
-        //                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-        //                     store: wgpu::StoreOp::Store,
-        //                 },
-        //             })],
-        //             depth_stencil_attachment: None,
-        //             occlusion_query_set: None,
-        //             timestamp_writes: None,
-        //         });
-        //
-        //         render_pass.set_pipeline(&self.programs.filter_pipelines[1]);
-        //         render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
-        //         render_pass.set_bind_group(1, &input_bind_group_v, &[]);
-        //         render_pass.draw(vertex_start..vertex_end, 0..1);
-        //     }
+
+        // 7. Render pass (no scissor rect needed - quad is sized to dest region)
+        {
+            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Apply Filter Pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &self.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,  // Don't clear entire atlas layer
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.programs.filter_pipelines[0]);
+            render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
+            render_pass.set_bind_group(1, &input_bind_group, &[]);
+            render_pass.set_vertex_buffer(
+                0,
+                self.programs.resources.filter_instance_buffer.slice(..)
+            );
+
+            // Draw 4 vertices, 1 instance
+            render_pass.draw(0..4, 0..1);
+        }
+
+        // Note: For now, we only implement single-pass filters (skip uses_scratch logic)
+        let _ = uses_scratch;
     }
 }
 

@@ -9,7 +9,7 @@ use render_context::{RenderContext, RenderSurface, create_vello_renderer, create
 use std::env;
 use std::sync::Arc;
 use std::time::Instant;
-use vello_common::kurbo::{Affine, Point};
+use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::ImageId;
 use vello_common::paint::ImageSource;
 use vello_example_scenes::image::ImageScene;
@@ -22,6 +22,8 @@ use winit::{
     keyboard::{Key, NamedKey},
     window::{Window, WindowId},
 };
+use vello_common::color::palette::css::{GREEN, RED};
+use vello_common::filter_effects::{Filter, FilterPrimitive};
 
 const ZOOM_STEP: f64 = 0.1;
 
@@ -305,7 +307,16 @@ impl ApplicationHandler for App<'_> {
                 self.scene.reset();
 
                 self.scene.set_transform(self.transform);
-                self.scenes[self.current_scene].render(&mut self.scene, self.transform);
+
+                let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 15.0, dy: 15.0 });
+                self.scene.push_filter_layer(filter);
+                self.scene.set_paint(GREEN.with_alpha(0.5));
+                self.scene.fill_rect(&Rect::new(100.0, 100.0, 500.0, 500.0));
+                self.scene.set_paint(RED.with_alpha(0.5));
+                self.scene.fill_rect(&Rect::new(300.0, 300.0, 700.0, 700.0));
+                self.scene.pop_layer();
+
+                // self.scenes[self.current_scene].render(&mut self.scene, self.transform);
 
                 let device_handle = &self.context.devices[surface.dev_id];
                 let render_size = RenderSize {

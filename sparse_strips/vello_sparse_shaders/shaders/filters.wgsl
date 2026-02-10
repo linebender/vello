@@ -85,18 +85,45 @@ fn load_filter_data(texel_offset: u32) -> GpuFilterData {
 struct FilterVertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) @interpolate(flat) filter_offset: u32,
+    @location(1) @interpolate(flat) src_offset: vec2<u32>,
+    @location(2) @interpolate(flat) src_size: vec2<u32>,
+    @location(3) @interpolate(flat) dest_offset: vec2<u32>,
+    @location(4) @interpolate(flat) dest_size: vec2<u32>,
+    @location(5) @interpolate(flat) dest_atlas_size: vec2<u32>,
 }
 
 @vertex
-fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FilterVertexOutput {
-    // The filter index is encoded in the vertex range: draw(n*4..(n+1)*4, 0..1).
-    let filter_index = vertex_index / 4u;
+fn vs_main(
+    @builtin(vertex_index) vertex_index: u32,
+    @location(0) src_offset: vec2<u32>,
+    @location(1) src_size: vec2<u32>,
+    @location(2) dest_offset: vec2<u32>,
+    @location(3) dest_size: vec2<u32>,
+    @location(4) filter_offset: u32,
+    @location(5) dest_atlas_size: vec2<u32>,
+) -> FilterVertexOutput {
+    // Generate quad (0-3) covering the dest region
     let quad_vertex = vertex_index % 4u;
-    let x = f32((quad_vertex << 1u) & 2u);
-    let y = f32(quad_vertex & 2u);
+    let x = f32((quad_vertex & 1u));      // 0,1,0,1
+    let y = f32((quad_vertex >> 1u));      // 0,0,1,1
+
+    // Calculate pixel position in atlas
+    let pix_x = f32(dest_offset.x) + x * f32(dest_size.x);
+    let pix_y = f32(dest_offset.y) + y * f32(dest_size.y);
+
+    // Convert to NDC using the dest atlas dimensions
+    let atlas_size = vec2<f32>(dest_atlas_size);
+    let ndc_x = pix_x * 2.0 / atlas_size.x - 1.0;
+    let ndc_y = 1.0 - pix_y * 2.0 / atlas_size.y;
+
     var out: FilterVertexOutput;
-    out.position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
-    out.filter_offset = filter_index * TEXELS_PER_FILTER;
+    out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
+    out.filter_offset = filter_offset;
+    out.src_offset = src_offset;
+    out.src_size = src_size;
+    out.dest_offset = dest_offset;
+    out.dest_size = dest_size;
+    out.dest_atlas_size = dest_atlas_size;
     return out;
 }
 
@@ -111,18 +138,25 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
         return apply_gaussian_blur_horizontal(frag_coord, blur);
     } else {
         let offset = unpack_offset_filter(data);
-        return apply_offset(frag_coord, offset);
+        return apply_offset(in, frag_coord, offset);
     }
 }
 
-fn apply_offset(frag_coord: vec2<u32>, offset: OffsetFilter) -> vec4<f32> {
-    let tex_size = vec2<i32>(textureDimensions(in_tex));
-    // TODO: Do offset rounding on the CPU? Should save work on the GPU.
-    let src_coord = vec2<i32>(frag_coord) - vec2<i32>(i32(round(offset.dx)), i32(round(offset.dy)));
+fn apply_offset(in: FilterVertexOutput, frag_coord: vec2<u32>, offset: OffsetFilter) -> vec4<f32> {
+    // Convert frag_coord from dest atlas space to relative (0..dest_size)
+    let rel_coord = vec2<f32>(frag_coord - in.dest_offset);
 
-    if src_coord.x < 0 || src_coord.x >= tex_size.x || src_coord.y < 0 || src_coord.y >= tex_size.y {
+    // Apply filter offset
+    let offset_rel = rel_coord - vec2<f32>(offset.dx, offset.dy);
+
+    // Check bounds in relative space
+    if offset_rel.x < 0.0 || offset_rel.x >= f32(in.dest_size.x) ||
+       offset_rel.y < 0.0 || offset_rel.y >= f32(in.dest_size.y) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
+
+    // Map to source atlas space
+    let src_coord = vec2<i32>(in.src_offset) + vec2<i32>(offset_rel);
 
     return textureLoad(in_tex, vec2<u32>(src_coord), 0);
 }

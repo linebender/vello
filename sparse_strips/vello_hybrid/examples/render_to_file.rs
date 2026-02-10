@@ -7,6 +7,9 @@
 //! It takes an input SVG file and renders it to a PNG file using the hybrid CPU/GPU renderer.
 
 use std::io::BufWriter;
+use vello_api::peniko::color::palette::css::RED;
+use vello_api::peniko::kurbo::Rect;
+use vello_common::filter_effects::{Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::Pixmap;
@@ -23,23 +26,30 @@ fn main() {
 }
 
 async fn run() {
-    let mut args = std::env::args().skip(1);
-    let svg_filename: String = args.next().expect("svg filename is first arg");
-    let output_filename: String = args.next().expect("output filename is second arg");
-    let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
-    let render_scale = 5.0;
-    let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
-
-    let constraints = DimensionConstraints::default();
-    let svg_width = parsed.size.width * render_scale;
-    let svg_height = parsed.size.height * render_scale;
-    let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
-
-    let width = DimensionConstraints::convert_dimension(width);
-    let height = DimensionConstraints::convert_dimension(height);
+    // let mut args = std::env::args().skip(1);
+    // let svg_filename: String = args.next().expect("svg filename is first arg");
+    // let output_filename: String = args.next().expect("output filename is second arg");
+    // let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
+    // let render_scale = 5.0;
+    // let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
+    //
+    // let constraints = DimensionConstraints::default();
+    // let svg_width = parsed.size.width * render_scale;
+    // let svg_height = parsed.size.height * render_scale;
+    // let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
+    //
+    // let width = DimensionConstraints::convert_dimension(width);
+    // let height = DimensionConstraints::convert_dimension(height);
+    let width = 100;
+    let height = 100;
 
     let mut scene = Scene::new(width, height);
-    render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));
+    // render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 15.0, dy: 15.0 });
+    scene.push_filter_layer(filter);
+    scene.set_paint(RED);
+    scene.fill_rect(&Rect::new(0.0, 0.0, 75.0, 75.0));
+    scene.pop_layer();
 
     // Initialize wgpu device and queue for GPU rendering
     let instance = wgpu::Instance::default();
@@ -82,6 +92,7 @@ async fn run() {
             height: height.into(),
         },
     );
+    let mut pixmap = Pixmap::new(100, 100);
     let render_size = vello_hybrid::RenderSize {
         width: width.into(),
         height: height.into(),
@@ -90,6 +101,9 @@ async fn run() {
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),
     });
+
+    renderer.upload_image(&device, &queue, &mut encoder, &pixmap);
+
     renderer
         .render(
             &scene,
@@ -158,7 +172,7 @@ async fn run() {
     let pixmap = Pixmap::from_parts(img_data, width, height);
 
     // Write the pixmap to a file
-    let file = std::fs::File::create(output_filename).unwrap();
+    let file = std::fs::File::create("out.png").unwrap();
     let w = BufWriter::new(file);
     let mut png_encoder = png::Encoder::new(w, width.into(), height.into());
     png_encoder.set_color(png::ColorType::Rgba);
