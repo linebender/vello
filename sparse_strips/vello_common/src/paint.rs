@@ -51,20 +51,49 @@ impl From<AlphaColor<Srgb>> for Paint {
     }
 }
 
-/// Opaque image handle
+/// An opaque image handle.
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
-pub struct ImageId(u32);
+pub struct ImageId {
+    /// In case the image has been created externally, this field simply represents the ID.
+    /// In case it was created by us, this field represents the slot index of the image.
+    slot_or_id: u32,
+    /// In case the image has been created externally, this field is always `u32::MAX`. If
+    /// it's been created by us, this field stores the ID of the atlas it's stored in.
+    atlas_id: u32,
+}
 
 impl ImageId {
-    // TODO: make this private in future
-    /// Create a new image id from a u32.
-    pub fn new(value: u32) -> Self {
-        Self(value)
+    /// Create a new image id.
+    pub fn new(slot: u32) -> Self {
+        Self {
+            slot_or_id: slot,
+            atlas_id: u32::MAX,
+        }
     }
 
-    /// Return the image id as a u32.
-    pub fn as_u32(&self) -> u32 {
-        self.0
+    // Only supposed to be used by us, so hide from documentation.
+    /// Create a new image id from a slot index and atlas ID.
+    #[doc(hidden)]
+    pub fn new_with(slot: u32, atlas_id: u32) -> Self {
+        Self {
+            slot_or_id: slot,
+            atlas_id,
+        }
+    }
+
+    /// Return the ID of the image.
+    // (or the slot index)
+    pub fn id(&self) -> u32 {
+        self.slot_or_id
+    }
+
+    /// Return the atlas ID.
+    ///
+    /// This indicates which texture array layer (0-7) the image is stored in.
+    /// Returns `u32::MAX` if the image has not been allocated to an atlas yet.
+    #[doc(hidden)]
+    pub fn atlas_id(&self) -> u32 {
+        self.atlas_id
     }
 }
 
