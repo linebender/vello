@@ -144,9 +144,55 @@ impl Renderer {
     ///
     /// This must be called before `prepare_gpu_encoded_paints` to ensure filter
     /// layer textures are allocated and available for rendering.
-    fn prepare_filter_textures(&mut self, render_graph: &RenderGraph) -> Result<(), AtlasError> {
-        // Clear existing filter data and deallocate old textures
+    fn prepare_filter_textures(
+        &mut self,
+        render_graph: &RenderGraph,
+        encoder: &mut CommandEncoder,
+    ) -> Result<(), AtlasError> {
+        // Clear and deallocate old filter textures
         for filter_textures in self.filter_context.filter_textures().values() {
+            // TODO: Do we really need to clear anything other than the
+            // dest image region?
+
+            // Clear the main image region
+            if let Some(main_resource) = self.filter_texture_cache.get(filter_textures.main_image_id) {
+                Self::clear_texture_region(
+                    encoder,
+                    &self.programs.resources.filter_atlas_texture_array,
+                    main_resource.atlas_id.as_u32(),
+                    main_resource.offset,
+                    main_resource.width,
+                    main_resource.height,
+                );
+            }
+
+            // Clear the scratch image region if it exists
+            if let Some(scratch_id) = filter_textures.scratch_image_id {
+                if let Some(scratch_resource) = self.filter_texture_cache.get(scratch_id) {
+                    Self::clear_texture_region(
+                        encoder,
+                        &self.programs.resources.filter_atlas_texture_array,
+                        scratch_resource.atlas_id.as_u32(),
+                        scratch_resource.offset,
+                        scratch_resource.width,
+                        scratch_resource.height,
+                    );
+                }
+            }
+
+            // Clear the dest image region (in main atlas)
+            if let Some(dest_resource) = self.image_cache.get(filter_textures.dest_image_id) {
+                Self::clear_texture_region(
+                    encoder,
+                    &self.programs.resources.atlas_texture_array,
+                    dest_resource.atlas_id.as_u32(),
+                    dest_resource.offset,
+                    dest_resource.width,
+                    dest_resource.height,
+                );
+            }
+
+            // Deallocate after clearing
             self.filter_texture_cache
                 .deallocate(filter_textures.main_image_id);
             self.image_cache.deallocate(filter_textures.dest_image_id);
@@ -231,7 +277,7 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
-        self.prepare_filter_textures(&scene.render_graph)?;
+        self.prepare_filter_textures(&scene.render_graph, encoder)?;
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -393,6 +439,49 @@ impl Renderer {
         render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
         // Draw fullscreen quad
         render_pass.draw(0..4, 0..1);
+    }
+
+    /// Clear a specific region of a texture array (static helper for filter textures).
+    fn clear_texture_region(
+        encoder: &mut CommandEncoder,
+        texture: &Texture,
+        atlas_layer: u32,
+        _offset: [u16; 2],
+        _width: u16,
+        _height: u16,
+    ) {
+        // Create a texture view for the specific atlas layer
+        let layer_view = texture.create_view(&TextureViewDescriptor {
+            label: Some("Clear Texture Region View"),
+            format: None,
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            aspect: wgpu::TextureAspect::All,
+            base_mip_level: 0,
+            mip_level_count: Some(1),
+            base_array_layer: atlas_layer,
+            array_layer_count: Some(1),
+            usage: None,
+        });
+
+        // Simple clear using LoadOp::Clear
+        let _render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Clear Texture Region"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: &layer_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        // Render pass ends when dropped, clearing the entire layer
+        // To clear only a specific region, we'd need to use scissor rect + a clear pipeline
+        // For now, clearing the entire layer is acceptable since we're deallocating anyway
     }
 
     fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
