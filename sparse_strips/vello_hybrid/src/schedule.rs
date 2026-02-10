@@ -1018,12 +1018,6 @@ impl Scheduler {
         wide_tile_y: u16,
         attrs: &CommandAttrs,
     ) {
-        let offset = state.strip_offset;
-        let depth = state.tile_state.stack.len();
-
-        let el = state.tile_state.stack.last_mut().unwrap();
-        let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
-
         let fill_attrs = &attrs.fill[cmd.attrs_idx as usize];
         let (scene_strip_x, scene_strip_y) = (wide_tile_x + cmd.x, wide_tile_y);
         let (payload, paint) = Self::process_paint(
@@ -1032,6 +1026,25 @@ impl Scheduler {
             (scene_strip_x, scene_strip_y),
             paint_idxs,
         );
+
+        self.do_fill_with(state, cmd, scene_strip_x, scene_strip_y, payload, paint);
+    }
+
+    #[inline]
+    fn do_fill_with(
+        &mut self,
+        state: &mut SchedulerState,
+        cmd: &CmdFill,
+        scene_strip_x: u16,
+        scene_strip_y: u16,
+        payload: u32,
+        paint: u32,
+    ) {
+        let offset = state.strip_offset;
+        let depth = state.tile_state.stack.len();
+
+        let el = state.tile_state.stack.last_mut().unwrap();
+        let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
         let gpu_strip_builder = if depth == 1 {
             GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, cmd.width, offset)
