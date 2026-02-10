@@ -128,7 +128,13 @@ impl Renderer {
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
 
         Self {
-            programs: Programs::new(device, &image_cache, &filter_texture_cache, render_target_config, total_slots),
+            programs: Programs::new(
+                device,
+                &image_cache,
+                &filter_texture_cache,
+                render_target_config,
+                total_slots,
+            ),
             scheduler: Scheduler::new(total_slots),
             scheduler_state: SchedulerState::default(),
             image_cache,
@@ -155,7 +161,9 @@ impl Renderer {
             // dest image region?
 
             // Clear the main image region
-            if let Some(main_resource) = self.filter_texture_cache.get(filter_textures.main_image_id) {
+            if let Some(main_resource) =
+                self.filter_texture_cache.get(filter_textures.main_image_id)
+            {
                 Self::clear_texture_region(
                     encoder,
                     &self.programs.resources.filter_atlas_texture_array,
@@ -1073,7 +1081,7 @@ impl Programs {
                     module: &filter_shader,
                     entry_point: Some(filter_fragment_entry_points[i]),
                     targets: &[Some(ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,  // Atlas texture format
+                        format: wgpu::TextureFormat::Rgba8Unorm, // Atlas texture format
                         blend: None,
                         write_mask: ColorWrites::ALL,
                     })],
@@ -1247,7 +1255,10 @@ impl Programs {
         let resources = GpuResources {
             strips_buffer: Self::create_strips_buffer(device, 0),
             clear_slot_indices_buffer,
-            filter_instance_buffer: Self::create_filter_instance_buffer(device, size_of::<FilterInstanceData>() as u64),
+            filter_instance_buffer: Self::create_filter_instance_buffer(
+                device,
+                size_of::<FilterInstanceData>() as u64,
+            ),
             slot_texture_views,
             slot_config_buffer,
             slot_bind_groups,
@@ -1805,7 +1816,13 @@ impl Programs {
             let format = resources.atlas_texture_array.format();
             // Create new texture array with more layers
             let (new_atlas_texture_array, new_atlas_texture_array_view) =
-                Self::create_atlas_texture_array(device, width, height, required_atlas_count, format);
+                Self::create_atlas_texture_array(
+                    device,
+                    width,
+                    height,
+                    required_atlas_count,
+                    format,
+                );
 
             // Copy existing atlas data from old texture array to new one
             Self::copy_atlas_texture_data(
@@ -2023,9 +2040,15 @@ impl Programs {
         buffer.copy_from_slice(bytemuck::cast_slice(strips));
     }
 
-    fn upload_filter_instance(&mut self, device: &Device, queue: &Queue, instance_data: &FilterInstanceData) {
+    fn upload_filter_instance(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        instance_data: &FilterInstanceData,
+    ) {
         let required_size = size_of::<FilterInstanceData>() as u64;
-        self.resources.filter_instance_buffer = Self::create_filter_instance_buffer(device, required_size);
+        self.resources.filter_instance_buffer =
+            Self::create_filter_instance_buffer(device, required_size);
         queue.write_buffer(
             &self.resources.filter_instance_buffer,
             0,
@@ -2063,11 +2086,13 @@ impl RendererContext<'_> {
         self.programs.upload_strips(self.device, self.queue, strips);
 
         let (view, bind_group): (TextureView, BindGroup) = match target {
-            RenderTarget::Output(OutputTarget::FinalView) => {
-                (self.view.clone(), self.programs.resources.slot_bind_groups[2].clone())
-            }
+            RenderTarget::Output(OutputTarget::FinalView) => (
+                self.view.clone(),
+                self.programs.resources.slot_bind_groups[2].clone(),
+            ),
             RenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
-                let image_id = self.filter_context
+                let image_id = self
+                    .filter_context
                     .filter_textures
                     .get(&layer_id)
                     .unwrap()
@@ -2075,7 +2100,10 @@ impl RendererContext<'_> {
                 let resources = self.image_cache.get(image_id).unwrap();
 
                 // Create a view of the specific atlas layer
-                let view = self.programs.resources.filter_atlas_texture_array
+                let view = self
+                    .programs
+                    .resources
+                    .filter_atlas_texture_array
                     .create_view(&TextureViewDescriptor {
                         label: Some("Filter Main Texture View"),
                         format: None,
@@ -2089,16 +2117,24 @@ impl RendererContext<'_> {
                     });
 
                 let atlas_size = self.programs.resources.filter_atlas_texture_array.size();
-                let atlas_config_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Temporary Atlas Config Buffer"),
-                    contents: bytemuck::bytes_of(&Config {
-                        width: atlas_size.width,
-                        height: atlas_size.height,
-                        strip_height: Tile::HEIGHT.into(),
-                        alphas_tex_width_bits: self.programs.resources.alphas_texture.size().width.trailing_zeros(),
-                    }),
-                    usage: wgpu::BufferUsages::UNIFORM,
-                });
+                let atlas_config_buffer =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Temporary Atlas Config Buffer"),
+                            contents: bytemuck::bytes_of(&Config {
+                                width: atlas_size.width,
+                                height: atlas_size.height,
+                                strip_height: Tile::HEIGHT.into(),
+                                alphas_tex_width_bits: self
+                                    .programs
+                                    .resources
+                                    .alphas_texture
+                                    .size()
+                                    .width
+                                    .trailing_zeros(),
+                            }),
+                            usage: wgpu::BufferUsages::UNIFORM,
+                        });
 
                 let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Temporary Atlas Bind Group"),
@@ -2107,7 +2143,11 @@ impl RendererContext<'_> {
                         wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(
-                                &self.programs.resources.alphas_texture.create_view(&TextureViewDescriptor::default())
+                                &self
+                                    .programs
+                                    .resources
+                                    .alphas_texture
+                                    .create_view(&TextureViewDescriptor::default()),
                             ),
                         },
                         wgpu::BindGroupEntry {
@@ -2116,19 +2156,19 @@ impl RendererContext<'_> {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::TextureView(&self.programs.resources.slot_texture_views[1]),
+                            resource: wgpu::BindingResource::TextureView(
+                                &self.programs.resources.slot_texture_views[1],
+                            ),
                         },
                     ],
                 });
 
                 (view, bind_group)
             }
-            RenderTarget::SlotTexture(idx) => {
-                (
-                    self.programs.resources.slot_texture_views[idx as usize].clone(),
-                    self.programs.resources.slot_bind_groups[idx as usize].clone()
-                )
-            }
+            RenderTarget::SlotTexture(idx) => (
+                self.programs.resources.slot_texture_views[idx as usize].clone(),
+                self.programs.resources.slot_bind_groups[idx as usize].clone(),
+            ),
         };
 
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
@@ -2242,9 +2282,15 @@ impl RendererBackend for RendererContext<'_> {
 
         // 4. Create instance buffer with atlas offset info
         let instance_data = FilterInstanceData {
-            src_offset: [main_resource.offset[0] as u32, main_resource.offset[1] as u32],
+            src_offset: [
+                main_resource.offset[0] as u32,
+                main_resource.offset[1] as u32,
+            ],
             src_size: [main_resource.width as u32, main_resource.height as u32],
-            dest_offset: [dest_resource.offset[0] as u32, dest_resource.offset[1] as u32],
+            dest_offset: [
+                dest_resource.offset[0] as u32,
+                dest_resource.offset[1] as u32,
+            ],
             dest_size: [dest_resource.width as u32, dest_resource.height as u32],
             dest_atlas_size: [dest_atlas_size.width, dest_atlas_size.height],
             filter_offset,
@@ -2252,7 +2298,8 @@ impl RendererBackend for RendererContext<'_> {
         };
 
         // Upload instance data
-        self.programs.upload_filter_instance(self.device, self.queue, &instance_data);
+        self.programs
+            .upload_filter_instance(self.device, self.queue, &instance_data);
 
         // 5. Create input bind group for main_image atlas layer view
         let main_texture_view = self
@@ -2280,23 +2327,22 @@ impl RendererBackend for RendererContext<'_> {
             }],
         });
 
-
         // // 6. Create dest texture view (in main atlas)
-        let dest_texture_view = self
-            .programs
-            .resources
-            .atlas_texture_array
-            .create_view(&TextureViewDescriptor {
-                label: Some("Filter Dest Output View"),
-                format: None,
-                dimension: Some(wgpu::TextureViewDimension::D2),
-                aspect: wgpu::TextureAspect::All,
-                base_mip_level: 0,
-                mip_level_count: None,
-                base_array_layer: dest_resource.atlas_id.as_u32(),
-                array_layer_count: Some(1),
-                usage: None,
-            });
+        let dest_texture_view =
+            self.programs
+                .resources
+                .atlas_texture_array
+                .create_view(&TextureViewDescriptor {
+                    label: Some("Filter Dest Output View"),
+                    format: None,
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    aspect: wgpu::TextureAspect::All,
+                    base_mip_level: 0,
+                    mip_level_count: None,
+                    base_array_layer: dest_resource.atlas_id.as_u32(),
+                    array_layer_count: Some(1),
+                    usage: None,
+                });
 
         // 7. Render pass (no scissor rect needed - quad is sized to dest region)
         {
@@ -2306,7 +2352,7 @@ impl RendererBackend for RendererContext<'_> {
                     view: &dest_texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,  // Don't clear entire atlas layer
+                        load: wgpu::LoadOp::Load, // Don't clear entire atlas layer
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
@@ -2319,10 +2365,8 @@ impl RendererBackend for RendererContext<'_> {
             render_pass.set_pipeline(&self.programs.filter_pipelines[0]);
             render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
             render_pass.set_bind_group(1, &input_bind_group, &[]);
-            render_pass.set_vertex_buffer(
-                0,
-                self.programs.resources.filter_instance_buffer.slice(..)
-            );
+            render_pass
+                .set_vertex_buffer(0, self.programs.resources.filter_instance_buffer.slice(..));
 
             // Draw 4 vertices, 1 instance
             render_pass.draw(0..4, 0..1);

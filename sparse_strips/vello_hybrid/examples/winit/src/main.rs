@@ -9,6 +9,8 @@ use render_context::{RenderContext, RenderSurface, create_vello_renderer, create
 use std::env;
 use std::sync::Arc;
 use std::time::Instant;
+use vello_common::color::palette::css::{GREEN, RED};
+use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::ImageId;
 use vello_common::paint::ImageSource;
@@ -22,8 +24,6 @@ use winit::{
     keyboard::{Key, NamedKey},
     window::{Window, WindowId},
 };
-use vello_common::color::palette::css::{GREEN, RED};
-use vello_common::filter_effects::{Filter, FilterPrimitive};
 
 const ZOOM_STEP: f64 = 0.1;
 

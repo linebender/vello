@@ -136,21 +136,22 @@ fn vs_main(
 fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
     let data = load_filter_data(in.filter_offset);
     let frag_coord = vec2<u32>(in.position.xy);
+
+    // Convert frag_coord from dest atlas space to relative (0..dest_size)
+    let rel_coord = vec2<f32>(frag_coord - in.dest_offset);
+
     let filter_type = get_filter_type(data);
 
     if filter_type == FILTER_TYPE_GAUSSIAN_BLUR {
         let blur = unpack_gaussian_blur_filter(data);
-        return apply_gaussian_blur_horizontal(frag_coord, blur);
+        return apply_gaussian_blur_horizontal(in, rel_coord, blur);
     } else {
         let offset = unpack_offset_filter(data);
-        return apply_offset(in, frag_coord, offset);
+        return apply_offset(in, rel_coord, offset);
     }
 }
 
-fn apply_offset(in: FilterVertexOutput, frag_coord: vec2<u32>, offset: OffsetFilter) -> vec4<f32> {
-    // Convert frag_coord from dest atlas space to relative (0..dest_size)
-    let rel_coord = vec2<f32>(frag_coord - in.dest_offset);
-
+fn apply_offset(in: FilterVertexOutput, rel_coord: vec2<f32>, offset: OffsetFilter) -> vec4<f32> {
     // Apply filter offset
     let offset_rel = rel_coord - vec2<f32>(offset.dx, offset.dy);
 
@@ -166,38 +167,48 @@ fn apply_offset(in: FilterVertexOutput, frag_coord: vec2<u32>, offset: OffsetFil
     return textureLoad(in_tex, vec2<u32>(src_coord), 0);
 }
 
-fn apply_gaussian_blur_horizontal(frag_coord: vec2<u32>, blur: GaussianBlurFilter) -> vec4<f32> {
-    let tex_size = vec2<i32>(textureDimensions(in_tex));
+fn apply_gaussian_blur_horizontal(in: FilterVertexOutput, rel_coord: vec2<f32>, blur: GaussianBlurFilter) -> vec4<f32> {
     let radius = i32(blur.kernel_size / 2u);
 
     var color = vec4<f32>(0.0);
     for (var i: i32 = -radius; i <= radius; i++) {
         let weight = blur.kernel[i + radius];
-        let src_x = i32(frag_coord.x) + i;
-        let src_y = i32(frag_coord.y);
 
+        // Sample position in relative space
+        let sample_x = rel_coord.x + f32(i);
+        let sample_y = rel_coord.y;
+
+        // Check bounds in relative space
         // TODO: Apply edge mode
-        if src_x >= 0 && src_x < tex_size.x && src_y >= 0 && src_y < tex_size.y {
-            color += textureLoad(in_tex, vec2<u32>(vec2<i32>(src_x, src_y)), 0) * weight;
+        if sample_x >= 0.0 && sample_x < f32(in.dest_size.x) &&
+           sample_y >= 0.0 && sample_y < f32(in.dest_size.y) {
+            // Map to source atlas space
+            let src_coord = vec2<i32>(in.src_offset) + vec2<i32>(i32(sample_x), i32(sample_y));
+            color += textureLoad(in_tex, vec2<u32>(src_coord), 0) * weight;
         }
     }
 
     return color;
 }
 
-fn apply_gaussian_blur_vertical(frag_coord: vec2<u32>, blur: GaussianBlurFilter) -> vec4<f32> {
-    let tex_size = vec2<i32>(textureDimensions(in_tex));
+fn apply_gaussian_blur_vertical(in: FilterVertexOutput, rel_coord: vec2<f32>, blur: GaussianBlurFilter) -> vec4<f32> {
     let radius = i32(blur.kernel_size / 2u);
 
     var color = vec4<f32>(0.0);
     for (var i: i32 = -radius; i <= radius; i++) {
         let weight = blur.kernel[i + radius];
-        let src_x = i32(frag_coord.x);
-        let src_y = i32(frag_coord.y) + i;
 
+        // Sample position in relative space
+        let sample_x = rel_coord.x;
+        let sample_y = rel_coord.y + f32(i);
+
+        // Check bounds in relative space
         // TODO: Apply edge mode
-        if src_x >= 0 && src_x < tex_size.x && src_y >= 0 && src_y < tex_size.y {
-            color += textureLoad(in_tex, vec2<u32>(vec2<i32>(src_x, src_y)), 0) * weight;
+        if sample_x >= 0.0 && sample_x < f32(in.dest_size.x) &&
+           sample_y >= 0.0 && sample_y < f32(in.dest_size.y) {
+            // Map to source atlas space
+            let src_coord = vec2<i32>(in.src_offset) + vec2<i32>(i32(sample_x), i32(sample_y));
+            color += textureLoad(in_tex, vec2<u32>(src_coord), 0) * weight;
         }
     }
 
@@ -208,11 +219,15 @@ fn apply_gaussian_blur_vertical(frag_coord: vec2<u32>, blur: GaussianBlurFilter)
 fn fs_main_vertical(in: FilterVertexOutput) -> @location(0) vec4<f32> {
     let data = load_filter_data(in.filter_offset);
     let frag_coord = vec2<u32>(in.position.xy);
+
+    // Convert frag_coord from dest atlas space to relative (0..dest_size)
+    let rel_coord = vec2<f32>(frag_coord - in.dest_offset);
+
     let filter_type = get_filter_type(data);
 
     if filter_type == FILTER_TYPE_GAUSSIAN_BLUR {
         let blur = unpack_gaussian_blur_filter(data);
-        return apply_gaussian_blur_vertical(frag_coord, blur);
+        return apply_gaussian_blur_vertical(in, rel_coord, blur);
     }
 
     // This should never be reached.

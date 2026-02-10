@@ -178,6 +178,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::filter::FilterContext;
 use crate::image_cache::ImageCache;
+use crate::multi_atlas::AtlasId;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -192,7 +193,6 @@ use vello_common::{
     render_graph::{LayerId, RenderNodeKind},
     tile::Tile,
 };
-use crate::multi_atlas::AtlasId;
 
 // Constants used for bit packing, matching `render_strips.wgsl`
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
