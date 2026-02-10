@@ -91,6 +91,8 @@ pub struct Renderer {
     scheduler_state: SchedulerState,
     /// Image cache for storing images atlas allocations.
     image_cache: ImageCache,
+    /// Filter texture cache for storing filter intermediate textures.
+    filter_texture_cache: ImageCache,
     /// Encoded paints for storing encoded paints.
     encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
@@ -118,6 +120,7 @@ impl Renderer {
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
+        let filter_texture_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size =
@@ -129,6 +132,7 @@ impl Renderer {
             scheduler: Scheduler::new(total_slots),
             scheduler_state: SchedulerState::default(),
             image_cache,
+            filter_texture_cache,
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
@@ -143,10 +147,10 @@ impl Renderer {
     fn prepare_filter_textures(&mut self, render_graph: &RenderGraph) -> Result<(), AtlasError> {
         // Clear existing filter data and deallocate old textures
         for filter_textures in self.filter_context.filter_textures().values() {
-            self.image_cache.deallocate(filter_textures.main_image_id);
+            self.filter_texture_cache.deallocate(filter_textures.main_image_id);
             self.image_cache.deallocate(filter_textures.dest_image_id);
             if let Some(scratch_id) = filter_textures.scratch_image_id {
-                self.image_cache.deallocate(scratch_id);
+                self.filter_texture_cache.deallocate(scratch_id);
             }
         }
         self.filter_context.clear();
@@ -175,27 +179,16 @@ impl Renderer {
                 let gpu_filter = GpuFilterData::from(&instantiated);
                 let needs_scratch = gpu_filter.needs_scratch_buffer();
 
-                // Allocate textures with exclusion rules to avoid read-write hazards
-                let (main_image_id, dest_image_id, scratch_image_id) = if needs_scratch {
-                    // With scratch: main ≠ scratch, dest ≠ scratch
-                    let main = self.image_cache.allocate(width, height)?;
-                    let main_atlas = AtlasId(main.atlas_id());
-                    let scratch =
-                        self.image_cache
-                            .allocate_excluding(width, height, Some(main_atlas))?;
-                    let scratch_atlas = AtlasId(scratch.atlas_id());
-                    let dest =
-                        self.image_cache
-                            .allocate_excluding(width, height, Some(scratch_atlas))?;
-                    (main, dest, Some(scratch))
+                // Allocate textures:
+                // - main_image and scratch_image from filter_texture_cache
+                // - dest_image from main image_cache
+                // This ensures they're on different atlases to avoid read-write hazards
+                let main_image_id = self.filter_texture_cache.allocate(width, height)?;
+                let dest_image_id = self.image_cache.allocate(width, height)?;
+                let scratch_image_id = if needs_scratch {
+                    Some(self.filter_texture_cache.allocate_excluding(width, height, Some(AtlasId(main_image_id.atlas_id())))?)
                 } else {
-                    // No scratch: main ≠ dest
-                    let main = self.image_cache.allocate(width, height)?;
-                    let main_atlas = AtlasId(main.atlas_id());
-                    let dest =
-                        self.image_cache
-                            .allocate_excluding(width, height, Some(main_atlas))?;
-                    (main, dest, None)
+                    None
                 };
 
                 // Store the allocation
