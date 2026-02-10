@@ -242,6 +242,7 @@ pub(crate) struct FilterTextures {
     pub dest_image_id: ImageId,
     /// Optional image ID for scratch texture used in multi-pass filter operations.
     pub scratch_image_id: Option<ImageId>,
+    pub paint_idx: usize
 }
 
 impl FilterContext {
