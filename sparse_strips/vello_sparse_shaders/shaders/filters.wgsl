@@ -82,6 +82,16 @@ fn load_filter_data(texel_offset: u32) -> GpuFilterData {
     return data;
 }
 
+// Keep in sync with FilterInstanceData in vello_hybrid/src/render/wgpu.rs
+struct FilterInstanceData {
+    @location(0) src_offset: vec2<u32>,
+    @location(1) src_size: vec2<u32>,
+    @location(2) dest_offset: vec2<u32>,
+    @location(3) dest_size: vec2<u32>,
+    @location(4) dest_atlas_size: vec2<u32>,
+    @location(5) filter_offset: u32,
+}
+
 struct FilterVertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) @interpolate(flat) filter_offset: u32,
@@ -95,12 +105,7 @@ struct FilterVertexOutput {
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
-    @location(0) src_offset: vec2<u32>,
-    @location(1) src_size: vec2<u32>,
-    @location(2) dest_offset: vec2<u32>,
-    @location(3) dest_size: vec2<u32>,
-    @location(4) filter_offset: u32,
-    @location(5) dest_atlas_size: vec2<u32>,
+    instance: FilterInstanceData
 ) -> FilterVertexOutput {
     // Generate quad (0-3) covering the dest region
     let quad_vertex = vertex_index % 4u;
@@ -108,38 +113,29 @@ fn vs_main(
     let y = f32((quad_vertex >> 1u));      // 0,0,1,1
 
     // Calculate pixel position in atlas
-    let pix_x = f32(dest_offset.x) + x * f32(dest_size.x);
-    let pix_y = f32(dest_offset.y) + y * f32(dest_size.y);
+    let pix_x = f32(instance.dest_offset.x) + x * f32(instance.dest_size.x);
+    let pix_y = f32(instance.dest_offset.y) + y * f32(instance.dest_size.y);
 
     // Convert to NDC using the dest atlas dimensions
-    let atlas_size = vec2<f32>(dest_atlas_size);
+    let atlas_size = vec2<f32>(instance.dest_atlas_size);
     let ndc_x = pix_x * 2.0 / atlas_size.x - 1.0;
     let ndc_y = 1.0 - pix_y * 2.0 / atlas_size.y;
 
     var out: FilterVertexOutput;
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
-    out.filter_offset = filter_offset;
-    out.src_offset = src_offset;
-    out.src_size = src_size;
-    out.dest_offset = dest_offset;
-    out.dest_size = dest_size;
-    out.dest_atlas_size = dest_atlas_size;
+    out.filter_offset = instance.filter_offset;
+    out.src_offset = instance.src_offset;
+    out.src_size = instance.src_size;
+    out.dest_offset = instance.dest_offset;
+    out.dest_size = instance.dest_size;
+    out.dest_atlas_size = instance.dest_atlas_size;
     return out;
 }
 
 @fragment
 fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
-    let data = load_filter_data(in.filter_offset);
-    let frag_coord = vec2<u32>(in.position.xy);
-    let filter_type = get_filter_type(data);
+    return vec4<f32>(0.0, 0.0, 1.0, 1.0);
 
-    if filter_type == FILTER_TYPE_GAUSSIAN_BLUR {
-        let blur = unpack_gaussian_blur_filter(data);
-        return apply_gaussian_blur_horizontal(frag_coord, blur);
-    } else {
-        let offset = unpack_offset_filter(data);
-        return apply_offset(in, frag_coord, offset);
-    }
 }
 
 fn apply_offset(in: FilterVertexOutput, frag_coord: vec2<u32>, offset: OffsetFilter) -> vec4<f32> {

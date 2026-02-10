@@ -731,6 +731,7 @@ struct ClearSlotsConfig {
 }
 
 /// Per-instance vertex data for filter rendering
+/// Keep in sync with FilterInstanceData in vello_sparse_shaders/shaders/filters.wgsl
 #[repr(C, align(16))]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct FilterInstanceData {
@@ -740,7 +741,7 @@ struct FilterInstanceData {
     dest_size: [u32; 2],
     dest_atlas_size: [u32; 2],
     filter_offset: u32,
-    _padding: u32,  // Ensure 16-byte alignment
+    _padding: u32,
 }
 
 impl GpuStrip {
@@ -1062,8 +1063,8 @@ impl Programs {
                             1 => Uint32x2,  // src_size
                             2 => Uint32x2,  // dest_offset
                             3 => Uint32x2,  // dest_size
-                            4 => Uint32,    // filter_offset
-                            5 => Uint32x2,  // dest_atlas_size
+                            4 => Uint32x2,  // dest_atlas_size
+                            5 => Uint32,    // filter_offset
                         ],
                     }],
                     compilation_options: PipelineCompilationOptions::default(),
@@ -1072,7 +1073,7 @@ impl Programs {
                     module: &filter_shader,
                     entry_point: Some(filter_fragment_entry_points[i]),
                     targets: &[Some(ColorTargetState {
-                        format: wgpu::TextureFormat::Bgra8Unorm,  // Atlas texture format
+                        format: wgpu::TextureFormat::Rgba8Unorm,  // Atlas texture format
                         blend: None,
                         write_mask: ColorWrites::ALL,
                     })],
@@ -2203,8 +2204,8 @@ impl RendererBackend for RendererContext<'_> {
             src_offset: [main_resource.offset[0] as u32, main_resource.offset[1] as u32],
             src_size: [main_resource.width as u32, main_resource.height as u32],
             dest_offset: [0, 0],
-            dest_size: [self.view.texture().width() as u32, self.view.texture().height() as u32],
-            dest_atlas_size: [self.view.texture().width() as u32, self.view.texture().height() as u32],
+            dest_size: [dest_resource.width as u32, dest_resource.height as u32],
+            dest_atlas_size: [dest_atlas_size.width, dest_atlas_size.height],
             filter_offset,
             _padding: 0,
         };
@@ -2240,28 +2241,28 @@ impl RendererBackend for RendererContext<'_> {
 
 
         // // 6. Create dest texture view (in main atlas)
-        // let dest_texture_view = self
-        //     .programs
-        //     .resources
-        //     .atlas_texture_array
-        //     .create_view(&TextureViewDescriptor {
-        //         label: Some("Filter Dest Output View"),
-        //         format: None,
-        //         dimension: Some(wgpu::TextureViewDimension::D2),
-        //         aspect: wgpu::TextureAspect::All,
-        //         base_mip_level: 0,
-        //         mip_level_count: None,
-        //         base_array_layer: dest_resource.atlas_id.as_u32(),
-        //         array_layer_count: Some(1),
-        //         usage: None,
-        //     });
+        let dest_texture_view = self
+            .programs
+            .resources
+            .atlas_texture_array
+            .create_view(&TextureViewDescriptor {
+                label: Some("Filter Dest Output View"),
+                format: None,
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                aspect: wgpu::TextureAspect::All,
+                base_mip_level: 0,
+                mip_level_count: None,
+                base_array_layer: dest_resource.atlas_id.as_u32(),
+                array_layer_count: Some(1),
+                usage: None,
+            });
 
         // 7. Render pass (no scissor rect needed - quad is sized to dest region)
         {
             let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Apply Filter Pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.view,
+                    view: &dest_texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,  // Don't clear entire atlas layer

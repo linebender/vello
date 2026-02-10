@@ -308,12 +308,12 @@ impl ApplicationHandler for App<'_> {
 
                 self.scene.set_transform(self.transform);
 
-                let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 15.0, dy: 15.0 });
+                let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
                 self.scene.push_filter_layer(filter);
                 self.scene.set_paint(GREEN.with_alpha(0.5));
-                self.scene.fill_rect(&Rect::new(100.0, 100.0, 500.0, 500.0));
+                self.scene.fill_rect(&Rect::new(100.0, 100.0, 400.0, 400.0));
                 self.scene.set_paint(RED.with_alpha(0.5));
-                self.scene.fill_rect(&Rect::new(300.0, 300.0, 700.0, 700.0));
+                self.scene.fill_rect(&Rect::new(300.0, 300.0, 600.0, 600.0));
                 self.scene.pop_layer();
 
                 // self.scenes[self.current_scene].render(&mut self.scene, self.transform);
