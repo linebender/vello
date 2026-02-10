@@ -234,7 +234,7 @@ pub(crate) struct FilterContext {
 }
 
 /// Filter texture allocation for a single layer.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct FilterTextures {
     /// Image ID for the main texture holding the raw painted version of the layer.
     pub main_image_id: ImageId,
@@ -242,7 +242,8 @@ pub(crate) struct FilterTextures {
     pub dest_image_id: ImageId,
     /// Optional image ID for scratch texture used in multi-pass filter operations.
     pub scratch_image_id: Option<ImageId>,
-    pub paint_idx: usize,
+    pub filer_encoded_paints_idx: u32,
+    pub paint_idx: u32,
 }
 
 impl FilterContext {

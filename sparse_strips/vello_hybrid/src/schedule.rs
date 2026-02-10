@@ -532,6 +532,7 @@ impl Scheduler {
         paint_idxs: &[u32],
         filter_context: &FilterContext,
         image_cache: &ImageCache,
+        filter_encoded_paints: &[EncodedPaint]
     ) -> Result<(), RenderError> {
         if scene.render_graph.has_filters() {
             self.do_scene_with_filters(
@@ -541,6 +542,7 @@ impl Scheduler {
                 paint_idxs,
                 filter_context,
                 image_cache,
+                filter_encoded_paints
             )?;
         } else {
             self.do_scene_no_filters(state, renderer, scene, paint_idxs)?;
@@ -618,11 +620,12 @@ impl Scheduler {
         paint_idxs: &[u32],
         filter_context: &FilterContext,
         image_cache: &ImageCache,
+        filter_encoded_paints: &[EncodedPaint]
     ) -> Result<(), RenderError> {
         // TODO: Since this code is very similar to vello_cpu, maybe most of it can be
         // put into vello_common, with some callbacks to implement renderer-specific
         // actions.
-        for node_id in scene.render_graph.execution_order().take(1) {
+        for node_id in scene.render_graph.execution_order() {
             let node = &scene.render_graph.nodes[node_id];
             let (layer_id, wtile_bbox) = match &node.kind {
                 RenderNodeKind::FilterLayer {
@@ -713,6 +716,37 @@ impl Scheduler {
                                 );
                             }
                             Cmd::PushBuf(LayerKind::Filtered(child_layer_id)) => {
+                                let cmd = CmdFill {
+                                    x: 0,
+                                    width: WideTile::WIDTH,
+                                    // Not used in `do_fill_with`.
+                                    attrs_idx: 0,
+                                };
+
+                                let scene_strip_x = wide_tile_x;
+                                let scene_strip_y = wide_tile_y;
+
+                                let filter_textures = filter_context.filter_textures.get(child_layer_id)
+                                    .unwrap();
+
+                                let encoded_paint = &filter_encoded_paints[filter_textures.filer_encoded_paints_idx as usize];
+
+                                let (payload, paint) = Self::process_encoded_paint(
+                                    encoded_paint,
+                                    filter_textures.paint_idx,
+                                    scene_strip_x,
+                                    scene_strip_y
+                                );
+
+                                self.do_fill_with(
+                                    state,
+                                    &cmd,
+                                    scene_strip_x,
+                                    scene_strip_y,
+                                    payload,
+                                    paint
+                                );
+
                                 // Skip past nested filter layer commands; they have
                                 // already been rendered to their own intermediate texture.
                                 if let Some(child_ranges) =

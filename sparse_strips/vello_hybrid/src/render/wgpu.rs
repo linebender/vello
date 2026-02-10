@@ -268,7 +268,8 @@ impl Renderer {
                     y_advance: Default::default(),
                 });
 
-                let idx = base_idx + self.filter_encoded_paints.len();
+                let filter_encoded_paints_idx = self.filter_encoded_paints.len();
+                let idx = base_idx + filter_encoded_paints_idx;
                 self.filter_encoded_paints.push(encoded_paint);
 
                 // Store the allocation
@@ -278,7 +279,8 @@ impl Renderer {
                         main_image_id,
                         dest_image_id,
                         scratch_image_id,
-                        paint_idx: idx,
+                        paint_idx: idx as u32,
+                        filer_encoded_paints_idx: filter_encoded_paints_idx as u32
                     },
                 );
 
@@ -340,6 +342,7 @@ impl Renderer {
             &self.paint_idxs,
             &self.filter_context,
             &self.image_cache,
+            &self.filter_encoded_paints
         );
         self.gradient_cache.maintain();
 
