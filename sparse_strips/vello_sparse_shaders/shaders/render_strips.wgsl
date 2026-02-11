@@ -326,10 +326,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let image_offset = encoded_image.image_offset;
             let image_size = encoded_image.image_size;
             let local_xy = in.sample_xy - image_offset;
+            // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
+            // artifacts on the GPU. We have something similar in place for gradients.
             let offset = 0.00001;
             let extended_xy = vec2<f32>(
-                extend_mode(local_xy.x, encoded_image.extend_modes.x, image_size.x - offset),
-                extend_mode(local_xy.y, encoded_image.extend_modes.y, image_size.y - offset)
+                extend_mode(local_xy.x + offset, encoded_image.extend_modes.x, image_size.x),
+                extend_mode(local_xy.y + offset, encoded_image.extend_modes.y, image_size.y)
             );
             
             if encoded_image.quality == IMAGE_QUALITY_HIGH {
