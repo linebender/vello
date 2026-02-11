@@ -3,13 +3,15 @@
 
 //! Tests for GitHub issues.
 
-use std::sync::Arc;
 use crate::renderer::Renderer;
-use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
+use std::sync::Arc;
 use vello_common::color::PremulRgba8;
+use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::paint::Image;
-use vello_common::peniko::{Color, ColorStop, Fill, Gradient, ImageQuality, ImageSampler, InterpolationAlphaSpace};
+use vello_common::peniko::{
+    Color, ColorStop, Fill, Gradient, ImageQuality, ImageSampler, InterpolationAlphaSpace,
+};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::color::palette::css::{BLACK, RED};
 use vello_cpu::peniko::Compose;
@@ -467,12 +469,7 @@ fn issue_1433(ctx: &mut impl Renderer) {
     let b = PremulRgba8::from_u8_array([0, 0, 0, 0]);
 
     // Three red rows, one transparent row.
-    let image = vec![
-        r, r, r, r,
-        r, r, r, r,
-        r, r, r, r,
-        b, b, b, b
-    ];
+    let image = vec![r, r, r, r, r, r, r, r, r, r, r, r, b, b, b, b];
 
     let pixmap = Pixmap::from_parts(image, 4, 4);
     let source = ctx.get_image_source(Arc::new(pixmap));
