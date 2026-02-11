@@ -3,14 +3,18 @@
 
 //! Tests for GitHub issues.
 
+use std::sync::Arc;
+use vello_api::peniko::{ImageQuality, ImageSampler};
 use crate::renderer::Renderer;
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
+use vello_common::paint::Image;
 use vello_common::peniko::{Color, ColorStop, Fill, Gradient, InterpolationAlphaSpace};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::color::palette::css::{BLACK, RED};
 use vello_cpu::peniko::Compose;
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
+use vello_cpu::color::PremulRgba8;
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 8, height = 8)]
@@ -456,4 +460,33 @@ fn basic_alpha_compositing(ctx: &mut impl Renderer) {
 #[vello_test(no_ref)]
 fn large_dimensions(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, u16::MAX as f64 + 10.0, 8.0));
+}
+
+#[vello_test(width = 4, height = 4)]
+fn issue_demonstration(ctx: &mut impl Renderer) {
+    let r = PremulRgba8::from_u8_array([255, 0, 0, 255]);
+    let b = PremulRgba8::from_u8_array([0, 0, 0, 0]);
+
+    // Three red rows, one transparent row.
+    let image = vec![
+        r, r, r, r,
+        r, r, r, r,
+        r, r, r, r,
+        b, b, b, b
+    ];
+
+    let pixmap = Pixmap::from_parts(image, 4, 4);
+    let source = ctx.get_image_source(Arc::new(pixmap));
+    let image = Image {
+        image: source,
+        sampler: ImageSampler {
+            x_extend: vello_common::peniko::Extend::Pad,
+            y_extend: vello_common::peniko::Extend::Pad,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
+    };
+
+    ctx.set_paint(image);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
 }

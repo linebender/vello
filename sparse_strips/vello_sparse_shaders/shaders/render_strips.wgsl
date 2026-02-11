@@ -326,9 +326,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let image_offset = encoded_image.image_offset;
             let image_size = encoded_image.image_size;
             let local_xy = in.sample_xy - image_offset;
+            let offset = 0.00001;
             let extended_xy = vec2<f32>(
-                extend_mode(local_xy.x, encoded_image.extend_modes.x, image_size.x),
-                extend_mode(local_xy.y, encoded_image.extend_modes.y, image_size.y)
+                extend_mode(local_xy.x + offset, encoded_image.extend_modes.x, image_size.x),
+                extend_mode(local_xy.y + offset, encoded_image.extend_modes.y, image_size.y)
             );
             
             if encoded_image.quality == IMAGE_QUALITY_HIGH {
