@@ -92,7 +92,6 @@ async fn run() {
             height: height.into(),
         },
     );
-    let mut pixmap = Pixmap::new(100, 100);
     let render_size = vello_hybrid::RenderSize {
         width: width.into(),
         height: height.into(),
@@ -101,9 +100,7 @@ async fn run() {
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),
     });
-
-    renderer.upload_image(&device, &queue, &mut encoder, &pixmap);
-
+    
     renderer
         .render(
             &scene,
