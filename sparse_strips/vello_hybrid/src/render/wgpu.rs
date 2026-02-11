@@ -262,7 +262,8 @@ impl Renderer {
                     // TODO: Do we need to figure out a different story regarding padding?
                     sampler: ImageSampler::new().with_quality(ImageQuality::Low),
                     may_have_opacities: true,
-                    transform: Affine::translate((-(wtile_bbox.x0() as f64) * WideTile::WIDTH as f64, -(wtile_bbox.y0() as f64) * Tile::HEIGHT as f64)),
+                    transform: Affine::translate((-(wtile_bbox.x0() as f64) * WideTile::WIDTH as f64, -(wtile_bbox.y0() as f64) * Tile::HEIGHT as f64))
+                        * Affine::translate((0.5, 0.5)),
                     x_advance: Vec2::new(1.0, 0.0),
                     y_advance: Vec2::new(0.0, 1.0),
                 });
