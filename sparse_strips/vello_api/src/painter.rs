@@ -87,6 +87,17 @@ impl From<BlurredRoundedRectBrush> for Paint {
     }
 }
 
+impl From<Color> for Paint {
+    fn from(value: Color) -> Self {
+        Self::StandardBrush {
+            brush: Brush::Solid(value),
+            // A paint_transform has no effect for a solid colour, so setting this
+            // paint_transform is not losing intent
+            paint_transform: Affine::IDENTITY,
+        }
+    }
+}
+
 /// A 2d scene or canvas.
 ///
 /// These types are used to prepare a sequence of vector shapes to later be drawn by a [`Renderer`].
