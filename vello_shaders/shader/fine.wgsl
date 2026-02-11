@@ -1273,8 +1273,10 @@ fn main(
         if coords.x < config.target_width && coords.y < config.target_height {
             let fg = rgba[i];
             // let fg = base_color * (1.0 - foreground.a) + foreground;
-            // Max with a small epsilon to avoid NaNs
-            let a_inv = 1.0 / max(fg.a, 1e-6);
+            // Max with a small epsilon to avoid NaNs,
+            // but set a_inv to 0 if fg.a < 1e-6 to avoid artifacts in
+            // rgb channels when alpha is very faint.
+            let a_inv = step(1e-6, fg.a) / max(fg.a, 1e-6);
             let rgba_sep = vec4(fg.rgb * a_inv, fg.a);
             textureStore(output, vec2<i32>(coords), rgba_sep);
         }
