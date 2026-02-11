@@ -532,7 +532,7 @@ impl Scheduler {
         paint_idxs: &[u32],
         filter_context: &FilterContext,
         image_cache: &ImageCache,
-        filter_encoded_paints: &[EncodedPaint]
+        filter_encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
         if scene.render_graph.has_filters() {
             self.do_scene_with_filters(
@@ -542,7 +542,7 @@ impl Scheduler {
                 paint_idxs,
                 filter_context,
                 image_cache,
-                filter_encoded_paints
+                filter_encoded_paints,
             )?;
         } else {
             self.do_scene_no_filters(state, renderer, scene, paint_idxs)?;
@@ -620,7 +620,7 @@ impl Scheduler {
         paint_idxs: &[u32],
         filter_context: &FilterContext,
         image_cache: &ImageCache,
-        filter_encoded_paints: &[EncodedPaint]
+        filter_encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
         // TODO: Since this code is very similar to vello_cpu, maybe most of it can be
         // put into vello_common, with some callbacks to implement renderer-specific
@@ -716,8 +716,8 @@ impl Scheduler {
                                 );
                             }
                             Cmd::PushBuf(LayerKind::Filtered(child_layer_id)) => {
-                                let filter_textures = filter_context.filter_textures.get(child_layer_id)
-                                    .unwrap();
+                                let filter_textures =
+                                    filter_context.filter_textures.get(child_layer_id).unwrap();
 
                                 // Currently, during coarse rasterization, we push this command for
                                 // all buffers, even though strictly speaking only the wide tiles
@@ -745,13 +745,14 @@ impl Scheduler {
                                     let scene_strip_x = wide_tile_x;
                                     let scene_strip_y = wide_tile_y;
 
-                                    let encoded_paint = &filter_encoded_paints[filter_textures.filer_encoded_paints_idx as usize];
+                                    let encoded_paint = &filter_encoded_paints
+                                        [filter_textures.filer_encoded_paints_idx as usize];
 
                                     let (payload, paint) = Self::process_encoded_paint(
                                         encoded_paint,
                                         filter_textures.paint_idx,
                                         scene_strip_x,
-                                        scene_strip_y
+                                        scene_strip_y,
                                     );
 
                                     self.do_fill_with(
@@ -760,7 +761,7 @@ impl Scheduler {
                                         scene_strip_x,
                                         scene_strip_y,
                                         payload,
-                                        paint
+                                        paint,
                                     );
                                 }
 

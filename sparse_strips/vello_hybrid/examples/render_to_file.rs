@@ -6,12 +6,12 @@
 //! This example demonstrates rendering an SVG file without a window or display.
 //! It takes an input SVG file and renders it to a PNG file using the hybrid CPU/GPU renderer.
 
-use std::io::BufWriter;
 use smallvec::smallvec;
-use vello_api::peniko::color::palette::css::{BLUE, GREEN, RED, YELLOW};
-use vello_api::peniko::{ColorStop, ColorStops, Gradient, LinearGradientPosition};
+use std::io::BufWriter;
 use vello_api::peniko::color::DynamicColor;
+use vello_api::peniko::color::palette::css::{BLUE, GREEN, RED, YELLOW};
 use vello_api::peniko::kurbo::{Point, Rect};
+use vello_api::peniko::{ColorStop, ColorStops, Gradient, LinearGradientPosition};
 use vello_common::color::palette::css::WHITE;
 use vello_common::filter_effects::{Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, Stroke};
@@ -52,12 +52,15 @@ async fn run() {
 
     let mut scene = Scene::new(width, height);
     // render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));
-    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: Default::default(),
+    });
     scene.set_paint(WHITE);
     scene.fill_rect(&Rect::new(0.0, 0.0, width as f64, height as f64));
     scene.push_filter_layer(filter);
     scene.set_paint(RED);
-    scene.fill_rect(&Rect::new(15.0, 0.0, 75.0, 27.0));
+    scene.fill_rect(&Rect::new(15.0, 15.0, 85.0, 85.0));
     scene.pop_layer();
 
     // Initialize wgpu device and queue for GPU rendering

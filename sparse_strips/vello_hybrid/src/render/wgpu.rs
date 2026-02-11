@@ -46,6 +46,7 @@ use crate::{
 use bytemuck::{Pod, Zeroable};
 use vello_api::peniko::{ImageQuality, ImageSampler};
 use vello_common::encode::EncodedImage;
+use vello_common::kurbo::Vec2;
 use vello_common::{
     coarse::{WideTile, WideTilesBbox},
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
@@ -63,7 +64,6 @@ use wgpu::{
     RenderPassDescriptor, RenderPipeline, Texture, TextureView, TextureViewDescriptor,
     util::DeviceExt,
 };
-use vello_common::kurbo::Vec2;
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -262,8 +262,10 @@ impl Renderer {
                     // TODO: Do we need to figure out a different story regarding padding?
                     sampler: ImageSampler::new().with_quality(ImageQuality::Low),
                     may_have_opacities: true,
-                    transform: Affine::translate((-(wtile_bbox.x0() as f64) * WideTile::WIDTH as f64, -(wtile_bbox.y0() as f64) * Tile::HEIGHT as f64))
-                        * Affine::translate((0.5, 0.5)),
+                    transform: Affine::translate((
+                        -(wtile_bbox.x0() as f64) * WideTile::WIDTH as f64,
+                        -(wtile_bbox.y0() as f64) * Tile::HEIGHT as f64,
+                    )) * Affine::translate((0.5, 0.5)),
                     x_advance: Vec2::new(1.0, 0.0),
                     y_advance: Vec2::new(0.0, 1.0),
                 });
@@ -343,7 +345,7 @@ impl Renderer {
             &self.paint_idxs,
             &self.filter_context,
             &self.image_cache,
-            &self.filter_encoded_paints
+            &self.filter_encoded_paints,
         );
         self.gradient_cache.maintain();
 
