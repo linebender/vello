@@ -5,18 +5,13 @@
 
 use crate::util::{circular_star, stops_blue_green_red_yellow};
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
-use smallvec::smallvec;
+use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
-    BLACK, BLUE, GREEN, PURPLE, REBECCA_PURPLE, RED, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET, WHITE,
-    YELLOW,
+    BLACK, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET,
 };
-use vello_common::color::{AlphaColor, DynamicColor};
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
-use vello_common::mask::Mask;
-use vello_common::peniko::{BlendMode, ColorStop, ColorStops, Compose, Gradient, Mix};
-use vello_common::pixmap::Pixmap;
-use vello_cpu::RenderContext;
+use vello_common::peniko::{BlendMode, Compose, Gradient, Mix};
 use vello_cpu::kurbo::Dashes;
 use vello_cpu::peniko::LinearGradientPosition;
 use vello_dev_macros::vello_test;
