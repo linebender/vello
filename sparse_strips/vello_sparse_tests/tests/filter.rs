@@ -3,9 +3,10 @@
 
 //! Tests demonstrating the filter effects API usage.
 
-use crate::util::circular_star;
+use crate::util::{circular_star, stops_blue_green_red_yellow};
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
 use vello_api::peniko::color::palette::css::RED;
+use vello_api::peniko::{Gradient, LinearGradientPosition};
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
     BLACK, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET, WHITE,
@@ -1099,5 +1100,30 @@ fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
     ctx.push_filter_layer(filter);
     ctx.set_paint(VIOLET);
     ctx.fill_path(&rect_br);
+    ctx.pop_layer();
+}
+
+// If the bbox of a filter layer doesn't start on the top-left wide tile, we will shift
+// the image so the top-left wide tile of the bbox starts at (0, 0). This test
+// ensures that complex paints are also appropriately shifted. The correct behavior is
+// to see the whole gradient, the wrong behavior would be to only see a blue rectangle.
+#[vello_test(skip_hybrid, skip_multithreaded, width = 512, height = 4)]
+fn filter_with_complex_paint_and_wide_tile_shift(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+
+    let gradient = Gradient {
+        kind: LinearGradientPosition {
+            start: Point::new(256.0, 0.0),
+            end: Point::new(512.0, 0.0),
+        }
+            .into(),
+        stops: stops_blue_green_red_yellow(),
+        extend: vello_common::peniko::Extend::Pad,
+        ..Default::default()
+    };
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&Rect::new(256.0, 0.0, 612.0, 4.0));
     ctx.pop_layer();
 }
