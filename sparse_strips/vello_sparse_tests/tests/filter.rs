@@ -20,40 +20,37 @@ use vello_cpu::RenderContext;
 use vello_cpu::kurbo::Dashes;
 use vello_dev_macros::vello_test;
 
+// TODO: We are purposefully using multiple of WideTile width/height here, because the implementation
+// currently works incorrectly if it's not the case. Once the issue as been fixed, we should update
+// this test to use normal dimensions.
+#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 40)]
+fn filter_flood(ctx: &mut impl Renderer) {
+    let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
+
+    ctx.push_filter_layer(filter_flood);
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&Rect::new(0.0, 8.0, 256.0, 32.0));
+    ctx.pop_layer();
+}
+
 /// Test flood filter filling a star shape with solid color using a mask.
 ///
 /// Note: SVG-compliant flood would use `feComposite` with `operator="in"`, which requires
 /// implementing the composite primitive and filter subregions.
 #[vello_test(skip_hybrid, skip_multithreaded)]
-fn filter_flood(ctx: &mut impl Renderer) {
+fn filter_flood_star(ctx: &mut impl Renderer) {
     let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
     let star_path = circular_star(Point::new(50.0, 50.0), 5, 20.0, 40.0);
 
-    // Create a mask from the star shape
-    let width = ctx.width();
-    let height = ctx.height();
-    let mut mask_pixmap = Pixmap::new(width, height);
-    let mut mask_ctx = RenderContext::new_with(
-        width,
-        height,
-        vello_cpu::RenderSettings {
-            level: vello_cpu::Level::fallback(),
-            num_threads: 0,
-            render_mode: vello_cpu::RenderMode::default(),
-        },
-    );
-    mask_ctx.set_paint(WHITE);
-    mask_ctx.fill_path(&star_path);
-    mask_ctx.flush();
-    mask_ctx.render_to_pixmap(&mut mask_pixmap);
-
-    let mask = Mask::new_alpha(&mask_pixmap);
-
-    // Apply flood filter with the mask to fill only the star area
-    ctx.push_layer(None, None, None, Some(mask), Some(filter_flood));
-    // This color will be replaced by the flood
+    // Apply flood filter with clip to fill only the star area.
+    // We are purposefully first pushing a clip path and then rendering the filter layer instead
+    // of combining the both, because doing both at the same time is a special case which we are
+    // not trying to test here.
+    ctx.push_clip_layer(&star_path);
+    ctx.push_filter_layer(filter_flood);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_path(&star_path);
+    ctx.pop_layer();
     ctx.pop_layer();
 }
 
