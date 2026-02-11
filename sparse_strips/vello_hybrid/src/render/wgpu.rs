@@ -258,7 +258,8 @@ impl Renderer {
                 };
 
                 let encoded_paint = EncodedPaint::Image(EncodedImage {
-                    source: ImageSource::OpaqueId(main_image_id),
+                    source: ImageSource::OpaqueId(dest_image_id),
+                    // TODO: Do we need to figure out a different story regarding padding?
                     sampler: ImageSampler::new().with_quality(ImageQuality::Low),
                     may_have_opacities: true,
                     transform: Affine::IDENTITY,
