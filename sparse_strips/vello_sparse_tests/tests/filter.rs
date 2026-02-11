@@ -908,7 +908,7 @@ fn filter_drop_shadow_zero_offset(ctx: &mut impl Renderer) {
 /// Test offset filter primitive.
 ///
 /// This shifts content within a filter layer and should not clip content to the original bounds.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_offset(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset {
         dx: 18.0,
