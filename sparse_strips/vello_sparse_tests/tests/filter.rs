@@ -23,7 +23,7 @@ use vello_dev_macros::vello_test;
 // TODO: We are purposefully using multiple of WideTile width/height here, because the implementation
 // currently works incorrectly if it's not the case. Once the issue as been fixed, we should update
 // this test to use normal dimensions.
-#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 40)]
+#[vello_test(skip_multithreaded, width = 256, height = 40)]
 fn filter_flood(ctx: &mut impl Renderer) {
     let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
 
@@ -37,7 +37,7 @@ fn filter_flood(ctx: &mut impl Renderer) {
 ///
 /// Note: SVG-compliant flood would use `feComposite` with `operator="in"`, which requires
 /// implementing the composite primitive and filter subregions.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_flood_star(ctx: &mut impl Renderer) {
     let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
     let star_path = circular_star(Point::new(50.0, 50.0), 5, 20.0, 40.0);
@@ -1122,7 +1122,7 @@ fn filter_with_complex_paint_and_wide_tile_shift(ctx: &mut impl Renderer) {
             start: Point::new(256.0, 0.0),
             end: Point::new(512.0, 0.0),
         }
-            .into(),
+        .into(),
         stops: stops_blue_green_red_yellow(),
         extend: vello_common::peniko::Extend::Pad,
         ..Default::default()
