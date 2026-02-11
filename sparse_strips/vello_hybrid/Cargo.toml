@@ -46,6 +46,7 @@ png = { workspace = true }
 pollster = { workspace = true }
 vello_common = { workspace = true, features = ["pico_svg"] }
 roxmltree = "0.20.0"
+smallvec = { workspace = true }
 
 [features]
 default = ["wgpu", "wgpu_default"]

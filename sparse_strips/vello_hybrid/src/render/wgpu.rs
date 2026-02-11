@@ -262,7 +262,7 @@ impl Renderer {
                     // TODO: Do we need to figure out a different story regarding padding?
                     sampler: ImageSampler::new().with_quality(ImageQuality::Low),
                     may_have_opacities: true,
-                    transform: Affine::IDENTITY,
+                    transform: Affine::translate((-(wtile_bbox.x0() as f64) * WideTile::WIDTH as f64, -(wtile_bbox.y0() as f64) * Tile::HEIGHT as f64)),
                     x_advance: Vec2::new(1.0, 0.0),
                     y_advance: Vec2::new(0.0, 1.0),
                 });
@@ -518,7 +518,8 @@ impl Renderer {
     }
 
     fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
-        let total_len = encoded_paints.len() + self.filter_encoded_paints.len();
+        let scene_paints_len = encoded_paints.len();
+        let total_len = scene_paints_len + self.filter_encoded_paints.len();
 
         self.encoded_paints
             .resize_with(total_len, || GPU_PAINT_PLACEHOLDER);

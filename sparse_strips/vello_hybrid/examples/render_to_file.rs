@@ -7,8 +7,12 @@
 //! It takes an input SVG file and renders it to a PNG file using the hybrid CPU/GPU renderer.
 
 use std::io::BufWriter;
-use vello_api::peniko::color::palette::css::RED;
-use vello_api::peniko::kurbo::Rect;
+use smallvec::smallvec;
+use vello_api::peniko::color::palette::css::{BLUE, GREEN, RED, YELLOW};
+use vello_api::peniko::{ColorStop, ColorStops, Gradient, LinearGradientPosition};
+use vello_api::peniko::color::DynamicColor;
+use vello_api::peniko::kurbo::{Point, Rect};
+use vello_common::color::palette::css::WHITE;
 use vello_common::filter_effects::{Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
@@ -43,12 +47,17 @@ async fn run() {
     let width = 100;
     let height = 100;
 
+    let start = 0.0f64;
+    let end = 500.0f64;
+
     let mut scene = Scene::new(width, height);
     // render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));
-    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 15.0, dy: 15.0 });
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+    scene.set_paint(WHITE);
+    scene.fill_rect(&Rect::new(0.0, 0.0, width as f64, height as f64));
     scene.push_filter_layer(filter);
     scene.set_paint(RED);
-    scene.fill_rect(&Rect::new(0.0, 0.0, 75.0, 75.0));
+    scene.fill_rect(&Rect::new(15.0, 0.0, 75.0, 27.0));
     scene.pop_layer();
 
     // Initialize wgpu device and queue for GPU rendering
@@ -100,7 +109,7 @@ async fn run() {
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),
     });
-    
+
     renderer
         .render(
             &scene,
@@ -199,4 +208,25 @@ fn render_svg(ctx: &mut Scene, items: &[Item], transform: Affine) {
             }
         }
     }
+}
+
+pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
+    ColorStops(smallvec![
+        ColorStop {
+            offset: 0.0,
+            color: DynamicColor::from_alpha_color(BLUE),
+        },
+        ColorStop {
+            offset: 0.33,
+            color: DynamicColor::from_alpha_color(GREEN),
+        },
+        ColorStop {
+            offset: 0.66,
+            color: DynamicColor::from_alpha_color(RED),
+        },
+        ColorStop {
+            offset: 1.0,
+            color: DynamicColor::from_alpha_color(YELLOW),
+        },
+    ])
 }
