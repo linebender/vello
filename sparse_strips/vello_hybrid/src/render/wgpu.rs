@@ -63,6 +63,7 @@ use wgpu::{
     RenderPassDescriptor, RenderPipeline, Texture, TextureView, TextureViewDescriptor,
     util::DeviceExt,
 };
+use vello_common::kurbo::Vec2;
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -260,12 +261,9 @@ impl Renderer {
                     source: ImageSource::OpaqueId(main_image_id),
                     sampler: ImageSampler::new().with_quality(ImageQuality::Low),
                     may_have_opacities: true,
-                    transform: Affine::translate((
-                        wtile_bbox.x0() as f64 * WideTile::WIDTH as f64,
-                        wtile_bbox.y0() as f64 * Tile::HEIGHT as f64,
-                    )),
-                    x_advance: Default::default(),
-                    y_advance: Default::default(),
+                    transform: Affine::IDENTITY,
+                    x_advance: Vec2::new(1.0, 0.0),
+                    y_advance: Vec2::new(0.0, 1.0),
                 });
 
                 let filter_encoded_paints_idx = self.filter_encoded_paints.len();
