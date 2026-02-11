@@ -1136,7 +1136,7 @@ fn filter_gaussian_blur_edge_mode_mirror(ctx: &mut impl Renderer) {
 }
 
 // TODO: See https://github.com/linebender/vello/issues/1421, currently causes a crash.
-#[vello_test(ignore)]
+#[vello_test(skip_hybrid, skip_cpu)]
 fn filter_issue_1421(ctx: &mut impl Renderer) {
     let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
     let star_path = circular_star(Point::new(50.0, 50.0), 5, 20.0, 40.0);
