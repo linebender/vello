@@ -8,6 +8,7 @@
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use hashbrown::HashMap;
+use vello_common::coarse::WideTilesBbox;
 use vello_common::filter::InstantiatedFilter;
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
@@ -244,6 +245,7 @@ pub(crate) struct FilterTextures {
     pub scratch_image_id: Option<ImageId>,
     pub filer_encoded_paints_idx: u32,
     pub paint_idx: u32,
+    pub bbox: WideTilesBbox,
 }
 
 impl FilterContext {

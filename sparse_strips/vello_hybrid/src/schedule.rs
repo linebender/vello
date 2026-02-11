@@ -716,36 +716,53 @@ impl Scheduler {
                                 );
                             }
                             Cmd::PushBuf(LayerKind::Filtered(child_layer_id)) => {
-                                let cmd = CmdFill {
-                                    x: 0,
-                                    width: WideTile::WIDTH,
-                                    // Not used in `do_fill_with`.
-                                    attrs_idx: 0,
-                                };
-
-                                let scene_strip_x = wide_tile_x;
-                                let scene_strip_y = wide_tile_y;
-
                                 let filter_textures = filter_context.filter_textures.get(child_layer_id)
                                     .unwrap();
 
-                                let encoded_paint = &filter_encoded_paints[filter_textures.filer_encoded_paints_idx as usize];
+                                // Currently, during coarse rasterization, we push this command for
+                                // all buffers, even though strictly speaking only the wide tiles
+                                // that are touched by the filter layer need to be affected. The
+                                // problem in vello_hybrid is that we are treating filter layers
+                                // as normal images, where we only have the extend modes pad/repeat/reflect/
+                                // Therefore, for wide tiles that are outside the filter bbox, we will
+                                // still sample color values from the filter layer texture using the extend
+                                // mode, which is obviously not what we want.
+                                // Therefore, only apply the fill command if we are actually inside
+                                // the bbox of the filter layer.
+                                // TODO: In the future, we could either
+                                // 1) add an extend mode "transparent" that always samples a transparent pixel
+                                // or better
+                                // 2) Don't emit the command in the first place for wide tiles
+                                // outside of the bounding box during coarse rasterization.
+                                if filter_textures.bbox.contains(x, y) {
+                                    let cmd = CmdFill {
+                                        x: 0,
+                                        width: WideTile::WIDTH,
+                                        // Not used in `do_fill_with`.
+                                        attrs_idx: 0,
+                                    };
 
-                                let (payload, paint) = Self::process_encoded_paint(
-                                    encoded_paint,
-                                    filter_textures.paint_idx,
-                                    scene_strip_x,
-                                    scene_strip_y
-                                );
+                                    let scene_strip_x = wide_tile_x;
+                                    let scene_strip_y = wide_tile_y;
 
-                                self.do_fill_with(
-                                    state,
-                                    &cmd,
-                                    scene_strip_x,
-                                    scene_strip_y,
-                                    payload,
-                                    paint
-                                );
+                                    let encoded_paint = &filter_encoded_paints[filter_textures.filer_encoded_paints_idx as usize];
+
+                                    let (payload, paint) = Self::process_encoded_paint(
+                                        encoded_paint,
+                                        filter_textures.paint_idx,
+                                        scene_strip_x,
+                                        scene_strip_y
+                                    );
+
+                                    self.do_fill_with(
+                                        state,
+                                        &cmd,
+                                        scene_strip_x,
+                                        scene_strip_y,
+                                        payload,
+                                        paint
+                                    );
+                                }
 
                                 // Skip past nested filter layer commands; they have
                                 // already been rendered to their own intermediate texture.

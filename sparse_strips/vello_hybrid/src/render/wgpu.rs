@@ -279,7 +279,8 @@ impl Renderer {
                         dest_image_id,
                         scratch_image_id,
                         paint_idx: idx as u32,
-                        filer_encoded_paints_idx: filter_encoded_paints_idx as u32
+                        filer_encoded_paints_idx: filter_encoded_paints_idx as u32,
+                        bbox: *wtile_bbox,
                     },
                 );
 
