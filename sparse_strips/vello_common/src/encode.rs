@@ -491,9 +491,9 @@ impl EncodeExt for Image {
             sampler.quality = ImageQuality::Low;
         }
 
-        // Similarly to gradients, apply a 0.5 offset so we sample at the center of
+        // Similarly to gradients, apply an offset so we sample at the center of
         // a pixel.
-        let transform = transform.inverse() * Affine::translate((0.5, 0.5));
+        let transform = transform.inverse() * Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
 
         let (x_advance, y_advance) = x_y_advances(&transform);
 
