@@ -312,7 +312,7 @@ impl ApplicationHandler for App<'_> {
                 // self.scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
                 self.scene.push_filter_layer(filter);
                 self.scene.set_paint(RED);
-                self.scene.fill_rect(&Rect::new(10.0, 10.0, 50.0, 50.0));
+                self.scene.fill_rect(&Rect::new(0.0, 1.0, 4.0, 4.0));
                 self.scene.pop_layer();
 
                 // self.scenes[self.current_scene].render(&mut self.scene, self.transform);
