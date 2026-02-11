@@ -187,7 +187,7 @@ pub trait PaintScene: Any {
     /// **This method is currently unimplemented on some backends, so should not be used.**
     ///
     /// If the rounded rectangle needs to be clipped, you can instead use
-    /// [`set_blurred_rounded_rect_brush`](PaintScene::set_blurred_rounded_rect_brush).
+    /// [`BlurredRoundedRectBrush`] as a paint directly (see also [`Paint::BlurredRoundedRect`]).
     ///
     /// The drawing is cut off 2.5 times `std_dev` away from the edges of `rect` for performance
     /// reasons, as any points outside of that area would not be perceptably painted to.
