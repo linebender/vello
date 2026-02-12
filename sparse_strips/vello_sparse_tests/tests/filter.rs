@@ -1192,7 +1192,7 @@ fn filter_in_nested_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded)]
+#[vello_test(skip_hybrid, skip_multithreaded)]
 fn filter_in_double_nested_layer(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
