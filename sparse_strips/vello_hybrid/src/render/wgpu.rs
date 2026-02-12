@@ -1213,6 +1213,7 @@ impl Programs {
             *atlas_height,
             *initial_atlas_count as u32,
             wgpu::TextureFormat::Rgba8Unorm,
+            "Atlas Texture Array",
         );
         let atlas_bind_group = Self::create_atlas_bind_group(
             device,
@@ -1232,6 +1233,7 @@ impl Programs {
             *filter_atlas_height,
             *filter_initial_atlas_count as u32,
             render_target_config.format,
+            "Filter Atlas Texture Array",
         );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
@@ -1401,10 +1403,11 @@ impl Programs {
         height: u32,
         atlas_count: u32,
         format: wgpu::TextureFormat,
+        label: &str,
     ) -> (Texture, TextureView) {
         // Create a single texture array with multiple layers
         let atlas_texture_array = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Atlas Texture Array"),
+            label: Some(label),
             size: Extent3d {
                 width,
                 height,
@@ -1857,6 +1860,7 @@ impl Programs {
                     height,
                     required_atlas_count,
                     format,
+                    "Atlas Texture Array",
                 );
 
             // Copy existing atlas data from old texture array to new one
