@@ -141,7 +141,7 @@ fn filter_drop_shadow(ctx: &mut impl Renderer) {
 
 /// Test drop shadow on a simple rectangle.
 /// Verifies the offset pixel optimization works correctly with different offsets.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_drop_shadow_corners(ctx: &mut impl Renderer) {
     // Layout parameters
     let margin = 8.0;
@@ -269,7 +269,7 @@ fn filter_drop_shadow_corners(ctx: &mut impl Renderer) {
 
 /// Test `set_filter_effect` and `reset_filter_effect` API.
 /// Applies filters to individual draw calls without creating layers.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_set_effect(ctx: &mut impl Renderer) {
     let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 2.0,
@@ -878,7 +878,7 @@ fn filter_gaussian_blur_zero(ctx: &mut impl Renderer) {
 }
 
 /// Test drop shadow with sub-pixel offsets.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_drop_shadow_fractional_offset(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 2.5,
@@ -896,7 +896,7 @@ fn filter_drop_shadow_fractional_offset(ctx: &mut impl Renderer) {
 }
 
 /// Test drop shadow with zero offset (shadow directly behind).
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_drop_shadow_zero_offset(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 0.0,
@@ -990,7 +990,7 @@ fn filter_empty_layers(ctx: &mut impl Renderer) {
 }
 
 /// Test nested filter layers (blur inside drop shadow).
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_nested_layers(ctx: &mut impl Renderer) {
     let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,

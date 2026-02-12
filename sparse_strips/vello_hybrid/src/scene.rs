@@ -115,6 +115,8 @@ pub struct Scene {
     layer_id_next: u32,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
+    /// Current filter effect applied to individual draw operations.
+    filter: Option<Filter>,
 }
 
 impl Scene {
@@ -157,6 +159,7 @@ impl Scene {
             glyph_caches: Some(GlyphCaches::default()),
             layer_id_next: 0,
             render_graph,
+            filter: None,
         }
     }
 
@@ -210,14 +213,16 @@ impl Scene {
             return;
         }
 
-        let paint = self.encode_current_paint();
-        self.fill_path_with(
-            path,
-            self.transform,
-            self.fill_rule,
-            paint,
-            self.aliasing_threshold,
-        );
+        self.with_optional_filter(|ctx| {
+            let paint = ctx.encode_current_paint();
+            ctx.fill_path_with(
+                path,
+                ctx.transform,
+                ctx.fill_rule,
+                paint,
+                ctx.aliasing_threshold,
+            );
+        });
     }
 
     /// Build strips for a filled path with the given properties.
@@ -282,8 +287,10 @@ impl Scene {
             return;
         }
 
-        let paint = self.encode_current_paint();
-        self.stroke_path_with(path, self.transform, paint, self.aliasing_threshold);
+        self.with_optional_filter(|ctx| {
+            let paint = ctx.encode_current_paint();
+            ctx.stroke_path_with(path, ctx.transform, paint, ctx.aliasing_threshold);
+        });
     }
 
     /// Build strips for a stroked path with the given properties.
@@ -483,14 +490,31 @@ impl Scene {
         self.transform = Affine::IDENTITY;
     }
 
-    /// Apply filter to the current paint (affects next drawn element)
-    pub fn set_filter_effect(&mut self, _filter: Filter) {
-        unimplemented!("Filter effects integration with Scene")
+    /// Apply filter to the current paint (affects next drawn element).
+    ///
+    /// This sets a filter that will be applied to the next drawn element.
+    /// To apply a filter to multiple elements, use `push_filter_layer` instead.
+    pub fn set_filter_effect(&mut self, filter: Filter) {
+        self.filter = Some(filter);
     }
 
     /// Reset the current filter effect.
     pub fn reset_filter_effect(&mut self) {
-        unimplemented!("Filter effects integration with Scene")
+        self.filter = None;
+    }
+
+    /// Execute a drawing operation, optionally wrapping it in a filter layer.
+    fn with_optional_filter<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&mut Self),
+    {
+        if let Some(filter) = self.filter.clone() {
+            self.push_filter_layer(filter);
+            f(self);
+            self.pop_layer();
+        } else {
+            f(self);
+        }
     }
 
     /// Reset scene to default values.
@@ -508,6 +532,7 @@ impl Scene {
         self.paint = render_state.paint;
         self.stroke = render_state.stroke;
         self.blend_mode = render_state.blend_mode;
+        self.filter = None;
 
         self.render_graph.clear();
         self.layer_id_next = 0;
