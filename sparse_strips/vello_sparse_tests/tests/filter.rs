@@ -1124,7 +1124,7 @@ fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
 // the image so the top-left wide tile of the bbox starts at (0, 0). This test
 // ensures that complex paints are also appropriately shifted. The correct behavior is
 // to see the whole gradient, the wrong behavior would be to only see a blue rectangle.
-#[vello_test(skip_hybrid, skip_multithreaded, width = 512, height = 4)]
+#[vello_test(skip_multithreaded, width = 512, height = 4)]
 fn filter_with_complex_paint_and_wide_tile_shift(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
 
