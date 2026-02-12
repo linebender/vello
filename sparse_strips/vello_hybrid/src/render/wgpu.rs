@@ -791,6 +791,10 @@ struct FilterInstanceData {
     dest_atlas_size: [u32; 2],
     filter_offset: u32,
     _padding: u32,
+    /// Offset of the original (unfiltered) content in `original_tex`.
+    /// Only used in pass 2 for drop shadow compositing.
+    original_offset: [u32; 2],
+    original_size: [u32; 2],
 }
 
 impl GpuStrip {
@@ -1129,6 +1133,8 @@ impl Programs {
                             3 => Uint32x2,  // dest_size
                             4 => Uint32x2,  // dest_atlas_size
                             5 => Uint32,    // filter_offset
+                            6 => Uint32x2,  // original_offset
+                            7 => Uint32x2,  // original_size
                         ],
                     }],
                     compilation_options: PipelineCompilationOptions::default(),
@@ -2423,6 +2429,9 @@ impl RendererBackend for RendererContext<'_> {
             dest_atlas_size: [first_pass_atlas_size.width, first_pass_atlas_size.height],
             filter_offset,
             _padding: 0,
+            // Not used in pass 1.
+            original_offset: [0, 0],
+            original_size: [0, 0],
         };
         self.programs
             .upload_filter_instance(self.device, self.queue, &instance_data);
@@ -2519,6 +2528,11 @@ impl RendererBackend for RendererContext<'_> {
                 dest_atlas_size: [dest_atlas_size.width, dest_atlas_size.height],
                 filter_offset,
                 _padding: 0,
+                original_offset: [
+                    main_resource.offset[0] as u32,
+                    main_resource.offset[1] as u32,
+                ],
+                original_size: [main_resource.width as u32, main_resource.height as u32],
             };
             self.programs
                 .upload_filter_instance(self.device, self.queue, &pass2_instance_data);

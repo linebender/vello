@@ -139,6 +139,8 @@ struct FilterInstanceData {
     @location(3) dest_size: vec2<u32>,
     @location(4) dest_atlas_size: vec2<u32>,
     @location(5) filter_offset: u32,
+    @location(6) original_offset: vec2<u32>,
+    @location(7) original_size: vec2<u32>,
 }
 
 struct FilterVertexOutput {
@@ -149,6 +151,8 @@ struct FilterVertexOutput {
     @location(3) @interpolate(flat) dest_offset: vec2<u32>,
     @location(4) @interpolate(flat) dest_size: vec2<u32>,
     @location(5) @interpolate(flat) dest_atlas_size: vec2<u32>,
+    @location(6) @interpolate(flat) original_offset: vec2<u32>,
+    @location(7) @interpolate(flat) original_size: vec2<u32>,
 }
 
 @vertex
@@ -178,19 +182,21 @@ fn vs_main(
     out.dest_offset = instance.dest_offset;
     out.dest_size = instance.dest_size;
     out.dest_atlas_size = instance.dest_atlas_size;
+    out.original_offset = instance.original_offset;
+    out.original_size = instance.original_size;
     return out;
 }
 
 // --- Sampling helpers ---
 
 /// Sample from the original (unfiltered) content texture at a relative coordinate.
-/// Uses the same src_offset/src_size bounds as sample_source.
+/// Uses original_offset/original_size for bounds checking and coordinate mapping.
 fn sample_original(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
-    if rel_coord.x < 0.0 || rel_coord.x >= f32(in.src_size.x) ||
-       rel_coord.y < 0.0 || rel_coord.y >= f32(in.src_size.y) {
+    if rel_coord.x < 0.0 || rel_coord.x >= f32(in.original_size.x) ||
+       rel_coord.y < 0.0 || rel_coord.y >= f32(in.original_size.y) {
         return vec4<f32>(0.0);
     }
-    let src_coord = vec2<u32>(vec2<i32>(in.src_offset) + vec2<i32>(rel_coord));
+    let src_coord = vec2<u32>(vec2<i32>(in.original_offset) + vec2<i32>(rel_coord));
     return textureLoad(original_tex, src_coord, 0);
 }
 
