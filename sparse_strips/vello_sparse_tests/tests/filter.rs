@@ -85,7 +85,7 @@ fn filter_offset_nested(ctx: &mut impl Renderer) {
 
 /// Test Gaussian blur with small radius (`std_deviation` = 2.0, no decimation).
 /// Uses direct separable convolution at full resolution.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_gaussian_blur_no_decimation(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
@@ -863,7 +863,7 @@ fn filter_rotated_blur(ctx: &mut impl Renderer) {
 }
 
 /// Test that zero blur acts as identity (no-op).
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_gaussian_blur_zero(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 0.0,
@@ -1051,7 +1051,7 @@ fn filter_transparent_shapes(ctx: &mut impl Renderer) {
 }
 
 /// Test filter on stroked paths.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_stroked_paths(ctx: &mut impl Renderer) {
     use vello_common::kurbo::{Cap, Join, Stroke};
 
