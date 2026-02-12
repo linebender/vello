@@ -2136,7 +2136,7 @@ impl RendererContext<'_> {
                     .get(&layer_id)
                     .unwrap()
                     .main_image_id;
-                let resources = self.image_cache.get(image_id).unwrap();
+                let resources = self.filter_texture_cache.get(image_id).unwrap();
 
                 // Create a view of the specific atlas layer
                 let view = self
