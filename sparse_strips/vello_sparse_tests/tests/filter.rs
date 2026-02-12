@@ -1174,3 +1174,20 @@ fn filter_with_nested_opacity(ctx: &mut impl Renderer) {
     ctx.pop_layer();
     ctx.pop_layer();
 }
+
+#[vello_test(skip_multithreaded)]
+fn filter_in_nested_layer(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    let rect = Rect::new(15.0, 15.0, 85.0, 85.0);
+
+    ctx.push_layer(None, None, None, None, None);
+    ctx.push_filter_layer(filter.clone());
+    ctx.set_paint(VIOLET);
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
