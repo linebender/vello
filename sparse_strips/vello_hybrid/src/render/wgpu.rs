@@ -1105,7 +1105,8 @@ impl Programs {
                 push_constant_ranges: &[],
             });
 
-        let filter_pipeline_layouts = [&filter_pipeline_layout_pass1, &filter_pipeline_layout_pass2];
+        let filter_pipeline_layouts =
+            [&filter_pipeline_layout_pass1, &filter_pipeline_layout_pass2];
         let filter_fragment_entry_points = ["fs_pass_1", "fs_pass_2"];
         let filter_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -2550,15 +2551,14 @@ impl RendererBackend for RendererContext<'_> {
 
             // Bind group for original (unfiltered) content, used by drop shadow pass 2.
             // For non-drop-shadow filters this group is bound but not sampled by the shader.
-            let original_bind_group =
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Filter Original Input Bind Group"),
-                    layout: &self.programs.filter_input_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&main_texture_view),
-                    }],
-                });
+            let original_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Filter Original Input Bind Group"),
+                layout: &self.programs.filter_input_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&main_texture_view),
+                }],
+            });
 
             let dest_texture_view =
                 self.programs
