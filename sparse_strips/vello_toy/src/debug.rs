@@ -228,8 +228,8 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
 fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
     for i in 0..strips.len() {
         let strip = &strips[i];
-        let x = strip.x;
-        let y = strip.strip_y();
+        let x = strip.x();
+        let y = strip.tile_y();
 
         let end = strips
             .get(i + 1)
@@ -276,8 +276,8 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
                     + usize::from(x) * usize::from(Tile::HEIGHT)
                     + usize::from(y)];
                 let rect = Rectangle::new()
-                    .set("x", strip.x + x)
-                    .set("y", strip.y + y)
+                    .set("x", strip.x() + x)
+                    .set("y", strip.y() + y)
                     .set("width", 1)
                     .set("height", 1)
                     .set("fill", color)
