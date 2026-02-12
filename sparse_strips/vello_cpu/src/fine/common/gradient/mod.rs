@@ -32,7 +32,7 @@ pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
                 let x_pos = f32x8::splat_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
                 let y_pos = f32x8::splat_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
                 let pos = kind.cur_pos(x_pos, y_pos);
-                buf_part.copy_from_slice(pos.as_slice());
+                pos.store_slice(buf_part);
 
                 cur_pos += 2.0 * gradient.x_advance;
             }
@@ -106,7 +106,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
                         self.simd.combine_f32x4(rgbas_1[2], rgbas_1[3]),
                     );
                     let rgbas_1 = u8x16::from_f32(self.simd, rgbas_1);
-                    chunk[..16].copy_from_slice(rgbas_1.as_slice());
+                    rgbas_1.store_slice(&mut chunk[..16]);
 
                     let rgbas_2: [f32x4<S>; 4] = core::array::from_fn(|i| {
                         f32x4::from_slice(self.simd, &self.lut.get(indices[i + 4] as usize))
@@ -116,7 +116,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
                         self.simd.combine_f32x4(rgbas_2[2], rgbas_2[3]),
                     );
                     let rgbas_2 = u8x16::from_f32(self.simd, rgbas_2);
-                    chunk[16..].copy_from_slice(rgbas_2.as_slice());
+                    rgbas_2.store_slice(&mut chunk[16..]);
                 }
             },
         );

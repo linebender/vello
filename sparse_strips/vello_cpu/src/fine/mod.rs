@@ -113,7 +113,7 @@ impl<S: Simd> NumericVec<S> for u8x16<S> {
     fn from_f32(simd: S, val: f32x16<S>) -> Self {
         let v1 = f32x16::splat(simd, 255.0);
         let v2 = f32x16::splat(simd, 0.5);
-        let mulled = val.madd(v1, v2);
+        let mulled = val.mul_add(v1, v2);
 
         f32_to_u8(mulled)
     }
@@ -177,7 +177,7 @@ impl<S: Simd> CompositeType<f32, S> for f32x16<S> {
 
     #[inline(always)]
     fn from_slice(simd: S, slice: &[f32]) -> Self {
-        <Self as SimdBase<_, _>>::from_slice(simd, slice)
+        <Self as SimdBase<_>>::from_slice(simd, slice)
     }
 
     #[inline(always)]
@@ -191,7 +191,7 @@ impl<S: Simd> CompositeType<u8, S> for u8x32<S> {
 
     #[inline(always)]
     fn from_slice(simd: S, slice: &[u8]) -> Self {
-        <Self as SimdBase<_, _>>::from_slice(simd, slice)
+        <Self as SimdBase<_>>::from_slice(simd, slice)
     }
 
     #[inline(always)]
@@ -956,7 +956,7 @@ impl<S: Simd> PosExt<S> for f32x4<S> {
         let columns: [f32; Tile::HEIGHT as usize] = [0.0, 1.0, 2.0, 3.0];
         let column_mask: Self = columns.simd_into(simd);
 
-        column_mask.madd(Self::splat(simd, y_advance), Self::splat(simd, pos))
+        column_mask.mul_add(Self::splat(simd, y_advance), Self::splat(simd, pos))
     }
 }
 
@@ -1027,7 +1027,7 @@ mod macros {
                         for chunk in buf.chunks_exact_mut(16) {
                             let next = self.next().unwrap();
                             let converted = u8x16::<S>::from_f32(next.simd, next);
-                            chunk.copy_from_slice(converted.as_slice());
+                            converted.store_slice(chunk);
                         }
                     })
                 }
@@ -1036,7 +1036,7 @@ mod macros {
                     self.simd.vectorize(#[inline(always)] || {
                         for chunk in buf.chunks_exact_mut(16) {
                             let next = self.next().unwrap();
-                            chunk.copy_from_slice(next.as_slice());
+                            next.store_slice(chunk);
                         }
                     })
                 }
@@ -1055,7 +1055,7 @@ mod macros {
                     self.simd.vectorize(#[inline(always)] || {
                         for chunk in buf.chunks_exact_mut(16) {
                             let next = self.next().unwrap();
-                            chunk.copy_from_slice(next.as_slice());
+                            next.store_slice(chunk);
                         }
                     })
                 }
@@ -1068,7 +1068,7 @@ mod macros {
                         for chunk in buf.chunks_exact_mut(16) {
                             let next = self.next().unwrap();
                             let converted = f32x16::<S>::from_u8(next.simd, next);
-                            chunk.copy_from_slice(converted.as_slice());
+                            converted.store_slice(chunk);
                         }
                     })
                 }

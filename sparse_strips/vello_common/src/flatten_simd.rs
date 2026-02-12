@@ -287,7 +287,7 @@ fn approx_parabola_integral_simd<S: Simd>(x: f32x8<S>) -> f32x8<S> {
     const D: f32 = 0.67;
     const D_POWI_4: f32 = 0.201_511_2;
 
-    let temp1 = f32x8::splat(simd, 0.25).madd(x * x, f32x8::splat(simd, D_POWI_4));
+    let temp1 = f32x8::splat(simd, 0.25).mul_add(x * x, f32x8::splat(simd, D_POWI_4));
     let temp2 = temp1.sqrt();
     let temp3 = temp2.sqrt();
     let temp4 = f32x8::splat(simd, 1.0) - f32x8::splat(simd, D);
@@ -302,7 +302,7 @@ fn approx_parabola_integral_simd_x4<S: Simd>(x: f32x4<S>) -> f32x4<S> {
     const D: f32 = 0.67;
     const D_POWI_4: f32 = 0.201_511_2;
 
-    let temp1 = f32x4::splat(simd, 0.25).madd(x * x, f32x4::splat(simd, D_POWI_4));
+    let temp1 = f32x4::splat(simd, 0.25).mul_add(x * x, f32x4::splat(simd, D_POWI_4));
     let temp2 = temp1.sqrt();
     let temp3 = temp2.sqrt();
     let temp4 = f32x4::splat(simd, 1.0) - f32x4::splat(simd, D);
@@ -318,7 +318,7 @@ fn approx_parabola_inv_integral_simd<S: Simd>(x: f32x8<S>) -> f32x8<S> {
     const ONE_MINUS_B: f32 = 1.0 - B;
 
     let temp1 = f32x8::splat(simd, B * B);
-    let temp2 = f32x8::splat(simd, 0.25).madd(x * x, temp1);
+    let temp2 = f32x8::splat(simd, 0.25).mul_add(x * x, temp1);
     let temp3 = temp2.sqrt();
     let temp4 = f32x8::splat(simd, ONE_MINUS_B) + temp3;
 
@@ -343,9 +343,9 @@ fn eval_simd<S: Simd>(
     let im0 = p0 * mt * mt * mt;
     let im1 = p1 * mt * mt * 3.0;
     let im2 = p2 * mt * 3.0;
-    let im3 = p3.madd(t, im2) * t;
+    let im3 = p3.mul_add(t, im2) * t;
 
-    (im1 + im3).madd(t, im0)
+    (im1 + im3).mul_add(t, im0)
 }
 
 #[inline(always)]
@@ -389,13 +389,13 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
         let evaluated = eval_simd(p0_128, p1_128, p2_128, p3_128, t);
         let (low, high) = simd.split_f32x8(evaluated);
 
-        even_pts[i * 4..][..4].copy_from_slice(low.as_slice());
-        odd_pts[i * 4..][..4].copy_from_slice(high.as_slice());
+        low.store_slice(&mut even_pts[i * 4..][..4]);
+        high.store_slice(&mut odd_pts[i * 4..][..4]);
 
         t += t_inc;
     }
 
-    even_pts[n * 2..][..8].copy_from_slice(p3_128.as_slice());
+    p3_128.store_slice(&mut even_pts[n * 2..][..8]);
 }
 
 #[inline(always)]
@@ -410,10 +410,10 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let p_onehalf = f32x8::from_slice(simd, &odd_pts[i * 8..][..8]);
         let p2 = f32x8::from_slice(simd, &even_pts[(i * 8 + 2)..][..8]);
         let x = p0 * -0.5;
-        let x1 = p_onehalf.madd(2.0, x);
-        let p1 = p2.madd(-0.5, x1);
+        let x1 = p_onehalf.mul_add(2.0, x);
+        let p1 = p2.mul_add(-0.5, x1);
 
-        odd_pts[(i * 8)..][..8].copy_from_slice(p1.as_slice());
+        p1.store_slice(&mut odd_pts[(i * 8)..][..8]);
 
         let d01 = p1 - p0;
         let d12 = p2 - p1;
@@ -426,7 +426,7 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let d02x = d01x + d12x;
         let d02y = d01y + d12y;
         // (d02x * ddy) - (d02y * ddx)
-        let cross = ddx.madd(-d02y, d02x * ddy);
+        let cross = ddx.mul_add(-d02y, d02x * ddy);
 
         let x0_x2_a = {
             let (d01x_low, _) = simd.split_f32x8(d01x);
@@ -440,11 +440,11 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
 
             simd.combine_f32x4(d12y_low, d01y_low)
         };
-        let x0_x2_num = temp1.madd(ddy, x0_x2_a);
+        let x0_x2_num = temp1.mul_add(ddy, x0_x2_a);
         let x0_x2 = x0_x2_num / cross;
         let (ddx_low, _) = simd.split_f32x8(ddx);
         let (ddy_low, _) = simd.split_f32x8(ddy);
-        let dd_hypot = ddy_low.madd(ddy_low, ddx_low * ddx_low).sqrt();
+        let dd_hypot = ddy_low.mul_add(ddy_low, ddx_low * ddx_low).sqrt();
         let (x0, x2) = simd.split_f32x8(x0_x2);
         let scale_denom = dd_hypot * (x2 - x0);
         let (temp2, _) = simd.split_f32x8(cross);
@@ -469,11 +469,11 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let uscale_a = u2 - u0;
         let uscale = 1.0 / uscale_a;
 
-        ctx.a0[i * 4..][..4].copy_from_slice(a0.as_slice());
-        ctx.da[i * 4..][..4].copy_from_slice(da.as_slice());
-        ctx.u0[i * 4..][..4].copy_from_slice(u0.as_slice());
-        ctx.uscale[i * 4..][..4].copy_from_slice(uscale.as_slice());
-        ctx.val[i * 4..][..4].copy_from_slice(val.as_slice());
+        a0.store_slice(&mut ctx.a0[i * 4..][..4]);
+        da.store_slice(&mut ctx.da[i * 4..][..4]);
+        u0.store_slice(&mut ctx.u0[i * 4..][..4]);
+        uscale.store_slice(&mut ctx.uscale[i * 4..][..4]);
+        val.store_slice(&mut ctx.val[i * 4..][..4]);
     }
 }
 
@@ -493,9 +493,9 @@ fn output_lines_simd<S: Simd>(
 
     const IOTA2: [f32; 8] = [0., 0., 1., 1., 2., 2., 3., 3.];
     let iota2 = f32x8::from_slice(simd, IOTA2.as_ref());
-    let x = iota2.madd(dx, f32x8::splat(simd, x0));
+    let x = iota2.mul_add(dx, f32x8::splat(simd, x0));
     let da = f32x8::splat(simd, ctx.da[i]);
-    let mut a = da.madd(x, f32x8::splat(simd, ctx.a0[i]));
+    let mut a = da.mul_add(x, f32x8::splat(simd, ctx.a0[i]));
     let a_inc = 4.0 * dx * da;
     let uscale = f32x8::splat(simd, ctx.uscale[i]);
 
@@ -503,13 +503,13 @@ fn output_lines_simd<S: Simd>(
 
     for j in 0..n.div_ceil(4) {
         let u = approx_parabola_inv_integral_simd(a);
-        let t = u.madd(uscale, -ctx.u0[i] * uscale);
+        let t = u.mul_add(uscale, -ctx.u0[i] * uscale);
         let mt = 1.0 - t;
         let z = p0 * mt * mt;
-        let z1 = p1.madd(2.0 * t * mt, z);
-        let p = p2.madd(t * t, z1);
+        let z1 = p1.mul_add(2.0 * t * mt, z);
+        let p = p2.mul_add(t * t, z1);
 
-        out[j * 8..][..8].copy_from_slice(p.as_slice());
+        p.store_slice(&mut out[j * 8..][..8]);
 
         a += a_inc;
     }
