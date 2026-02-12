@@ -350,7 +350,7 @@ impl Renderer {
             scene,
             &self.paint_idxs,
             &self.filter_context,
-            &self.image_cache,
+            &self.filter_texture_cache,
             &self.filter_encoded_paints,
         );
         self.gradient_cache.maintain();
