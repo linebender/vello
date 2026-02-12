@@ -18,6 +18,7 @@ const TEXELS_PER_FILTER: u32 = FILTER_SIZE_U32 / 4u;
 const FILTER_TYPE_OFFSET: u32 = 0u;
 const FILTER_TYPE_FLOOD: u32 = 1u;
 const FILTER_TYPE_GAUSSIAN_BLUR: u32 = 2u;
+const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
 
 // Keep in sync with MAX_KERNEL_SIZE in vello_common/src/filter/gaussian_blur.rs
 const MAX_KERNEL_SIZE: u32 = 13u;
@@ -41,6 +42,18 @@ struct GaussianBlurFilter {
     n_decimations: u32,
     kernel_size: u32,
     edge_mode: u32,
+    kernel: array<f32, 13>,
+}
+
+// Keep in sync with GpuDropShadow in vello_hybrid/src/filter.rs
+struct DropShadowFilter {
+    dx: f32,
+    dy: f32,
+    color: u32,
+    edge_mode: u32,
+    std_deviation: f32,
+    n_decimations: u32,
+    kernel_size: u32,
     kernel: array<f32, 13>,
 }
 
@@ -71,6 +84,24 @@ fn unpack_gaussian_blur_filter(data: GpuFilterData) -> GaussianBlurFilter {
         data.data[2],
         data.data[3],
         data.data[4],
+        kernel
+    );
+}
+
+// Keep in sync with GpuDropShadow in vello_hybrid/src/filter.rs
+fn unpack_drop_shadow_filter(data: GpuFilterData) -> DropShadowFilter {
+    var kernel: array<f32, 13>;
+    for (var i = 0u; i < 13u; i++) {
+        kernel[i] = bitcast<f32>(data.data[8u + i]);
+    }
+    return DropShadowFilter(
+        bitcast<f32>(data.data[1]),
+        bitcast<f32>(data.data[2]),
+        data.data[3],
+        data.data[4],
+        bitcast<f32>(data.data[5]),
+        data.data[6],
+        data.data[7],
         kernel
     );
 }
@@ -146,6 +177,43 @@ fn vs_main(
     return out;
 }
 
+// --- Sampling helpers ---
+
+/// Sample from the source texture at a relative coordinate, with bounds checking.
+/// Returns transparent if the coordinate is out of bounds.
+fn sample_source(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
+    if rel_coord.x < 0.0 || rel_coord.x >= f32(in.src_size.x) ||
+       rel_coord.y < 0.0 || rel_coord.y >= f32(in.src_size.y) {
+        return vec4<f32>(0.0);
+    }
+    let src_coord = vec2<u32>(vec2<i32>(in.src_offset) + vec2<i32>(rel_coord));
+    return textureLoad(in_tex, src_coord, 0);
+}
+
+/// Apply a 1D horizontal convolution at the given center coordinate.
+fn convolve_horizontal(in: FilterVertexOutput, center: vec2<f32>, kernel_size: u32, kernel: array<f32, 13>) -> vec4<f32> {
+    let radius = i32(kernel_size / 2u);
+    var color = vec4<f32>(0.0);
+    for (var i: i32 = -radius; i <= radius; i++) {
+        let weight = kernel[i + radius];
+        color += sample_source(in, center + vec2<f32>(f32(i), 0.0)) * weight;
+    }
+    return color;
+}
+
+/// Apply a 1D vertical convolution at the given center coordinate.
+fn convolve_vertical(in: FilterVertexOutput, center: vec2<f32>, kernel_size: u32, kernel: array<f32, 13>) -> vec4<f32> {
+    let radius = i32(kernel_size / 2u);
+    var color = vec4<f32>(0.0);
+    for (var i: i32 = -radius; i <= radius; i++) {
+        let weight = kernel[i + radius];
+        color += sample_source(in, center + vec2<f32>(0.0, f32(i))) * weight;
+    }
+    return color;
+}
+
+// --- Filter implementations ---
+
 @fragment
 fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
     let data = load_filter_data(in.filter_offset);
@@ -161,79 +229,14 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
         return apply_flood(flood);
     } else if filter_type == FILTER_TYPE_GAUSSIAN_BLUR {
         let blur = unpack_gaussian_blur_filter(data);
-        return apply_gaussian_blur_horizontal(in, rel_coord, blur);
+        return convolve_horizontal(in, rel_coord, blur.kernel_size, blur.kernel);
+    } else if filter_type == FILTER_TYPE_DROP_SHADOW {
+        let shadow = unpack_drop_shadow_filter(data);
+        return apply_drop_shadow_horizontal(in, rel_coord, shadow);
     } else {
         let offset = unpack_offset_filter(data);
         return apply_offset(in, rel_coord, offset);
     }
-}
-
-fn apply_flood(flood: FloodFilter) -> vec4<f32> {
-    return unpack_color(flood.color);
-}
-
-fn apply_offset(in: FilterVertexOutput, rel_coord: vec2<f32>, offset: OffsetFilter) -> vec4<f32> {
-    // Apply filter offset
-    let offset_rel = rel_coord - vec2<f32>(offset.dx, offset.dy);
-
-    // Check bounds in relative space
-    if offset_rel.x < 0.0 || offset_rel.x >= f32(in.dest_size.x) ||
-       offset_rel.y < 0.0 || offset_rel.y >= f32(in.dest_size.y) {
-        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
-    }
-
-    // Map to source atlas space
-    let src_coord = vec2<i32>(in.src_offset) + vec2<i32>(offset_rel);
-
-    return textureLoad(in_tex, vec2<u32>(src_coord), 0);
-}
-
-fn apply_gaussian_blur_horizontal(in: FilterVertexOutput, rel_coord: vec2<f32>, blur: GaussianBlurFilter) -> vec4<f32> {
-    let radius = i32(blur.kernel_size / 2u);
-
-    var color = vec4<f32>(0.0);
-    for (var i: i32 = -radius; i <= radius; i++) {
-        let weight = blur.kernel[i + radius];
-
-        // Sample position in relative space
-        let sample_x = rel_coord.x + f32(i);
-        let sample_y = rel_coord.y;
-
-        // Check bounds in relative space
-        // TODO: Apply edge mode
-        if sample_x >= 0.0 && sample_x < f32(in.dest_size.x) &&
-           sample_y >= 0.0 && sample_y < f32(in.dest_size.y) {
-            // Map to source atlas space
-            let src_coord = vec2<i32>(in.src_offset) + vec2<i32>(i32(sample_x), i32(sample_y));
-            color += textureLoad(in_tex, vec2<u32>(src_coord), 0) * weight;
-        }
-    }
-
-    return color;
-}
-
-fn apply_gaussian_blur_vertical(in: FilterVertexOutput, rel_coord: vec2<f32>, blur: GaussianBlurFilter) -> vec4<f32> {
-    let radius = i32(blur.kernel_size / 2u);
-
-    var color = vec4<f32>(0.0);
-    for (var i: i32 = -radius; i <= radius; i++) {
-        let weight = blur.kernel[i + radius];
-
-        // Sample position in relative space
-        let sample_x = rel_coord.x;
-        let sample_y = rel_coord.y + f32(i);
-
-        // Check bounds in relative space
-        // TODO: Apply edge mode
-        if sample_x >= 0.0 && sample_x < f32(in.dest_size.x) &&
-           sample_y >= 0.0 && sample_y < f32(in.dest_size.y) {
-            // Map to source atlas space
-            let src_coord = vec2<i32>(in.src_offset) + vec2<i32>(i32(sample_x), i32(sample_y));
-            color += textureLoad(in_tex, vec2<u32>(src_coord), 0) * weight;
-        }
-    }
-
-    return color;
 }
 
 @fragment
@@ -248,88 +251,40 @@ fn fs_main_vertical(in: FilterVertexOutput) -> @location(0) vec4<f32> {
 
     if filter_type == FILTER_TYPE_GAUSSIAN_BLUR {
         let blur = unpack_gaussian_blur_filter(data);
-        return apply_gaussian_blur_vertical(in, rel_coord, blur);
+        return convolve_vertical(in, rel_coord, blur.kernel_size, blur.kernel);
+    } else if filter_type == FILTER_TYPE_DROP_SHADOW {
+        let shadow = unpack_drop_shadow_filter(data);
+        return apply_drop_shadow_vertical(in, rel_coord, shadow);
     }
 
     // This should never be reached.
     return vec4<f32>(0.0);
 }
 
-// --- FOR LATER ---
+fn apply_flood(flood: FloodFilter) -> vec4<f32> {
+    return unpack_color(flood.color);
+}
 
-// const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
+fn apply_offset(in: FilterVertexOutput, rel_coord: vec2<f32>, offset: OffsetFilter) -> vec4<f32> {
+    return sample_source(in, rel_coord - vec2<f32>(offset.dx, offset.dy));
+}
 
-// // Keep in sync with EdgeMode in vello_common/src/filter_effects.rs
-// // and edge_mode module in vello_hybrid/src/filter.rs
-// const EDGE_MODE_DUPLICATE: u32 = 0u;
-// const EDGE_MODE_WRAP: u32 = 1u;
-// const EDGE_MODE_MIRROR: u32 = 2u;
-// const EDGE_MODE_NONE: u32 = 3u;
+/// Drop shadow pass 1: apply offset then horizontal blur.
+/// This shifts the sampling center by (dx, dy) before convolving, producing
+/// an offset, horizontally-blurred version of the source.
+fn apply_drop_shadow_horizontal(in: FilterVertexOutput, rel_coord: vec2<f32>, shadow: DropShadowFilter) -> vec4<f32> {
+    let offset_center = rel_coord - vec2<f32>(shadow.dx, shadow.dy);
+    return convolve_horizontal(in, offset_center, shadow.kernel_size, shadow.kernel);
+}
 
-// struct DropShadowFilter {
-//     dx: f32,
-//     dy: f32,
-//     color: u32,
-//     edge_mode: u32,
-//     std_deviation: f32,
-//     n_decimations: u32,
-//     kernel_size: u32,
-//     kernel: array<f32, 13>,
-// }
-
-// // Keep in sync with GpuDropShadow in vello_hybrid/src/filter.rs
-// fn unpack_drop_shadow_filter(data: GpuFilterData) -> DropShadowFilter {
-//     var kernel: array<f32, 13>;
-//     for (var i = 0u; i < 13u; i++) {
-//         kernel[i] = bitcast<f32>(data.data[8u + i]);
-//     }
-//     return DropShadowFilter(
-//         bitcast<f32>(data.data[1]),
-//         bitcast<f32>(data.data[2]),
-//         data.data[3],
-//         data.data[4],
-//         bitcast<f32>(data.data[5]),
-//         data.data[6],
-//         data.data[7],
-//         kernel
-//     );
-// }
-
-// fn sample_with_edge_mode(
-//     tex: texture_2d<f32>,
-//     coord: vec2<i32>,
-//     tex_size: vec2<i32>,
-//     edge_mode: u32
-// ) -> vec4<f32> {
-//     var sample_coord = coord;
-
-//     let out_of_bounds = coord.x < 0 || coord.x >= tex_size.x ||
-//                         coord.y < 0 || coord.y >= tex_size.y;
-
-//     if out_of_bounds {
-//         switch edge_mode {
-//             case EDGE_MODE_DUPLICATE: {
-//                 sample_coord = clamp(coord, vec2<i32>(0), tex_size - vec2<i32>(1));
-//             }
-//             case EDGE_MODE_WRAP: {
-//                 sample_coord = ((coord % tex_size) + tex_size) % tex_size;
-//             }
-//             case EDGE_MODE_MIRROR: {
-//                 let period = tex_size * 2;
-//                 var mirrored = ((coord % period) + period) % period;
-//                 if mirrored.x >= tex_size.x {
-//                     mirrored.x = period.x - 1 - mirrored.x;
-//                 }
-//                 if mirrored.y >= tex_size.y {
-//                     mirrored.y = period.y - 1 - mirrored.y;
-//                 }
-//                 sample_coord = mirrored;
-//             }
-//             case EDGE_MODE_NONE, default: {
-//                 return vec4<f32>(0.0, 0.0, 0.0, 0.0);
-//             }
-//         }
-//     }
-
-//     return textureLoad(tex, vec2<u32>(sample_coord), 0);
-// }
+/// Drop shadow pass 2: vertical blur then replace RGB with shadow color.
+/// The input is the horizontally-blurred, offset result from pass 1.
+/// After vertical blur, the alpha represents the shadow shape. We replace
+/// RGB with the shadow color (which is already premultiplied from the Rust side).
+fn apply_drop_shadow_vertical(in: FilterVertexOutput, rel_coord: vec2<f32>, shadow: DropShadowFilter) -> vec4<f32> {
+    let blurred = convolve_vertical(in, rel_coord, shadow.kernel_size, shadow.kernel);
+    let shadow_color = unpack_color(shadow.color);
+    // shadow.color is premultiplied RGBA. Scale it by the blurred alpha to get
+    // the final shadow contribution at this pixel.
+    return shadow_color * blurred.a;
+}
