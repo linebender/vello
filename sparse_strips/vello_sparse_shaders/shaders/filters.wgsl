@@ -215,7 +215,7 @@ fn convolve_vertical(in: FilterVertexOutput, center: vec2<f32>, kernel_size: u32
 // --- Filter implementations ---
 
 @fragment
-fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
+fn fs_pass_1(in: FilterVertexOutput) -> @location(0) vec4<f32> {
     let data = load_filter_data(in.filter_offset);
     let frag_coord = vec2<u32>(in.position.xy);
 
@@ -229,10 +229,10 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
         return apply_flood(flood);
     } else if filter_type == FILTER_TYPE_GAUSSIAN_BLUR {
         let blur = unpack_gaussian_blur_filter(data);
-        return convolve_horizontal(in, rel_coord, blur.kernel_size, blur.kernel);
+        return gaussian_blur_pass_1(in, rel_coord, blur);
     } else if filter_type == FILTER_TYPE_DROP_SHADOW {
         let shadow = unpack_drop_shadow_filter(data);
-        return apply_drop_shadow_horizontal(in, rel_coord, shadow);
+        return drop_shadow_pass_1(in, rel_coord, shadow);
     } else {
         let offset = unpack_offset_filter(data);
         return apply_offset(in, rel_coord, offset);
@@ -240,7 +240,7 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
 }
 
 @fragment
-fn fs_main_vertical(in: FilterVertexOutput) -> @location(0) vec4<f32> {
+fn fs_pass_2(in: FilterVertexOutput) -> @location(0) vec4<f32> {
     let data = load_filter_data(in.filter_offset);
     let frag_coord = vec2<u32>(in.position.xy);
 
@@ -251,10 +251,10 @@ fn fs_main_vertical(in: FilterVertexOutput) -> @location(0) vec4<f32> {
 
     if filter_type == FILTER_TYPE_GAUSSIAN_BLUR {
         let blur = unpack_gaussian_blur_filter(data);
-        return convolve_vertical(in, rel_coord, blur.kernel_size, blur.kernel);
+        return gaussian_blur_pass_2(in, rel_coord, blur);
     } else if filter_type == FILTER_TYPE_DROP_SHADOW {
         let shadow = unpack_drop_shadow_filter(data);
-        return apply_drop_shadow_vertical(in, rel_coord, shadow);
+        return drop_shadow_pass_2(in, rel_coord, shadow);
     }
 
     // This should never be reached.
@@ -269,10 +269,20 @@ fn apply_offset(in: FilterVertexOutput, rel_coord: vec2<f32>, offset: OffsetFilt
     return sample_source(in, rel_coord - vec2<f32>(offset.dx, offset.dy));
 }
 
+/// Gaussian blur pass 1: horizontal convolution.
+fn gaussian_blur_pass_1(in: FilterVertexOutput, rel_coord: vec2<f32>, blur: GaussianBlurFilter) -> vec4<f32> {
+    return convolve_horizontal(in, rel_coord, blur.kernel_size, blur.kernel);
+}
+
+/// Gaussian blur pass 2: vertical convolution.
+fn gaussian_blur_pass_2(in: FilterVertexOutput, rel_coord: vec2<f32>, blur: GaussianBlurFilter) -> vec4<f32> {
+    return convolve_vertical(in, rel_coord, blur.kernel_size, blur.kernel);
+}
+
 /// Drop shadow pass 1: apply offset then horizontal blur.
 /// This shifts the sampling center by (dx, dy) before convolving, producing
 /// an offset, horizontally-blurred version of the source.
-fn apply_drop_shadow_horizontal(in: FilterVertexOutput, rel_coord: vec2<f32>, shadow: DropShadowFilter) -> vec4<f32> {
+fn drop_shadow_pass_1(in: FilterVertexOutput, rel_coord: vec2<f32>, shadow: DropShadowFilter) -> vec4<f32> {
     let offset_center = rel_coord - vec2<f32>(shadow.dx, shadow.dy);
     return convolve_horizontal(in, offset_center, shadow.kernel_size, shadow.kernel);
 }
@@ -281,7 +291,7 @@ fn apply_drop_shadow_horizontal(in: FilterVertexOutput, rel_coord: vec2<f32>, sh
 /// The input is the horizontally-blurred, offset result from pass 1.
 /// After vertical blur, the alpha represents the shadow shape. We replace
 /// RGB with the shadow color (which is already premultiplied from the Rust side).
-fn apply_drop_shadow_vertical(in: FilterVertexOutput, rel_coord: vec2<f32>, shadow: DropShadowFilter) -> vec4<f32> {
+fn drop_shadow_pass_2(in: FilterVertexOutput, rel_coord: vec2<f32>, shadow: DropShadowFilter) -> vec4<f32> {
     let blurred = convolve_vertical(in, rel_coord, shadow.kernel_size, shadow.kernel);
     let shadow_color = unpack_color(shadow.color);
     // shadow.color is premultiplied RGBA. Scale it by the blurred alpha to get

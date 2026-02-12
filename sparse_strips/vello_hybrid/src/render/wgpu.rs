@@ -693,7 +693,7 @@ struct Programs {
     // TODO: Consider unifying with encoded_paints_bind_group_layout since they have identical structure
     filter_bind_group_layout: BindGroupLayout,
     /// Pipelines for applying filter effects to intermediate textures.
-    /// Index 0 uses `fs_main` (horizontal/general), index 1 uses `fs_main_vertical`.
+    /// Index 0 uses `fs_pass_1` (single-pass or first pass), index 1 uses `fs_pass_2` (second pass).
     filter_pipelines: [RenderPipeline; 2],
     /// Bind group layout for the filter pipeline.
     filter_input_bind_group_layout: BindGroupLayout,
@@ -1092,7 +1092,7 @@ impl Programs {
                 push_constant_ranges: &[],
             });
 
-        let filter_fragment_entry_points = ["fs_main", "fs_main_vertical"];
+        let filter_fragment_entry_points = ["fs_pass_1", "fs_pass_2"];
         let filter_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(if i == 0 {
