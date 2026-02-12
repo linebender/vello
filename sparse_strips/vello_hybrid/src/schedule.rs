@@ -797,8 +797,15 @@ impl Scheduler {
                             Cmd::Opacity(opacity) => {
                                 self.do_opacity(state, *opacity);
                             }
-                            Cmd::Blend(_) => {
-                                unimplemented!("Blend inside filter layers is not yet supported");
+                            Cmd::Blend(b) => {
+                                assert!(b.compose == Compose::SrcOver && b.mix == Mix::Normal, "filters with blend modes are currently not supported");
+
+                                self.do_blend(
+                                    state,
+                                    wide_tile_x,
+                                    wide_tile_y,
+                                    b
+                                );
                             }
                             _ => unimplemented!(),
                         }
