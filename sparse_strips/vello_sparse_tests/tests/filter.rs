@@ -117,7 +117,7 @@ fn filter_gaussian_blur_with_decimation(ctx: &mut impl Renderer) {
 
 /// Test drop shadow filter on text glyph.
 /// Creates a blurred, offset shadow beneath the original graphic.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_drop_shadow(ctx: &mut impl Renderer) {
     let font_size: f32 = 80_f32;
     let (font, glyphs) = layout_glyphs_roboto("A", font_size);

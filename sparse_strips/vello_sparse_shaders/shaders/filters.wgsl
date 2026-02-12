@@ -9,6 +9,10 @@
 // Changes per filter pass (each layer has its own intermediate texture).
 @group(1) @binding(0) var in_tex: texture_2d<f32>;
 
+// The original (unfiltered) content texture, used by drop shadow pass 2 for compositing.
+// Only bound during pass 2 (fs_pass_2).
+@group(2) @binding(0) var original_tex: texture_2d<f32>;
+
 // Keep in sync with FILTER_SIZE_U32 in vello_hybrid/src/filter.rs
 const FILTER_SIZE_U32: u32 = 24u;
 // Since the texture is packed into Uint32.
@@ -179,6 +183,17 @@ fn vs_main(
 
 // --- Sampling helpers ---
 
+/// Sample from the original (unfiltered) content texture at a relative coordinate.
+/// Uses the same src_offset/src_size bounds as sample_source.
+fn sample_original(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
+    if rel_coord.x < 0.0 || rel_coord.x >= f32(in.src_size.x) ||
+       rel_coord.y < 0.0 || rel_coord.y >= f32(in.src_size.y) {
+        return vec4<f32>(0.0);
+    }
+    let src_coord = vec2<u32>(vec2<i32>(in.src_offset) + vec2<i32>(rel_coord));
+    return textureLoad(original_tex, src_coord, 0);
+}
+
 /// Sample from the source texture at a relative coordinate, with bounds checking.
 /// Returns transparent if the coordinate is out of bounds.
 fn sample_source(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
@@ -287,14 +302,19 @@ fn drop_shadow_pass_1(in: FilterVertexOutput, rel_coord: vec2<f32>, shadow: Drop
     return convolve_horizontal(in, offset_center, shadow.kernel_size, shadow.kernel);
 }
 
-/// Drop shadow pass 2: vertical blur then replace RGB with shadow color.
-/// The input is the horizontally-blurred, offset result from pass 1.
-/// After vertical blur, the alpha represents the shadow shape. We replace
-/// RGB with the shadow color (which is already premultiplied from the Rust side).
+/// Drop shadow pass 2: vertical blur, colorize, then composite original on top.
+/// The input (in_tex) is the horizontally-blurred, offset result from pass 1.
+/// The original (original_tex) is the unfiltered content.
+/// After vertical blur, we colorize the shadow and composite the original over it
+/// using premultiplied source-over blending.
 fn drop_shadow_pass_2(in: FilterVertexOutput, rel_coord: vec2<f32>, shadow: DropShadowFilter) -> vec4<f32> {
     let blurred = convolve_vertical(in, rel_coord, shadow.kernel_size, shadow.kernel);
     let shadow_color = unpack_color(shadow.color);
     // shadow.color is premultiplied RGBA. Scale it by the blurred alpha to get
     // the final shadow contribution at this pixel.
-    return shadow_color * blurred.a;
+    let shadow_result = shadow_color * blurred.a;
+
+    // Composite original content over the shadow (premultiplied source-over).
+    let original = sample_original(in, rel_coord);
+    return original + shadow_result * (1.0 - original.a);
 }

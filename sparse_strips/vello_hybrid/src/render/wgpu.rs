@@ -1085,13 +1085,27 @@ impl Programs {
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::FILTERS.into()),
         });
 
-        let filter_pipeline_layout =
+        // Pass 1 layout: group 0 = filter data, group 1 = input texture
+        let filter_pipeline_layout_pass1 =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Filter Pipeline Layout"),
+                label: Some("Filter Pipeline Layout Pass 1"),
                 bind_group_layouts: &[&filter_bind_group_layout, &filter_input_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
+        // Pass 2 layout: group 0 = filter data, group 1 = input texture, group 2 = original texture
+        let filter_pipeline_layout_pass2 =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Filter Pipeline Layout Pass 2"),
+                bind_group_layouts: &[
+                    &filter_bind_group_layout,
+                    &filter_input_bind_group_layout,
+                    &filter_input_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let filter_pipeline_layouts = [&filter_pipeline_layout_pass1, &filter_pipeline_layout_pass2];
         let filter_fragment_entry_points = ["fs_pass_1", "fs_pass_2"];
         let filter_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1100,7 +1114,7 @@ impl Programs {
                 } else {
                     "Filter Pipeline Vertical"
                 }),
-                layout: Some(&filter_pipeline_layout),
+                layout: Some(filter_pipeline_layouts[i]),
                 vertex: wgpu::VertexState {
                     module: &filter_shader,
                     entry_point: Some("vs_main"),
@@ -2534,6 +2548,18 @@ impl RendererBackend for RendererContext<'_> {
                     }],
                 });
 
+            // Bind group for original (unfiltered) content, used by drop shadow pass 2.
+            // For non-drop-shadow filters this group is bound but not sampled by the shader.
+            let original_bind_group =
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Filter Original Input Bind Group"),
+                    layout: &self.programs.filter_input_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&main_texture_view),
+                    }],
+                });
+
             let dest_texture_view =
                 self.programs
                     .resources
@@ -2570,6 +2596,7 @@ impl RendererBackend for RendererContext<'_> {
                 render_pass.set_pipeline(&self.programs.filter_pipelines[1]);
                 render_pass.set_bind_group(0, &self.programs.resources.filter_bind_group, &[]);
                 render_pass.set_bind_group(1, &scratch_input_bind_group, &[]);
+                render_pass.set_bind_group(2, &original_bind_group, &[]);
                 render_pass
                     .set_vertex_buffer(0, self.programs.resources.filter_instance_buffer.slice(..));
                 render_pass.draw(0..4, 0..1);
