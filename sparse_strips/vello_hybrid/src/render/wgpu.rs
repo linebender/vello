@@ -58,12 +58,7 @@ use vello_common::{
     render_graph::{LayerId, RenderGraph, RenderNodeKind},
     tile::Tile,
 };
-use wgpu::{
-    BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
-    Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, Texture, TextureView, TextureViewDescriptor,
-    util::DeviceExt,
-};
+use wgpu::{BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder, Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, Texture, TextureView, TextureViewDescriptor, util::DeviceExt, TextureFormat};
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -180,12 +175,12 @@ impl Renderer {
                 );
             }
 
-            // Clear the scratch image region if it exists
+            // Clear the scratch image region if it exists (scratch is in main atlas)
             if let Some(scratch_id) = filter_textures.scratch_image_id {
-                if let Some(scratch_resource) = self.filter_texture_cache.get(scratch_id) {
+                if let Some(scratch_resource) = self.image_cache.get(scratch_id) {
                     Self::clear_texture_region(
                         encoder,
-                        &self.programs.resources.filter_atlas_texture_array,
+                        &self.programs.resources.atlas_texture_array,
                         scratch_resource.atlas_id.as_u32(),
                         scratch_resource.offset,
                         scratch_resource.width,
@@ -211,7 +206,7 @@ impl Renderer {
                 .deallocate(filter_textures.main_image_id);
             self.image_cache.deallocate(filter_textures.dest_image_id);
             if let Some(scratch_id) = filter_textures.scratch_image_id {
-                self.filter_texture_cache.deallocate(scratch_id);
+                self.image_cache.deallocate(scratch_id);
             }
         }
         self.filter_context.clear();
@@ -242,16 +237,15 @@ impl Renderer {
                 let needs_scratch = gpu_filter.needs_scratch_buffer();
 
                 // Allocate textures:
-                // - main_image and scratch_image from filter_texture_cache
-                // - dest_image from main image_cache
-                // This ensures they're on different atlases to avoid read-write hazards
+                // - main_image from filter_texture_cache (native format, strip pipeline renders into it)
+                // - dest_image and scratch_image from main image_cache (Rgba8Unorm, filter pipeline writes to them)
                 let main_image_id = self.filter_texture_cache.allocate(width, height)?;
                 let dest_image_id = self.image_cache.allocate(width, height)?;
                 let scratch_image_id = if needs_scratch {
-                    Some(self.filter_texture_cache.allocate_excluding(
+                    Some(self.image_cache.allocate_excluding(
                         width,
                         height,
-                        Some(AtlasId(main_image_id.atlas_id())),
+                        Some(AtlasId(dest_image_id.atlas_id())),
                     )?)
                 } else {
                     None
@@ -313,6 +307,13 @@ impl Renderer {
         view: &TextureView,
     ) -> Result<(), RenderError> {
         self.prepare_filter_textures(&scene.render_graph, encoder, scene.encoded_paints.len())?;
+        Programs::maybe_resize_atlas_texture_array(
+            device,
+            encoder,
+            &mut self.programs.resources,
+            &self.programs.atlas_bind_group_layout,
+            self.image_cache.atlas_count() as u32,
+        );
         Programs::maybe_resize_filter_atlas_texture_array(
             device,
             encoder,
@@ -790,11 +791,11 @@ struct FilterInstanceData {
     dest_size: [u32; 2],
     dest_atlas_size: [u32; 2],
     filter_offset: u32,
-    _padding: u32,
     /// Offset of the original (unfiltered) content in `original_tex`.
     /// Only used in pass 2 for drop shadow compositing.
     original_offset: [u32; 2],
     original_size: [u32; 2],
+    _padding: u32,
 }
 
 impl GpuStrip {
@@ -2389,14 +2390,14 @@ impl RendererBackend for RendererContext<'_> {
                 .scratch_image_id
                 .expect("Scratch image must exist for multi-pass filter");
             let scratch = self
-                .filter_texture_cache
+                .image_cache
                 .get(scratch_id)
                 .expect("Scratch image must exist");
             (
                 [scratch.offset[0] as u32, scratch.offset[1] as u32],
                 [scratch.width as u32, scratch.height as u32],
                 scratch.atlas_id.as_u32(),
-                true,
+                false, // scratch is in the main atlas
             )
         } else {
             (
@@ -2508,7 +2509,7 @@ impl RendererBackend for RendererContext<'_> {
         // 6. Second pass (only for multi-pass filters): scratch -> dest
         if uses_scratch {
             let scratch_id = filter_textures.scratch_image_id.unwrap();
-            let scratch_resource = self.filter_texture_cache.get(scratch_id).unwrap();
+            let scratch_resource = self.image_cache.get(scratch_id).unwrap();
 
             let dest_atlas_size = self.programs.resources.atlas_texture_array.size();
             let pass2_instance_data = FilterInstanceData {
@@ -2540,7 +2541,7 @@ impl RendererBackend for RendererContext<'_> {
             let scratch_input_view = self
                 .programs
                 .resources
-                .filter_atlas_texture_array
+                .atlas_texture_array
                 .create_view(&TextureViewDescriptor {
                     label: Some("Filter Scratch Input View"),
                     format: None,
