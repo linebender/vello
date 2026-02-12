@@ -1028,7 +1028,7 @@ fn filter_extreme_blur(ctx: &mut impl Renderer) {
 }
 
 /// Test filter on semi-transparent shapes.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_transparent_shapes(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
