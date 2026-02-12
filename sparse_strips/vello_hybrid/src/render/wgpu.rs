@@ -313,6 +313,12 @@ impl Renderer {
         view: &TextureView,
     ) -> Result<(), RenderError> {
         self.prepare_filter_textures(&scene.render_graph, encoder, scene.encoded_paints.len())?;
+        Programs::maybe_resize_filter_atlas_texture_array(
+            device,
+            encoder,
+            &mut self.programs.resources,
+            self.filter_texture_cache.atlas_count() as u32,
+        );
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -1884,6 +1890,41 @@ impl Programs {
             resources.atlas_texture_array = new_atlas_texture_array;
             resources.atlas_texture_array_view = new_atlas_texture_array_view;
             resources.atlas_bind_group = new_atlas_bind_group;
+        }
+    }
+
+    fn maybe_resize_filter_atlas_texture_array(
+        device: &Device,
+        encoder: &mut CommandEncoder,
+        resources: &mut GpuResources,
+        required_atlas_count: u32,
+    ) {
+        let Extent3d {
+            width,
+            height,
+            depth_or_array_layers: current_atlas_count,
+        } = resources.filter_atlas_texture_array.size();
+        if required_atlas_count > current_atlas_count {
+            let format = resources.filter_atlas_texture_array.format();
+            let (new_filter_atlas_texture_array, _) = Self::create_atlas_texture_array(
+                device,
+                width,
+                height,
+                required_atlas_count,
+                format,
+                "Filter Atlas Texture Array",
+            );
+
+            Self::copy_atlas_texture_data(
+                encoder,
+                &resources.filter_atlas_texture_array,
+                &new_filter_atlas_texture_array,
+                current_atlas_count,
+                width,
+                height,
+            );
+
+            resources.filter_atlas_texture_array = new_filter_atlas_texture_array;
         }
     }
 
