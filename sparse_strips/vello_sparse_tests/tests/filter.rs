@@ -1144,3 +1144,33 @@ fn filter_with_complex_paint_and_wide_tile_shift(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(256.0, 0.0, 612.0, 4.0));
     ctx.pop_layer();
 }
+
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_with_opacity(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+    let rect = Rect::new(20.0, 20.0, 80.0, 80.0).to_path(0.1);
+
+    ctx.push_layer(None, None, Some(0.5), None, Some(filter));
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&rect);
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn filter_with_nested_opacity(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+    let rect = Rect::new(20.0, 20.0, 80.0, 80.0).to_path(0.1);
+
+    ctx.push_layer(None, None, None, None, Some(filter));
+    ctx.push_layer(None, None, Some(0.5), None, None);
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&rect);
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
