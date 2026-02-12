@@ -274,7 +274,7 @@ fn filter_set_effect(ctx: &mut impl Renderer) {
     let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 2.0,
         dy: 2.0,
-        std_deviation: 4.0,
+        std_deviation: 2.0,
         color: AlphaColor::from_rgba8(0, 0, 0, 255),
         edge_mode: EdgeMode::None,
     });
@@ -327,7 +327,7 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
     let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 2.0,
         dy: 2.0,
-        std_deviation: 4.0,
+        std_deviation: 2.0,
         color: AlphaColor::from_rgba8(0, 0, 0, 255),
         edge_mode: EdgeMode::None,
     });
@@ -800,7 +800,7 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
 #[vello_test(skip_hybrid, skip_multithreaded)]
 fn filter_rotated_blur(ctx: &mut impl Renderer) {
     let filter_gaussian_blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 4.0,
+        std_deviation: 2.0,
         edge_mode: EdgeMode::None,
     });
     let center = Point::new(50.0, 50.0);
@@ -901,7 +901,7 @@ fn filter_drop_shadow_zero_offset(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 0.0,
         dy: 0.0,
-        std_deviation: 4.0,
+        std_deviation: 2.0,
         color: AlphaColor::from_rgba8(0, 0, 0, 180),
         edge_mode: EdgeMode::None,
     });
@@ -954,7 +954,7 @@ fn filter_offset(ctx: &mut impl Renderer) {
 #[vello_test(skip_hybrid, skip_multithreaded)]
 fn filter_transformed_blur(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 3.0,
+        std_deviation: 2.0,
         edge_mode: EdgeMode::None,
     });
 
@@ -976,7 +976,7 @@ fn filter_transformed_blur(ctx: &mut impl Renderer) {
 #[vello_test(skip_hybrid, skip_multithreaded)]
 fn filter_empty_layers(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 4.0,
+        std_deviation: 2.0,
         edge_mode: EdgeMode::None,
     });
 
@@ -999,7 +999,7 @@ fn filter_nested_layers(ctx: &mut impl Renderer) {
     let shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 12.0,
         dy: 12.0,
-        std_deviation: 4.0,
+        std_deviation: 2.0,
         color: AlphaColor::from_rgba8(0, 0, 0, 180),
         edge_mode: EdgeMode::None,
     });
@@ -1031,7 +1031,7 @@ fn filter_extreme_blur(ctx: &mut impl Renderer) {
 #[vello_test(skip_hybrid, skip_multithreaded)]
 fn filter_transparent_shapes(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 3.0,
+        std_deviation: 2.0,
         edge_mode: EdgeMode::None,
     });
 
