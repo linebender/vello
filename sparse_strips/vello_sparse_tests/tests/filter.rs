@@ -951,10 +951,10 @@ fn filter_offset(ctx: &mut impl Renderer) {
 }
 
 /// Test blur with various transforms (translate, rotate, scale, skew).
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_transformed_blur(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 2.0,
+        std_deviation: 0.99,
         edge_mode: EdgeMode::None,
     });
 
