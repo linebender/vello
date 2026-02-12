@@ -402,6 +402,8 @@ impl WebGlRenderer {
                 }
             }
         }
+
+        // TODO: Fix this once we support filters.
         self.paint_idxs[encoded_paints.len()] = current_idx;
     }
 

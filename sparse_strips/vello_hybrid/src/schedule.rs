@@ -748,9 +748,11 @@ impl Scheduler {
                                     let encoded_paint = &filter_encoded_paints
                                         [filter_textures.filer_encoded_paints_idx as usize];
 
+                                    let paint_tex_idx =
+                                        paint_idxs[filter_textures.paint_idx as usize];
                                     let (payload, paint) = Self::process_encoded_paint(
                                         encoded_paint,
-                                        filter_textures.paint_idx,
+                                        paint_tex_idx,
                                         scene_strip_x,
                                         scene_strip_y,
                                     );

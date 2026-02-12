@@ -72,6 +72,17 @@ fn filter_offset_no_offset(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+#[vello_test(skip_multithreaded)]
+fn filter_offset_nested(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 10.0, dy: 10.0 });
+    ctx.push_filter_layer(filter.clone());
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(5.0, 5.0, 55.0, 55.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
 /// Test Gaussian blur with small radius (`std_deviation` = 2.0, no decimation).
 /// Uses direct separable convolution at full resolution.
 #[vello_test(skip_hybrid, skip_multithreaded)]

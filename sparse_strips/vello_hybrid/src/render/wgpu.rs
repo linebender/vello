@@ -569,7 +569,7 @@ impl Renderer {
                 }
             }
         }
-        self.paint_idxs[encoded_paints.len()] = current_idx;
+        self.paint_idxs[total_len] = current_idx;
     }
 
     fn encode_image_paint(
