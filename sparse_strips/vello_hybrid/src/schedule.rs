@@ -683,7 +683,9 @@ impl Scheduler {
                                     attrs,
                                 );
                             }
-                            Cmd::PushBuf(LayerKind::Filtered(child_layer_id), _) => {
+                            Cmd::PushBuf(LayerKind::Filtered(child_layer_id), blend_into_dest) => {
+                                self.do_push_buf(state, renderer, *blend_into_dest)?;
+
                                 let filtered_ranges = wide_tile.layer_cmd_ranges.get(child_layer_id).unwrap();
                                 let filter_textures =
                                     filter_context.filter_textures.get(child_layer_id).unwrap();
@@ -756,7 +758,7 @@ impl Scheduler {
                                     }
                                 }
 
-                                cmd_idx = filtered_ranges.full_range.end.max(cmd_idx + 1);
+                                cmd_idx = filtered_ranges.render_range.end.max(cmd_idx + 1);
                                 continue;
                             }
                             Cmd::PushBuf(_, needs_temp) => {
