@@ -958,24 +958,25 @@ impl Scheduler {
                     let next_round: bool = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
+                    let draw = self.draw_mut(
+                        round,
+                        if depth <= 2 {
+                            2
+                        } else {
+                            nos.dest_slot.get_texture()
+                        },
+                    );
+
+                    let gpu_strip_builder = if depth <= 2 {
+                        GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+                    } else {
+                        GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+                    };
+
                     if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
-                        let draw = self.draw_mut(
-                            round,
-                            if depth <= 2 {
-                                2
-                            } else {
-                                nos.dest_slot.get_texture()
-                            },
-                        );
                         let opacity_u8 = (tos.opacity * 255.0) as u8;
                         let mix_mode = mode.mix as u8;
                         let compose_mode = mode.compose as u8;
-
-                        let gpu_strip_builder = if depth <= 2 {
-                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
-                        } else {
-                            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
-                        };
 
                         draw.push(gpu_strip_builder.blend(
                             tos.dest_slot.get_idx(),
@@ -988,19 +989,23 @@ impl Scheduler {
                         let nos_ptr = state.tile_state.stack.len() - 2;
                         state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
                     } else {
-                        assert_eq!(
-                            nos.dest_slot.get_idx(),
-                            SENTINEL_SLOT_IDX,
-                            "code path only for copying to sentinel slot, {mode:?}"
+                        debug_assert_eq!(
+                            *mode,
+                            BlendMode::default(),
+                            "code path only for default src-over compositing, {mode:?}"
                         );
 
-                        let draw = self.draw_mut(round, tos.get_draw_texture(depth - 1));
+                        // Note that despite the slightly misleading name `copy_from_slot`, this will
+                        // actually perform src-over compositing instead of overriding the colors
+                        // in the destination (since the render strips pipeline uses
+                        // `BlendState::PREMULTIPLIED_ALPHA_BLENDING`). This is the whole reason
+                        // why for default blend modes, we don't need to rely on temporary slots
+                        // to achieve blending.
                         draw.push(
-                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
-                                .copy_from_slot(
-                                    tos.dest_slot.get_idx(),
-                                    (tos.opacity * 255.0) as u8,
-                                ),
+                            gpu_strip_builder.copy_from_slot(
+                                tos.dest_slot.get_idx(),
+                                (tos.opacity * 255.0) as u8,
+                            ),
                         );
                     }
                 }
@@ -1191,14 +1196,20 @@ fn prepare_cmds(cmds: &[Cmd], state: &mut SchedulerState) {
             Cmd::PopBuf => {
                 pointer_to_push_buf_stack.pop();
             }
-            Cmd::Blend(_) => {
+            Cmd::Blend(b) => {
                 // For blending of two layers to work in vello_hybrid, the two slots being blended
                 // must be on the same texture. Hence, annotate the next-on-stack (nos) tile such
                 // that it uses a temporary slot on the same texture as this blend.
                 // See https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/Hybrid.20Blending/with/536597802
                 // and https://github.com/linebender/vello/pull/1155 for some information on
                 // how blending works.
-                if pointer_to_push_buf_stack.len() >= 2 {
+
+                // We only need to do this for blend modes that require explicitly reading from the
+                // destination. For normal source-over compositing, we use the GPU built-in capabilities,
+                // so we don't need this workaround.
+                let needs_to_read_dest = b.mix != Mix::Normal || b.compose != Compose::SrcOver;
+
+                if needs_to_read_dest && pointer_to_push_buf_stack.len() >= 2 {
                     let push_buf_idx =
                         pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 2];
                     annotated_commands[push_buf_idx] = AnnotatedCmd::PushBufWithTemporarySlot;
