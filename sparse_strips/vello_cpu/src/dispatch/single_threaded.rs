@@ -861,7 +861,8 @@ mod tests {
 
         // Verify all buffers are cleared.
         assert!(dispatcher.strip_storage.alphas.is_empty());
-        assert!(dispatcher.wide.get(0, 0).cmds.is_empty());
+        // Only the start element is there.
+        assert!(dispatcher.wide.get(0, 0).cmds.len() == 1);
         assert_eq!(dispatcher.layer_id_next, 0);
     }
 }

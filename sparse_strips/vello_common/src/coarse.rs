@@ -1946,7 +1946,7 @@ mod tests {
         wide.push_buf(LayerKind::Regular(0));
         wide.pop_buf();
 
-        assert!(wide.cmds.is_empty());
+        assert_eq!(wide.cmds.len(), 1);
     }
 
     #[test]
@@ -1957,7 +1957,7 @@ mod tests {
         wide.fill(10, 10, 0, 0, FillHint::None);
         wide.pop_buf();
 
-        assert_eq!(wide.cmds.len(), 4);
+        assert_eq!(wide.cmds.len(), 5);
     }
 
     #[test]
@@ -1971,7 +1971,7 @@ mod tests {
         wide.blend(blend_mode);
         wide.pop_buf();
 
-        assert_eq!(wide.cmds.len(), 5);
+        assert_eq!(wide.cmds.len(), 6);
     }
 
     #[test]
@@ -1984,7 +1984,7 @@ mod tests {
         wide.blend(blend_mode);
         wide.pop_buf();
 
-        assert_eq!(wide.cmds.len(), 4);
+        assert_eq!(wide.cmds.len(), 5);
     }
 
     #[test]
