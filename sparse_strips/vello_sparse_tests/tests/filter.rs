@@ -3,7 +3,7 @@
 
 //! Tests demonstrating the filter effects API usage.
 
-use crate::util::{circular_star, stops_blue_green_red_yellow};
+use crate::util::circular_star;
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
@@ -11,10 +11,9 @@ use vello_common::color::palette::css::{
 };
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
-use vello_common::peniko::{BlendMode, Compose, Gradient, Mix};
+use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_cpu::color::palette::css::{BLUE, GREEN, RED};
 use vello_cpu::kurbo::Dashes;
-use vello_cpu::peniko::LinearGradientPosition;
 use vello_dev_macros::vello_test;
 
 // TODO: We are purposefully using multiple of WideTile width/height here, because the implementation
@@ -1093,8 +1092,6 @@ pub(crate) fn blur_with_edge_mode(ctx: &mut impl Renderer, edge_mode: EdgeMode) 
         std_deviation: 6.0,
         edge_mode,
     });
-
-    let rect = Rect::new(0.0, 0.0, 256.0, 100.0);
 
     let step = 256.0 / 3.0;
 
