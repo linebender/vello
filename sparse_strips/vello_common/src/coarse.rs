@@ -324,10 +324,13 @@ impl<const MODE: u8> Wide<MODE> {
         for tile in &mut self.tiles {
             tile.bg = PremulColor::from_alpha_color(TRANSPARENT);
             tile.cmds.clear();
+            tile.cmds.push(Cmd::Start(false));
             tile.layer_ids.truncate(1);
             tile.layer_cmd_ranges.clear();
             tile.layer_cmd_ranges
                 .insert(0, LayerCommandRanges::default());
+            tile.push_buf_indices.clear();
+            tile.push_buf_indices.push(0);
         }
         self.attrs.clear();
         self.layer_stack.clear();
@@ -768,7 +771,7 @@ impl<const MODE: u8> Wide<MODE> {
                     // Optimization: If no drawing happened since the last `PushBuf`, then we don't
                     // need to do any masking or buffer-wide opacity work. The same holds for
                     // blending, unless it is destructive blending.
-                    let has_draw_commands = !matches!(t.cmds.last().unwrap(), &Cmd::PushBuf(_));
+                    let has_draw_commands = !matches!(t.cmds.last().unwrap(), &Cmd::PushBuf(..));
                     if has_draw_commands {
                         if let Some(mask) = layer.mask.clone() {
                             t.mask(mask);
@@ -1188,6 +1191,9 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     pub layer_cmd_ranges: HashMap<LayerId, LayerCommandRanges>,
     /// Vector of layer IDs this tile participates in.
     pub layer_ids: Vec<LayerKind>,
+    /// Tracks the index into `cmds` of each `Start`/`PushBuf` command on the current stack.
+    /// Used during coarse rasterization to mark which push commands need temporary slots.
+    push_buf_indices: Vec<usize>,
 }
 
 impl WideTile {
@@ -1220,13 +1226,14 @@ impl<const MODE: u8> WideTile<MODE> {
             x,
             y,
             bg: PremulColor::from_alpha_color(TRANSPARENT),
-            cmds: vec![],
+            cmds: vec![Cmd::Start(false)],
             n_zero_clip: 0,
             n_clip: 0,
             n_bufs: 0,
             in_clipped_filter_layer: false,
             layer_cmd_ranges,
             layer_ids: vec![LayerKind::Regular(0)],
+            push_buf_indices: vec![0],
         }
     }
 
@@ -1385,14 +1392,14 @@ impl<const MODE: u8> WideTile<MODE> {
     /// the `|| self.in_clipped_filter_layer` check. Filter effects need full layer *content*
     /// rendered (even in zero-clip areas).
     pub fn clip_strip(&mut self, cmd_clip_strip: CmdClipAlphaFill) {
-        if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(_))) {
+        if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(..))) {
             self.cmds.push(Cmd::ClipStrip(cmd_clip_strip));
         }
     }
 
     /// Applies a clip fill operation at the specified position and width.
     pub fn clip_fill(&mut self, x: u16, width: u16) {
-        if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(_))) {
+        if (!self.is_zero_clip()) && !matches!(self.cmds.last(), Some(Cmd::PushBuf(..))) {
             self.cmds.push(Cmd::ClipFill(CmdClipFill { x, width }));
         }
     }
@@ -1433,17 +1440,19 @@ impl<const MODE: u8> WideTile<MODE> {
                 ranges.render_range = self.cmds.len() + 1..self.cmds.len() + 1;
             });
         }
-        self.cmds.push(Cmd::PushBuf(layer_kind));
+        self.push_buf_indices.push(self.cmds.len());
+        self.cmds.push(Cmd::PushBuf(layer_kind, false));
         self.layer_ids.push(layer_kind);
         self.n_bufs += 1;
     }
 
     /// Pop the most recent buffer.
     fn pop_buf(&mut self) {
+        self.push_buf_indices.pop();
         let top_layer = self.layer_ids.pop().unwrap();
         let mut next_layer = *self.layer_ids.last().unwrap();
 
-        if matches!(self.cmds.last(), Some(&Cmd::PushBuf(_))) {
+        if matches!(self.cmds.last(), Some(&Cmd::PushBuf(..))) {
             // Optimization: If no drawing happened between the last `PushBuf`,
             // we can just pop it instead.
             self.cmds.pop();
@@ -1490,6 +1499,17 @@ impl<const MODE: u8> WideTile<MODE> {
 
     /// Blend the current buffer into the previous buffer in the stack.
     fn blend(&mut self, blend_mode: BlendMode) {
+        let needs_to_read_dest =
+            blend_mode.mix != Mix::Normal || blend_mode.compose != Compose::SrcOver;
+
+        if needs_to_read_dest && self.push_buf_indices.len() >= 2 {
+            let nos_idx = self.push_buf_indices[self.push_buf_indices.len() - 2];
+            match &mut self.cmds[nos_idx] {
+                Cmd::PushBuf(_, needs_temp) => *needs_temp = true,
+                Cmd::Start(needs_wrap) => *needs_wrap = true,
+                _ => unreachable!(),
+            }
+        }
         self.cmds.push(Cmd::Blend(blend_mode));
     }
 }
@@ -1579,6 +1599,10 @@ impl LayerKind {
 /// (`Filter`, `Blend`, `Opacity`, `Mask`).
 #[derive(Debug, PartialEq)]
 pub enum Cmd {
+    /// Marks the start of a tile's command list.
+    /// `true` = surface needs wrapping with a temporary slot for blending.
+    /// `false` = surface doesn't need wrapping.
+    Start(bool),
     /// Fill a rectangular region with a solid color or paint.
     Fill(CmdFill),
     /// Fill a region with a paint, modulated by an alpha mask.
@@ -1586,7 +1610,8 @@ pub enum Cmd {
     /// Pushes a new buffer for drawing.
     /// Regular layers use the local `blend_buf` stack.
     /// Filtered layers are materialized in persistent layer storage.
-    PushBuf(LayerKind),
+    /// The bool indicates whether this push needs a temporary slot for blending.
+    PushBuf(LayerKind, bool),
     /// Pops the most recent buffer and blends it into the previous buffer.
     PopBuf,
     /// A fill command within a clipping region.
@@ -1639,12 +1664,17 @@ impl Cmd {
     /// **Note:** This method is only available in debug builds (`debug_assertions`).
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Start(false) => "Start(false)",
+            Self::Start(true) => "Start(true)",
             Self::Fill(_) => "FillPath",
             Self::AlphaFill(_) => "AlphaFillPath",
-            Self::PushBuf(layer_kind) => match layer_kind {
-                LayerKind::Regular(_) => "PushBuf(Regular)",
-                LayerKind::Filtered(_) => "PushBuf(Filtered)",
-                LayerKind::Clip(_) => "PushBuf(Clip)",
+            Self::PushBuf(layer_kind, needs_temp) => match (layer_kind, needs_temp) {
+                (LayerKind::Regular(_), false) => "PushBuf(Regular)",
+                (LayerKind::Regular(_), true) => "PushBuf(Regular, NeedsTemp)",
+                (LayerKind::Filtered(_), false) => "PushBuf(Filtered)",
+                (LayerKind::Filtered(_), true) => "PushBuf(Filtered, NeedsTemp)",
+                (LayerKind::Clip(_), false) => "PushBuf(Clip)",
+                (LayerKind::Clip(_), true) => "PushBuf(Clip, NeedsTemp)",
             },
             Self::PopBuf => "PopBuf",
             Self::ClipFill(_) => "ClipPathFill",

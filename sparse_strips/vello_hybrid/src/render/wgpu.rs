@@ -58,7 +58,12 @@ use vello_common::{
     render_graph::{LayerId, RenderGraph, RenderNodeKind},
     tile::Tile,
 };
-use wgpu::{BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder, Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, Texture, TextureView, TextureViewDescriptor, util::DeviceExt, TextureFormat};
+use wgpu::{
+    BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
+    Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment,
+    RenderPassDescriptor, RenderPipeline, Texture, TextureFormat, TextureView,
+    TextureViewDescriptor, util::DeviceExt,
+};
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -2538,21 +2543,21 @@ impl RendererBackend for RendererContext<'_> {
             self.programs
                 .upload_filter_instance(self.device, self.queue, &pass2_instance_data);
 
-            let scratch_input_view = self
-                .programs
-                .resources
-                .atlas_texture_array
-                .create_view(&TextureViewDescriptor {
-                    label: Some("Filter Scratch Input View"),
-                    format: None,
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    aspect: wgpu::TextureAspect::All,
-                    base_mip_level: 0,
-                    mip_level_count: None,
-                    base_array_layer: scratch_resource.atlas_id.as_u32(),
-                    array_layer_count: Some(1),
-                    usage: None,
-                });
+            let scratch_input_view =
+                self.programs
+                    .resources
+                    .atlas_texture_array
+                    .create_view(&TextureViewDescriptor {
+                        label: Some("Filter Scratch Input View"),
+                        format: None,
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        aspect: wgpu::TextureAspect::All,
+                        base_mip_level: 0,
+                        mip_level_count: None,
+                        base_array_layer: scratch_resource.atlas_id.as_u32(),
+                        array_layer_count: Some(1),
+                        usage: None,
+                    });
 
             let scratch_input_bind_group =
                 self.device.create_bind_group(&wgpu::BindGroupDescriptor {

@@ -329,10 +329,6 @@ impl Round {
 pub(crate) struct SchedulerState {
     /// The state of the current wide tile that is being processed.
     tile_state: TileState,
-    /// Annotated commands for the current wide tile.
-    annotated_commands: Vec<AnnotatedCmd>,
-    /// Pointers to `PushBuf` commands.
-    pointer_to_push_buf_stack: Vec<usize>,
     /// Pixel offset to subtract from strip coordinates.
     ///
     /// We need this because when rendering filtered layers, we only allocate a texture
@@ -347,8 +343,6 @@ pub(crate) struct SchedulerState {
 impl SchedulerState {
     fn clear(&mut self) {
         self.tile_state.clear();
-        self.annotated_commands.clear();
-        self.pointer_to_push_buf_stack.clear();
     }
 }
 
@@ -383,40 +377,6 @@ impl ClaimedSlot {
         match self {
             Self::Texture0(_) => 0,
             Self::Texture1(_) => 1,
-        }
-    }
-}
-
-/// Annotated commands lets the scheduler be smarter about what work to do per command by preparing
-/// some work upfront in `O(N)` time, where `N` is the length of the wide tile draw commands.
-///
-/// TODO: In the future these annotations could be optionally enabled in coarse.rs directly avoiding
-/// the need to do linear scans.
-#[derive(Debug)]
-enum AnnotatedCmd {
-    /// The index of a wrapped command - no semantic meaning added.
-    Identity(usize),
-    PushBuf,
-    Empty,
-    SrcOverNormalBlend,
-    PopBuf,
-    /// A `Cmd::PushBuf` that will be blended into by the layer above it. Will need a
-    /// `temporary_slot` created for it to enable compositing.
-    PushBufWithTemporarySlot,
-}
-
-impl AnnotatedCmd {
-    fn as_cmd<'a>(&self, cmds: &'a [Cmd]) -> Option<&'a Cmd> {
-        match self {
-            Self::Identity(idx) => Some(&cmds[*idx]),
-            Self::PushBufWithTemporarySlot => Some(&Cmd::PushBuf(LayerKind::Regular(0))),
-            Self::PushBuf => Some(&Cmd::PushBuf(LayerKind::Regular(0))),
-            Self::SrcOverNormalBlend => Some(&Cmd::Blend(BlendMode {
-                mix: Mix::Normal,
-                compose: Compose::SrcOver,
-            })),
-            Self::PopBuf => Some(&Cmd::PopBuf),
-            Self::Empty => None,
         }
     }
 }
@@ -591,7 +551,6 @@ impl Scheduler {
                     paint_idxs,
                     offset,
                 );
-                prepare_cmds(&wide_tile.cmds, state);
                 self.do_tile(
                     state,
                     renderer,
@@ -687,6 +646,15 @@ impl Scheduler {
                         continue;
                     };
 
+                    let wrap_surface = matches!(
+                        wide_tile.cmds[ranges.full_range.start],
+                        Cmd::Start(true) | Cmd::PushBuf(_, true)
+                    );
+
+                    if wrap_surface {
+                        self.do_push_buf(state, renderer, true)?;
+                    }
+
                     let attrs = &scene.wide.attrs;
                     let mut cmd_idx = ranges.render_range.start;
 
@@ -715,7 +683,7 @@ impl Scheduler {
                                     attrs,
                                 );
                             }
-                            Cmd::PushBuf(LayerKind::Filtered(child_layer_id)) => {
+                            Cmd::PushBuf(LayerKind::Filtered(child_layer_id), _) => {
                                 let filter_textures =
                                     filter_context.filter_textures.get(child_layer_id).unwrap();
 
@@ -776,8 +744,8 @@ impl Scheduler {
                                     continue;
                                 }
                             }
-                            Cmd::PushBuf(_) => {
-                                self.do_push_buf(state, renderer, false)?;
+                            Cmd::PushBuf(_, needs_temp) => {
+                                self.do_push_buf(state, renderer, *needs_temp)?;
                             }
                             Cmd::PopBuf => {
                                 self.do_pop_buf(state);
@@ -798,18 +766,24 @@ impl Scheduler {
                                 self.do_opacity(state, *opacity);
                             }
                             Cmd::Blend(b) => {
-                                assert!(b.compose == Compose::SrcOver && b.mix == Mix::Normal, "filters with blend modes are currently not supported");
-
-                                self.do_blend(
-                                    state,
-                                    wide_tile_x,
-                                    wide_tile_y,
-                                    b
-                                );
+                                self.do_blend(state, wide_tile_x, wide_tile_y, b, offset);
                             }
+                            Cmd::Filter(_, _) => {}
+                            Cmd::Start(_) => {}
                             _ => unimplemented!(),
                         }
                         cmd_idx += 1;
+                    }
+
+                    if wrap_surface {
+                        self.do_blend(
+                            state,
+                            wide_tile_x,
+                            wide_tile_y,
+                            &BlendMode::default(),
+                            offset,
+                        );
+                        self.do_pop_buf(state);
                     }
                 }
             }
@@ -949,9 +923,6 @@ impl Scheduler {
     }
 
     /// Iterates over wide tile commands and schedules them for rendering.
-    ///
-    /// Returns `Some(command_idx)` if there is more work to be done. Returns `None` if the wide
-    /// tile has been fully consumed.
     fn do_tile<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
@@ -963,18 +934,17 @@ impl Scheduler {
         paint_idxs: &[u32],
         attrs: &CommandAttrs,
     ) -> Result<(), RenderError> {
-        for i in 0..state.annotated_commands.len() {
-            let annotated_cmd = &state.annotated_commands[i];
-            let Some(cmd) = annotated_cmd.as_cmd(wide_tile_cmds) else {
-                continue;
-            };
+        let mut surface_needs_wrap = false;
 
-            // Clone the small data we need from the annotated command before
-            // borrowing state mutably. `AnnotatedCmd` references are only needed
-            // to distinguish PushBufWithTemporarySlot from PushBuf.
-            let is_push_with_temp = matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot);
-
+        for cmd in wide_tile_cmds {
             match cmd {
+                Cmd::Start(needs_wrap) => {
+                    surface_needs_wrap = *needs_wrap;
+
+                    if *needs_wrap {
+                        self.do_push_buf(state, renderer, true)?;
+                    }
+                }
                 Cmd::Fill(fill) => {
                     self.do_fill(
                         state,
@@ -997,8 +967,8 @@ impl Scheduler {
                         attrs,
                     );
                 }
-                Cmd::PushBuf(_) => {
-                    self.do_push_buf(state, renderer, is_push_with_temp)?;
+                Cmd::PushBuf(_, needs_temp) => {
+                    self.do_push_buf(state, renderer, *needs_temp)?;
                 }
                 Cmd::PopBuf => {
                     self.do_pop_buf(state);
@@ -1013,12 +983,21 @@ impl Scheduler {
                     self.do_opacity(state, *opacity);
                 }
                 Cmd::Blend(mode) => {
-                    self.do_blend(state, wide_tile_x, wide_tile_y, mode);
+                    self.do_blend(state, wide_tile_x, wide_tile_y, mode, (0, 0));
                 }
                 _ => unimplemented!(),
             }
         }
-
+        if surface_needs_wrap {
+            self.do_blend(
+                state,
+                wide_tile_x,
+                wide_tile_y,
+                &BlendMode::default(),
+                (0, 0),
+            );
+            self.do_pop_buf(state);
+        }
         Ok(())
     }
 
@@ -1329,6 +1308,7 @@ impl Scheduler {
         wide_tile_x: u16,
         wide_tile_y: u16,
         mode: &BlendMode,
+        offset: (i32, i32),
     ) {
         let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
@@ -1338,24 +1318,25 @@ impl Scheduler {
         let next_round: bool = depth.is_multiple_of(2) && depth > 2;
         let round = nos.round.max(tos.round + usize::from(next_round));
 
+        let draw = self.draw_mut(
+            round,
+            if depth <= 2 {
+                2
+            } else {
+                nos.dest_slot.get_texture()
+            },
+        );
+
+        let gpu_strip_builder = if depth <= 2 {
+            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
+        } else {
+            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+        };
+
         if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
-            let draw = self.draw_mut(
-                round,
-                if depth <= 2 {
-                    2
-                } else {
-                    nos.dest_slot.get_texture()
-                },
-            );
             let opacity_u8 = (tos.opacity * 255.0) as u8;
             let mix_mode = mode.mix as u8;
             let compose_mode = mode.compose as u8;
-
-            let gpu_strip_builder = if depth <= 2 {
-                GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
-            } else {
-                GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
-            };
 
             draw.push(gpu_strip_builder.blend(
                 tos.dest_slot.get_idx(),
@@ -1368,15 +1349,22 @@ impl Scheduler {
             let nos_ptr = state.tile_state.stack.len() - 2;
             state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
         } else {
-            assert_eq!(
-                nos.dest_slot.get_idx(),
-                SENTINEL_SLOT_IDX,
-                "code path only for copying to sentinel slot, {mode:?}"
-            );
+            if *mode != BlendMode::default() {
+                assert_eq!(
+                    nos.dest_slot.get_idx(),
+                    SENTINEL_SLOT_IDX,
+                    "code path only for default src-over compositing, {mode:?}"
+                );
+            }
 
-            let draw = self.draw_mut(round, tos.get_draw_texture(depth - 1));
+            // Note that despite the slightly misleading name `copy_from_slot`, this will
+            // actually perform src-over compositing instead of overriding the colors
+            // in the destination (since the render strips pipeline uses
+            // `BlendState::PREMULTIPLIED_ALPHA_BLENDING`). This is the whole reason
+            // why for default blend modes, we don't need to rely on temporary slots
+            // to achieve blending.
             draw.push(
-                GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
+                gpu_strip_builder
                     .copy_from_slot(tos.dest_slot.get_idx(), (tos.opacity * 255.0) as u8),
             );
         }
@@ -1553,61 +1541,4 @@ impl GpuStripBuilder {
 #[inline(always)]
 fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
-}
-
-/// Does a single linear scan over the wide tile commands to prepare them for `do_tile`. Notably
-/// this function:
-///  - Precomputes the layers that require temporary slots due to blending.
-///
-/// TODO: Can be triggered via a const generic on coarse draw cmd generation which will avoid
-/// a linear scan.
-fn prepare_cmds(cmds: &[Cmd], state: &mut SchedulerState) {
-    let annotated_commands = &mut state.annotated_commands;
-    let pointer_to_push_buf_stack = &mut state.pointer_to_push_buf_stack;
-
-    // Reserve room for three extra items such that we can prevent repeated blends into the surface.
-    annotated_commands.reserve(cmds.len() + 3);
-
-    // We pretend that the surface might be blended into. This will be removed if no blends occur to
-    // the surface.
-    pointer_to_push_buf_stack.push(0);
-    annotated_commands.push(AnnotatedCmd::PushBuf);
-
-    for (cmd_idx, cmd) in cmds.iter().enumerate() {
-        match cmd {
-            Cmd::PushBuf(_layer_id) => {
-                // TODO: Handle layer_id for filter effects when implemented.
-                pointer_to_push_buf_stack.push(annotated_commands.len());
-            }
-            Cmd::PopBuf => {
-                pointer_to_push_buf_stack.pop();
-            }
-            Cmd::Blend(_) => {
-                // For blending of two layers to work in vello_hybrid, the two slots being blended
-                // must be on the same texture. Hence, annotate the next-on-stack (nos) tile such
-                // that it uses a temporary slot on the same texture as this blend.
-                if pointer_to_push_buf_stack.len() >= 2 {
-                    let push_buf_idx =
-                        pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 2];
-                    annotated_commands[push_buf_idx] = AnnotatedCmd::PushBufWithTemporarySlot;
-                }
-            }
-            _ => {}
-        };
-
-        annotated_commands.push(AnnotatedCmd::Identity(cmd_idx));
-    }
-
-    if matches!(
-        annotated_commands[0],
-        AnnotatedCmd::PushBufWithTemporarySlot
-    ) {
-        // We need to wrap the draw commands with an extra layer - preventing blending directly into
-        // the surface.
-        annotated_commands.push(AnnotatedCmd::SrcOverNormalBlend);
-        annotated_commands.push(AnnotatedCmd::PopBuf);
-    } else {
-        // This extra wrapping can be removed.
-        annotated_commands[0] = AnnotatedCmd::Empty;
-    }
 }
