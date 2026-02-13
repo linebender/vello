@@ -306,7 +306,7 @@ impl SingleThreadedDispatcher {
             // Special handling for filtered layer composition.
             // Filtered layers have already been rendered and stored in layer_manager.
             // Here we composite them into the current buffer, with special handling for clipping.
-            if let Cmd::PushBuf(LayerKind::Filtered(child_layer_id)) = cmd {
+            if let Cmd::PushBuf(LayerKind::Filtered(child_layer_id), _) = cmd {
                 // Invariant: PushBuf(Filtered) command must have corresponding layer_cmd_ranges entry.
                 let filtered_ranges = wtile.layer_cmd_ranges.get(child_layer_id).unwrap();
 
@@ -321,7 +321,7 @@ impl SingleThreadedDispatcher {
                     }
 
                     // Partial clip: push the clip buffer, then composite the filtered layer
-                    Some(Cmd::PushBuf(LayerKind::Clip(_))) => {
+                    Some(Cmd::PushBuf(LayerKind::Clip(_), _)) => {
                         fine.run_cmd(
                             &wtile.cmds[cmd_idx + 1],
                             &self.strip_storage.alphas,

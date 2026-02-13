@@ -180,9 +180,9 @@ use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use vello_common::coarse::{CommandAttrs, MODE_HYBRID};
-use vello_common::peniko::{BlendMode, Compose, Mix};
+use vello_common::peniko::BlendMode;
 use vello_common::{
-    coarse::{Cmd, LayerKind, WideTile},
+    coarse::{Cmd, WideTile},
     encode::EncodedPaint,
     paint::{ImageSource, Paint},
     tile::Tile,
@@ -296,17 +296,11 @@ impl Round {
 pub(crate) struct SchedulerState {
     /// The state of the current wide tile that is being processed.
     tile_state: TileState,
-    /// Annotated commands for the current wide tile.
-    annotated_commands: Vec<AnnotatedCmd>,
-    /// Pointers to `PushBuf` commands.
-    pointer_to_push_buf_stack: Vec<usize>,
 }
 
 impl SchedulerState {
     fn clear(&mut self) {
         self.tile_state.clear();
-        self.annotated_commands.clear();
-        self.pointer_to_push_buf_stack.clear();
     }
 }
 
@@ -341,40 +335,6 @@ impl ClaimedSlot {
         match self {
             Self::Texture0(_) => 0,
             Self::Texture1(_) => 1,
-        }
-    }
-}
-
-/// Annotated commands lets the scheduler be smarter about what work to do per command by preparing
-/// some work upfront in `O(N)` time, where `N` is the length of the wide tile draw commands.
-///
-/// TODO: In the future these annotations could be optionally enabled in coarse.rs directly avoiding
-/// the need to do linear scans.
-#[derive(Debug)]
-enum AnnotatedCmd {
-    /// The index of a wrapped command - no semantic meaning added.
-    Identity(usize),
-    PushBuf,
-    Empty,
-    SrcOverNormalBlend,
-    PopBuf,
-    /// A `Cmd::PushBuf` that will be blended into by the layer above it. Will need a
-    /// `temporary_slot` created for it to enable compositing.
-    PushBufWithTemporarySlot,
-}
-
-impl AnnotatedCmd {
-    fn as_cmd<'a>(&self, cmds: &'a [Cmd]) -> Option<&'a Cmd> {
-        match self {
-            Self::Identity(idx) => Some(&cmds[*idx]),
-            Self::PushBufWithTemporarySlot => Some(&Cmd::PushBuf(LayerKind::Regular(0))),
-            Self::PushBuf => Some(&Cmd::PushBuf(LayerKind::Regular(0))),
-            Self::SrcOverNormalBlend => Some(&Cmd::Blend(BlendMode {
-                mix: Mix::Normal,
-                compose: Compose::SrcOver,
-            })),
-            Self::PopBuf => Some(&Cmd::PopBuf),
-            Self::Empty => None,
         }
     }
 }
@@ -508,7 +468,6 @@ impl Scheduler {
                     scene,
                     paint_idxs,
                 );
-                prepare_cmds(&wide_tile.cmds, state);
                 self.do_tile(
                     state,
                     renderer,
@@ -666,14 +625,41 @@ impl Scheduler {
         paint_idxs: &[u32],
         attrs: &CommandAttrs,
     ) -> Result<(), RenderError> {
-        for annotated_cmd in &state.annotated_commands {
+        // What is going on with the `surface_needs_wrap` and `is_blend_target` variables in
+        // `PushBuf`?
+        // For blending of two layers (with a non-default blend mode) to work in vello_hybrid,
+        // the two slots being blended must be on the same texture, since we need to be able to
+        // read from the destination to do blending. Therefore, we create an additional temporary
+        // slot in the other texture than the main destination slot.
+        // See https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/Hybrid.20Blending/with/536597802
+        // and https://github.com/linebender/vello/pull/1155 for some information on
+        // how blending works.
+        //
+        // Note however that all of this is not necessary when we have layers (for example for
+        // clip paths or opacity layers) with normal source-over blending, since the GPU automatically
+        // takes care of doing blending in this case. Determining which layers are the target of
+        // a blend operation has already happened during coarse rasterization, so here we just
+        // need to pass on the boolean flags.
+        //
+        // `surface_needs_wrap` is needed because the main target surface can obviously also
+        // end up being the destination of a blending operation. Since that surface is provided
+        // by the user, there is no way we can read from it, which is required for blending. Therefore,
+        // in this case we need to "wrap" the _whole_ layer into a push/pop layer operation.
+
+        let mut surface_is_blend_target = false;
+
+        for cmd in wide_tile_cmds {
             // Note: this starts at 1 (for the final target)
             let depth = state.tile_state.stack.len();
-            let Some(cmd) = annotated_cmd.as_cmd(wide_tile_cmds) else {
-                continue;
-            };
 
             match cmd {
+                Cmd::Start(is_blend_target) => {
+                    surface_is_blend_target = *is_blend_target;
+
+                    if *is_blend_target {
+                        self.do_push_buf(state, renderer, true)?;
+                    }
+                }
                 Cmd::Fill(fill) => {
                     let el = state.tile_state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
@@ -732,114 +718,11 @@ impl Scheduler {
                             .paint(payload, paint),
                     );
                 }
-                Cmd::PushBuf(_layer_id) => {
-                    // TODO: Handle layer_id for filter effects when implemented.
-                    // `wgpu` does not allow reading/writing from the same slot texture. This means
-                    // that to represent the binary function `Blend(src_tile, dest_tile)` we need
-                    // both slots being blended to be on the same texture. This is accomplished as
-                    // the lower destination tile (`nos`) maintains a proxy slot in the texture
-                    // above. Blending consumes both the top-of-stack (`tos`) slot, the `src_tile`,
-                    // and blends it with `nos.temporary_slot` (`dest_tile`). The results of the
-                    // blend are written to `nos.dest_slot`.
-                    //
-                    // This works well _once_. Unfortunately, to blend to `nos` again we need to
-                    // copy the contents of `dest_slot` back to `temporary_slot` such that it can be
-                    // composited again. Without this, the tile will not accumulate blends, and
-                    // instead will have repeated blends clobber the prior blends. Hence, if a
-                    // buffer is being pushed that will be blended back to `tos`, copy contents from
-                    // `tos.dest_slot` to `tos.temporary_slot` ready for future blending.
-                    {
-                        let tos: &mut TileEl = state.tile_state.stack.last_mut().unwrap();
-                        if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
-                            let next_round = depth.is_multiple_of(2);
-                            let el_round = tos.round + usize::from(next_round);
-                            let draw = self.draw_mut(el_round, temp_slot.get_texture());
-                            draw.push(
-                                GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
-                                    .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
-                            );
-
-                            tos.temporary_slot = TemporarySlot::Valid(temp_slot);
-                            // Signal when this tile will be ready to use for future blend/pop/clip
-                            // operations.
-                            tos.round = el_round + 1;
-
-                            // First, we clear the temp slot. THEN, in the same round, we copy the data
-                            // from dest slot to temp slot. THEN, in the round after that, we clear
-                            // dest slot, so that in a future blending operation, we can store
-                            // results into dest slot again.
-                            let dest_slot = tos.dest_slot;
-                            let round = self.get_round(el_round);
-                            round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
-                            debug_assert_ne!(
-                                dest_slot.get_idx(),
-                                SENTINEL_SLOT_IDX,
-                                "surface cannot be read"
-                            );
-                            let round1 = self.get_round(tos.round);
-                            round1.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
-                        }
-                    }
-
-                    // Push a new tile.
-                    let ix = depth % 2;
-                    let slot = self.claim_free_slot(ix, renderer)?;
-                    let temporary_slot =
-                        if matches!(annotated_cmd, AnnotatedCmd::PushBufWithTemporarySlot) {
-                            let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
-                            debug_assert_ne!(
-                                slot.get_texture(),
-                                temp_slot.get_texture(),
-                                "slot and temporary slot must be on opposite textures."
-                            );
-                            TemporarySlot::Valid(temp_slot)
-                        } else {
-                            TemporarySlot::None
-                        };
-                    state.tile_state.stack.push(TileEl {
-                        dest_slot: slot,
-                        temporary_slot,
-                        round: self.round,
-                        opacity: 1.,
-                    });
+                Cmd::PushBuf(_, is_blend_target) => {
+                    self.do_push_buf(state, renderer, *is_blend_target)?;
                 }
                 Cmd::PopBuf => {
-                    let tos = state.tile_state.stack.pop().unwrap();
-                    let nos = state.tile_state.stack.last_mut().unwrap();
-                    let next_round = depth.is_multiple_of(2) && depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
-                    // Why do we have to need to change the round here? Let's assume that we are drawing 3
-                    // nested clip paths. The sequence of commands might look as follows:
-                    // PushBuf, Fill, PushBuf, Fill, PushBuf, Fill, ClipFill, PopBuf, ClipFill, PopBuf,
-                    // ClipFill, PopBuf.
-                    // When executing the first 6 commands, we will happily schedule everything in the
-                    // first round, since there are no dependencies yet; the contents of each clip
-                    // layer can be drawn independently. However, upon executing the first ClipFill
-                    // command, we realize that we need another round: The first fill used texture 1,
-                    // the second fill used texture 0, and the third fill texture 1 again. Since we
-                    // cannot read from texture 1 twice within a single round, we need to schedule the
-                    // `PopBuf` operation for round 1. All subsequent operations that depend on this
-                    // result must therefore also execute in a later round, and this is achieved by
-                    // updating `nos` with the new round.
-                    nos.round = round;
-                    // free slot after draw
-                    debug_assert!(round >= self.round, "round must be after current round");
-                    debug_assert!(
-                        round - self.round < self.rounds_queue.len(),
-                        "round must be in queue"
-                    );
-                    // Since we pop the buffer, the slot is not needed anymore. Thus, mark it to be
-                    // freed after the round so that it can be reused in the future.
-                    self.rounds_queue[round - self.round].free[tos.dest_slot.get_texture()]
-                        .push(tos.dest_slot.get_idx());
-                    // If a TileEl was not used for blending the temporary slot may still be in use
-                    // and needs to be cleared.
-                    if let TemporarySlot::Valid(temp_slot) | TemporarySlot::Invalid(temp_slot) =
-                        tos.temporary_slot
-                    {
-                        self.rounds_queue[round - self.round].free[temp_slot.get_texture()]
-                            .push(temp_slot.get_idx());
-                    }
+                    self.do_pop_buf(state);
                 }
                 Cmd::ClipFill(clip_fill) => {
                     let tos: &TileEl = &state.tile_state.stack[depth - 1];
@@ -952,68 +835,203 @@ impl Scheduler {
                     state.tile_state.stack.last_mut().unwrap().opacity = *opacity;
                 }
                 Cmd::Blend(mode) => {
-                    let tos = state.tile_state.stack.last().unwrap();
-                    let nos = &state.tile_state.stack[state.tile_state.stack.len() - 2];
-
-                    let next_round: bool = depth.is_multiple_of(2) && depth > 2;
-                    let round = nos.round.max(tos.round + usize::from(next_round));
-
-                    let draw = self.draw_mut(
-                        round,
-                        if depth <= 2 {
-                            2
-                        } else {
-                            nos.dest_slot.get_texture()
-                        },
-                    );
-
-                    let gpu_strip_builder = if depth <= 2 {
-                        GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
-                    } else {
-                        GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
-                    };
-
-                    if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
-                        let opacity_u8 = (tos.opacity * 255.0) as u8;
-                        let mix_mode = mode.mix as u8;
-                        let compose_mode = mode.compose as u8;
-
-                        draw.push(gpu_strip_builder.blend(
-                            tos.dest_slot.get_idx(),
-                            temp_slot.get_idx(),
-                            opacity_u8,
-                            mix_mode,
-                            compose_mode,
-                        ));
-                        // Invalidate the temporary slot after use
-                        let nos_ptr = state.tile_state.stack.len() - 2;
-                        state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
-                    } else {
-                        debug_assert_eq!(
-                            *mode,
-                            BlendMode::default(),
-                            "code path only for default src-over compositing, {mode:?}"
-                        );
-
-                        // Note that despite the slightly misleading name `copy_from_slot`, this will
-                        // actually perform src-over compositing instead of overriding the colors
-                        // in the destination (since the render strips pipeline uses
-                        // `BlendState::PREMULTIPLIED_ALPHA_BLENDING`). This is the whole reason
-                        // why for default blend modes, we don't need to rely on temporary slots
-                        // to achieve blending.
-                        draw.push(
-                            gpu_strip_builder.copy_from_slot(
-                                tos.dest_slot.get_idx(),
-                                (tos.opacity * 255.0) as u8,
-                            ),
-                        );
-                    }
+                    self.do_blend(state, wide_tile_x, wide_tile_y, mode);
                 }
                 _ => unimplemented!(),
             }
         }
+        if surface_is_blend_target {
+            // Simple source-over compositing into the final render target.
+            self.do_blend(state, wide_tile_x, wide_tile_y, &BlendMode::default());
+            self.do_pop_buf(state);
+        }
+        Ok(())
+    }
+
+    fn do_push_buf<R: RendererBackend>(
+        &mut self,
+        state: &mut SchedulerState,
+        renderer: &mut R,
+        needs_temporary_slot: bool,
+    ) -> Result<(), RenderError> {
+        let depth = state.tile_state.stack.len();
+
+        // TODO: Handle layer_id for filter effects when implemented.
+        // `wgpu` does not allow reading/writing from the same slot texture. This means
+        // that to represent the binary function `Blend(src_tile, dest_tile)` we need
+        // both slots being blended to be on the same texture. This is accomplished as
+        // the lower destination tile (`nos`) maintains a proxy slot in the texture
+        // above. Blending consumes both the top-of-stack (`tos`) slot, the `src_tile`,
+        // and blends it with `nos.temporary_slot` (`dest_tile`). The results of the
+        // blend are written to `nos.dest_slot`.
+        //
+        // This works well _once_. Unfortunately, to blend to `nos` again we need to
+        // copy the contents of `dest_slot` back to `temporary_slot` such that it can be
+        // composited again. Without this, the tile will not accumulate blends, and
+        // instead will have repeated blends clobber the prior blends. Hence, if a
+        // buffer is being pushed that will be blended back to `tos`, copy contents from
+        // `tos.dest_slot` to `tos.temporary_slot` ready for future blending.
+        {
+            let tos: &mut TileEl = state.tile_state.stack.last_mut().unwrap();
+            if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
+                let next_round = depth.is_multiple_of(2);
+                let el_round = tos.round + usize::from(next_round);
+                let draw = self.draw_mut(el_round, temp_slot.get_texture());
+                draw.push(
+                    GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
+                        .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
+                );
+
+                tos.temporary_slot = TemporarySlot::Valid(temp_slot);
+                // Signal when this tile will be ready to use for future blend/pop/clip
+                // operations.
+                tos.round = el_round + 1;
+
+                // First, we clear the temp slot. THEN, in the same round, we copy the data
+                // from dest slot to temp slot. THEN, in the round after that, we clear
+                // dest slot, so that in a future blending operation, we can store
+                // results into dest slot again.
+                let dest_slot = tos.dest_slot;
+                let round = self.get_round(el_round);
+                round.clear[temp_slot.get_texture()].push(temp_slot.get_idx() as u32);
+                debug_assert_ne!(
+                    dest_slot.get_idx(),
+                    SENTINEL_SLOT_IDX,
+                    "surface cannot be read"
+                );
+                let round1 = self.get_round(tos.round);
+                round1.clear[dest_slot.get_texture()].push(dest_slot.get_idx() as u32);
+            }
+        }
+
+        // Push a new tile.
+        let ix = depth % 2;
+        let slot = self.claim_free_slot(ix, renderer)?;
+        let temporary_slot = if needs_temporary_slot {
+            let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
+            debug_assert_ne!(
+                slot.get_texture(),
+                temp_slot.get_texture(),
+                "slot and temporary slot must be on opposite textures."
+            );
+            TemporarySlot::Valid(temp_slot)
+        } else {
+            TemporarySlot::None
+        };
+
+        state.tile_state.stack.push(TileEl {
+            dest_slot: slot,
+            temporary_slot,
+            round: self.round,
+            opacity: 1.,
+        });
 
         Ok(())
+    }
+
+    fn do_pop_buf(&mut self, state: &mut SchedulerState) {
+        let depth = state.tile_state.stack.len();
+
+        let tos = state.tile_state.stack.pop().unwrap();
+        let nos = state.tile_state.stack.last_mut().unwrap();
+        let next_round = depth.is_multiple_of(2) && depth > 2;
+        let round = nos.round.max(tos.round + usize::from(next_round));
+        // Why do we have to need to change the round here? Let's assume that we are drawing 3
+        // nested clip paths. The sequence of commands might look as follows:
+        // PushBuf, Fill, PushBuf, Fill, PushBuf, Fill, ClipFill, PopBuf, ClipFill, PopBuf,
+        // ClipFill, PopBuf.
+        // When executing the first 6 commands, we will happily schedule everything in the
+        // first round, since there are no dependencies yet; the contents of each clip
+        // layer can be drawn independently. However, upon executing the first ClipFill
+        // command, we realize that we need another round: The first fill used texture 1,
+        // the second fill used texture 0, and the third fill texture 1 again. Since we
+        // cannot read from texture 1 twice within a single round, we need to schedule the
+        // `PopBuf` operation for round 1. All subsequent operations that depend on this
+        // result must therefore also execute in a later round, and this is achieved by
+        // updating `nos` with the new round.
+        nos.round = round;
+        // free slot after draw
+        debug_assert!(round >= self.round, "round must be after current round");
+        debug_assert!(
+            round - self.round < self.rounds_queue.len(),
+            "round must be in queue"
+        );
+        // Since we pop the buffer, the slot is not needed anymore. Thus, mark it to be
+        // freed after the round so that it can be reused in the future.
+        self.rounds_queue[round - self.round].free[tos.dest_slot.get_texture()]
+            .push(tos.dest_slot.get_idx());
+        // If a TileEl was not used for blending the temporary slot may still be in use
+        // and needs to be cleared.
+        if let TemporarySlot::Valid(temp_slot) | TemporarySlot::Invalid(temp_slot) =
+            tos.temporary_slot
+        {
+            self.rounds_queue[round - self.round].free[temp_slot.get_texture()]
+                .push(temp_slot.get_idx());
+        }
+    }
+
+    fn do_blend(
+        &mut self,
+        state: &mut SchedulerState,
+        wide_tile_x: u16,
+        wide_tile_y: u16,
+        mode: &BlendMode,
+    ) {
+        let depth = state.tile_state.stack.len();
+        let tos = state.tile_state.stack.last().unwrap();
+        let nos = &state.tile_state.stack[state.tile_state.stack.len() - 2];
+
+        let next_round: bool = depth.is_multiple_of(2) && depth > 2;
+        let round = nos.round.max(tos.round + usize::from(next_round));
+
+        let draw = self.draw_mut(
+            round,
+            if depth <= 2 {
+                2
+            } else {
+                nos.dest_slot.get_texture()
+            },
+        );
+
+        let gpu_strip_builder = if depth <= 2 {
+            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+        } else {
+            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+        };
+
+        if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
+            let opacity_u8 = (tos.opacity * 255.0) as u8;
+            let mix_mode = mode.mix as u8;
+            let compose_mode = mode.compose as u8;
+
+            draw.push(gpu_strip_builder.blend(
+                tos.dest_slot.get_idx(),
+                temp_slot.get_idx(),
+                opacity_u8,
+                mix_mode,
+                compose_mode,
+            ));
+            // Invalidate the temporary slot after use
+            let nos_ptr = state.tile_state.stack.len() - 2;
+            state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
+        } else {
+            debug_assert_eq!(
+                *mode,
+                BlendMode::default(),
+                "code path only for default src-over compositing, {mode:?}"
+            );
+
+            // Note that despite the slightly misleading name `copy_from_slot`, this will
+            // actually perform src-over compositing instead of overriding the colors
+            // in the destination (since the render strips pipeline uses
+            // `BlendState::PREMULTIPLIED_ALPHA_BLENDING`). This is the whole reason
+            // why for default blend modes, we don't need to rely on temporary slots
+            // to achieve blending.
+            draw.push(
+                gpu_strip_builder
+                    .copy_from_slot(tos.dest_slot.get_idx(), (tos.opacity * 255.0) as u8),
+            );
+        }
     }
 
     /// Process a paint and return (`payload`, `paint`)
@@ -1165,72 +1183,4 @@ impl GpuStripBuilder {
 #[inline(always)]
 fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
-}
-
-/// Does a single linear scan over the wide tile commands to prepare them for `do_tile`. Notably
-/// this function:
-///  - Precomputes the layers that require temporary slots due to blending.
-///
-/// TODO: Can be triggered via a const generic on coarse draw cmd generation which will avoid
-/// a linear scan.
-fn prepare_cmds(cmds: &[Cmd], state: &mut SchedulerState) {
-    let annotated_commands = &mut state.annotated_commands;
-    let pointer_to_push_buf_stack = &mut state.pointer_to_push_buf_stack;
-
-    // Reserve room for three extra items such that we can prevent repeated blends into the surface.
-    annotated_commands.reserve(cmds.len() + 3);
-
-    // We pretend that the surface might be blended into. This will be removed if no blends occur to
-    // the surface. The reason is that surfaces themselves cannot act as texture attachments. So
-    // if there is a blending operation at the lowest level, we need to ensure everything is drawn
-    // into an intermediate slot instead of directly into the surface.
-    pointer_to_push_buf_stack.push(0);
-    annotated_commands.push(AnnotatedCmd::PushBuf);
-
-    for (cmd_idx, cmd) in cmds.iter().enumerate() {
-        match cmd {
-            Cmd::PushBuf(_layer_id) => {
-                // TODO: Handle layer_id for filter effects when implemented.
-                pointer_to_push_buf_stack.push(annotated_commands.len());
-            }
-            Cmd::PopBuf => {
-                pointer_to_push_buf_stack.pop();
-            }
-            Cmd::Blend(b) => {
-                // For blending of two layers to work in vello_hybrid, the two slots being blended
-                // must be on the same texture. Hence, annotate the next-on-stack (nos) tile such
-                // that it uses a temporary slot on the same texture as this blend.
-                // See https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/Hybrid.20Blending/with/536597802
-                // and https://github.com/linebender/vello/pull/1155 for some information on
-                // how blending works.
-
-                // We only need to do this for blend modes that require explicitly reading from the
-                // destination. For normal source-over compositing, we use the GPU built-in capabilities,
-                // so we don't need this workaround.
-                let needs_to_read_dest = b.mix != Mix::Normal || b.compose != Compose::SrcOver;
-
-                if needs_to_read_dest && pointer_to_push_buf_stack.len() >= 2 {
-                    let push_buf_idx =
-                        pointer_to_push_buf_stack[pointer_to_push_buf_stack.len() - 2];
-                    annotated_commands[push_buf_idx] = AnnotatedCmd::PushBufWithTemporarySlot;
-                }
-            }
-            _ => {}
-        };
-
-        annotated_commands.push(AnnotatedCmd::Identity(cmd_idx));
-    }
-
-    if matches!(
-        annotated_commands[0],
-        AnnotatedCmd::PushBufWithTemporarySlot
-    ) {
-        // We need to wrap the draw commands with an extra layer - preventing blending directly into
-        // the surface.
-        annotated_commands.push(AnnotatedCmd::SrcOverNormalBlend);
-        annotated_commands.push(AnnotatedCmd::PopBuf);
-    } else {
-        // This extra wrapping can be removed.
-        annotated_commands[0] = AnnotatedCmd::Empty;
-    }
 }
