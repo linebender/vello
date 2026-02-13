@@ -192,8 +192,32 @@ impl WebGlRenderer {
             programs: &mut self.programs,
             gl: &self.gl,
         };
-        self.scheduler
-            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
+        // TODO: WebGL does not support blit rects, so process the entire scene as one segment.
+        let n_tiles =
+            usize::from(scene.wide.width_tiles()) * usize::from(scene.wide.height_tiles());
+        // TODO: Reuse these allocations...
+        let cmd_starts = vec![0usize; n_tiles];
+        let mut cmd_ends = vec![0usize; n_tiles];
+        {
+            let w = scene.wide.width_tiles();
+            let h = scene.wide.height_tiles();
+            for row in 0..h {
+                for col in 0..w {
+                    let tile_idx = usize::from(row) * usize::from(w) + usize::from(col);
+                    cmd_ends[tile_idx] = scene.wide.get(col, row).cmds.len();
+                }
+            }
+        }
+        self.scheduler.do_scene_segment(
+            &mut self.scheduler_state,
+            &mut ctx,
+            &scene.wide,
+            &scene.encoded_paints,
+            &self.paint_idxs,
+            &cmd_starts,
+            &cmd_ends,
+            true,
+        )?;
         self.gradient_cache.maintain();
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the

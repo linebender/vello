@@ -28,6 +28,24 @@ use crate::AtlasConfig;
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 
+/// Round to the nearest integer for pixel snapping.
+///
+/// On `wasm32-unknown-unknown`, [`f64::round`] compiles to a software `libm`
+/// call because its "round half away from zero" semantics don't match the
+/// WebAssembly `f64.nearest` instruction (which uses banker's rounding).
+/// In contrast, [`f64::floor`] maps directly to the native `f64.floor`
+/// instruction.
+///
+/// `(x + 0.5).floor()` gives identical results to [`f64::round`] for
+/// non-negative values and only differs at exactly half-integer negative
+/// values (e.g. `−2.5` → `−2` instead of `−3`), which is negligible for
+/// pixel snapping.
+// TODO: Move somewhere in vello_common?
+#[inline(always)]
+fn pixel_snap(x: f64) -> f64 {
+    (x + 0.5).floor()
+}
+
 /// A blit rect for the instanced fast-path pipeline.
 ///
 /// Represents an axis-aligned image rectangle that can be drawn by copying
@@ -47,6 +65,19 @@ pub(crate) struct BlitRect {
     pub rect_h: u16,
     /// Source image reference (resolved to atlas coords at render time).
     pub image_id: ImageId,
+}
+
+/// A fence marking a strips-to-blits transition for pipeline interleaving.
+///
+/// References ranges in the [`Scene`]'s consolidated `all_cmd_ends` and `all_blits` buffers.
+/// The cmd_ends range is implicit: flush point at index `i` corresponds to
+/// `all_cmd_ends[i * n_tiles..(i + 1) * n_tiles]` where `n_tiles = width_tiles * height_tiles`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FlushPoint {
+    /// Start index (inclusive) into [`Scene::all_blits`].
+    pub blits_start: usize,
+    /// End index (exclusive) into [`Scene::all_blits`].
+    pub blits_end: usize,
 }
 
 /// Settings to apply to the render context.
@@ -134,9 +165,15 @@ pub struct Scene {
     pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
-    /// Blit rects for the instanced fast-path pipeline. These are drawn after all
-    /// strip content in a single instanced draw call.
-    pub(crate) blit_rects: Vec<BlitRect>,
+    /// Flat buffer of per-tile command end indices across all flush points.
+    /// Each flush point contributes exactly `n_tiles` entries in row-major order.
+    pub(crate) all_cmd_ends: Vec<usize>,
+    /// Flat buffer of blit rects across all flush points.
+    pub(crate) all_blits: Vec<BlitRect>,
+    /// Flush point metadata referencing ranges in the flat buffers above.
+    pub(crate) flush_points: Vec<FlushPoint>,
+    /// Whether the scene is currently accumulating blit rects (vs strip commands).
+    in_blit_mode: bool, // TODO: Use enum?
 }
 
 impl Scene {
@@ -167,7 +204,10 @@ impl Scene {
             blend_mode: render_state.blend_mode,
             glyph_caches: Some(GlyphCaches::default()),
             render_graph,
-            blit_rects: vec![],
+            all_cmd_ends: vec![],
+            all_blits: vec![],
+            flush_points: vec![],
+            in_blit_mode: false,
         }
     }
 
@@ -231,6 +271,45 @@ impl Scene {
         );
     }
 
+    /// Transition from blit mode to strip mode.
+    ///
+    /// Called before any operation that modifies the [`Wide`] coarse rasterizer
+    /// (e.g. `fill_path_with`, `stroke_path_with`, `push_layer`, `pop_layer`).
+    /// If we were accumulating blit rects, this resets the mode flag. The blits
+    /// are already stored in the current [`FlushPoint`] so no data movement is needed.
+    #[inline(always)]
+    fn flush_blits(&mut self) {
+        if self.in_blit_mode {
+            self.in_blit_mode = false;
+        }
+    }
+
+    /// Transition from strip mode to blit mode.
+    ///
+    /// Called from `try_blit_rect` when a blit rect is about to be added.
+    /// Records a fence (the current per-tile command counts) and creates a new
+    /// [`FlushPoint`] to collect the upcoming blit rects.
+    #[inline(always)]
+    fn flush_strips(&mut self) {
+        if !self.in_blit_mode {
+            // Append per-tile cmd counts to the flat buffer.
+            let w = self.wide.width_tiles();
+            let h = self.wide.height_tiles();
+            for row in 0..h {
+                for col in 0..w {
+                    self.all_cmd_ends.push(self.wide.get(col, row).cmds.len());
+                }
+            }
+            // Create flush point; blits range is empty until blits are added.
+            let blits_start = self.all_blits.len();
+            self.flush_points.push(FlushPoint {
+                blits_start,
+                blits_end: blits_start,
+            });
+            self.in_blit_mode = true;
+        }
+    }
+
     /// Build strips for a filled path with the given properties.
     ///
     /// This is the internal implementation that generates strips from a path
@@ -245,6 +324,7 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
+        self.flush_blits();
         let wide = &mut self.wide;
         let strip_storage = &mut self.strip_storage.borrow_mut();
         self.strip_generator.generate_filled_path(
@@ -310,6 +390,7 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
+        self.flush_blits();
         let wide = &mut self.wide;
         let strip_storage = &mut self.strip_storage.borrow_mut();
 
@@ -421,21 +502,26 @@ impl Scene {
         let (y0, y1) = if y0 <= y1 { (y0, y1) } else { (y1, y0) };
 
         // Pre-transform rect dimensions (geometry space).
-        let rect_w = (rect.x1 - rect.x0).abs().round().max(0.0) as u16;
-        let rect_h = (rect.y1 - rect.y0).abs().round().max(0.0) as u16;
+        let rect_w = pixel_snap((rect.x1 - rect.x0).abs()).max(0.0) as u16;
+        let rect_h = pixel_snap((rect.y1 - rect.y0).abs()).max(0.0) as u16;
 
         // Pixel-snap the destination rect. Position is signed to allow
         // partially off-screen rects (the GPU clips naturally via NDC).
-        let dst_x = x0.round() as i16;
-        let dst_y = y0.round() as i16;
-        let dst_w = (x1.round() - x0.round()).max(0.0) as u16;
-        let dst_h = (y1.round() - y0.round()).max(0.0) as u16;
+        let rx0 = pixel_snap(x0);
+        let ry0 = pixel_snap(y0);
+        let rx1 = pixel_snap(x1);
+        let ry1 = pixel_snap(y1);
+        let dst_x = rx0 as i16;
+        let dst_y = ry0 as i16;
+        let dst_w = (rx1 - rx0).max(0.0) as u16;
+        let dst_h = (ry1 - ry0).max(0.0) as u16;
 
         if dst_w == 0 || dst_h == 0 || rect_w == 0 || rect_h == 0 {
             return true; // Zero-size rect, nothing to draw.
         }
 
-        self.blit_rects.push(BlitRect {
+        self.flush_strips();
+        self.all_blits.push(BlitRect {
             dst_x,
             dst_y,
             dst_w,
@@ -444,6 +530,7 @@ impl Scene {
             rect_h,
             image_id,
         });
+        self.flush_points.last_mut().unwrap().blits_end = self.all_blits.len();
 
         true
     }
@@ -470,6 +557,7 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
+        self.flush_blits();
         if filter.is_some() {
             unimplemented!("Filter effects are not yet supported in vello_hybrid");
         }
@@ -543,6 +631,7 @@ impl Scene {
 
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
+        self.flush_blits();
         self.wide.pop_layer(&mut self.render_graph);
     }
 
@@ -614,7 +703,10 @@ impl Scene {
         self.clip_context.reset();
         self.strip_storage.borrow_mut().clear();
         self.encoded_paints.clear();
-        self.blit_rects.clear();
+        self.all_cmd_ends.clear();
+        self.all_blits.clear();
+        self.flush_points.clear();
+        self.in_blit_mode = false;
 
         let render_state = Self::default_render_state();
         self.transform = render_state.transform;
@@ -884,6 +976,7 @@ impl Scene {
         range_index: usize,
         adjusted_strips: &[Strip],
     ) {
+        self.flush_blits();
         assert!(
             range_index < strip_start_indices.len(),
             "Strip range index out of bounds: range_index={}, strip_start_indices.len()={}",

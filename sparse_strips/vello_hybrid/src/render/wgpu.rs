@@ -95,6 +95,10 @@ pub struct Renderer {
     gradient_cache: GradientRampCache,
     /// Scratch buffer for resolved blit rect GPU instances.
     gpu_blit_rects: Vec<GpuBlitRect>,
+    /// Reusable scratch buffer for per-tile command start indices during rendering.
+    cmd_starts: Vec<usize>,
+    /// Reusable scratch buffer for per-tile command end indices (final segment).
+    cmd_ends: Vec<usize>,
 }
 
 impl Renderer {
@@ -129,6 +133,8 @@ impl Renderer {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             gpu_blit_rects: Vec::new(),
+            cmd_starts: Vec::new(),
+            cmd_ends: Vec::new(),
         }
     }
 
@@ -146,7 +152,6 @@ impl Renderer {
         view: &TextureView,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
-        self.prepare_blit_rects(&scene.blit_rects);
 
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -160,31 +165,99 @@ impl Renderer {
             render_size,
             &self.paint_idxs,
         );
-        // Take the blit rects out to avoid borrow conflicts with RendererContext.
-        let gpu_blit_rects = core::mem::take(&mut self.gpu_blit_rects);
 
-        let mut ctx = RendererContext {
-            programs: &mut self.programs,
-            device,
-            queue,
-            encoder,
-            view,
-        };
+        let n_tiles =
+            usize::from(scene.wide.width_tiles()) * usize::from(scene.wide.height_tiles());
+        self.cmd_starts.clear();
+        self.cmd_starts.resize(n_tiles, 0);
 
-        let result =
-            self.scheduler
-                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs);
+        // Process interleaved strip segments and blit batches.
+        for (fp_idx, fp) in scene.flush_points.iter().enumerate() {
+            let cmd_ends = &scene.all_cmd_ends[fp_idx * n_tiles..(fp_idx + 1) * n_tiles];
 
-        // Draw blit rects after all strip content (they render on top).
-        if !gpu_blit_rects.is_empty() {
-            ctx.do_blit_render_pass(&gpu_blit_rects);
+            // Render strip segment up to this fence.
+            {
+                let mut cmd_starts = core::mem::take(&mut self.cmd_starts);
+                let mut ctx = RendererContext {
+                    programs: &mut self.programs,
+                    device,
+                    queue,
+                    encoder,
+                    view,
+                };
+                let result = self.scheduler.do_scene_segment(
+                    &mut self.scheduler_state,
+                    &mut ctx,
+                    &scene.wide,
+                    &scene.encoded_paints,
+                    &self.paint_idxs,
+                    &cmd_starts,
+                    cmd_ends,
+                    fp_idx == 0,
+                );
+                cmd_starts.copy_from_slice(cmd_ends);
+                self.cmd_starts = cmd_starts;
+                result?;
+            }
+
+            // Render the blit rects for this flush point.
+            let blits = &scene.all_blits[fp.blits_start..fp.blits_end];
+            if !blits.is_empty() {
+                self.prepare_blit_rects(blits);
+                let gpu_blit_rects = core::mem::take(&mut self.gpu_blit_rects);
+                {
+                    let mut ctx = RendererContext {
+                        programs: &mut self.programs,
+                        device,
+                        queue,
+                        encoder,
+                        view,
+                    };
+                    ctx.do_blit_render_pass(&gpu_blit_rects);
+                }
+                self.gpu_blit_rects = gpu_blit_rects;
+            }
         }
 
-        // Restore the vec for reuse (avoids allocation next frame).
-        self.gpu_blit_rects = gpu_blit_rects;
-        self.gradient_cache.maintain();
+        // Final strip segment: commands appended after the last flush point.
+        {
+            let cmd_starts = core::mem::take(&mut self.cmd_starts);
+            self.cmd_ends.clear();
+            self.cmd_ends.resize(n_tiles, 0);
+            let w = scene.wide.width_tiles();
+            let h = scene.wide.height_tiles();
+            for row in 0..h {
+                for col in 0..w {
+                    let tile_idx = usize::from(row) * usize::from(w) + usize::from(col);
+                    self.cmd_ends[tile_idx] = scene.wide.get(col, row).cmds.len();
+                }
+            }
+            let cmd_ends = core::mem::take(&mut self.cmd_ends);
 
-        result
+            let mut ctx = RendererContext {
+                programs: &mut self.programs,
+                device,
+                queue,
+                encoder,
+                view,
+            };
+            let result = self.scheduler.do_scene_segment(
+                &mut self.scheduler_state,
+                &mut ctx,
+                &scene.wide,
+                &scene.encoded_paints,
+                &self.paint_idxs,
+                &cmd_starts,
+                &cmd_ends,
+                scene.flush_points.is_empty(),
+            );
+            self.cmd_starts = cmd_starts;
+            self.cmd_ends = cmd_ends;
+            result?;
+        }
+
+        self.gradient_cache.maintain();
+        Ok(())
     }
 
     /// Upload image to cache and atlas in one step. Returns the `ImageId`.
