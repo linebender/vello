@@ -3,10 +3,12 @@
 
 //! Tests for GitHub issues.
 
+use vello_api::peniko::color::palette::css::TOMATO;
 use crate::renderer::Renderer;
 use std::sync::Arc;
 use vello_common::color::PremulRgba8;
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
+use vello_common::filter_effects::{Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::paint::Image;
 use vello_common::peniko::{
@@ -461,6 +463,18 @@ fn basic_alpha_compositing(ctx: &mut impl Renderer) {
 #[vello_test(no_ref)]
 fn large_dimensions(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, u16::MAX as f64 + 10.0, 8.0));
+}
+
+
+#[vello_test(skip_hybrid, skip_multithreaded)]
+fn issue_1421(ctx: &mut impl Renderer) {
+    let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
+    let rect = Rect::new(15.0, 15.0, 85.0, 85.0).to_path(0.1);
+
+    ctx.push_layer(Some(&rect), None, None, None, Some(filter_flood));
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&rect);
+    ctx.pop_layer();
 }
 
 #[vello_test(width = 4, height = 4)]
