@@ -12,6 +12,7 @@ use vello_common::color::palette::css::{
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::peniko::{BlendMode, Compose, Gradient, Mix};
+use vello_cpu::color::palette::css::{BLUE, GREEN, RED};
 use vello_cpu::kurbo::Dashes;
 use vello_cpu::peniko::LinearGradientPosition;
 use vello_dev_macros::vello_test;
@@ -1094,19 +1095,16 @@ pub(crate) fn blur_with_edge_mode(ctx: &mut impl Renderer, edge_mode: EdgeMode) 
     });
 
     let rect = Rect::new(0.0, 0.0, 256.0, 100.0);
-    let gradient = Gradient {
-        kind: LinearGradientPosition {
-            start: Point::new(0.0, 0.0),
-            end: Point::new(256.0, 0.0),
-        }
-        .into(),
-        stops: stops_blue_green_red_yellow(),
-        ..Default::default()
-    };
+
+    let step = 256.0 / 3.0;
 
     ctx.push_filter_layer(filter);
-    ctx.set_paint(gradient);
-    ctx.fill_rect(&rect);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, step, 100.0));
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(step, 0.0, 2.0 * step, 100.0));
+    ctx.set_paint(GREEN);
+    ctx.fill_rect(&Rect::new(2.0 * step, 0.0, 3.0 * step, 100.0));
     ctx.pop_layer();
 }
 
