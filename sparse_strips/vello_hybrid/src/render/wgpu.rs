@@ -32,13 +32,13 @@ use crate::{
         Config,
         common::{
             GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
-            GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
-            GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
-            pack_texture_width_and_extend_mode,
+            GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlitRect,
+            GpuEncodedImage, GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient,
+            GpuSweepGradient, pack_image_offset, pack_image_params, pack_image_size,
+            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode,
         },
     },
-    scene::Scene,
+    scene::{BlitRect, Scene},
     schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
 };
 use bytemuck::{Pod, Zeroable};
@@ -93,6 +93,8 @@ pub struct Renderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
+    /// Scratch buffer for resolved blit rect GPU instances.
+    gpu_blit_rects: Vec<GpuBlitRect>,
 }
 
 impl Renderer {
@@ -126,6 +128,7 @@ impl Renderer {
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
+            gpu_blit_rects: Vec::new(),
         }
     }
 
@@ -143,6 +146,8 @@ impl Renderer {
         view: &TextureView,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        self.prepare_blit_rects(&scene.blit_rects);
+
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -155,7 +160,10 @@ impl Renderer {
             render_size,
             &self.paint_idxs,
         );
-        let mut junk = RendererContext {
+        // Take the blit rects out to avoid borrow conflicts with RendererContext.
+        let gpu_blit_rects = core::mem::take(&mut self.gpu_blit_rects);
+
+        let mut ctx = RendererContext {
             programs: &mut self.programs,
             device,
             queue,
@@ -163,12 +171,17 @@ impl Renderer {
             view,
         };
 
-        let result = self.scheduler.do_scene(
-            &mut self.scheduler_state,
-            &mut junk,
-            scene,
-            &self.paint_idxs,
-        );
+        let result =
+            self.scheduler
+                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs);
+
+        // Draw blit rects after all strip content (they render on top).
+        if !gpu_blit_rects.is_empty() {
+            ctx.do_blit_render_pass(&gpu_blit_rects);
+        }
+
+        // Restore the vec for reuse (avoids allocation next frame).
+        self.gpu_blit_rects = gpu_blit_rects;
         self.gradient_cache.maintain();
 
         result
@@ -202,6 +215,7 @@ impl Renderer {
             encoder,
             &mut self.programs.resources,
             &self.programs.atlas_bind_group_layout,
+            &self.programs.blit_bind_group_layout,
             self.image_cache.atlas_count() as u32,
         );
         let offset = [
@@ -344,6 +358,51 @@ impl Renderer {
         self.paint_idxs[encoded_paints.len()] = current_idx;
     }
 
+    /// Resolve `BlitRect`s into GPU-ready `GpuBlitRect`s by looking up atlas coordinates.
+    ///
+    /// The source and destination dimensions are clamped to the image's natural size
+    /// so the image is rendered at 1:1 texel-to-geometry-pixel mapping (matching the
+    /// strip pipeline behavior). The geometry transform's scale is preserved so the
+    /// final screen-space size is correctly scaled.
+    fn prepare_blit_rects(&mut self, blit_rects: &[BlitRect]) {
+        self.gpu_blit_rects.clear();
+        self.gpu_blit_rects.reserve(blit_rects.len());
+
+        for blit in blit_rects {
+            if let Some(resource) = self.image_cache.get(blit.image_id) {
+                // Clamp the source region to the image's natural dimensions.
+                // In geometry space, the image occupies (0, 0) to (image_w, image_h),
+                // and the rect occupies (0, 0) to (rect_w, rect_h). The visible image
+                // area is the intersection: min(rect_w, image_w) x min(rect_h, image_h).
+                let src_w = blit.rect_w.min(resource.width);
+                let src_h = blit.rect_h.min(resource.height);
+
+                if src_w == 0 || src_h == 0 {
+                    continue;
+                }
+
+                // Scale the clamped geometry-space size to screen-space pixels.
+                // scale = dst / rect (the geometry transform's scale factor).
+                let dst_w =
+                    ((src_w as f32) * (blit.dst_w as f32) / (blit.rect_w as f32)).round() as u16;
+                let dst_h =
+                    ((src_h as f32) * (blit.dst_h as f32) / (blit.rect_h as f32)).round() as u16;
+
+                // Pack signed i16 position as u16 bit patterns into a u32.
+                let dst_x_bits = blit.dst_x as u16;
+                let dst_y_bits = blit.dst_y as u16;
+
+                self.gpu_blit_rects.push(GpuBlitRect {
+                    dst_xy: (dst_x_bits as u32) | ((dst_y_bits as u32) << 16),
+                    dst_wh: (dst_w as u32) | ((dst_h as u32) << 16),
+                    src_xy: (resource.offset[0] as u32) | ((resource.offset[1] as u32) << 16),
+                    src_wh: (src_w as u32) | ((src_h as u32) << 16),
+                    atlas_index: resource.atlas_id.as_u32(),
+                });
+            }
+        }
+    }
+
     fn encode_image_paint(
         &self,
         image: &vello_common::encode::EncodedImage,
@@ -459,6 +518,10 @@ struct Programs {
     clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
     atlas_clear_pipeline: RenderPipeline,
+    /// Pipeline for instanced blit rect rendering.
+    blit_pipeline: RenderPipeline,
+    /// Bind group layout for blit pipeline.
+    blit_bind_group_layout: BindGroupLayout,
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
     /// Dimensions of the rendering target
@@ -503,6 +566,15 @@ struct GpuResources {
 
     /// Bind group for clear slots operation
     clear_bind_group: BindGroup,
+
+    /// Buffer for blit rect instance data.
+    blit_buffer: Buffer,
+    /// Bind group for the blit pipeline (config + atlas + sampler).
+    blit_bind_group: BindGroup,
+    /// Config buffer for the blit pipeline (viewport dimensions).
+    blit_config_buffer: Buffer,
+    /// Sampler for the blit pipeline.
+    blit_sampler: wgpu::Sampler,
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
@@ -519,6 +591,18 @@ struct ClearSlotsConfig {
     pub texture_height: u32,
     /// Padding for 16-byte alignment
     pub _padding: u32,
+}
+
+/// Config uniform for the blit rects pipeline.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+struct BlitConfig {
+    /// Viewport width in pixels.
+    pub width: u32,
+    /// Viewport height in pixels.
+    pub height: u32,
+    /// Padding for 16-byte alignment (required by WebGL2).
+    pub _padding: [u32; 2],
 }
 
 impl GpuStrip {
@@ -776,6 +860,87 @@ impl Programs {
             cache: None,
         });
 
+        // Create blit pipeline
+        let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Blit Rects Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::BLIT_RECTS.into()),
+        });
+
+        let blit_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Blit Bind Group Layout"),
+                entries: &[
+                    // binding 0: BlitConfig uniform
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    // binding 1: atlas texture array
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    // binding 2: sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+
+        let blit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Blit Pipeline Layout"),
+            bind_group_layouts: &[&blit_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Blit Pipeline"),
+            layout: Some(&blit_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &blit_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: size_of::<GpuBlitRect>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &GpuBlitRect::vertex_attributes(),
+                }],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &blit_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: render_target_config.format,
+                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         let slot_texture_views: [TextureView; 2] = core::array::from_fn(|_| {
             device
                 .create_texture(&wgpu::TextureDescriptor {
@@ -900,6 +1065,34 @@ impl Programs {
             &slot_texture_views,
         );
 
+        // Create blit pipeline resources
+        let blit_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Blit Config Buffer"),
+            contents: bytemuck::bytes_of(&BlitConfig {
+                width: render_target_config.width,
+                height: render_target_config.height,
+                _padding: [0; 2],
+            }),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let blit_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Blit Sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let blit_bind_group = Self::create_blit_bind_group(
+            device,
+            &blit_bind_group_layout,
+            &blit_config_buffer,
+            &atlas_texture_array_view,
+            &blit_sampler,
+        );
+
+        let blit_buffer = Self::create_blit_buffer(device, 0);
+
         let resources = GpuResources {
             strips_buffer: Self::create_strips_buffer(device, 0),
             clear_slot_indices_buffer,
@@ -916,6 +1109,10 @@ impl Programs {
             gradient_texture,
             gradient_bind_group,
             view_config_buffer,
+            blit_buffer,
+            blit_bind_group,
+            blit_config_buffer,
+            blit_sampler,
         };
 
         Self {
@@ -932,6 +1129,8 @@ impl Programs {
             },
             clear_pipeline,
             atlas_clear_pipeline,
+            blit_pipeline,
+            blit_bind_group_layout,
         }
     }
 
@@ -941,6 +1140,42 @@ impl Programs {
             size: required_strips_size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
+        })
+    }
+
+    fn create_blit_buffer(device: &Device, required_size: u64) -> Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Blit Rects Buffer"),
+            size: required_size,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    }
+
+    fn create_blit_bind_group(
+        device: &Device,
+        blit_bind_group_layout: &BindGroupLayout,
+        blit_config_buffer: &Buffer,
+        atlas_texture_array_view: &TextureView,
+        blit_sampler: &wgpu::Sampler,
+    ) -> BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Blit Bind Group"),
+            layout: blit_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: blit_config_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(atlas_texture_array_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(blit_sampler),
+                },
+            ],
         })
     }
 
@@ -1340,6 +1575,18 @@ impl Programs {
                 .expect("Buffer only ever holds `Config`");
             buffer.copy_from_slice(bytemuck::bytes_of(&config));
 
+            // Also update the blit config buffer.
+            let blit_config = BlitConfig {
+                width: new_render_size.width,
+                height: new_render_size.height,
+                _padding: [0; 2],
+            };
+            queue.write_buffer(
+                &self.resources.blit_config_buffer,
+                0,
+                bytemuck::bytes_of(&blit_config),
+            );
+
             self.render_size = new_render_size.clone();
         }
     }
@@ -1350,6 +1597,7 @@ impl Programs {
         encoder: &mut CommandEncoder,
         resources: &mut GpuResources,
         atlas_bind_group_layout: &BindGroupLayout,
+        blit_bind_group_layout: &BindGroupLayout,
         required_atlas_count: u32,
     ) {
         let Extent3d {
@@ -1379,10 +1627,20 @@ impl Programs {
                 &new_atlas_texture_array_view,
             );
 
+            // Update the blit bind group with the new atlas view
+            let new_blit_bind_group = Self::create_blit_bind_group(
+                device,
+                blit_bind_group_layout,
+                &resources.blit_config_buffer,
+                &new_atlas_texture_array_view,
+                &resources.blit_sampler,
+            );
+
             // Replace the old resources
             resources.atlas_texture_array = new_atlas_texture_array;
             resources.atlas_texture_array_view = new_atlas_texture_array_view;
             resources.atlas_bind_group = new_atlas_bind_group;
+            resources.blit_bind_group = new_blit_bind_group;
         }
     }
 
@@ -1598,6 +1856,49 @@ impl RendererContext<'_> {
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
         render_pass.draw(0..4, 0..u32::try_from(strips.len()).unwrap());
+    }
+
+    /// Render blit rects to the final view in a single instanced draw call.
+    fn do_blit_render_pass(&mut self, blit_rects: &[GpuBlitRect]) {
+        if blit_rects.is_empty() {
+            return;
+        }
+
+        // Upload blit rect instance data, reusing the buffer if it's large enough.
+        let required_size = size_of_val(blit_rects) as u64;
+        if self.programs.resources.blit_buffer.size() < required_size {
+            self.programs.resources.blit_buffer =
+                Programs::create_blit_buffer(self.device, required_size);
+        }
+        let mut buffer = self
+            .queue
+            .write_buffer_with(
+                &self.programs.resources.blit_buffer,
+                0,
+                required_size.try_into().unwrap(),
+            )
+            .expect("Capacity handled in creation");
+        buffer.copy_from_slice(bytemuck::cast_slice(blit_rects));
+
+        let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Blit Rects Render Pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: self.view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        render_pass.set_pipeline(&self.programs.blit_pipeline);
+        render_pass.set_bind_group(0, &self.programs.resources.blit_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.programs.resources.blit_buffer.slice(..));
+        render_pass.draw(0..4, 0..u32::try_from(blit_rects.len()).unwrap());
     }
 
     /// Clear specific slots from a slot texture.

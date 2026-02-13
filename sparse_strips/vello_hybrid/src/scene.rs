@@ -14,7 +14,7 @@ use vello_common::filter_effects::Filter;
 use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{Paint, PaintType};
+use vello_common::paint::{ImageId, ImageSource, Paint, PaintType};
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
@@ -27,6 +27,27 @@ use crate::AtlasConfig;
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
+
+/// A blit rect for the instanced fast-path pipeline.
+///
+/// Represents an axis-aligned image rectangle that can be drawn by copying
+/// directly from the image atlas to the screen, bypassing the strip/coarse pipeline.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BlitRect {
+    /// Screen-space destination position (pixel-snapped, after transform).
+    /// Signed to allow rects that are partially off-screen (the GPU clips naturally).
+    pub dst_x: i16,
+    pub dst_y: i16,
+    /// Screen-space destination size (the full rect, before image clamping).
+    pub dst_w: u16,
+    pub dst_h: u16,
+    /// Pre-transform rect dimensions in geometry space (needed to compute the
+    /// scale factor for clamping destination size to image bounds at render time).
+    pub rect_w: u16,
+    pub rect_h: u16,
+    /// Source image reference (resolved to atlas coords at render time).
+    pub image_id: ImageId,
+}
 
 /// Settings to apply to the render context.
 #[derive(Copy, Clone, Debug)]
@@ -113,6 +134,9 @@ pub struct Scene {
     pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
+    /// Blit rects for the instanced fast-path pipeline. These are drawn after all
+    /// strip content in a single instanced draw call.
+    pub(crate) blit_rects: Vec<BlitRect>,
 }
 
 impl Scene {
@@ -143,6 +167,7 @@ impl Scene {
             blend_mode: render_state.blend_mode,
             glyph_caches: Some(GlyphCaches::default()),
             render_graph,
+            blit_rects: vec![],
         }
     }
 
@@ -323,8 +348,104 @@ impl Scene {
     }
 
     /// Fill a rectangle with the current paint and fill rule.
+    ///
+    /// When the following conditions are all met, this uses a fast-path instanced
+    /// blit pipeline that bypasses the strip/coarse pipeline entirely:
+    /// - No active layers (clips or blends)
+    /// - No active clip paths
+    /// - Paint is an image with an `OpaqueId` source (i.e. in the atlas)
+    /// - Blend mode is the default SrcOver
+    /// - Combined transform is axis-aligned (no rotation/shear)
+    ///
+    /// Otherwise, falls back to the normal `fill_path` codepath.
     pub fn fill_rect(&mut self, rect: &Rect) {
+        if self.try_blit_rect(rect) {
+            return;
+        }
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+    }
+
+    /// Attempt the fast-path blit rect pipeline. Returns `true` if the rect was
+    /// handled by the blit pipeline, `false` if it should fall through to the
+    /// normal strip pipeline.
+    fn try_blit_rect(&mut self, rect: &Rect) -> bool {
+        if !self.paint_visible {
+            return true; // Invisible paint, nothing to draw either way.
+        }
+
+        // Condition 1: No active layers (clips or blends).
+        if self.wide.has_layers() {
+            return false;
+        }
+
+        // Condition 2: No active clip paths.
+        if self.clip_context.get().is_some() {
+            return false;
+        }
+
+        // Condition 3: Paint must be an image with an OpaqueId (atlas-backed).
+        let image_id = match &self.paint {
+            PaintType::Image(img) => match &img.image {
+                ImageSource::OpaqueId(id) => *id,
+                _ => return false,
+            },
+            _ => return false,
+        };
+
+        // Condition 4: Blend mode must be default SrcOver.
+        let default_blend = BlendMode::new(Mix::Normal, Compose::SrcOver);
+        if self.blend_mode != default_blend {
+            return false;
+        }
+
+        // Condition 5: Geometry transform must be axis-aligned (no rotation/shear).
+        let geo_coeffs = self.transform.as_coeffs();
+        // coeffs: [a, b, c, d, tx, ty] where the matrix is [[a, c, tx], [b, d, ty]]
+        // Axis-aligned means b == 0 and c == 0 (no shear/rotation).
+        if (geo_coeffs[1] as f32).abs() > f32::EPSILON
+            || (geo_coeffs[2] as f32).abs() > f32::EPSILON
+        {
+            return false;
+        }
+
+        // Compute the screen-space destination rect by applying the geometry transform.
+        // For axis-aligned transforms: x' = a*x + tx, y' = d*y + ty
+        let (a, d, tx, ty) = (geo_coeffs[0], geo_coeffs[3], geo_coeffs[4], geo_coeffs[5]);
+        let x0 = a * rect.x0 + tx;
+        let y0 = d * rect.y0 + ty;
+        let x1 = a * rect.x1 + tx;
+        let y1 = d * rect.y1 + ty;
+
+        // Handle negative scale (flipped rect) by normalizing.
+        let (x0, x1) = if x0 <= x1 { (x0, x1) } else { (x1, x0) };
+        let (y0, y1) = if y0 <= y1 { (y0, y1) } else { (y1, y0) };
+
+        // Pre-transform rect dimensions (geometry space).
+        let rect_w = (rect.x1 - rect.x0).abs().round().max(0.0) as u16;
+        let rect_h = (rect.y1 - rect.y0).abs().round().max(0.0) as u16;
+
+        // Pixel-snap the destination rect. Position is signed to allow
+        // partially off-screen rects (the GPU clips naturally via NDC).
+        let dst_x = x0.round() as i16;
+        let dst_y = y0.round() as i16;
+        let dst_w = (x1.round() - x0.round()).max(0.0) as u16;
+        let dst_h = (y1.round() - y0.round()).max(0.0) as u16;
+
+        if dst_w == 0 || dst_h == 0 || rect_w == 0 || rect_h == 0 {
+            return true; // Zero-size rect, nothing to draw.
+        }
+
+        self.blit_rects.push(BlitRect {
+            dst_x,
+            dst_y,
+            dst_w,
+            dst_h,
+            rect_w,
+            rect_h,
+            image_id,
+        });
+
+        true
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
@@ -493,6 +614,7 @@ impl Scene {
         self.clip_context.reset();
         self.strip_storage.borrow_mut().clear();
         self.encoded_paints.clear();
+        self.blit_rects.clear();
 
         let render_state = Self::default_render_state();
         self.transform = render_state.transform;

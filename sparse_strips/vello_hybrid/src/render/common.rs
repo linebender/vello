@@ -65,6 +65,40 @@ pub struct GpuStrip {
     pub paint: u32,
 }
 
+/// GPU instance data for the blit rect pipeline.
+///
+/// Each instance represents an axis-aligned rectangle that copies a region from
+/// the image atlas directly to the screen. All coordinates are packed as pairs
+/// of `u16` into `u32` values to minimize GPU memory bandwidth (20 bytes per instance).
+/// The vertex shader unpacks with simple bit ops and converts to `f32`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub(crate) struct GpuBlitRect {
+    /// Packed screen position: x | (y << 16) (signed i16)
+    pub dst_xy: u32,
+    /// Packed screen size: w | (h << 16)
+    pub dst_wh: u32,
+    /// Packed atlas source offset: u | (v << 16)
+    pub src_xy: u32,
+    /// Packed atlas source size: w | (h << 16)
+    pub src_wh: u32,
+    /// Atlas layer index.
+    pub atlas_index: u32,
+}
+
+impl GpuBlitRect {
+    /// Vertex attributes for the blit rect instance buffer.
+    pub(crate) fn vertex_attributes() -> [wgpu::VertexAttribute; 5] {
+        wgpu::vertex_attr_array![
+            0 => Uint32,
+            1 => Uint32,
+            2 => Uint32,
+            3 => Uint32,
+            4 => Uint32,
+        ]
+    }
+}
+
 /// Different types of GPU encoded paints.
 #[derive(Debug)]
 pub(crate) enum GpuEncodedPaint {
