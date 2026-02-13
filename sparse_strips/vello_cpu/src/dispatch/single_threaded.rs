@@ -317,7 +317,12 @@ impl SingleThreadedDispatcher {
                     // since this tile is entirely clipped out.
                     // (PushZeroClip only appears for clipped filter layers)
                     Some(Cmd::PushZeroClip(id)) if *id == *child_layer_id => {
-                        cmd_idx += 1; // Skip the PushZeroClip command
+                        // If we have a zero-clip, it means that the whole layer should not be drawn.
+                        // Therefore, we want to skip to the very end so that only `PopBuf` will
+                        // be run. Therefore, we would have to do `filtered_ranges.full_range.end - 1`.
+                        // However, after the match statement we use `cmd_idx + 1` to determine the
+                        // command index, so we actually need to subtract 2 here.
+                        cmd_idx = filtered_ranges.full_range.end - 2;
                     }
 
                     // Partial clip: push the clip buffer, then composite the filtered layer
