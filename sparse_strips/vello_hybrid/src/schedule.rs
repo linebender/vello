@@ -704,7 +704,6 @@ impl Scheduler {
                                 // 2) Don't emit the command in the first place for wide tiles
                                 // outside of the bounding box during coarse rasterization.
 
-
                                 let mut copy_from_filter_layer = |scheduler: &mut Scheduler, state: &mut SchedulerState| {
                                     if filter_textures.bbox.contains(x, y) {
                                         let cmd = CmdFill {
@@ -741,6 +740,17 @@ impl Scheduler {
                                 };
 
                                 match wide_tile.cmds.get(cmd_idx + 1) {
+                                    Some(Cmd::PushZeroClip(id)) if *id == *child_layer_id => {
+                                        cmd_idx = filtered_ranges.full_range.end - 2;
+                                    }
+
+                                    // Partial clip: push the clip buffer, then composite the filtered layer
+                                    Some(Cmd::PushBuf(LayerKind::Clip(_), is_blend_dest)) => {
+                                        self.do_push_buf(state, renderer, *is_blend_dest)?;
+                                        cmd_idx += 1;
+
+                                        copy_from_filter_layer(self, state);
+                                    }
                                     _ => {
                                         copy_from_filter_layer(self, state);
                                     }
