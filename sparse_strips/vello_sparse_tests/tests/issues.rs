@@ -3,9 +3,9 @@
 
 //! Tests for GitHub issues.
 
-use vello_api::peniko::color::palette::css::TOMATO;
 use crate::renderer::Renderer;
 use std::sync::Arc;
+use vello_api::peniko::color::palette::css::TOMATO;
 use vello_api::peniko::{ImageQuality, ImageSampler};
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::filter_effects::{Filter, FilterPrimitive};
@@ -463,7 +463,6 @@ fn basic_alpha_compositing(ctx: &mut impl Renderer) {
 fn large_dimensions(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, u16::MAX as f64 + 10.0, 8.0));
 }
-
 
 #[vello_test(skip_hybrid, skip_multithreaded)]
 fn issue_1421(ctx: &mut impl Renderer) {
