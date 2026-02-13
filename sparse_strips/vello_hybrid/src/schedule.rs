@@ -703,8 +703,10 @@ impl Scheduler {
                                 // or better
                                 // 2) Don't emit the command in the first place for wide tiles
                                 // outside of the bounding box during coarse rasterization.
-                                if filter_textures.bbox.contains(x, y) {
-                                    let mut copy_from_filter_layer = |scheduler: &mut Scheduler, state: &mut SchedulerState| {
+
+
+                                let mut copy_from_filter_layer = |scheduler: &mut Scheduler, state: &mut SchedulerState| {
+                                    if filter_textures.bbox.contains(x, y) {
                                         let cmd = CmdFill {
                                             x: 0,
                                             width: WideTile::WIDTH,
@@ -735,12 +737,12 @@ impl Scheduler {
                                             payload,
                                             paint,
                                         );
-                                    };
+                                    }
+                                };
 
-                                    match wide_tile.cmds.get(cmd_idx + 1) {
-                                        _ => {
-                                            copy_from_filter_layer(self, state);
-                                        }
+                                match wide_tile.cmds.get(cmd_idx + 1) {
+                                    _ => {
+                                        copy_from_filter_layer(self, state);
                                     }
                                 }
 
