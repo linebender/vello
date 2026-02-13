@@ -958,24 +958,25 @@ impl Scheduler {
                     let next_round: bool = depth.is_multiple_of(2) && depth > 2;
                     let round = nos.round.max(tos.round + usize::from(next_round));
 
+                    let draw = self.draw_mut(
+                        round,
+                        if depth <= 2 {
+                            2
+                        } else {
+                            nos.dest_slot.get_texture()
+                        },
+                    );
+
+                    let gpu_strip_builder = if depth <= 2 {
+                        GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+                    } else {
+                        GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+                    };
+
                     if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
-                        let draw = self.draw_mut(
-                            round,
-                            if depth <= 2 {
-                                2
-                            } else {
-                                nos.dest_slot.get_texture()
-                            },
-                        );
                         let opacity_u8 = (tos.opacity * 255.0) as u8;
                         let mix_mode = mode.mix as u8;
                         let compose_mode = mode.compose as u8;
-
-                        let gpu_strip_builder = if depth <= 2 {
-                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
-                        } else {
-                            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
-                        };
 
                         draw.push(gpu_strip_builder.blend(
                             tos.dest_slot.get_idx(),
@@ -988,26 +989,11 @@ impl Scheduler {
                         let nos_ptr = state.tile_state.stack.len() - 2;
                         state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
                     } else {
-                        assert_eq!(
+                        debug_assert_eq!(
                             *mode,
                             BlendMode::default(),
                             "code path only for default src-over compositing, {mode:?}"
                         );
-
-                        let draw = self.draw_mut(
-                            round,
-                            if depth <= 2 {
-                                2
-                            } else {
-                                nos.dest_slot.get_texture()
-                            },
-                        );
-
-                        let gpu_strip_builder = if depth <= 2 {
-                            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
-                        } else {
-                            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
-                        };
 
                         // Note that despite the slightly misleading name `copy_from_slot`, this will
                         // actually perform src-over compositing instead of overriding the colors
