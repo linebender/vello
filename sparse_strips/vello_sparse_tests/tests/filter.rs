@@ -1087,7 +1087,7 @@ fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-fn blur_with_edge_mode(ctx: &mut impl Renderer, edge_mode: EdgeMode) {
+pub(crate) fn blur_with_edge_mode(ctx: &mut impl Renderer, edge_mode: EdgeMode) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 6.0,
         edge_mode,
@@ -1115,12 +1115,6 @@ fn blur_with_edge_mode(ctx: &mut impl Renderer, edge_mode: EdgeMode) {
 // fixed, we should change the tests back to 100x100 to exercise that path as well.
 
 #[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 100)]
-fn filter_gaussian_blur_edge_mode_none(ctx: &mut impl Renderer) {
-    // TODO: The bottom part looks wrong compared to the other edges.
-    blur_with_edge_mode(ctx, EdgeMode::None);
-}
-
-#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 100)]
 fn filter_gaussian_blur_edge_mode_duplicate(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::Duplicate);
 }
@@ -1133,16 +1127,4 @@ fn filter_gaussian_blur_edge_mode_wrap(ctx: &mut impl Renderer) {
 #[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 100)]
 fn filter_gaussian_blur_edge_mode_mirror(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::Mirror);
-}
-
-// TODO: See https://github.com/linebender/vello/issues/1421, currently causes a crash.
-#[vello_test(skip_hybrid, skip_cpu)]
-fn filter_issue_1421(ctx: &mut impl Renderer) {
-    let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
-    let star_path = circular_star(Point::new(50.0, 50.0), 5, 20.0, 40.0);
-
-    ctx.push_layer(Some(&star_path), None, None, None, Some(filter_flood));
-    ctx.set_paint(REBECCA_PURPLE);
-    ctx.fill_path(&star_path);
-    ctx.pop_layer();
 }
