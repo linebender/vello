@@ -1276,7 +1276,9 @@ fn main(
             // Max with a small epsilon to avoid NaNs
             let a_inv = 1.0 / max(fg.a, 1e-6);
             let rgba_sep = vec4(fg.rgb * a_inv, fg.a);
-            textureStore(output, vec2<i32>(coords), rgba_sep);
+            // Set rgba to 0 if fg.a is very faint.
+            let a_gate = step(1e-6, fg.a);
+            textureStore(output, vec2<i32>(coords), rgba_sep * a_gate);
         }
     } 
 }
