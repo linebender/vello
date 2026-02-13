@@ -1603,7 +1603,7 @@ pub enum Cmd {
     ///
     /// The first argument indicates whether the current layer (i.e. the final target surface)
     /// is used as a destination for a blending operation with a non-default blend mode. This
-    /// information is only needed by vello_hybrid for scheduling purposes.
+    /// information is only needed by `vello_hybrid` for scheduling purposes.
     Start(bool),
     /// Fill a rectangular region with a solid color or paint.
     Fill(CmdFill),
@@ -1615,7 +1615,7 @@ pub enum Cmd {
     ///
     /// The second argument indicates whether the layer that is about to be pushed
     /// will be used as a destination for a blending operation with a non-default blend mode.
-    /// This information is only needed by vello_hybrid for scheduling purposes.
+    /// This information is only needed by `vello_hybrid` for scheduling purposes.
     PushBuf(LayerKind, bool),
     /// Pops the most recent buffer and blends it into the previous buffer.
     PopBuf,
