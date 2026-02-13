@@ -14,7 +14,7 @@ use vello_common::peniko::{
 };
 use vello_common::pixmap::Pixmap;
 use vello_cpu::color::palette::css::{BLACK, RED};
-use vello_cpu::peniko::Compose;
+use vello_cpu::peniko::{Compose, Extend};
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
 use vello_dev_macros::vello_test;
 
@@ -469,15 +469,21 @@ fn issue_1433(ctx: &mut impl Renderer) {
     let b = PremulRgba8::from_u8_array([0, 0, 0, 0]);
 
     // Three red rows, one transparent row.
-    let image = vec![r, r, r, r, r, r, r, r, r, r, r, r, b, b, b, b];
+    #[rustfmt::skip]
+    let image = vec![
+        r, r, r, r,
+        r, r, r, r,
+        r, r, r, r,
+        b, b, b, b
+    ];
 
     let pixmap = Pixmap::from_parts(image, 4, 4);
     let source = ctx.get_image_source(Arc::new(pixmap));
     let image = Image {
         image: source,
         sampler: ImageSampler {
-            x_extend: vello_common::peniko::Extend::Pad,
-            y_extend: vello_common::peniko::Extend::Pad,
+            x_extend: Extend::Pad,
+            y_extend: Extend::Pad,
             quality: ImageQuality::Low,
             alpha: 1.0,
         },
