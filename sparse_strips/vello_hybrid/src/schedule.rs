@@ -629,7 +629,8 @@ impl Scheduler {
         // `PushBuf`?
         // For blending of two layers (with a non-default blend mode) to work in vello_hybrid,
         // the two slots being blended must be on the same texture, since we need to be able to
-        // read from the destination to do blending. Therefore, we create an additional temporary
+        // read from the destination to do blending, while the target we write the composited result
+        // into lives in the other texture. Therefore, we create an additional temporary
         // slot in the other texture than the main destination slot.
         // See https://xi.zulipchat.com/#narrow/channel/197075-vello/topic/Hybrid.20Blending/with/536597802
         // and https://github.com/linebender/vello/pull/1155 for some information on
@@ -644,7 +645,7 @@ impl Scheduler {
         // `surface_needs_wrap` is needed because the main target surface can obviously also
         // end up being the destination of a blending operation. Since that surface is provided
         // by the user, there is no way we can read from it, which is required for blending. Therefore,
-        // in this case we need to "wrap" the _whole_ layer into a push/pop layer operation.
+        // in this case we need to "wrap" _everything_ into a push/pop layer operation.
 
         let mut surface_is_blend_target = false;
 
