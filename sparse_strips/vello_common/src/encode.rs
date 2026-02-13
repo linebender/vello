@@ -187,7 +187,7 @@ impl EncodeExt for Gradient {
         // command before starting with the rendering.
         // First we need to account for the base transform of the shader, then
         // we account for the fact that we sample in the center of a pixel and not in the corner by
-        // adding 0.5.
+        // adding `PIXEL_CENTER_OFFSET`.
         // Finally, we need to apply the _inverse_ paint transform to the point so that we can account
         // for the paint transform of the render context.
         let transform = base_transform
@@ -491,9 +491,10 @@ impl EncodeExt for Image {
             sampler.quality = ImageQuality::Low;
         }
 
-        // Similarly to gradients, apply a 0.5 offset so we sample at the center of
+        // Similarly to gradients, apply the `PIXEL_CENTER_OFFSET` offset so we sample at the center of
         // a pixel.
-        let transform = transform.inverse() * Affine::translate((0.5, 0.5));
+        let transform =
+            transform.inverse() * Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
 
         let (x_advance, y_advance) = x_y_advances(&transform);
 
