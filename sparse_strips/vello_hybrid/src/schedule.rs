@@ -988,13 +988,11 @@ impl Scheduler {
                         let nos_ptr = state.tile_state.stack.len() - 2;
                         state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
                     } else {
-                        if *mode != BlendMode::default() {
-                            assert_eq!(
-                                nos.dest_slot.get_idx(),
-                                SENTINEL_SLOT_IDX,
-                                "code path only for default src-over compositing, {mode:?}"
-                            );
-                        }
+                        assert_eq!(
+                            *mode,
+                            BlendMode::default(),
+                            "code path only for default src-over compositing, {mode:?}"
+                        );
 
                         let draw = self.draw_mut(
                             round,
