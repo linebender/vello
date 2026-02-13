@@ -78,13 +78,26 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
             //     run_float(b, vello_common::fearless_simd::Fallback::new());
             // });
 
-            // Uncomment this to enable f32_neon benchmarks.
-            // #[cfg(target_arch = "aarch64")]
-            // if let Some(neon) = Level::new().as_neon() {
-            //     c.bench_function(&get_bench_name(&#input_fn_name_str, "f32_neon"), |b| {
-            //         run_float(b, neon);
-            //     });
-            // }
+            #[cfg(target_arch = "aarch64")]
+            if let Some(neon) = Level::new().as_neon() {
+                c.bench_function(&get_bench_name(&#input_fn_name_str, "f32_neon"), |b| {
+                    run_float(b, neon);
+                });
+            }
+
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            if let Some(sse4_2) = Level::new().as_sse4_2() {
+                c.bench_function(&get_bench_name(&#input_fn_name_str, "f32_sse4_2"), |b| {
+                    run_float(b, sse4_2);
+                });
+            }
+
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            if let Some(avx2) = Level::new().as_avx2() {
+                c.bench_function(&get_bench_name(&#input_fn_name_str, "f32_avx2"), |b| {
+                    run_float(b, avx2);
+                });
+            }
         }
     };
 
