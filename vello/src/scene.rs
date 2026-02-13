@@ -824,7 +824,14 @@ impl<'a> DrawGlyphs<'a> {
                         }),
                     };
                     if let Some(glyph_transform) = self.run.glyph_transform {
-                        transform *= glyph_transform.to_kurbo();
+                        let gt = glyph_transform.to_kurbo();
+                        let [a, b, c, d, e, f] = gt.as_coeffs();
+                        let corrected = Affine::new([a, -b, -c, d, e, f]);
+                        let h = f64::from(image.image.height);
+                        transform = transform
+                            * Affine::translate((0.0, h))
+                            * corrected
+                            * Affine::translate((0.0, -h));
                     }
                     self.scene.draw_image(image.as_ref(), transform);
                 }
