@@ -361,9 +361,12 @@ fn render_impl<S: Simd>(
         let line_top_y = f32x4::splat(s, line_top_y);
         let line_bottom_y = f32x4::splat(s, line_bottom_y);
 
-        let y_idx = f32x4::from_slice(s, &[0.0, 1.0, 2.0, 3.0]);
-        let px_top_y = y_idx;
-        let px_bottom_y = 1. + y_idx;
+        // See the explanation of this term on the `line_px_left_yx` and `line_px_right_yx`
+        // variables below.
+        let line_px_base_yx = line_top_y.madd(-x_slope, line_top_x);
+
+        let px_top_y = f32x4::simd_from([0., 1., 2., 3.], s);
+        let px_bottom_y = 1. + px_top_y;
 
         let ymin = line_top_y.max(px_top_y);
         let ymax = line_bottom_y.min(px_bottom_y);
@@ -401,11 +404,20 @@ fn render_impl<S: Simd>(
                 .max_precise(ymin)
                 .min_precise(ymax);
 
-            // `x_slope` is always finite, as horizontal geometry is elided.
-            let line_px_left_yx =
-                (line_px_left_y - line_top_y).madd(x_slope, f32x4::splat(s, line_top_x));
-            let line_px_right_yx =
-                (line_px_right_y - line_top_y).madd(x_slope, f32x4::splat(s, line_top_x));
+            // For each pixel we calculate the x-coordinates of the left- and rightmost points on
+            // the line segment within that pixel. We do this based on the y-offsets of those two
+            // points from the top of the line. This can be calculated as, e.g.,
+            // `(line_px_left_y - line_top_y) * x_slope + line_top_x`.
+            //
+            // Rather than calculating that y-offset twice for each pixel within the loop through
+            // substracting from the points' y-coordinates, we get rid of that subtraction by
+            // baking it into the algebraical "base" x-coordinate `line_px_base_yx` calculated
+            // above the loop. When adding that term to `y_offset * x_slope` it gives the x-coordinate
+            // of the point along the line.
+            //
+            // Note `x_slope` is always finite, as horizontal geometry is elided.
+            let line_px_left_yx = line_px_left_y.madd(x_slope, line_px_base_yx);
+            let line_px_right_yx = line_px_right_y.madd(x_slope, line_px_base_yx);
             let h = (line_px_right_y - line_px_left_y).abs();
 
             // The trapezoidal area enclosed between the line and the right edge of the pixel
