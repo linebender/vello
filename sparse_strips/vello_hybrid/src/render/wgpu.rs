@@ -35,7 +35,7 @@ use crate::{
             GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlitRect,
             GpuEncodedImage, GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient,
             GpuSweepGradient, pack_image_offset, pack_image_params, pack_image_size,
-            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode,
+            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, resolve_blit_rect,
         },
     },
     scene::{BlitRect, Scene},
@@ -433,45 +433,19 @@ impl Renderer {
 
     /// Resolve `BlitRect`s into GPU-ready `GpuBlitRect`s by looking up atlas coordinates.
     ///
-    /// The source and destination dimensions are clamped to the image's natural size
-    /// so the image is rendered at 1:1 texel-to-geometry-pixel mapping (matching the
-    /// strip pipeline behavior). The geometry transform's scale is preserved so the
-    /// final screen-space size is correctly scaled.
+    /// The visible image region is computed by intersecting the rect (in image space,
+    /// accounting for the paint transform) with the image bounds. Source and
+    /// destination coordinates are adjusted so the image appears at the correct
+    /// position within the rect.
     fn prepare_blit_rects(&mut self, blit_rects: &[BlitRect]) {
         self.gpu_blit_rects.clear();
         self.gpu_blit_rects.reserve(blit_rects.len());
 
         for blit in blit_rects {
             if let Some(resource) = self.image_cache.get(blit.image_id) {
-                // Clamp the source region to the image's natural dimensions.
-                // In geometry space, the image occupies (0, 0) to (image_w, image_h),
-                // and the rect occupies (0, 0) to (rect_w, rect_h). The visible image
-                // area is the intersection: min(rect_w, image_w) x min(rect_h, image_h).
-                let src_w = blit.rect_w.min(resource.width);
-                let src_h = blit.rect_h.min(resource.height);
-
-                if src_w == 0 || src_h == 0 {
-                    continue;
+                if let Some(gpu_blit) = resolve_blit_rect(blit, resource) {
+                    self.gpu_blit_rects.push(gpu_blit);
                 }
-
-                // Scale the clamped geometry-space size to screen-space pixels.
-                // scale = dst / rect (the geometry transform's scale factor).
-                let dst_w =
-                    ((src_w as f32) * (blit.dst_w as f32) / (blit.rect_w as f32)).round() as u16;
-                let dst_h =
-                    ((src_h as f32) * (blit.dst_h as f32) / (blit.rect_h as f32)).round() as u16;
-
-                // Pack signed i16 position as u16 bit patterns into a u32.
-                let dst_x_bits = blit.dst_x as u16;
-                let dst_y_bits = blit.dst_y as u16;
-
-                self.gpu_blit_rects.push(GpuBlitRect {
-                    dst_xy: (dst_x_bits as u32) | ((dst_y_bits as u32) << 16),
-                    dst_wh: (dst_w as u32) | ((dst_h as u32) << 16),
-                    src_xy: (resource.offset[0] as u32) | ((resource.offset[1] as u32) << 16),
-                    src_wh: (src_w as u32) | ((src_h as u32) << 16),
-                    atlas_index: resource.atlas_id.as_u32(),
-                });
             }
         }
     }

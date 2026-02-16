@@ -6,7 +6,7 @@
 use crate::clip::{PathDataRef, intersect};
 use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
-use crate::kurbo::{Affine, PathEl, Stroke};
+use crate::kurbo::{Affine, PathEl, Rect, Shape, Stroke};
 use crate::peniko::Fill;
 use crate::strip::Strip;
 use crate::tile::Tiles;
@@ -173,6 +173,14 @@ impl StripGenerator {
                 &self.line_buf,
             );
         }
+    }
+
+    /// Returns the bounding box of the last expanded stroke path (in local coordinates).
+    ///
+    /// Only valid immediately after [`generate_stroked_path`](Self::generate_stroked_path).
+    /// The bbox includes all join and cap geometry.
+    pub fn last_stroke_bbox(&self) -> Rect {
+        self.stroke_ctx.output().bounding_box()
     }
 
     /// Reset the strip generator.

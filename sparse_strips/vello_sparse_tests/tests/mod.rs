@@ -31,6 +31,7 @@ tests, so there isn't much we can do to prevent it."
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 mod basic;
+mod batching;
 mod blurred_rounded_rect;
 mod clip;
 mod compose;

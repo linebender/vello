@@ -16,6 +16,7 @@ use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, Paint, PaintType};
 use vello_common::peniko::FontData;
+use vello_common::peniko::Extend;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
@@ -65,6 +66,17 @@ pub(crate) struct BlitRect {
     pub rect_h: u16,
     /// Source image reference (resolved to atlas coords at render time).
     pub image_id: ImageId,
+/// Image-space origin: where the rect's top-left maps to in image coordinates.
+    ///
+    /// This accounts for both the paint transform translation and non-zero rect
+    /// origins. For a rect at `(x0, y0)` with a paint transform that translates
+    /// by `(ptx, pty)`, the image origin is `(x0 - ptx, y0 - pty)`.
+    ///
+    /// A value of `(0, 0)` means the image's top-left aligns with the rect's
+    /// top-left (the common case with identity paint transform and a rect at the
+    /// origin). Positive values shift the sampled region deeper into the image.
+    pub img_origin_x: f32,
+    pub img_origin_y: f32,
 }
 
 /// A fence marking a strips-to-blits transition for pipeline interleaving.
@@ -314,6 +326,10 @@ pub struct Scene {
     strips_dirty_rects: DirtyRects,
     /// SIMD level for dirty rect intersection checks.
     level: Level,
+/// Whether blit rect batching is enabled. When `false`, every blit rect
+    /// creates a new flush point regardless of overlap. Useful for testing that
+    /// the dirty rect tracking is correct.
+    blit_batching_enabled: bool,
 }
 
 impl Scene {
@@ -350,6 +366,7 @@ impl Scene {
             in_blit_mode: false,
             strips_dirty_rects: DirtyRects::new(),
             level: settings.level,
+blit_batching_enabled: true,
         }
     }
 
@@ -462,6 +479,9 @@ impl Scene {
     ///   strip operations recorded since that flush point.
     #[inline(always)]
     fn can_batch_blit(&self, dst_x: i16, dst_y: i16, dst_w: u16, dst_h: u16) -> bool {
+if !self.blit_batching_enabled {
+            return false;
+        }
         if self.in_blit_mode {
             return true;
         }
@@ -578,13 +598,8 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         self.flush_blits();
-        let expand = self.stroke.width / 2.0;
-        self.push_dirty_rect(
-            transform
-                .transform_rect_bbox(path.bounding_box())
-                .inflate(expand, expand),
-        );
-        let wide = &mut self.wide;
+
+        {
         let strip_storage = &mut self.strip_storage.borrow_mut();
 
         self.strip_generator.generate_stroked_path(
@@ -596,13 +611,21 @@ impl Scene {
             self.clip_context.get(),
         );
 
-        wide.generate(
+            self.wide.generate(
             &strip_storage.strips,
             paint,
             self.blend_mode,
             0,
             None,
             &self.encoded_paints,
+            );
+        }
+
+        // Use the expanded stroke path's bbox which includes all join and cap geometry,
+        // rather than inflating the original path bbox by half the stroke width (which
+        // is incorrect for miter joins that can extend well beyond half-width).
+        self.push_dirty_rect(
+            transform.transform_rect_bbox(self.strip_generator.last_stroke_bbox()),
         );
     }
 
@@ -657,12 +680,31 @@ impl Scene {
             return false;
         }
 
-        // Condition 3: Paint must be an image with an OpaqueId (atlas-backed).
+        // Condition 3: Paint must be an image with an OpaqueId (atlas-backed)
+        // and a sampler compatible with the simple 1:1 blit pipeline.
+        //
+        // The blit pipeline performs a plain texel copy from the atlas to the
+        // screen. It cannot handle:
+        //   - extend/repeat modes (the image may be smaller than the rect)
+        //   - alpha modulation (sampler.alpha != 1.0)
+        //   - quality-based filtering (bilinear, bicubic)
+        //
+        // Since image dimensions are not available at scene-build time (they
+        // live in the renderer's image cache), we cannot verify that the image
+        // fully covers the rect. To avoid silently dropping extend/pad
+        // behaviour, we only allow the blit fast-path when the sampler is at
+        // its default values AND alpha is 1.0 — matching the "image tile" use
+        // case where the image is expected to fill the rect exactly.
         let image_id = match &self.paint {
-            PaintType::Image(img) => match &img.image {
+            PaintType::Image(img) => {
+                if img.sampler.x_extend != Extend::Pad || img.sampler.y_extend != Extend::Pad || img.sampler.alpha != 1.0 {
+                    return false;
+                }
+match &img.image {
                 ImageSource::OpaqueId(id) => *id,
                 _ => return false,
-            },
+            }
+            }
             _ => return false,
         };
 
@@ -681,6 +723,26 @@ impl Scene {
         {
             return false;
         }
+
+        // Condition 6: Paint transform must be axis-aligned with no scaling.
+        //
+        // The paint transform maps from image space to geometry space. For the
+        // blit pipeline's 1:1 texel-to-pixel mapping to be correct, the paint
+        // transform must be a pure translation (no rotation, shear, or scale).
+        let paint_coeffs = self.paint_transform.as_coeffs();
+        // Check no rotation/shear (b == 0, c == 0).
+        if (paint_coeffs[1] as f32).abs() > f32::EPSILON
+            || (paint_coeffs[2] as f32).abs() > f32::EPSILON
+        {
+            return false;
+        }
+        // Check no scaling (a == 1, d == 1).
+        if ((paint_coeffs[0] - 1.0) as f32).abs() > f32::EPSILON
+            || ((paint_coeffs[3] - 1.0) as f32).abs() > f32::EPSILON
+        {
+            return false;
+        }
+        let (ptx, pty) = (paint_coeffs[4], paint_coeffs[5]);
 
         // Compute the screen-space destination rect by applying the geometry transform.
         // For axis-aligned transforms: x' = a*x + tx, y' = d*y + ty
@@ -713,6 +775,31 @@ impl Scene {
             return true; // Zero-size rect, nothing to draw.
         }
 
+        // Compute the image-space origin: where the rect's top-left corner
+        // maps to in image coordinates, accounting for the paint transform.
+        //
+        // The paint transform goes from image space to geometry space:
+        //   geo = paint * image = image + (ptx, pty)
+        // So the inverse maps geometry to image space:
+        //   image = geo - (ptx, pty)
+        // At the rect's top-left corner (rect.x0, rect.y0):
+        let img_origin_x = (rect.x0 - ptx) as f32;
+        let img_origin_y = (rect.y0 - pty) as f32;
+
+        // Condition 7: Image origin must not require padding on the left/top
+        // edges. A negative origin means the rect extends before the image
+        // boundary, requiring Pad extend behaviour that the blit pipeline
+        // cannot provide (it only performs a plain texel copy).
+        //
+        // Note: we cannot verify right/bottom coverage without image
+        // dimensions (not available at scene-build time). The resolve step
+        // already clips to the visible region, so right/bottom overflow
+        // simply draws fewer pixels — acceptable for the common "image tile"
+        // case where the image is expected to fill the rect exactly.
+        if img_origin_x < 0.0 || img_origin_y < 0.0 {
+            return false;
+        }
+
         // Optimisation: if the blit rect doesn't overlap any strip operations
         // since the last flush point, batch it into the previous flush point's
         // blits instead of creating a new pipeline switch.
@@ -730,6 +817,8 @@ impl Scene {
             rect_w,
             rect_h,
             image_id,
+img_origin_x,
+            img_origin_y,
         });
         self.flush_points.last_mut().unwrap().blits_end = self.all_blits.len();
 
@@ -846,6 +935,19 @@ impl Scene {
     /// Set the stroke settings for subsequent stroke operations.
     pub fn set_stroke(&mut self, stroke: Stroke) {
         self.stroke = stroke;
+    }
+
+    /// Enable or disable blit rect batching.
+    ///
+    /// When enabled (the default), blit rects that do not overlap any strip operations
+    /// since the last flush point are batched into the previous flush point to avoid
+    /// pipeline switches. When disabled, every blit rect creates a new flush point.
+    ///
+    /// Disabling batching is useful for testing that the dirty rect tracking is correct:
+    /// rendering with batching enabled should produce identical output to rendering with
+    /// batching disabled.
+    pub fn set_blit_batching(&mut self, enabled: bool) {
+        self.blit_batching_enabled = enabled;
     }
 
     /// Set the paint for subsequent rendering operations.

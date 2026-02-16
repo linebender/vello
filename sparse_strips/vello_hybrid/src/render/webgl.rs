@@ -29,13 +29,13 @@ use crate::{
         Config,
         common::{
             GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
-            GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
-            GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
-            pack_texture_width_and_extend_mode,
+            GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlitRect,
+            GpuEncodedImage, GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient,
+            GpuSweepGradient, pack_image_offset, pack_image_params, pack_image_size,
+            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, resolve_blit_rect,
         },
     },
-    scene::Scene,
+    scene::{BlitRect, Scene},
     schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
 };
 
@@ -53,7 +53,7 @@ use vello_common::{
     pixmap::Pixmap,
     tile::Tile,
 };
-use vello_sparse_shaders::{clear_slots, render_strips};
+use vello_sparse_shaders::{blit_rects, clear_slots, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
@@ -94,6 +94,12 @@ pub struct WebGlRenderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
+    /// Scratch buffer for resolved blit rect GPU instances.
+    gpu_blit_rects: Vec<GpuBlitRect>,
+    /// Reusable scratch buffer for per-tile command start indices during rendering.
+    cmd_starts: Vec<usize>,
+    /// Reusable scratch buffer for per-tile command end indices (final segment).
+    cmd_ends: Vec<usize>,
 }
 
 impl WebGlRenderer {
@@ -160,6 +166,9 @@ impl WebGlRenderer {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             gradient_cache,
+            gpu_blit_rects: Vec::new(),
+            cmd_starts: Vec::new(),
+            cmd_ends: Vec::new(),
         }
     }
 
@@ -188,36 +197,87 @@ impl WebGlRenderer {
             render_size,
             &self.paint_idxs,
         );
-        let mut ctx = WebGlRendererContext {
-            programs: &mut self.programs,
-            gl: &self.gl,
-        };
-        // TODO: WebGL does not support blit rects, so process the entire scene as one segment.
         let n_tiles =
             usize::from(scene.wide.width_tiles()) * usize::from(scene.wide.height_tiles());
-        // TODO: Reuse these allocations...
-        let cmd_starts = vec![0usize; n_tiles];
-        let mut cmd_ends = vec![0usize; n_tiles];
+        self.cmd_starts.clear();
+        self.cmd_starts.resize(n_tiles, 0);
+
+        // Process interleaved strip segments and blit batches.
+        for (fp_idx, fp) in scene.flush_points.iter().enumerate() {
+            let cmd_ends = &scene.all_cmd_ends[fp_idx * n_tiles..(fp_idx + 1) * n_tiles];
+
+            // Render strip segment up to this fence.
+            {
+                let mut cmd_starts = core::mem::take(&mut self.cmd_starts);
+                let mut ctx = WebGlRendererContext {
+                    programs: &mut self.programs,
+                    gl: &self.gl,
+                };
+                let result = self.scheduler.do_scene_segment(
+                    &mut self.scheduler_state,
+                    &mut ctx,
+                    &scene.wide,
+                    &scene.encoded_paints,
+                    &self.paint_idxs,
+                    &cmd_starts,
+                    cmd_ends,
+                    fp_idx == 0,
+                );
+                cmd_starts.copy_from_slice(cmd_ends);
+                self.cmd_starts = cmd_starts;
+                result?;
+            }
+
+            // Render the blit rects for this flush point.
+            let blits = &scene.all_blits[fp.blits_start..fp.blits_end];
+            if !blits.is_empty() {
+                self.prepare_blit_rects(blits);
+                let gpu_blit_rects = core::mem::take(&mut self.gpu_blit_rects);
+                {
+                    let mut ctx = WebGlRendererContext {
+                        programs: &mut self.programs,
+                        gl: &self.gl,
+                    };
+                    ctx.do_blit_render_pass(&gpu_blit_rects);
+                }
+                self.gpu_blit_rects = gpu_blit_rects;
+            }
+        }
+
+        // Final strip segment: commands appended after the last flush point.
         {
+            let cmd_starts = core::mem::take(&mut self.cmd_starts);
+            self.cmd_ends.clear();
+            self.cmd_ends.resize(n_tiles, 0);
             let w = scene.wide.width_tiles();
             let h = scene.wide.height_tiles();
             for row in 0..h {
                 for col in 0..w {
                     let tile_idx = usize::from(row) * usize::from(w) + usize::from(col);
-                    cmd_ends[tile_idx] = scene.wide.get(col, row).cmds.len();
+                    self.cmd_ends[tile_idx] = scene.wide.get(col, row).cmds.len();
                 }
             }
+            let cmd_ends = core::mem::take(&mut self.cmd_ends);
+
+            let mut ctx = WebGlRendererContext {
+                programs: &mut self.programs,
+                gl: &self.gl,
+            };
+            let result = self.scheduler.do_scene_segment(
+                &mut self.scheduler_state,
+                &mut ctx,
+                &scene.wide,
+                &scene.encoded_paints,
+                &self.paint_idxs,
+                &cmd_starts,
+                &cmd_ends,
+                scene.flush_points.is_empty(),
+            );
+            self.cmd_starts = cmd_starts;
+            self.cmd_ends = cmd_ends;
+            result?;
         }
-        self.scheduler.do_scene_segment(
-            &mut self.scheduler_state,
-            &mut ctx,
-            &scene.wide,
-            &scene.encoded_paints,
-            &self.paint_idxs,
-            &cmd_starts,
-            &cmd_ends,
-            true,
-        )?;
+
         self.gradient_cache.maintain();
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
@@ -517,6 +577,25 @@ impl WebGlRenderer {
             }),
         }
     }
+
+    /// Resolve `BlitRect`s into GPU-ready `GpuBlitRect`s by looking up atlas coordinates.
+    ///
+    /// The visible image region is computed by intersecting the rect (in image space,
+    /// accounting for the paint transform) with the image bounds. Source and
+    /// destination coordinates are adjusted so the image appears at the correct
+    /// position within the rect.
+    fn prepare_blit_rects(&mut self, blit_rects: &[BlitRect]) {
+        self.gpu_blit_rects.clear();
+        self.gpu_blit_rects.reserve(blit_rects.len());
+
+        for blit in blit_rects {
+            if let Some(resource) = self.image_cache.get(blit.image_id) {
+                if let Some(gpu_blit) = resolve_blit_rect(blit, resource) {
+                    self.gpu_blit_rects.push(gpu_blit);
+                }
+            }
+        }
+    }
 }
 
 /// Contains the WebGL programs and resources for rendering.
@@ -530,6 +609,10 @@ struct WebGlPrograms {
     clear_program: WebGlProgram,
     /// Uniform locations for the `clear_program`.
     clear_uniforms: ClearUniforms,
+    /// Program for instanced blit rect rendering.
+    blit_program: WebGlProgram,
+    /// Uniform locations for the `blit_program`.
+    blit_uniforms: BlitUniforms,
     /// WebGL resources for rendering.
     resources: WebGlResources,
     /// Dimensions of the rendering target.
@@ -564,6 +647,17 @@ struct StripUniforms {
 struct ClearUniforms {
     /// Config uniform block index.
     config_block_index: u32,
+}
+
+/// Uniform locations for `blit_program`.
+#[derive(Debug)]
+struct BlitUniforms {
+    /// Config uniform block index for vertex shader.
+    config_vs_block_index: u32,
+    /// Atlas texture array location for vertex shader (used for `textureSize`).
+    atlas_texture_array_vs: WebGlUniformLocation,
+    /// Atlas texture array location for fragment shader (used for sampling).
+    atlas_texture_array_fs: WebGlUniformLocation,
 }
 
 /// Contains all WebGL resources needed for rendering.
@@ -610,6 +704,13 @@ struct WebGlResources {
     /// Framebuffers for slot textures.
     slot_framebuffers: [WebGlFramebuffer; 2],
 
+    /// VAO for blit rect rendering.
+    blit_vao: WebGlVertexArrayObject,
+    /// Buffer for [`GpuBlitRect`] instance data.
+    blit_buffer: WebGlBuffer,
+    /// Config buffer for the blit pipeline (viewport dimensions).
+    blit_config_buffer: WebGlBuffer,
+
     /// Cached result from querying `WebGl2RenderingContext::MAX_TEXTURE_SIZE` which is a blocking
     /// WebGL call.
     max_texture_dimension_2d: u32,
@@ -629,6 +730,18 @@ struct ClearSlotsConfig {
     pub _padding: u32,
 }
 
+/// Config uniform for the blit rects pipeline.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+struct BlitConfig {
+    /// Viewport width in pixels.
+    pub width: u32,
+    /// Viewport height in pixels.
+    pub height: u32,
+    /// Padding for 16-byte alignment (required by WebGL2).
+    pub _padding: [u32; 2],
+}
+
 impl WebGlPrograms {
     /// Creates programs and initializes resources.
     fn new(gl: WebGl2RenderingContext, image_cache: &ImageCache, slot_count: usize) -> Self {
@@ -642,14 +755,21 @@ impl WebGlPrograms {
             clear_slots::VERTEX_SOURCE,
             clear_slots::FRAGMENT_SOURCE,
         );
+        let blit_program = create_shader_program(
+            &gl,
+            blit_rects::VERTEX_SOURCE,
+            blit_rects::FRAGMENT_SOURCE,
+        );
 
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
         let clear_uniforms = get_clear_uniforms(&gl, &clear_program);
+        let blit_uniforms = get_blit_uniforms(&gl, &blit_program);
 
         let resources = create_webgl_resources(&gl, image_cache, slot_count);
 
         initialize_strip_vao(&gl, &resources);
         initialize_clear_vao(&gl, &resources);
+        initialize_blit_vao(&gl, &resources);
 
         let encoded_paints_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
 
@@ -662,8 +782,10 @@ impl WebGlPrograms {
         Self {
             strip_program,
             clear_program,
+            blit_program,
             strip_uniforms,
             clear_uniforms,
+            blit_uniforms,
             resources,
             render_size: RenderSize {
                 width: 0,
@@ -899,6 +1021,26 @@ impl WebGlPrograms {
                 );
             }
 
+            // Update blit config buffer.
+            {
+                let blit_config = BlitConfig {
+                    width: new_render_size.width,
+                    height: new_render_size.height,
+                    _padding: [0; 2],
+                };
+
+                gl.bind_buffer(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    Some(&self.resources.blit_config_buffer),
+                );
+                let blit_config_data = bytemuck::bytes_of(&blit_config);
+                gl.buffer_data_with_u8_array(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    blit_config_data,
+                    WebGl2RenderingContext::STATIC_DRAW,
+                );
+            }
+
             // Resize the view texture.
             gl.bind_texture(
                 WebGl2RenderingContext::TEXTURE_2D,
@@ -1066,6 +1208,24 @@ impl WebGlPrograms {
         gl.buffer_data_with_u8_array(
             WebGl2RenderingContext::ARRAY_BUFFER,
             strips_data,
+            WebGl2RenderingContext::DYNAMIC_DRAW,
+        );
+    }
+
+    /// Upload blit rect instance data to GPU.
+    fn upload_blit_rects(&mut self, gl: &WebGl2RenderingContext, blit_rects: &[GpuBlitRect]) {
+        if blit_rects.is_empty() {
+            return;
+        }
+
+        gl.bind_buffer(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            Some(&self.resources.blit_buffer),
+        );
+        let blit_data = bytemuck::cast_slice(blit_rects);
+        gl.buffer_data_with_u8_array(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            blit_data,
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
     }
@@ -1379,6 +1539,35 @@ fn get_clear_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> Cl
     ClearUniforms { config_block_index }
 }
 
+/// Get the uniform locations for the `blit_rects` program.
+fn get_blit_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> BlitUniforms {
+    let config_vs_name = blit_rects::vertex::CONFIG;
+    let config_vs_block_index = gl.get_uniform_block_index(program, config_vs_name);
+
+    debug_assert_ne!(
+        config_vs_block_index,
+        WebGl2RenderingContext::INVALID_INDEX,
+        "invalid uniform index"
+    );
+
+    // Bind uniform block to binding point.
+    gl.uniform_block_binding(program, config_vs_block_index, 0);
+
+    // Get texture uniform locations.
+    let atlas_texture_array_vs_name = blit_rects::vertex::ATLAS_TEXTURE_ARRAY;
+    let atlas_texture_array_fs_name = blit_rects::fragment::ATLAS_TEXTURE_ARRAY;
+
+    BlitUniforms {
+        config_vs_block_index,
+        atlas_texture_array_vs: gl
+            .get_uniform_location(program, atlas_texture_array_vs_name)
+            .unwrap(),
+        atlas_texture_array_fs: gl
+            .get_uniform_location(program, atlas_texture_array_fs_name)
+            .unwrap(),
+    }
+}
+
 /// Create all WebGL resources needed for rendering.
 fn create_webgl_resources(
     gl: &WebGl2RenderingContext,
@@ -1387,12 +1576,15 @@ fn create_webgl_resources(
 ) -> WebGlResources {
     let strip_vao = gl.create_vertex_array().unwrap();
     let clear_vao = gl.create_vertex_array().unwrap();
+    let blit_vao = gl.create_vertex_array().unwrap();
 
     let strips_buffer = gl.create_buffer().unwrap();
     let view_config_buffer = gl.create_buffer().unwrap();
     let slot_config_buffer = gl.create_buffer().unwrap();
     let clear_slot_indices_buffer = gl.create_buffer().unwrap();
     let clear_config_buffer = gl.create_buffer().unwrap();
+    let blit_buffer = gl.create_buffer().unwrap();
+    let blit_config_buffer = gl.create_buffer().unwrap();
 
     // Create and configure alpha texture.
     let alphas_texture = gl.create_texture().unwrap();
@@ -1547,6 +1739,9 @@ fn create_webgl_resources(
         slot_framebuffers,
         view_texture,
         view_framebuffer,
+        blit_vao,
+        blit_buffer,
+        blit_config_buffer,
         max_texture_dimension_2d,
     }
 }
@@ -1720,6 +1915,37 @@ fn initialize_clear_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
         0,
     );
     gl.vertex_attrib_divisor(slot_idx_loc, 1);
+
+    gl.bind_vertex_array(None);
+}
+
+/// Initialize blit rect VAO.
+fn initialize_blit_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
+    gl.bind_vertex_array(Some(&resources.blit_vao));
+    gl.bind_buffer(
+        WebGl2RenderingContext::ARRAY_BUFFER,
+        Some(&resources.blit_buffer),
+    );
+
+    let stride = size_of::<GpuBlitRect>() as i32;
+    debug_assert_eq!(stride, 20, "expected stride of 20");
+
+    // Configure attributes: 5 x u32, matching GpuBlitRect layout.
+    for i in 0..5 {
+        let location = i as u32;
+        let offset = i * 4;
+
+        gl.enable_vertex_attrib_array(location);
+        gl.vertex_attrib_i_pointer_with_i32(
+            location,
+            1,
+            WebGl2RenderingContext::UNSIGNED_INT,
+            stride,
+            offset,
+        );
+
+        gl.vertex_attrib_divisor(location, 1);
+    }
 
     gl.bind_vertex_array(None);
 }
@@ -1927,6 +2153,60 @@ impl WebGlRendererContext<'_> {
         );
 
         self.gl.enable(WebGl2RenderingContext::BLEND);
+
+        // Clean up.
+        self.gl.bind_vertex_array(None);
+    }
+
+    /// Render blit rects to the final view in a single instanced draw call.
+    fn do_blit_render_pass(&mut self, blit_rects: &[GpuBlitRect]) {
+        if blit_rects.is_empty() {
+            return;
+        }
+
+        self.programs.upload_blit_rects(self.gl, blit_rects);
+
+        // Bind the view framebuffer (blit rects render on top of strip content).
+        self.gl.bind_framebuffer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            Some(&self.programs.resources.view_framebuffer),
+        );
+        let width = self.programs.render_size.width;
+        let height = self.programs.render_size.height;
+        self.gl.viewport(0, 0, width as i32, height as i32);
+
+        // Use the blit program.
+        self.gl.use_program(Some(&self.programs.blit_program));
+
+        // Set up attributes.
+        self.gl
+            .bind_vertex_array(Some(&self.programs.resources.blit_vao));
+
+        // Bind config uniform buffer.
+        self.gl.bind_buffer_base(
+            WebGl2RenderingContext::UNIFORM_BUFFER,
+            self.programs.blit_uniforms.config_vs_block_index,
+            Some(&self.programs.resources.blit_config_buffer),
+        );
+
+        // Bind atlas texture array (shared between vertex and fragment shaders).
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        self.gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+            Some(&self.programs.resources.atlas_texture_array.texture),
+        );
+        self.gl
+            .uniform1i(Some(&self.programs.blit_uniforms.atlas_texture_array_vs), 0);
+        self.gl
+            .uniform1i(Some(&self.programs.blit_uniforms.atlas_texture_array_fs), 0);
+
+        // Draw.
+        self.gl.draw_arrays_instanced(
+            WebGl2RenderingContext::TRIANGLE_STRIP,
+            0,
+            4,
+            blit_rects.len() as i32,
+        );
 
         // Clean up.
         self.gl.bind_vertex_array(None);

@@ -10,6 +10,8 @@
 
 use bytemuck::{Pod, Zeroable};
 
+use crate::{image_cache::ImageResource, scene::BlitRect};
+
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
 pub(crate) const GPU_ENCODED_IMAGE_SIZE_TEXELS: u32 = (size_of::<GpuEncodedImage>() / 16) as u32;
 pub(crate) const GPU_LINEAR_GRADIENT_SIZE_TEXELS: u32 =
@@ -97,6 +99,59 @@ impl GpuBlitRect {
             4 => Uint32,
         ]
     }
+}
+
+/// Resolve a [`BlitRect`] into a GPU-ready [`GpuBlitRect`] by looking up atlas
+/// coordinates and computing the visible image region.
+///
+/// The visible region is the intersection of the rect (mapped into image space
+/// via `img_origin`) with the image bounds `(0, 0)..(image_w, image_h)`.
+/// Both source (atlas) and destination (screen) coordinates are adjusted so
+/// the image appears at the correct position within the rect.
+///
+/// Returns `None` if the visible region is empty.
+pub(crate) fn resolve_blit_rect(blit: &BlitRect, resource: &ImageResource) -> Option<GpuBlitRect> {
+    // Visible image region: intersect the rect (in image space) with image bounds.
+    //
+    // In image space, the rect spans from img_origin to img_origin + rect_size.
+    // The image occupies (0, 0) to (image_w, image_h).
+    let vis_x0 = blit.img_origin_x.max(0.0);
+    let vis_y0 = blit.img_origin_y.max(0.0);
+    let vis_x1 = (blit.img_origin_x + blit.rect_w as f32).min(resource.width as f32);
+    let vis_y1 = (blit.img_origin_y + blit.rect_h as f32).min(resource.height as f32);
+
+    let src_w = (vis_x1 - vis_x0).round() as u16;
+    let src_h = (vis_y1 - vis_y0).round() as u16;
+
+    if src_w == 0 || src_h == 0 {
+        return None;
+    }
+
+    // Screen-space geometry-to-pixel scale factors.
+    let scale_x = blit.dst_w as f32 / blit.rect_w as f32;
+    let scale_y = blit.dst_h as f32 / blit.rect_h as f32;
+
+    // If the image doesn't start at the rect's top-left (img_origin < 0 in
+    // some axis), offset the destination rect so the image starts further in.
+    let geo_offset_x = vis_x0 - blit.img_origin_x;
+    let geo_offset_y = vis_y0 - blit.img_origin_y;
+
+    let dst_x = (blit.dst_x as f32 + geo_offset_x * scale_x).round() as i16;
+    let dst_y = (blit.dst_y as f32 + geo_offset_y * scale_y).round() as i16;
+    let dst_w = (src_w as f32 * scale_x).round() as u16;
+    let dst_h = (src_h as f32 * scale_y).round() as u16;
+
+    // Atlas source: image resource offset + visible region start in image space.
+    let atlas_src_x = resource.offset[0] as u32 + vis_x0.round() as u32;
+    let atlas_src_y = resource.offset[1] as u32 + vis_y0.round() as u32;
+
+    Some(GpuBlitRect {
+        dst_xy: (dst_x as u16 as u32) | (((dst_y as u16) as u32) << 16),
+        dst_wh: (dst_w as u32) | ((dst_h as u32) << 16),
+        src_xy: atlas_src_x | (atlas_src_y << 16),
+        src_wh: (src_w as u32) | ((src_h as u32) << 16),
+        atlas_index: resource.atlas_id.as_u32(),
+    })
 }
 
 /// Different types of GPU encoded paints.
