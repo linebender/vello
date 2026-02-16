@@ -219,6 +219,11 @@ impl WideTilesBbox {
         self.bbox[0] == u16::MAX && self.bbox[1] == u16::MAX
     }
 
+    /// Whether the bounding box is empty.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.x0() >= self.x1() || self.y0() >= self.y1()
+    }
+
     /// Update the bbox to include the given tile coordinates.
     #[inline(always)]
     pub(crate) fn include_tile(&mut self, wtile_x: u16, wtile_y: u16) {

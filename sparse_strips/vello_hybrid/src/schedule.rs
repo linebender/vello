@@ -586,6 +586,11 @@ impl Scheduler {
         // actions.
         for node_id in scene.render_graph.execution_order() {
             let node = &scene.render_graph.nodes[node_id];
+
+            if node.is_empty() {
+                continue;
+            }
+
             let (layer_id, wtile_bbox) = match &node.kind {
                 RenderNodeKind::FilterLayer {
                     layer_id,
@@ -684,11 +689,18 @@ impl Scheduler {
                                 );
                             }
                             Cmd::PushBuf(LayerKind::Filtered(child_layer_id), blend_into_dest) => {
-                                self.do_push_buf(state, renderer, *blend_into_dest)?;
+                                let filtered_ranges =
+                                    wide_tile.layer_cmd_ranges.get(child_layer_id).unwrap();
+                                // It can happen that this is `None` in case we didn't allocate any texture for the filter
+                                // layer due to it being zero-sized. In this case, just skip it.
+                                let Some(filter_textures) =
+                                    filter_context.filter_textures.get(child_layer_id)
+                                else {
+                                    cmd_idx = filtered_ranges.full_range.end;
+                                    continue;
+                                };
 
-                                let filtered_ranges = wide_tile.layer_cmd_ranges.get(child_layer_id).unwrap();
-                                let filter_textures =
-                                    filter_context.filter_textures.get(child_layer_id).unwrap();
+                                self.do_push_buf(state, renderer, *blend_into_dest)?;
 
                                 // Currently, during coarse rasterization, we push this command for
                                 // all buffers, even though strictly speaking only the wide tiles
@@ -706,40 +718,41 @@ impl Scheduler {
                                 // 2) Don't emit the command in the first place for wide tiles
                                 // outside of the bounding box during coarse rasterization.
 
-                                let mut copy_from_filter_layer = |scheduler: &mut Scheduler, state: &mut SchedulerState| {
-                                    if filter_textures.bbox.contains(x, y) {
-                                        let cmd = CmdFill {
-                                            x: 0,
-                                            width: WideTile::WIDTH,
-                                            // Not used in `do_fill_with`.
-                                            attrs_idx: 0,
-                                        };
+                                let mut copy_from_filter_layer =
+                                    |scheduler: &mut Scheduler, state: &mut SchedulerState| {
+                                        if filter_textures.bbox.contains(x, y) {
+                                            let cmd = CmdFill {
+                                                x: 0,
+                                                width: WideTile::WIDTH,
+                                                // Not used in `do_fill_with`.
+                                                attrs_idx: 0,
+                                            };
 
-                                        let scene_strip_x = wide_tile_x;
-                                        let scene_strip_y = wide_tile_y;
+                                            let scene_strip_x = wide_tile_x;
+                                            let scene_strip_y = wide_tile_y;
 
-                                        let encoded_paint = &filter_encoded_paints
-                                            [filter_textures.filer_encoded_paints_idx as usize];
+                                            let encoded_paint = &filter_encoded_paints
+                                                [filter_textures.filer_encoded_paints_idx as usize];
 
-                                        let paint_tex_idx =
-                                            paint_idxs[filter_textures.paint_idx as usize];
-                                        let (payload, paint) = Self::process_encoded_paint(
-                                            encoded_paint,
-                                            paint_tex_idx,
-                                            scene_strip_x,
-                                            scene_strip_y,
-                                        );
+                                            let paint_tex_idx =
+                                                paint_idxs[filter_textures.paint_idx as usize];
+                                            let (payload, paint) = Self::process_encoded_paint(
+                                                encoded_paint,
+                                                paint_tex_idx,
+                                                scene_strip_x,
+                                                scene_strip_y,
+                                            );
 
-                                        scheduler.do_fill_with(
-                                            state,
-                                            &cmd,
-                                            scene_strip_x,
-                                            scene_strip_y,
-                                            payload,
-                                            paint,
-                                        );
-                                    }
-                                };
+                                            scheduler.do_fill_with(
+                                                state,
+                                                &cmd,
+                                                scene_strip_x,
+                                                scene_strip_y,
+                                                payload,
+                                                paint,
+                                            );
+                                        }
+                                    };
 
                                 match wide_tile.cmds.get(cmd_idx + 1) {
                                     Some(Cmd::PushZeroClip(id)) if *id == *child_layer_id => {

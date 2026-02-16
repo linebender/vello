@@ -291,6 +291,17 @@ pub struct RenderNode {
     pub kind: RenderNodeKind,
 }
 
+impl RenderNode {
+    /// Whether the render node is empty (due to having a zero-sized bounding box).
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        match &self.kind {
+            RenderNodeKind::RootLayer { wtile_bbox, .. } => wtile_bbox.is_empty(),
+            RenderNodeKind::FilterLayer { wtile_bbox, .. } => wtile_bbox.is_empty(),
+        }
+    }
+}
+
 /// An edge representing a dependency between two nodes.
 #[derive(Debug, Clone)]
 pub struct RenderEdge {

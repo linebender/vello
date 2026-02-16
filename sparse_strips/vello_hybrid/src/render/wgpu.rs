@@ -225,6 +225,13 @@ impl Renderer {
         // Iterate through filter nodes and allocate textures
         let mut current_offset = 0u32;
         for node in &render_graph.nodes {
+            // Unfortunately, during coarse rasterization it can happen that filter layers
+            // with a zero-sized bounding box are allocated. Trying to allocate such a texture
+            // in our atlas manager would give an error. Therefore, we just skip those nodes.
+            if node.is_empty() {
+                continue;
+            }
+
             if let RenderNodeKind::FilterLayer {
                 layer_id,
                 filter,

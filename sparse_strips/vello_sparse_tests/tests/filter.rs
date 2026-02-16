@@ -1210,3 +1210,17 @@ fn filter_in_double_nested_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
     ctx.pop_layer();
 }
+
+#[vello_test(skip_multithreaded, no_ref)]
+fn filter_on_right_of_viewport(ctx: &mut impl Renderer) {
+    let offset = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+
+    let x = 101.0;
+    let y = 0.0;
+    let size = 100.0;
+
+    ctx.push_filter_layer(offset.clone());
+    ctx.set_paint(SEA_GREEN);
+    ctx.fill_rect(&Rect::from_points((x, y), (x + size, y + size)));
+    ctx.pop_layer();
+}

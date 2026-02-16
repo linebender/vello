@@ -5,8 +5,8 @@
 
 use crate::renderer::Renderer;
 use std::sync::Arc;
-use vello_api::peniko::color::palette::css::{PURPLE, ROYAL_BLUE};
 use vello_api::peniko::color::palette::css::TOMATO;
+use vello_api::peniko::color::palette::css::{PURPLE, ROYAL_BLUE};
 use vello_api::peniko::{ImageQuality, ImageSampler};
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::filter_effects::{Filter, FilterPrimitive};
@@ -467,10 +467,7 @@ fn large_dimensions(ctx: &mut impl Renderer) {
 
 #[vello_test(skip_multithreaded, skip_hybrid)]
 fn issue_1417(ctx: &mut impl Renderer) {
-    let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::Offset {
-        dx: 0.0,
-        dy: 0.0,
-    });
+    let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
 
     // Unfortunately, I was unable to reduce it further... There are two issues at play:
     // 1) We were erroneously exiting eagerly in `pop_clip` in case the clip path has zero
