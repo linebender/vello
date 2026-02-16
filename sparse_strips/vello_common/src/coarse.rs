@@ -976,7 +976,7 @@ impl<const MODE: u8> Wide<MODE> {
         // Note: It's possible that the clip-path has zero strips. However, we cannot exit early
         // in this case because we need to potentially pop zero clips further below. Therefore,
         // we simply use a dummy alpha index of 0 in this case.
-        let alpha_base_idx = strips.get(0).map_or(0, |s| s.alpha_idx());
+        let alpha_base_idx = strips.first().map_or(0, |s| s.alpha_idx());
         let clip_attrs_idx = self.attrs.clip.len() as u32;
         self.attrs.clip.push(ClipAttrs {
             thread_idx,
