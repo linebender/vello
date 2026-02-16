@@ -979,7 +979,7 @@ impl<const MODE: u8> Wide<MODE> {
         let clip_attrs_idx = self.attrs.clip.len() as u32;
         let alpha_base_idx;
         if n_strips == 0 {
-            alpha_base_idx = 0
+            alpha_base_idx = 0;
         } else {
             alpha_base_idx = strips[0].alpha_idx();
             self.attrs.clip.push(ClipAttrs {
