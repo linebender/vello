@@ -1,3 +1,6 @@
+// Copyright 2026 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! Common filter helper functions.
 //!
 //! Unlike the filters defines in [`crate::filter_effects`], the filters in this module
