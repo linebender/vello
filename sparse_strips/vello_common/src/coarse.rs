@@ -324,6 +324,10 @@ impl<const MODE: u8> Wide<MODE> {
         for tile in &mut self.tiles {
             tile.bg = PremulColor::from_alpha_color(TRANSPARENT);
             tile.cmds.clear();
+            tile.n_zero_clip = 0;
+            tile.n_clip = 0;
+            tile.n_bufs = 0;
+            tile.in_clipped_filter_layer = false;
             tile.layer_ids.truncate(1);
             tile.layer_cmd_ranges.clear();
             tile.layer_cmd_ranges
@@ -968,12 +972,11 @@ impl<const MODE: u8> Wide<MODE> {
         } = self.clip_stack.pop().unwrap();
         let n_strips = strips.len();
 
-        if n_strips == 0 {
-            return;
-        }
-
         // Compute base alpha index and create shared clip attributes
-        let alpha_base_idx = strips[0].alpha_idx();
+        // Note: It's possible that the clip-path has zero strips. However, we cannot exit early
+        // in this case because we need to potentially pop zero clips further below. Therefore,
+        // we simply use a dummy alpha index of 0 in this case.
+        let alpha_base_idx = strips.first().map_or(0, |s| s.alpha_idx());
         let clip_attrs_idx = self.attrs.clip.len() as u32;
         self.attrs.clip.push(ClipAttrs {
             thread_idx,
@@ -2003,10 +2006,12 @@ mod tests {
 
         assert_eq!(wide.layer_stack.len(), 2);
         assert_eq!(wide.clip_stack.len(), 1);
+        assert_eq!(wide.tiles[0].n_bufs, 2);
 
         wide.reset();
 
         assert_eq!(wide.layer_stack.len(), 0);
         assert_eq!(wide.clip_stack.len(), 0);
+        assert_eq!(wide.tiles[0].n_bufs, 0);
     }
 }
