@@ -54,6 +54,8 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use smallvec::SmallVec;
 
+// TODO: Move this into the `filter` module.
+
 /// The main filter system.
 ///
 /// A filter combines a graph of filter primitives with optional spatial bounds.
