@@ -54,7 +54,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use smallvec::SmallVec;
 
-// TODO: Move this into the `filter` module.
+// TODO: Move/integrate this into the `filter` module?
 
 /// The main filter system.
 ///
