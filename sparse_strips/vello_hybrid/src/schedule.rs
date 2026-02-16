@@ -625,7 +625,7 @@ impl Scheduler {
         paint_idxs: &[u32],
         attrs: &CommandAttrs,
     ) -> Result<(), RenderError> {
-        // What is going on with the `surface_needs_wrap` and `is_blend_target` variables in
+        // What is going on with the `surface_is_blend_target` and `is_blend_target` variables in
         // `PushBuf`?
         // For blending of two layers (with a non-default blend mode) to work in vello_hybrid,
         // the two slots being blended must be on the same texture, since we need to be able to
@@ -642,7 +642,7 @@ impl Scheduler {
         // a blend operation has already happened during coarse rasterization, so here we just
         // need to pass on the boolean flags.
         //
-        // `surface_needs_wrap` is needed because the main target surface can obviously also
+        // `surface_is_blend_target` is needed because the main target surface can obviously also
         // end up being the destination of a blending operation. Since that surface is provided
         // by the user, there is no way we can read from it, which is required for blending. Therefore,
         // in this case we need to "wrap" _everything_ into a push/pop layer operation.
