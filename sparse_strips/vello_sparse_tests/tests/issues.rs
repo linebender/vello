@@ -5,6 +5,7 @@
 
 use crate::renderer::Renderer;
 use std::sync::Arc;
+use vello_api::peniko::color::palette::css::{PURPLE, ROYAL_BLUE};
 use vello_api::peniko::color::palette::css::TOMATO;
 use vello_api::peniko::{ImageQuality, ImageSampler};
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
@@ -462,6 +463,56 @@ fn basic_alpha_compositing(ctx: &mut impl Renderer) {
 #[vello_test(no_ref)]
 fn large_dimensions(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, u16::MAX as f64 + 10.0, 8.0));
+}
+
+#[vello_test(skip_multithreaded, skip_hybrid)]
+fn issue_1417(ctx: &mut impl Renderer) {
+    let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::Offset {
+        dx: 0.0,
+        dy: 0.0,
+    });
+
+    // Unfortunately, I was unable to reduce it further... There are two issues at play:
+    // 1) We were erroneously exiting eagerly in `pop_clip` in case the clip path has zero
+    // strips, causing `push_clip` and `pop_clip` to not be symmetrical.
+    // 2) We were not properly resetting `n_zero_clips` in Wide.
+    for _ in 0..2 {
+        let start = 20.0;
+        let size = 60.0;
+
+        let rect = Rect::from_points((start, start), (start + size, start + size));
+        {
+            ctx.push_layer(
+                Some(&rect.to_path(0.1)),
+                None,
+                None,
+                None,
+                Some(filter_drop_shadow.clone()),
+            );
+            ctx.push_layer(None, None, None, None, None);
+            ctx.set_paint(PURPLE);
+            ctx.fill_rect(&rect);
+            ctx.pop_layer();
+            ctx.pop_layer();
+        }
+
+        let start = 100.0;
+        let size = 4.0;
+
+        let rect = Rect::from_points((start, start), (start + size, start + size));
+        {
+            ctx.push_layer(
+                Some(&rect.to_path(0.1)),
+                None,
+                None,
+                None,
+                Some(filter_drop_shadow.clone()),
+            );
+            ctx.set_paint(ROYAL_BLUE);
+            ctx.fill_rect(&rect);
+            ctx.pop_layer();
+        }
+    }
 }
 
 #[vello_test(skip_multithreaded)]
