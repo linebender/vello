@@ -23,12 +23,14 @@ wgpu = { workspace = true, default-features = true }
 pollster = { workspace = true }
 vello_dev_macros = { workspace = true }
 bytemuck = { workspace = true }
-oxipng = { workspace = true, features = ["freestanding", "parallel"] }
 image = { workspace = true, features = ["png"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oxipng = { workspace = true, features = ["freestanding", "parallel"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-test = "0.3.56"
