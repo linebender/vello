@@ -42,7 +42,7 @@ impl InstantiatedFilter {
                 std_deviation,
                 edge_mode,
             } => {
-                let scaled_std_dev = transform_blur_params(*std_deviation, &transform);
+                let scaled_std_dev = transform_blur_params(*std_deviation, transform);
                 let blur = GaussianBlur::new(scaled_std_dev, *edge_mode);
                 Self::GaussianBlur(blur)
             }
@@ -54,14 +54,14 @@ impl InstantiatedFilter {
                 edge_mode,
             } => {
                 let (scaled_dx, scaled_dy, scaled_std_dev) =
-                    transform_shadow_params(*dx, *dy, *std_deviation, &transform);
+                    transform_shadow_params(*dx, *dy, *std_deviation, transform);
                 let drop_shadow =
                     DropShadow::new(scaled_dx, scaled_dy, scaled_std_dev, *edge_mode, *color);
 
                 Self::DropShadow(drop_shadow)
             }
             FilterPrimitive::Offset { dx, dy } => {
-                let (scaled_dx, scaled_dy) = transform_offset_params(*dx, *dy, &transform);
+                let (scaled_dx, scaled_dy) = transform_offset_params(*dx, *dy, transform);
                 let offset = Offset::new(scaled_dx, scaled_dy);
 
                 Self::Offset(offset)
