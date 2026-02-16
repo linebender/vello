@@ -472,7 +472,8 @@ fn issue_1417(ctx: &mut impl Renderer) {
     // Unfortunately, I was unable to reduce it further... There are two issues at play:
     // 1) We were erroneously exiting eagerly in `pop_clip` in case the clip path has zero
     // strips, causing `push_clip` and `pop_clip` to not be symmetrical.
-    // 2) We were not properly resetting `n_zero_clips` in Wide.
+    // 2) We were not properly resetting `n_zero_clips` in Wide, meaning that the issue only
+    // comes into play when rendering 1+ frame (hence the for loop).
     for _ in 0..2 {
         let start = 20.0;
         let size = 60.0;
