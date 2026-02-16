@@ -1357,25 +1357,16 @@ fn get_clear_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> Cl
 
 /// Create a texture with nearest neighbor sampling and clamp-to-edge wrapping.
 fn create_texture(gl: &WebGl2RenderingContext) -> WebGlTexture {
-    create_texture_inner(
-        gl,
-        WebGl2RenderingContext::TEXTURE_2D
-    )
+    create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D)
 }
 
 /// Create a texture array with nearest neighbor sampling and
 /// clamp-to-edge wrapping.
 fn create_texture_array(gl: &WebGl2RenderingContext) -> WebGlTexture {
-    create_texture_inner(
-        gl,
-        WebGl2RenderingContext::TEXTURE_2D_ARRAY
-    )
+    create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D_ARRAY)
 }
 
-fn create_texture_inner(
-    gl: &WebGl2RenderingContext,
-    target: u32,
-) -> WebGlTexture {
+fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTexture {
     let texture = gl.create_texture().unwrap();
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(target, Some(&texture));
