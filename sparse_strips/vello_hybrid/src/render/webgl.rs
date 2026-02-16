@@ -1355,6 +1355,53 @@ fn get_clear_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> Cl
     ClearUniforms { config_block_index }
 }
 
+/// Create a texture with nearest neighbor sampling and clamp-to-edge wrapping.
+fn create_texture(gl: &WebGl2RenderingContext) -> WebGlTexture {
+    create_texture_inner(
+        gl,
+        WebGl2RenderingContext::TEXTURE_2D
+    )
+}
+
+/// Create a texture array with nearest neighbor sampling and
+/// clamp-to-edge wrapping.
+fn create_texture_array(gl: &WebGl2RenderingContext) -> WebGlTexture {
+    create_texture_inner(
+        gl,
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY
+    )
+}
+
+fn create_texture_inner(
+    gl: &WebGl2RenderingContext,
+    target: u32,
+) -> WebGlTexture {
+    let texture = gl.create_texture().unwrap();
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(target, Some(&texture));
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+        WebGl2RenderingContext::NEAREST,
+    );
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+        WebGl2RenderingContext::NEAREST,
+    );
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_WRAP_S,
+        WebGl2RenderingContext::CLAMP_TO_EDGE,
+    );
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_WRAP_T,
+        WebGl2RenderingContext::CLAMP_TO_EDGE,
+    );
+    texture
+}
+
 /// Create all WebGL resources needed for rendering.
 fn create_webgl_resources(
     gl: &WebGl2RenderingContext,
@@ -1371,31 +1418,7 @@ fn create_webgl_resources(
     let clear_config_buffer = gl.create_buffer().unwrap();
 
     // Create and configure alpha texture.
-    let alphas_texture = gl.create_texture().unwrap();
-    {
-        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&alphas_texture));
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-            WebGl2RenderingContext::NEAREST as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-            WebGl2RenderingContext::NEAREST as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_WRAP_S,
-            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_WRAP_T,
-            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-        );
-    }
+    let alphas_texture = create_texture(gl);
 
     let AtlasConfig {
         atlas_size: (atlas_width, atlas_height),
@@ -1406,88 +1429,13 @@ fn create_webgl_resources(
         create_atlas_texture_array(gl, *atlas_width, *atlas_height, *initial_atlas_count as u32);
 
     // Create and configure encoded paints texture.
-    let encoded_paints_texture = gl.create_texture().unwrap();
-    {
-        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&encoded_paints_texture),
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-            WebGl2RenderingContext::NEAREST as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-            WebGl2RenderingContext::NEAREST as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_WRAP_S,
-            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_WRAP_T,
-            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-        );
-    }
+    let encoded_paints_texture = create_texture(gl);
 
     // Create and configure gradient texture.
-    let gradient_texture = gl.create_texture().unwrap();
-    {
-        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&gradient_texture));
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-            WebGl2RenderingContext::LINEAR as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-            WebGl2RenderingContext::LINEAR as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_WRAP_S,
-            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_WRAP_T,
-            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-        );
-    }
+    let gradient_texture = create_texture(gl);
 
     // Create and configure view texture.
-    let view_texture = gl.create_texture().unwrap();
-    {
-        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&view_texture));
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-            WebGl2RenderingContext::LINEAR as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-            WebGl2RenderingContext::LINEAR as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_WRAP_S,
-            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-        );
-        gl.tex_parameteri(
-            WebGl2RenderingContext::TEXTURE_2D,
-            WebGl2RenderingContext::TEXTURE_WRAP_T,
-            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-        );
-    };
+    let view_texture = create_texture(gl);
     // Create framebuffer for the view texture.
     let view_framebuffer = create_framebuffer_for_texture(gl, &view_texture);
 
@@ -1534,33 +1482,7 @@ fn create_atlas_texture_array(
     height: u32,
     layer_count: u32,
 ) -> WebGlTextureArray {
-    let atlas_texture = gl.create_texture().unwrap();
-    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-    gl.bind_texture(
-        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
-        Some(&atlas_texture),
-    );
-
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
-        WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-        WebGl2RenderingContext::LINEAR as i32,
-    );
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
-        WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-        WebGl2RenderingContext::LINEAR as i32,
-    );
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
-        WebGl2RenderingContext::TEXTURE_WRAP_S,
-        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-    );
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
-        WebGl2RenderingContext::TEXTURE_WRAP_T,
-        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-    );
+    let atlas_texture = create_texture_array(gl);
 
     // Initialize with empty texture array data
     gl.tex_image_3d_with_opt_u8_array(
@@ -1582,29 +1504,7 @@ fn create_atlas_texture_array(
 
 /// Create a texture for slot rendering.
 fn create_slot_texture(gl: &WebGl2RenderingContext, slot_count: usize) -> WebGlTexture {
-    let texture = gl.create_texture().unwrap();
-    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
-        WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-        WebGl2RenderingContext::NEAREST_MIPMAP_LINEAR as i32,
-    );
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
-        WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-        WebGl2RenderingContext::LINEAR as i32,
-    );
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
-        WebGl2RenderingContext::TEXTURE_WRAP_S,
-        WebGl2RenderingContext::REPEAT as i32,
-    );
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
-        WebGl2RenderingContext::TEXTURE_WRAP_T,
-        WebGl2RenderingContext::REPEAT as i32,
-    );
+    let texture = create_texture(gl);
     gl.tex_parameteri(
         WebGl2RenderingContext::TEXTURE_2D,
         WebGl2RenderingContext::TEXTURE_MAX_LEVEL,
