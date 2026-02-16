@@ -70,6 +70,7 @@ pub mod coarse;
 #[cfg(feature = "text")]
 pub mod colr;
 pub mod encode;
+pub mod filter;
 pub mod filter_effects;
 pub mod flatten;
 pub(crate) mod flatten_simd;
