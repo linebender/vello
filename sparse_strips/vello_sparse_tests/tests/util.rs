@@ -347,10 +347,17 @@ pub(crate) fn check_ref(
     let ref_path = REFS_PATH.join(format!("{test_name}.png"));
 
     let write_ref_image = || {
-        let optimized =
-            oxipng::optimize_from_memory(&encoded_image, &oxipng::Options::max_compression())
-                .unwrap();
-        std::fs::write(&ref_path, optimized).unwrap();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let optimized =
+                oxipng::optimize_from_memory(&encoded_image, &oxipng::Options::max_compression())
+                    .unwrap();
+            std::fs::write(&ref_path, optimized).unwrap();
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            panic("Reference images cannot be created from WASM");
+        }
     };
 
     if !ref_path.exists() {
