@@ -3,7 +3,9 @@
 use crate::filter_effects::EdgeMode;
 use crate::kurbo::Affine;
 use crate::util::extract_scales;
-use std::f32::consts::E;
+use core::f32::consts::E;
+#[cfg(not(feature = "std"))]
+use peniko::kurbo::common::FloatFuncs as _;
 
 /// Scale a blur's standard deviation uniformly based on the transformation.
 ///
@@ -153,7 +155,10 @@ pub fn compute_gaussian_kernel(std_deviation: f32) -> ([f32; MAX_KERNEL_SIZE], u
     (kernel, kernel_size)
 }
 
+#[cfg(test)]
 mod tests {
+    use crate::filter::gaussian_blur::{compute_gaussian_kernel, plan_decimated_blur};
+
     /// Test Gaussian kernel computation for small σ.
     #[test]
     fn test_gaussian_kernel_small_sigma() {
