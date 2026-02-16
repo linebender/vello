@@ -467,10 +467,7 @@ fn large_dimensions(ctx: &mut impl Renderer) {
 
 #[vello_test(skip_multithreaded, skip_hybrid)]
 fn issue_1417(ctx: &mut impl Renderer) {
-    let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::Offset {
-        dx: 0.0,
-        dy: 0.0,
-    });
+    let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
 
     // Unfortunately, I was unable to reduce it further... There are two issues at play:
     // 1) We were erroneously exiting eagerly in `pop_clip` in case the clip path has zero
