@@ -525,27 +525,3 @@ fn issue_1421(ctx: &mut impl Renderer) {
     ctx.fill_path(&rect);
     ctx.pop_layer();
 }
-
-#[vello_test(width = 4, height = 4)]
-fn issue_demonstration(ctx: &mut impl Renderer) {
-    let r = PremulRgba8::from_u8_array([255, 0, 0, 255]);
-    let b = PremulRgba8::from_u8_array([0, 0, 0, 0]);
-
-    // Three red rows, one transparent row.
-    let image = vec![r, r, r, r, r, r, r, r, r, r, r, r, b, b, b, b];
-
-    let pixmap = Pixmap::from_parts(image, 4, 4);
-    let source = ctx.get_image_source(Arc::new(pixmap));
-    let image = Image {
-        image: source,
-        sampler: ImageSampler {
-            x_extend: vello_common::peniko::Extend::Pad,
-            y_extend: vello_common::peniko::Extend::Pad,
-            quality: ImageQuality::Low,
-            alpha: 1.0,
-        },
-    };
-
-    ctx.set_paint(image);
-    ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
-}
