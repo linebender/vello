@@ -1,4 +1,8 @@
 //! Common filter helper functions.
+//!
+//! Unlike the filters defines in [`crate::filter_effects`], the filters in this module
+//! represent a special representation of each filter to be used as the basis for rendering in
+//! vello_hybrid and vello_cpu.
 
 use crate::filter::drop_shadow::{DropShadow, transform_shadow_params};
 use crate::filter::flood::Flood;
