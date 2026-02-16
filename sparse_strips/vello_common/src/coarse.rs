@@ -324,14 +324,14 @@ impl<const MODE: u8> Wide<MODE> {
         for tile in &mut self.tiles {
             tile.bg = PremulColor::from_alpha_color(TRANSPARENT);
             tile.cmds.clear();
+            tile.n_zero_clip = 0;
+            tile.n_clip = 0;
+            tile.n_bufs = 0;
+            tile.in_clipped_filter_layer = false;
             tile.layer_ids.truncate(1);
             tile.layer_cmd_ranges.clear();
             tile.layer_cmd_ranges
                 .insert(0, LayerCommandRanges::default());
-            tile.n_clip = 0;
-            tile.n_zero_clip = 0;
-            tile.n_bufs = 0;
-            tile.in_clipped_filter_layer = false;
         }
         self.attrs.clear();
         self.layer_stack.clear();
