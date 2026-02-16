@@ -1379,25 +1379,27 @@ fn create_texture_inner(
     let texture = gl.create_texture().unwrap();
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(target, Some(&texture));
+    // The actual sampling/wrapping behavior doesn't matter since we always
+    // sample in-bounds and apply the logic for that behavior ourselves.
     gl.tex_parameteri(
         target,
         WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-        WebGl2RenderingContext::NEAREST,
+        WebGl2RenderingContext::NEAREST as i32,
     );
     gl.tex_parameteri(
         target,
         WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-        WebGl2RenderingContext::NEAREST,
+        WebGl2RenderingContext::NEAREST as i32,
     );
     gl.tex_parameteri(
         target,
         WebGl2RenderingContext::TEXTURE_WRAP_S,
-        WebGl2RenderingContext::CLAMP_TO_EDGE,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
     );
     gl.tex_parameteri(
         target,
         WebGl2RenderingContext::TEXTURE_WRAP_T,
-        WebGl2RenderingContext::CLAMP_TO_EDGE,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
     );
     texture
 }
