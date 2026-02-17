@@ -153,6 +153,7 @@ pub fn compute_gaussian_kernel(std_deviation: f32) -> ([f32; MAX_KERNEL_SIZE], u
     (kernel, kernel_size)
 }
 
+#[cfg(test)]
 mod tests {
     use crate::filter::gaussian_blur::{compute_gaussian_kernel, plan_decimated_blur};
 

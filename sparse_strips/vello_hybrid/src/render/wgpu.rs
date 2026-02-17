@@ -21,7 +21,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, num::NonZeroU64};
-use hashbrown::HashMap;
+
 
 use crate::AtlasConfig;
 use crate::filter::{FilterContext, FilterTextures, GpuFilterData};
@@ -48,7 +48,7 @@ use vello_api::peniko::{ImageQuality, ImageSampler};
 use vello_common::encode::EncodedImage;
 use vello_common::kurbo::Vec2;
 use vello_common::{
-    coarse::{WideTile, WideTilesBbox},
+    coarse::WideTile,
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
     filter::InstantiatedFilter,
     kurbo::Affine,
@@ -61,7 +61,7 @@ use vello_common::{
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
     Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, Texture, TextureFormat, TextureView,
+    RenderPassDescriptor, RenderPipeline, Texture, TextureView,
     TextureViewDescriptor, util::DeviceExt,
 };
 
@@ -593,7 +593,7 @@ impl Renderer {
 
     fn encode_image_paint(
         &self,
-        image: &vello_common::encode::EncodedImage,
+        image: &EncodedImage,
         image_resource: &ImageResource,
     ) -> GpuEncodedPaint {
         let image_transform = image.transform * Affine::translate((-0.5, -0.5));
@@ -722,8 +722,6 @@ struct Programs {
     encoded_paints_data: Vec<u8>,
     /// Scratch buffer for staging filter texture data.
     filter_data: Vec<u8>,
-    /// Texture format for the render target.
-    target_format: wgpu::TextureFormat,
 }
 
 /// Contains all GPU resources needed for rendering
@@ -1372,7 +1370,6 @@ impl Programs {
             },
             clear_pipeline,
             atlas_clear_pipeline,
-            target_format: render_target_config.format,
         }
     }
 

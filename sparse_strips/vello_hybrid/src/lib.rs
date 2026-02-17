@@ -70,6 +70,7 @@ use thiserror::Error;
 
 /// Errors that can occur during rendering.
 #[derive(Error, Debug)]
+#[allow(private_interfaces)]
 pub enum RenderError {
     /// No slots available for rendering.
     ///

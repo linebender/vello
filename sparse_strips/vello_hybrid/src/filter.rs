@@ -16,7 +16,7 @@ use vello_common::filter::gaussian_blur::{GaussianBlur, MAX_KERNEL_SIZE};
 use vello_common::filter::offset::Offset;
 use vello_common::filter_effects::EdgeMode;
 use vello_common::paint::ImageId;
-use vello_common::render_graph::{LayerId, RenderGraph, RenderNodeKind};
+use vello_common::render_graph::LayerId;
 
 const BYTES_PER_TEXEL: usize = 16;
 const FILTER_SIZE_BYTES: usize = 96;
@@ -60,6 +60,7 @@ pub(crate) struct GpuOffset {
     pub _padding: [u32; 21],
 }
 
+#[cfg(test)]
 impl GpuOffset {
     const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 }
@@ -84,6 +85,7 @@ pub(crate) struct GpuFlood {
     pub _padding: [u32; 22],
 }
 
+#[cfg(test)]
 impl GpuFlood {
     const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 }
@@ -111,6 +113,7 @@ pub(crate) struct GpuGaussianBlur {
     pub _padding: [u32; 6],
 }
 
+#[cfg(test)]
 impl GpuGaussianBlur {
     const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 }
@@ -145,6 +148,7 @@ pub(crate) struct GpuDropShadow {
     pub _padding: [u32; 3],
 }
 
+#[cfg(test)]
 impl GpuDropShadow {
     const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 }
@@ -280,31 +284,6 @@ impl FilterContext {
         let offset = self.offsets.get(layer_id)?;
         let index = (*offset / GpuFilterData::SIZE_TEXELS) as usize;
         self.filters.get(index)
-    }
-
-    pub(crate) fn prepare(&mut self, render_graph: &RenderGraph) {
-        self.clear();
-
-        if !render_graph.has_filters() {
-            return;
-        }
-
-        let mut current_offset = 0u32;
-        for node in &render_graph.nodes {
-            if let RenderNodeKind::FilterLayer {
-                layer_id,
-                filter,
-                transform,
-                ..
-            } = &node.kind
-            {
-                let instantiated = InstantiatedFilter::new(filter, transform);
-                let gpu_filter = GpuFilterData::from(&instantiated);
-                self.filters.push(gpu_filter);
-                self.offsets.insert(*layer_id, current_offset);
-                current_offset += GpuFilterData::SIZE_TEXELS;
-            }
-        }
     }
 
     pub(crate) fn serialize_to_buffer(&self, buffer: &mut [u8]) {

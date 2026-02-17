@@ -61,15 +61,6 @@ impl MultiAtlasManager {
         u32::try_from(self.atlases.len()).unwrap()
     }
 
-    /// Try to allocate space for an image with the given dimensions.
-    pub(crate) fn try_allocate(
-        &mut self,
-        width: u32,
-        height: u32,
-    ) -> Result<AtlasAllocation, AtlasError> {
-        self.try_allocate_excluding(width, height, None)
-    }
-
     /// Try to allocate space for an image with the given dimensions, excluding a specific atlas.
     pub(crate) fn try_allocate_excluding(
         &mut self,

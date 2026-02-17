@@ -178,16 +178,16 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::filter::FilterContext;
 use crate::image_cache::ImageCache;
-use crate::multi_atlas::AtlasId;
+
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use vello_common::coarse::{
     CmdAlphaFill, CmdClipAlphaFill, CmdClipFill, CmdFill, CommandAttrs, MODE_HYBRID,
 };
-use vello_common::peniko::{BlendMode, Compose, Mix};
+use vello_common::peniko::BlendMode;
 use vello_common::{
-    coarse::{Cmd, LayerKind, WideTile, WideTilesBbox},
+    coarse::{Cmd, LayerKind, WideTile},
     encode::EncodedPaint,
     paint::{ImageSource, Paint},
     render_graph::{LayerId, RenderNodeKind},
@@ -718,7 +718,7 @@ impl Scheduler {
                                 // 2) Don't emit the command in the first place for wide tiles
                                 // outside of the bounding box during coarse rasterization.
 
-                                let mut copy_from_filter_layer =
+                                let copy_from_filter_layer =
                                     |scheduler: &mut Scheduler, state: &mut SchedulerState| {
                                         if filter_textures.bbox.contains(x, y) {
                                             let cmd = CmdFill {
@@ -1339,7 +1339,7 @@ impl Scheduler {
         wide_tile_x: u16,
         wide_tile_y: u16,
         mode: &BlendMode,
-        offset: (i32, i32),
+        _offset: (i32, i32),
     ) {
         let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
