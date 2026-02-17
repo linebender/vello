@@ -48,6 +48,8 @@ pub(crate) mod filter;
 mod gradient_cache;
 mod image_cache;
 mod multi_atlas;
+#[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
+mod paint_manager;
 mod render;
 mod scene;
 #[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]

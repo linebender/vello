@@ -26,6 +26,7 @@ use crate::{
     gradient_cache::GradientRampCache,
     image_cache::{ImageCache, ImageResource},
     multi_atlas::AtlasId,
+    paint_manager::PaintManager,
     render::{
         Config,
         common::{
@@ -178,7 +179,8 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
-        self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        let paint_manager = PaintManager::new(&scene.encoded_paints, alloc::vec::Vec::new());
+        self.prepare_gpu_encoded_paints(&paint_manager);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -194,13 +196,14 @@ impl WebGlRenderer {
             programs: &mut self.programs,
             gl: &self.gl,
         };
-        let filter_context = FilterContext::new();
+        let filter_context = FilterContext::new(Default::default());
         self.scheduler.do_scene(
             &mut self.scheduler_state,
             &mut ctx,
             scene,
             &self.paint_idxs,
             &filter_context,
+            &paint_manager,
         )?;
         self.gradient_cache.maintain();
 
@@ -361,13 +364,14 @@ impl WebGlRenderer {
         self.gl.delete_framebuffer(Some(&temp_framebuffer));
     }
 
-    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
+    fn prepare_gpu_encoded_paints(&mut self, paint_manager: &PaintManager<'_>) {
+        let total_len = paint_manager.len();
         self.encoded_paints
-            .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
-        self.paint_idxs.resize(encoded_paints.len() + 1, 0);
+            .resize_with(total_len, || GPU_PAINT_PLACEHOLDER);
+        self.paint_idxs.resize(total_len + 1, 0);
 
         let mut current_idx = 0;
-        for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
+        for (encoded_paint_idx, paint) in paint_manager.iter().enumerate() {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
@@ -403,8 +407,7 @@ impl WebGlRenderer {
             }
         }
 
-        // TODO: Fix this once we support filters.
-        self.paint_idxs[encoded_paints.len()] = current_idx;
+        self.paint_idxs[total_len] = current_idx;
     }
 
     fn encode_image_paint(

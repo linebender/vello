@@ -25,6 +25,7 @@ use core::{fmt::Debug, num::NonZeroU64};
 use crate::AtlasConfig;
 use crate::filter::{FilterContext, FilterTextures, GpuFilterData};
 use crate::multi_atlas::{AtlasError, AtlasId};
+use crate::paint_manager::PaintManager;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
@@ -101,7 +102,6 @@ pub struct Renderer {
     gradient_cache: GradientRampCache,
     /// Filter data for layers with filter effects.
     filter_context: FilterContext,
-    filter_encoded_paints: Vec<EncodedPaint>,
 }
 
 impl Renderer {
@@ -143,7 +143,6 @@ impl Renderer {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             filter_context,
-            filter_encoded_paints: Vec::new(),
         }
     }
 
@@ -155,7 +154,7 @@ impl Renderer {
         &mut self,
         render_graph: &RenderGraph,
         encoder: &mut CommandEncoder,
-        base_idx: usize,
+        paint_manager: &mut PaintManager<'_>,
     ) -> Result<(), AtlasError> {
         // Clear and deallocate old filter textures
         let fc = &mut self.filter_context;
@@ -164,8 +163,7 @@ impl Renderer {
             // dest image region?
 
             // Clear the main image region
-            if let Some(main_resource) =
-                fc.filter_texture_cache.get(filter_textures.main_image_id)
+            if let Some(main_resource) = fc.filter_texture_cache.get(filter_textures.main_image_id)
             {
                 Self::clear_texture_region(
                     encoder,
@@ -212,7 +210,6 @@ impl Renderer {
             }
         }
         self.filter_context.clear();
-        self.filter_encoded_paints.clear();
 
         // Early return if no filters in the scene
         if !render_graph.has_filters() {
@@ -248,7 +245,10 @@ impl Renderer {
                 // Allocate textures:
                 // - main_image from filter_texture_cache (native format, strip pipeline renders into it)
                 // - dest_image and scratch_image from main image_cache (Rgba8Unorm, filter pipeline writes to them)
-                let main_image_id = self.filter_context.filter_texture_cache.allocate(width, height)?;
+                let main_image_id = self
+                    .filter_context
+                    .filter_texture_cache
+                    .allocate(width, height)?;
                 let dest_image_id = self.image_cache.allocate(width, height)?;
                 let scratch_image_id = if needs_scratch {
                     Some(self.image_cache.allocate_excluding(
@@ -273,9 +273,7 @@ impl Renderer {
                     y_advance: Vec2::new(0.0, 1.0),
                 });
 
-                let filter_encoded_paints_idx = self.filter_encoded_paints.len();
-                let idx = base_idx + filter_encoded_paints_idx;
-                self.filter_encoded_paints.push(encoded_paint);
+                let idx = paint_manager.push(encoded_paint);
 
                 // Store the allocation
                 self.filter_context.filter_textures.insert(
@@ -285,7 +283,6 @@ impl Renderer {
                         dest_image_id,
                         scratch_image_id,
                         paint_idx: idx as u32,
-                        filer_encoded_paints_idx: filter_encoded_paints_idx as u32,
                         bbox: *wtile_bbox,
                     },
                 );
@@ -315,7 +312,9 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
-        self.prepare_filter_textures(&scene.render_graph, encoder, scene.encoded_paints.len())
+        let mut paint_manager = PaintManager::new(&scene.encoded_paints);
+
+        self.prepare_filter_textures(&scene.render_graph, encoder, &mut paint_manager)
             .map_err(|_| RenderError::AtlasError)?;
         Programs::maybe_resize_atlas_texture_array(
             device,
@@ -330,7 +329,7 @@ impl Renderer {
             &mut self.programs.resources,
             self.filter_context.filter_texture_cache.atlas_count() as u32,
         );
-        self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        self.prepare_gpu_encoded_paints(&paint_manager);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -360,7 +359,7 @@ impl Renderer {
             scene,
             &self.paint_idxs,
             &self.filter_context,
-            &self.filter_encoded_paints,
+            &paint_manager,
         );
         self.gradient_cache.maintain();
 
@@ -536,20 +535,15 @@ impl Renderer {
         // For now, clearing the entire layer is acceptable since we're deallocating anyway
     }
 
-    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
-        let scene_paints_len = encoded_paints.len();
-        let total_len = scene_paints_len + self.filter_encoded_paints.len();
+    fn prepare_gpu_encoded_paints(&mut self, paint_manager: &PaintManager<'_>) {
+        let total_len = paint_manager.len();
 
         self.encoded_paints
             .resize_with(total_len, || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(total_len + 1, 0);
 
         let mut current_idx = 0;
-        for (encoded_paint_idx, paint) in encoded_paints
-            .iter()
-            .chain(self.filter_encoded_paints.iter())
-            .enumerate()
-        {
+        for (encoded_paint_idx, paint) in paint_manager.iter().enumerate() {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
@@ -2203,7 +2197,11 @@ impl RendererContext<'_> {
                     .get(&layer_id)
                     .unwrap()
                     .main_image_id;
-                let resources = self.filter_context.filter_texture_cache.get(image_id).unwrap();
+                let resources = self
+                    .filter_context
+                    .filter_texture_cache
+                    .get(image_id)
+                    .unwrap();
 
                 // Create a view of the specific atlas layer
                 let view = self
