@@ -176,13 +176,14 @@ impl Renderer {
                 );
             }
 
-            // Clear the scratch image region if it exists (scratch is in main atlas)
+            // Clear the scratch image region if it exists (scratch is in filter atlas)
             if let Some(scratch_id) = filter_textures.scratch_image_id {
-                if let Some(scratch_resource) = self.image_cache.get(scratch_id) {
+                if let Some(scratch_resource) = fc.filter_texture_cache.get(scratch_id) {
                     Self::clear_texture_region(
                         encoder,
-                        &self.programs.resources.atlas_texture_array,
-                        scratch_resource.atlas_id.as_u32(),
+                        &self.programs.resources.filter_atlas_textures
+                            [scratch_resource.atlas_id.as_u32() as usize],
+                        0,
                         scratch_resource.offset,
                         scratch_resource.width,
                         scratch_resource.height,
@@ -207,7 +208,7 @@ impl Renderer {
                 .deallocate(filter_textures.main_image_id);
             self.image_cache.deallocate(filter_textures.dest_image_id);
             if let Some(scratch_id) = filter_textures.scratch_image_id {
-                self.image_cache.deallocate(scratch_id);
+                fc.filter_texture_cache.deallocate(scratch_id);
             }
         }
         self.filter_context.clear();
@@ -252,10 +253,10 @@ impl Renderer {
                     .allocate(width, height)?;
                 let dest_image_id = self.image_cache.allocate(width, height)?;
                 let scratch_image_id = if needs_scratch {
-                    Some(self.image_cache.allocate_excluding(
+                    Some(self.filter_context.filter_texture_cache.allocate_excluding(
                         width,
                         height,
-                        Some(AtlasId(dest_image_id.atlas_id())),
+                        Some(AtlasId(main_image_id.atlas_id())),
                     )?)
                 } else {
                     None
@@ -682,8 +683,10 @@ impl Renderer {
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
-    /// Pipeline for rendering wide tile commands.
-    strip_pipeline: RenderPipeline,
+    /// Pipelines for rendering wide tile commands.
+    /// Index 0: native surface format (for final view and slot textures).
+    /// Index 1: Rgba8Unorm (for filter intermediate textures).
+    strip_pipelines: [RenderPipeline; 2],
     /// Bind group layout for strip draws
     strip_bind_group_layout: BindGroupLayout,
     /// Bind group layout for encoded paints
@@ -966,37 +969,47 @@ impl Programs {
                 push_constant_ranges: &[],
             });
 
-        let strip_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Strip Pipeline"),
-            layout: Some(&strip_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &strip_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: size_of::<GpuStrip>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &GpuStrip::vertex_attributes(),
-                }],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &strip_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: render_target_config.format,
-                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
+        let strip_formats = [
+            render_target_config.format,
+            wgpu::TextureFormat::Rgba8Unorm,
+        ];
+        let strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(if i == 0 {
+                    "Strip Pipeline"
+                } else {
+                    "Strip Pipeline Rgba8"
+                }),
+                layout: Some(&strip_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &strip_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: size_of::<GpuStrip>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &GpuStrip::vertex_attributes(),
+                    }],
+                    compilation_options: PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &strip_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(ColorTargetState {
+                        format: strip_formats[i],
+                        blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            })
         });
 
         let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1156,7 +1169,7 @@ impl Programs {
                     module: &filter_shader,
                     entry_point: Some(filter_fragment_entry_points[i]),
                     targets: &[Some(ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm, // Atlas texture format
+                        format: wgpu::TextureFormat::Rgba8Unorm,
                         blend: None,
                         write_mask: ColorWrites::ALL,
                     })],
@@ -1272,7 +1285,7 @@ impl Programs {
             *filter_atlas_width,
             *filter_atlas_height,
             *filter_initial_atlas_count as u32,
-            render_target_config.format,
+            wgpu::TextureFormat::Rgba8Unorm,
         );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
@@ -1362,7 +1375,7 @@ impl Programs {
         };
 
         Self {
-            strip_pipeline,
+            strip_pipelines,
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
@@ -2330,7 +2343,11 @@ impl RendererContext<'_> {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        render_pass.set_pipeline(&self.programs.strip_pipeline);
+        let pipeline_idx = match target {
+            RenderTarget::Output(OutputTarget::IntermediateTexture(_)) => 1,
+            _ => 0,
+        };
+        render_pass.set_pipeline(&self.programs.strip_pipelines[pipeline_idx]);
         render_pass.set_bind_group(0, &bind_group, &[]);
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
@@ -2433,14 +2450,15 @@ impl RendererBackend for RendererContext<'_> {
                 .scratch_image_id
                 .expect("Scratch image must exist for multi-pass filter");
             let scratch = self
-                .image_cache
+                .filter_context
+                .filter_texture_cache
                 .get(scratch_id)
                 .expect("Scratch image must exist");
             (
                 [scratch.offset[0] as u32, scratch.offset[1] as u32],
                 [scratch.width as u32, scratch.height as u32],
                 scratch.atlas_id.as_u32(),
-                false, // scratch is in the main atlas
+                true, // scratch is in the filter atlas
             )
         } else {
             (
@@ -2554,7 +2572,11 @@ impl RendererBackend for RendererContext<'_> {
         // 6. Second pass (only for multi-pass filters): scratch -> dest
         if uses_scratch {
             let scratch_id = filter_textures.scratch_image_id.unwrap();
-            let scratch_resource = self.image_cache.get(scratch_id).unwrap();
+            let scratch_resource = self
+                .filter_context
+                .filter_texture_cache
+                .get(scratch_id)
+                .unwrap();
 
             let dest_atlas_size = self.programs.resources.atlas_texture_array.size();
             let pass2_instance_data = FilterInstanceData {
@@ -2583,21 +2605,9 @@ impl RendererBackend for RendererContext<'_> {
             self.programs
                 .upload_filter_instance(self.device, self.queue, &pass2_instance_data);
 
-            let scratch_input_view =
-                self.programs
-                    .resources
-                    .atlas_texture_array
-                    .create_view(&TextureViewDescriptor {
-                        label: Some("Filter Scratch Input View"),
-                        format: None,
-                        dimension: Some(wgpu::TextureViewDimension::D2),
-                        aspect: wgpu::TextureAspect::All,
-                        base_mip_level: 0,
-                        mip_level_count: None,
-                        base_array_layer: scratch_resource.atlas_id.as_u32(),
-                        array_layer_count: Some(1),
-                        usage: None,
-                    });
+            let scratch_input_view = self.programs.resources.filter_atlas_textures
+                [scratch_resource.atlas_id.as_u32() as usize]
+                .create_view(&TextureViewDescriptor::default());
 
             let scratch_input_bind_group =
                 self.device.create_bind_group(&wgpu::BindGroupDescriptor {
