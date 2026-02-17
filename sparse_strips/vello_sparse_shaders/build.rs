@@ -74,8 +74,6 @@ fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, S
     }
     writeln!(buf, "}}").unwrap();
 
-    // Implementation for creating a CompiledGlsl struct per shader assuming the standard entry
-    // names of `vs_main` and `fs_main`.
     #[cfg(feature = "glsl")]
     {
         writeln!(
@@ -85,11 +83,27 @@ fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, S
         .unwrap();
 
         for (shader_name, shader_source) in shader_infos {
-            let compiled = compile_wgsl_shader(shader_source, "vs_main", "fs_main");
-
-            let generated_code = compiled.to_generated_code(shader_name);
-            writeln!(buf, "{generated_code}").unwrap();
+            let entries = glsl_entry_points(shader_name);
+            for (suffix, vs_entry, fs_entry) in entries {
+                let module_name = format!("{shader_name}{suffix}");
+                let compiled = compile_wgsl_shader(shader_source, vs_entry, fs_entry);
+                let generated_code = compiled.to_generated_code(&module_name);
+                writeln!(buf, "{generated_code}").unwrap();
+            }
         }
+    }
+}
+
+/// Returns the GLSL entry point configurations for a given shader file.
+#[cfg(feature = "glsl")]
+fn glsl_entry_points(file_stem: &str) -> Vec<(&str, &str, &str)> {
+    match file_stem {
+        "filters" => vec![
+            ("_pass_1", "vs_main", "fs_pass_1"),
+            ("_pass_2", "vs_main", "fs_pass_2"),
+        ],
+        // Assume standard setup by default.
+        _ => vec![("", "vs_main", "fs_main")],
     }
 }
 
