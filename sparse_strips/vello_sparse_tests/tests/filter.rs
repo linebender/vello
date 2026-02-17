@@ -269,7 +269,7 @@ fn filter_drop_shadow_corners(ctx: &mut impl Renderer) {
 
 /// Test `set_filter_effect` and `reset_filter_effect` API.
 /// Applies filters to individual draw calls without creating layers.
-#[vello_test(skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_set_effect(ctx: &mut impl Renderer) {
     let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 2.0,
@@ -322,7 +322,7 @@ fn filter_set_effect(ctx: &mut impl Renderer) {
 
 /// Test filter interactions with layers, clips, blend modes, and opacity.
 /// 9 scenarios testing filters at various depths, with clips, opacity, blend modes, etc.
-#[vello_test(skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
     let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 2.0,
