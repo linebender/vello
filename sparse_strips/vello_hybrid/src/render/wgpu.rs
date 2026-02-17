@@ -743,6 +743,8 @@ struct GpuResources {
     filter_texture: Texture,
     /// Bind group for filter texture
     filter_bind_group: BindGroup,
+    /// Linear sampler for filter bilinear texture sampling
+    filter_sampler: wgpu::Sampler,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
@@ -1073,16 +1075,24 @@ impl Programs {
         let filter_input_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Filter Input Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
             });
 
         let filter_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1308,6 +1318,13 @@ impl Programs {
             &filter_texture.create_view(&TextureViewDescriptor::default()),
         );
 
+        let filter_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Filter Linear Sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
         let slot_bind_groups = Self::create_strip_bind_groups(
             device,
             &strip_bind_group_layout,
@@ -1339,6 +1356,7 @@ impl Programs {
             gradient_bind_group,
             filter_texture,
             filter_bind_group,
+            filter_sampler,
             view_config_buffer,
         };
 
@@ -2460,10 +2478,18 @@ impl RendererBackend for RendererContext<'_> {
         let main_input_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Filter Input Bind Group"),
             layout: &self.programs.filter_input_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&main_texture_view),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&main_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(
+                        &self.programs.resources.filter_sampler,
+                    ),
+                },
+            ],
         });
 
         let first_pass_dest_atlas = if first_pass_uses_filter_atlas {
@@ -2561,10 +2587,18 @@ impl RendererBackend for RendererContext<'_> {
                 self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Filter Scratch Input Bind Group"),
                     layout: &self.programs.filter_input_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&scratch_input_view),
-                    }],
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&scratch_input_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(
+                                &self.programs.resources.filter_sampler,
+                            ),
+                        },
+                    ],
                 });
 
             // Bind group for original (unfiltered) content, used by drop shadow pass 2.
@@ -2572,10 +2606,18 @@ impl RendererBackend for RendererContext<'_> {
             let original_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Filter Original Input Bind Group"),
                 layout: &self.programs.filter_input_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&main_texture_view),
-                }],
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&main_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(
+                            &self.programs.resources.filter_sampler,
+                        ),
+                    },
+                ],
             });
 
             let dest_texture_view =
