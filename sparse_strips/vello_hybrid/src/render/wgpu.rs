@@ -22,7 +22,6 @@ use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, num::NonZeroU64};
 
-
 use crate::AtlasConfig;
 use crate::filter::{FilterContext, FilterTextures, GpuFilterData};
 use crate::multi_atlas::{AtlasError, AtlasId};
@@ -61,8 +60,8 @@ use vello_common::{
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
     Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, Texture, TextureView,
-    TextureViewDescriptor, util::DeviceExt,
+    RenderPassDescriptor, RenderPipeline, Texture, TextureView, TextureViewDescriptor,
+    util::DeviceExt,
 };
 
 /// Placeholder value for uninitialized GPU encoded paints.
