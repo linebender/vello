@@ -648,7 +648,7 @@ struct BlitConfig {
     pub width: u32,
     /// Viewport height in pixels.
     pub height: u32,
-    /// Padding for 16-byte alignment (required by WebGL2).
+    /// Padding for 16-byte alignment (uniform buffer layout rules / std140).
     pub _padding: [u32; 2],
 }
 

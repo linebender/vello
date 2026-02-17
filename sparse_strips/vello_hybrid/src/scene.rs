@@ -15,8 +15,8 @@ use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, Paint, PaintType};
-use vello_common::peniko::FontData;
 use vello_common::peniko::Extend;
+use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
@@ -66,7 +66,7 @@ pub(crate) struct BlitRect {
     pub rect_h: u16,
     /// Source image reference (resolved to atlas coords at render time).
     pub image_id: ImageId,
-/// Image-space origin: where the rect's top-left maps to in image coordinates.
+    /// Image-space origin: where the rect's top-left maps to in image coordinates.
     ///
     /// This accounts for both the paint transform translation and non-zero rect
     /// origins. For a rect at `(x0, y0)` with a paint transform that translates
@@ -326,7 +326,7 @@ pub struct Scene {
     strips_dirty_rects: DirtyRects,
     /// SIMD level for dirty rect intersection checks.
     level: Level,
-/// Whether blit rect batching is enabled. When `false`, every blit rect
+    /// Whether blit rect batching is enabled. When `false`, every blit rect
     /// creates a new flush point regardless of overlap. Useful for testing that
     /// the dirty rect tracking is correct.
     blit_batching_enabled: bool,
@@ -366,7 +366,7 @@ impl Scene {
             in_blit_mode: false,
             strips_dirty_rects: DirtyRects::new(),
             level: settings.level,
-blit_batching_enabled: true,
+            blit_batching_enabled: true,
         }
     }
 
@@ -438,9 +438,7 @@ blit_batching_enabled: true,
     /// are already stored in the current [`FlushPoint`] so no data movement is needed.
     #[inline(always)]
     fn flush_blits(&mut self) {
-        if self.in_blit_mode {
-            self.in_blit_mode = false;
-        }
+        self.in_blit_mode = false;
     }
 
     /// Transition from strip mode to blit mode.
@@ -479,7 +477,7 @@ blit_batching_enabled: true,
     ///   strip operations recorded since that flush point.
     #[inline(always)]
     fn can_batch_blit(&self, dst_x: i16, dst_y: i16, dst_w: u16, dst_h: u16) -> bool {
-if !self.blit_batching_enabled {
+        if !self.blit_batching_enabled {
             return false;
         }
         if self.in_blit_mode {
@@ -490,8 +488,10 @@ if !self.blit_batching_enabled {
         }
         let blit_x0 = dst_x.max(0) as u16;
         let blit_y0 = dst_y.max(0) as u16;
-        let blit_x1 = blit_x0.saturating_add(dst_w).min(self.width);
-        let blit_y1 = blit_y0.saturating_add(dst_h).min(self.height);
+        let blit_x1 =
+            ((dst_x as i32 + dst_w as i32).max(0) as u32).min(u32::from(self.width)) as u16;
+        let blit_y1 =
+            ((dst_y as i32 + dst_h as i32).max(0) as u32).min(u32::from(self.height)) as u16;
         !self
             .strips_dirty_rects
             .any_overlap(blit_x0, blit_y0, blit_x1, blit_y1, self.level)
@@ -600,33 +600,28 @@ if !self.blit_batching_enabled {
         self.flush_blits();
 
         {
-        let strip_storage = &mut self.strip_storage.borrow_mut();
+            let strip_storage = &mut self.strip_storage.borrow_mut();
 
-        self.strip_generator.generate_stroked_path(
-            path,
-            &self.stroke,
-            transform,
-            aliasing_threshold,
-            strip_storage,
-            self.clip_context.get(),
-        );
+            self.strip_generator.generate_stroked_path(
+                path,
+                &self.stroke,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                self.clip_context.get(),
+            );
 
             self.wide.generate(
-            &strip_storage.strips,
-            paint,
-            self.blend_mode,
-            0,
-            None,
-            &self.encoded_paints,
+                &strip_storage.strips,
+                paint,
+                self.blend_mode,
+                0,
+                None,
+                &self.encoded_paints,
             );
         }
 
-        // Use the expanded stroke path's bbox which includes all join and cap geometry,
-        // rather than inflating the original path bbox by half the stroke width (which
-        // is incorrect for miter joins that can extend well beyond half-width).
-        self.push_dirty_rect(
-            transform.transform_rect_bbox(self.strip_generator.last_stroke_bbox()),
-        );
+        self.push_dirty_rect(self.strip_generator.last_stroke_bbox());
     }
 
     /// Set the aliasing threshold.
@@ -697,13 +692,16 @@ if !self.blit_batching_enabled {
         // case where the image is expected to fill the rect exactly.
         let image_id = match &self.paint {
             PaintType::Image(img) => {
-                if img.sampler.x_extend != Extend::Pad || img.sampler.y_extend != Extend::Pad || img.sampler.alpha != 1.0 {
+                if img.sampler.x_extend != Extend::Pad
+                    || img.sampler.y_extend != Extend::Pad
+                    || img.sampler.alpha != 1.0
+                {
                     return false;
                 }
-match &img.image {
-                ImageSource::OpaqueId(id) => *id,
-                _ => return false,
-            }
+                match &img.image {
+                    ImageSource::OpaqueId(id) => *id,
+                    _ => return false,
+                }
             }
             _ => return false,
         };
@@ -714,13 +712,18 @@ match &img.image {
             return false;
         }
 
-        // Condition 5: Geometry transform must be axis-aligned (no rotation/shear).
+        // Condition 5: Geometry transform must be axis-aligned (no rotation/shear)
+        // with non-negative scale (blit pipeline can't mirror images).
         let geo_coeffs = self.transform.as_coeffs();
         // coeffs: [a, b, c, d, tx, ty] where the matrix is [[a, c, tx], [b, d, ty]]
         // Axis-aligned means b == 0 and c == 0 (no shear/rotation).
         if (geo_coeffs[1] as f32).abs() > f32::EPSILON
             || (geo_coeffs[2] as f32).abs() > f32::EPSILON
         {
+            return false;
+        }
+        // Negative scale would flip the image, which the blit pipeline can't do.
+        if geo_coeffs[0] < 0.0 || geo_coeffs[3] < 0.0 {
             return false;
         }
 
@@ -745,27 +748,22 @@ match &img.image {
         let (ptx, pty) = (paint_coeffs[4], paint_coeffs[5]);
 
         // Compute the screen-space destination rect by applying the geometry transform.
-        // For axis-aligned transforms: x' = a*x + tx, y' = d*y + ty
-        let (a, d, tx, ty) = (geo_coeffs[0], geo_coeffs[3], geo_coeffs[4], geo_coeffs[5]);
-        let x0 = a * rect.x0 + tx;
-        let y0 = d * rect.y0 + ty;
-        let x1 = a * rect.x1 + tx;
-        let y1 = d * rect.y1 + ty;
-
-        // Handle negative scale (flipped rect) by normalizing.
-        let (x0, x1) = if x0 <= x1 { (x0, x1) } else { (x1, x0) };
-        let (y0, y1) = if y0 <= y1 { (y0, y1) } else { (y1, y0) };
+        // Since we've verified the transform is axis-aligned with non-negative scale,
+        // transform_rect_bbox gives the exact transformed rectangle.
+        let dst_rect = self.transform.transform_rect_bbox(*rect);
 
         // Pre-transform rect dimensions (geometry space).
-        let rect_w = pixel_snap((rect.x1 - rect.x0).abs()).max(0.0) as u16;
-        let rect_h = pixel_snap((rect.y1 - rect.y0).abs()).max(0.0) as u16;
+        // Rect guarantees x0 <= x1 and y0 <= y1, and we've already rejected
+        // negative a/d above, so no normalization is needed.
+        let rect_w = pixel_snap(rect.x1 - rect.x0).max(0.0) as u16;
+        let rect_h = pixel_snap(rect.y1 - rect.y0).max(0.0) as u16;
 
         // Pixel-snap the destination rect. Position is signed to allow
         // partially off-screen rects (the GPU clips naturally via NDC).
-        let rx0 = pixel_snap(x0);
-        let ry0 = pixel_snap(y0);
-        let rx1 = pixel_snap(x1);
-        let ry1 = pixel_snap(y1);
+        let rx0 = pixel_snap(dst_rect.x0);
+        let ry0 = pixel_snap(dst_rect.y0);
+        let rx1 = pixel_snap(dst_rect.x1);
+        let ry1 = pixel_snap(dst_rect.y1);
         let dst_x = rx0 as i16;
         let dst_y = ry0 as i16;
         let dst_w = (rx1 - rx0).max(0.0) as u16;
@@ -817,7 +815,7 @@ match &img.image {
             rect_w,
             rect_h,
             image_id,
-img_origin_x,
+            img_origin_x,
             img_origin_y,
         });
         self.flush_points.last_mut().unwrap().blits_end = self.all_blits.len();

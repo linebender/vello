@@ -755,11 +755,8 @@ impl WebGlPrograms {
             clear_slots::VERTEX_SOURCE,
             clear_slots::FRAGMENT_SOURCE,
         );
-        let blit_program = create_shader_program(
-            &gl,
-            blit_rects::VERTEX_SOURCE,
-            blit_rects::FRAGMENT_SOURCE,
-        );
+        let blit_program =
+            create_shader_program(&gl, blit_rects::VERTEX_SOURCE, blit_rects::FRAGMENT_SOURCE);
 
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
         let clear_uniforms = get_clear_uniforms(&gl, &clear_program);
@@ -2174,6 +2171,16 @@ impl WebGlRendererContext<'_> {
         let width = self.programs.render_size.width;
         let height = self.programs.render_size.height;
         self.gl.viewport(0, 0, width as i32, height as i32);
+
+        // Enable premultiplied alpha blending (matches wgpu's PREMULTIPLIED_ALPHA_BLENDING).
+        // Image texels may contain semi-transparent pixels that must composite correctly.
+        self.gl.enable(WebGl2RenderingContext::BLEND);
+        self.gl.blend_func_separate(
+            WebGl2RenderingContext::ONE,
+            WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA,
+            WebGl2RenderingContext::ONE,
+            WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA,
+        );
 
         // Use the blit program.
         self.gl.use_program(Some(&self.programs.blit_program));

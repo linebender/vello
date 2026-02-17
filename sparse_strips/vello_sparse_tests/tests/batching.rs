@@ -63,14 +63,14 @@ mod gpu_tests {
         }
 
         fn upload_image(&mut self, pixmap: &Pixmap) -> vello_common::paint::ImageId {
-            let mut encoder =
-                self.device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("Upload Image"),
-                    });
-            let id =
-                self.renderer
-                    .upload_image(&self.device, &self.queue, &mut encoder, pixmap);
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Upload Image"),
+                });
+            let id = self
+                .renderer
+                .upload_image(&self.device, &self.queue, &mut encoder, pixmap);
             self.queue.submit([encoder.finish()]);
             id
         }
@@ -100,11 +100,11 @@ mod gpu_tests {
                 height: height.into(),
             };
 
-            let mut encoder =
-                self.device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("Batching Test Render"),
-                    });
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Batching Test Render"),
+                });
             self.renderer
                 .render(
                     scene,
@@ -230,10 +230,7 @@ mod gpu_tests {
                     if first_diffs.len() < 5 {
                         let x = i % w;
                         let y = i / w;
-                        first_diffs.push(format!(
-                            "  ({x},{y}): on={:?} off={:?}",
-                            a, b
-                        ));
+                        first_diffs.push(format!("  ({x},{y}): on={:?} off={:?}", a, b));
                     }
                 }
             }
@@ -435,8 +432,7 @@ mod gpu_tests {
             path.line_to((30.0, -30.0));
 
             scene.set_transform(
-                Affine::translate((100.0, 100.0))
-                    * Affine::rotate(std::f64::consts::FRAC_PI_4),
+                Affine::translate((100.0, 100.0)) * Affine::rotate(std::f64::consts::FRAC_PI_4),
             );
             scene.set_paint(RED);
             scene.set_stroke(Stroke {
