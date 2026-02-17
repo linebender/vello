@@ -6,14 +6,7 @@
 //! This example demonstrates rendering an SVG file without a window or display.
 //! It takes an input SVG file and renders it to a PNG file using the hybrid CPU/GPU renderer.
 
-use smallvec::smallvec;
 use std::io::BufWriter;
-use vello_api::peniko::color::DynamicColor;
-use vello_api::peniko::color::palette::css::{BLUE, GREEN, RED, YELLOW};
-use vello_api::peniko::kurbo::{Point, Rect};
-use vello_api::peniko::{ColorStop, ColorStops, Gradient, LinearGradientPosition};
-use vello_common::color::palette::css::WHITE;
-use vello_common::filter_effects::{Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::Pixmap;
@@ -30,38 +23,23 @@ fn main() {
 }
 
 async fn run() {
-    // let mut args = std::env::args().skip(1);
-    // let svg_filename: String = args.next().expect("svg filename is first arg");
-    // let output_filename: String = args.next().expect("output filename is second arg");
-    // let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
-    // let render_scale = 5.0;
-    // let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
-    //
-    // let constraints = DimensionConstraints::default();
-    // let svg_width = parsed.size.width * render_scale;
-    // let svg_height = parsed.size.height * render_scale;
-    // let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
-    //
-    // let width = DimensionConstraints::convert_dimension(width);
-    // let height = DimensionConstraints::convert_dimension(height);
-    let width = 100;
-    let height = 100;
+    let mut args = std::env::args().skip(1);
+    let svg_filename: String = args.next().expect("svg filename is first arg");
+    let output_filename: String = args.next().expect("output filename is second arg");
+    let svg = std::fs::read_to_string(svg_filename).expect("error reading file");
+    let render_scale = 5.0;
+    let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
 
-    let start = 0.0f64;
-    let end = 500.0f64;
+    let constraints = DimensionConstraints::default();
+    let svg_width = parsed.size.width * render_scale;
+    let svg_height = parsed.size.height * render_scale;
+    let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
+
+    let width = DimensionConstraints::convert_dimension(width);
+    let height = DimensionConstraints::convert_dimension(height);
 
     let mut scene = Scene::new(width, height);
-    // render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));
-    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-        std_deviation: 2.0,
-        edge_mode: Default::default(),
-    });
-    scene.set_paint(WHITE);
-    scene.fill_rect(&Rect::new(0.0, 0.0, width as f64, height as f64));
-    scene.push_filter_layer(filter);
-    scene.set_paint(RED);
-    scene.fill_rect(&Rect::new(15.0, 15.0, 85.0, 85.0));
-    scene.pop_layer();
+    render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));
 
     // Initialize wgpu device and queue for GPU rendering
     let instance = wgpu::Instance::default();
@@ -112,7 +90,6 @@ async fn run() {
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Vello Render To Buffer"),
     });
-
     renderer
         .render(
             &scene,
@@ -181,7 +158,7 @@ async fn run() {
     let pixmap = Pixmap::from_parts(img_data, width, height);
 
     // Write the pixmap to a file
-    let file = std::fs::File::create("out.png").unwrap();
+    let file = std::fs::File::create(output_filename).unwrap();
     let w = BufWriter::new(file);
     let mut png_encoder = png::Encoder::new(w, width.into(), height.into());
     png_encoder.set_color(png::ColorType::Rgba);
@@ -211,25 +188,4 @@ fn render_svg(ctx: &mut Scene, items: &[Item], transform: Affine) {
             }
         }
     }
-}
-
-pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
-    ColorStops(smallvec![
-        ColorStop {
-            offset: 0.0,
-            color: DynamicColor::from_alpha_color(BLUE),
-        },
-        ColorStop {
-            offset: 0.33,
-            color: DynamicColor::from_alpha_color(GREEN),
-        },
-        ColorStop {
-            offset: 0.66,
-            color: DynamicColor::from_alpha_color(RED),
-        },
-        ColorStop {
-            offset: 1.0,
-            color: DynamicColor::from_alpha_color(YELLOW),
-        },
-    ])
 }
