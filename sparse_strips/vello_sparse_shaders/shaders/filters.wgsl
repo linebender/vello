@@ -13,18 +13,17 @@
 // Only bound during pass 2 (fs_pass_2).
 @group(2) @binding(0) var original_tex: texture_2d<f32>;
 
-// Keep in sync with FILTER_SIZE_U32 in vello_hybrid/src/filter.rs
+// Keep these variables and structs in sync with the ones in `filter.rs`!
+
 const FILTER_SIZE_U32: u32 = 24u;
 // Since the texture is packed into Uint32.
 const TEXELS_PER_FILTER: u32 = FILTER_SIZE_U32 / 4u;
 
-// Keep in sync with filter_type module in vello_hybrid/src/filter.rs
 const FILTER_TYPE_OFFSET: u32 = 0u;
 const FILTER_TYPE_FLOOD: u32 = 1u;
 const FILTER_TYPE_GAUSSIAN_BLUR: u32 = 2u;
 const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
 
-// Keep in sync with MAX_KERNEL_SIZE in vello_common/src/filter/gaussian_blur.rs
 const MAX_KERNEL_SIZE: u32 = 13u;
 
 struct GpuFilterData {
@@ -40,7 +39,6 @@ struct FloodFilter {
     color: u32,
 }
 
-// Keep in sync with GpuGaussianBlur in vello_hybrid/src/filter.rs
 struct GaussianBlurFilter {
     std_deviation: f32,
     n_decimations: u32,
@@ -49,7 +47,6 @@ struct GaussianBlurFilter {
     kernel: array<f32, 13>,
 }
 
-// Keep in sync with GpuDropShadow in vello_hybrid/src/filter.rs
 struct DropShadowFilter {
     dx: f32,
     dy: f32,
@@ -72,12 +69,10 @@ fn unpack_offset_filter(data: GpuFilterData) -> OffsetFilter {
     );
 }
 
-// Keep in sync with GpuFlood in vello_hybrid/src/filter.rs
 fn unpack_flood_filter(data: GpuFilterData) -> FloodFilter {
     return FloodFilter(data.data[1]);
 }
 
-// Keep in sync with GpuGaussianBlur in vello_hybrid/src/filter.rs
 fn unpack_gaussian_blur_filter(data: GpuFilterData) -> GaussianBlurFilter {
     var kernel: array<f32, 13>;
     for (var i = 0u; i < 13u; i++) {
@@ -92,7 +87,6 @@ fn unpack_gaussian_blur_filter(data: GpuFilterData) -> GaussianBlurFilter {
     );
 }
 
-// Keep in sync with GpuDropShadow in vello_hybrid/src/filter.rs
 fn unpack_drop_shadow_filter(data: GpuFilterData) -> DropShadowFilter {
     var kernel: array<f32, 13>;
     for (var i = 0u; i < 13u; i++) {
@@ -131,7 +125,6 @@ fn unpack_color(packed: u32) -> vec4<f32> {
     return unpack4x8unorm(packed);
 }
 
-// Keep in sync with FilterInstanceData in vello_hybrid/src/render/wgpu.rs
 struct FilterInstanceData {
     @location(0) src_offset: vec2<u32>,
     @location(1) src_size: vec2<u32>,
@@ -187,10 +180,6 @@ fn vs_main(
     return out;
 }
 
-// --- Sampling helpers ---
-
-/// Sample from the original (unfiltered) content texture at a relative coordinate.
-/// Uses original_offset/original_size for bounds checking and coordinate mapping.
 fn sample_original(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     if rel_coord.x < 0.0 || rel_coord.x >= f32(in.original_size.x) ||
        rel_coord.y < 0.0 || rel_coord.y >= f32(in.original_size.y) {
@@ -200,8 +189,6 @@ fn sample_original(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     return textureLoad(original_tex, src_coord, 0);
 }
 
-/// Sample from the source texture at a relative coordinate, with bounds checking.
-/// Returns transparent if the coordinate is out of bounds.
 fn sample_source(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     if rel_coord.x < 0.0 || rel_coord.x >= f32(in.src_size.x) ||
        rel_coord.y < 0.0 || rel_coord.y >= f32(in.src_size.y) {
@@ -211,7 +198,6 @@ fn sample_source(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     return textureLoad(in_tex, src_coord, 0);
 }
 
-/// Apply a 1D horizontal convolution at the given center coordinate.
 fn convolve_horizontal(in: FilterVertexOutput, center: vec2<f32>, kernel_size: u32, kernel: array<f32, 13>) -> vec4<f32> {
     let radius = i32(kernel_size / 2u);
     var color = vec4<f32>(0.0);
@@ -222,7 +208,6 @@ fn convolve_horizontal(in: FilterVertexOutput, center: vec2<f32>, kernel_size: u
     return color;
 }
 
-/// Apply a 1D vertical convolution at the given center coordinate.
 fn convolve_vertical(in: FilterVertexOutput, center: vec2<f32>, kernel_size: u32, kernel: array<f32, 13>) -> vec4<f32> {
     let radius = i32(kernel_size / 2u);
     var color = vec4<f32>(0.0);
@@ -232,8 +217,6 @@ fn convolve_vertical(in: FilterVertexOutput, center: vec2<f32>, kernel_size: u32
     }
     return color;
 }
-
-// --- Filter implementations ---
 
 @fragment
 fn fs_pass_1(in: FilterVertexOutput) -> @location(0) vec4<f32> {

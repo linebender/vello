@@ -18,12 +18,12 @@ use vello_common::filter_effects::EdgeMode;
 use vello_common::paint::ImageId;
 use vello_common::render_graph::LayerId;
 
+// Note: Keep this variables and struct layouts in sync with `filters.wgsl`!
+
 const BYTES_PER_TEXEL: usize = 16;
 const FILTER_SIZE_BYTES: usize = 96;
-// Keep in sync with FILTER_SIZE_U32 in filters.wgsl
 const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
 
-// Keep in sync with FILTER_TYPE_* in filters.wgsl
 pub(crate) mod filter_type {
     pub(crate) const OFFSET: u32 = 0;
     pub(crate) const FLOOD: u32 = 1;
@@ -31,8 +31,6 @@ pub(crate) mod filter_type {
     pub(crate) const DROP_SHADOW: u32 = 3;
 }
 
-// Keep in sync with EdgeMode in vello_common/src/filter_effects.rs
-// and EDGE_MODE_* in filters.wgsl
 pub(crate) mod edge_mode {
     pub(crate) const DUPLICATE: u32 = 0;
     pub(crate) const WRAP: u32 = 1;
@@ -50,7 +48,6 @@ pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
     }
 }
 
-// Keep struct layout in sync with unpack_offset_filter in filters.wgsl
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuOffset {
@@ -71,7 +68,6 @@ impl From<&Offset> for GpuOffset {
     }
 }
 
-// Keep struct layout in sync with unpack_flood_filter in filters.wgsl
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuFlood {
@@ -90,7 +86,6 @@ impl From<&Flood> for GpuFlood {
     }
 }
 
-// Keep struct layout in sync with unpack_gaussian_blur_filter in filters.wgsl
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuGaussianBlur {
@@ -117,7 +112,6 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
     }
 }
 
-// Keep struct layout in sync with unpack_drop_shadow_filter in filters.wgsl
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuDropShadow {
@@ -207,6 +201,7 @@ impl From<&InstantiatedFilter> for GpuFilterData {
     }
 }
 
+/// Context used for keeping track of state necessary for filter rendering.
 #[derive(Debug, Default)]
 pub(crate) struct FilterContext {
     /// The encoded data for each filter used in the current scene that will be uploaded to the
