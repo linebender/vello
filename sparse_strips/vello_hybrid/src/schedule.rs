@@ -177,8 +177,6 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::filter::FilterContext;
-use crate::image_cache::ImageCache;
-
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -491,7 +489,6 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
-        filter_image_cache: &ImageCache,
         filter_encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
         if scene.render_graph.has_filters() {
@@ -501,7 +498,6 @@ impl Scheduler {
                 scene,
                 paint_idxs,
                 filter_context,
-                filter_image_cache,
                 filter_encoded_paints,
             )?;
         } else {
@@ -578,7 +574,6 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
-        filter_image_cache: &ImageCache,
         filter_encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
         // TODO: Since this code is very similar to vello_cpu, maybe most of it can be
@@ -609,7 +604,7 @@ impl Scheduler {
                         .get(layer_id)
                         .unwrap()
                         .main_image_id;
-                    let resources = filter_image_cache.get(image_id).unwrap();
+                    let resources = filter_context.filter_texture_cache.get(image_id).unwrap();
                     // TODO: Move offset into the render_strips shader.
                     state.strip_offset = (
                         (wtile_bbox.x0() * WideTile::WIDTH) as i32 - resources.offset[0] as i32,

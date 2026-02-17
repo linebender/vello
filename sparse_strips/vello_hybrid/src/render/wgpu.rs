@@ -93,8 +93,6 @@ pub struct Renderer {
     scheduler_state: SchedulerState,
     /// Image cache for storing images atlas allocations.
     image_cache: ImageCache,
-    /// Filter texture cache for storing filter intermediate textures.
-    filter_texture_cache: ImageCache,
     /// Encoded paints for storing encoded paints.
     encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
@@ -123,7 +121,7 @@ impl Renderer {
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
-        let filter_texture_cache = ImageCache::new_with_config(settings.atlas_config);
+        let filter_context = FilterContext::new(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size =
@@ -134,18 +132,17 @@ impl Renderer {
             programs: Programs::new(
                 device,
                 &image_cache,
-                &filter_texture_cache,
+                &filter_context.filter_texture_cache,
                 render_target_config,
                 total_slots,
             ),
             scheduler: Scheduler::new(total_slots),
             scheduler_state: SchedulerState::default(),
             image_cache,
-            filter_texture_cache,
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
-            filter_context: FilterContext::new(),
+            filter_context,
             filter_encoded_paints: Vec::new(),
         }
     }
@@ -161,13 +158,14 @@ impl Renderer {
         base_idx: usize,
     ) -> Result<(), AtlasError> {
         // Clear and deallocate old filter textures
-        for filter_textures in self.filter_context.filter_textures().values() {
+        let fc = &mut self.filter_context;
+        for filter_textures in fc.filter_textures.values() {
             // TODO: Do we really need to clear anything other than the
             // dest image region?
 
             // Clear the main image region
             if let Some(main_resource) =
-                self.filter_texture_cache.get(filter_textures.main_image_id)
+                fc.filter_texture_cache.get(filter_textures.main_image_id)
             {
                 Self::clear_texture_region(
                     encoder,
@@ -206,7 +204,7 @@ impl Renderer {
             }
 
             // Deallocate after clearing
-            self.filter_texture_cache
+            fc.filter_texture_cache
                 .deallocate(filter_textures.main_image_id);
             self.image_cache.deallocate(filter_textures.dest_image_id);
             if let Some(scratch_id) = filter_textures.scratch_image_id {
@@ -250,7 +248,7 @@ impl Renderer {
                 // Allocate textures:
                 // - main_image from filter_texture_cache (native format, strip pipeline renders into it)
                 // - dest_image and scratch_image from main image_cache (Rgba8Unorm, filter pipeline writes to them)
-                let main_image_id = self.filter_texture_cache.allocate(width, height)?;
+                let main_image_id = self.filter_context.filter_texture_cache.allocate(width, height)?;
                 let dest_image_id = self.image_cache.allocate(width, height)?;
                 let scratch_image_id = if needs_scratch {
                     Some(self.image_cache.allocate_excluding(
@@ -330,7 +328,7 @@ impl Renderer {
             device,
             encoder,
             &mut self.programs.resources,
-            self.filter_texture_cache.atlas_count() as u32,
+            self.filter_context.filter_texture_cache.atlas_count() as u32,
         );
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -353,7 +351,6 @@ impl Renderer {
             encoder,
             view,
             image_cache: &self.image_cache,
-            filter_texture_cache: &self.filter_texture_cache,
             filter_context: &self.filter_context,
         };
 
@@ -363,7 +360,6 @@ impl Renderer {
             scene,
             &self.paint_idxs,
             &self.filter_context,
-            &self.filter_texture_cache,
             &self.filter_encoded_paints,
         );
         self.gradient_cache.maintain();
@@ -2177,7 +2173,6 @@ struct RendererContext<'a> {
     encoder: &'a mut CommandEncoder,
     view: &'a TextureView,
     image_cache: &'a ImageCache,
-    filter_texture_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
 }
 
@@ -2208,7 +2203,7 @@ impl RendererContext<'_> {
                     .get(&layer_id)
                     .unwrap()
                     .main_image_id;
-                let resources = self.filter_texture_cache.get(image_id).unwrap();
+                let resources = self.filter_context.filter_texture_cache.get(image_id).unwrap();
 
                 // Create a view of the specific atlas layer
                 let view = self
@@ -2380,6 +2375,7 @@ impl RendererBackend for RendererContext<'_> {
 
         // 2. Get image resources from caches
         let main_resource = self
+            .filter_context
             .filter_texture_cache
             .get(filter_textures.main_image_id)
             .expect("Main image must exist");

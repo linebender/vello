@@ -18,6 +18,9 @@ use vello_common::filter_effects::EdgeMode;
 use vello_common::paint::ImageId;
 use vello_common::render_graph::LayerId;
 
+use crate::AtlasConfig;
+use crate::image_cache::ImageCache;
+
 // Note: Keep this variables and struct layouts in sync with `filters.wgsl`!
 
 const BYTES_PER_TEXEL: usize = 16;
@@ -202,7 +205,7 @@ impl From<&InstantiatedFilter> for GpuFilterData {
 }
 
 /// Context used for keeping track of state necessary for filter rendering.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct FilterContext {
     /// The encoded data for each filter used in the current scene that will be uploaded to the
     /// filter texture.
@@ -211,6 +214,8 @@ pub(crate) struct FilterContext {
     pub(crate) offsets: HashMap<LayerId, u32>,
     /// Allocated filter textures (as ImageIds in the atlas) for each layer.
     pub(crate) filter_textures: HashMap<LayerId, FilterTextures>,
+    /// Image cache for storing filter intermediate textures.
+    pub(crate) filter_texture_cache: ImageCache,
 }
 
 /// Filter texture allocation for a single layer.
@@ -228,14 +233,20 @@ pub(crate) struct FilterTextures {
 }
 
 impl FilterContext {
-    pub(crate) fn new() -> Self {
-        Self::default()
+    pub(crate) fn new(atlas_config: AtlasConfig) -> Self {
+        Self {
+            filters: Vec::new(),
+            offsets: HashMap::new(),
+            filter_textures: HashMap::new(),
+            filter_texture_cache: ImageCache::new_with_config(atlas_config),
+        }
     }
 
     pub(crate) fn clear(&mut self) {
         self.filters.clear();
         self.offsets.clear();
         self.filter_textures.clear();
+        // TODO: Clear cache?
     }
 
     pub(crate) fn is_empty(&self) -> bool {
