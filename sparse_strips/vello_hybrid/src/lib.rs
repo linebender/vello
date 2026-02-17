@@ -70,7 +70,6 @@ use thiserror::Error;
 
 /// Errors that can occur during rendering.
 #[derive(Error, Debug)]
-#[allow(private_interfaces)]
 pub enum RenderError {
     /// No slots available for rendering.
     ///
@@ -81,8 +80,8 @@ pub enum RenderError {
     #[error("No slots available for rendering")]
     SlotsExhausted,
     /// Atlas allocation error for filter textures.
-    #[error("Atlas allocation error: {0}")]
-    AtlasError(#[from] multi_atlas::AtlasError),
+    #[error("Atlas allocation error")]
+    AtlasError,
     // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
 

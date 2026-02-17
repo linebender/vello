@@ -60,11 +60,6 @@ pub(crate) struct GpuOffset {
     pub _padding: [u32; 21],
 }
 
-#[cfg(test)]
-impl GpuOffset {
-    const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
-}
-
 impl From<&Offset> for GpuOffset {
     fn from(offset: &Offset) -> Self {
         Self {
@@ -83,11 +78,6 @@ pub(crate) struct GpuFlood {
     pub filter_type: u32,
     pub color: u32,
     pub _padding: [u32; 22],
-}
-
-#[cfg(test)]
-impl GpuFlood {
-    const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 }
 
 impl From<&Flood> for GpuFlood {
@@ -111,11 +101,6 @@ pub(crate) struct GpuGaussianBlur {
     pub edge_mode: u32,
     pub kernel: [f32; MAX_KERNEL_SIZE],
     pub _padding: [u32; 6],
-}
-
-#[cfg(test)]
-impl GpuGaussianBlur {
-    const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 }
 
 impl From<&GaussianBlur> for GpuGaussianBlur {
@@ -146,11 +131,6 @@ pub(crate) struct GpuDropShadow {
     pub kernel_size: u32,
     pub kernel: [f32; MAX_KERNEL_SIZE],
     pub _padding: [u32; 3],
-}
-
-#[cfg(test)]
-impl GpuDropShadow {
-    const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 }
 
 impl From<&DropShadow> for GpuDropShadow {
@@ -303,16 +283,6 @@ mod tests {
         assert_eq!(size_of::<GpuGaussianBlur>(), FILTER_SIZE_BYTES);
         assert_eq!(size_of::<GpuDropShadow>(), FILTER_SIZE_BYTES);
         assert_eq!(size_of::<GpuFilterData>(), FILTER_SIZE_BYTES);
-    }
-
-    #[test]
-    fn test_size_texels() {
-        const EXPECTED_TEXELS: u32 = (FILTER_SIZE_BYTES / BYTES_PER_TEXEL) as u32;
-        assert_eq!(GpuOffset::SIZE_TEXELS, EXPECTED_TEXELS);
-        assert_eq!(GpuFlood::SIZE_TEXELS, EXPECTED_TEXELS);
-        assert_eq!(GpuGaussianBlur::SIZE_TEXELS, EXPECTED_TEXELS);
-        assert_eq!(GpuDropShadow::SIZE_TEXELS, EXPECTED_TEXELS);
-        assert_eq!(GpuFilterData::SIZE_TEXELS, EXPECTED_TEXELS);
     }
 
     #[test]

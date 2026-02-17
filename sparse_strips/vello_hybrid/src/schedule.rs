@@ -796,7 +796,7 @@ impl Scheduler {
                                 self.do_opacity(state, *opacity);
                             }
                             Cmd::Blend(b) => {
-                                self.do_blend(state, wide_tile_x, wide_tile_y, b, offset);
+                                self.do_blend(state, wide_tile_x, wide_tile_y, b);
                             }
                             Cmd::Filter(_, _) => {}
                             Cmd::Start(_) => {}
@@ -807,13 +807,7 @@ impl Scheduler {
                     }
 
                     if wrap_surface {
-                        self.do_blend(
-                            state,
-                            wide_tile_x,
-                            wide_tile_y,
-                            &BlendMode::default(),
-                            offset,
-                        );
+                        self.do_blend(state, wide_tile_x, wide_tile_y, &BlendMode::default());
                         self.do_pop_buf(state);
                     }
                 }
@@ -1014,19 +1008,13 @@ impl Scheduler {
                     self.do_opacity(state, *opacity);
                 }
                 Cmd::Blend(mode) => {
-                    self.do_blend(state, wide_tile_x, wide_tile_y, mode, (0, 0));
+                    self.do_blend(state, wide_tile_x, wide_tile_y, mode);
                 }
                 _ => unimplemented!(),
             }
         }
         if surface_needs_wrap {
-            self.do_blend(
-                state,
-                wide_tile_x,
-                wide_tile_y,
-                &BlendMode::default(),
-                (0, 0),
-            );
+            self.do_blend(state, wide_tile_x, wide_tile_y, &BlendMode::default());
             self.do_pop_buf(state);
         }
         Ok(())
@@ -1339,7 +1327,6 @@ impl Scheduler {
         wide_tile_x: u16,
         wide_tile_y: u16,
         mode: &BlendMode,
-        _offset: (i32, i32),
     ) {
         let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();

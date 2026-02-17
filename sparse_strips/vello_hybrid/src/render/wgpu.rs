@@ -317,7 +317,8 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
-        self.prepare_filter_textures(&scene.render_graph, encoder, scene.encoded_paints.len())?;
+        self.prepare_filter_textures(&scene.render_graph, encoder, scene.encoded_paints.len())
+            .map_err(|_| RenderError::AtlasError)?;
         Programs::maybe_resize_atlas_texture_array(
             device,
             encoder,
