@@ -4,6 +4,7 @@
 //! Example scenes for Vello Sparse Strips.
 
 pub mod blend;
+pub mod blur_benchmark;
 pub mod clip;
 pub mod filter;
 pub mod gradient;
@@ -275,6 +276,11 @@ pub trait ExampleScene {
     fn handle_key(&mut self, _key: &str) -> bool {
         false
     }
+
+    /// Return an optional status string to display in the window title.
+    fn status(&self) -> Option<String> {
+        None
+    }
 }
 
 /// A type-erased example scene.
@@ -283,6 +289,8 @@ pub struct AnyScene<T> {
     render_fn: RenderFn<T>,
     /// The key handler function.
     key_handler_fn: KeyHandlerFn,
+    /// The status function.
+    status_fn: StatusFn,
     /// Whether to show the wide tile columns overlay.
     show_widetile_columns: bool,
 }
@@ -292,6 +300,9 @@ type RenderFn<T> = Box<dyn FnMut(&mut T, Affine)>;
 
 /// A type-erased key handler function.
 type KeyHandlerFn = Box<dyn FnMut(&str) -> bool>;
+
+/// A type-erased status function.
+type StatusFn = Box<dyn Fn() -> Option<String>>;
 
 impl<T> std::fmt::Debug for AnyScene<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -306,10 +317,12 @@ impl<T: RenderingContext> AnyScene<T> {
     pub fn new<S: ExampleScene + 'static>(scene: S) -> Self {
         let scene = std::rc::Rc::new(std::cell::RefCell::new(scene));
         let scene_clone = scene.clone();
+        let scene_clone2 = scene_clone.clone();
 
         Self {
             render_fn: Box::new(move |s, transform| scene.borrow_mut().render(s, transform)),
             key_handler_fn: Box::new(move |key| scene_clone.borrow_mut().handle_key(key)),
+            status_fn: Box::new(move || scene_clone2.borrow().status()),
             show_widetile_columns: false,
         }
     }
@@ -339,6 +352,11 @@ impl<T: RenderingContext> AnyScene<T> {
 
         // Then delegate to the scene-specific handler
         (self.key_handler_fn)(key)
+    }
+
+    /// Get the scene's status string, if any.
+    pub fn status(&self) -> Option<String> {
+        (self.status_fn)()
     }
 
     /// Toggle the tile grid overlay.
@@ -405,6 +423,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     scenes.push(AnyScene::new(path::TrickyStrokesScene::new()));
     scenes.push(AnyScene::new(path::FunkyPathsScene::new()));
     scenes.push(AnyScene::new(path::RobustPathsScene::new()));
+    scenes.push(AnyScene::new(blur_benchmark::BlurBenchmarkScene::new()));
 
     scenes.into_boxed_slice()
 }
@@ -432,6 +451,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
         AnyScene::new(path::TrickyStrokesScene::new()),
         AnyScene::new(path::FunkyPathsScene::new()),
         AnyScene::new(path::RobustPathsScene::new()),
+        AnyScene::new(blur_benchmark::BlurBenchmarkScene::new()),
     ];
     scenes.into_boxed_slice()
 }
