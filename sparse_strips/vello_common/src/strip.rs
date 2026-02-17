@@ -412,8 +412,8 @@ fn render_impl<S: Simd>(
             // Rather than calculating that y-offset twice for each pixel within the loop through
             // subtracting from the points' y-coordinates, we get rid of that subtraction by baking
             // it into the algebraic "base" x-coordinate `line_px_base_yx` calculated above the
-            // loop. When adding that term to `y_offset * x_slope` it gives the x-coordinate of the
-            // point along the line.
+            // loop. When adding that term to `y * x_slope` it gives the x-coordinate of the point
+            // along the line.
             //
             // Note `x_slope` is always finite, as horizontal geometry is elided.
             let line_px_left_yx = line_px_left_y.madd(x_slope, line_px_base_yx);
