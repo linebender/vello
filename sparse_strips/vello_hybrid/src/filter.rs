@@ -51,6 +51,75 @@ pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
     }
 }
 
+// To a large degree, the vello_hybrid implementation of gaussian blur follows the one in vello_cpu.
+// However, we apply a specific optimization, where instead of averaging and weighting each sample
+// one after the other, we use linear sampling to sample two pixels at once, and adjust the
+// weights accordingly so the gaussian blur filter is still valid. See
+// https://www.rastergrid.com/blog/2010/09/efficient-gaussian-blur-with-linear-sampling/
+// for more information.
+
+/// Maximum number of linear-sampling tap pairs per side.
+const MAX_TAPS_PER_SIDE: usize = (MAX_KERNEL_SIZE / 2 + 1) / 2;
+
+/// A linear-sampling kernel derived from a discrete Gaussian kernel.
+struct LinearKernel {
+    /// Weight of the center tap.
+    center_weight: f32,
+    // Note that we only need to store one side since they are symmetrical.
+    /// Merged weights for each tap pair. Only the first `n_taps` entries are valid.
+    weights: [f32; MAX_TAPS_PER_SIDE],
+    /// The fractional offsets for each tap pair for linear sampling.
+    offsets: [f32; MAX_TAPS_PER_SIDE],
+    /// The actual number of taps per side.
+    n_taps: u8,
+}
+
+impl LinearKernel {
+    fn new(kernel: &[f32; MAX_KERNEL_SIZE], kernel_size: u8) -> Self {
+        let kernel_size = kernel_size as usize;
+        let radius = kernel_size / 2;
+        let center_weight = kernel[radius];
+
+        let mut weights = [0.0f32; MAX_TAPS_PER_SIDE];
+        let mut offsets = [0.0f32; MAX_TAPS_PER_SIDE];
+        let mut n_taps = 0u8;
+
+        // The kernel is symmetric, so we can only process the positive side.
+        let positive_side = &kernel[radius + 1..kernel_size];
+        let (pairs, remainder) = positive_side.as_chunks::<2>();
+
+        // Merge each consecutive pair into a single bilinear tap. See the
+        // formulas on the website.
+        for (k, &[w1, w2]) in pairs.iter().enumerate() {
+            let merged_weight = w1 + w2;
+            let offset1 = (2 * k + 1) as f32;
+            let merged_offset = if merged_weight > 0.0 {
+                (w1 * offset1 + w2 * (offset1 + 1.0)) / merged_weight
+            } else {
+                offset1
+            };
+            weights[n_taps as usize] = merged_weight;
+            offsets[n_taps as usize] = merged_offset;
+            n_taps += 1;
+        }
+
+        // If there is a leftover tap, we sample with no fractional offset so that just
+        // that single pixel is sampled.
+        if let [leftover] = remainder {
+            weights[n_taps as usize] = *leftover;
+            offsets[n_taps as usize] = radius as f32;
+            n_taps += 1;
+        }
+
+        Self {
+            center_weight,
+            weights,
+            offsets,
+            n_taps,
+        }
+    }
+}
+
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuOffset {
@@ -95,22 +164,28 @@ pub(crate) struct GpuGaussianBlur {
     pub filter_type: u32,
     pub std_deviation: f32,
     pub n_decimations: u32,
-    pub kernel_size: u32,
+    pub n_linear_taps: u32,
     pub edge_mode: u32,
-    pub kernel: [f32; MAX_KERNEL_SIZE],
-    pub _padding: [u32; 6],
+    pub center_weight: f32,
+    pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
+    pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
+    pub _padding: [u32; 12],
 }
 
 impl From<&GaussianBlur> for GpuGaussianBlur {
     fn from(blur: &GaussianBlur) -> Self {
+        let lk = LinearKernel::new(&blur.kernel, blur.kernel_size);
+
         Self {
             filter_type: filter_type::GAUSSIAN_BLUR,
             std_deviation: blur.std_deviation,
             n_decimations: blur.n_decimations as u32,
-            kernel_size: blur.kernel_size as u32,
+            n_linear_taps: lk.n_taps as u32,
             edge_mode: edge_mode_to_gpu(blur.edge_mode),
-            kernel: blur.kernel,
-            _padding: [0; 6],
+            center_weight: lk.center_weight,
+            linear_weights: lk.weights,
+            linear_offsets: lk.offsets,
+            _padding: [0; 12],
         }
     }
 }
@@ -125,13 +200,16 @@ pub(crate) struct GpuDropShadow {
     pub edge_mode: u32,
     pub std_deviation: f32,
     pub n_decimations: u32,
-    pub kernel_size: u32,
-    pub kernel: [f32; MAX_KERNEL_SIZE],
-    pub _padding: [u32; 3],
+    pub n_linear_taps: u32,
+    pub center_weight: f32,
+    pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
+    pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
+    pub _padding: [u32; 9],
 }
 
 impl From<&DropShadow> for GpuDropShadow {
     fn from(shadow: &DropShadow) -> Self {
+        let lk = LinearKernel::new(&shadow.kernel, shadow.kernel_size);
         Self {
             filter_type: filter_type::DROP_SHADOW,
             dx: shadow.dx,
@@ -140,9 +218,11 @@ impl From<&DropShadow> for GpuDropShadow {
             edge_mode: edge_mode_to_gpu(shadow.edge_mode),
             std_deviation: shadow.std_deviation,
             n_decimations: shadow.n_decimations as u32,
-            kernel_size: shadow.kernel_size as u32,
-            kernel: shadow.kernel,
-            _padding: [0; 3],
+            n_linear_taps: lk.n_taps as u32,
+            center_weight: lk.center_weight,
+            linear_weights: lk.weights,
+            linear_offsets: lk.offsets,
+            _padding: [0; 9],
         }
     }
 }
@@ -280,6 +360,7 @@ impl FilterContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vello_common::filter::gaussian_blur::{compute_gaussian_kernel, plan_decimated_blur};
 
     #[test]
     fn test_all_filters_same_size() {
@@ -309,5 +390,44 @@ mod tests {
         let back: GpuOffset = bytemuck::cast(erased);
         assert_eq!(back.dx, 1.0);
         assert_eq!(back.dy, 2.0);
+    }
+
+    fn check_linear_kernel(kernel: &[f32; MAX_KERNEL_SIZE], size: u8, expected_taps: u8) {
+        let lk = LinearKernel::new(kernel, size);
+        assert_eq!(lk.n_taps, expected_taps);
+
+        let sum = lk.center_weight + 2.0 * lk.weights.iter().take(lk.n_taps as usize).sum::<f32>();
+        assert!(
+            (sum - 1.0).abs() < 1e-5,
+            "weights must sum to 1.0, got {sum}"
+        );
+    }
+
+    #[test]
+    fn linear_kernel_size_1() {
+        let (_n_dec, kernel, size) = plan_decimated_blur(0.0);
+        assert_eq!(size, 1);
+        check_linear_kernel(&kernel, size, 0);
+    }
+
+    #[test]
+    fn linear_kernel_size_3() {
+        let (kernel, size) = compute_gaussian_kernel(0.1);
+        assert_eq!(size, 3);
+        check_linear_kernel(&kernel, size, 1);
+    }
+
+    #[test]
+    fn linear_kernel_size_7() {
+        let (kernel, size) = compute_gaussian_kernel(1.0);
+        assert_eq!(size, 7);
+        check_linear_kernel(&kernel, size, 2);
+    }
+
+    #[test]
+    fn linear_kernel_size_13() {
+        let (kernel, size) = compute_gaussian_kernel(2.0);
+        assert_eq!(size, 13);
+        check_linear_kernel(&kernel, size, 3);
     }
 }
