@@ -9,6 +9,9 @@
 // Changes per filter pass (each layer has its own intermediate texture).
 @group(1) @binding(0) var in_tex: texture_2d<f32>;
 
+// Linear sampler for hardware bilinear filtering (used by fast-path convolution).
+@group(1) @binding(1) var linear_sampler: sampler;
+
 // The original (unfiltered) content texture, used by drop shadow pass 2 for compositing.
 // Only bound during pass 2 (fs_pass_2).
 @group(2) @binding(0) var original_tex: texture_2d<f32>;
@@ -24,7 +27,7 @@ const FILTER_TYPE_FLOOD: u32 = 1u;
 const FILTER_TYPE_GAUSSIAN_BLUR: u32 = 2u;
 const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
 
-const MAX_KERNEL_SIZE: u32 = 13u;
+const MAX_LINEAR_TAPS: u32 = 3u;
 
 struct GpuFilterData {
     data: array<u32, 24>,
@@ -42,9 +45,11 @@ struct FloodFilter {
 struct GaussianBlurFilter {
     std_deviation: f32,
     n_decimations: u32,
-    kernel_size: u32,
+    n_linear_taps: u32,
     edge_mode: u32,
-    kernel: array<f32, 13>,
+    center_weight: f32,
+    linear_weights: array<f32, MAX_LINEAR_TAPS>,
+    linear_offsets: array<f32, MAX_LINEAR_TAPS>,
 }
 
 struct DropShadowFilter {
@@ -54,8 +59,10 @@ struct DropShadowFilter {
     edge_mode: u32,
     std_deviation: f32,
     n_decimations: u32,
-    kernel_size: u32,
-    kernel: array<f32, 13>,
+    n_linear_taps: u32,
+    center_weight: f32,
+    linear_weights: array<f32, MAX_LINEAR_TAPS>,
+    linear_offsets: array<f32, MAX_LINEAR_TAPS>,
 }
 
 fn get_filter_type(data: GpuFilterData) -> u32 {
@@ -74,23 +81,29 @@ fn unpack_flood_filter(data: GpuFilterData) -> FloodFilter {
 }
 
 fn unpack_gaussian_blur_filter(data: GpuFilterData) -> GaussianBlurFilter {
-    var kernel: array<f32, 13>;
-    for (var i = 0u; i < 13u; i++) {
-        kernel[i] = bitcast<f32>(data.data[5u + i]);
+    var weights: array<f32, 3>;
+    var offsets: array<f32, 3>;
+    for (var i = 0u; i < 3u; i++) {
+        weights[i] = bitcast<f32>(data.data[6u + i]);
+        offsets[i] = bitcast<f32>(data.data[9u + i]);
     }
     return GaussianBlurFilter(
         bitcast<f32>(data.data[1]),
         data.data[2],
         data.data[3],
         data.data[4],
-        kernel
+        bitcast<f32>(data.data[5]),
+        weights,
+        offsets,
     );
 }
 
 fn unpack_drop_shadow_filter(data: GpuFilterData) -> DropShadowFilter {
-    var kernel: array<f32, 13>;
-    for (var i = 0u; i < 13u; i++) {
-        kernel[i] = bitcast<f32>(data.data[8u + i]);
+    var weights: array<f32, 3>;
+    var offsets: array<f32, 3>;
+    for (var i = 0u; i < 3u; i++) {
+        weights[i] = bitcast<f32>(data.data[9u + i]);
+        offsets[i] = bitcast<f32>(data.data[12u + i]);
     }
     return DropShadowFilter(
         bitcast<f32>(data.data[1]),
@@ -100,7 +113,9 @@ fn unpack_drop_shadow_filter(data: GpuFilterData) -> DropShadowFilter {
         bitcast<f32>(data.data[5]),
         data.data[6],
         data.data[7],
-        kernel
+        bitcast<f32>(data.data[8]),
+        weights,
+        offsets,
     );
 }
 
@@ -198,24 +213,72 @@ fn sample_source(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     return textureLoad(in_tex, src_coord, 0);
 }
 
-fn convolve_horizontal(in: FilterVertexOutput, center: vec2<f32>, kernel_size: u32, kernel: array<f32, 13>) -> vec4<f32> {
-    let radius = i32(kernel_size / 2u);
-    var color = vec4<f32>(0.0);
-    for (var i: i32 = -radius; i <= radius; i++) {
-        let weight = kernel[i + radius];
-        color += sample_source(in, center + vec2<f32>(f32(i), 0.0)) * weight;
-    }
-    return color;
-}
+fn convolve(
+    in: FilterVertexOutput,
+    center_in: vec2<f32>,
+    dir: vec2<f32>,
+    n_linear_taps: u32,
+    center_weight: f32,
+    weights: array<f32, 3>,
+    offsets: array<f32, 3>,
+) -> vec4<f32> {
+    let atlas_center = vec2<f32>(in.src_offset) + center_in;
+    let tex_size = vec2<f32>(textureDimensions(in_tex));
 
-fn convolve_vertical(in: FilterVertexOutput, center: vec2<f32>, kernel_size: u32, kernel: array<f32, 13>) -> vec4<f32> {
-    let radius = i32(kernel_size / 2u);
-    var color = vec4<f32>(0.0);
-    for (var i: i32 = -radius; i <= radius; i++) {
-        let weight = kernel[i + radius];
-        color += sample_source(in, center + vec2<f32>(0.0, f32(i))) * weight;
+    var max_reach = 0.0;
+    if n_linear_taps > 0u {
+        // + 1 Since we need one more pixel when doing linear sampling.
+        max_reach = offsets[n_linear_taps - 1u] + 1.0;
     }
-    return color;
+    let axis_pos = dot(center_in, dir);
+    let axis_size = dot(vec2<f32>(in.src_size), dir);
+    let all_in_bounds = axis_pos - max_reach >= 0.0
+            && axis_pos + max_reach < axis_size;
+
+    // For the best performance, we distinguish between two different paths: In the first path, all pixels
+    // we sample are within the bounds of the image, so we can use the GPU-native linear sampling method.
+    // However, when blurring border pixels, we can't do that because the image atlas might contain different
+    // images there, so we would sample garbage pixels. Therefore, we need to do the interpolational manually there.
+
+    if all_in_bounds {
+        let center_uv = (atlas_center + 0.5) / tex_size;
+        var color = textureSample(in_tex, linear_sampler, center_uv) * center_weight;
+        for (var i = 0u; i < n_linear_taps; i++) {
+            let w = weights[i];
+            let d = dir * offsets[i];
+            let pos_uv = (atlas_center + d + 0.5) / tex_size;
+            let neg_uv = (atlas_center - d + 0.5) / tex_size;
+            color += textureSample(in_tex, linear_sampler, pos_uv) * w;
+            color += textureSample(in_tex, linear_sampler, neg_uv) * w;
+        }
+        return color;
+    } else {
+        var color = sample_source(in, center_in) * center_weight;
+        let fixed = center_in - dir * axis_pos;
+
+        for (var i = 0u; i < n_linear_taps; i++) {
+            let w = weights[i];
+            let o = offsets[i];
+            // positive direction
+            let pp = axis_pos + o;
+            let pp0 = floor(pp);
+            let pt = pp - pp0;
+            color += mix(
+                sample_source(in, fixed + dir * pp0),
+                sample_source(in, fixed + dir * (pp0 + 1.0)),
+                pt) * w;
+            // negative direction
+            let np = axis_pos - o;
+            let np0 = floor(np);
+            let nt = np - np0;
+            color += mix(
+                sample_source(in, fixed + dir * np0),
+                sample_source(in, fixed + dir * (np0 + 1.0)),
+                nt) * w;
+        }
+
+        return color;
+    }
 }
 
 @fragment
@@ -270,34 +333,34 @@ fn apply_flood(flood: FloodFilter) -> vec4<f32> {
 }
 
 fn apply_offset(in: FilterVertexOutput, rel_coord: vec2<f32>, offset: OffsetFilter) -> vec4<f32> {
-    return sample_source(in, rel_coord - vec2<f32>(offset.dx, offset.dy));
+    return sample_source(in, round(rel_coord - vec2<f32>(offset.dx, offset.dy)));
 }
+
+const HORIZONTAL: vec2<f32> = vec2<f32>(1.0, 0.0);
+const VERTICAL: vec2<f32> = vec2<f32>(0.0, 1.0);
 
 /// Gaussian blur pass 1: horizontal convolution.
 fn gaussian_blur_pass_1(in: FilterVertexOutput, rel_coord: vec2<f32>, blur: GaussianBlurFilter) -> vec4<f32> {
-    return convolve_horizontal(in, rel_coord, blur.kernel_size, blur.kernel);
+    return convolve(in, rel_coord, HORIZONTAL, blur.n_linear_taps, blur.center_weight, blur.linear_weights, blur.linear_offsets);
 }
 
 /// Gaussian blur pass 2: vertical convolution.
 fn gaussian_blur_pass_2(in: FilterVertexOutput, rel_coord: vec2<f32>, blur: GaussianBlurFilter) -> vec4<f32> {
-    return convolve_vertical(in, rel_coord, blur.kernel_size, blur.kernel);
+    return convolve(in, rel_coord, VERTICAL, blur.n_linear_taps, blur.center_weight, blur.linear_weights, blur.linear_offsets);
 }
 
 /// Drop shadow pass 1: apply offset then horizontal blur.
-/// This shifts the sampling center by (dx, dy) before convolving, producing
-/// an offset, horizontally-blurred version of the source.
+/// The offset is rounded to integer to match the CPU path and because the convolution
+/// assumes integer-spaced taps.
 fn drop_shadow_pass_1(in: FilterVertexOutput, rel_coord: vec2<f32>, shadow: DropShadowFilter) -> vec4<f32> {
-    let offset_center = rel_coord - vec2<f32>(shadow.dx, shadow.dy);
-    return convolve_horizontal(in, offset_center, shadow.kernel_size, shadow.kernel);
+    // TODO: Why floor here?
+    let offset_center = floor(rel_coord - vec2<f32>(shadow.dx, shadow.dy));
+    return convolve(in, offset_center, HORIZONTAL, shadow.n_linear_taps, shadow.center_weight, shadow.linear_weights, shadow.linear_offsets);
 }
 
 /// Drop shadow pass 2: vertical blur, colorize, then composite original on top.
-/// The input (in_tex) is the horizontally-blurred, offset result from pass 1.
-/// The original (original_tex) is the unfiltered content.
-/// After vertical blur, we colorize the shadow and composite the original over it
-/// using premultiplied source-over blending.
 fn drop_shadow_pass_2(in: FilterVertexOutput, rel_coord: vec2<f32>, shadow: DropShadowFilter) -> vec4<f32> {
-    let blurred = convolve_vertical(in, rel_coord, shadow.kernel_size, shadow.kernel);
+    let blurred = convolve(in, rel_coord, VERTICAL, shadow.n_linear_taps, shadow.center_weight, shadow.linear_weights, shadow.linear_offsets);
     let shadow_color = unpack_color(shadow.color);
     // shadow.color is premultiplied RGBA. Scale it by the blurred alpha to get
     // the final shadow contribution at this pixel.
