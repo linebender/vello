@@ -133,11 +133,11 @@ pub(crate) fn resolve_blit_rect(blit: &BlitRect, resource: &ImageResource) -> Op
 
     // If the image doesn't start at the rect's top-left (img_origin < 0 in
     // some axis), offset the destination rect so the image starts further in.
-    let geo_offset_x = vis_x0 - blit.img_origin_x;
-    let geo_offset_y = vis_y0 - blit.img_origin_y;
+    let offset_x = vis_x0 - blit.img_origin_x;
+    let offset_y = vis_y0 - blit.img_origin_y;
 
-    let dst_x = (blit.dst_x as f32 + geo_offset_x * scale_x).round() as i16;
-    let dst_y = (blit.dst_y as f32 + geo_offset_y * scale_y).round() as i16;
+    let dst_x = (blit.dst_x as f32 + offset_x * scale_x).round() as i16;
+    let dst_y = (blit.dst_y as f32 + offset_y * scale_y).round() as i16;
     let dst_w = (src_w as f32 * scale_x).round() as u16;
     let dst_h = (src_h as f32 * scale_y).round() as u16;
 

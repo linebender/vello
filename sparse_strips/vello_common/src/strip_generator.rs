@@ -178,7 +178,7 @@ impl StripGenerator {
     /// Returns the bounding box of the last expanded stroke path (in local coordinates).
     ///
     /// Only valid immediately after [`Self::generate_stroked_path`].
-    /// The bbox includes all join and cap geometry.
+    #[inline(always)]
     pub fn last_stroke_bbox(&self) -> Rect {
         self.stroke_ctx.output().bounding_box()
     }
