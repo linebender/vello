@@ -241,5 +241,4 @@ mod tests {
         assert_eq!(size, 1);
         assert!((kernel[0] - 1.0).abs() < 1e-6);
     }
-
 }
