@@ -93,12 +93,8 @@ pub struct Renderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
-    /// Scratch buffer for resolved blit rect GPU instances.
+    /// Scratch buffer for [`GpuBlitRect`]s.
     gpu_blit_rects: Vec<GpuBlitRect>,
-    /// Reusable scratch buffer for per-tile command start indices during rendering.
-    cmd_starts: Vec<usize>,
-    /// Reusable scratch buffer for per-tile command end indices (final segment).
-    cmd_ends: Vec<usize>,
 }
 
 impl Renderer {
@@ -133,8 +129,6 @@ impl Renderer {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             gpu_blit_rects: Vec::new(),
-            cmd_starts: Vec::new(),
-            cmd_ends: Vec::new(),
         }
     }
 
@@ -152,7 +146,6 @@ impl Renderer {
         view: &TextureView,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
-
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -168,17 +161,17 @@ impl Renderer {
 
         let n_tiles =
             usize::from(scene.wide.width_tiles()) * usize::from(scene.wide.height_tiles());
-        self.cmd_starts.clear();
-        self.cmd_starts.resize(n_tiles, 0);
+        let mut batch_idx = 0;
 
         // Process interleaved strip segments and blit batches.
-        for (batch_idx, blit_batch_range) in scene.blit_batches.iter().enumerate() {
+        for blit_batch_range in scene.blit_batches.iter() {
+            let cmd_starts = (batch_idx > 0)
+                .then(|| &scene.strip_tile_batches[(batch_idx - 1) * n_tiles..batch_idx * n_tiles]);
             let cmd_ends =
                 &scene.strip_tile_batches[batch_idx * n_tiles..(batch_idx + 1) * n_tiles];
 
-            // Render strip segment up to this fence.
+            // Render strip segments for this batch.
             {
-                let mut cmd_starts = core::mem::take(&mut self.cmd_starts);
                 let mut ctx = RendererContext {
                     programs: &mut self.programs,
                     device,
@@ -186,55 +179,42 @@ impl Renderer {
                     encoder,
                     view,
                 };
-                let result = self.scheduler.do_scene_segment(
+                self.scheduler.do_scene_segment(
                     &mut self.scheduler_state,
                     &mut ctx,
                     &scene.wide,
                     &scene.encoded_paints,
                     &self.paint_idxs,
-                    &cmd_starts,
-                    cmd_ends,
+                    cmd_starts,
+                    Some(cmd_ends),
                     batch_idx == 0,
-                );
-                cmd_starts.copy_from_slice(cmd_ends);
-                self.cmd_starts = cmd_starts;
-                result?;
+                )?;
             }
 
-            // Render the blit rects for this blit batch.
-            let blits = &scene.all_blits[blit_batch_range.clone()];
-            if !blits.is_empty() {
-                self.prepare_blit_rects(blits);
-                let gpu_blit_rects = core::mem::take(&mut self.gpu_blit_rects);
-                {
-                    let mut ctx = RendererContext {
-                        programs: &mut self.programs,
-                        device,
-                        queue,
-                        encoder,
-                        view,
-                    };
-                    ctx.do_blit_render_pass(&gpu_blit_rects);
+            // Render blits for this batch.
+            {
+                let blits = &scene.all_blits[blit_batch_range.clone()];
+                if blits.is_empty() {
+                    continue;
                 }
-                self.gpu_blit_rects = gpu_blit_rects;
+                self.prepare_blit_rects(blits)?;
+                let mut ctx = RendererContext {
+                    programs: &mut self.programs,
+                    device,
+                    queue,
+                    encoder,
+                    view,
+                };
+                ctx.do_blit_render_pass(&self.gpu_blit_rects);
             }
+
+            batch_idx += 1;
         }
 
-        // Final strip segment: commands appended after the last blit batch.
-        {
-            let cmd_starts = core::mem::take(&mut self.cmd_starts);
-            self.cmd_ends.clear();
-            self.cmd_ends.resize(n_tiles, 0);
-            let w = scene.wide.width_tiles();
-            let h = scene.wide.height_tiles();
-            for row in 0..h {
-                for col in 0..w {
-                    let tile_idx = usize::from(row) * usize::from(w) + usize::from(col);
-                    self.cmd_ends[tile_idx] = scene.wide.get(col, row).cmds.len();
-                }
-            }
-            let cmd_ends = core::mem::take(&mut self.cmd_ends);
-
+        // Render final strip batch.
+        if batch_idx > 0 {
+            let cmd_starts =
+                &scene.strip_tile_batches[batch_idx * n_tiles..(batch_idx + 1) * n_tiles];
             let mut ctx = RendererContext {
                 programs: &mut self.programs,
                 device,
@@ -242,19 +222,16 @@ impl Renderer {
                 encoder,
                 view,
             };
-            let result = self.scheduler.do_scene_segment(
+            self.scheduler.do_scene_segment(
                 &mut self.scheduler_state,
                 &mut ctx,
                 &scene.wide,
                 &scene.encoded_paints,
                 &self.paint_idxs,
-                &cmd_starts,
-                &cmd_ends,
-                scene.blit_batches.is_empty(),
-            );
-            self.cmd_starts = cmd_starts;
-            self.cmd_ends = cmd_ends;
-            result?;
+                Some(cmd_starts),
+                None,
+                false,
+            )?;
         }
 
         self.gradient_cache.maintain();
@@ -388,6 +365,23 @@ impl Renderer {
         render_pass.draw(0..4, 0..1);
     }
 
+    /// Resolve [`BlitRect`]s into [`GpuBlitRect`]s by looking up atlas coordinates.
+    #[inline(always)] // Only one caller.
+    fn prepare_blit_rects(&mut self, blit_rects: &[BlitRect]) -> Result<(), RenderError> {
+        self.gpu_blit_rects.clear();
+        self.gpu_blit_rects.reserve(blit_rects.len());
+
+        for blit in blit_rects {
+            let Some(resource) = self.image_cache.get(blit.image_id) else {
+                return Err(RenderError::ImageResourceNotFound);
+            };
+            if let Some(gpu_blit) = resolve_blit_rect(blit, resource) {
+                self.gpu_blit_rects.push(gpu_blit);
+            }
+        }
+        Ok(())
+    }
+
     fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
@@ -430,25 +424,6 @@ impl Renderer {
             }
         }
         self.paint_idxs[encoded_paints.len()] = current_idx;
-    }
-
-    /// Resolve `BlitRect`s into GPU-ready `GpuBlitRect`s by looking up atlas coordinates.
-    ///
-    /// The visible image region is computed by intersecting the rect (in image space,
-    /// accounting for the paint transform) with the image bounds. Source and
-    /// destination coordinates are adjusted so the image appears at the correct
-    /// position within the rect.
-    fn prepare_blit_rects(&mut self, blit_rects: &[BlitRect]) {
-        self.gpu_blit_rects.clear();
-        self.gpu_blit_rects.reserve(blit_rects.len());
-
-        for blit in blit_rects {
-            if let Some(resource) = self.image_cache.get(blit.image_id) {
-                if let Some(gpu_blit) = resolve_blit_rect(blit, resource) {
-                    self.gpu_blit_rects.push(gpu_blit);
-                }
-            }
-        }
     }
 
     fn encode_image_paint(

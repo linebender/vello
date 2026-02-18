@@ -481,13 +481,11 @@ impl Scheduler {
         Ok(slot)
     }
 
-    /// Process a segment of wide tile commands.
+    /// Process a batch of wide tile commands.
     ///
-    /// Each segment corresponds to the commands between two fence points (or
-    /// the start/end of the scene). `cmd_starts` and `cmd_ends` are per-tile
-    /// arrays (indexed row-major) giving the command range to process for each
-    /// wide tile. `is_first_segment` controls whether tile backgrounds are
-    /// rendered (only on the first segment).
+    /// The batch is defined as the commands between [`cmd_starts`] and [`cmd_ends`]. When:
+    ///  - [`cmd_starts`] is `None`, the batch starts at the first command in each wide tile.
+    ///  - [`cmd_ends`] is `None`, the batch ends at the last command in each wide tile.
     pub(crate) fn do_scene_segment<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
@@ -495,8 +493,8 @@ impl Scheduler {
         wide: &Wide<MODE_HYBRID>,
         encoded_paints: &[EncodedPaint],
         paint_idxs: &[u32],
-        cmd_starts: &[usize],
-        cmd_ends: &[usize],
+        cmd_starts: Option<&[usize]>,
+        cmd_ends: Option<&[usize]>,
         is_first_segment: bool,
     ) -> Result<(), RenderError> {
         let wide_tiles_per_row = wide.width_tiles();
@@ -505,16 +503,19 @@ impl Scheduler {
         // Left to right, top to bottom iteration over wide tiles.
         for wide_tile_row in 0..wide_tiles_per_col {
             for wide_tile_col in 0..wide_tiles_per_row {
+                let wide_tile = wide.get(wide_tile_col, wide_tile_row);
+
                 let tile_idx = usize::from(wide_tile_row) * usize::from(wide_tiles_per_row)
                     + usize::from(wide_tile_col);
-                let cmd_start = cmd_starts[tile_idx];
-                let cmd_end = cmd_ends[tile_idx];
+                let cmd_start = cmd_starts.map_or(0, |starts| starts[tile_idx]);
+                let cmd_end = cmd_ends
+                    .map(|ends| ends[tile_idx])
+                    .unwrap_or(wide_tile.cmds.len());
 
                 if cmd_start == cmd_end && !is_first_segment {
                     continue; // No commands for this tile in this segment.
                 }
 
-                let wide_tile = wide.get(wide_tile_col, wide_tile_row);
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
 
