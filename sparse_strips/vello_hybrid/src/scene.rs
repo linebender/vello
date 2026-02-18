@@ -131,6 +131,9 @@ pub struct Scene {
     /// ]
     /// ```
     pub(crate) strip_tile_batches: Vec<usize>,
+    //
+    // TODO: Create a variable to enable or disable blit rect batching.
+    //
     /// Batches of blit rects to render between strip segments.
     /// Each range indexes into [`Self::all_blits`].
     pub(crate) blit_batches: Vec<Range<usize>>,
