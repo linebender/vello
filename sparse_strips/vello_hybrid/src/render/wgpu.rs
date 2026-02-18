@@ -191,21 +191,20 @@ impl Renderer {
                 // Allocate textures:
                 // - main_image from filter_texture_cache (native format, strip pipeline renders into it)
                 // - dest_image and scratch_image from main image_cache (Rgba8Unorm, filter pipeline writes to them)
-                let main_image_id = self
+                let main_image_id = self.filter_context.image_cache.allocate(width, height)?;
+                let main_image_atlas_id = self
                     .filter_context
                     .image_cache
-                    .allocate(width, height)?;
+                    .get(main_image_id)
+                    .unwrap()
+                    .atlas_id;
                 let dest_image_id = self.image_cache.allocate(width, height)?;
                 let scratch_image_id = if needs_scratch {
-                    Some(
-                        self.filter_context
-                            .image_cache
-                            .allocate_excluding(
-                                width,
-                                height,
-                                Some(AtlasId(main_image_id.atlas_id())),
-                            )?,
-                    )
+                    Some(self.filter_context.image_cache.allocate_excluding(
+                        width,
+                        height,
+                        Some(AtlasId(main_image_atlas_id.as_u32())),
+                    )?)
                 } else {
                     None
                 };
@@ -479,8 +478,7 @@ impl Renderer {
             }
 
             // Then, deallocate everything.
-            fc.image_cache
-                .deallocate(filter_textures.initial_image_id);
+            fc.image_cache.deallocate(filter_textures.initial_image_id);
             self.image_cache.deallocate(filter_textures.dest_image_id);
             if let Some(scratch_id) = filter_textures.scratch_image_id {
                 fc.image_cache.deallocate(scratch_id);
@@ -2274,11 +2272,7 @@ impl RendererContext<'_> {
                     .get(&layer_id)
                     .unwrap()
                     .initial_image_id;
-                let resources = self
-                    .filter_context
-                    .image_cache
-                    .get(image_id)
-                    .unwrap();
+                let resources = self.filter_context.image_cache.get(image_id).unwrap();
 
                 // Create a view of the specific filter atlas texture
                 let filter_texture = &self.programs.resources.filter_atlas_textures
@@ -2581,11 +2575,7 @@ impl RendererBackend for RendererContext<'_> {
         // 6. Second pass (only for multi-pass filters): scratch -> dest
         if uses_scratch {
             let scratch_id = filter_textures.scratch_image_id.unwrap();
-            let scratch_resource = self
-                .filter_context
-                .image_cache
-                .get(scratch_id)
-                .unwrap();
+            let scratch_resource = self.filter_context.image_cache.get(scratch_id).unwrap();
 
             let dest_atlas_size = self.programs.resources.atlas_texture_array.size();
             let pass2_instance_data = FilterInstanceData {
