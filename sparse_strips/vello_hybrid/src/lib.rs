@@ -61,7 +61,7 @@ pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
-pub use scene::{RenderSettings, Scene};
+pub use scene::{RenderHints, RenderSettings, Scene};
 pub use util::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;
 

@@ -211,10 +211,11 @@ impl Renderer {
             batch_idx += 1;
         }
 
-        // Render final strip batch.
-        if batch_idx > 0 {
-            let cmd_starts =
-                &scene.strip_tile_batches[batch_idx * n_tiles..(batch_idx + 1) * n_tiles];
+        // Render final strip segment.
+        // This also handles the case where there were no blit batches to render.
+        {
+            let cmd_starts = (batch_idx > 0)
+                .then(|| &scene.strip_tile_batches[(batch_idx - 1) * n_tiles..batch_idx * n_tiles]);
             let mut ctx = RendererContext {
                 programs: &mut self.programs,
                 device,
@@ -228,9 +229,9 @@ impl Renderer {
                 &scene.wide,
                 &scene.encoded_paints,
                 &self.paint_idxs,
-                Some(cmd_starts),
+                cmd_starts,
                 None,
-                false,
+                batch_idx == 0,
             )?;
         }
 
