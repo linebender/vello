@@ -312,6 +312,7 @@ impl Scene {
     /// The same as `push_dirty_rect`, but for the full viewport.
     #[inline(always)]
     fn push_dirty_viewport(&mut self) {
+        self.strips_dirty_rects.clear();
         self.strips_dirty_rects.push(0, 0, self.width, self.height);
     }
 
