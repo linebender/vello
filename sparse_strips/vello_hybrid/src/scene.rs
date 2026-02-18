@@ -47,6 +47,8 @@ pub struct RenderSettings {
     /// Adjusting these settings can affect memory usage and rendering performance
     /// depending on your application's image usage patterns.
     pub atlas_config: AtlasConfig,
+    /// Render hints for the renderer.
+    pub render_hints: RenderHints,
 }
 
 impl Default for RenderSettings {
@@ -54,7 +56,33 @@ impl Default for RenderSettings {
         Self {
             level: Level::try_detect().unwrap_or(Level::fallback()),
             atlas_config: AtlasConfig::default(),
+            render_hints: RenderHints::new(),
         }
+    }
+}
+
+/// Hints provided to the renderer to optimize performance.
+#[derive(Copy, Clone, Debug)]
+pub struct RenderHints(u32);
+
+impl RenderHints {
+    const NO_BLENDS: u32 = 1 << 0;
+
+    /// Create a new set of render hints.
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self(0)
+    }
+
+    /// The scene is guaranteed to not contain any blend modes.
+    #[inline(always)]
+    pub fn no_blends(self) -> Self {
+        Self(self.0 | Self::NO_BLENDS)
+    }
+
+    #[inline(always)]
+    fn blit_rect_pipeline_enabled(&self) -> bool {
+        (self.0 & Self::NO_BLENDS) == 0
     }
 }
 
@@ -86,6 +114,8 @@ struct RenderState {
 pub struct Scene {
     /// SIMD level for dirty rect intersection checks.
     level: Level,
+    /// Render hints for the renderer.
+    render_hints: RenderHints,
     /// Width of the rendering surface in pixels.
     pub(crate) width: u16,
     /// Height of the rendering surface in pixels.
@@ -167,6 +197,7 @@ impl Scene {
         let render_graph = RenderGraph::new();
         Self {
             level: settings.level,
+            render_hints: settings.render_hints,
             width,
             height,
             wide: Wide::<MODE_HYBRID>::new(width, height),
@@ -331,7 +362,9 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         self.enter_strip_mode();
-        self.push_dirty_rect(transform.transform_rect_bbox(path.bounding_box()));
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            self.push_dirty_rect(transform.transform_rect_bbox(path.bounding_box()));
+        }
         let wide = &mut self.wide;
         let strip_storage = &mut self.strip_storage.borrow_mut();
         self.strip_generator.generate_filled_path(
@@ -421,7 +454,9 @@ impl Scene {
             );
         }
 
-        self.push_dirty_rect(self.strip_generator.last_stroke_bbox());
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            self.push_dirty_rect(self.strip_generator.last_stroke_bbox());
+        }
     }
 
     /// Set the aliasing threshold.
@@ -452,6 +487,10 @@ impl Scene {
     /// strip pipeline.
     #[inline(always)] // only one caller.
     fn try_blit_rect(&mut self, rect: &Rect) -> bool {
+        if !self.render_hints.blit_rect_pipeline_enabled() {
+            return false;
+        }
+
         if !self.paint_visible {
             return true; // Invisible paint, nothing to draw either way.
         }
@@ -632,6 +671,11 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
+        const DEFAULT_BLEND_MODE: BlendMode = BlendMode::new(Mix::Normal, Compose::SrcOver);
+        let blend_mode = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            assert!(blend_mode == DEFAULT_BLEND_MODE);
+        }
         self.enter_strip_mode();
         if filter.is_some() {
             unimplemented!("Filter effects are not yet supported in vello_hybrid");
@@ -662,7 +706,7 @@ impl Scene {
         self.wide.push_layer(
             0,
             clip,
-            blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
+            blend_mode,
             None,
             opacity.unwrap_or(1.),
             None,
@@ -708,7 +752,7 @@ impl Scene {
     pub fn pop_layer(&mut self) {
         self.enter_strip_mode();
         let layer_bbox = self.wide.pop_layer(&mut self.render_graph);
-        if !layer_bbox.is_inverted() {
+        if self.render_hints.blit_rect_pipeline_enabled() && !layer_bbox.is_inverted() {
             // Push the dirty rect for the layer to the dirty rects list.
             let [x0, y0, x1, y1] = layer_bbox.pixel_bounds();
             self.strips_dirty_rects
@@ -718,6 +762,7 @@ impl Scene {
 
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        assert!(!self.render_hints.blit_rect_pipeline_enabled());
         self.blend_mode = blend_mode;
     }
 
@@ -1072,7 +1117,9 @@ impl Scene {
         adjusted_strips: &[Strip],
     ) {
         self.enter_strip_mode();
-        self.push_dirty_viewport();
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            self.push_dirty_viewport();
+        }
         assert!(
             range_index < strip_start_indices.len(),
             "Strip range index out of bounds: range_index={}, strip_start_indices.len()={}",
