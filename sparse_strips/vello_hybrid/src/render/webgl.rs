@@ -203,8 +203,9 @@ impl WebGlRenderer {
         self.cmd_starts.resize(n_tiles, 0);
 
         // Process interleaved strip segments and blit batches.
-        for (fp_idx, fp) in scene.flush_points.iter().enumerate() {
-            let cmd_ends = &scene.all_cmd_ends[fp_idx * n_tiles..(fp_idx + 1) * n_tiles];
+        for (batch_idx, blit_batch_range) in scene.blit_batches.iter().enumerate() {
+            let cmd_ends =
+                &scene.strip_tile_batches[batch_idx * n_tiles..(batch_idx + 1) * n_tiles];
 
             // Render strip segment up to this fence.
             {
@@ -221,15 +222,15 @@ impl WebGlRenderer {
                     &self.paint_idxs,
                     &cmd_starts,
                     cmd_ends,
-                    fp_idx == 0,
+                    batch_idx == 0,
                 );
                 cmd_starts.copy_from_slice(cmd_ends);
                 self.cmd_starts = cmd_starts;
                 result?;
             }
 
-            // Render the blit rects for this flush point.
-            let blits = &scene.all_blits[fp.blits.clone()];
+            // Render the blit rects for this blit batch.
+            let blits = &scene.all_blits[blit_batch_range.clone()];
             if !blits.is_empty() {
                 self.prepare_blit_rects(blits);
                 let gpu_blit_rects = core::mem::take(&mut self.gpu_blit_rects);
@@ -244,7 +245,7 @@ impl WebGlRenderer {
             }
         }
 
-        // Final strip segment: commands appended after the last flush point.
+        // Final strip segment: commands appended after the last blit batch.
         {
             let cmd_starts = core::mem::take(&mut self.cmd_starts);
             self.cmd_ends.clear();
@@ -271,7 +272,7 @@ impl WebGlRenderer {
                 &self.paint_idxs,
                 &cmd_starts,
                 &cmd_ends,
-                scene.flush_points.is_empty(),
+                scene.blit_batches.is_empty(),
             );
             self.cmd_starts = cmd_starts;
             self.cmd_ends = cmd_ends;

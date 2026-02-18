@@ -84,6 +84,8 @@ struct RenderState {
 /// pipeline from paths to strips that can be rendered by the GPU.
 #[derive(Debug)]
 pub struct Scene {
+    /// SIMD level for dirty rect intersection checks.
+    level: Level,
     /// Width of the rendering surface in pixels.
     pub(crate) width: u16,
     /// Height of the rendering surface in pixels.
@@ -111,29 +113,43 @@ pub struct Scene {
     pub(crate) strip_generator: StripGenerator,
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: RefCell<StripStorage>,
+    /// Flat buffer of strip commands to run for each tile per strip batch.
+    ///
+    /// This flat buffer is structured such that each strip batch contributes exactly
+    /// `wide.width_tiles() * wide.height_tiles()` entries in row-major order, recording the
+    /// command count for each tile for that strip batch.
+    ///
+    /// So, if there were 4 tiles and 3 strip batches, the buffer would look like this:
+    ///
+    /// ```text
+    /// [
+    ///     2, 2, 2, 2 // each tile advances to strip cmd index 2 in batch 0
+    ///     5, 5, 5, 5 // each tile advances to strip cmd index 5 in batch 1
+    ///
+    ///     // The third and last strip batch isn't explicitly recorded - instead, it's implied
+    ///     // that the last batch executes the rest of the strip commands for every tile.
+    /// ]
+    /// ```
+    pub(crate) strip_tile_batches: Vec<usize>,
+    /// Batches of blit rects to render between strip segments.
+    /// Each range indexes into [`Self::all_blits`].
+    pub(crate) blit_batches: Vec<Range<usize>>,
+    /// Flat buffer of blit rects across all blit batches.
+    pub(crate) all_blits: Vec<BlitRect>,
+    /// Whether the scene is currently accumulating blit rects (vs strip commands).
+    in_blit_mode: bool,
+    /// Screen-space bounding boxes of strip operations since the last blit batch.
+    /// Used by [`Self::can_batch_blit`] to determine whether a blit rect can be
+    /// folded into the previous blit batch without a pipeline switch.
+    strips_dirty_rects: DirtyRects,
+    /// Whether blit rect batching is enabled. When `false`, every blit rect
+    /// creates a new blit batch regardless of overlap. Useful for testing that
+    /// the dirty rect tracking is correct.
+    blit_batching_enabled: bool,
     /// Cache for rasterized glyphs to improve text rendering performance.
     pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
-    /// Flat buffer of per-tile command end indices across all flush points.
-    /// Each flush point contributes exactly `n_tiles` entries in row-major order.
-    pub(crate) all_cmd_ends: Vec<usize>,
-    /// Flat buffer of blit rects across all flush points.
-    pub(crate) all_blits: Vec<BlitRect>,
-    /// Flush point metadata referencing ranges in the flat buffers above.
-    pub(crate) flush_points: Vec<FlushPoint>,
-    /// Whether the scene is currently accumulating blit rects (vs strip commands).
-    in_blit_mode: bool, // TODO: Use enum?
-    /// Screen-space bounding boxes of strip operations since the last flush point.
-    /// Used by [`can_batch_blit`](Scene::can_batch_blit) to determine whether a
-    /// blit rect can be folded into the previous [`FlushPoint`] without a pipeline switch.
-    strips_dirty_rects: DirtyRects,
-    /// SIMD level for dirty rect intersection checks.
-    level: Level,
-    /// Whether blit rect batching is enabled. When `false`, every blit rect
-    /// creates a new flush point regardless of overlap. Useful for testing that
-    /// the dirty rect tracking is correct.
-    blit_batching_enabled: bool,
 }
 
 impl Scene {
@@ -147,6 +163,7 @@ impl Scene {
         let render_state = Self::default_render_state();
         let render_graph = RenderGraph::new();
         Self {
+            level: settings.level,
             width,
             height,
             wide: Wide::<MODE_HYBRID>::new(width, height),
@@ -164,12 +181,11 @@ impl Scene {
             blend_mode: render_state.blend_mode,
             glyph_caches: Some(GlyphCaches::default()),
             render_graph,
-            all_cmd_ends: vec![],
+            strip_tile_batches: vec![],
             all_blits: vec![],
-            flush_points: vec![],
+            blit_batches: vec![],
             in_blit_mode: false,
             strips_dirty_rects: DirtyRects::new(),
-            level: settings.level,
             blit_batching_enabled: true,
         }
     }
@@ -239,7 +255,7 @@ impl Scene {
     /// Called before any operation that modifies the [`Wide`] coarse rasterizer
     /// (e.g. `fill_path_with`, `stroke_path_with`, `push_layer`, `pop_layer`).
     /// If we were accumulating blit rects, this resets the mode flag. The blits
-    /// are already stored in the current [`FlushPoint`] so no data movement is needed.
+    /// are already stored in the current blit batch so no data movement is needed.
     #[inline(always)]
     fn flush_blits(&mut self) {
         self.in_blit_mode = false;
@@ -249,7 +265,7 @@ impl Scene {
     ///
     /// Called from `try_blit_rect` when a blit rect is about to be added.
     /// Records a fence (the current per-tile command counts) and creates a new
-    /// [`FlushPoint`] to collect the upcoming blit rects.
+    /// blit batch to collect the upcoming blit rects.
     #[inline(always)]
     fn flush_strips(&mut self) {
         if !self.in_blit_mode {
@@ -258,20 +274,19 @@ impl Scene {
             let h = self.wide.height_tiles();
             for row in 0..h {
                 for col in 0..w {
-                    self.all_cmd_ends.push(self.wide.get(col, row).cmds.len());
+                    self.strip_tile_batches
+                        .push(self.wide.get(col, row).cmds.len());
                 }
             }
-            // Create flush point; blits range is empty until blits are added.
+            // Create blit batch; blits range is empty until blits are added.
             let blits_start = self.all_blits.len();
-            self.flush_points.push(FlushPoint {
-                blits: blits_start..blits_start,
-            });
+            self.blit_batches.push(blits_start..blits_start);
             self.in_blit_mode = true;
             self.strips_dirty_rects.clear();
         }
     }
 
-    /// Check whether a blit rect can be batched into the previous [`FlushPoint`]
+    /// Check whether a blit rect can be batched into the previous blit batch
     /// without creating a new pipeline switch.
     ///
     /// The AABB parameters are the axis-aligned bounding box of the (potentially
@@ -280,8 +295,8 @@ impl Scene {
     ///
     /// Returns `true` when either:
     /// - We are already in blit mode (trivially batchable), or
-    /// - A previous flush point exists and the blit rect does not overlap any
-    ///   strip operations recorded since that flush point.
+    /// - A previous blit batch exists and the blit rect does not overlap any
+    ///   strip operations recorded since that blit batch.
     #[inline(always)]
     fn can_batch_blit_aabb(&self, aabb_x0: f32, aabb_y0: f32, aabb_x1: f32, aabb_y1: f32) -> bool {
         if !self.blit_batching_enabled {
@@ -290,9 +305,9 @@ impl Scene {
         if self.in_blit_mode {
             return true;
         }
-        if self.flush_points.is_empty() {
+        if self.blit_batches.is_empty() {
             // There's no batch to batch into yet. This occurs for the first blit rect. We need to
-            // `flush_strips` to create a new flush point to batch into.
+            // `flush_strips` to create a new blit batch to batch into.
             return false;
         }
         let blit_x0 = (aabb_x0.floor().max(0.0) as u32).min(u32::from(self.width)) as u16;
@@ -619,7 +634,7 @@ impl Scene {
         }
 
         // Optimisation: if the blit rect doesn't overlap any strip operations
-        // since the last flush point, batch it into the previous flush point's
+        // since the last blit batch, batch it into the previous blit batch's
         // blits instead of creating a new pipeline switch.
         // Use the AABB of the rotated quad for the overlap test.
         if self.can_batch_blit_aabb(aabb_x0, aabb_y0, aabb_x1, aabb_y1) {
@@ -636,7 +651,7 @@ impl Scene {
             image_id,
             img_origin: img_origin_xy,
         });
-        self.flush_points.last_mut().unwrap().blits.end = self.all_blits.len();
+        self.blit_batches.last_mut().unwrap().end = self.all_blits.len();
 
         true
     }
@@ -756,8 +771,8 @@ impl Scene {
     /// Enable or disable blit rect batching.
     ///
     /// When enabled (the default), blit rects that do not overlap any strip operations
-    /// since the last flush point are batched into the previous flush point to avoid
-    /// pipeline switches. When disabled, every blit rect creates a new flush point.
+    /// since the last blit batch are batched into the previous blit batch to avoid
+    /// pipeline switches. When disabled, every blit rect creates a new blit batch.
     ///
     /// Disabling batching is useful for testing that the dirty rect tracking is correct:
     /// rendering with batching enabled should produce identical output to rendering with
@@ -824,9 +839,9 @@ impl Scene {
         self.clip_context.reset();
         self.strip_storage.borrow_mut().clear();
         self.encoded_paints.clear();
-        self.all_cmd_ends.clear();
+        self.strip_tile_batches.clear();
         self.all_blits.clear();
-        self.flush_points.clear();
+        self.blit_batches.clear();
         self.in_blit_mode = false;
         self.strips_dirty_rects.clear();
 
@@ -1203,13 +1218,6 @@ pub(crate) struct BlitRect {
     pub img_origin: [f32; 2],
 }
 
-/// A fence marking a strips -> blits transition for pipeline interleaving.
-#[derive(Debug, Clone)]
-pub(crate) struct FlushPoint {
-    /// Index range into [`Scene::all_blits`]'s buffer.
-    pub blits: Range<usize>,
-}
-
 /// Handles intersection checks for dirty screen-space bounding boxes.
 ///
 /// Each rect is stored as 4 `u16` values: `[x0, y0, u16::MAX-x1, u16::MAX-y1]`. The negated
@@ -1455,15 +1463,15 @@ mod tests {
         }
 
         #[test]
-        fn blit_batching_non_overlapping_reduces_flush_points() {
+        fn blit_batching_non_overlapping_reduces_blit_batches() {
             let mut scene = scene_with_image_paint(1920, 1080);
 
             // First image rect at left side.
             scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
             assert_eq!(
-                scene.flush_points.len(),
+                scene.blit_batches.len(),
                 1,
-                "first blit creates a flush point"
+                "first blit creates a blit batch"
             );
 
             // A path drawn at the right side (non-overlapping).
@@ -1479,22 +1487,22 @@ mod tests {
             scene.fill_rect(&Rect::new(0.0, 110.0, 100.0, 210.0));
 
             // Because the second blit doesn't overlap the path, it should be batched
-            // into the first flush point (no new flush point created).
+            // into the first blit batch (no new blit batch created).
             assert_eq!(
-                scene.flush_points.len(),
+                scene.blit_batches.len(),
                 1,
-                "non-overlapping blit should be batched into existing flush point"
+                "non-overlapping blit should be batched into existing blit batch"
             );
             assert_eq!(scene.all_blits.len(), 2, "both blits should be recorded");
         }
 
         #[test]
-        fn blit_batching_overlapping_creates_new_flush_point() {
+        fn blit_batching_overlapping_creates_new_blit_batch() {
             let mut scene = scene_with_image_paint(1920, 1080);
 
             // First image rect.
             scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-            assert_eq!(scene.flush_points.len(), 1);
+            assert_eq!(scene.blit_batches.len(), 1);
 
             // A path drawn overlapping the next blit's region.
             let mut path = BezPath::new();
@@ -1508,11 +1516,11 @@ mod tests {
             // Second image rect overlaps the path.
             scene.fill_rect(&Rect::new(50.0, 50.0, 150.0, 150.0));
 
-            // Overlapping blit must create a new flush point.
+            // Overlapping blit must create a new blit batch.
             assert_eq!(
-                scene.flush_points.len(),
+                scene.blit_batches.len(),
                 2,
-                "overlapping blit must create a new flush point"
+                "overlapping blit must create a new blit batch"
             );
         }
 
@@ -1522,7 +1530,7 @@ mod tests {
 
             // First blit at top-left.
             scene.fill_rect(&Rect::new(0.0, 0.0, 50.0, 50.0));
-            assert_eq!(scene.flush_points.len(), 1);
+            assert_eq!(scene.blit_batches.len(), 1);
 
             // Two paths at opposite corners.
             let mut tl_path = BezPath::new();
@@ -1545,7 +1553,7 @@ mod tests {
             scene.fill_rect(&Rect::new(900.0, 500.0, 1000.0, 600.0));
 
             assert_eq!(
-                scene.flush_points.len(),
+                scene.blit_batches.len(),
                 1,
                 "centre blit should batch because it doesn't overlap either corner path"
             );
