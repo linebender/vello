@@ -50,7 +50,7 @@ pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
 }
 
 fn pack_header(filter_type: u32) -> u32 {
-    debug_assert!(filter_type <= 31);
+    debug_assert!(filter_type <= 31, "filter_type must fit in 5 bits");
 
     filter_type
 }
@@ -61,10 +61,10 @@ fn pack_with_gaussian_params(
     n_decimations: u32,
     n_linear_taps: u32,
 ) -> u32 {
-    debug_assert!(filter_type <= 31);
-    debug_assert!(edge_mode <= 3);
-    debug_assert!(n_decimations <= 15);
-    debug_assert!(n_linear_taps <= 3);
+    debug_assert!(filter_type <= 31, "filter_type must fit in 5 bits");
+    debug_assert!(edge_mode <= 3, "edge_mode must fit in 2 bits");
+    debug_assert!(n_decimations <= 15, "n_decimations must fit in 4 bits");
+    debug_assert!(n_linear_taps <= 3, "n_linear_taps must fit in 2 bits");
 
     filter_type | (edge_mode << 5) | (n_decimations << 7) | (n_linear_taps << 11)
 }
@@ -193,6 +193,10 @@ pub(crate) struct GpuGaussianBlur {
 }
 
 impl From<&GaussianBlur> for GpuGaussianBlur {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "n_decimations fits in 4 bits"
+    )]
     fn from(blur: &GaussianBlur) -> Self {
         let lk = LinearKernel::new(&blur.kernel, blur.kernel_size);
 
@@ -226,6 +230,10 @@ pub(crate) struct GpuDropShadow {
 }
 
 impl From<&DropShadow> for GpuDropShadow {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "n_decimations fits in 4 bits"
+    )]
     fn from(shadow: &DropShadow) -> Self {
         let lk = LinearKernel::new(&shadow.kernel, shadow.kernel_size);
         Self {
@@ -253,6 +261,10 @@ pub(crate) struct GpuFilterData {
 }
 
 impl GpuFilterData {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "filter size is a small constant"
+    )]
     pub(crate) const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 
     fn filter_type(&self) -> u32 {
@@ -347,6 +359,10 @@ impl FilterContext {
         &self.filter_textures
     }
 
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "filter count won't exceed u32"
+    )]
     pub(crate) fn total_texels(&self) -> u32 {
         self.filters.len() as u32 * GpuFilterData::SIZE_TEXELS
     }
