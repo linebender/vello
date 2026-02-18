@@ -6,18 +6,23 @@
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use hashbrown::HashMap;
-use vello_common::coarse::WideTilesBbox;
+use vello_common::coarse::{WideTile, WideTilesBbox};
+use vello_common::encode::{EncodedImage, EncodedPaint};
 use vello_common::filter::InstantiatedFilter;
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{GaussianBlur, MAX_KERNEL_SIZE};
 use vello_common::filter::offset::Offset;
 use vello_common::filter_effects::EdgeMode;
-use vello_common::paint::ImageId;
-use vello_common::render_graph::LayerId;
+use vello_common::kurbo::{Affine, Vec2};
+use vello_common::paint::{ImageId, ImageSource};
+use vello_common::peniko::{ImageQuality, ImageSampler};
+use vello_common::render_graph::{LayerId, RenderGraph, RenderNodeKind};
+use vello_common::tile::Tile;
 
 use crate::AtlasConfig;
 use crate::image_cache::ImageCache;
+use crate::multi_atlas::{AtlasError, AtlasId};
 
 // Note: Keep these variables and struct layouts in sync with `filters.wgsl`!
 
@@ -339,12 +344,133 @@ impl FilterContext {
         }
     }
 
-    pub(crate) fn clear(&mut self) {
+    /// Deallocates all filter textures from both the filter image cache and the image atlas cache,
+    /// then clears the filter context.
+    ///
+    /// Note that the client is responsible for clearing (with a transparent color) the existing
+    /// images in the atlas, if desired.
+    pub(crate) fn deallocate_all_and_clear(&mut self, image_atlas_cache: &mut ImageCache) {
+        for filter_textures in self.filter_textures.values() {
+            self.image_cache
+                .deallocate(filter_textures.initial_image_id);
+            image_atlas_cache.deallocate(filter_textures.dest_image_id);
+            if let Some(scratch_id) = filter_textures.scratch_image_id {
+                self.image_cache.deallocate(scratch_id);
+            }
+        }
+
+        // Now clear everything.
         self.filters.clear();
         self.offsets.clear();
         self.filter_textures.clear();
-        // Cache doesn't need to be cleared, the caller is responsible for allocating/deallocating
-        // images.
+    }
+
+    /// Prepares the context for rendering the filter layers that exist in this scene.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "filter dimensions and paint indices won't exceed u32"
+    )]
+    pub(crate) fn prepare(
+        &mut self,
+        render_graph: &RenderGraph,
+        dest_cache: &mut ImageCache,
+        encoded_paints: &mut Vec<EncodedPaint>,
+    ) -> Result<(), AtlasError> {
+        if !render_graph.has_filters() {
+            return Ok(());
+        }
+
+        let mut current_offset = 0_u32;
+        for node in &render_graph.nodes {
+            // During coarse rasterization it can happen that filter layers with a zero-sized
+            // bounding box are allocated. Trying to allocate such a texture in our atlas manager
+            // would give an error, so we skip those nodes.
+            if node.is_empty() {
+                continue;
+            }
+
+            if let RenderNodeKind::FilterLayer {
+                layer_id,
+                filter,
+                transform,
+                wtile_bbox,
+            } = &node.kind
+            {
+                let width = wtile_bbox.width_px() as u32;
+                let height = wtile_bbox.height_px() as u32;
+
+                let instantiated = InstantiatedFilter::new(filter, transform);
+                let gpu_filter = GpuFilterData::from(&instantiated);
+                let needs_scratch = gpu_filter.needs_scratch_buffer();
+
+                // The tricky part! Why do we have two image caches and don't just use the main
+                // atlas that is used by renderers to store images? Fundamentally, the problem is
+                // that the destination texture where we render the initial contents of the layer
+                // with the filter cannot live in that texture array, because during the `render_strips`
+                // pass we already bind that texture array as an input bind group. Therefore, it needs
+                // to live somewhere else. So we need to create a second image cache, which lives
+                // in the filter context.
+                let initial_image_id = self.image_cache.allocate(width, height)?;
+                let initial_atlas_id = self.image_cache.get(initial_image_id).unwrap().atlas_id;
+                // This represents the destination where the final _filtered_ version lives. We store this
+                // in the same image atlas where normal images live, allowing us to treat them like normal
+                // image fills.
+                let dest_image_id = dest_cache.allocate(width, height)?;
+                // For multi-pass filters we need an intermediate scratch buffer. Therefore, it
+                // is important that inside of the atlas, the image lives on a different texture
+                // than the initial texture. Otherwise, we would have to read and write from the
+                // same texture (even though the locations are distinct), which is prohibited.
+                let scratch_image_id = if needs_scratch {
+                    Some(self.image_cache.allocate_excluding(
+                        width,
+                        height,
+                        Some(AtlasId(initial_atlas_id.as_u32())),
+                    )?)
+                } else {
+                    None
+                };
+
+                let encoded_paint = EncodedPaint::Image(EncodedImage {
+                    source: ImageSource::OpaqueId(dest_image_id),
+                    sampler: ImageSampler::new().with_quality(ImageQuality::Low),
+                    may_have_opacities: true,
+                    // Since filter layers are always shifted to start at (0, 0), we need
+                    // to "unshift" them when sampling.
+                    transform: Affine::translate((
+                        -(wtile_bbox.x0() as f64) * WideTile::WIDTH as f64,
+                        -(wtile_bbox.y0() as f64) * Tile::HEIGHT as f64,
+                    ))
+                        // TODO: Come up with a more unified way of dealing with this shift.
+                        // The problem is that currently, in vello_common, we apply a (0.5, 0.5) shift
+                        // to images so that vello_cpu will sample from the pixel center. Since the fragment shader
+                        // already applies this shift, we undo it in our render backends: https://github.com/linebender/vello/blob/57a77091fa91bdd652fdacb73aff3d0d1c86285e/sparse_strips/vello_hybrid/src/render/wgpu.rs#L352
+                        // Therefore, we need to add the shift here as well, so that it cancels out.
+                        * Affine::translate((0.5, 0.5)),
+                    x_advance: Vec2::new(1.0, 0.0),
+                    y_advance: Vec2::new(0.0, 1.0),
+                });
+
+                let idx = encoded_paints.len();
+                encoded_paints.push(encoded_paint);
+
+                self.filter_textures.insert(
+                    *layer_id,
+                    FilterLayerData {
+                        initial_image_id,
+                        dest_image_id,
+                        scratch_image_id,
+                        paint_idx: idx as u32,
+                        bbox: *wtile_bbox,
+                    },
+                );
+
+                self.filters.push(gpu_filter);
+                self.offsets.insert(*layer_id, current_offset);
+                current_offset += GpuFilterData::SIZE_TEXELS;
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -385,9 +511,12 @@ impl FilterContext {
 pub(crate) struct FilterLayerData {
     /// Image ID for the main texture holding the raw initially painted version of the layer.
     pub initial_image_id: ImageId,
-    /// Image ID for the destination texture holding the final filtered version.
+    /// Image ID for the destination texture holding the final filtered version. This lives in
+    /// the same image atlas as normal images, allowing us to treat filtered layers the same
+    /// way as normal images that we can sample from.
     pub dest_image_id: ImageId,
-    /// Optional image ID for scratch texture used in multi-pass filter operations.
+    /// Some filters require intermediate buffers. This field optionally holds the ID of
+    /// the intermediate texture we can use for that.
     pub scratch_image_id: Option<ImageId>,
     /// The paint index that points to the location in `encoded_paints` where
     /// the final filtered version of the image will be stored.

@@ -179,7 +179,8 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
-        self.filter_context.clear();
+        self.filter_context
+            .deallocate_all_and_clear(&mut self.image_cache);
 
         let encoded_paints = scene.encoded_paints.borrow();
         self.prepare_gpu_encoded_paints(&encoded_paints);

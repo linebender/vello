@@ -23,7 +23,7 @@ use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, num::NonZeroU64};
 
 use crate::AtlasConfig;
-use crate::filter::{FilterContext, FilterLayerData, GpuFilterData};
+use crate::filter::FilterContext;
 use crate::multi_atlas::{AtlasError, AtlasId};
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
@@ -43,18 +43,15 @@ use crate::{
     schedule::{LoadOp, OutputTarget, RenderTarget, RendererBackend, Scheduler, SchedulerState},
 };
 use bytemuck::{Pod, Zeroable};
-use vello_api::peniko::{ImageQuality, ImageSampler};
 use vello_common::encode::EncodedImage;
-use vello_common::kurbo::Vec2;
 use vello_common::{
     coarse::WideTile,
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
-    filter::InstantiatedFilter,
     kurbo::Affine,
     paint::{ImageId, ImageSource},
     peniko,
     pixmap::Pixmap,
-    render_graph::{LayerId, RenderGraph, RenderNodeKind},
+    render_graph::{LayerId, RenderGraph},
     tile::Tile,
 };
 use wgpu::{
@@ -155,98 +152,43 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         encoded_paints: &mut Vec<EncodedPaint>,
     ) -> Result<(), AtlasError> {
-        self.clear_filters(encoder);
+        // Clear GPU texture regions before deallocating atlas entries.
+        for filter_textures in self.filter_context.filter_textures.values() {
+            Self::clear_filter_atlas_region(
+                encoder,
+                &self.filter_context.image_cache,
+                &self.programs.resources.filter_atlas_textures,
+                filter_textures.initial_image_id,
+            );
 
-        // Early return if no filters in the scene
-        if !render_graph.has_filters() {
-            return Ok(());
-        }
-
-        // Iterate through filter nodes and allocate textures
-        let mut current_offset = 0_u32;
-        for node in &render_graph.nodes {
-            // Unfortunately, during coarse rasterization it can happen that filter layers
-            // with a zero-sized bounding box are allocated. Trying to allocate such a texture
-            // in our atlas manager would give an error. Therefore, we just skip those nodes.
-            if node.is_empty() {
-                continue;
-            }
-
-            if let RenderNodeKind::FilterLayer {
-                layer_id,
-                filter,
-                transform,
-                wtile_bbox,
-            } = &node.kind
-            {
-                // Calculate texture dimensions from bounding box
-                let width = wtile_bbox.width_px() as u32;
-                let height = wtile_bbox.height_px() as u32;
-
-                // Instantiate the filter to check if scratch buffer is needed
-                let instantiated = InstantiatedFilter::new(filter, transform);
-                let gpu_filter = GpuFilterData::from(&instantiated);
-                let needs_scratch = gpu_filter.needs_scratch_buffer();
-
-                // Allocate textures:
-                // - main_image from filter_texture_cache (native format, strip pipeline renders into it)
-                // - dest_image and scratch_image from main image_cache (Rgba8Unorm, filter pipeline writes to them)
-                let main_image_id = self.filter_context.image_cache.allocate(width, height)?;
-                let main_image_atlas_id = self
-                    .filter_context
-                    .image_cache
-                    .get(main_image_id)
-                    .unwrap()
-                    .atlas_id;
-                let dest_image_id = self.image_cache.allocate(width, height)?;
-                let scratch_image_id = if needs_scratch {
-                    Some(self.filter_context.image_cache.allocate_excluding(
-                        width,
-                        height,
-                        Some(AtlasId(main_image_atlas_id.as_u32())),
-                    )?)
-                } else {
-                    None
-                };
-
-                let encoded_paint = EncodedPaint::Image(EncodedImage {
-                    source: ImageSource::OpaqueId(dest_image_id),
-                    // TODO: Do we need to figure out a different story regarding padding?
-                    sampler: ImageSampler::new().with_quality(ImageQuality::Low),
-                    may_have_opacities: true,
-                    transform: Affine::translate((
-                        -(wtile_bbox.x0() as f64) * WideTile::WIDTH as f64,
-                        -(wtile_bbox.y0() as f64) * Tile::HEIGHT as f64,
-                    )) * Affine::translate((0.5, 0.5)),
-                    x_advance: Vec2::new(1.0, 0.0),
-                    y_advance: Vec2::new(0.0, 1.0),
-                });
-
-                let idx = encoded_paints.len();
-                encoded_paints.push(encoded_paint);
-
-                // Store the allocation
-                self.filter_context.filter_textures.insert(
-                    *layer_id,
-                    FilterLayerData {
-                        initial_image_id: main_image_id,
-                        dest_image_id,
-                        scratch_image_id,
-                        paint_idx: idx as u32,
-                        bbox: *wtile_bbox,
-                    },
+            if let Some(scratch_id) = filter_textures.scratch_image_id {
+                Self::clear_filter_atlas_region(
+                    encoder,
+                    &self.filter_context.image_cache,
+                    &self.programs.resources.filter_atlas_textures,
+                    scratch_id,
                 );
+            }
 
-                // Store filter data and offset (lifted from FilterContext::prepare)
-                self.filter_context.filters.push(gpu_filter);
-                self.filter_context
-                    .offsets
-                    .insert(*layer_id, current_offset);
-                current_offset += GpuFilterData::SIZE_TEXELS;
+            if let Some(dest_resource) = self.image_cache.get(filter_textures.dest_image_id) {
+                Self::clear_texture_region(
+                    encoder,
+                    &self.programs.resources.atlas_texture_array,
+                    dest_resource.atlas_id.as_u32(),
+                    dest_resource.offset,
+                    dest_resource.width,
+                    dest_resource.height,
+                );
             }
         }
 
-        Ok(())
+        // Deallocate previous filter allocations and clear context.
+        self.filter_context
+            .deallocate_all_and_clear(&mut self.image_cache);
+
+        // Allocate textures and build encoded paints for the new frame.
+        self.filter_context
+            .prepare(render_graph, &mut self.image_cache, encoded_paints)
     }
 
     /// Render `scene` into the provided command encoder.
@@ -444,49 +386,6 @@ impl Renderer {
         render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
         // Draw fullscreen quad
         render_pass.draw(0..4, 0..1);
-    }
-
-    fn clear_filters(&mut self, encoder: &mut CommandEncoder) {
-        let fc = &mut self.filter_context;
-        for filter_textures in fc.filter_textures.values() {
-            // First, clear everything.
-            Self::clear_filter_atlas_region(
-                encoder,
-                &fc.image_cache,
-                &self.programs.resources.filter_atlas_textures,
-                filter_textures.initial_image_id,
-            );
-
-            if let Some(scratch_id) = filter_textures.scratch_image_id {
-                Self::clear_filter_atlas_region(
-                    encoder,
-                    &fc.image_cache,
-                    &self.programs.resources.filter_atlas_textures,
-                    scratch_id,
-                );
-            }
-
-            if let Some(dest_resource) = self.image_cache.get(filter_textures.dest_image_id) {
-                Self::clear_texture_region(
-                    encoder,
-                    &self.programs.resources.atlas_texture_array,
-                    dest_resource.atlas_id.as_u32(),
-                    dest_resource.offset,
-                    dest_resource.width,
-                    dest_resource.height,
-                );
-            }
-
-            // Then, deallocate everything.
-            fc.image_cache.deallocate(filter_textures.initial_image_id);
-            self.image_cache.deallocate(filter_textures.dest_image_id);
-            if let Some(scratch_id) = filter_textures.scratch_image_id {
-                fc.image_cache.deallocate(scratch_id);
-            }
-        }
-
-        // Finally, clear the filter context itself.
-        self.filter_context.clear();
     }
 
     fn clear_filter_atlas_region(
