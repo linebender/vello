@@ -271,14 +271,10 @@ impl Scene {
     /// Check whether a blit rect can be batched into the previous blit batch
     /// without creating a new pipeline switch.
     ///
-    /// The AABB parameters are the axis-aligned bounding box of the (potentially
-    /// rotated) blit quad in screen-space coordinates (f32, may be partially
-    /// off-screen).
-    ///
     /// Returns `true` when either:
-    /// - We are already in blit mode (trivially batchable), or
+    /// - We are already in blit mode
     /// - A previous blit batch exists and the blit rect does not overlap any
-    ///   strip operations recorded since that blit batch.
+    ///   strip operations recorded since that blit batch
     #[inline(always)]
     fn can_batch_blit_aabb(&self, aabb_x0: f32, aabb_y0: f32, aabb_x1: f32, aabb_y1: f32) -> bool {
         if !self.blit_batching_enabled {
@@ -301,10 +297,9 @@ impl Scene {
             .any_overlap(blit_x0, blit_y0, blit_x1, blit_y1, self.level)
     }
 
-    /// Record a screen-space bounding box as dirty for the blit batching optimisation.
+    /// Record a screen-space bounding box as dirty for blit rect batching.
     ///
-    /// The f64 rect (typically from `Affine::transform_rect_bbox`) is conservatively
-    /// rounded outward and clamped to the viewport before being stored as compact u16.
+    /// In other words, if a blit wants to render over `bbox`, we must first flush the current strips.
     #[inline(always)]
     fn push_dirty_rect(&mut self, bbox: Rect) {
         let x0 = (bbox.x0.floor().max(0.0) as u32).min(u32::from(self.width)) as u16;
@@ -314,7 +309,7 @@ impl Scene {
         self.strips_dirty_rects.push(x0, y0, x1, y1);
     }
 
-    /// Record the full viewport as dirty (conservative fallback for layer ops, etc.).
+    /// The same as `push_dirty_rect`, but for the full viewport.
     #[inline(always)]
     fn push_dirty_viewport(&mut self) {
         self.strips_dirty_rects.push(0, 0, self.width, self.height);
@@ -444,16 +439,6 @@ impl Scene {
     }
 
     /// Fill a rectangle with the current paint and fill rule.
-    ///
-    /// When the following conditions are all met, this uses a fast-path instanced
-    /// blit pipeline that bypasses the strip/coarse pipeline entirely:
-    /// - No active layers (clips or blends)
-    /// - No active clip paths
-    /// - Paint is an image with an `OpaqueId` source (i.e. in the atlas)
-    /// - Blend mode is the default SrcOver
-    /// - Combined transform is axis-aligned (no rotation/shear)
-    ///
-    /// Otherwise, falls back to the normal `fill_path` codepath.
     pub fn fill_rect(&mut self, rect: &Rect) {
         if self.try_blit_rect(rect) {
             return;
@@ -524,16 +509,6 @@ impl Scene {
         }
         let (ptx, pty) = (paint_coeffs[4], paint_coeffs[5]);
 
-        // Pre-transform rect dimensions in geometry space.
-        let rect_wh = [
-            pixel_snap(rect.x1 - rect.x0).max(0.0) as u16,
-            pixel_snap(rect.y1 - rect.y0).max(0.0) as u16,
-        ];
-
-        if rect_wh[0] == 0 || rect_wh[1] == 0 {
-            return true; // Zero-size rect, nothing to draw.
-        }
-
         // Compute the image-space origin: where the rect's top-left corner
         // maps to in image coordinates, accounting for the paint transform.
         //
@@ -559,6 +534,16 @@ impl Scene {
         }
 
         // All conditions are met! We are rendering this blit in the fast path!
+
+        // Pre-transform rect dimensions in geometry space.
+        let rect_wh = [
+            pixel_snap(rect.x1 - rect.x0).max(0.0) as u16,
+            pixel_snap(rect.y1 - rect.y0).max(0.0) as u16,
+        ];
+
+        if rect_wh[0] == 0 || rect_wh[1] == 0 {
+            return true; // Zero-size rect, nothing to draw.
+        }
 
         // Compute the screen-space quad via center + column vectors.
         //
@@ -646,6 +631,7 @@ impl Scene {
         filter: Option<Filter>,
     ) {
         self.enter_strip_mode();
+        // TODO: Could use the `pop_layer` bounding box instead.
         self.push_dirty_viewport();
         if filter.is_some() {
             unimplemented!("Filter effects are not yet supported in vello_hybrid");
