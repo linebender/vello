@@ -6,9 +6,9 @@
 use fearless_simd::{
     Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
 };
-use peniko::kurbo::Affine;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
+use peniko::kurbo::{Affine, Rect};
 
 /// Convert f32x16 to u8x16.
 #[inline(always)]
@@ -59,6 +59,33 @@ pub fn normalized_mul_u8x32<S: Simd>(a: u8x32<S>, b: u8x32<S>) -> u16x32<S> {
 #[inline(always)]
 pub fn normalized_mul_u8x16<S: Simd>(a: u8x16<S>, b: u8x16<S>) -> u16x16<S> {
     (S::widen_u8x16(a.simd, a) * S::widen_u8x16(b.simd, b)).div_255()
+}
+
+/// Check if an affine transform is a pure integer translation.
+///
+/// Returns true if the transform only contains integer translation (no rotation,
+/// skew, or scaling), meaning rectangles will remain pixel-aligned after transformation.
+#[inline]
+pub fn is_integer_translation(transform: &Affine) -> bool {
+    let [a, b, c, d, e, f] = transform.as_coeffs();
+    (a - 1.0).abs() < 1e-9
+        && b.abs() < 1e-9
+        && c.abs() < 1e-9
+        && (d - 1.0).abs() < 1e-9
+        && (e - e.round()).abs() < 1e-9
+        && (f - f.round()).abs() < 1e-9
+}
+
+/// Check if rect coordinates are all integers (no fractional parts).
+///
+/// The optimized rect path doesn't handle anti-aliasing for fractional edges,
+/// so non-integer coordinates require path-based rendering.
+#[inline]
+pub fn is_integer_rect(rect: &Rect) -> bool {
+    (rect.x0 - rect.x0.round()).abs() < 1e-9
+        && (rect.y0 - rect.y0.round()).abs() < 1e-9
+        && (rect.x1 - rect.x1.round()).abs() < 1e-9
+        && (rect.y1 - rect.y1.round()).abs() < 1e-9
 }
 
 /// Extract scale factors from an affine transform using singular value decomposition.

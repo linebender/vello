@@ -25,6 +25,7 @@ use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording,
 use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::util::{is_integer_rect, is_integer_translation};
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -327,7 +328,49 @@ impl Scene {
 
     /// Fill a rectangle with the current paint and fill rule.
     pub fn fill_rect(&mut self, rect: &Rect) {
-        self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        if !self.paint_visible {
+            return;
+        }
+
+        // Fast path: use optimized rect filling when transforms are integer translations
+        // AND rect coordinates are integers. This bypasses path processing by generating
+        // strips directly for the rectangle.
+        // - Requires integer translation to ensure pixel-aligned rect boundaries.
+        // - Requires integer rect coordinates because the optimized path doesn't handle
+        //   anti-aliasing for fractional edges.
+        // - Also requires simple paint transform to avoid precision differences with complex paints.
+        if is_integer_translation(&self.transform)
+            && is_integer_translation(&self.paint_transform)
+            && is_integer_rect(rect)
+        {
+            self.fill_rect_fast(rect);
+        } else {
+            self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        }
+    }
+
+    /// Fast path for filling a pixel-aligned rectangle.
+    ///
+    /// Bypasses path processing by generating strips directly for the rectangle.
+    /// The caller must ensure the transform is an integer translation and the rect
+    /// has integer coordinates.
+    fn fill_rect_fast(&mut self, rect: &Rect) {
+        let paint = self.encode_current_paint();
+        let transformed_rect = self.transform.transform_rect_bbox(*rect);
+        let strip_storage = &mut self.strip_storage.borrow_mut();
+        self.strip_generator.generate_filled_rect_fast(
+            &transformed_rect,
+            strip_storage,
+            self.clip_context.get(),
+        );
+        self.wide.generate(
+            &strip_storage.strips,
+            paint,
+            self.blend_mode,
+            0,
+            None,
+            &self.encoded_paints,
+        );
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.

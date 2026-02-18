@@ -4,7 +4,7 @@
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::fine::{Fine, FineKernel};
-use crate::kurbo::{Affine, BezPath, Stroke};
+use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::layer_manager::LayerManager;
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
@@ -551,6 +551,34 @@ impl Dispatcher for SingleThreadedDispatcher {
             stroke,
             transform,
             aliasing_threshold,
+            &mut self.strip_storage,
+            self.clip_context.get(),
+        );
+
+        // Generate coarse-level commands from strips (layer_id 0 = root layer).
+        wide.generate(
+            &self.strip_storage.strips,
+            paint,
+            blend_mode,
+            0,
+            mask,
+            encoded_paints,
+        );
+    }
+
+    fn fill_rect_fast(
+        &mut self,
+        rect: &Rect,
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+        encoded_paints: &[EncodedPaint],
+    ) {
+        let wide = &mut self.wide;
+
+        // Generate strips directly for the rectangle (bypasses path processing).
+        self.strip_generator.generate_filled_rect_fast(
+            rect,
             &mut self.strip_storage,
             self.clip_context.get(),
         );

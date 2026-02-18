@@ -28,6 +28,7 @@ use vello_common::pixmap::Pixmap;
 use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::util::{is_integer_rect, is_integer_translation};
 #[cfg(feature = "text")]
 use vello_common::{
     color::{AlphaColor, Srgb},
@@ -227,18 +228,42 @@ impl RenderContext {
     /// Fill a rectangle.
     pub fn fill_rect(&mut self, rect: &Rect) {
         self.with_optional_filter(|ctx| {
-            ctx.rect_to_temp_path(rect);
             let paint = ctx.encode_current_paint();
-            ctx.dispatcher.fill_path(
-                &ctx.temp_path,
-                ctx.fill_rule,
-                ctx.transform,
-                paint,
-                ctx.blend_mode,
-                ctx.aliasing_threshold,
-                ctx.mask.clone(),
-                &ctx.encoded_paints,
-            );
+
+            // Fast path: use optimized rect filling when transforms are integer translations
+            // AND rect coordinates are integers. This bypasses path processing by generating
+            // strips directly for the rectangle.
+            // - Requires integer translation to ensure pixel-aligned rect boundaries.
+            // - Requires integer rect coordinates because the optimized path doesn't handle
+            //   anti-aliasing for fractional edges.
+            // - Also requires simple paint transform to avoid precision differences with complex paints.
+            if is_integer_translation(&ctx.transform)
+                && is_integer_translation(&ctx.paint_transform)
+                && is_integer_rect(rect)
+            {
+                // Transform the rect to screen coordinates.
+                let transformed_rect = ctx.transform.transform_rect_bbox(*rect);
+                ctx.dispatcher.fill_rect_fast(
+                    &transformed_rect,
+                    paint,
+                    ctx.blend_mode,
+                    ctx.mask.clone(),
+                    &ctx.encoded_paints,
+                );
+            } else {
+                // Fall back to path-based rendering for rotated/skewed transforms.
+                ctx.rect_to_temp_path(rect);
+                ctx.dispatcher.fill_path(
+                    &ctx.temp_path,
+                    ctx.fill_rule,
+                    ctx.transform,
+                    paint,
+                    ctx.blend_mode,
+                    ctx.aliasing_threshold,
+                    ctx.mask.clone(),
+                    &ctx.encoded_paints,
+                );
+            }
         });
     }
 

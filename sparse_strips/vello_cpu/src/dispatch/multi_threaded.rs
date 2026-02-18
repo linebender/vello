@@ -6,7 +6,7 @@ use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
 use crate::fine::{Fine, FineKernel};
-use crate::kurbo::{Affine, BezPath, PathEl, Stroke};
+use crate::kurbo::{Affine, BezPath, PathEl, Rect, Shape, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
 use alloc::boxed::Box;
@@ -472,6 +472,31 @@ impl Dispatcher for MultiThreadedDispatcher {
             stroke: stroke.clone(),
             blend_mode,
             aliasing_threshold,
+            mask,
+        });
+    }
+
+    fn fill_rect_fast(
+        &mut self,
+        rect: &Rect,
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+        _encoded_paints: &[EncodedPaint],
+    ) {
+        // For multi-threaded, fall back to path-based rendering.
+        // TODO: Implement optimized rect strip generation in worker threads.
+        let path = rect.to_path(0.0);
+        let start = self.allocation_group.path.len() as u32;
+        self.allocation_group.path.extend(&path);
+        let end = self.allocation_group.path.len() as u32;
+        self.register_task(RenderTaskType::FillPath {
+            path_range: start..end,
+            transform: Affine::IDENTITY,
+            paint,
+            fill_rule: Fill::NonZero,
+            blend_mode,
+            aliasing_threshold: None,
             mask,
         });
     }
