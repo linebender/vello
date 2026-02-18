@@ -252,38 +252,17 @@ impl Scene {
 
     /// Transition from blit mode to strip mode.
     ///
-    /// Called before any operation that modifies the [`Wide`] coarse rasterizer
+    /// Must be called before any operation that modifies the [`Wide`] coarse rasterizer
     /// (e.g. `fill_path_with`, `stroke_path_with`, `push_layer`, `pop_layer`).
-    /// If we were accumulating blit rects, this resets the mode flag. The blits
-    /// are already stored in the current blit batch so no data movement is needed.
     #[inline(always)]
-    fn flush_blits(&mut self) {
+    fn enter_strip_mode(&mut self) {
         self.in_blit_mode = false;
     }
 
     /// Transition from strip mode to blit mode.
-    ///
-    /// Called from `try_blit_rect` when a blit rect is about to be added.
-    /// Records a fence (the current per-tile command counts) and creates a new
-    /// blit batch to collect the upcoming blit rects.
     #[inline(always)]
-    fn flush_strips(&mut self) {
-        if !self.in_blit_mode {
-            // Append per-tile cmd counts to the flat buffer.
-            let w = self.wide.width_tiles();
-            let h = self.wide.height_tiles();
-            for row in 0..h {
-                for col in 0..w {
-                    self.strip_tile_batches
-                        .push(self.wide.get(col, row).cmds.len());
-                }
-            }
-            // Create blit batch; blits range is empty until blits are added.
-            let blits_start = self.all_blits.len();
-            self.blit_batches.push(blits_start..blits_start);
-            self.in_blit_mode = true;
-            self.strips_dirty_rects.clear();
-        }
+    fn enter_blit_mode(&mut self) {
+        self.in_blit_mode = true;
     }
 
     /// Check whether a blit rect can be batched into the previous blit batch
@@ -352,7 +331,7 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        self.flush_blits();
+        self.enter_strip_mode();
         self.push_dirty_rect(transform.transform_rect_bbox(path.bounding_box()));
         let wide = &mut self.wide;
         let strip_storage = &mut self.strip_storage.borrow_mut();
@@ -419,7 +398,7 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        self.flush_blits();
+        self.enter_strip_mode();
 
         {
             let strip_storage = &mut self.strip_storage.borrow_mut();
@@ -481,7 +460,7 @@ impl Scene {
 
     /// Attempt the fast-path blit rect pipeline. Returns `true` if the rect was
     /// handled by the blit pipeline, `false` if it should fall through to the
-    /// normal strip pipeline.
+    /// strip pipeline.
     fn try_blit_rect(&mut self, rect: &Rect) -> bool {
         if !self.paint_visible {
             return true; // Invisible paint, nothing to draw either way.
@@ -499,19 +478,6 @@ impl Scene {
 
         // Condition 3: Paint must be an image with an OpaqueId (atlas-backed)
         // and a sampler compatible with the simple 1:1 blit pipeline.
-        //
-        // The blit pipeline performs a plain texel copy from the atlas to the
-        // screen. It cannot handle:
-        //   - extend/repeat modes (the image may be smaller than the rect)
-        //   - alpha modulation (sampler.alpha != 1.0)
-        //   - quality-based filtering (bilinear, bicubic)
-        //
-        // Since image dimensions are not available at scene-build time (they
-        // live in the renderer's image cache), we cannot verify that the image
-        // fully covers the rect. To avoid silently dropping extend/pad
-        // behaviour, we only allow the blit fast-path when the sampler is at
-        // its default values AND alpha is 1.0 — matching the "image tile" use
-        // case where the image is expected to fill the rect exactly.
         let image_id = match &self.paint {
             PaintType::Image(img) => {
                 if img.sampler.x_extend != Extend::Pad
@@ -529,26 +495,19 @@ impl Scene {
         };
 
         // Condition 4: Blend mode must be default SrcOver.
-        let default_blend = BlendMode::new(Mix::Normal, Compose::SrcOver);
-        if self.blend_mode != default_blend {
+        const DEFAULT_BLEND: BlendMode = BlendMode::new(Mix::Normal, Compose::SrcOver);
+        if self.blend_mode != DEFAULT_BLEND {
             return false;
         }
 
-        // Condition 5: Geometry transform must not be degenerate (zero-area
-        // or mirrored). Any non-degenerate affine transform is accepted —
-        // rotation, non-uniform scale, and shear are all handled by the
-        // column-vector quad representation.
+        // Condition 5: Geometry transform must not be zero-area or mirrored.
         let geo_coeffs = self.transform.as_coeffs();
-        // coeffs: [a, b, c, d, tx, ty] where the matrix is [[a, c, tx], [b, d, ty]]
-        let det = geo_coeffs[0] * geo_coeffs[3] - geo_coeffs[1] * geo_coeffs[2];
-        if det <= 0.0 {
+        if geo_coeffs[0] * geo_coeffs[3] - geo_coeffs[1] * geo_coeffs[2] <= 0.0 {
             return false;
         }
 
         // Condition 6: Paint transform must be a pure translation (no rotation,
-        // shear, or scale). The paint transform maps from image space to
-        // geometry space; a pure translation means each image texel maps 1:1 to
-        // a geometry-space unit.
+        // shear, or scale).
         let paint_coeffs = self.paint_transform.as_coeffs();
         if (paint_coeffs[1] as f32).abs() > f32::EPSILON
             || (paint_coeffs[2] as f32).abs() > f32::EPSILON
@@ -562,7 +521,7 @@ impl Scene {
         }
         let (ptx, pty) = (paint_coeffs[4], paint_coeffs[5]);
 
-        // Pre-transform rect dimensions (geometry space).
+        // Pre-transform rect dimensions in geometry space.
         let rect_wh = [
             pixel_snap(rect.x1 - rect.x0).max(0.0) as u16,
             pixel_snap(rect.y1 - rect.y0).max(0.0) as u16,
@@ -571,43 +530,6 @@ impl Scene {
         if rect_wh[0] == 0 || rect_wh[1] == 0 {
             return true; // Zero-size rect, nothing to draw.
         }
-
-        // Compute the screen-space quad via center + column vectors.
-        //
-        // The 2x2 part of the geometry transform [[a, c], [b, d]] maps
-        // the rect's local axes to screen space:
-        //   col0 = [a, b] * rect_wh[0]  (screen direction of rect's X axis)
-        //   col1 = [c, d] * rect_wh[1]  (screen direction of rect's Y axis)
-        //
-        // The center is the transform of the rect's geometric center.
-        let a = geo_coeffs[0] as f32;
-        let b = geo_coeffs[1] as f32;
-        let c = geo_coeffs[2] as f32;
-        let d = geo_coeffs[3] as f32;
-        let tx = geo_coeffs[4] as f32;
-        let ty = geo_coeffs[5] as f32;
-        let w = rect_wh[0] as f32;
-        let h = rect_wh[1] as f32;
-
-        let col0 = [a * w, b * w];
-        let col1 = [c * h, d * h];
-
-        let cx = (rect.x0 + rect.x1) as f32 * 0.5;
-        let cy = (rect.y0 + rect.y1) as f32 * 0.5;
-        let center_xy = [a * cx + c * cy + tx, b * cx + d * cy + ty];
-
-        // Compute the axis-aligned bounding box of the rotated quad for
-        // dirty rect tracking and batching decisions.
-        let half_col0_x = col0[0] * 0.5;
-        let half_col0_y = col0[1] * 0.5;
-        let half_col1_x = col1[0] * 0.5;
-        let half_col1_y = col1[1] * 0.5;
-        let extent_x = half_col0_x.abs() + half_col1_x.abs();
-        let extent_y = half_col0_y.abs() + half_col1_y.abs();
-        let aabb_x0 = center_xy[0] - extent_x;
-        let aabb_y0 = center_xy[1] - extent_y;
-        let aabb_x1 = center_xy[0] + extent_x;
-        let aabb_y1 = center_xy[1] + extent_y;
 
         // Compute the image-space origin: where the rect's top-left corner
         // maps to in image coordinates, accounting for the paint transform.
@@ -633,16 +555,58 @@ impl Scene {
             return false;
         }
 
-        // Optimisation: if the blit rect doesn't overlap any strip operations
-        // since the last blit batch, batch it into the previous blit batch's
-        // blits instead of creating a new pipeline switch.
-        // Use the AABB of the rotated quad for the overlap test.
-        if self.can_batch_blit_aabb(aabb_x0, aabb_y0, aabb_x1, aabb_y1) {
-            self.in_blit_mode = true;
-        } else {
-            self.flush_strips();
+        // All conditions are met! We are rendering this blit in the fast path!
+
+        // Compute the screen-space quad via center + column vectors.
+        //
+        // See [`resolve_blit_rect`] for more details.
+        let [a, b, c, d, tx, ty] = geo_coeffs.map(|x| x as f32);
+        let w = rect_wh[0] as f32;
+        let h = rect_wh[1] as f32;
+
+        let col0 = [a * w, b * w];
+        let col1 = [c * h, d * h];
+
+        let cx = (rect.x0 + rect.x1) as f32 * 0.5;
+        let cy = (rect.y0 + rect.y1) as f32 * 0.5;
+        let center_xy = [a * cx + c * cy + tx, b * cx + d * cy + ty];
+
+        // Compute the axis-aligned bounding box of the rotated quad for
+        // dirty rect tracking.
+        let half_col0_x = col0[0] * 0.5;
+        let half_col0_y = col0[1] * 0.5;
+        let half_col1_x = col1[0] * 0.5;
+        let half_col1_y = col1[1] * 0.5;
+        let extent_x = half_col0_x.abs() + half_col1_x.abs();
+        let extent_y = half_col0_y.abs() + half_col1_y.abs();
+        let aabb_x0 = center_xy[0] - extent_x;
+        let aabb_y0 = center_xy[1] - extent_y;
+        let aabb_x1 = center_xy[0] + extent_x;
+        let aabb_y1 = center_xy[1] + extent_y;
+
+        // If the blit rect doesn't overlap any strip operations since the last blit batch,
+        // batch it into the previous blit batch instead of paying a pipeline switch.
+        if !self.can_batch_blit_aabb(aabb_x0, aabb_y0, aabb_x1, aabb_y1) {
+            // If we can't batch, then we need to flush the current strips before creating
+            // a new blit batch.
+
+            // Record the batch fence for the current strips.
+            let w = self.wide.width_tiles();
+            let h = self.wide.height_tiles();
+            for row in 0..h {
+                for col in 0..w {
+                    self.strip_tile_batches
+                        .push(self.wide.get(col, row).cmds.len());
+                }
+            }
+
+            // Create a new blit batch.
+            let blits_start = self.all_blits.len();
+            self.blit_batches.push(blits_start..blits_start); // The end is populated below.
+            self.strips_dirty_rects.clear();
         }
 
+        self.enter_blit_mode();
         self.all_blits.push(BlitRect {
             center: center_xy,
             col0,
@@ -678,7 +642,7 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
-        self.flush_blits();
+        self.enter_strip_mode();
         self.push_dirty_viewport();
         if filter.is_some() {
             unimplemented!("Filter effects are not yet supported in vello_hybrid");
@@ -753,7 +717,7 @@ impl Scene {
 
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
-        self.flush_blits();
+        self.enter_strip_mode();
         self.push_dirty_viewport();
         self.wide.pop_layer(&mut self.render_graph);
     }
@@ -1113,7 +1077,7 @@ impl Scene {
         range_index: usize,
         adjusted_strips: &[Strip],
     ) {
-        self.flush_blits();
+        self.enter_strip_mode();
         self.push_dirty_viewport();
         assert!(
             range_index < strip_start_indices.len(),
