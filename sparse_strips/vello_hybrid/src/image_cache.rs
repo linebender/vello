@@ -56,7 +56,7 @@ impl ImageCache {
 
     /// Get an image resource by its Id.
     pub(crate) fn get(&self, id: ImageId) -> Option<&ImageResource> {
-        self.slots.get(id.id() as usize)?.as_ref()
+        self.slots.get(id.as_u32() as usize)?.as_ref()
     }
 
     /// Allocate an image in the cache.
@@ -91,7 +91,7 @@ impl ImageCache {
             index
         });
 
-        let image_id = ImageId::new_with(slot_idx as u32, atlas_alloc.atlas_id.0);
+        let image_id = ImageId::new(slot_idx as u32);
         let image_resource = ImageResource {
             width: width as u16,
             height: height as u16,
@@ -109,7 +109,7 @@ impl ImageCache {
 
     /// Deallocate an image from the cache, returning the image resource if it existed.
     pub(crate) fn deallocate(&mut self, id: ImageId) -> Option<ImageResource> {
-        let index = id.id() as usize;
+        let index = id.as_u32() as usize;
         if let Some(image_resource) = self.slots.get_mut(index).and_then(Option::take) {
             // Deallocate from the appropriate atlas
             self.atlas_manager
@@ -153,7 +153,7 @@ mod tests {
 
         let id = cache.allocate(100, 100).unwrap();
 
-        assert_eq!(id.id(), 0);
+        assert_eq!(id.as_u32(), 0);
         let resource = cache.get(id).unwrap();
         assert_eq!(resource.width, 100);
         assert_eq!(resource.height, 100);
@@ -171,8 +171,8 @@ mod tests {
         let id1 = cache.allocate(50, 50).unwrap();
         let id2 = cache.allocate(75, 75).unwrap();
 
-        assert_eq!(id1.id(), 0);
-        assert_eq!(id2.id(), 1);
+        assert_eq!(id1.as_u32(), 0);
+        assert_eq!(id2.as_u32(), 1);
 
         let resource1 = cache.get(id1).unwrap();
         let resource2 = cache.get(id2).unwrap();
@@ -233,9 +233,9 @@ mod tests {
         let id2 = cache.allocate(60, 60).unwrap();
         let id3 = cache.allocate(70, 70).unwrap();
 
-        assert_eq!(id1.id(), 0);
-        assert_eq!(id2.id(), 1);
-        assert_eq!(id3.id(), 2);
+        assert_eq!(id1.as_u32(), 0);
+        assert_eq!(id2.as_u32(), 1);
+        assert_eq!(id3.as_u32(), 2);
 
         // Unregister the middle one
         cache.deallocate(id2);
@@ -244,7 +244,7 @@ mod tests {
         // Register a new image - should reuse slot 1
         let id4 = cache.allocate(80, 80).unwrap();
         // Reused slot 1
-        assert_eq!(id4.id(), 1);
+        assert_eq!(id4.as_u32(), 1);
 
         // Verify other images are still there
         assert!(cache.get(id1).is_some());
@@ -274,8 +274,8 @@ mod tests {
         let new_id2 = cache.allocate(300, 300).unwrap();
 
         // Should have reused slots 3 and 1 (in reverse order due to stack behavior)
-        assert_eq!(new_id1.id(), 3);
-        assert_eq!(new_id2.id(), 1);
-        assert_ne!(new_id1.id(), new_id2.id());
+        assert_eq!(new_id1.as_u32(), 3);
+        assert_eq!(new_id2.as_u32(), 1);
+        assert_ne!(new_id1.as_u32(), new_id2.as_u32());
     }
 }
