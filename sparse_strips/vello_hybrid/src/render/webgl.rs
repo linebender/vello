@@ -97,6 +97,7 @@ pub struct WebGlRenderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
+    filter_context: FilterContext,
 }
 
 impl WebGlRenderer {
@@ -179,6 +180,8 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
+        self.filter_context.clear();
+
         let paint_manager = PaintManager::new(&scene.encoded_paints, alloc::vec::Vec::new());
         self.prepare_gpu_encoded_paints(&paint_manager);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -196,13 +199,12 @@ impl WebGlRenderer {
             programs: &mut self.programs,
             gl: &self.gl,
         };
-        let filter_context = FilterContext::new(Default::default());
         self.scheduler.do_scene(
             &mut self.scheduler_state,
             &mut ctx,
             scene,
             &self.paint_idxs,
-            &filter_context,
+            &self.filter_context,
             &paint_manager,
         )?;
         self.gradient_cache.maintain();
