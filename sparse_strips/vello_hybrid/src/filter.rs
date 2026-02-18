@@ -293,22 +293,9 @@ pub(crate) struct FilterContext {
     /// At what texel offset the filter data for the given layer ID is stored in the texture.
     pub(crate) offsets: HashMap<LayerId, u32>,
     /// Allocated filter textures (as ImageIds in the atlas) for each layer.
-    pub(crate) filter_textures: HashMap<LayerId, FilterTextures>,
+    pub(crate) filter_textures: HashMap<LayerId, FilterLayerData>,
     /// Image cache for storing filter intermediate textures.
     pub(crate) filter_texture_cache: ImageCache,
-}
-
-/// Filter texture allocation for a single layer.
-#[derive(Debug)]
-pub(crate) struct FilterTextures {
-    /// Image ID for the main texture holding the raw painted version of the layer.
-    pub main_image_id: ImageId,
-    /// Image ID for the destination texture holding the final filtered version.
-    pub dest_image_id: ImageId,
-    /// Optional image ID for scratch texture used in multi-pass filter operations.
-    pub scratch_image_id: Option<ImageId>,
-    pub paint_idx: u32,
-    pub bbox: WideTilesBbox,
 }
 
 impl FilterContext {
@@ -336,7 +323,7 @@ impl FilterContext {
         &self.offsets
     }
 
-    pub(crate) fn filter_textures(&self) -> &HashMap<LayerId, FilterTextures> {
+    pub(crate) fn filter_textures(&self) -> &HashMap<LayerId, FilterLayerData> {
         &self.filter_textures
     }
 
@@ -355,6 +342,22 @@ impl FilterContext {
         let src = bytemuck::cast_slice::<GpuFilterData, u8>(&self.filters);
         buffer[..src.len()].copy_from_slice(src);
     }
+}
+
+/// Filter texture allocation for a single layer.
+#[derive(Debug)]
+pub(crate) struct FilterLayerData {
+    /// Image ID for the main texture holding the raw painted version of the layer.
+    pub main_image_id: ImageId,
+    /// Image ID for the destination texture holding the final filtered version.
+    pub dest_image_id: ImageId,
+    /// Optional image ID for scratch texture used in multi-pass filter operations.
+    pub scratch_image_id: Option<ImageId>,
+    /// The paint index that points to the location in `PaintManager` where
+    /// the final filtered version of the image will be stored.
+    pub paint_idx: u32,
+    /// The bounding box of the filter layer.
+    pub bbox: WideTilesBbox,
 }
 
 #[cfg(test)]

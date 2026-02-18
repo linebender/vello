@@ -23,7 +23,7 @@ use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, num::NonZeroU64};
 
 use crate::AtlasConfig;
-use crate::filter::{FilterContext, FilterTextures, GpuFilterData};
+use crate::filter::{FilterContext, FilterLayerData, GpuFilterData};
 use crate::multi_atlas::{AtlasError, AtlasId};
 use crate::paint_manager::PaintManager;
 use crate::{
@@ -253,11 +253,15 @@ impl Renderer {
                     .allocate(width, height)?;
                 let dest_image_id = self.image_cache.allocate(width, height)?;
                 let scratch_image_id = if needs_scratch {
-                    Some(self.filter_context.filter_texture_cache.allocate_excluding(
-                        width,
-                        height,
-                        Some(AtlasId(main_image_id.atlas_id())),
-                    )?)
+                    Some(
+                        self.filter_context
+                            .filter_texture_cache
+                            .allocate_excluding(
+                                width,
+                                height,
+                                Some(AtlasId(main_image_id.atlas_id())),
+                            )?,
+                    )
                 } else {
                     None
                 };
@@ -280,7 +284,7 @@ impl Renderer {
                 // Store the allocation
                 self.filter_context.filter_textures.insert(
                     *layer_id,
-                    FilterTextures {
+                    FilterLayerData {
                         main_image_id,
                         dest_image_id,
                         scratch_image_id,
@@ -969,10 +973,7 @@ impl Programs {
                 push_constant_ranges: &[],
             });
 
-        let strip_formats = [
-            render_target_config.format,
-            wgpu::TextureFormat::Rgba8Unorm,
-        ];
+        let strip_formats = [render_target_config.format, wgpu::TextureFormat::Rgba8Unorm];
         let strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(if i == 0 {
@@ -1990,9 +1991,8 @@ impl Programs {
                 (first.width(), first.height(), first.format())
             };
             for _ in current_count..required_atlas_count {
-                resources
-                    .filter_atlas_textures
-                    .push(device.create_texture(&wgpu::TextureDescriptor {
+                resources.filter_atlas_textures.push(device.create_texture(
+                    &wgpu::TextureDescriptor {
                         label: Some("Filter Atlas Texture"),
                         size: Extent3d {
                             width,
@@ -2008,7 +2008,8 @@ impl Programs {
                             | wgpu::TextureUsages::COPY_SRC
                             | wgpu::TextureUsages::RENDER_ATTACHMENT,
                         view_formats: &[],
-                    }));
+                    },
+                ));
             }
         }
     }
@@ -2270,8 +2271,7 @@ impl RendererContext<'_> {
                 // Create a view of the specific filter atlas texture
                 let filter_texture = &self.programs.resources.filter_atlas_textures
                     [resources.atlas_id.as_u32() as usize];
-                let view = filter_texture
-                    .create_view(&TextureViewDescriptor::default());
+                let view = filter_texture.create_view(&TextureViewDescriptor::default());
 
                 let atlas_size = filter_texture.size();
                 let atlas_config_buffer =
@@ -2473,8 +2473,7 @@ impl RendererBackend for RendererContext<'_> {
         };
 
         let first_pass_dest_atlas: &Texture = if first_pass_uses_filter_atlas {
-            &self.programs.resources.filter_atlas_textures
-                [first_pass_dest_atlas_layer as usize]
+            &self.programs.resources.filter_atlas_textures[first_pass_dest_atlas_layer as usize]
         } else {
             &self.programs.resources.atlas_texture_array
         };
@@ -2502,8 +2501,7 @@ impl RendererBackend for RendererContext<'_> {
         // 5. Create views and bind groups for first pass
         let main_filter_texture = &self.programs.resources.filter_atlas_textures
             [main_resource.atlas_id.as_u32() as usize];
-        let main_texture_view = main_filter_texture
-            .create_view(&TextureViewDescriptor::default());
+        let main_texture_view = main_filter_texture.create_view(&TextureViewDescriptor::default());
 
         let main_input_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Filter Input Bind Group"),
@@ -2523,8 +2521,7 @@ impl RendererBackend for RendererContext<'_> {
         });
 
         let first_pass_output_view = if first_pass_uses_filter_atlas {
-            self.programs.resources.filter_atlas_textures
-                [first_pass_dest_atlas_layer as usize]
+            self.programs.resources.filter_atlas_textures[first_pass_dest_atlas_layer as usize]
                 .create_view(&TextureViewDescriptor::default())
         } else {
             self.programs
