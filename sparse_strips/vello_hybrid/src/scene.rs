@@ -450,6 +450,7 @@ impl Scene {
     /// Attempt the fast-path blit rect pipeline. Returns `true` if the rect was
     /// handled by the blit pipeline, `false` if it should fall through to the
     /// strip pipeline.
+    #[inline(always)] // only one caller.
     fn try_blit_rect(&mut self, rect: &Rect) -> bool {
         if !self.paint_visible {
             return true; // Invisible paint, nothing to draw either way.
