@@ -60,10 +60,6 @@ impl ImageCache {
     }
 
     /// Allocate an image in the cache.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "u16 is enough for the offset and width/height"
-    )]
     pub(crate) fn allocate(&mut self, width: u32, height: u32) -> Result<ImageId, AtlasError> {
         self.allocate_excluding(width, height, None)
     }
