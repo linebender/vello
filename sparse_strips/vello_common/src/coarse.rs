@@ -215,7 +215,7 @@ impl WideTilesBbox {
 
     /// Check if the bbox is still in its inverted state (no updates yet).
     #[inline(always)]
-    pub(crate) fn is_inverted(self) -> bool {
+    pub fn is_inverted(self) -> bool {
         self.bbox[0] == u16::MAX && self.bbox[1] == u16::MAX
     }
 
@@ -240,6 +240,12 @@ impl WideTilesBbox {
             u32::from(self.x1()) * u32::from(scale_x),
             u32::from(self.y1()) * u32::from(scale_y),
         ]
+    }
+
+    /// Convert this wide-tile bounding box to pixel coordinates `[x0, y0, x1, y1]`.
+    #[inline(always)]
+    pub fn pixel_bounds(self) -> [u32; 4] {
+        self.scale(WideTile::WIDTH, Tile::HEIGHT)
     }
 
     /// Expands the bounding box outward by the given pixel amounts in each direction.
@@ -708,7 +714,9 @@ impl<const MODE: u8> Wide<MODE> {
     /// - Generating filter commands for each tile
     /// - Popping any associated clip
     /// - Applying mask, opacity, and blend mode operations if needed
-    pub fn pop_layer(&mut self, render_graph: &mut RenderGraph) {
+    ///
+    /// It returns the bounding box of the layer in wide tile coordinates.
+    pub fn pop_layer(&mut self, render_graph: &mut RenderGraph) -> WideTilesBbox {
         // This method basically unwinds everything we did in `push_layer`.
         let mut layer = self.layer_stack.pop().unwrap();
 
@@ -751,11 +759,13 @@ impl<const MODE: u8> Wide<MODE> {
             }
         }
 
+        let layer_bbox = layer.wtile_bbox;
+
         // Union this layer's bbox into the parent layer's bbox.
         // This ensures the parent knows about all tiles used by this child layer,
         // which is important for filter effects that may expand beyond the original content bounds.
         if let Some(parent_layer) = self.layer_stack.last_mut() {
-            parent_layer.wtile_bbox.union(layer.wtile_bbox);
+            parent_layer.wtile_bbox.union(layer_bbox);
         }
 
         if layer.clip {
@@ -793,6 +803,8 @@ impl<const MODE: u8> Wide<MODE> {
         if in_clipped_filter_layer {
             self.clipped_filter_layer_depth -= 1;
         }
+
+        layer_bbox
     }
 
     /// Adds a clipping region defined by the provided strips.

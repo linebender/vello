@@ -633,8 +633,6 @@ impl Scene {
         filter: Option<Filter>,
     ) {
         self.enter_strip_mode();
-        // TODO: Could use the `pop_layer` bounding box instead.
-        self.push_dirty_viewport();
         if filter.is_some() {
             unimplemented!("Filter effects are not yet supported in vello_hybrid");
         }
@@ -709,8 +707,13 @@ impl Scene {
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
         self.enter_strip_mode();
-        self.push_dirty_viewport();
-        self.wide.pop_layer(&mut self.render_graph);
+        let layer_bbox = self.wide.pop_layer(&mut self.render_graph);
+        if !layer_bbox.is_inverted() {
+            // Push the dirty rect for the layer to the dirty rects list.
+            let [x0, y0, x1, y1] = layer_bbox.pixel_bounds();
+            self.strips_dirty_rects
+                .push(x0 as u16, y0 as u16, x1 as u16, y1 as u16);
+        }
     }
 
     /// Set the blend mode for subsequent rendering operations.
