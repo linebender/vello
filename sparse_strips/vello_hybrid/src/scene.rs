@@ -505,8 +505,7 @@ impl Scene {
     pub fn reset_filter_effect(&mut self) {
         self.filter = None;
     }
-
-    /// Execute a drawing operation, optionally wrapping it in a filter layer.
+    
     fn with_optional_filter<F>(&mut self, mut f: F)
     where
         F: FnMut(&mut Self),
