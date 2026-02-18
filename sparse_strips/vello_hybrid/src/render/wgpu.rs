@@ -665,6 +665,20 @@ impl GpuStrip {
     }
 }
 
+impl GpuBlitRect {
+    /// Vertex attributes for the blit rect instance buffer.
+    pub(crate) fn vertex_attributes() -> [wgpu::VertexAttribute; 6] {
+        wgpu::vertex_attr_array![
+            0 => Float32x2,
+            1 => Float32x2,
+            2 => Float32x2,
+            3 => Uint32,
+            4 => Uint32,
+            5 => Uint32,
+        ]
+    }
+}
+
 impl Programs {
     fn new(
         device: &Device,

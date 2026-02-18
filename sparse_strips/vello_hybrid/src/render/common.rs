@@ -88,34 +88,18 @@ pub struct GpuStrip {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuBlitRect {
-    /// Column 0 of the rect-to-screen transform (rect X axis direction × width).
-    /// See above formula.
+    /// `col0` in the above formula. See [`resolve_blit_rect`] for more details.
     pub col0: [f32; 2],
-    /// Column 1 of the rect-to-screen transform (rect Y axis direction × height).
-    /// See above formula.
+    /// `col1` in the above formula. See [`resolve_blit_rect`] for more details.
     pub col1: [f32; 2],
-    /// Screen-space center of the quad.
+    /// Screen-space center of the quad: [x, y].
     pub center: [f32; 2],
     /// Packed atlas source offset: u | (v << 16)
     pub src_xy: u32,
-    /// Packed atlas source size: w | (h << 16)
+    /// Packed atlas source dimensions: w | (h << 16)
     pub src_wh: u32,
     /// Atlas layer index.
     pub atlas_index: u32,
-}
-
-impl GpuBlitRect {
-    /// Vertex attributes for the blit rect instance buffer.
-    pub(crate) fn vertex_attributes() -> [wgpu::VertexAttribute; 6] {
-        wgpu::vertex_attr_array![
-            0 => Float32x2,
-            1 => Float32x2,
-            2 => Float32x2,
-            3 => Uint32,
-            4 => Uint32,
-            5 => Uint32,
-        ]
-    }
 }
 
 /// Resolve a [`BlitRect`] into a GPU-ready [`GpuBlitRect`] by looking up atlas
@@ -185,11 +169,11 @@ pub(crate) fn resolve_blit_rect(blit: &BlitRect, resource: &ImageResource) -> Op
         let frac_y0 = (src_y0 - blit.img_origin_y) / rect_h;
         let frac_y1 = (src_y1 - blit.img_origin_y) / rect_h;
 
-        // Adjust the vectors to the visible sub-region.
-        let vis_scale_x = frac_x1 - frac_x0;
-        let vis_scale_y = frac_y1 - frac_y0;
-        let col0 = [blit.col0[0] * vis_scale_x, blit.col0[1] * vis_scale_x];
-        let col1 = [blit.col1[0] * vis_scale_y, blit.col1[1] * vis_scale_y];
+        // Adjust vectors to the visible sub-region.
+        let src_scale_x = frac_x1 - frac_x0;
+        let src_scale_y = frac_y1 - frac_y0;
+        let col0 = [blit.col0[0] * src_scale_x, blit.col0[1] * src_scale_x];
+        let col1 = [blit.col1[0] * src_scale_y, blit.col1[1] * src_scale_y];
 
         // Shift the center to the midpoint of the visible sub-region.
         let mid_frac_x = (frac_x0 + frac_x1) * 0.5 - 0.5;
