@@ -176,6 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::scene::FastPathBuffer;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -1165,6 +1166,68 @@ impl GpuStripBuilder {
 #[inline(always)]
 fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
+}
+
+/// Build `GpuStrip`s directly from the fast path buffer, bypassing coarse rasterization
+/// and scheduling.
+///
+/// This replicates the strip→GpuStrip conversion that normally happens across
+/// `Wide::generate` + `Scheduler::do_tile`, but for the simple case where all draws
+/// happen at depth=1 directly to the surface with no layers or blending.
+pub(crate) fn build_gpu_strips_direct(
+    fast_path: &FastPathBuffer,
+    scene: &Scene,
+    paint_idxs: &[u32],
+    gpu_strips: &mut Vec<GpuStrip>,
+) {
+    for buffered in &fast_path.paths {
+        let strip_buf = &fast_path.strips[buffered.strip_start..buffered.strip_end];
+        if strip_buf.is_empty() {
+            continue;
+        }
+
+        for i in 0..strip_buf.len() - 1 {
+            let strip = &strip_buf[i];
+            if strip.x >= scene.width {
+                continue;
+            }
+
+            let next_strip = &strip_buf[i + 1];
+            let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
+            let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
+            let strip_width = next_col.saturating_sub(col) as u16;
+            let x0 = strip.x;
+            let y = strip.y;
+
+            // Alpha fill for the strip's coverage region
+            if strip_width > 0 {
+                let (payload, paint) =
+                    Scheduler::process_paint(&buffered.paint, scene, (x0, y), paint_idxs);
+                gpu_strips.push(
+                    GpuStripBuilder::at_surface(x0, y, strip_width)
+                        .with_sparse(strip_width, col)
+                        .paint(payload, paint),
+                );
+            }
+
+            // Solid fill for the gap to the next strip
+            if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
+                let x1 = x0.saturating_add(strip_width);
+                let x2 = next_strip.x.min(
+                    scene
+                        .width
+                        .checked_next_multiple_of(WideTile::WIDTH)
+                        .unwrap_or(u16::MAX),
+                );
+                if x2 > x1 {
+                    let (payload, paint) =
+                        Scheduler::process_paint(&buffered.paint, scene, (x1, y), paint_idxs);
+                    gpu_strips
+                        .push(GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint));
+                }
+            }
+        }
+    }
 }
 
 /// Does a single linear scan over the wide tile commands to prepare them for `do_tile`. Notably

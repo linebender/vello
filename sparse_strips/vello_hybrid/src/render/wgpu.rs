@@ -39,7 +39,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
+    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState, build_gpu_strips_direct},
 };
 use bytemuck::{Pod, Zeroable};
 use vello_common::{
@@ -155,20 +155,31 @@ impl Renderer {
             render_size,
             &self.paint_idxs,
         );
-        let mut junk = RendererContext {
-            programs: &mut self.programs,
-            device,
-            queue,
-            encoder,
-            view,
+        let result = if scene.fast_path_active {
+            let mut gpu_strips = Vec::new();
+            build_gpu_strips_direct(&scene.fast_path, scene, &self.paint_idxs, &mut gpu_strips);
+            if !gpu_strips.is_empty() {
+                let mut ctx = RendererContext {
+                    programs: &mut self.programs,
+                    device,
+                    queue,
+                    encoder,
+                    view,
+                };
+                ctx.render_strips(&gpu_strips, 2, LoadOp::Clear);
+            }
+            Ok(())
+        } else {
+            let mut ctx = RendererContext {
+                programs: &mut self.programs,
+                device,
+                queue,
+                encoder,
+                view,
+            };
+            self.scheduler
+                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)
         };
-
-        let result = self.scheduler.do_scene(
-            &mut self.scheduler_state,
-            &mut junk,
-            scene,
-            &self.paint_idxs,
-        );
         self.gradient_cache.maintain();
 
         result
