@@ -24,7 +24,7 @@ use crate::image_cache::ImageCache;
 // Note: Keep this variables and struct layouts in sync with `filters.wgsl`!
 
 const BYTES_PER_TEXEL: usize = 16;
-const FILTER_SIZE_BYTES: usize = 96;
+const FILTER_SIZE_BYTES: usize = 64;
 const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
 
 pub(crate) mod filter_type {
@@ -126,7 +126,7 @@ pub(crate) struct GpuOffset {
     pub filter_type: u32,
     pub dx: f32,
     pub dy: f32,
-    pub _padding: [u32; 21],
+    pub _padding: [u32; 13],
 }
 
 impl From<&Offset> for GpuOffset {
@@ -135,7 +135,7 @@ impl From<&Offset> for GpuOffset {
             filter_type: filter_type::OFFSET,
             dx: offset.dx,
             dy: offset.dy,
-            _padding: [0; 21],
+            _padding: [0; 13],
         }
     }
 }
@@ -145,7 +145,7 @@ impl From<&Offset> for GpuOffset {
 pub(crate) struct GpuFlood {
     pub filter_type: u32,
     pub color: u32,
-    pub _padding: [u32; 22],
+    pub _padding: [u32; 14],
 }
 
 impl From<&Flood> for GpuFlood {
@@ -153,7 +153,7 @@ impl From<&Flood> for GpuFlood {
         Self {
             filter_type: filter_type::FLOOD,
             color: flood.color.premultiply().to_rgba8().to_u32(),
-            _padding: [0; 22],
+            _padding: [0; 14],
         }
     }
 }
@@ -169,7 +169,7 @@ pub(crate) struct GpuGaussianBlur {
     pub center_weight: f32,
     pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
     pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
-    pub _padding: [u32; 12],
+    pub _padding: [u32; 4],
 }
 
 impl From<&GaussianBlur> for GpuGaussianBlur {
@@ -185,7 +185,7 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
             center_weight: lk.center_weight,
             linear_weights: lk.weights,
             linear_offsets: lk.offsets,
-            _padding: [0; 12],
+            _padding: [0; 4],
         }
     }
 }
@@ -204,7 +204,7 @@ pub(crate) struct GpuDropShadow {
     pub center_weight: f32,
     pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
     pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
-    pub _padding: [u32; 9],
+    pub _padding: [u32; 1],
 }
 
 impl From<&DropShadow> for GpuDropShadow {
@@ -222,7 +222,7 @@ impl From<&DropShadow> for GpuDropShadow {
             center_weight: lk.center_weight,
             linear_weights: lk.weights,
             linear_offsets: lk.offsets,
-            _padding: [0; 9],
+            _padding: [0; 1],
         }
     }
 }

@@ -18,7 +18,7 @@
 
 // Keep these variables and structs in sync with the ones in `filter.rs`!
 
-const FILTER_SIZE_U32: u32 = 24u;
+const FILTER_SIZE_U32: u32 = 16u;
 // Since the texture is packed into Uint32.
 const TEXELS_PER_FILTER: u32 = FILTER_SIZE_U32 / 4u;
 
@@ -30,7 +30,7 @@ const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
 const MAX_LINEAR_TAPS: u32 = 3u;
 
 struct GpuFilterData {
-    data: array<u32, 24>,
+    data: array<u32, 16>,
 }
 
 struct OffsetFilter {
