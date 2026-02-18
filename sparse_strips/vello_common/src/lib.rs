@@ -60,6 +60,11 @@ only break in edge cases, and some of them are also only related to conversions 
 #[cfg(all(feature = "std", feature = "libm"))]
 use libm as _;
 
+// Suppress the unused_crate_dependencies lint when std is not specified
+// (thiserror is only used in multi_atlas, which requires std).
+#[cfg(not(feature = "std"))]
+use thiserror as _;
+
 extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
