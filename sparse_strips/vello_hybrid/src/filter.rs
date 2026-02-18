@@ -139,7 +139,7 @@ impl LinearKernel {
 }
 
 #[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
 pub(crate) struct GpuOffset {
     pub header: u32,
     pub dx: f32,
@@ -159,7 +159,7 @@ impl From<&Offset> for GpuOffset {
 }
 
 #[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
 pub(crate) struct GpuFlood {
     pub header: u32,
     pub color: u32,
@@ -177,7 +177,7 @@ impl From<&Flood> for GpuFlood {
 }
 
 #[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
 pub(crate) struct GpuGaussianBlur {
     pub header: u32,
     pub std_deviation: f32,
@@ -208,7 +208,7 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
 }
 
 #[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
 pub(crate) struct GpuDropShadow {
     pub header: u32,
     pub dx: f32,
@@ -377,16 +377,8 @@ pub(crate) struct FilterLayerData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vello_common::color::AlphaColor;
     use vello_common::filter::gaussian_blur::{compute_gaussian_kernel, plan_decimated_blur};
-
-    #[test]
-    fn test_all_filters_same_size() {
-        assert_eq!(size_of::<GpuOffset>(), FILTER_SIZE_BYTES);
-        assert_eq!(size_of::<GpuFlood>(), FILTER_SIZE_BYTES);
-        assert_eq!(size_of::<GpuGaussianBlur>(), FILTER_SIZE_BYTES);
-        assert_eq!(size_of::<GpuDropShadow>(), FILTER_SIZE_BYTES);
-        assert_eq!(size_of::<GpuFilterData>(), FILTER_SIZE_BYTES);
-    }
 
     #[test]
     fn test_offset_conversion() {
@@ -397,16 +389,48 @@ mod tests {
         assert_eq!(gpu_offset.dy, -20.3);
     }
 
-    #[test]
-    fn test_type_erased_cast() {
-        let offset = Offset::new(1.0, 2.0);
-        let gpu_offset = GpuOffset::from(&offset);
-        let erased: GpuFilterData = gpu_offset.into();
-        assert_eq!(erased.filter_type(), filter_type::OFFSET);
+    fn check_round_trip<T>(gpu: T, expected_type: u32)
+    where
+        T: Into<GpuFilterData> + Copy + PartialEq + core::fmt::Debug + Pod,
+    {
+        let erased: GpuFilterData = gpu.into();
+        assert_eq!(erased.filter_type(), expected_type);
+        assert_eq!(bytemuck::cast::<_, T>(erased), gpu);
+    }
 
-        let back: GpuOffset = bytemuck::cast(erased);
-        assert_eq!(back.dx, 1.0);
-        assert_eq!(back.dy, 2.0);
+    #[test]
+    fn test_offset_round_trip() {
+        check_round_trip(GpuOffset::from(&Offset::new(1.0, 2.0)), filter_type::OFFSET);
+    }
+
+    #[test]
+    fn test_flood_round_trip() {
+        check_round_trip(
+            GpuFlood::from(&Flood::new(AlphaColor::new([0.2, 0.4, 0.6, 0.8]))),
+            filter_type::FLOOD,
+        );
+    }
+
+    #[test]
+    fn test_gaussian_blur_round_trip() {
+        check_round_trip(
+            GpuGaussianBlur::from(&GaussianBlur::new(2.0, EdgeMode::None)),
+            filter_type::GAUSSIAN_BLUR,
+        );
+    }
+
+    #[test]
+    fn test_drop_shadow_round_trip() {
+        check_round_trip(
+            GpuDropShadow::from(&DropShadow::new(
+                3.0,
+                -4.0,
+                1.5,
+                EdgeMode::Duplicate,
+                AlphaColor::new([0.0, 0.0, 0.0, 1.0]),
+            )),
+            filter_type::DROP_SHADOW,
+        );
     }
 
     fn check_linear_kernel(kernel: &[f32; MAX_KERNEL_SIZE], size: u8, expected_taps: u8) {
