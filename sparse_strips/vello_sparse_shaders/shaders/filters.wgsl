@@ -18,7 +18,7 @@
 
 // Keep these variables and structs in sync with the ones in `filter.rs`!
 
-const FILTER_SIZE_U32: u32 = 16u;
+const FILTER_SIZE_U32: u32 = 12u;
 // Since the texture is packed into Uint32.
 const TEXELS_PER_FILTER: u32 = FILTER_SIZE_U32 / 4u;
 
@@ -30,7 +30,7 @@ const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
 const MAX_LINEAR_TAPS: u32 = 3u;
 
 struct GpuFilterData {
-    data: array<u32, 16>,
+    data: array<u32, 12>,
 }
 
 struct OffsetFilter {
@@ -42,11 +42,17 @@ struct FloodFilter {
     color: u32,
 }
 
+// Header packing layout (data[0]):
+//   bits [0:4]   = filter_type   (5 bits)
+//   bits [5:6]   = edge_mode     (2 bits)
+//   bits [7:10]  = n_decimations (4 bits)
+//   bits [11:12] = n_linear_taps (2 bits)
+
 struct GaussianBlurFilter {
     std_deviation: f32,
+    edge_mode: u32,
     n_decimations: u32,
     n_linear_taps: u32,
-    edge_mode: u32,
     center_weight: f32,
     linear_weights: array<f32, MAX_LINEAR_TAPS>,
     linear_offsets: array<f32, MAX_LINEAR_TAPS>,
@@ -56,8 +62,8 @@ struct DropShadowFilter {
     dx: f32,
     dy: f32,
     color: u32,
-    edge_mode: u32,
     std_deviation: f32,
+    edge_mode: u32,
     n_decimations: u32,
     n_linear_taps: u32,
     center_weight: f32,
@@ -66,8 +72,12 @@ struct DropShadowFilter {
 }
 
 fn get_filter_type(data: GpuFilterData) -> u32 {
-    return data.data[0];
+    return data.data[0] & 0x1Fu;
 }
+
+fn unpack_header_edge_mode(header: u32) -> u32 { return (header >> 5u) & 0x3u; }
+fn unpack_header_n_decimations(header: u32) -> u32 { return (header >> 7u) & 0xFu; }
+fn unpack_header_n_linear_taps(header: u32) -> u32 { return (header >> 11u) & 0x3u; }
 
 fn unpack_offset_filter(data: GpuFilterData) -> OffsetFilter {
     return OffsetFilter(
@@ -81,39 +91,41 @@ fn unpack_flood_filter(data: GpuFilterData) -> FloodFilter {
 }
 
 fn unpack_gaussian_blur_filter(data: GpuFilterData) -> GaussianBlurFilter {
+    let header = data.data[0];
     var weights: array<f32, 3>;
     var offsets: array<f32, 3>;
     for (var i = 0u; i < 3u; i++) {
-        weights[i] = bitcast<f32>(data.data[6u + i]);
-        offsets[i] = bitcast<f32>(data.data[9u + i]);
+        weights[i] = bitcast<f32>(data.data[3u + i]);
+        offsets[i] = bitcast<f32>(data.data[6u + i]);
     }
     return GaussianBlurFilter(
-        bitcast<f32>(data.data[1]),
-        data.data[2],
-        data.data[3],
-        data.data[4],
-        bitcast<f32>(data.data[5]),
+        bitcast<f32>(data.data[1]),              // std_deviation
+        unpack_header_edge_mode(header),         // edge_mode
+        unpack_header_n_decimations(header),     // n_decimations
+        unpack_header_n_linear_taps(header),     // n_linear_taps
+        bitcast<f32>(data.data[2]),              // center_weight
         weights,
         offsets,
     );
 }
 
 fn unpack_drop_shadow_filter(data: GpuFilterData) -> DropShadowFilter {
+    let header = data.data[0];
     var weights: array<f32, 3>;
     var offsets: array<f32, 3>;
     for (var i = 0u; i < 3u; i++) {
-        weights[i] = bitcast<f32>(data.data[9u + i]);
-        offsets[i] = bitcast<f32>(data.data[12u + i]);
+        weights[i] = bitcast<f32>(data.data[6u + i]);
+        offsets[i] = bitcast<f32>(data.data[9u + i]);
     }
     return DropShadowFilter(
-        bitcast<f32>(data.data[1]),
-        bitcast<f32>(data.data[2]),
-        data.data[3],
-        data.data[4],
-        bitcast<f32>(data.data[5]),
-        data.data[6],
-        data.data[7],
-        bitcast<f32>(data.data[8]),
+        bitcast<f32>(data.data[1]),              // dx
+        bitcast<f32>(data.data[2]),              // dy
+        data.data[3],                            // color
+        bitcast<f32>(data.data[4]),              // std_deviation
+        unpack_header_edge_mode(header),         // edge_mode
+        unpack_header_n_decimations(header),     // n_decimations
+        unpack_header_n_linear_taps(header),     // n_linear_taps
+        bitcast<f32>(data.data[5]),              // center_weight
         weights,
         offsets,
     );

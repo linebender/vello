@@ -21,10 +21,10 @@ use vello_common::render_graph::LayerId;
 use crate::AtlasConfig;
 use crate::image_cache::ImageCache;
 
-// Note: Keep this variables and struct layouts in sync with `filters.wgsl`!
+// Note: Keep these variables and struct layouts in sync with `filters.wgsl`!
 
 const BYTES_PER_TEXEL: usize = 16;
-const FILTER_SIZE_BYTES: usize = 64;
+const FILTER_SIZE_BYTES: usize = 48;
 const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
 
 pub(crate) mod filter_type {
@@ -49,6 +49,24 @@ pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
         EdgeMode::Mirror => edge_mode::MIRROR,
         EdgeMode::None => edge_mode::NONE,
     }
+}
+
+fn pack_header(filter_type: u32) -> u32 {
+    debug_assert!(filter_type <= 31);
+    filter_type
+}
+
+fn pack_with_gaussian_params(
+    filter_type: u32,
+    edge_mode: u32,
+    n_decimations: u32,
+    n_linear_taps: u32,
+) -> u32 {
+    debug_assert!(filter_type <= 31);
+    debug_assert!(edge_mode <= 3);
+    debug_assert!(n_decimations <= 15);
+    debug_assert!(n_linear_taps <= 3);
+    filter_type | (edge_mode << 5) | (n_decimations << 7) | (n_linear_taps << 11)
 }
 
 // To a large degree, the vello_hybrid implementation of gaussian blur follows the one in vello_cpu.
@@ -123,19 +141,19 @@ impl LinearKernel {
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuOffset {
-    pub filter_type: u32,
+    pub header: u32,
     pub dx: f32,
     pub dy: f32,
-    pub _padding: [u32; 13],
+    pub _padding: [u32; 9],
 }
 
 impl From<&Offset> for GpuOffset {
     fn from(offset: &Offset) -> Self {
         Self {
-            filter_type: filter_type::OFFSET,
+            header: pack_header(filter_type::OFFSET),
             dx: offset.dx,
             dy: offset.dy,
-            _padding: [0; 13],
+            _padding: [0; 9],
         }
     }
 }
@@ -143,17 +161,17 @@ impl From<&Offset> for GpuOffset {
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuFlood {
-    pub filter_type: u32,
+    pub header: u32,
     pub color: u32,
-    pub _padding: [u32; 14],
+    pub _padding: [u32; 10],
 }
 
 impl From<&Flood> for GpuFlood {
     fn from(flood: &Flood) -> Self {
         Self {
-            filter_type: filter_type::FLOOD,
+            header: pack_header(filter_type::FLOOD),
             color: flood.color.premultiply().to_rgba8().to_u32(),
-            _padding: [0; 14],
+            _padding: [0; 10],
         }
     }
 }
@@ -161,15 +179,12 @@ impl From<&Flood> for GpuFlood {
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuGaussianBlur {
-    pub filter_type: u32,
+    pub header: u32,
     pub std_deviation: f32,
-    pub n_decimations: u32,
-    pub n_linear_taps: u32,
-    pub edge_mode: u32,
     pub center_weight: f32,
     pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
     pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
-    pub _padding: [u32; 4],
+    pub _padding: [u32; 3],
 }
 
 impl From<&GaussianBlur> for GpuGaussianBlur {
@@ -177,15 +192,17 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
         let lk = LinearKernel::new(&blur.kernel, blur.kernel_size);
 
         Self {
-            filter_type: filter_type::GAUSSIAN_BLUR,
+            header: pack_with_gaussian_params(
+                filter_type::GAUSSIAN_BLUR,
+                edge_mode_to_gpu(blur.edge_mode),
+                blur.n_decimations as u32,
+                lk.n_taps as u32,
+            ),
             std_deviation: blur.std_deviation,
-            n_decimations: blur.n_decimations as u32,
-            n_linear_taps: lk.n_taps as u32,
-            edge_mode: edge_mode_to_gpu(blur.edge_mode),
             center_weight: lk.center_weight,
             linear_weights: lk.weights,
             linear_offsets: lk.offsets,
-            _padding: [0; 4],
+            _padding: [0; 3],
         }
     }
 }
@@ -193,36 +210,33 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuDropShadow {
-    pub filter_type: u32,
+    pub header: u32,
     pub dx: f32,
     pub dy: f32,
     pub color: u32,
-    pub edge_mode: u32,
     pub std_deviation: f32,
-    pub n_decimations: u32,
-    pub n_linear_taps: u32,
     pub center_weight: f32,
     pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
     pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
-    pub _padding: [u32; 1],
 }
 
 impl From<&DropShadow> for GpuDropShadow {
     fn from(shadow: &DropShadow) -> Self {
         let lk = LinearKernel::new(&shadow.kernel, shadow.kernel_size);
         Self {
-            filter_type: filter_type::DROP_SHADOW,
+            header: pack_with_gaussian_params(
+                filter_type::DROP_SHADOW,
+                edge_mode_to_gpu(shadow.edge_mode),
+                shadow.n_decimations as u32,
+                lk.n_taps as u32,
+            ),
             dx: shadow.dx,
             dy: shadow.dy,
             color: shadow.color.premultiply().to_rgba8().to_u32(),
-            edge_mode: edge_mode_to_gpu(shadow.edge_mode),
             std_deviation: shadow.std_deviation,
-            n_decimations: shadow.n_decimations as u32,
-            n_linear_taps: lk.n_taps as u32,
             center_weight: lk.center_weight,
             linear_weights: lk.weights,
             linear_offsets: lk.offsets,
-            _padding: [0; 1],
         }
     }
 }
@@ -237,7 +251,7 @@ impl GpuFilterData {
     pub(crate) const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 
     fn filter_type(&self) -> u32 {
-        self.data[0]
+        self.data[0] & 0x1F
     }
 
     /// Returns whether this filter requires a scratch buffer for multi-pass rendering.
@@ -378,7 +392,7 @@ mod tests {
     fn test_offset_conversion() {
         let offset = Offset::new(10.5, -20.3);
         let gpu_offset = GpuOffset::from(&offset);
-        assert_eq!(gpu_offset.filter_type, filter_type::OFFSET);
+        assert_eq!(gpu_offset.header & 0x1F, filter_type::OFFSET);
         assert_eq!(gpu_offset.dx, 10.5);
         assert_eq!(gpu_offset.dy, -20.3);
     }
