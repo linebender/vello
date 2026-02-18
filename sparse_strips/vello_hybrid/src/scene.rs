@@ -509,7 +509,6 @@ impl Scene {
         {
             return false;
         }
-        let (ptx, pty) = (paint_coeffs[4], paint_coeffs[5]);
 
         // Compute the image-space origin: where the rect's top-left corner
         // maps to in image coordinates, accounting for the paint transform.
@@ -519,6 +518,7 @@ impl Scene {
         // So the inverse maps geometry to image space:
         //   image = geo - (ptx, pty)
         // At the rect's top-left corner (rect.x0, rect.y0):
+        let (ptx, pty) = (paint_coeffs[4], paint_coeffs[5]);
         let img_origin_xy = [(rect.x0 - ptx) as f32, (rect.y0 - pty) as f32];
 
         // Condition 7: Image origin must not require padding on the left/top
