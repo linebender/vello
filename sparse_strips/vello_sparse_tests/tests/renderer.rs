@@ -26,6 +26,7 @@ pub(crate) trait Renderer: Sized {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
+        use_blit_pipeline: bool,
     ) -> Self;
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
@@ -78,6 +79,7 @@ impl Renderer for RenderContext {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
+        _use_blit_pipeline: bool,
     ) -> Self {
         let settings = RenderSettings {
             level,
@@ -242,7 +244,7 @@ pub(crate) struct HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRenderer = Scene;
 
-    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
+    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode, use_blit_pipeline: bool) -> Self {
         if num_threads != 0 {
             panic!("hybrid renderer doesn't support multi-threading");
         }
@@ -251,7 +253,15 @@ impl Renderer for HybridRenderer {
             panic!("hybrid renderer doesn't support SIMD");
         }
 
-        let scene = Scene::new(width, height);
+        let render_hints = if use_blit_pipeline {
+            vello_hybrid::RenderHints::new()
+        } else {
+            vello_hybrid::RenderHints::new().no_blends()
+        };
+        let scene = Scene::new_with(width, height, vello_hybrid::RenderSettings {
+            render_hints,
+            ..Default::default()
+        });
         // Initialize wgpu device and queue for GPU rendering
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -574,7 +584,7 @@ pub(crate) struct HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRenderer = Scene;
 
-    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
+    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode, use_blit_pipeline: bool) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
 
@@ -586,7 +596,15 @@ impl Renderer for HybridRenderer {
             panic!("hybrid renderer doesn't support SIMD");
         }
 
-        let scene = Scene::new(width, height);
+        let render_hints = if use_blit_pipeline {
+            vello_hybrid::RenderHints::new()
+        } else {
+            vello_hybrid::RenderHints::new().no_blends()
+        };
+        let scene = Scene::new_with(width, height, vello_hybrid::RenderSettings {
+            render_hints,
+            ..Default::default()
+        });
 
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.

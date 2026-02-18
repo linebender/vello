@@ -387,7 +387,7 @@ fn gradient_color_alpha(ctx: &mut impl Renderer) {
 
 /// <https://github.com/web-platform-tests/wpt/blob/18c64a74b1/html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.html>
 /// See <https://github.com/linebender/vello/issues/1056>.
-#[vello_test(width = 100, height = 50)]
+#[vello_test(width = 100, height = 50, uses_blends)]
 fn gradient_color_alpha_unmul(ctx: &mut impl Renderer) {
     let viewport = Rect::new(0., 0., 100., 50.);
     ctx.push_blend_layer(Compose::Clear.into());

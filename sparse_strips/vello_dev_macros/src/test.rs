@@ -39,6 +39,10 @@ struct Arguments {
     /// Whether no reference image should actually be created (for tests that only check
     /// for panics, but are not interested in the actual output).
     no_ref: bool,
+    /// Whether the test uses non-default blend modes (anything other than
+    /// `Mix::Normal` + `Compose::SrcOver`). When set, the `hybrid_blit` variant
+    /// is skipped because the blit pipeline doesn't yet support blends.
+    uses_blends: bool,
     /// A reason for ignoring a test.
     ignore_reason: Option<String>,
 }
@@ -55,6 +59,7 @@ impl Default for Arguments {
             skip_multithreaded: false,
             skip_hybrid: false,
             no_ref: false,
+            uses_blends: false,
             diff_pixels: 0,
             ignore_reason: None,
         }
@@ -112,8 +117,16 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         input_fn_name.span(),
     );
     let hybrid_fn_name = Ident::new(&format!("{input_fn_name}_hybrid"), input_fn_name.span());
+    let hybrid_blit_fn_name = Ident::new(
+        &format!("{input_fn_name}_hybrid_blit"),
+        input_fn_name.span(),
+    );
     let webgl_fn_name = Ident::new(
         &format!("{input_fn_name}_hybrid_webgl"),
+        input_fn_name.span(),
+    );
+    let webgl_blit_fn_name = Ident::new(
+        &format!("{input_fn_name}_hybrid_webgl_blit"),
         input_fn_name.span(),
     );
 
@@ -134,7 +147,9 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let f32_fn_name_wasm_str = f32_fn_name_wasm.to_string();
     let multithreaded_fn_name_str = multithreaded_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
+    let hybrid_blit_fn_name_str = hybrid_blit_fn_name.to_string();
     let webgl_fn_name_str = webgl_fn_name.to_string();
+    let webgl_blit_fn_name_str = webgl_blit_fn_name.to_string();
 
     let Arguments {
         width,
@@ -147,6 +162,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         mut skip_hybrid,
         ignore_reason,
         no_ref,
+        uses_blends,
         diff_pixels,
     } = parse_args(&attrs);
 
@@ -210,6 +226,16 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     } else {
         empty_snippet.clone()
     };
+    let ignore_hybrid_blit = if skip_hybrid || uses_blends {
+        ignore_snippet.clone()
+    } else {
+        empty_snippet.clone()
+    };
+    let ignore_hybrid_webgl_blit = if skip_hybrid || uses_blends {
+        ignore_snippet.clone()
+    } else {
+        empty_snippet.clone()
+    };
 
     let cpu_snippet = |fn_name: Ident,
                        fn_name_str: String,
@@ -251,7 +277,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 };
                 use vello_cpu::{RenderContext, RenderMode};
 
-                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level, #render_mode);
+                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level, #render_mode, false);
                 #input_fn_name(&mut ctx);
                 ctx.flush();
                 if !#no_ref {
@@ -437,11 +463,28 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, false);
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
                 check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+            }
+        }
+
+        #ignore_hybrid_blit
+        #[test]
+        fn #hybrid_blit_fn_name() {
+            use crate::util::{
+                check_ref, get_ctx
+            };
+            use crate::renderer::HybridRenderer;
+            use vello_cpu::RenderMode;
+
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, true);
+            #input_fn_name(&mut ctx);
+            ctx.flush();
+            if !#no_ref {
+                check_ref(&ctx, #input_fn_name_str, #hybrid_blit_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
             }
         }
 
@@ -455,11 +498,29 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, false);
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
                 check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+            }
+        }
+
+        #ignore_hybrid_webgl_blit
+        #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+        #[wasm_bindgen_test::wasm_bindgen_test]
+        async fn #webgl_blit_fn_name() {
+            use crate::util::{
+                check_ref, get_ctx
+            };
+            use crate::renderer::HybridRenderer;
+            use vello_cpu::RenderMode;
+
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, true);
+            #input_fn_name(&mut ctx);
+            ctx.flush();
+            if !#no_ref {
+                check_ref(&ctx, #input_fn_name_str, #webgl_blit_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
             }
         }
     };
@@ -501,6 +562,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "skip_multithreaded" => args.skip_multithreaded = true,
                     "skip_hybrid" => args.skip_hybrid = true,
                     "no_ref" => args.no_ref = true,
+                    "uses_blends" => args.uses_blends = true,
                     "ignore" => {
                         args.skip_cpu = true;
                         args.skip_multithreaded = true;

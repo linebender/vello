@@ -771,15 +771,16 @@ impl Scene {
         self.stroke = stroke;
     }
 
+    /// ⚠️ EXPOSED FOR TESTING ONLY ⚠️
+    ///
     /// Enable or disable blit rect batching.
     ///
     /// When enabled (the default), blit rects that do not overlap any strip operations
     /// since the last blit batch are batched into the previous blit batch to avoid
     /// pipeline switches. When disabled, every blit rect creates a new blit batch.
     ///
-    /// Disabling batching is useful for testing that the dirty rect tracking is correct:
-    /// rendering with batching enabled should produce identical output to rendering with
-    /// batching disabled.
+    /// This is used to test that batching is working correctly.
+    #[doc(hidden)]
     pub fn set_blit_batching(&mut self, enabled: bool) {
         self.blit_batching_enabled = enabled;
     }

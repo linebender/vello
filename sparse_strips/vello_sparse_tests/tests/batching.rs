@@ -6,7 +6,7 @@
 //! These tests exercise the dirty bounding box tracking in `Scene` by rendering the same
 //! scene twice -- once with blit batching enabled and once with it disabled -- and asserting
 //! that the resulting pixmaps are identical. Any difference indicates that the dirty rect
-//! was too small, causing a blit rect to be incorrectly batched into a previous flush point.
+//! was too small, causing a blit rect to be incorrectly folded into a previous blit batch.
 
 #[cfg(not(target_arch = "wasm32"))]
 mod gpu_tests {
@@ -246,10 +246,10 @@ mod gpu_tests {
     /// Serialise concurrent GPU tests to avoid wgpu segfaults.
     static GPU_MUTEX: Mutex<()> = Mutex::new(());
 
-    /// Test that a blit survives when there are 2 flush points
+    /// Test that a blit survives when there are 2 batches
     /// (batching disabled, 2 blits with strips in between).
     #[test]
-    fn blit_survives_two_flush_points() {
+    fn blit_survives_two_batches() {
         let _guard = GPU_MUTEX.lock().unwrap();
         let test_image = make_test_image();
         let mut gpu = GpuContext::new(WIDTH, HEIGHT);
@@ -261,7 +261,7 @@ mod gpu_tests {
         // White background.
         scene.set_paint(WHITE);
         scene.fill_rect(&Rect::new(0.0, 0.0, WIDTH as f64, HEIGHT as f64));
-        // Blit image at top-left. -> creates FP0
+        // Blit image at top-left. -> creates batch 0
         scene.set_paint(Image {
             image: ImageSource::OpaqueId(image_id),
             sampler: ImageSampler::default(),
@@ -270,7 +270,7 @@ mod gpu_tests {
         // Red fill that doesn't overlap the blit.
         scene.set_paint(RED);
         scene.fill_path(&Rect::new(50.0, 50.0, 150.0, 150.0).to_path(0.1));
-        // Second blit far away -> creates FP1 because batching is disabled.
+        // Second blit far away -> creates batch 1 because batching is disabled.
         scene.set_paint(Image {
             image: ImageSource::OpaqueId(image_id),
             sampler: ImageSampler::default(),
@@ -282,12 +282,12 @@ mod gpu_tests {
         assert_eq!(
             [px.r, px.g, px.b, px.a],
             [0, 128, 255, 255],
-            "First blit at (0,0) should survive with 2 flush points, got {:?}",
+            "First blit at (0,0) should survive with 2 batches, got {:?}",
             px
         );
     }
 
-    /// Minimal sanity test: a single blit with no strips should produce
+    /// Minimal sanity test: a single blit with no strip batches should produce
     /// identical output regardless of the batching flag.
     #[test]
     fn batching_equiv_single_blit() {
@@ -301,10 +301,10 @@ mod gpu_tests {
         });
     }
 
-    /// Test that a blit survives a subsequent strip pass (no second blit, no batching involved).
-    /// If this fails, the strip render pass is overwriting blit content.
+    /// Test that a blit survives a subsequent strip batch (no second blit, no batching involved).
+    /// If this fails, the strip batch is overwriting blit content.
     #[test]
-    fn blit_survives_strip_pass() {
+    fn blit_survives_strip_batch() {
         let _guard = GPU_MUTEX.lock().unwrap();
         let test_image = make_test_image();
         let mut gpu = GpuContext::new(WIDTH, HEIGHT);
@@ -330,7 +330,7 @@ mod gpu_tests {
         assert_eq!(
             [px.r, px.g, px.b, px.a],
             [0, 128, 255, 255],
-            "Blit at (0,0) should survive subsequent strip pass, got {:?}",
+            "Blit at (0,0) should survive subsequent strip batch, got {:?}",
             px
         );
     }
