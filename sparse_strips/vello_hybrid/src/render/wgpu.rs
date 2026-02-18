@@ -25,7 +25,6 @@ use core::{fmt::Debug, num::NonZeroU64};
 use crate::AtlasConfig;
 use crate::filter::{FilterContext, FilterLayerData, GpuFilterData};
 use crate::multi_atlas::{AtlasError, AtlasId};
-use crate::paint_manager::PaintManager;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
@@ -154,7 +153,7 @@ impl Renderer {
         &mut self,
         render_graph: &RenderGraph,
         encoder: &mut CommandEncoder,
-        paint_manager: &mut PaintManager<'_>,
+        encoded_paints: &mut Vec<EncodedPaint>,
     ) -> Result<(), AtlasError> {
         self.clear_filters(encoder);
 
@@ -224,7 +223,8 @@ impl Renderer {
                     y_advance: Vec2::new(0.0, 1.0),
                 });
 
-                let idx = paint_manager.push(encoded_paint);
+                let idx = encoded_paints.len();
+                encoded_paints.push(encoded_paint);
 
                 // Store the allocation
                 self.filter_context.filter_textures.insert(
@@ -263,9 +263,10 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
-        let mut paint_manager = PaintManager::new(&scene.encoded_paints);
+        let mut encoded_paints = scene.encoded_paints.borrow_mut();
+        let scene_paint_count = encoded_paints.len();
 
-        self.prepare_filter_textures(&scene.render_graph, encoder, &mut paint_manager)
+        self.prepare_filter_textures(&scene.render_graph, encoder, &mut encoded_paints)
             .map_err(|_| RenderError::AtlasError)?;
         Programs::maybe_resize_atlas_texture_array(
             device,
@@ -279,7 +280,7 @@ impl Renderer {
             &mut self.programs.resources,
             self.filter_context.filter_texture_cache.atlas_count() as u32,
         );
-        self.prepare_gpu_encoded_paints(&paint_manager);
+        self.prepare_gpu_encoded_paints(&encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -309,8 +310,12 @@ impl Renderer {
             scene,
             &self.paint_idxs,
             &self.filter_context,
-            &paint_manager,
+            &encoded_paints,
         );
+
+        // Set back to the original length to remove any (potentially) added paints for filters.
+        encoded_paints.truncate(scene_paint_count);
+
         self.gradient_cache.maintain();
 
         result
@@ -547,15 +552,15 @@ impl Renderer {
         // For now, clearing the entire layer is acceptable since we're deallocating anyway
     }
 
-    fn prepare_gpu_encoded_paints(&mut self, paint_manager: &PaintManager<'_>) {
-        let total_len = paint_manager.len();
+    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
+        let total_len = encoded_paints.len();
 
         self.encoded_paints
             .resize_with(total_len, || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(total_len + 1, 0);
 
         let mut current_idx = 0;
-        for (encoded_paint_idx, paint) in paint_manager.iter().enumerate() {
+        for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {

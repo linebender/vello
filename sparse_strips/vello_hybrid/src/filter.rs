@@ -353,7 +353,7 @@ pub(crate) struct FilterLayerData {
     pub dest_image_id: ImageId,
     /// Optional image ID for scratch texture used in multi-pass filter operations.
     pub scratch_image_id: Option<ImageId>,
-    /// The paint index that points to the location in `PaintManager` where
+    /// The paint index that points to the location in `encoded_paints` where
     /// the final filtered version of the image will be stored.
     pub paint_idx: u32,
     /// The bounding box of the filter layer.

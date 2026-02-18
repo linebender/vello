@@ -26,7 +26,6 @@ use crate::{
     gradient_cache::GradientRampCache,
     image_cache::{ImageCache, ImageResource},
     multi_atlas::AtlasId,
-    paint_manager::PaintManager,
     render::{
         Config,
         common::{
@@ -182,8 +181,8 @@ impl WebGlRenderer {
 
         self.filter_context.clear();
 
-        let paint_manager = PaintManager::new(&scene.encoded_paints, alloc::vec::Vec::new());
-        self.prepare_gpu_encoded_paints(&paint_manager);
+        let encoded_paints = scene.encoded_paints.borrow();
+        self.prepare_gpu_encoded_paints(&encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -205,7 +204,7 @@ impl WebGlRenderer {
             scene,
             &self.paint_idxs,
             &self.filter_context,
-            &paint_manager,
+            &encoded_paints,
         )?;
         self.gradient_cache.maintain();
 
@@ -366,14 +365,14 @@ impl WebGlRenderer {
         self.gl.delete_framebuffer(Some(&temp_framebuffer));
     }
 
-    fn prepare_gpu_encoded_paints(&mut self, paint_manager: &PaintManager<'_>) {
-        let total_len = paint_manager.len();
+    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
+        let total_len = encoded_paints.len();
         self.encoded_paints
             .resize_with(total_len, || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(total_len + 1, 0);
 
         let mut current_idx = 0;
-        for (encoded_paint_idx, paint) in paint_manager.iter().enumerate() {
+        for (encoded_paint_idx, paint) in encoded_paints.iter().enumerate() {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {

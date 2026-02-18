@@ -93,8 +93,11 @@ pub struct Scene {
     /// Transform applied to paint coordinates.
     pub(crate) paint_transform: Affine,
     pub(crate) aliasing_threshold: Option<u8>,
+    // The reason we use `RefCell` here is that during `render`, we need
+    // mutable access so we can store additional encoded paints for filtered layers,
+    // if applicable.
     /// Storage for encoded gradient and image paint data.
-    pub(crate) encoded_paints: Vec<EncodedPaint>,
+    pub(crate) encoded_paints: RefCell<Vec<EncodedPaint>>,
     /// Whether the current paint is visible (e.g., alpha > 0).
     paint_visible: bool,
     /// Current stroke style for path stroking operations.
@@ -148,7 +151,7 @@ impl Scene {
             aliasing_threshold: None,
             paint: render_state.paint,
             paint_transform: render_state.paint_transform,
-            encoded_paints: vec![],
+            encoded_paints: RefCell::new(vec![]),
             paint_visible: true,
             stroke: render_state.stroke,
             strip_generator: StripGenerator::new(width, height, settings.level),
@@ -197,11 +200,11 @@ impl Scene {
         match self.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => g.encode_into(
-                &mut self.encoded_paints,
+                &mut self.encoded_paints.borrow_mut(),
                 self.transform * self.paint_transform,
             ),
             PaintType::Image(i) => i.encode_into(
-                &mut self.encoded_paints,
+                &mut self.encoded_paints.borrow_mut(),
                 self.transform * self.paint_transform,
             ),
         }
@@ -255,7 +258,7 @@ impl Scene {
             self.blend_mode,
             0,
             None,
-            &self.encoded_paints,
+            &self.encoded_paints.borrow(),
         );
     }
 
@@ -324,7 +327,7 @@ impl Scene {
             self.blend_mode,
             0,
             None,
-            &self.encoded_paints,
+            &self.encoded_paints.borrow(),
         );
     }
 
@@ -523,7 +526,7 @@ impl Scene {
         self.strip_generator.reset();
         self.clip_context.reset();
         self.strip_storage.borrow_mut().clear();
-        self.encoded_paints.clear();
+        self.encoded_paints.borrow_mut().clear();
 
         let render_state = Self::default_render_state();
         self.transform = render_state.transform;
@@ -835,7 +838,7 @@ impl Scene {
             self.blend_mode,
             0,
             None,
-            &self.encoded_paints,
+            &self.encoded_paints.borrow(),
         );
     }
 

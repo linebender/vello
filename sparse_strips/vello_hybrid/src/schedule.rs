@@ -177,7 +177,6 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::filter::FilterContext;
-use crate::paint_manager::PaintManager;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -490,7 +489,7 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
-        paint_manager: &PaintManager<'_>,
+        encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
         if scene.render_graph.has_filters() {
             self.do_scene_with_filters(
@@ -499,10 +498,10 @@ impl Scheduler {
                 scene,
                 paint_idxs,
                 filter_context,
-                paint_manager,
+                encoded_paints,
             )?;
         } else {
-            self.do_scene_no_filters(state, renderer, scene, paint_idxs, paint_manager)?;
+            self.do_scene_no_filters(state, renderer, scene, paint_idxs, encoded_paints)?;
         }
 
         // Restore state to reuse allocations.
@@ -525,7 +524,7 @@ impl Scheduler {
         renderer: &mut R,
         scene: &Scene,
         paint_idxs: &[u32],
-        paint_manager: &PaintManager<'_>,
+        encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
         let wide_tiles_per_row = scene.wide.width_tiles();
         let wide_tiles_per_col = scene.wide.height_tiles();
@@ -545,14 +544,14 @@ impl Scheduler {
                     wide_tile,
                     wide_tile_x,
                     wide_tile_y,
-                    paint_manager,
+                    encoded_paints,
                     paint_idxs,
                     offset,
                 );
                 self.do_tile(
                     state,
                     renderer,
-                    paint_manager,
+                    encoded_paints,
                     wide_tile_x,
                     wide_tile_y,
                     &wide_tile.cmds,
@@ -576,7 +575,7 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
-        paint_manager: &PaintManager<'_>,
+        encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
         // TODO: Since this code is very similar to vello_cpu, maybe most of it can be
         // put into vello_common, with some callbacks to implement renderer-specific
@@ -639,7 +638,7 @@ impl Scheduler {
                         wide_tile,
                         wide_tile_x,
                         wide_tile_y,
-                        paint_manager,
+                        encoded_paints,
                         paint_idxs,
                         offset,
                     );
@@ -666,7 +665,7 @@ impl Scheduler {
                             Cmd::Fill(fill) => {
                                 self.do_fill(
                                     state,
-                                    paint_manager,
+                                    encoded_paints,
                                     fill,
                                     paint_idxs,
                                     wide_tile_x,
@@ -677,7 +676,7 @@ impl Scheduler {
                             Cmd::AlphaFill(alpha_fill) => {
                                 self.do_alpha_fill(
                                     state,
-                                    paint_manager,
+                                    encoded_paints,
                                     alpha_fill,
                                     paint_idxs,
                                     wide_tile_x,
@@ -728,7 +727,7 @@ impl Scheduler {
                                             let scene_strip_x = wide_tile_x;
                                             let scene_strip_y = wide_tile_y;
 
-                                            let encoded_paint = paint_manager
+                                            let encoded_paint = encoded_paints
                                                 .get(filter_textures.paint_idx as usize)
                                                 .expect("filter paint not found");
 
@@ -913,7 +912,7 @@ impl Scheduler {
         tile: &WideTile<MODE_HYBRID>,
         wide_tile_x: u16,
         wide_tile_y: u16,
-        paint_manager: &PaintManager<'_>,
+        encoded_paints: &[EncodedPaint],
         idxs: &[u32],
         offset: (i32, i32),
     ) {
@@ -931,7 +930,7 @@ impl Scheduler {
             if has_non_zero_alpha(bg) {
                 let (payload, paint) = Self::process_paint(
                     &Paint::Solid(tile.bg),
-                    paint_manager,
+                    encoded_paints,
                     (wide_tile_x, wide_tile_y),
                     idxs,
                 );
@@ -950,7 +949,7 @@ impl Scheduler {
         &mut self,
         state: &mut SchedulerState,
         renderer: &mut R,
-        paint_manager: &PaintManager<'_>,
+        encoded_paints: &[EncodedPaint],
         wide_tile_x: u16,
         wide_tile_y: u16,
         wide_tile_cmds: &[Cmd],
@@ -971,7 +970,7 @@ impl Scheduler {
                 Cmd::Fill(fill) => {
                     self.do_fill(
                         state,
-                        paint_manager,
+                        encoded_paints,
                         fill,
                         paint_idxs,
                         wide_tile_x,
@@ -982,7 +981,7 @@ impl Scheduler {
                 Cmd::AlphaFill(alpha_fill) => {
                     self.do_alpha_fill(
                         state,
-                        paint_manager,
+                        encoded_paints,
                         alpha_fill,
                         paint_idxs,
                         wide_tile_x,
@@ -1022,7 +1021,7 @@ impl Scheduler {
     fn do_alpha_fill(
         &mut self,
         state: &mut SchedulerState,
-        paint_manager: &PaintManager<'_>,
+        encoded_paints: &[EncodedPaint],
         cmd: &CmdAlphaFill,
         paint_idxs: &[u32],
         wide_tile_x: u16,
@@ -1041,7 +1040,7 @@ impl Scheduler {
         let (scene_strip_x, scene_strip_y) = (wide_tile_x + cmd.x, wide_tile_y);
         let (payload, paint) = Self::process_paint(
             &fill_attrs.paint,
-            paint_manager,
+            encoded_paints,
             (scene_strip_x, scene_strip_y),
             paint_idxs,
         );
@@ -1068,7 +1067,7 @@ impl Scheduler {
     fn do_fill(
         &mut self,
         state: &mut SchedulerState,
-        paint_manager: &PaintManager<'_>,
+        encoded_paints: &[EncodedPaint],
         cmd: &CmdFill,
         paint_idxs: &[u32],
         wide_tile_x: u16,
@@ -1079,7 +1078,7 @@ impl Scheduler {
         let (scene_strip_x, scene_strip_y) = (wide_tile_x + cmd.x, wide_tile_y);
         let (payload, paint) = Self::process_paint(
             &fill_attrs.paint,
-            paint_manager,
+            encoded_paints,
             (scene_strip_x, scene_strip_y),
             paint_idxs,
         );
@@ -1395,7 +1394,7 @@ impl Scheduler {
     #[inline(always)]
     fn process_paint(
         paint: &Paint,
-        paint_manager: &PaintManager<'_>,
+        encoded_paints: &[EncodedPaint],
         (scene_strip_x, scene_strip_y): (u16, u16),
         paint_idxs: &[u32],
     ) -> (u32, u32) {
@@ -1413,7 +1412,7 @@ impl Scheduler {
                 let paint_id = indexed_paint.index();
                 let paint_idx = paint_idxs.get(paint_id).copied().unwrap();
 
-                match paint_manager.get(paint_id) {
+                match encoded_paints.get(paint_id) {
                     Some(e) => {
                         Self::process_encoded_paint(e, paint_idx, scene_strip_x, scene_strip_y)
                     }
