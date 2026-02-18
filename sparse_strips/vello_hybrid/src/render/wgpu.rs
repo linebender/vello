@@ -52,7 +52,7 @@ use vello_common::{
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
     filter::InstantiatedFilter,
     kurbo::Affine,
-    paint::ImageSource,
+    paint::{ImageId, ImageSource},
     peniko,
     pixmap::Pixmap,
     render_graph::{LayerId, RenderGraph, RenderNodeKind},
@@ -156,62 +156,7 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         paint_manager: &mut PaintManager<'_>,
     ) -> Result<(), AtlasError> {
-        // Clear and deallocate old filter textures
-        let fc = &mut self.filter_context;
-        for filter_textures in fc.filter_textures.values() {
-            // TODO: Do we really need to clear anything other than the
-            // dest image region?
-
-            // Clear the main image region
-            if let Some(main_resource) = fc.filter_texture_cache.get(filter_textures.main_image_id)
-            {
-                Self::clear_texture_region(
-                    encoder,
-                    &self.programs.resources.filter_atlas_textures
-                        [main_resource.atlas_id.as_u32() as usize],
-                    0,
-                    main_resource.offset,
-                    main_resource.width,
-                    main_resource.height,
-                );
-            }
-
-            // Clear the scratch image region if it exists (scratch is in filter atlas)
-            if let Some(scratch_id) = filter_textures.scratch_image_id {
-                if let Some(scratch_resource) = fc.filter_texture_cache.get(scratch_id) {
-                    Self::clear_texture_region(
-                        encoder,
-                        &self.programs.resources.filter_atlas_textures
-                            [scratch_resource.atlas_id.as_u32() as usize],
-                        0,
-                        scratch_resource.offset,
-                        scratch_resource.width,
-                        scratch_resource.height,
-                    );
-                }
-            }
-
-            // Clear the dest image region (in main atlas)
-            if let Some(dest_resource) = self.image_cache.get(filter_textures.dest_image_id) {
-                Self::clear_texture_region(
-                    encoder,
-                    &self.programs.resources.atlas_texture_array,
-                    dest_resource.atlas_id.as_u32(),
-                    dest_resource.offset,
-                    dest_resource.width,
-                    dest_resource.height,
-                );
-            }
-
-            // Deallocate after clearing
-            fc.filter_texture_cache
-                .deallocate(filter_textures.main_image_id);
-            self.image_cache.deallocate(filter_textures.dest_image_id);
-            if let Some(scratch_id) = filter_textures.scratch_image_id {
-                fc.filter_texture_cache.deallocate(scratch_id);
-            }
-        }
-        self.filter_context.clear();
+        self.clear_filters(encoder);
 
         // Early return if no filters in the scene
         if !render_graph.has_filters() {
@@ -385,7 +330,7 @@ impl Renderer {
         queue: &Queue,
         encoder: &mut CommandEncoder,
         writer: &T,
-    ) -> vello_common::paint::ImageId {
+    ) -> ImageId {
         let width = writer.width();
         let height = writer.height();
         let image_id = self.image_cache.allocate(width, height).unwrap();
@@ -425,7 +370,7 @@ impl Renderer {
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
-        image_id: vello_common::paint::ImageId,
+        image_id: ImageId,
     ) {
         if let Some(image_resource) = self.image_cache.deallocate(image_id) {
             self.clear_atlas_region(
@@ -495,6 +440,68 @@ impl Renderer {
         render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
         // Draw fullscreen quad
         render_pass.draw(0..4, 0..1);
+    }
+
+    fn clear_filters(&mut self, encoder: &mut CommandEncoder) {
+        let fc = &mut self.filter_context;
+        for filter_textures in fc.filter_textures.values() {
+            // First, clear everything.
+            Self::clear_filter_atlas_region(
+                encoder,
+                &fc.filter_texture_cache,
+                &self.programs.resources.filter_atlas_textures,
+                filter_textures.main_image_id,
+            );
+
+            if let Some(scratch_id) = filter_textures.scratch_image_id {
+                Self::clear_filter_atlas_region(
+                    encoder,
+                    &fc.filter_texture_cache,
+                    &self.programs.resources.filter_atlas_textures,
+                    scratch_id,
+                );
+            }
+
+            if let Some(dest_resource) = self.image_cache.get(filter_textures.dest_image_id) {
+                Self::clear_texture_region(
+                    encoder,
+                    &self.programs.resources.atlas_texture_array,
+                    dest_resource.atlas_id.as_u32(),
+                    dest_resource.offset,
+                    dest_resource.width,
+                    dest_resource.height,
+                );
+            }
+
+            // Then, deallocate everything.
+            fc.filter_texture_cache
+                .deallocate(filter_textures.main_image_id);
+            self.image_cache.deallocate(filter_textures.dest_image_id);
+            if let Some(scratch_id) = filter_textures.scratch_image_id {
+                fc.filter_texture_cache.deallocate(scratch_id);
+            }
+        }
+
+        // Finally, clear the filter context itself.
+        self.filter_context.clear();
+    }
+
+    fn clear_filter_atlas_region(
+        encoder: &mut CommandEncoder,
+        filter_texture_cache: &ImageCache,
+        filter_atlas_textures: &[Texture],
+        image_id: ImageId,
+    ) {
+        if let Some(resource) = filter_texture_cache.get(image_id) {
+            Self::clear_texture_region(
+                encoder,
+                &filter_atlas_textures[resource.atlas_id.as_u32() as usize],
+                0,
+                resource.offset,
+                resource.width,
+                resource.height,
+            );
+        }
     }
 
     /// Clear a specific region of a texture array (static helper for filter textures).
