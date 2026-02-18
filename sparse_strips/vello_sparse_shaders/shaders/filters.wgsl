@@ -42,6 +42,8 @@ struct FloodFilter {
     color: u32,
 }
 
+// TODO: Support edge modes
+
 // Header packing layout (data[0]):
 //   bits [0:4]   = filter_type   (5 bits)
 //   bits [5:6]   = edge_mode     (2 bits)
