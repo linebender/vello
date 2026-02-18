@@ -21,6 +21,7 @@ use crate::image_cache::ImageCache;
 
 // Note: Keep these variables and struct layouts in sync with `filters.wgsl`!
 
+// Since we store in RGBA32 texture.
 const BYTES_PER_TEXEL: usize = 16;
 const FILTER_SIZE_BYTES: usize = 48;
 const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
@@ -39,7 +40,6 @@ pub(crate) mod edge_mode {
     pub(crate) const NONE: u32 = 3;
 }
 
-#[inline]
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
     match mode {
         EdgeMode::Duplicate => edge_mode::DUPLICATE,
@@ -51,6 +51,7 @@ pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
 
 fn pack_header(filter_type: u32) -> u32 {
     debug_assert!(filter_type <= 31);
+
     filter_type
 }
 
@@ -64,6 +65,7 @@ fn pack_with_gaussian_params(
     debug_assert!(edge_mode <= 3);
     debug_assert!(n_decimations <= 15);
     debug_assert!(n_linear_taps <= 3);
+
     filter_type | (edge_mode << 5) | (n_decimations << 7) | (n_linear_taps << 11)
 }
 
@@ -84,7 +86,7 @@ struct LinearKernel {
     // Note that we only need to store one side since they are symmetrical.
     /// Merged weights for each tap pair. Only the first `n_taps` entries are valid.
     weights: [f32; MAX_TAPS_PER_SIDE],
-    /// The fractional offsets for each tap pair for linear sampling.
+    /// The fractional offsets for each tap pair for linear sampling. Only the first `n_taps` entries are valid.
     offsets: [f32; MAX_TAPS_PER_SIDE],
     /// The actual number of taps per side.
     n_taps: u8,
@@ -120,7 +122,7 @@ impl LinearKernel {
         }
 
         // If there is a leftover tap, we sample with no fractional offset so that just
-        // that single pixel is sampled.
+        // that single pixel is sampled fully.
         if let [leftover] = remainder {
             weights[n_taps as usize] = *leftover;
             offsets[n_taps as usize] = radius as f32;
@@ -135,6 +137,11 @@ impl LinearKernel {
         }
     }
 }
+
+// Currently, we assume that each filter struct has the same size so we can cast them into
+// the type-erased type and assume uniform offsets. It might be worth exploring variable offsets
+// (as is done for encoded paints) in the future, but it doesn't seem to be worth it for filters
+// specifically.
 
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
@@ -252,7 +259,7 @@ impl GpuFilterData {
         self.data[0] & 0x1F
     }
 
-    /// Returns whether this filter requires a scratch buffer for multi-pass rendering.
+    /// Returns whether this filter requires a scratch buffer.
     pub(crate) fn needs_scratch_buffer(&self) -> bool {
         matches!(
             self.filter_type(),
@@ -300,14 +307,14 @@ impl From<&InstantiatedFilter> for GpuFilterData {
 #[derive(Debug)]
 pub(crate) struct FilterContext {
     /// The encoded data for each filter used in the current scene that will be uploaded to the
-    /// filter texture.
+    /// filter data texture.
     pub(crate) filters: Vec<GpuFilterData>,
     /// At what texel offset the filter data for the given layer ID is stored in the texture.
     pub(crate) offsets: HashMap<LayerId, u32>,
-    /// Allocated filter textures (as ImageIds in the atlas) for each layer.
+    /// Data for each filter layer.
     pub(crate) filter_textures: HashMap<LayerId, FilterLayerData>,
     /// Image cache for storing filter intermediate textures.
-    pub(crate) filter_texture_cache: ImageCache,
+    pub(crate) image_cache: ImageCache,
 }
 
 impl FilterContext {
@@ -316,7 +323,7 @@ impl FilterContext {
             filters: Vec::new(),
             offsets: HashMap::new(),
             filter_textures: HashMap::new(),
-            filter_texture_cache: ImageCache::new_with_config(atlas_config),
+            image_cache: ImageCache::new_with_config(atlas_config),
         }
     }
 
@@ -324,7 +331,8 @@ impl FilterContext {
         self.filters.clear();
         self.offsets.clear();
         self.filter_textures.clear();
-        // TODO: Clear cache?
+        // Cache doesn't need to be cleared, the caller is responsible for allocating/deallocating
+        // images.
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -356,11 +364,11 @@ impl FilterContext {
     }
 }
 
-/// Filter texture allocation for a single layer.
+/// Data associated with a single filter layer.
 #[derive(Debug)]
 pub(crate) struct FilterLayerData {
-    /// Image ID for the main texture holding the raw painted version of the layer.
-    pub main_image_id: ImageId,
+    /// Image ID for the main texture holding the raw initially painted version of the layer.
+    pub initial_image_id: ImageId,
     /// Image ID for the destination texture holding the final filtered version.
     pub dest_image_id: ImageId,
     /// Optional image ID for scratch texture used in multi-pass filter operations.
@@ -382,6 +390,7 @@ mod tests {
     fn test_offset_conversion() {
         let offset = Offset::new(10.5, -20.3);
         let gpu_offset = GpuOffset::from(&offset);
+
         assert_eq!(gpu_offset.header & 0x1F, filter_type::OFFSET);
         assert_eq!(gpu_offset.dx, 10.5);
         assert_eq!(gpu_offset.dy, -20.3);

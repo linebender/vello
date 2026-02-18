@@ -131,7 +131,7 @@ impl Renderer {
             programs: Programs::new(
                 device,
                 &image_cache,
-                &filter_context.filter_texture_cache,
+                &filter_context.image_cache,
                 render_target_config,
                 total_slots,
             ),
@@ -193,13 +193,13 @@ impl Renderer {
                 // - dest_image and scratch_image from main image_cache (Rgba8Unorm, filter pipeline writes to them)
                 let main_image_id = self
                     .filter_context
-                    .filter_texture_cache
+                    .image_cache
                     .allocate(width, height)?;
                 let dest_image_id = self.image_cache.allocate(width, height)?;
                 let scratch_image_id = if needs_scratch {
                     Some(
                         self.filter_context
-                            .filter_texture_cache
+                            .image_cache
                             .allocate_excluding(
                                 width,
                                 height,
@@ -230,7 +230,7 @@ impl Renderer {
                 self.filter_context.filter_textures.insert(
                     *layer_id,
                     FilterLayerData {
-                        main_image_id,
+                        initial_image_id: main_image_id,
                         dest_image_id,
                         scratch_image_id,
                         paint_idx: idx as u32,
@@ -278,7 +278,7 @@ impl Renderer {
         Programs::maybe_grow_filter_atlas_textures(
             device,
             &mut self.programs.resources,
-            self.filter_context.filter_texture_cache.atlas_count() as u32,
+            self.filter_context.image_cache.atlas_count() as u32,
         );
         self.prepare_gpu_encoded_paints(&encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -453,15 +453,15 @@ impl Renderer {
             // First, clear everything.
             Self::clear_filter_atlas_region(
                 encoder,
-                &fc.filter_texture_cache,
+                &fc.image_cache,
                 &self.programs.resources.filter_atlas_textures,
-                filter_textures.main_image_id,
+                filter_textures.initial_image_id,
             );
 
             if let Some(scratch_id) = filter_textures.scratch_image_id {
                 Self::clear_filter_atlas_region(
                     encoder,
-                    &fc.filter_texture_cache,
+                    &fc.image_cache,
                     &self.programs.resources.filter_atlas_textures,
                     scratch_id,
                 );
@@ -479,11 +479,11 @@ impl Renderer {
             }
 
             // Then, deallocate everything.
-            fc.filter_texture_cache
-                .deallocate(filter_textures.main_image_id);
+            fc.image_cache
+                .deallocate(filter_textures.initial_image_id);
             self.image_cache.deallocate(filter_textures.dest_image_id);
             if let Some(scratch_id) = filter_textures.scratch_image_id {
-                fc.filter_texture_cache.deallocate(scratch_id);
+                fc.image_cache.deallocate(scratch_id);
             }
         }
 
@@ -2273,10 +2273,10 @@ impl RendererContext<'_> {
                     .filter_textures
                     .get(&layer_id)
                     .unwrap()
-                    .main_image_id;
+                    .initial_image_id;
                 let resources = self
                     .filter_context
-                    .filter_texture_cache
+                    .image_cache
                     .get(image_id)
                     .unwrap();
 
@@ -2443,8 +2443,8 @@ impl RendererBackend for RendererContext<'_> {
         // 2. Get image resources from caches
         let main_resource = self
             .filter_context
-            .filter_texture_cache
-            .get(filter_textures.main_image_id)
+            .image_cache
+            .get(filter_textures.initial_image_id)
             .expect("Main image must exist");
         let dest_resource = self
             .image_cache
@@ -2463,7 +2463,7 @@ impl RendererBackend for RendererContext<'_> {
                 .expect("Scratch image must exist for multi-pass filter");
             let scratch = self
                 .filter_context
-                .filter_texture_cache
+                .image_cache
                 .get(scratch_id)
                 .expect("Scratch image must exist");
             (
@@ -2583,7 +2583,7 @@ impl RendererBackend for RendererContext<'_> {
             let scratch_id = filter_textures.scratch_image_id.unwrap();
             let scratch_resource = self
                 .filter_context
-                .filter_texture_cache
+                .image_cache
                 .get(scratch_id)
                 .unwrap();
 

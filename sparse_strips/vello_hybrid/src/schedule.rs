@@ -604,8 +604,8 @@ impl Scheduler {
                         .filter_textures
                         .get(layer_id)
                         .unwrap()
-                        .main_image_id;
-                    let resources = filter_context.filter_texture_cache.get(image_id).unwrap();
+                        .initial_image_id;
+                    let resources = filter_context.image_cache.get(image_id).unwrap();
                     // TODO: Move offset into the render_strips shader.
                     state.strip_offset = (
                         (wtile_bbox.x0() * WideTile::WIDTH) as i32 - resources.offset[0] as i32,
