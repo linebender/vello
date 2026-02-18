@@ -11,17 +11,19 @@ use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
 use alloc::boxed::Box;
-#[cfg(feature = "text")]
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use hashbrown::HashMap;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{Paint, PaintType};
+#[cfg(feature = "text")]
+use vello_common::paint::{Image, ImageSource};
+use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::Pixmap;
@@ -33,7 +35,6 @@ use vello_common::{
     color::{AlphaColor, Srgb},
     colr::{ColrPainter, ColrRenderer},
     glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph},
-    paint::ImageSource,
 };
 
 /// A render context for CPU-based 2D graphics rendering.
@@ -75,6 +76,13 @@ pub struct RenderContext {
     dispatcher: Box<dyn Dispatcher>,
     #[cfg(feature = "text")]
     pub(crate) glyph_caches: Option<GlyphCaches>,
+    /// Image registry for resolving `ImageSource::OpaqueId` to pixmap data.
+    ///
+    /// This allows decoupling render commands from image data, enabling
+    /// patterns like spritesheet rendering.
+    image_registry: HashMap<u32, Arc<Pixmap>>,
+    /// Counter for generating unique image IDs.
+    next_image_id: u32,
 }
 
 /// Settings to apply to the render context.
@@ -170,6 +178,8 @@ impl RenderContext {
             filter: None,
             #[cfg(feature = "text")]
             glyph_caches: Some(GlyphCaches::default()),
+            image_registry: HashMap::new(),
+            next_image_id: 0,
         }
     }
 
@@ -424,6 +434,10 @@ impl RenderContext {
     }
 
     /// Set the current paint.
+    ///
+    /// If the paint is an image with `ImageSource::OpaqueId`, it will be
+    /// resolved to the corresponding pixmap at rasterization time.
+    /// Make sure to register images with [`register_image`](Self::register_image) first.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.paint = paint.into();
     }
@@ -525,6 +539,7 @@ impl RenderContext {
         #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();
         self.blend_mode = BlendMode::default();
+        self.clear_images();
     }
 
     /// Push a new clip path to the clip stack.
@@ -578,8 +593,14 @@ impl RenderContext {
             buffer.len(),
         );
 
-        self.dispatcher
-            .rasterize(buffer, render_mode, width, height, &self.encoded_paints);
+        self.dispatcher.rasterize(
+            buffer,
+            render_mode,
+            width,
+            height,
+            &self.encoded_paints,
+            self,
+        );
     }
 
     /// Render the current context into a pixmap.
@@ -624,6 +645,7 @@ impl RenderContext {
             dst_buffer_height,
             self.render_settings.render_mode,
             &self.encoded_paints,
+            self,
         );
     }
 
@@ -654,6 +676,68 @@ impl RenderContext {
         } else {
             f(self);
         }
+    }
+
+    /// Save the current rendering state.
+    pub fn take_current_state(&mut self) -> RenderState {
+        RenderState {
+            paint: self.paint.clone(),
+            paint_transform: self.paint_transform,
+            transform: self.transform,
+            fill_rule: self.fill_rule,
+            stroke: core::mem::take(&mut self.stroke),
+        }
+    }
+
+    /// Restore the saved rendering state.
+    pub fn restore_state(&mut self, state: RenderState) {
+        self.transform = state.transform;
+        self.fill_rule = state.fill_rule;
+        self.stroke = state.stroke;
+        self.paint = state.paint;
+        self.paint_transform = state.paint_transform;
+    }
+}
+
+/// Image registry implementation.
+impl RenderContext {
+    /// Register a pixmap in the image registry and return its [`ImageId`].
+    pub fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
+        let id = self.next_image_id;
+        self.next_image_id += 1;
+        self.image_registry.insert(id, pixmap);
+        ImageId::new(id)
+    }
+
+    /// Update an existing image in the registry with new pixmap data.
+    pub fn update_image(&mut self, id: ImageId, pixmap: Arc<Pixmap>) {
+        debug_assert!(
+            self.image_registry.contains_key(&id.as_u32()),
+            "Cannot update unregistered image {id:?}"
+        );
+        self.image_registry.insert(id.as_u32(), pixmap);
+    }
+
+    /// Remove an image from the registry.
+    pub fn destroy_image(&mut self, id: ImageId) -> bool {
+        self.image_registry.remove(&id.as_u32()).is_some()
+    }
+
+    /// Resolve an `ImageId` to its pixmap data.
+    pub fn resolve_image(&self, id: ImageId) -> Option<Arc<Pixmap>> {
+        self.image_registry.get(&id.as_u32()).cloned()
+    }
+
+    /// Clear the image registry.
+    pub fn clear_images(&mut self) {
+        self.image_registry.clear();
+        self.next_image_id = 0;
+    }
+}
+
+impl ImageResolver for RenderContext {
+    fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>> {
+        self.image_registry.get(&id.as_u32()).cloned()
     }
 }
 
@@ -692,7 +776,7 @@ impl GlyphRenderer for RenderContext {
                     crate::peniko::ImageQuality::Medium
                 };
 
-                let image = vello_common::paint::Image {
+                let image = Image {
                     image: ImageSource::Pixmap(Arc::new(glyph.pixmap)),
                     sampler: ImageSampler {
                         x_extend: crate::peniko::Extend::Pad,
@@ -747,7 +831,7 @@ impl GlyphRenderer for RenderContext {
                 let has_skew = prepared_glyph.transform.as_coeffs()[1] != 0.0
                     || prepared_glyph.transform.as_coeffs()[2] != 0.0;
 
-                let image = vello_common::paint::Image {
+                let image = Image {
                     image: ImageSource::Pixmap(Arc::new(glyph_pixmap)),
                     sampler: ImageSampler {
                         x_extend: crate::peniko::Extend::Pad,
@@ -954,7 +1038,7 @@ impl Recordable for RenderContext {
 
 /// Saved state for recording operations.
 #[derive(Debug)]
-struct RenderState {
+pub struct RenderState {
     transform: Affine,
     fill_rule: Fill,
     stroke: Stroke,
@@ -1137,26 +1221,6 @@ impl RenderContext {
                 adjusted_strip
             })
             .collect()
-    }
-
-    /// Save the current rendering state.
-    fn take_current_state(&mut self) -> RenderState {
-        RenderState {
-            paint: self.paint.clone(),
-            paint_transform: self.paint_transform,
-            transform: self.transform,
-            fill_rule: self.fill_rule,
-            stroke: core::mem::take(&mut self.stroke),
-        }
-    }
-
-    /// Restore the saved rendering state.
-    fn restore_state(&mut self, state: RenderState) {
-        self.transform = state.transform;
-        self.fill_rule = state.fill_rule;
-        self.stroke = state.stroke;
-        self.paint = state.paint;
-        self.paint_transform = state.paint_transform;
     }
 }
 

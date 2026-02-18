@@ -562,3 +562,79 @@ fn image_with_multiple_clip_layers(ctx: &mut impl Renderer) {
     ctx.pop_layer();
     ctx.pop_layer();
 }
+
+/// Parameters for a glyph sprite from an atlas.
+#[derive(Clone, Copy)]
+struct Sprite {
+    /// X position of the sprite within the atlas
+    atlas_x: f64,
+    /// Y position of the sprite within the atlas
+    atlas_y: f64,
+    /// Width of the sprite
+    width: f64,
+    /// Height of the sprite
+    height: f64,
+    /// Vertical offset from baseline (positive = render lower)
+    y_offset: f64,
+}
+
+impl Sprite {
+    const fn new(atlas_x: f64, atlas_y: f64, width: f64, height: f64, y_offset: f64) -> Self {
+        Self {
+            atlas_x,
+            atlas_y,
+            width,
+            height,
+            y_offset,
+        }
+    }
+}
+
+/// Sprites for "hello" from the glyph atlas.
+const HELLO_WORLD: &[Sprite] = &[
+    Sprite::new(1.0, 46.0, 10.0, 14.0, 0.0), // 'h'
+    Sprite::new(68.0, 0.0, 10.0, 12.0, 2.0), // 'e'
+    Sprite::new(27.0, 53.0, 5.0, 14.0, 0.0), // 'l'
+    Sprite::new(27.0, 53.0, 5.0, 14.0, 0.0), // 'l'
+    Sprite::new(80.0, 0.0, 10.0, 12.0, 2.0), // 'o'
+];
+
+/// Test rendering "hello" from a glyph atlas (spritesheet-style).
+/// Uses `ImageSource::OpaqueId` to demonstrate the image registry pattern.
+#[vello_test(width = 60, height = 30, skip_hybrid, skip_multithreaded)]
+fn image_spritesheet(ctx: &mut impl Renderer) {
+    let atlas_id = ctx.register_image(load_image!("glyph_atlas"));
+    let atlas_src = ImageSource::OpaqueId(atlas_id);
+
+    let start_x = 10.0;
+    let start_y = 8.0;
+
+    let mut cursor_x = start_x;
+
+    for glyph in HELLO_WORLD {
+        render_sprite(ctx, &atlas_src, glyph, cursor_x, start_y);
+        cursor_x += glyph.width;
+    }
+}
+
+/// Render a sprite from an atlas/spritesheet at a screen position.
+fn render_sprite(
+    ctx: &mut impl Renderer,
+    atlas_src: &ImageSource,
+    glyph: &Sprite,
+    screen_x: f64,
+    screen_y: f64,
+) {
+    ctx.set_transform(Affine::translate((screen_x, screen_y + glyph.y_offset)));
+    ctx.set_paint_transform(Affine::translate((-glyph.atlas_x, -glyph.atlas_y)));
+    ctx.set_paint(Image {
+        image: atlas_src.clone(),
+        sampler: ImageSampler {
+            x_extend: Extend::Pad,
+            y_extend: Extend::Pad,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
+    });
+    ctx.fill_rect(&Rect::new(0.0, 0.0, glyph.width, glyph.height));
+}

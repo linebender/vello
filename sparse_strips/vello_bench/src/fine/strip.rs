@@ -10,7 +10,7 @@ use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::Simd;
-use vello_common::paint::{Paint, PremulColor};
+use vello_common::paint::{NoOpImageResolver, Paint, PremulColor};
 use vello_common::tile::Tile;
 use vello_cpu::fine::{Fine, FineKernel};
 use vello_dev_macros::vello_bench;
@@ -57,6 +57,7 @@ fn strip_single<S: Simd, N: FineKernel<S>>(
             paint,
             default_blend(),
             encoded_paints,
+            &NoOpImageResolver,
             Some(&alphas),
             None,
         );

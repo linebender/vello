@@ -36,7 +36,7 @@ use vello_common::fearless_simd::{
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageSource, Paint, PremulColor};
+use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::Splat4thExt;
 use vello_common::tile::Tile;
@@ -536,6 +536,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         cmd: &Cmd,
         alphas: &[u8],
         paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
         attrs: &CommandAttrs,
     ) {
         match cmd {
@@ -547,6 +548,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     &fill_attrs.paint,
                     fill_attrs.blend_mode,
                     paints,
+                    image_resolver,
                     None,
                     fill_attrs.mask.as_ref(),
                 );
@@ -560,6 +562,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     &fill_attrs.paint,
                     fill_attrs.blend_mode,
                     paints,
+                    image_resolver,
                     Some(&alphas[alpha_idx..]),
                     fill_attrs.mask.as_ref(),
                 );
@@ -661,6 +664,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         fill: &Paint,
         blend_mode: BlendMode,
         encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
         alphas: Option<&[u8]>,
         mask: Option<&Mask>,
     ) {
@@ -813,8 +817,11 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         }
                     }
                     EncodedPaint::Image(i) => {
-                        let ImageSource::Pixmap(pixmap) = &i.source else {
-                            panic!("vello_cpu doesn't support the opaque image source.");
+                        let pixmap = match &i.source {
+                            ImageSource::Pixmap(p) => p.clone(),
+                            ImageSource::OpaqueId(id) => image_resolver
+                                .resolve(*id)
+                                .unwrap_or_else(|| panic!("Image {:?} not found in registry", id)),
                         };
 
                         match (i.has_skew(), i.nearest_neighbor()) {
@@ -824,14 +831,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     fill_complex_paint!(
                                         i.may_have_opacities,
                                         T::plain_medium_quality_image_painter(
-                                            self.simd, i, pixmap, start_x, start_y
+                                            self.simd, i, &pixmap, start_x, start_y
                                         )
                                     );
                                 } else {
                                     fill_complex_paint!(
                                         i.may_have_opacities,
                                         T::high_quality_image_painter(
-                                            self.simd, i, pixmap, start_x, start_y
+                                            self.simd, i, &pixmap, start_x, start_y
                                         )
                                     );
                                 }
@@ -842,14 +849,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     fill_complex_paint!(
                                         i.may_have_opacities,
                                         T::medium_quality_image_painter(
-                                            self.simd, i, pixmap, start_x, start_y
+                                            self.simd, i, &pixmap, start_x, start_y
                                         )
                                     );
                                 } else {
                                     fill_complex_paint!(
                                         i.may_have_opacities,
                                         T::high_quality_image_painter(
-                                            self.simd, i, pixmap, start_x, start_y
+                                            self.simd, i, &pixmap, start_x, start_y
                                         )
                                     );
                                 }
@@ -858,14 +865,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                 fill_complex_paint!(
                                     i.may_have_opacities,
                                     T::plain_nn_image_painter(
-                                        self.simd, i, pixmap, start_x, start_y
+                                        self.simd, i, &pixmap, start_x, start_y
                                     )
                                 );
                             }
                             (true, true) => {
                                 fill_complex_paint!(
                                     i.may_have_opacities,
-                                    T::nn_image_painter(self.simd, i, pixmap, start_x, start_y)
+                                    T::nn_image_painter(self.simd, i, &pixmap, start_x, start_y)
                                 );
                             }
                         }

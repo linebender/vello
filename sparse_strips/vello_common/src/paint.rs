@@ -139,6 +139,29 @@ impl ImageSource {
 /// An image.
 pub type Image = peniko::ImageBrush<ImageSource>;
 
+/// Trait for resolving opaque image IDs to pixmaps at rasterization time.
+///
+/// This allows delaying the resolution of `ImageSource::OpaqueId` until the
+/// image is actually needed during rasterization, enabling patterns like
+/// dynamic sprite atlases where the image data may be updated between
+/// encoding and rendering.
+pub trait ImageResolver {
+    /// Resolve an `ImageId` to its pixmap data.
+    ///
+    /// Returns `None` if the image ID is not found in the registry.
+    fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>>;
+}
+
+/// A no-op image resolver that always returns `None`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoOpImageResolver;
+
+impl ImageResolver for NoOpImageResolver {
+    fn resolve(&self, _id: ImageId) -> Option<Arc<Pixmap>> {
+        None
+    }
+}
+
 /// A premultiplied color.
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct PremulColor {
