@@ -20,6 +20,7 @@ targets = []
 bytemuck = { workspace = true, features = ["derive"] }
 peniko = { workspace = true, features = ["bytemuck"] }
 fearless_simd = { workspace = true }
+# TODO: guillotiere requires std (via euclid/num-traits); make no_std-compatible.
 guillotiere = { version = "0.6.2", optional = true }
 hashbrown = { workspace = true, features = ["raw-entry"] }
 png = { workspace = true, optional = true }
