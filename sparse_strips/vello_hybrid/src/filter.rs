@@ -3,8 +3,6 @@
 
 //! GPU filter types and conversion utilities.
 
-#![allow(missing_docs)]
-
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use hashbrown::HashMap;
