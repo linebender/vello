@@ -206,22 +206,19 @@ const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
 // The sentinel tile index representing the surface.
 const SENTINEL_SLOT_IDX: usize = usize::MAX;
 
-/// The output target for the final composite draw in a round.
-///
-/// This distinguishes between rendering to the user-visible surface and
-/// rendering to an intermediate texture for a filter layer.
+/// The output target for a draw operation within a round.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OutputTarget {
-    /// Render to the final output view/surface.
+    /// Render to the final, user-provided output view/surface.
     FinalView,
-    /// Render to an intermediate texture for a layer with filter effects.
+    /// Render to the intermediate texture associated with the given layer.
     IntermediateTexture(LayerId),
 }
 
 /// Specifies the target for a render pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RenderTarget {
-    /// Render to the final output or an intermediate texture.
+    /// Render to the current output target.
     Output(OutputTarget),
     /// Render to one of the slot textures used for clipping/blending.
     SlotTexture(u8),
@@ -235,6 +232,7 @@ pub(crate) trait RendererBackend {
     /// Execute a render pass for strips.
     fn render_strips(&mut self, strips: &[GpuStrip], target: RenderTarget, load_op: LoadOp);
 
+    /// Apply
     fn apply_filter(&mut self, layer_id: LayerId, filter_offset: u32, needs_scratch: bool);
 }
 
