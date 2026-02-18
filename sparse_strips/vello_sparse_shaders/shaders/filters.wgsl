@@ -2,18 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 // The texture that holds the encoded parameters for all filter effects used in the scene.
-// Set once per scene, does not change between filter passes.
 @group(0) @binding(0) var filter_data: texture_2d<u32>;
-
-// The texture holding the input image we sample from to create the filter effect.
-// Changes per filter pass (each layer has its own intermediate texture).
+// The texture holding the input texture we want to filter. For the first filter pass,
+// this is usually the raw input image, but for the second pass it might be an intermediate version.
 @group(1) @binding(0) var in_tex: texture_2d<f32>;
-
-// Linear sampler for hardware bilinear filtering (used by fast-path convolution).
+// Linear sampler used for more efficient sampling during Gaussian blur.
+// TODO: Move to group 0?
 @group(1) @binding(1) var linear_sampler: sampler;
-
 // The original (unfiltered) content texture, used by drop shadow pass 2 for compositing.
 // Only bound during pass 2 (fs_pass_2).
+// TODO: Always bind?
 @group(2) @binding(0) var original_tex: texture_2d<f32>;
 
 // Keep these variables and structs in sync with the ones in `filter.rs`!
