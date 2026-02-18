@@ -49,19 +49,31 @@ fn pixel_snap(x: f64) -> f64 {
 
 /// A blit rect for the instanced fast-path pipeline.
 ///
-/// Represents an axis-aligned image rectangle that can be drawn by copying
-/// directly from the image atlas to the screen, bypassing the strip/coarse pipeline.
+/// Represents an image rectangle that can be drawn by copying directly from
+/// the image atlas to the screen, bypassing the strip/coarse pipeline.
+/// Supports arbitrary affine geometry transforms (rotation, scale, shear).
+///
+/// The screen-space quad is defined by a center point and two column vectors:
+///
+/// ```text
+///   vertex(x, y) = center + col0 * (x - 0.5) + col1 * (y - 0.5)
+/// ```
+///
+/// where `(x, y)` ranges over `{0,1}^2` for the 4 quad corners.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BlitRect {
-    /// Screen-space destination position (pixel-snapped, after transform).
-    /// Signed to allow rects that are partially off-screen (the GPU clips naturally).
-    pub dst_x: i16,
-    pub dst_y: i16,
-    /// Screen-space destination size (the full rect, before image clamping).
-    pub dst_w: u16,
-    pub dst_h: u16,
+    /// Screen-space center of the quad (after geometry transform).
+    pub center_x: f32,
+    pub center_y: f32,
+    /// Column 0: screen-space direction and extent of the rect's X axis.
+    /// For an axis-aligned rect of width `w`, this is `(w, 0)`.
+    /// For a rotated rect, this encodes the rotated X direction scaled by width.
+    pub col0: [f32; 2],
+    /// Column 1: screen-space direction and extent of the rect's Y axis.
+    /// For an axis-aligned rect of height `h`, this is `(0, h)`.
+    pub col1: [f32; 2],
     /// Pre-transform rect dimensions in geometry space (needed to compute the
-    /// scale factor for clamping destination size to image bounds at render time).
+    /// visible fraction for image-bounds clipping at resolve time).
     pub rect_w: u16,
     pub rect_h: u16,
     /// Source image reference (resolved to atlas coords at render time).
@@ -471,12 +483,16 @@ impl Scene {
     /// Check whether a blit rect can be batched into the previous [`FlushPoint`]
     /// without creating a new pipeline switch.
     ///
+    /// The AABB parameters are the axis-aligned bounding box of the (potentially
+    /// rotated) blit quad in screen-space coordinates (f32, may be partially
+    /// off-screen).
+    ///
     /// Returns `true` when either:
     /// - We are already in blit mode (trivially batchable), or
     /// - A previous flush point exists and the blit rect does not overlap any
     ///   strip operations recorded since that flush point.
     #[inline(always)]
-    fn can_batch_blit(&self, dst_x: i16, dst_y: i16, dst_w: u16, dst_h: u16) -> bool {
+    fn can_batch_blit_aabb(&self, aabb_x0: f32, aabb_y0: f32, aabb_x1: f32, aabb_y1: f32) -> bool {
         if !self.blit_batching_enabled {
             return false;
         }
@@ -486,12 +502,10 @@ impl Scene {
         if self.flush_points.is_empty() {
             return false;
         }
-        let blit_x0 = dst_x.max(0) as u16;
-        let blit_y0 = dst_y.max(0) as u16;
-        let blit_x1 =
-            ((dst_x as i32 + dst_w as i32).max(0) as u32).min(u32::from(self.width)) as u16;
-        let blit_y1 =
-            ((dst_y as i32 + dst_h as i32).max(0) as u32).min(u32::from(self.height)) as u16;
+        let blit_x0 = (aabb_x0.floor().max(0.0) as u32).min(u32::from(self.width)) as u16;
+        let blit_y0 = (aabb_y0.floor().max(0.0) as u32).min(u32::from(self.height)) as u16;
+        let blit_x1 = (aabb_x1.ceil().max(0.0) as u32).min(u32::from(self.width)) as u16;
+        let blit_y1 = (aabb_y1.ceil().max(0.0) as u32).min(u32::from(self.height)) as u16;
         !self
             .strips_dirty_rects
             .any_overlap(blit_x0, blit_y0, blit_x1, blit_y1, self.level)
@@ -712,34 +726,27 @@ impl Scene {
             return false;
         }
 
-        // Condition 5: Geometry transform must be axis-aligned (no rotation/shear)
-        // with non-negative scale (blit pipeline can't mirror images).
+        // Condition 5: Geometry transform must not be degenerate (zero-area
+        // or mirrored). Any non-degenerate affine transform is accepted —
+        // rotation, non-uniform scale, and shear are all handled by the
+        // column-vector quad representation.
         let geo_coeffs = self.transform.as_coeffs();
         // coeffs: [a, b, c, d, tx, ty] where the matrix is [[a, c, tx], [b, d, ty]]
-        // Axis-aligned means b == 0 and c == 0 (no shear/rotation).
-        if (geo_coeffs[1] as f32).abs() > f32::EPSILON
-            || (geo_coeffs[2] as f32).abs() > f32::EPSILON
-        {
-            return false;
-        }
-        // Negative scale would flip the image, which the blit pipeline can't do.
-        if geo_coeffs[0] < 0.0 || geo_coeffs[3] < 0.0 {
+        let det = geo_coeffs[0] * geo_coeffs[3] - geo_coeffs[1] * geo_coeffs[2];
+        if det <= 0.0 {
             return false;
         }
 
-        // Condition 6: Paint transform must be axis-aligned with no scaling.
-        //
-        // The paint transform maps from image space to geometry space. For the
-        // blit pipeline's 1:1 texel-to-pixel mapping to be correct, the paint
-        // transform must be a pure translation (no rotation, shear, or scale).
+        // Condition 6: Paint transform must be a pure translation (no rotation,
+        // shear, or scale). The paint transform maps from image space to
+        // geometry space; a pure translation means each image texel maps 1:1 to
+        // a geometry-space unit.
         let paint_coeffs = self.paint_transform.as_coeffs();
-        // Check no rotation/shear (b == 0, c == 0).
         if (paint_coeffs[1] as f32).abs() > f32::EPSILON
             || (paint_coeffs[2] as f32).abs() > f32::EPSILON
         {
             return false;
         }
-        // Check no scaling (a == 1, d == 1).
         if ((paint_coeffs[0] - 1.0) as f32).abs() > f32::EPSILON
             || ((paint_coeffs[3] - 1.0) as f32).abs() > f32::EPSILON
         {
@@ -747,31 +754,51 @@ impl Scene {
         }
         let (ptx, pty) = (paint_coeffs[4], paint_coeffs[5]);
 
-        // Compute the screen-space destination rect by applying the geometry transform.
-        // Since we've verified the transform is axis-aligned with non-negative scale,
-        // transform_rect_bbox gives the exact transformed rectangle.
-        let dst_rect = self.transform.transform_rect_bbox(*rect);
-
         // Pre-transform rect dimensions (geometry space).
-        // Rect guarantees x0 <= x1 and y0 <= y1, and we've already rejected
-        // negative a/d above, so no normalization is needed.
         let rect_w = pixel_snap(rect.x1 - rect.x0).max(0.0) as u16;
         let rect_h = pixel_snap(rect.y1 - rect.y0).max(0.0) as u16;
 
-        // Pixel-snap the destination rect. Position is signed to allow
-        // partially off-screen rects (the GPU clips naturally via NDC).
-        let rx0 = pixel_snap(dst_rect.x0);
-        let ry0 = pixel_snap(dst_rect.y0);
-        let rx1 = pixel_snap(dst_rect.x1);
-        let ry1 = pixel_snap(dst_rect.y1);
-        let dst_x = rx0 as i16;
-        let dst_y = ry0 as i16;
-        let dst_w = (rx1 - rx0).max(0.0) as u16;
-        let dst_h = (ry1 - ry0).max(0.0) as u16;
-
-        if dst_w == 0 || dst_h == 0 || rect_w == 0 || rect_h == 0 {
+        if rect_w == 0 || rect_h == 0 {
             return true; // Zero-size rect, nothing to draw.
         }
+
+        // Compute the screen-space quad via center + column vectors.
+        //
+        // The 2x2 part of the geometry transform [[a, c], [b, d]] maps
+        // the rect's local axes to screen space:
+        //   col0 = [a, b] * rect_w  (screen direction of rect's X axis)
+        //   col1 = [c, d] * rect_h  (screen direction of rect's Y axis)
+        //
+        // The center is the transform of the rect's geometric center.
+        let a = geo_coeffs[0] as f32;
+        let b = geo_coeffs[1] as f32;
+        let c = geo_coeffs[2] as f32;
+        let d = geo_coeffs[3] as f32;
+        let tx = geo_coeffs[4] as f32;
+        let ty = geo_coeffs[5] as f32;
+        let w = rect_w as f32;
+        let h = rect_h as f32;
+
+        let col0 = [a * w, b * w];
+        let col1 = [c * h, d * h];
+
+        let cx = (rect.x0 + rect.x1) as f32 * 0.5;
+        let cy = (rect.y0 + rect.y1) as f32 * 0.5;
+        let center_x = a * cx + c * cy + tx;
+        let center_y = b * cx + d * cy + ty;
+
+        // Compute the axis-aligned bounding box of the rotated quad for
+        // dirty rect tracking and batching decisions.
+        let half_col0_x = col0[0] * 0.5;
+        let half_col0_y = col0[1] * 0.5;
+        let half_col1_x = col1[0] * 0.5;
+        let half_col1_y = col1[1] * 0.5;
+        let extent_x = half_col0_x.abs() + half_col1_x.abs();
+        let extent_y = half_col0_y.abs() + half_col1_y.abs();
+        let aabb_x0 = center_x - extent_x;
+        let aabb_y0 = center_y - extent_y;
+        let aabb_x1 = center_x + extent_x;
+        let aabb_y1 = center_y + extent_y;
 
         // Compute the image-space origin: where the rect's top-left corner
         // maps to in image coordinates, accounting for the paint transform.
@@ -801,17 +828,18 @@ impl Scene {
         // Optimisation: if the blit rect doesn't overlap any strip operations
         // since the last flush point, batch it into the previous flush point's
         // blits instead of creating a new pipeline switch.
-        if self.can_batch_blit(dst_x, dst_y, dst_w, dst_h) {
+        // Use the AABB of the rotated quad for the overlap test.
+        if self.can_batch_blit_aabb(aabb_x0, aabb_y0, aabb_x1, aabb_y1) {
             self.in_blit_mode = true;
         } else {
             self.flush_strips();
         }
 
         self.all_blits.push(BlitRect {
-            dst_x,
-            dst_y,
-            dst_w,
-            dst_h,
+            center_x,
+            center_y,
+            col0,
+            col1,
             rect_w,
             rect_h,
             image_id,

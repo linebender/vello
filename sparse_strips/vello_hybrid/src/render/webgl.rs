@@ -1925,23 +1925,35 @@ fn initialize_blit_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) 
     );
 
     let stride = size_of::<GpuBlitRect>() as i32;
-    debug_assert_eq!(stride, 20, "expected stride of 20");
+    debug_assert_eq!(stride, 36, "expected stride of 36");
 
-    // Configure attributes: 5 x u32, matching GpuBlitRect layout.
-    for i in 0..5 {
-        let location = i as u32;
-        let offset = i * 4;
+    // Attributes 0-2: vec2<f32> (col0, col1, center) — 8 bytes each.
+    for i in 0..3u32 {
+        let offset = (i * 8) as i32;
+        gl.enable_vertex_attrib_array(i);
+        gl.vertex_attrib_pointer_with_i32(
+            i,
+            2,
+            WebGl2RenderingContext::FLOAT,
+            false,
+            stride,
+            offset,
+        );
+        gl.vertex_attrib_divisor(i, 1);
+    }
 
-        gl.enable_vertex_attrib_array(location);
+    // Attributes 3-5: u32 (src_xy, src_wh, atlas_index) — 4 bytes each.
+    for i in 3..6u32 {
+        let offset = (24 + (i - 3) * 4) as i32;
+        gl.enable_vertex_attrib_array(i);
         gl.vertex_attrib_i_pointer_with_i32(
-            location,
+            i,
             1,
             WebGl2RenderingContext::UNSIGNED_INT,
             stride,
             offset,
         );
-
-        gl.vertex_attrib_divisor(location, 1);
+        gl.vertex_attrib_divisor(i, 1);
     }
 
     gl.bind_vertex_array(None);
