@@ -9,14 +9,11 @@ use vello_api::peniko::color::palette::css::RED;
 use vello_api::peniko::{Gradient, LinearGradientPosition};
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
-    BLACK, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET, WHITE,
+    BLACK, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET,
 };
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
-use vello_common::mask::Mask;
 use vello_common::peniko::{BlendMode, Compose, Mix};
-use vello_common::pixmap::Pixmap;
-use vello_cpu::RenderContext;
 use vello_cpu::kurbo::Dashes;
 use vello_dev_macros::vello_test;
 
