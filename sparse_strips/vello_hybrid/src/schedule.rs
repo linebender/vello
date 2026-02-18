@@ -233,7 +233,7 @@ pub(crate) trait RendererBackend {
     fn render_strips(&mut self, strips: &[GpuStrip], target: RenderTarget, load_op: LoadOp);
 
     /// Apply
-    fn apply_filter(&mut self, layer_id: LayerId, filter_offset: u32, needs_scratch: bool);
+    fn apply_filter(&mut self, layer_id: LayerId);
 }
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
@@ -814,11 +814,7 @@ impl Scheduler {
 
             // If we are rendering a filtered layer, apply the filter now.
             if let OutputTarget::IntermediateTexture(layer_id) = self.output_target {
-                let filter_offset = filter_context.offsets().get(&layer_id).copied().unwrap();
-                let needs_scratch = filter_context
-                    .get_filter_data(&layer_id)
-                    .is_some_and(|f| f.needs_scratch_buffer());
-                renderer.apply_filter(layer_id, filter_offset, needs_scratch);
+                renderer.apply_filter(layer_id);
             }
         }
 

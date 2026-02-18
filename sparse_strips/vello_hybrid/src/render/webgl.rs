@@ -1941,7 +1941,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.do_strip_render_pass(strips, target_index, load_op);
     }
 
-    fn apply_filter(&mut self, _layer_id: LayerId, _filter_offset: u32, _needs_scratch: bool) {
+    fn apply_filter(&mut self, _layer_id: LayerId) {
         unimplemented!("apply_filter not yet implemented in WebGL")
     }
 }

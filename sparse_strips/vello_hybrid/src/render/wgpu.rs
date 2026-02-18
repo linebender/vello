@@ -2426,7 +2426,17 @@ impl RendererBackend for RendererContext<'_> {
         self.do_strip_render_pass(strips, target, wgpu_load_op);
     }
 
-    fn apply_filter(&mut self, layer_id: LayerId, filter_offset: u32, uses_scratch: bool) {
+    fn apply_filter(&mut self, layer_id: LayerId) {
+        let filter_offset = self
+            .filter_context
+            .offsets()
+            .get(&layer_id)
+            .copied()
+            .unwrap();
+        let uses_scratch = self
+            .filter_context
+            .get_filter_data(&layer_id)
+            .is_some_and(|f| f.needs_scratch_buffer());
         // 1. Get filter textures allocation from FilterContext
         let filter_textures = self
             .filter_context
