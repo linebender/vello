@@ -19,7 +19,9 @@ impl<'a> PaintManager<'a> {
     pub(crate) fn new(scene_paints: &'a [EncodedPaint]) -> Self {
         Self {
             scene_paints,
-            // TODO: Reuse allocation?
+            // TODO: Reuse allocation? Unfortunately a bit tricky because this struct
+            // has a lifetime and therefore can't be stored in the main renderer. Workarounds
+            // are possible, but not sure if worth it.
             filter_paints: Vec::new(),
         }
     }
