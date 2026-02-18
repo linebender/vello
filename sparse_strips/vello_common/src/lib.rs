@@ -75,8 +75,12 @@ pub mod flatten;
 pub(crate) mod flatten_simd;
 #[cfg(feature = "text")]
 pub mod glyph;
+#[cfg(feature = "std")]
+pub mod image_cache;
 pub mod mask;
 pub mod math;
+#[cfg(feature = "std")]
+pub mod multi_atlas;
 pub mod paint;
 #[doc(hidden)]
 #[cfg(feature = "pico_svg")]

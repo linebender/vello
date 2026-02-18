@@ -18,16 +18,9 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use alloc::vec::Vec;
-use alloc::{sync::Arc, vec};
-use core::{fmt::Debug, num::NonZeroU64};
-
-use crate::AtlasConfig;
-use crate::multi_atlas::AtlasId;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
-    image_cache::{ImageCache, ImageResource},
     render::{
         Config,
         common::{
@@ -41,7 +34,12 @@ use crate::{
     scene::Scene,
     schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
 };
+use alloc::vec::Vec;
+use alloc::{sync::Arc, vec};
 use bytemuck::{Pod, Zeroable};
+use core::{fmt::Debug, num::NonZeroU64};
+use vello_common::image_cache::{ImageCache, ImageResource};
+use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
     coarse::WideTile,
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},

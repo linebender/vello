@@ -21,10 +21,8 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::{
-    AtlasConfig, GpuStrip, RenderError, RenderSettings, RenderSize,
+    GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
-    image_cache::{ImageCache, ImageResource},
-    multi_atlas::AtlasId,
     render::{
         Config,
         common::{
@@ -38,12 +36,13 @@ use crate::{
     scene::Scene,
     schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
 };
-
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::fmt::Debug;
+use vello_common::image_cache::{ImageCache, ImageResource};
+use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
     coarse::WideTile,
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},

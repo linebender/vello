@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Multi-atlas management for `vello_hybrid`.
+//! Multi-atlas management for texture atlases.
 //!
 //! This module provides support for managing multiple texture atlases, allowing for handling of
 //! large numbers of images.
@@ -11,7 +11,7 @@ use guillotiere::{AllocId, Allocation, AtlasAllocator, size2};
 use thiserror::Error;
 
 /// Manages multiple texture atlases.
-pub(crate) struct MultiAtlasManager {
+pub struct MultiAtlasManager {
     /// All atlases managed by this instance.
     atlases: Vec<Atlas>,
     /// Configuration for atlas management.
@@ -22,7 +22,7 @@ pub(crate) struct MultiAtlasManager {
 
 impl MultiAtlasManager {
     /// Create a new multi-atlas manager with the given configuration.
-    pub(crate) fn new(config: AtlasConfig) -> Self {
+    pub fn new(config: AtlasConfig) -> Self {
         let mut manager = Self {
             atlases: Vec::new(),
             config,
@@ -39,12 +39,12 @@ impl MultiAtlasManager {
     }
 
     /// Get the current configuration.
-    pub(crate) fn config(&self) -> &AtlasConfig {
+    pub fn config(&self) -> &AtlasConfig {
         &self.config
     }
 
     /// Create a new atlas and return its ID.
-    pub(crate) fn create_atlas(&mut self) -> Result<AtlasId, AtlasError> {
+    pub fn create_atlas(&mut self) -> Result<AtlasId, AtlasError> {
         if self.atlases.len() >= self.config.max_atlases {
             return Err(AtlasError::AtlasLimitReached);
         }
@@ -57,16 +57,13 @@ impl MultiAtlasManager {
         Ok(atlas_id)
     }
 
-    pub(crate) fn next_atlas_id(&self) -> u32 {
+    /// Get the next available atlas ID.
+    pub fn next_atlas_id(&self) -> u32 {
         u32::try_from(self.atlases.len()).unwrap()
     }
 
     /// Try to allocate space for an image with the given dimensions.
-    pub(crate) fn try_allocate(
-        &mut self,
-        width: u32,
-        height: u32,
-    ) -> Result<AtlasAllocation, AtlasError> {
+    pub fn try_allocate(&mut self, width: u32, height: u32) -> Result<AtlasAllocation, AtlasError> {
         // Check if the image is too large for any atlas
         if width > self.config.atlas_size.0 || height > self.config.atlas_size.1 {
             return Err(AtlasError::TextureTooLarge { width, height });
@@ -221,7 +218,7 @@ impl MultiAtlasManager {
     }
 
     /// Deallocate space in the specified atlas.
-    pub(crate) fn deallocate(
+    pub fn deallocate(
         &mut self,
         atlas_id: AtlasId,
         alloc_id: AllocId,
@@ -239,7 +236,7 @@ impl MultiAtlasManager {
     }
 
     /// Get statistics for all atlases.
-    pub(crate) fn atlas_stats(&self) -> Vec<(AtlasId, &AtlasUsageStats)> {
+    pub fn atlas_stats(&self) -> Vec<(AtlasId, &AtlasUsageStats)> {
         self.atlases
             .iter()
             .map(|atlas| (atlas.id, atlas.stats()))
@@ -247,7 +244,7 @@ impl MultiAtlasManager {
     }
 
     /// Get the number of atlases.
-    pub(crate) fn atlas_count(&self) -> usize {
+    pub fn atlas_count(&self) -> usize {
         self.atlases.len()
     }
 }
@@ -265,7 +262,7 @@ impl core::fmt::Debug for MultiAtlasManager {
 }
 
 /// Represents a single atlas in the multi-atlas system.
-pub(crate) struct Atlas {
+pub struct Atlas {
     /// Unique identifier for this atlas.
     pub id: AtlasId,
     /// Guillotiere allocator for this atlas.
@@ -278,7 +275,7 @@ pub(crate) struct Atlas {
 
 impl Atlas {
     /// Create a new atlas with the given ID and size.
-    pub(crate) fn new(id: AtlasId, width: u32, height: u32) -> Self {
+    pub fn new(id: AtlasId, width: u32, height: u32) -> Self {
         Self {
             id,
             allocator: AtlasAllocator::new(size2(width as i32, height as i32)),
@@ -292,7 +289,7 @@ impl Atlas {
     }
 
     /// Try to allocate an image in this atlas.
-    pub(crate) fn allocate(&mut self, width: u32, height: u32) -> Option<Allocation> {
+    pub fn allocate(&mut self, width: u32, height: u32) -> Option<Allocation> {
         if let Some(allocation) = self.allocator.allocate(size2(width as i32, height as i32)) {
             self.stats.allocated_area += width * height;
             self.stats.allocated_count += 1;
@@ -304,14 +301,14 @@ impl Atlas {
     }
 
     /// Deallocate an image from this atlas.
-    pub(crate) fn deallocate(&mut self, alloc_id: AllocId, width: u32, height: u32) {
+    pub fn deallocate(&mut self, alloc_id: AllocId, width: u32, height: u32) {
         self.allocator.deallocate(alloc_id);
         self.stats.allocated_area = self.stats.allocated_area.saturating_sub(width * height);
         self.stats.allocated_count = self.stats.allocated_count.saturating_sub(1);
     }
 
     /// Get current usage statistics.
-    pub(crate) fn stats(&self) -> &AtlasUsageStats {
+    pub fn stats(&self) -> &AtlasUsageStats {
         &self.stats
     }
 }
@@ -328,9 +325,11 @@ impl core::fmt::Debug for Atlas {
 
 /// Errors that can occur during atlas operations.
 #[derive(Debug, Error)]
-pub(crate) enum AtlasError {
+pub enum AtlasError {
+    /// No space available in any atlas.
     #[error("No space available in any atlas")]
     NoSpaceAvailable,
+    /// Maximum number of atlases reached.
     #[error("Maximum number of atlases reached")]
     AtlasLimitReached,
     /// The requested texture size is too large for any atlas.
@@ -341,29 +340,30 @@ pub(crate) enum AtlasError {
         /// The height of the requested texture.
         height: u32,
     },
+    /// The specified atlas was not found.
     #[error("Atlas with Id {0:?} not found")]
     AtlasNotFound(AtlasId),
 }
 
 /// Unique identifier for an atlas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct AtlasId(pub u32);
+pub struct AtlasId(pub u32);
 
 impl AtlasId {
     /// Create a new atlas ID.
-    pub(crate) fn new(id: u32) -> Self {
+    pub fn new(id: u32) -> Self {
         Self(id)
     }
 
     /// Get the raw ID value.
-    pub(crate) fn as_u32(self) -> u32 {
+    pub fn as_u32(self) -> u32 {
         self.0
     }
 }
 
 /// Usage statistics for an atlas.
 #[derive(Debug, Clone)]
-pub(crate) struct AtlasUsageStats {
+pub struct AtlasUsageStats {
     /// Total allocated area in pixels.
     pub allocated_area: u32,
     /// Total available area in pixels.
@@ -374,7 +374,7 @@ pub(crate) struct AtlasUsageStats {
 
 impl AtlasUsageStats {
     /// Calculate usage percentage (0.0 to 1.0).
-    pub(crate) fn usage_percentage(&self) -> f32 {
+    pub fn usage_percentage(&self) -> f32 {
         if self.total_area == 0 {
             0.0
         } else {
@@ -384,7 +384,8 @@ impl AtlasUsageStats {
 }
 
 /// Result of an atlas allocation attempt.
-pub(crate) struct AtlasAllocation {
+#[derive(Debug)]
+pub struct AtlasAllocation {
     /// The atlas where the allocation was made.
     pub atlas_id: AtlasId,
     /// The allocation details from guillotiere.
@@ -409,15 +410,14 @@ pub struct AtlasConfig {
 impl Default for AtlasConfig {
     fn default() -> Self {
         Self {
-            // In WGPU's GLES backend, heuristics are used to decide whether a texture
-            // should be treated as D2 or D2Array. However, this can cause a mismatch:
-            // - when depth_or_array_layers == 1, the backend assumes the texture is D2,
-            // even if it was actually created as a D2Array. This issue only occurs with the GLES backend.
+            // NOTE: When targeting wasm32 with a WebGL/GLES backend, you may want to set
+            // `initial_atlas_count` to 2. In WGPU's GLES backend, heuristics are used to decide
+            // whether a texture should be treated as D2 or D2Array. However, this can cause a
+            // mismatch: when depth_or_array_layers == 1, the backend assumes the texture is D2,
+            // even if it was actually created as a D2Array. This issue only occurs with the GLES
+            // backend.
             //
             // @see https://github.com/gfx-rs/wgpu/blob/61e5124eb9530d3b3865556a7da4fd320d03ddc5/wgpu-hal/src/gles/mod.rs#L470-L517
-            #[cfg(all(target_arch = "wasm32", feature = "wgpu"))]
-            initial_atlas_count: 2,
-            #[cfg(not(all(target_arch = "wasm32", feature = "wgpu")))]
             initial_atlas_count: 1,
             max_atlases: 8,
             atlas_size: (4096, 4096),
