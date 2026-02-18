@@ -75,7 +75,7 @@ pub struct GpuStrip {
 /// To keep this struct lean for GPU upload, we use 2 column vectors to define the
 /// rect-to-screen transform:
 ///
-/// ```
+/// ```txt
 ///   vertex(x, y) = center + col0 * (x - 0.5) + col1 * (y - 0.5)
 /// ```
 ///
@@ -138,10 +138,10 @@ pub(crate) fn resolve_blit_rect(blit: &BlitRect, resource: &ImageResource) -> Op
     //
     // Note that we don't account for the image offset in the atlas until calculating `src_x` and `src_y` below.
 
-    let src_x0 = blit.img_origin_x.max(0.0);
-    let src_y0 = blit.img_origin_y.max(0.0);
-    let src_x1 = (blit.img_origin_x + blit.rect_w as f32).min(resource.width as f32);
-    let src_y1 = (blit.img_origin_y + blit.rect_h as f32).min(resource.height as f32);
+    let src_x0 = blit.img_origin[0].max(0.0);
+    let src_y0 = blit.img_origin[1].max(0.0);
+    let src_x1 = (blit.img_origin[0] + blit.rect_wh[0] as f32).min(resource.width as f32);
+    let src_y1 = (blit.img_origin[1] + blit.rect_wh[1] as f32).min(resource.height as f32);
 
     let src_w = (src_x1 - src_x0).round() as u16;
     let src_h = (src_y1 - src_y0).round() as u16;
@@ -167,12 +167,12 @@ pub(crate) fn resolve_blit_rect(blit: &BlitRect, resource: &ImageResource) -> Op
     //
     //   vertex(x, y) = center + col0 * (x - 0.5) + col1 * (y - 0.5)
     let (col0, col1, center) = {
-        let rect_w = blit.rect_w as f32;
-        let rect_h = blit.rect_h as f32;
-        let frac_x0 = (src_x0 - blit.img_origin_x) / rect_w;
-        let frac_x1 = (src_x1 - blit.img_origin_x) / rect_w;
-        let frac_y0 = (src_y0 - blit.img_origin_y) / rect_h;
-        let frac_y1 = (src_y1 - blit.img_origin_y) / rect_h;
+        let rect_w = blit.rect_wh[0] as f32;
+        let rect_h = blit.rect_wh[1] as f32;
+        let frac_x0 = (src_x0 - blit.img_origin[0]) / rect_w;
+        let frac_x1 = (src_x1 - blit.img_origin[0]) / rect_w;
+        let frac_y0 = (src_y0 - blit.img_origin[1]) / rect_h;
+        let frac_y1 = (src_y1 - blit.img_origin[1]) / rect_h;
 
         // Adjust vectors to the visible sub-region.
         let src_scale_x = frac_x1 - frac_x0;
@@ -184,8 +184,8 @@ pub(crate) fn resolve_blit_rect(blit: &BlitRect, resource: &ImageResource) -> Op
         let mid_frac_x = (frac_x0 + frac_x1) * 0.5 - 0.5;
         let mid_frac_y = (frac_y0 + frac_y1) * 0.5 - 0.5;
         let center = [
-            blit.center_x + blit.col0[0] * mid_frac_x + blit.col1[0] * mid_frac_y,
-            blit.center_y + blit.col0[1] * mid_frac_x + blit.col1[1] * mid_frac_y,
+            blit.center[0] + blit.col0[0] * mid_frac_x + blit.col1[0] * mid_frac_y,
+            blit.center[1] + blit.col0[1] * mid_frac_x + blit.col1[1] * mid_frac_y,
         ];
         (col0, col1, center)
     };

@@ -6,6 +6,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
+use core::ops::Range;
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
@@ -28,215 +29,6 @@ use crate::AtlasConfig;
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
-
-/// Round to the nearest integer for pixel snapping.
-///
-/// On `wasm32-unknown-unknown`, [`f64::round`] compiles to a software `libm`
-/// call because its "round half away from zero" semantics don't match the
-/// WebAssembly `f64.nearest` instruction (which uses banker's rounding).
-/// In contrast, [`f64::floor`] maps directly to the native `f64.floor`
-/// instruction.
-///
-/// `(x + 0.5).floor()` gives identical results to [`f64::round`] for
-/// non-negative values and only differs at exactly half-integer negative
-/// values (e.g. `−2.5` → `−2` instead of `−3`), which is negligible for
-/// pixel snapping.
-// TODO: Move somewhere in vello_common?
-#[inline(always)]
-fn pixel_snap(x: f64) -> f64 {
-    (x + 0.5).floor()
-}
-
-/// A blit rect for the instanced fast-path pipeline.
-///
-/// Represents an image rectangle that can be drawn by copying directly from
-/// the image atlas to the screen, bypassing the strip/coarse pipeline.
-/// Supports arbitrary affine geometry transforms (rotation, scale, shear).
-///
-/// The screen-space quad is defined by a center point and two column vectors:
-///
-/// ```text
-///   vertex(x, y) = center + col0 * (x - 0.5) + col1 * (y - 0.5)
-/// ```
-///
-/// where `(x, y)` ranges over `{0,1}^2` for the 4 quad corners.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct BlitRect {
-    /// Screen-space center of the quad (after geometry transform).
-    pub center_x: f32,
-    pub center_y: f32,
-    /// Column 0: screen-space direction and extent of the rect's X axis.
-    /// For an axis-aligned rect of width `w`, this is `(w, 0)`.
-    /// For a rotated rect, this encodes the rotated X direction scaled by width.
-    pub col0: [f32; 2],
-    /// Column 1: screen-space direction and extent of the rect's Y axis.
-    /// For an axis-aligned rect of height `h`, this is `(0, h)`.
-    pub col1: [f32; 2],
-    /// Pre-transform rect dimensions in geometry space (needed to compute the
-    /// visible fraction for image-bounds clipping at resolve time).
-    pub rect_w: u16,
-    pub rect_h: u16,
-    /// Source image reference (resolved to atlas coords at render time).
-    pub image_id: ImageId,
-    /// Image-space origin: where the rect's top-left maps to in image coordinates.
-    ///
-    /// This accounts for both the paint transform translation and non-zero rect
-    /// origins. For a rect at `(x0, y0)` with a paint transform that translates
-    /// by `(ptx, pty)`, the image origin is `(x0 - ptx, y0 - pty)`.
-    ///
-    /// A value of `(0, 0)` means the image's top-left aligns with the rect's
-    /// top-left (the common case with identity paint transform and a rect at the
-    /// origin). Positive values shift the sampled region deeper into the image.
-    pub img_origin_x: f32,
-    pub img_origin_y: f32,
-}
-
-/// A fence marking a strips-to-blits transition for pipeline interleaving.
-///
-/// References ranges in the [`Scene`]'s consolidated `all_cmd_ends` and `all_blits` buffers.
-/// The cmd_ends range is implicit: flush point at index `i` corresponds to
-/// `all_cmd_ends[i * n_tiles..(i + 1) * n_tiles]` where `n_tiles = width_tiles * height_tiles`.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct FlushPoint {
-    /// Start index (inclusive) into [`Scene::all_blits`].
-    pub blits_start: usize,
-    /// End index (exclusive) into [`Scene::all_blits`].
-    pub blits_end: usize,
-}
-
-/// Compact storage for dirty screen-space bounding boxes accumulated between flush points.
-///
-/// Each rect is stored as 4 `u16` values: `[x0, y0, MAX-x1, MAX-y1]` where `MAX` is
-/// `u16::MAX`. The negated upper bounds allow a single SIMD `lt` comparison to test all
-/// 4 overlap conditions simultaneously:
-///
-/// ```text
-///   [d.x0, d.y0, MAX-d.x1, MAX-d.y1] < [b.x1, b.y1, MAX-b.x0, MAX-b.y0]
-///   ≡ d.x0 < b.x1 AND d.y0 < b.y1 AND b.x0 < d.x1 AND b.y0 < d.y1
-/// ```
-///
-/// The buffer is always padded to a multiple of 8 `u16` values (2 rects) using sentinel
-/// values `[MAX; 4]` that can never satisfy the `lt` condition.
-#[derive(Debug)]
-struct DirtyRects {
-    /// Flat u16 storage: 4 values per rect in `[x0, y0, MAX-x1, MAX-y1]` layout.
-    data: Vec<u16>,
-    /// Number of actual rects (excludes sentinel padding).
-    count: usize,
-}
-
-impl DirtyRects {
-    const VALS_PER_RECT: usize = 4;
-    /// Sentinel value that can never satisfy `sentinel < anything` being true for all lanes.
-    const SENTINEL: u16 = u16::MAX;
-
-    fn new() -> Self {
-        Self {
-            data: Vec::new(),
-            count: 0,
-        }
-    }
-
-    fn clear(&mut self) {
-        self.data.clear();
-        self.count = 0;
-    }
-
-    /// Push a viewport-clamped dirty rect.
-    ///
-    /// Coordinates must satisfy `x0 <= x1` and `y0 <= y1`.
-    fn push(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) {
-        // Remove previous sentinel padding if present.
-        if self.count & 1 != 0 {
-            // Odd count means the last 4 values are a sentinel; remove them.
-            self.data.truncate(self.count * Self::VALS_PER_RECT);
-        }
-        self.data
-            .extend_from_slice(&[x0, y0, u16::MAX - x1, u16::MAX - y1]);
-        self.count += 1;
-        // Re-pad to a multiple of 2 rects (8 u16 values) for SIMD processing.
-        if self.count & 1 != 0 {
-            self.data
-                .extend_from_slice(&[Self::SENTINEL; Self::VALS_PER_RECT]);
-        }
-    }
-
-    /// Check whether any stored dirty rect overlaps the given blit rect.
-    ///
-    /// Uses SIMD-accelerated comparison via `u16x8`, processing 2 rects per iteration.
-    #[inline(always)]
-    fn any_overlap(
-        &self,
-        blit_x0: u16,
-        blit_y0: u16,
-        blit_x1: u16,
-        blit_y1: u16,
-        level: Level,
-    ) -> bool {
-        if self.count == 0 {
-            return false;
-        }
-        use vello_common::fearless_simd::dispatch;
-        dispatch!(level, simd => {
-            Self::any_overlap_simd(simd, &self.data, blit_x0, blit_y0, blit_x1, blit_y1)
-        })
-    }
-
-    #[inline(always)]
-    fn any_overlap_simd<S: vello_common::fearless_simd::Simd>(
-        s: S,
-        data: &[u16],
-        blit_x0: u16,
-        blit_y0: u16,
-        blit_x1: u16,
-        blit_y1: u16,
-    ) -> bool {
-        use vello_common::fearless_simd::{Select, SimdFrom, SimdInt, u16x8};
-
-        let blit_cmp = u16x8::simd_from(
-            [
-                blit_x1,
-                blit_y1,
-                u16::MAX - blit_x0,
-                u16::MAX - blit_y0,
-                blit_x1,
-                blit_y1,
-                u16::MAX - blit_x0,
-                u16::MAX - blit_y0,
-            ],
-            s,
-        );
-        let ones = u16x8::simd_from(u16::MAX, s);
-        let zeros = u16x8::simd_from(0u16, s);
-
-        // Process 2 rects (8 u16 values) per iteration.
-        for chunk in data.chunks_exact(8) {
-            let dirty_vec = u16x8::simd_from(
-                [
-                    chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
-                ],
-                s,
-            );
-
-            // Compare: each lane true iff that overlap condition holds.
-            let mask = dirty_vec.simd_lt(blit_cmp);
-            let bits = mask.select(ones, zeros);
-
-            // Reduce within each group of 4 lanes to a single per-rect result.
-            // After step1: lane 0 = rect0(01 & 23 components), lane 1 = rect1(01 & 23 components)
-            // (interleaved with duplicates in higher lanes).
-            let step1 = bits.unzip_low(bits).and(bits.unzip_high(bits));
-            let step2 = step1.unzip_low(step1).and(step1.unzip_high(step1));
-
-            // step2.val[0] != 0 => all 4 conditions met for rect 0 (overlap).
-            // step2.val[1] != 0 => all 4 conditions met for rect 1 (overlap).
-            if step2.val[0] != 0 || step2.val[1] != 0 {
-                return true;
-            }
-        }
-        false
-    }
-}
 
 /// Settings to apply to the render context.
 #[derive(Copy, Clone, Debug)]
@@ -472,8 +264,7 @@ impl Scene {
             // Create flush point; blits range is empty until blits are added.
             let blits_start = self.all_blits.len();
             self.flush_points.push(FlushPoint {
-                blits_start,
-                blits_end: blits_start,
+                blits: blits_start..blits_start,
             });
             self.in_blit_mode = true;
             self.strips_dirty_rects.clear();
@@ -500,6 +291,8 @@ impl Scene {
             return true;
         }
         if self.flush_points.is_empty() {
+            // There's no batch to batch into yet. This occurs for the first blit rect. We need to
+            // `flush_strips` to create a new flush point to batch into.
             return false;
         }
         let blit_x0 = (aabb_x0.floor().max(0.0) as u32).min(u32::from(self.width)) as u16;
@@ -755,10 +548,12 @@ impl Scene {
         let (ptx, pty) = (paint_coeffs[4], paint_coeffs[5]);
 
         // Pre-transform rect dimensions (geometry space).
-        let rect_w = pixel_snap(rect.x1 - rect.x0).max(0.0) as u16;
-        let rect_h = pixel_snap(rect.y1 - rect.y0).max(0.0) as u16;
+        let rect_wh = [
+            pixel_snap(rect.x1 - rect.x0).max(0.0) as u16,
+            pixel_snap(rect.y1 - rect.y0).max(0.0) as u16,
+        ];
 
-        if rect_w == 0 || rect_h == 0 {
+        if rect_wh[0] == 0 || rect_wh[1] == 0 {
             return true; // Zero-size rect, nothing to draw.
         }
 
@@ -766,8 +561,8 @@ impl Scene {
         //
         // The 2x2 part of the geometry transform [[a, c], [b, d]] maps
         // the rect's local axes to screen space:
-        //   col0 = [a, b] * rect_w  (screen direction of rect's X axis)
-        //   col1 = [c, d] * rect_h  (screen direction of rect's Y axis)
+        //   col0 = [a, b] * rect_wh[0]  (screen direction of rect's X axis)
+        //   col1 = [c, d] * rect_wh[1]  (screen direction of rect's Y axis)
         //
         // The center is the transform of the rect's geometric center.
         let a = geo_coeffs[0] as f32;
@@ -776,16 +571,15 @@ impl Scene {
         let d = geo_coeffs[3] as f32;
         let tx = geo_coeffs[4] as f32;
         let ty = geo_coeffs[5] as f32;
-        let w = rect_w as f32;
-        let h = rect_h as f32;
+        let w = rect_wh[0] as f32;
+        let h = rect_wh[1] as f32;
 
         let col0 = [a * w, b * w];
         let col1 = [c * h, d * h];
 
         let cx = (rect.x0 + rect.x1) as f32 * 0.5;
         let cy = (rect.y0 + rect.y1) as f32 * 0.5;
-        let center_x = a * cx + c * cy + tx;
-        let center_y = b * cx + d * cy + ty;
+        let center_xy = [a * cx + c * cy + tx, b * cx + d * cy + ty];
 
         // Compute the axis-aligned bounding box of the rotated quad for
         // dirty rect tracking and batching decisions.
@@ -795,10 +589,10 @@ impl Scene {
         let half_col1_y = col1[1] * 0.5;
         let extent_x = half_col0_x.abs() + half_col1_x.abs();
         let extent_y = half_col0_y.abs() + half_col1_y.abs();
-        let aabb_x0 = center_x - extent_x;
-        let aabb_y0 = center_y - extent_y;
-        let aabb_x1 = center_x + extent_x;
-        let aabb_y1 = center_y + extent_y;
+        let aabb_x0 = center_xy[0] - extent_x;
+        let aabb_y0 = center_xy[1] - extent_y;
+        let aabb_x1 = center_xy[0] + extent_x;
+        let aabb_y1 = center_xy[1] + extent_y;
 
         // Compute the image-space origin: where the rect's top-left corner
         // maps to in image coordinates, accounting for the paint transform.
@@ -808,8 +602,7 @@ impl Scene {
         // So the inverse maps geometry to image space:
         //   image = geo - (ptx, pty)
         // At the rect's top-left corner (rect.x0, rect.y0):
-        let img_origin_x = (rect.x0 - ptx) as f32;
-        let img_origin_y = (rect.y0 - pty) as f32;
+        let img_origin_xy = [(rect.x0 - ptx) as f32, (rect.y0 - pty) as f32];
 
         // Condition 7: Image origin must not require padding on the left/top
         // edges. A negative origin means the rect extends before the image
@@ -821,7 +614,7 @@ impl Scene {
         // already clips to the visible region, so right/bottom overflow
         // simply draws fewer pixels — acceptable for the common "image tile"
         // case where the image is expected to fill the rect exactly.
-        if img_origin_x < 0.0 || img_origin_y < 0.0 {
+        if img_origin_xy[0] < 0.0 || img_origin_xy[1] < 0.0 {
             return false;
         }
 
@@ -836,17 +629,14 @@ impl Scene {
         }
 
         self.all_blits.push(BlitRect {
-            center_x,
-            center_y,
+            center: center_xy,
             col0,
             col1,
-            rect_w,
-            rect_h,
+            rect_wh,
             image_id,
-            img_origin_x,
-            img_origin_y,
+            img_origin: img_origin_xy,
         });
-        self.flush_points.last_mut().unwrap().blits_end = self.all_blits.len();
+        self.flush_points.last_mut().unwrap().blits.end = self.all_blits.len();
 
         true
     }
@@ -1390,6 +1180,186 @@ impl Scene {
     }
 }
 
+/// A blit rect for the blit rect pipeline.
+///
+/// This struct exists because at scene-encode time, we do not have enough information
+/// to fully resolve a blit rect. Specifically, we are missing the `ImageResource` which
+/// contains the image dimensions and offset in the texture atlas.
+///
+/// Otherwise, this struct parallels the [`GpuBlitRect`] struct.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BlitRect {
+    /// Screen-space center of the quad (after geometry transform): [x, y].
+    pub center: [f32; 2],
+    /// `col0` in the [`resolve_blit_rect`] formula. See [`resolve_blit_rect`] for more details.
+    pub col0: [f32; 2],
+    /// `col1` in the [`resolve_blit_rect`] formula. See [`resolve_blit_rect`] for more details.
+    pub col1: [f32; 2],
+    /// Pre-transform rect dimensions in geometry space: [w, h].
+    pub rect_wh: [u16; 2],
+    /// Source image reference (resolved to atlas coords at render time).
+    pub image_id: ImageId,
+    /// Image-space origin: where the rect's top-left maps to in image coordinates: [x, y].
+    pub img_origin: [f32; 2],
+}
+
+/// A fence marking a strips -> blits transition for pipeline interleaving.
+#[derive(Debug, Clone)]
+pub(crate) struct FlushPoint {
+    /// Index range into [`Scene::all_blits`]'s buffer.
+    pub blits: Range<usize>,
+}
+
+/// Handles intersection checks for dirty screen-space bounding boxes.
+///
+/// Each rect is stored as 4 `u16` values: `[x0, y0, u16::MAX-x1, u16::MAX-y1]`. The negated
+/// upper bounds allow a single SIMD `lt` comparison to test all 4 overlap conditions simultaneously.
+///
+/// The buffer is always padded to a multiple of 8 `u16` values (2 rects) using sentinel
+/// values `[MAX; 4]` that can never satisfy the `lt` condition. We pad so as to keep the buffer
+/// SIMD aligned (without requiring us to execute a scalar pass on trailing values).
+#[derive(Debug)]
+struct DirtyRects {
+    /// We use a flat `u16` storage to enable easier SIMD processing.
+    data: Vec<u16>,
+    /// Number of actual rects (specifically, this excludes sentinel padding).
+    count: usize,
+}
+
+impl DirtyRects {
+    const VALS_PER_RECT: usize = 4;
+    /// Sentinel value that can never satisfy `sentinel < anything` being true.
+    const SENTINEL: u16 = u16::MAX;
+
+    #[inline(always)]
+    fn new() -> Self {
+        Self {
+            data: Vec::new(),
+            count: 0,
+        }
+    }
+
+    #[inline(always)]
+    fn clear(&mut self) {
+        self.data.clear();
+        self.count = 0;
+    }
+
+    /// Push a viewport-clamped dirty rect.
+    ///
+    /// Coordinates must satisfy `x0 <= x1` and `y0 <= y1`.
+    #[inline(always)]
+    fn push(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) {
+        // Remove previous sentinel padding if present.
+        if self.count & 1 != 0 {
+            // Odd count means the last 4 values are a sentinel; remove them.
+            self.data.truncate(self.count * Self::VALS_PER_RECT);
+        }
+        self.data
+            .extend_from_slice(&[x0, y0, u16::MAX - x1, u16::MAX - y1]);
+        self.count += 1;
+        // Re-pad to a multiple of 2 rects (8 u16 values) for SIMD processing.
+        if self.count & 1 != 0 {
+            self.data
+                .extend_from_slice(&[Self::SENTINEL; Self::VALS_PER_RECT]);
+        }
+    }
+
+    /// Check whether any stored dirty rect overlaps the given blit rect.
+    ///
+    /// Uses SIMD-accelerated comparison via `u16x8`, processing 2 rects per iteration.
+    #[inline(always)]
+    fn any_overlap(
+        &self,
+        blit_x0: u16,
+        blit_y0: u16,
+        blit_x1: u16,
+        blit_y1: u16,
+        level: Level,
+    ) -> bool {
+        if self.count == 0 {
+            return false;
+        }
+        use vello_common::fearless_simd::dispatch;
+        dispatch!(level, simd => Self::any_overlap_impl(simd, &self.data, blit_x0, blit_y0, blit_x1, blit_y1))
+    }
+
+    #[inline(always)]
+    fn any_overlap_impl<S: vello_common::fearless_simd::Simd>(
+        s: S,
+        data: &[u16],
+        blit_x0: u16,
+        blit_y0: u16,
+        blit_x1: u16,
+        blit_y1: u16,
+    ) -> bool {
+        use vello_common::fearless_simd::{SimdFrom, SimdInt, i16x8, u16x8};
+        // TODO: We could process 8 AABBs at once if we used an AoS approach instead of SoA.
+
+        let blit_cmp = u16x8::simd_from(
+            [
+                blit_x1,
+                blit_y1,
+                u16::MAX - blit_x0,
+                u16::MAX - blit_y0,
+                blit_x1,
+                blit_y1,
+                u16::MAX - blit_x0,
+                u16::MAX - blit_y0,
+            ],
+            s,
+        );
+
+        // Process 2 rects (of 4 u16 values each) per iteration.
+        for chunk in data.chunks_exact(8) {
+            let dirty_vec = u16x8::simd_from(
+                [
+                    chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
+                ],
+                s,
+            );
+
+            // Compare: each lane is all-ones (−1 as i16) when condition holds, else zero.
+            let mask = dirty_vec.simd_lt(blit_cmp);
+
+            // Reinterpret mask as i16x8 to get access to unzip.
+            let bits = i16x8 {
+                val: mask.val,
+                simd: s,
+            };
+
+            // Compute a pair and ([a0&a1, a2&a3, b0&b1, b2&b3, …])
+            let paired = bits.unzip_low(bits).and(bits.unzip_high(bits));
+
+            // Check if any pair is non-zero.
+            if (paired.val[0] & paired.val[1]) != 0 || (paired.val[2] & paired.val[3]) != 0 {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// Round to the nearest integer for pixel snapping.
+///
+/// On `wasm32-unknown-unknown`, [`f64::round`] compiles to a software `libm`
+/// call because its "round half away from zero" semantics don't match the
+/// WebAssembly `f64.nearest` instruction (which uses banker's rounding).
+/// In contrast, [`f64::floor`] maps directly to the native `f64.floor`
+/// instruction.
+///
+/// More information can be found here: https://github.com/rust-lang/rust/issues/55107
+///
+/// `(x + 0.5).floor()` gives identical results to [`f64::round`] for
+/// non-negative values and only differs at exactly half-integer negative
+/// values (e.g. `−2.5` → `−2` instead of `−3`), which is negligible for
+/// pixel snapping.
+// TODO: Move somewhere in vello_common?
+#[inline(always)]
+fn pixel_snap(x: f64) -> f64 {
+    (x + 0.5).floor()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1397,188 +1367,188 @@ mod tests {
     use vello_common::paint::ImageSource;
     use vello_common::peniko::ImageSampler;
 
-    // -----------------------------------------------------------------------
-    // DirtyRects unit tests
-    // -----------------------------------------------------------------------
+    mod dirty_rects {
+        use super::*;
 
-    fn test_level() -> Level {
-        Level::try_detect().unwrap_or(Level::fallback())
+        fn test_level() -> Level {
+            Level::try_detect().unwrap_or(Level::fallback())
+        }
+
+        #[test]
+        fn dirty_rects_empty_no_overlap() {
+            let dr = DirtyRects::new();
+            assert!(!dr.any_overlap(0, 0, 100, 100, test_level()));
+        }
+
+        #[test]
+        fn dirty_rects_single_overlap() {
+            let mut dr = DirtyRects::new();
+            dr.push(10, 10, 50, 50);
+            // Overlapping rect.
+            assert!(dr.any_overlap(20, 20, 60, 60, test_level()));
+            // Non-overlapping rect (to the right).
+            assert!(!dr.any_overlap(60, 10, 100, 50, test_level()));
+            // Non-overlapping rect (below).
+            assert!(!dr.any_overlap(10, 60, 50, 100, test_level()));
+        }
+
+        #[test]
+        fn dirty_rects_two_rects_no_false_union() {
+            let mut dr = DirtyRects::new();
+            // Two small rects at opposite corners of a 1000x1000 viewport.
+            dr.push(0, 0, 50, 50); // top-left
+            dr.push(950, 950, 1000, 1000); // bottom-right
+            // A rect in the centre should NOT overlap either (no union inflation).
+            assert!(!dr.any_overlap(400, 400, 600, 600, test_level()));
+            // But rects overlapping the corners should.
+            assert!(dr.any_overlap(0, 0, 30, 30, test_level()));
+            assert!(dr.any_overlap(960, 960, 1000, 1000, test_level()));
+        }
+
+        #[test]
+        fn dirty_rects_padding_sentinel_no_false_positive() {
+            let mut dr = DirtyRects::new();
+            // Push an odd number of rects so sentinel padding is present.
+            dr.push(10, 10, 20, 20);
+            assert_eq!(dr.count, 1);
+            // Data should be padded to 8 u16 values (2 rects).
+            assert_eq!(dr.data.len(), 8);
+            // A query far from the actual rect should not overlap, even though
+            // sentinel padding is present in the second slot.
+            assert!(!dr.any_overlap(500, 500, 600, 600, test_level()));
+            // The actual rect should still be detected.
+            assert!(dr.any_overlap(5, 5, 15, 15, test_level()));
+        }
+
+        #[test]
+        fn dirty_rects_clear_resets() {
+            let mut dr = DirtyRects::new();
+            dr.push(0, 0, 1000, 1000);
+            assert!(dr.any_overlap(500, 500, 600, 600, test_level()));
+            dr.clear();
+            assert!(!dr.any_overlap(500, 500, 600, 600, test_level()));
+        }
+
+        #[test]
+        fn dirty_rects_adjacent_no_overlap() {
+            let mut dr = DirtyRects::new();
+            dr.push(0, 0, 50, 50);
+            // Exactly adjacent (touching but not overlapping).
+            assert!(!dr.any_overlap(50, 0, 100, 50, test_level()));
+            assert!(!dr.any_overlap(0, 50, 50, 100, test_level()));
+        }
     }
 
-    #[test]
-    fn dirty_rects_empty_no_overlap() {
-        let dr = DirtyRects::new();
-        assert!(!dr.any_overlap(0, 0, 100, 100, test_level()));
-    }
+    mod blit_batching {
+        use super::*;
 
-    #[test]
-    fn dirty_rects_single_overlap() {
-        let mut dr = DirtyRects::new();
-        dr.push(10, 10, 50, 50);
-        // Overlapping rect.
-        assert!(dr.any_overlap(20, 20, 60, 60, test_level()));
-        // Non-overlapping rect (to the right).
-        assert!(!dr.any_overlap(60, 10, 100, 50, test_level()));
-        // Non-overlapping rect (below).
-        assert!(!dr.any_overlap(10, 60, 50, 100, test_level()));
-    }
+        /// Create a minimal scene and set an OpaqueId image paint so `try_blit_rect` succeeds.
+        fn scene_with_image_paint(width: u16, height: u16) -> Scene {
+            let mut scene = Scene::new(width, height);
+            let image_id = ImageId::new(42);
+            scene.paint = PaintType::Image(vello_common::paint::Image {
+                image: ImageSource::OpaqueId(image_id),
+                sampler: ImageSampler::default(),
+            });
+            scene.paint_visible = true;
+            scene
+        }
 
-    #[test]
-    fn dirty_rects_two_rects_no_false_union() {
-        let mut dr = DirtyRects::new();
-        // Two small rects at opposite corners of a 1000x1000 viewport.
-        dr.push(0, 0, 50, 50); // top-left
-        dr.push(950, 950, 1000, 1000); // bottom-right
-        // A rect in the centre should NOT overlap either (no union inflation).
-        assert!(!dr.any_overlap(400, 400, 600, 600, test_level()));
-        // But rects overlapping the corners should.
-        assert!(dr.any_overlap(0, 0, 30, 30, test_level()));
-        assert!(dr.any_overlap(960, 960, 1000, 1000, test_level()));
-    }
+        #[test]
+        fn blit_batching_non_overlapping_reduces_flush_points() {
+            let mut scene = scene_with_image_paint(1920, 1080);
 
-    #[test]
-    fn dirty_rects_padding_sentinel_no_false_positive() {
-        let mut dr = DirtyRects::new();
-        // Push an odd number of rects so sentinel padding is present.
-        dr.push(10, 10, 20, 20);
-        assert_eq!(dr.count, 1);
-        // Data should be padded to 8 u16 values (2 rects).
-        assert_eq!(dr.data.len(), 8);
-        // A query far from the actual rect should not overlap, even though
-        // sentinel padding is present in the second slot.
-        assert!(!dr.any_overlap(500, 500, 600, 600, test_level()));
-        // The actual rect should still be detected.
-        assert!(dr.any_overlap(5, 5, 15, 15, test_level()));
-    }
+            // First image rect at left side.
+            scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+            assert_eq!(
+                scene.flush_points.len(),
+                1,
+                "first blit creates a flush point"
+            );
 
-    #[test]
-    fn dirty_rects_clear_resets() {
-        let mut dr = DirtyRects::new();
-        dr.push(0, 0, 1000, 1000);
-        assert!(dr.any_overlap(500, 500, 600, 600, test_level()));
-        dr.clear();
-        assert!(!dr.any_overlap(500, 500, 600, 600, test_level()));
-    }
+            // A path drawn at the right side (non-overlapping).
+            let mut path = BezPath::new();
+            path.move_to((500.0, 0.0));
+            path.line_to((600.0, 0.0));
+            path.line_to((600.0, 100.0));
+            path.line_to((500.0, 100.0));
+            path.close_path();
+            scene.fill_path(&path);
 
-    #[test]
-    fn dirty_rects_adjacent_no_overlap() {
-        let mut dr = DirtyRects::new();
-        dr.push(0, 0, 50, 50);
-        // Exactly adjacent (touching but not overlapping).
-        assert!(!dr.any_overlap(50, 0, 100, 50, test_level()));
-        assert!(!dr.any_overlap(0, 50, 50, 100, test_level()));
-    }
+            // Second image rect back at the left side (non-overlapping with the path).
+            scene.fill_rect(&Rect::new(0.0, 110.0, 100.0, 210.0));
 
-    // -----------------------------------------------------------------------
-    // Scene-level blit batching tests
-    // -----------------------------------------------------------------------
+            // Because the second blit doesn't overlap the path, it should be batched
+            // into the first flush point (no new flush point created).
+            assert_eq!(
+                scene.flush_points.len(),
+                1,
+                "non-overlapping blit should be batched into existing flush point"
+            );
+            assert_eq!(scene.all_blits.len(), 2, "both blits should be recorded");
+        }
 
-    /// Create a minimal scene and set an OpaqueId image paint so `try_blit_rect` succeeds.
-    fn scene_with_image_paint(width: u16, height: u16) -> Scene {
-        let mut scene = Scene::new(width, height);
-        let image_id = ImageId::new(42);
-        scene.paint = PaintType::Image(vello_common::paint::Image {
-            image: ImageSource::OpaqueId(image_id),
-            sampler: ImageSampler::default(),
-        });
-        scene.paint_visible = true;
-        scene
-    }
+        #[test]
+        fn blit_batching_overlapping_creates_new_flush_point() {
+            let mut scene = scene_with_image_paint(1920, 1080);
 
-    #[test]
-    fn blit_batching_non_overlapping_reduces_flush_points() {
-        let mut scene = scene_with_image_paint(1920, 1080);
+            // First image rect.
+            scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+            assert_eq!(scene.flush_points.len(), 1);
 
-        // First image rect at left side.
-        scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-        assert_eq!(
-            scene.flush_points.len(),
-            1,
-            "first blit creates a flush point"
-        );
+            // A path drawn overlapping the next blit's region.
+            let mut path = BezPath::new();
+            path.move_to((0.0, 0.0));
+            path.line_to((200.0, 0.0));
+            path.line_to((200.0, 200.0));
+            path.line_to((0.0, 200.0));
+            path.close_path();
+            scene.fill_path(&path);
 
-        // A path drawn at the right side (non-overlapping).
-        let mut path = BezPath::new();
-        path.move_to((500.0, 0.0));
-        path.line_to((600.0, 0.0));
-        path.line_to((600.0, 100.0));
-        path.line_to((500.0, 100.0));
-        path.close_path();
-        scene.fill_path(&path);
+            // Second image rect overlaps the path.
+            scene.fill_rect(&Rect::new(50.0, 50.0, 150.0, 150.0));
 
-        // Second image rect back at the left side (non-overlapping with the path).
-        scene.fill_rect(&Rect::new(0.0, 110.0, 100.0, 210.0));
+            // Overlapping blit must create a new flush point.
+            assert_eq!(
+                scene.flush_points.len(),
+                2,
+                "overlapping blit must create a new flush point"
+            );
+        }
 
-        // Because the second blit doesn't overlap the path, it should be batched
-        // into the first flush point (no new flush point created).
-        assert_eq!(
-            scene.flush_points.len(),
-            1,
-            "non-overlapping blit should be batched into existing flush point"
-        );
-        assert_eq!(scene.all_blits.len(), 2, "both blits should be recorded");
-    }
+        #[test]
+        fn blit_batching_scattered_paths_center_blit_batches() {
+            let mut scene = scene_with_image_paint(1920, 1080);
 
-    #[test]
-    fn blit_batching_overlapping_creates_new_flush_point() {
-        let mut scene = scene_with_image_paint(1920, 1080);
+            // First blit at top-left.
+            scene.fill_rect(&Rect::new(0.0, 0.0, 50.0, 50.0));
+            assert_eq!(scene.flush_points.len(), 1);
 
-        // First image rect.
-        scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-        assert_eq!(scene.flush_points.len(), 1);
+            // Two paths at opposite corners.
+            let mut tl_path = BezPath::new();
+            tl_path.move_to((0.0, 100.0));
+            tl_path.line_to((40.0, 100.0));
+            tl_path.line_to((40.0, 140.0));
+            tl_path.line_to((0.0, 140.0));
+            tl_path.close_path();
+            scene.fill_path(&tl_path);
 
-        // A path drawn overlapping the next blit's region.
-        let mut path = BezPath::new();
-        path.move_to((0.0, 0.0));
-        path.line_to((200.0, 0.0));
-        path.line_to((200.0, 200.0));
-        path.line_to((0.0, 200.0));
-        path.close_path();
-        scene.fill_path(&path);
+            let mut br_path = BezPath::new();
+            br_path.move_to((1800.0, 1000.0));
+            br_path.line_to((1900.0, 1000.0));
+            br_path.line_to((1900.0, 1080.0));
+            br_path.line_to((1800.0, 1080.0));
+            br_path.close_path();
+            scene.fill_path(&br_path);
 
-        // Second image rect overlaps the path.
-        scene.fill_rect(&Rect::new(50.0, 50.0, 150.0, 150.0));
+            // A blit in the centre of the screen -- no overlap with either path.
+            scene.fill_rect(&Rect::new(900.0, 500.0, 1000.0, 600.0));
 
-        // Overlapping blit must create a new flush point.
-        assert_eq!(
-            scene.flush_points.len(),
-            2,
-            "overlapping blit must create a new flush point"
-        );
-    }
-
-    #[test]
-    fn blit_batching_scattered_paths_center_blit_batches() {
-        let mut scene = scene_with_image_paint(1920, 1080);
-
-        // First blit at top-left.
-        scene.fill_rect(&Rect::new(0.0, 0.0, 50.0, 50.0));
-        assert_eq!(scene.flush_points.len(), 1);
-
-        // Two paths at opposite corners.
-        let mut tl_path = BezPath::new();
-        tl_path.move_to((0.0, 100.0));
-        tl_path.line_to((40.0, 100.0));
-        tl_path.line_to((40.0, 140.0));
-        tl_path.line_to((0.0, 140.0));
-        tl_path.close_path();
-        scene.fill_path(&tl_path);
-
-        let mut br_path = BezPath::new();
-        br_path.move_to((1800.0, 1000.0));
-        br_path.line_to((1900.0, 1000.0));
-        br_path.line_to((1900.0, 1080.0));
-        br_path.line_to((1800.0, 1080.0));
-        br_path.close_path();
-        scene.fill_path(&br_path);
-
-        // A blit in the centre of the screen -- no overlap with either path.
-        scene.fill_rect(&Rect::new(900.0, 500.0, 1000.0, 600.0));
-
-        assert_eq!(
-            scene.flush_points.len(),
-            1,
-            "centre blit should batch because it doesn't overlap either corner path"
-        );
+            assert_eq!(
+                scene.flush_points.len(),
+                1,
+                "centre blit should batch because it doesn't overlap either corner path"
+            );
+        }
     }
 }

@@ -229,7 +229,7 @@ impl WebGlRenderer {
             }
 
             // Render the blit rects for this flush point.
-            let blits = &scene.all_blits[fp.blits_start..fp.blits_end];
+            let blits = &scene.all_blits[fp.blits.clone()];
             if !blits.is_empty() {
                 self.prepare_blit_rects(blits);
                 let gpu_blit_rects = core::mem::take(&mut self.gpu_blit_rects);
