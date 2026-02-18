@@ -69,23 +69,30 @@ pub struct GpuStrip {
 
 /// GPU instance data for the blit rect pipeline.
 ///
-/// Each instance represents a (potentially rotated) image rectangle that copies
-/// a region from the image atlas directly to the screen. The screen-space quad
-/// is defined by a center point and two column vectors:
+/// Each instance represents a (maybe rotated) image rectangle that copies a region
+/// from the image atlas directly to the screen.
 ///
-/// ```text
+/// To keep this struct lean for GPU upload, we use 2 column vectors to define the
+/// rect-to-screen transform:
+///
+/// ```
 ///   vertex(x, y) = center + col0 * (x - 0.5) + col1 * (y - 0.5)
 /// ```
 ///
-/// where `(x, y)` ranges over `{0,1}^2` for the 4 quad corners.
+/// where `(x, y)` can be `(0, 0)`, `(1, 0)`, `(0, 1)`, or `(1, 1)` (i.e. each
+/// corner of a quad).
 ///
-/// 36 bytes per instance (6 vertex attributes).
+/// You can think of `col0` and `col1` as a pre-evaluated affine so that the shader
+/// need only do a weighted sum instead of matrix multiplication (and sending those
+/// additional bytes to the GPU).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuBlitRect {
     /// Column 0 of the rect-to-screen transform (rect X axis direction × width).
+    /// See above formula.
     pub col0: [f32; 2],
     /// Column 1 of the rect-to-screen transform (rect Y axis direction × height).
+    /// See above formula.
     pub col1: [f32; 2],
     /// Screen-space center of the quad.
     pub center: [f32; 2],
@@ -114,65 +121,91 @@ impl GpuBlitRect {
 /// Resolve a [`BlitRect`] into a GPU-ready [`GpuBlitRect`] by looking up atlas
 /// coordinates and computing the visible image region.
 ///
-/// The visible region is the intersection of the rect (mapped into image space
-/// via `img_origin`) with the image bounds `(0, 0)..(image_w, image_h)`.
-/// When the image doesn't fully cover the rect, the column vectors and center
-/// are adjusted to render only the visible sub-quad.
-///
 /// Returns `None` if the visible region is empty.
 pub(crate) fn resolve_blit_rect(blit: &BlitRect, resource: &ImageResource) -> Option<GpuBlitRect> {
-    // Visible image region: intersect the rect (in image space) with image bounds.
+    // Within the image atlas, derive the coordinates of the region that actually needs to be sampled.
+    // Depending on `img_origin_[x|y]` and `rect[w|h]`, this could be a sub-region of the bounds of the
+    // image in the atlas.
     //
-    // In image space, the rect spans from img_origin to img_origin + rect_size.
-    // The image occupies (0, 0) to (image_w, image_h).
-    let vis_x0 = blit.img_origin_x.max(0.0);
-    let vis_y0 = blit.img_origin_y.max(0.0);
-    let vis_x1 = (blit.img_origin_x + blit.rect_w as f32).min(resource.width as f32);
-    let vis_y1 = (blit.img_origin_y + blit.rect_h as f32).min(resource.height as f32);
+    // For example:
+    //
+    // ```
+    //    ┌─────────────────────┐
+    //    │ ┌────────────────┐  │
+    //    │ │   ┌───────────┐│  │
+    //    │ │   │           ││  │
+    //    │ │   │    src    ││  │
+    //    │ │   │           ││  │
+    //    │ │   └───────────┘│  │
+    //    │ │    Vis region  │  │
+    //    │ └────────────────┘  │
+    //    │  Image              │
+    //    └─────────────────────┘
+    //     Atlas
+    //
+    //
+    //    Edit/view: https://cascii.app/72401
+    // ```
+    //
+    // Note that we don't account for the image offset in the atlas until calculating `src_x` and `src_y` below.
 
-    let src_w = (vis_x1 - vis_x0).round() as u16;
-    let src_h = (vis_y1 - vis_y0).round() as u16;
+    let src_x0 = blit.img_origin_x.max(0.0);
+    let src_y0 = blit.img_origin_y.max(0.0);
+    let src_x1 = (blit.img_origin_x + blit.rect_w as f32).min(resource.width as f32);
+    let src_y1 = (blit.img_origin_y + blit.rect_h as f32).min(resource.height as f32);
+
+    let src_w = (src_x1 - src_x0).round() as u16;
+    let src_h = (src_y1 - src_y0).round() as u16;
 
     if src_w == 0 || src_h == 0 {
         return None;
     }
 
-    // Compute the visible fraction of the rect along each axis.
-    // These range from 0.0 to 1.0 and describe which portion of the
-    // rect's local X/Y axes are covered by the visible image region.
-    let rect_w = blit.rect_w as f32;
-    let rect_h = blit.rect_h as f32;
-    let frac_x0 = (vis_x0 - blit.img_origin_x) / rect_w;
-    let frac_x1 = (vis_x1 - blit.img_origin_x) / rect_w;
-    let frac_y0 = (vis_y0 - blit.img_origin_y) / rect_h;
-    let frac_y1 = (vis_y1 - blit.img_origin_y) / rect_h;
+    // Not all images in the Atlas are in the top right. We need to apply their offset to
+    // get to their top left corner in the atlas.
+    let src_x = resource.offset[0] as u32 + src_x0.round() as u32;
+    let src_y = resource.offset[1] as u32 + src_y0.round() as u32;
 
-    // Adjust the column vectors to the visible sub-region.
-    let vis_scale_x = frac_x1 - frac_x0;
-    let vis_scale_y = frac_y1 - frac_y0;
-    let col0 = [blit.col0[0] * vis_scale_x, blit.col0[1] * vis_scale_x];
-    let col1 = [blit.col1[0] * vis_scale_y, blit.col1[1] * vis_scale_y];
+    // Calculate `col0`, `col1`, and `center`, which, when put together, can describe
+    // the screen-space quad for the visible sub-region.
+    //
+    // How to think about `col0` and `col1`?
+    //
+    // `col0` defines the vector to go from the center to the right edge of the rect.
+    // `col1` defines the vector to go from the center to the bottom edge of the rect.
+    //
+    // Thus, we can put them together with the below formula to get each vertex of a quad:
+    //
+    //   vertex(x, y) = center + col0 * (x - 0.5) + col1 * (y - 0.5)
+    let (col0, col1, center) = {
+        let rect_w = blit.rect_w as f32;
+        let rect_h = blit.rect_h as f32;
+        let frac_x0 = (src_x0 - blit.img_origin_x) / rect_w;
+        let frac_x1 = (src_x1 - blit.img_origin_x) / rect_w;
+        let frac_y0 = (src_y0 - blit.img_origin_y) / rect_h;
+        let frac_y1 = (src_y1 - blit.img_origin_y) / rect_h;
 
-    // Shift the center to the midpoint of the visible sub-region.
-    // In the rect's local coordinate system, the visible midpoint is at
-    // fractional position (mid_frac_x, mid_frac_y) relative to the center
-    // (which is at 0.5, 0.5 in fractional space).
-    let mid_frac_x = (frac_x0 + frac_x1) * 0.5 - 0.5;
-    let mid_frac_y = (frac_y0 + frac_y1) * 0.5 - 0.5;
-    let center = [
-        blit.center_x + blit.col0[0] * mid_frac_x + blit.col1[0] * mid_frac_y,
-        blit.center_y + blit.col0[1] * mid_frac_x + blit.col1[1] * mid_frac_y,
-    ];
+        // Adjust the vectors to the visible sub-region.
+        let vis_scale_x = frac_x1 - frac_x0;
+        let vis_scale_y = frac_y1 - frac_y0;
+        let col0 = [blit.col0[0] * vis_scale_x, blit.col0[1] * vis_scale_x];
+        let col1 = [blit.col1[0] * vis_scale_y, blit.col1[1] * vis_scale_y];
 
-    // Atlas source: image resource offset + visible region start in image space.
-    let atlas_src_x = resource.offset[0] as u32 + vis_x0.round() as u32;
-    let atlas_src_y = resource.offset[1] as u32 + vis_y0.round() as u32;
+        // Shift the center to the midpoint of the visible sub-region.
+        let mid_frac_x = (frac_x0 + frac_x1) * 0.5 - 0.5;
+        let mid_frac_y = (frac_y0 + frac_y1) * 0.5 - 0.5;
+        let center = [
+            blit.center_x + blit.col0[0] * mid_frac_x + blit.col1[0] * mid_frac_y,
+            blit.center_y + blit.col0[1] * mid_frac_x + blit.col1[1] * mid_frac_y,
+        ];
+        (col0, col1, center)
+    };
 
     Some(GpuBlitRect {
         col0,
         col1,
         center,
-        src_xy: atlas_src_x | (atlas_src_y << 16),
+        src_xy: src_x | (src_y << 16),
         src_wh: (src_w as u32) | ((src_h as u32) << 16),
         atlas_index: resource.atlas_id.as_u32(),
     })
