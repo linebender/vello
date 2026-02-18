@@ -107,6 +107,11 @@ pub(crate) struct GpuBlitRect {
 ///
 /// Returns `None` if the visible region is empty.
 pub(crate) fn resolve_blit_rect(blit: &BlitRect, resource: &ImageResource) -> Option<GpuBlitRect> {
+    // TODO: During implementation, it was considered to do this work in the vertex shader directly.
+    // At implementation time, it appeared simpler to do this work in the CPU code and to consider GPU
+    // optimizations for this later. Note that the handful of operations performed below may be faster
+    // than needing to send more memory to the GPU.
+
     // Within the image atlas, derive the coordinates of the region that actually needs to be sampled.
     // Depending on `img_origin_[x|y]` and `rect[w|h]`, this could be a sub-region of the bounds of the
     // image in the atlas.
