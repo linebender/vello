@@ -333,7 +333,7 @@ pub(crate) struct SchedulerState {
     /// the size of the bounding box of the filter layer. For example, let's say that the
     /// bounding box is from (256, 8) to (512, 12). In this case, we will allocate a texture of
     /// size (256, 4). However, since for example the original x coordinates range from 256-512, we
-    /// need to translate all of them by -x_offset so that they are correctly positioned in the
+    /// need to translate all of them by -`x_offset` so that they are correctly positioned in the
     /// new texture.
     strip_offset: (i32, i32),
 }
@@ -715,7 +715,7 @@ impl Scheduler {
                                 // outside of the bounding box during coarse rasterization.
 
                                 let copy_from_filter_layer =
-                                    |scheduler: &mut Scheduler, state: &mut SchedulerState| {
+                                    |scheduler: &mut Self, state: &mut SchedulerState| {
                                         if filter_textures.bbox.contains(x, y) {
                                             let cmd = CmdFill {
                                                 x: 0,

@@ -163,7 +163,7 @@ impl Renderer {
         }
 
         // Iterate through filter nodes and allocate textures
-        let mut current_offset = 0u32;
+        let mut current_offset = 0_u32;
         for node in &render_graph.nodes {
             // Unfortunately, during coarse rasterization it can happen that filter layers
             // with a zero-sized bounding box are allocated. Trying to allocate such a texture
@@ -699,7 +699,7 @@ impl Renderer {
 struct Programs {
     /// Pipelines for rendering wide tile commands.
     /// Index 0: native surface format (for final view and slot textures).
-    /// Index 1: Rgba8Unorm (for filter intermediate textures).
+    /// Index 1: `Rgba8Unorm` (for filter intermediate textures).
     strip_pipelines: [RenderPipeline; 2],
     /// Bind group layout for strip draws
     strip_bind_group_layout: BindGroupLayout,
@@ -746,7 +746,7 @@ struct GpuResources {
     atlas_bind_group: BindGroup,
     /// Individual filter atlas textures for intermediate filter textures.
     /// Each atlas layer is a separate D2 texture to avoid GLES backend limitations
-    /// with D2Array layer views.
+    /// with `D2Array` layer views.
     filter_atlas_textures: Vec<Texture>,
     /// Texture for encoded paints
     encoded_paints_texture: Texture,
@@ -802,7 +802,7 @@ struct ClearSlotsConfig {
 }
 
 /// Per-instance vertex data for filter rendering
-/// Keep in sync with FilterInstanceData in vello_sparse_shaders/shaders/filters.wgsl
+/// Keep in sync with `FilterInstanceData` in `vello_sparse_shaders/shaders/filters.wgsl`
 #[repr(C, align(16))]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct FilterInstanceData {
@@ -1510,7 +1510,7 @@ impl Programs {
     }
 
     /// Create individual D2 textures for the filter atlas (one per layer).
-    /// This avoids GLES backend limitations with D2Array layer views.
+    /// This avoids GLES backend limitations with `D2Array` layer views.
     fn create_filter_atlas_textures(
         device: &Device,
         width: u32,

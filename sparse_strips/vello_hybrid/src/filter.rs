@@ -77,7 +77,7 @@ fn pack_with_gaussian_params(
 // for more information.
 
 /// Maximum number of linear-sampling tap pairs per side.
-const MAX_TAPS_PER_SIDE: usize = (MAX_KERNEL_SIZE / 2 + 1) / 2;
+const MAX_TAPS_PER_SIDE: usize = (MAX_KERNEL_SIZE / 2).div_ceil(2);
 
 /// A linear-sampling kernel derived from a discrete Gaussian kernel.
 struct LinearKernel {
@@ -98,9 +98,9 @@ impl LinearKernel {
         let radius = kernel_size / 2;
         let center_weight = kernel[radius];
 
-        let mut weights = [0.0f32; MAX_TAPS_PER_SIDE];
-        let mut offsets = [0.0f32; MAX_TAPS_PER_SIDE];
-        let mut n_taps = 0u8;
+        let mut weights = [0.0_f32; MAX_TAPS_PER_SIDE];
+        let mut offsets = [0.0_f32; MAX_TAPS_PER_SIDE];
+        let mut n_taps = 0_u8;
 
         // The kernel is symmetric, so we can only process the positive side.
         let positive_side = &kernel[radius + 1..kernel_size];
