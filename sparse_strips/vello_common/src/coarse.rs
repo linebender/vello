@@ -721,6 +721,8 @@ impl<const MODE: u8> Wide<MODE> {
         let mut layer = self.layer_stack.pop().unwrap();
 
         if let Some(filter) = &layer.filter {
+            let mut final_bbox = WideTilesBbox::inverted();
+
             // Update render graph node with final bounding box
             if let Some(node_id) = self.filter_node_stack.pop() {
                 // Get the transform from the FilterLayer node and scale the expansion by it
@@ -740,7 +742,7 @@ impl<const MODE: u8> Wide<MODE> {
                         self.height_tiles(),
                     );
                     let clip_bbox = self.active_bbox();
-                    let final_bbox = expanded_bbox.intersect(clip_bbox);
+                    final_bbox = expanded_bbox.intersect(clip_bbox);
 
                     // Update both the local layer and the render graph node
                     layer.wtile_bbox = final_bbox;
@@ -752,8 +754,8 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Generate filter commands for each tile (used for non-graph path rendering)
             // Apply filter BEFORE clipping (per SVG spec: filter → clip → mask → opacity → blend)
-            for x in 0..self.width_tiles() {
-                for y in 0..self.height_tiles() {
+            for x in final_bbox.x0()..final_bbox.x1() {
+                for y in final_bbox.y0()..final_bbox.y1() {
                     self.get_mut(x, y).filter(layer.layer_id, filter.clone());
                 }
             }
