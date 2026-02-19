@@ -6,7 +6,7 @@
 use crate::clip::{PathDataRef, intersect};
 use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
-use crate::kurbo::{Affine, PathEl, Rect, Stroke};
+use crate::kurbo::{Affine, PathEl, Stroke};
 use crate::peniko::Fill;
 use crate::strip::Strip;
 use crate::tile::Tiles;
@@ -176,18 +176,17 @@ impl StripGenerator {
         }
     }
 
-    /// Returns the screen-space bounding box of the last flattened path.
+    /// Returns the screen-space bounding box of the last flattened path as `[x0, y0, x1, y1]`.
     ///
     /// Only valid immediately after [`Self::generate_filled_path`] or
     /// [`Self::generate_stroked_path`].
     #[inline(always)]
-    pub fn last_line_buf_bbox(&self) -> Rect {
-        // TODO: Consider keeping track of this during flattening.
+    pub fn last_line_buf_bbox(&self) -> [f32; 4] {
         dispatch!(self.level, simd => Self::line_buf_bbox_impl(simd, &self.line_buf))
     }
 
     #[inline(always)]
-    fn line_buf_bbox_impl<S: Simd>(s: S, line_buf: &[Line]) -> Rect {
+    fn line_buf_bbox_impl<S: Simd>(s: S, line_buf: &[Line]) -> [f32; 4] {
         let mut mins = f32x4::simd_from([f32::INFINITY; 4], s);
         let mut maxs = f32x4::simd_from([f32::NEG_INFINITY; 4], s);
         for line in line_buf {
@@ -196,11 +195,12 @@ impl StripGenerator {
             maxs = maxs.max(v);
         }
         // Fold lanes: mins = [min_p0x, min_p0y, min_p1x, min_p1y], same for maxs.
-        let x0 = mins.val[0].min(mins.val[2]);
-        let y0 = mins.val[1].min(mins.val[3]);
-        let x1 = maxs.val[0].max(maxs.val[2]);
-        let y1 = maxs.val[1].max(maxs.val[3]);
-        Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64)
+        [
+            mins.val[0].min(mins.val[2]),
+            mins.val[1].min(mins.val[3]),
+            maxs.val[0].max(maxs.val[2]),
+            maxs.val[1].max(maxs.val[3]),
+        ]
     }
 
     /// Reset the strip generator.

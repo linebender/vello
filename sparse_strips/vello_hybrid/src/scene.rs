@@ -352,13 +352,17 @@ impl Scene {
 
     /// Record a screen-space bounding box as dirty for blit rect batching.
     ///
+    /// `bbox` is `[x0, y0, x1, y1]` in screen-space f32 coordinates.
+    ///
     /// In other words, if a blit wants to render over `bbox`, we must first flush the current strips.
     #[inline(always)]
-    fn push_dirty_rect(&mut self, bbox: Rect) {
-        let x0 = (bbox.x0.floor().max(0.0) as u32).min(u32::from(self.width)) as u16;
-        let y0 = (bbox.y0.floor().max(0.0) as u32).min(u32::from(self.height)) as u16;
-        let x1 = (bbox.x1.ceil().max(0.0) as u32).min(u32::from(self.width)) as u16;
-        let y1 = (bbox.y1.ceil().max(0.0) as u32).min(u32::from(self.height)) as u16;
+    fn push_dirty_rect(&mut self, bbox: [f32; 4]) {
+        let w = u32::from(self.width);
+        let h = u32::from(self.height);
+        let x0 = (bbox[0].floor().max(0.0) as u32).min(w) as u16;
+        let y0 = (bbox[1].floor().max(0.0) as u32).min(h) as u16;
+        let x1 = (bbox[2].ceil().max(0.0) as u32).min(w) as u16;
+        let y1 = (bbox[3].ceil().max(0.0) as u32).min(h) as u16;
         self.strips_dirty_rects.push(x0, y0, x1, y1);
     }
 
