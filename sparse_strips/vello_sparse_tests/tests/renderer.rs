@@ -425,9 +425,9 @@ impl Renderer for HybridRenderer {
         }
 
         let render_hints = if use_blit_pipeline {
-            vello_hybrid::RenderHints::new()
+            vello_hybrid::RenderHints::new().expect_only_default_blending()
         } else {
-            vello_hybrid::RenderHints::new().no_blends()
+            vello_hybrid::RenderHints::new()
         };
         let scene = Scene::new_with(
             width,
@@ -633,9 +633,9 @@ impl Renderer for HybridRenderer {
         }
 
         let render_hints = if use_blit_pipeline {
-            vello_hybrid::RenderHints::new()
+            vello_hybrid::RenderHints::new().expect_only_default_blending()
         } else {
-            vello_hybrid::RenderHints::new().no_blends()
+            vello_hybrid::RenderHints::new()
         };
         let scene = Scene::new_with(
             width,

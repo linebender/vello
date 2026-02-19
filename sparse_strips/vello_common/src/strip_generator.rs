@@ -6,12 +6,13 @@
 use crate::clip::{PathDataRef, intersect};
 use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
-use crate::kurbo::{Affine, PathEl, Rect, Shape, Stroke};
+use crate::kurbo::{Affine, PathEl, Rect, Stroke};
 use crate::peniko::Fill;
 use crate::strip::Strip;
 use crate::tile::Tiles;
 use crate::{flatten, strip};
 use alloc::vec::Vec;
+use fearless_simd::{Simd, SimdFrom, dispatch, f32x4};
 use peniko::kurbo::StrokeCtx;
 
 /// A storage for storing strip-related data.
@@ -175,12 +176,31 @@ impl StripGenerator {
         }
     }
 
-    /// Returns the bounding box of the last expanded stroke path (in local coordinates).
+    /// Returns the screen-space bounding box of the last flattened path.
     ///
-    /// Only valid immediately after [`Self::generate_stroked_path`].
+    /// Only valid immediately after [`Self::generate_filled_path`] or
+    /// [`Self::generate_stroked_path`].
     #[inline(always)]
-    pub fn last_stroke_bbox(&self) -> Rect {
-        self.stroke_ctx.output().bounding_box()
+    pub fn last_line_buf_bbox(&self) -> Rect {
+        // TODO: Consider keeping track of this during flattening.
+        dispatch!(self.level, simd => Self::line_buf_bbox_impl(simd, &self.line_buf))
+    }
+
+    #[inline(always)]
+    fn line_buf_bbox_impl<S: Simd>(s: S, line_buf: &[Line]) -> Rect {
+        let mut mins = f32x4::simd_from([f32::INFINITY; 4], s);
+        let mut maxs = f32x4::simd_from([f32::NEG_INFINITY; 4], s);
+        for line in line_buf {
+            let v = f32x4::simd_from([line.p0.x, line.p0.y, line.p1.x, line.p1.y], s);
+            mins = mins.min(v);
+            maxs = maxs.max(v);
+        }
+        // Fold lanes: mins = [min_p0x, min_p0y, min_p1x, min_p1y], same for maxs.
+        let x0 = mins.val[0].min(mins.val[2]);
+        let y0 = mins.val[1].min(mins.val[3]);
+        let x1 = maxs.val[0].max(maxs.val[2]);
+        let y1 = maxs.val[1].max(maxs.val[3]);
+        Rect::new(x0 as f64, y0 as f64, x1 as f64, y1 as f64)
     }
 
     /// Reset the strip generator.

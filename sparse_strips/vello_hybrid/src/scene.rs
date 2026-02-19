@@ -77,7 +77,7 @@ impl Default for RenderHints {
 }
 
 impl RenderHints {
-    const NO_BLENDS: u32 = 1 << 0;
+    const DEFAULT_BLENDING_ONLY: u32 = 1 << 0;
 
     /// Create a new set of render hints.
     #[inline(always)]
@@ -85,15 +85,21 @@ impl RenderHints {
         Self(0)
     }
 
-    /// The scene is guaranteed to not contain any blend modes.
+    /// ⚠️ Caller guarantees that the scene will only use the default blend mode (normal, source-over). ⚠️
+    ///
+    /// This enables the blit rect fast path.
+    ///
+    /// # Panics
+    ///
+    /// The renderer will panic if a non-default blend mode is used.
     #[inline(always)]
-    pub fn no_blends(self) -> Self {
-        Self(self.0 | Self::NO_BLENDS)
+    pub fn expect_only_default_blending(self) -> Self {
+        Self(self.0 | Self::DEFAULT_BLENDING_ONLY)
     }
 
     #[inline(always)]
     fn blit_rect_pipeline_enabled(&self) -> bool {
-        (self.0 & Self::NO_BLENDS) == 0
+        (self.0 & Self::DEFAULT_BLENDING_ONLY) != 0
     }
 }
 
@@ -374,20 +380,22 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         self.enter_strip_mode();
-        if self.render_hints.blit_rect_pipeline_enabled() {
-            self.push_dirty_rect(transform.transform_rect_bbox(path.bounding_box()));
+        {
+            let strip_storage = &mut self.strip_storage.borrow_mut();
+            self.strip_generator.generate_filled_path(
+                path,
+                fill_rule,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                self.clip_context.get(),
+            );
         }
-        let wide = &mut self.wide;
-        let strip_storage = &mut self.strip_storage.borrow_mut();
-        self.strip_generator.generate_filled_path(
-            path,
-            fill_rule,
-            transform,
-            aliasing_threshold,
-            strip_storage,
-            self.clip_context.get(),
-        );
-        wide.generate(
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            self.push_dirty_rect(self.strip_generator.last_line_buf_bbox());
+        }
+        let strip_storage = self.strip_storage.borrow();
+        self.wide.generate(
             &strip_storage.strips,
             paint,
             self.blend_mode,
@@ -467,7 +475,7 @@ impl Scene {
         }
 
         if self.render_hints.blit_rect_pipeline_enabled() {
-            self.push_dirty_rect(self.strip_generator.last_stroke_bbox());
+            self.push_dirty_rect(self.strip_generator.last_line_buf_bbox());
         }
     }
 
