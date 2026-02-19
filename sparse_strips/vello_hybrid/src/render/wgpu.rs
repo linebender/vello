@@ -27,7 +27,7 @@ use crate::multi_atlas::AtlasId;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
-    image_cache::{ImageCache, ImageResource},
+    image_cache::{ImageCache, ImageResource, PendingImageUpload, PixmapRegister},
     render::{
         Config,
         common::{
@@ -93,6 +93,14 @@ pub struct Renderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
+    /// Registry mapping `Arc<Pixmap>` pointer addresses to allocated `ImageId`s.
+    ///
+    /// Persists across frames so that the same `Arc<Pixmap>` is only uploaded once.
+    pixmap_register: PixmapRegister,
+    /// Pixmaps allocated in the image cache but not yet uploaded to the GPU atlas.
+    ///
+    /// Drained and uploaded at the start of each render call, before scheduling.
+    pending_uploads: Vec<PendingImageUpload>,
 }
 
 impl Renderer {
@@ -126,6 +134,8 @@ impl Renderer {
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
+            pixmap_register: PixmapRegister::default(),
+            pending_uploads: Vec::new(),
         }
     }
 
@@ -143,6 +153,7 @@ impl Renderer {
         view: &TextureView,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        self.upload_pending_images(device, queue, encoder);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -170,6 +181,7 @@ impl Renderer {
             &self.paint_idxs,
         );
         self.gradient_cache.maintain();
+        self.pixmap_register.maintain(&mut self.image_cache);
 
         result
     }
@@ -217,6 +229,7 @@ impl Renderer {
         };
 
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        self.upload_pending_images(device, queue, &mut encoder);
         self.programs.prepare(
             device,
             queue,
@@ -263,6 +276,7 @@ impl Renderer {
             self.scheduler
                 .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs);
         self.gradient_cache.maintain();
+        self.pixmap_register.maintain(&mut self.image_cache);
 
         // Restore the real atlas bind group.
         core::mem::swap(
@@ -442,13 +456,34 @@ impl Renderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    if let ImageSource::OpaqueId(image_id) = img.source {
-                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
-                        if let Some(image_resource) = image_resource {
-                            let image_paint = self.encode_image_paint(img, image_resource);
-                            self.encoded_paints[encoded_paint_idx] = image_paint;
-                            current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
-                        }
+                    let image_id = match &img.source {
+                        ImageSource::OpaqueId(id) => Some(*id),
+                        ImageSource::Pixmap(pixmap) => match self.pixmap_register.get(pixmap) {
+                            Some(id) => Some(id),
+                            None => {
+                                match self.image_cache.allocate(pixmap.width(), pixmap.height()) {
+                                    Ok(id) => {
+                                        self.pixmap_register.insert(pixmap, id);
+                                        self.pending_uploads.push(PendingImageUpload {
+                                            image_id: id,
+                                            pixmap: pixmap.clone(),
+                                        });
+                                        Some(id)
+                                    }
+                                    Err(e) => {
+                                        log::warn!("Failed to allocate pixmap in atlas: {e:?}");
+                                        None
+                                    }
+                                }
+                            }
+                        },
+                    };
+                    if let Some(image_id) = image_id
+                        && let Some(image_resource) = self.image_cache.get(image_id)
+                    {
+                        let image_paint = self.encode_image_paint(img, image_resource);
+                        self.encoded_paints[encoded_paint_idx] = image_paint;
+                        current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                     }
                 }
                 EncodedPaint::Gradient(gradient) => {
@@ -474,6 +509,34 @@ impl Renderer {
             }
         }
         self.paint_idxs[encoded_paints.len()] = current_idx;
+    }
+
+    /// Upload any pixmaps that were allocated during [`Self::prepare_gpu_encoded_paints`]
+    /// but haven't been written to the GPU atlas yet.
+    fn upload_pending_images(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+    ) {
+        let uploads: Vec<_> = self.pending_uploads.drain(..).collect();
+        for upload in uploads {
+            Programs::maybe_resize_atlas_texture_array(
+                device,
+                encoder,
+                &mut self.programs.resources,
+                &self.programs.atlas_bind_group_layout,
+                self.image_cache.atlas_count() as u32,
+            );
+            self.write_to_atlas(
+                device,
+                queue,
+                encoder,
+                upload.image_id,
+                &upload.pixmap,
+                None,
+            );
+        }
     }
 
     fn encode_image_paint(
