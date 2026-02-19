@@ -188,7 +188,7 @@ impl Renderer {
             &self.programs.atlas_bind_group_layout,
             self.image_cache.atlas_count() as u32,
         );
-        Programs::maybe_grow_filter_atlas_textures(
+        Programs::maybe_resize_filter_atlas_textures(
             device,
             &mut self.programs.resources,
             self.filter_context.image_cache.atlas_count() as u32,
@@ -1822,7 +1822,7 @@ impl Programs {
         }
     }
 
-    fn maybe_grow_filter_atlas_textures(
+    fn maybe_resize_filter_atlas_textures(
         device: &Device,
         resources: &mut GpuResources,
         required_atlas_count: u32,
@@ -1965,9 +1965,10 @@ impl Programs {
         if filter_context.is_empty() {
             return;
         }
+
         let filter_texture = &self.resources.filter_data_texture;
-        let filter_texture_width = filter_texture.width();
-        let filter_texture_height = filter_texture.height();
+        let width = filter_texture.width();
+        let height = filter_texture.height();
 
         filter_context.serialize_to_buffer(&mut self.filter_data);
         queue.write_texture(
@@ -1980,13 +1981,13 @@ impl Programs {
             &self.filter_data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), equivalent to bit shift of 4
-                bytes_per_row: Some(filter_texture_width << 4),
-                rows_per_image: Some(filter_texture_height),
+                // Since 16 bytes per RGBA32Uint texel.
+                bytes_per_row: Some(width << 4),
+                rows_per_image: Some(height),
             },
             Extent3d {
-                width: filter_texture_width,
-                height: filter_texture_height,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
         );
@@ -2107,16 +2108,17 @@ impl RendererContext<'_> {
                     .initial_image_id;
                 let resources = self.filter_context.image_cache.get(image_id).unwrap();
 
-                // Create a view of the specific filter atlas texture
                 let filter_texture = &self.programs.resources.filter_atlas_textures
                     [resources.atlas_id.as_u32() as usize];
                 let view = filter_texture.create_view(&TextureViewDescriptor::default());
 
+                // TODO: Are those worth caching? However, `alphas_text_width_bits` can change
+                // across frames, so it might not be worth it?
                 let atlas_size = filter_texture.size();
                 let atlas_config_buffer =
                     self.device
                         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Temporary Atlas Config Buffer"),
+                            label: Some("Initial Atlas Config Buffer"),
                             contents: bytemuck::bytes_of(&Config {
                                 width: atlas_size.width,
                                 height: atlas_size.height,
@@ -2133,7 +2135,7 @@ impl RendererContext<'_> {
                         });
 
                 let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Temporary Atlas Bind Group"),
+                    label: Some("Initial Atlas Bind Group"),
                     layout: &self.programs.strip_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
@@ -2183,6 +2185,7 @@ impl RendererContext<'_> {
             timestamp_writes: None,
         });
         let pipeline_idx = match target {
+            // Intermediate textures use RGBA.
             RenderTarget::Output(OutputTarget::IntermediateTexture(_)) => 1,
             _ => 0,
         };
