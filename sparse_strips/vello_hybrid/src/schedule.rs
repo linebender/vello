@@ -184,7 +184,7 @@ use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, LayerKind, WideTile},
     encode::EncodedPaint,
-    paint::{ImageSource, Paint},
+    paint::Paint,
     tile::Tile,
 };
 
@@ -1039,17 +1039,14 @@ impl Scheduler {
                 let paint_idx = paint_idxs.get(paint_id).copied().unwrap();
 
                 match scene.encoded_paints.get(paint_id) {
-                    Some(EncodedPaint::Image(encoded_image)) => match &encoded_image.source {
-                        ImageSource::OpaqueId(_) => {
-                            let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
-                                | (PAINT_TYPE_IMAGE << 27)
-                                | (paint_idx & 0x07FFFFFF);
-                            let scene_strip_xy =
-                                ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
-                            (scene_strip_xy, paint_packed)
-                        }
-                        _ => unimplemented!("Unsupported image source"),
-                    },
+                    Some(EncodedPaint::Image(_encoded_image)) => {
+                        let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
+                            | (PAINT_TYPE_IMAGE << 27)
+                            | (paint_idx & 0x07FFFFFF);
+                        let scene_strip_xy =
+                            ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                        (scene_strip_xy, paint_packed)
+                    }
                     Some(EncodedPaint::Gradient(gradient)) => {
                         use vello_common::encode::EncodedKind;
                         let gradient_paint_type = match &gradient.kind {
