@@ -327,12 +327,19 @@ pub(crate) struct SchedulerState {
     tile_state: TileState,
     /// Pixel offset to subtract from strip coordinates.
     ///
-    /// We need this because when rendering filtered layers, we only allocate a texture
+    /// We need this when rendering filtered layers, for two reasons:
+    ///
+    /// 1) When rendering filtered layers, we only allocate a texture
     /// the size of the bounding box of the filter layer. For example, let's say that the
     /// bounding box is from (256, 8) to (512, 12). In this case, we will allocate a texture of
     /// size (256, 4). However, since for example the original x coordinates range from 256-512, we
-    /// need to translate all of them by -`x_offset` so that they are correctly positioned in the
-    /// new texture.
+    /// need to translate all of them by a negative offset so they are positioned correctly.
+    ///
+    /// 2) Secondly, filter textures can be allocated anywhere on the filter atlas. In case the
+    /// top-left does not land on (0, 0), we need to apply a positive offset to account for the
+    /// shift on the atlas.
+    ///
+    /// So the offset can either be positive or negative.
     strip_offset: (i32, i32),
 }
 
@@ -591,20 +598,19 @@ impl Scheduler {
                     wtile_bbox,
                     ..
                 } => {
-                    // We need to apply two offsets:
-                    // First, we need to apply an offset to account for the fact that the
-                    // bbox of the filter layer itself might not start at (0, 0), but we only
-                    // allocate a texture large enough to hold the tight bounding box of the filter
-                    // layer.
-                    // Secondly, we need to apply another offset because our intermediate textures
-                    // are stored in the image atlas, where it could be allocated at any position.
                     let image_id = filter_context
                         .filter_textures
                         .get(layer_id)
                         .unwrap()
                         .initial_image_id;
                     let resources = filter_context.image_cache.get(image_id).unwrap();
-                    // TODO: Move offset into the render_strips shader.
+                    // We need to apply two offsets:
+                    // First, we need to apply an offset to account for the fact that the
+                    // bbox of the filter layer itself might not start at (0, 0), but we only
+                    // allocate a texture large enough to hold the tight bounding box of the filter
+                    // layer.
+                    // Secondly, we need to apply another offset because our intermediate textures
+                    // are stored in an atlas, where it could be allocated at any position.
                     state.strip_offset = (
                         (wtile_bbox.x0() * WideTile::WIDTH) as i32 - resources.offset[0] as i32,
                         (wtile_bbox.y0() * Tile::HEIGHT) as i32 - resources.offset[1] as i32,
@@ -659,6 +665,7 @@ impl Scheduler {
 
                     while cmd_idx < ranges.render_range.end {
                         let cmd = &wide_tile.cmds[cmd_idx];
+
                         match cmd {
                             Cmd::Fill(fill) => {
                                 self.do_fill(
@@ -696,65 +703,48 @@ impl Scheduler {
 
                                 self.do_push_buf(state, renderer, *blend_into_dest)?;
 
-                                // Currently, during coarse rasterization, we push this command for
-                                // all buffers, even though strictly speaking only the wide tiles
-                                // that are touched by the filter layer need to be affected. The
-                                // problem in vello_hybrid is that we are treating filter layers
-                                // as normal images, where we only have the extend modes pad/repeat/reflect/
-                                // Therefore, for wide tiles that are outside the filter bbox, we will
-                                // still sample color values from the filter layer texture using the extend
-                                // mode, which is obviously not what we want.
-                                // Therefore, only apply the fill command if we are actually inside
-                                // the bbox of the filter layer.
-                                // TODO: In the future, we could either
-                                // 1) add an extend mode "transparent" that always samples a transparent pixel
-                                // or better
-                                // 2) Don't emit the command in the first place for wide tiles
-                                // outside of the bounding box during coarse rasterization.
-
                                 let copy_from_filter_layer =
                                     |scheduler: &mut Self, state: &mut SchedulerState| {
-                                        if filter_textures.bbox.contains(x, y) {
-                                            let cmd = CmdFill {
-                                                x: 0,
-                                                width: WideTile::WIDTH,
-                                                // Not used in `do_fill_with`.
-                                                attrs_idx: 0,
-                                            };
+                                        let cmd = CmdFill {
+                                            x: 0,
+                                            width: WideTile::WIDTH,
+                                            // Not used in `do_fill_with`.
+                                            attrs_idx: 0,
+                                        };
 
-                                            let scene_strip_x = wide_tile_x;
-                                            let scene_strip_y = wide_tile_y;
+                                        let scene_strip_x = wide_tile_x;
+                                        let scene_strip_y = wide_tile_y;
 
-                                            let encoded_paint = encoded_paints
-                                                .get(filter_textures.paint_idx as usize)
-                                                .expect("filter paint not found");
+                                        let encoded_paint = encoded_paints
+                                            .get(filter_textures.paint_idx as usize)
+                                            .expect("filter paint not found");
 
-                                            let paint_tex_idx =
-                                                paint_idxs[filter_textures.paint_idx as usize];
-                                            let (payload, paint) = Self::process_encoded_paint(
-                                                encoded_paint,
-                                                paint_tex_idx,
-                                                scene_strip_x,
-                                                scene_strip_y,
-                                            );
+                                        let paint_tex_idx =
+                                            paint_idxs[filter_textures.paint_idx as usize];
+                                        let (payload, paint) = Self::process_encoded_paint(
+                                            encoded_paint,
+                                            paint_tex_idx,
+                                            scene_strip_x,
+                                            scene_strip_y,
+                                        );
 
-                                            scheduler.do_fill_with(
-                                                state,
-                                                &cmd,
-                                                scene_strip_x,
-                                                scene_strip_y,
-                                                payload,
-                                                paint,
-                                            );
-                                        }
+                                        scheduler.do_fill_with(
+                                            state,
+                                            &cmd,
+                                            scene_strip_x,
+                                            scene_strip_y,
+                                            payload,
+                                            paint,
+                                        );
                                     };
 
+                                // Pretty much analogously to how it's done in vello_cpu.
                                 match wide_tile.cmds.get(cmd_idx + 1) {
                                     Some(Cmd::PushZeroClip(id)) if *id == *child_layer_id => {
-                                        cmd_idx = filtered_ranges.full_range.end - 2;
+                                        cmd_idx = filtered_ranges.full_range.end - 1;
+                                        continue;
                                     }
 
-                                    // Partial clip: push the clip buffer, then composite the filtered layer
                                     Some(Cmd::PushBuf(LayerKind::Clip(_), is_blend_dest)) => {
                                         self.do_push_buf(state, renderer, *is_blend_dest)?;
                                         cmd_idx += 1;
