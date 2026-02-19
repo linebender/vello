@@ -142,10 +142,6 @@ impl Renderer {
         }
     }
 
-    /// Prepares filter textures by allocating them from the image atlas.
-    ///
-    /// This must be called before `prepare_gpu_encoded_paints` to ensure filter
-    /// layer textures are allocated and available for rendering.
     fn prepare_filter_textures(
         &mut self,
         render_graph: &RenderGraph,
@@ -643,9 +639,13 @@ struct GpuResources {
     atlas_texture_array_view: TextureView,
     /// Bind group for atlas textures (as texture array)
     atlas_bind_group: BindGroup,
-    /// Individual filter atlas textures for intermediate filter textures.
-    /// Each atlas layer is a separate D2 texture to avoid GLES backend limitations
-    /// with `D2Array` layer views.
+    /// The textures storing intermediate textures for filter layers. Basically like image atlas, but for
+    /// filter textures. The reason why we store those as a vector of individual textures instead of a texture
+    /// array is that in the WebGL backend, there is the limitation that you cannot pass one specific
+    /// texture of the array (unless it's the very first texture in the array) to the input bind group.
+    /// You have to pass the whole array (like we do for the image atlas in `render_strips` right now),
+    /// which we can't do because for the filter pipeline, it can happen that the input and color attachment
+    /// both live in this array (but on distinct layers).
     filter_atlas_textures: Vec<Texture>,
     /// Texture for encoded paints
     encoded_paints_texture: Texture,
@@ -656,9 +656,7 @@ struct GpuResources {
     /// Bind group for gradient texture
     gradient_bind_group: BindGroup,
     /// Texture for filter data
-    // TODO: Maybe unify with encoded paint texture? However, encoded paints currently have variable
-    // offsets, while each filters always have the same size.
-    filter_texture: Texture,
+    filter_data_texture: Texture,
     /// Bind group for filter texture
     filter_bind_group: BindGroup,
     /// Linear sampler for filter bilinear texture sampling
@@ -671,7 +669,7 @@ struct GpuResources {
 
     /// Buffer for slot indices used in `clear_slots`
     clear_slot_indices_buffer: Buffer,
-    /// Buffer for filter instance data (per-filter vertex attributes)
+    /// Buffer for filter instance data
     filter_instance_buffer: Buffer,
     // Bind groups for rendering with clip buffers
     slot_bind_groups: [BindGroup; 3],
@@ -683,8 +681,6 @@ struct GpuResources {
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
-
-// TODO: Use texture arrays?
 
 /// Config for the clear slots pipeline
 #[repr(C)]
@@ -701,20 +697,26 @@ struct ClearSlotsConfig {
 }
 
 /// Per-instance vertex data for filter rendering
-/// Keep in sync with `FilterInstanceData` in `vello_sparse_shaders/shaders/filters.wgsl`
 #[repr(C, align(16))]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct FilterInstanceData {
+    /// Top-left pixel offset of the source region in `in_tex` of the atlas texture it lives in.
     src_offset: [u32; 2],
+    /// Width and height (in pixels) of the source region in `in_tex`.
     src_size: [u32; 2],
+    /// Top-left pixel offset of the destination region in the output atlas.
     dest_offset: [u32; 2],
+    /// Width and height (in pixels) of the destination region.
     dest_size: [u32; 2],
+    /// Full dimensions of the destination atlas texture (used for NDC conversion).
     dest_atlas_size: [u32; 2],
+    /// Texel offset into `filter_data` where this filter's parameters begin.
     filter_offset: u32,
-    /// Offset of the original (unfiltered) content in `original_tex`.
-    /// Only used in pass 2 for drop shadow compositing.
+    /// Top-left pixel offset of the original texture in `original_tex` of the atlas texture it lives in.
     original_offset: [u32; 2],
+    /// Width and height (in pixels) of the original content region.
     original_size: [u32; 2],
+    /// Padding for 16-byte alignment.
     _padding: u32,
 }
 
@@ -1278,7 +1280,7 @@ impl Programs {
             encoded_paints_bind_group,
             gradient_texture,
             gradient_bind_group,
-            filter_texture,
+            filter_data_texture: filter_texture,
             filter_bind_group,
             filter_sampler,
             view_config_buffer,
@@ -1784,10 +1786,10 @@ impl Programs {
         }
         let required_filter_height = required_texels.div_ceil(max_texture_dimension_2d);
         debug_assert!(
-            self.resources.filter_texture.width() == max_texture_dimension_2d,
+            self.resources.filter_data_texture.width() == max_texture_dimension_2d,
             "Filter texture width must match max texture dimensions"
         );
-        let current_filter_height = self.resources.filter_texture.height();
+        let current_filter_height = self.resources.filter_data_texture.height();
         if required_filter_height > current_filter_height {
             assert!(
                 required_filter_height <= max_texture_dimension_2d,
@@ -1801,7 +1803,7 @@ impl Programs {
                 max_texture_dimension_2d,
                 required_filter_height,
             );
-            self.resources.filter_texture = filter_texture;
+            self.resources.filter_data_texture = filter_texture;
 
             // Since the filter texture has changed, we need to update the filter bind group.
             self.resources.filter_bind_group = Self::create_filter_bind_group(
@@ -1809,7 +1811,7 @@ impl Programs {
                 &self.filter_bind_group_layout,
                 &self
                     .resources
-                    .filter_texture
+                    .filter_data_texture
                     .create_view(&TextureViewDescriptor::default()),
             );
         }
@@ -2031,7 +2033,7 @@ impl Programs {
         if filter_context.is_empty() {
             return;
         }
-        let filter_texture = &self.resources.filter_texture;
+        let filter_texture = &self.resources.filter_data_texture;
         let filter_texture_width = filter_texture.width();
         let filter_texture_height = filter_texture.height();
 
