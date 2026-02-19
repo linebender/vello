@@ -109,7 +109,7 @@ futures-intrusive = "0.5.0"
 hashbrown = { version = "0.16.1", default-features = false, features = ["default-hasher"] }
 smallvec = "1.15.1"
 static_assertions = "1.1.0"
-thiserror = "2.0.17"
+thiserror = { version = "2.0.17", default-features = false }
 oxipng = { version = "9.1.5", default-features = false }
 png = "0.17.16"
 rayon = { version = "1.11.0" }

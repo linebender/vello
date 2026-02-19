@@ -3978,6 +3978,7 @@ version = "0.0.6"
 dependencies = [
  "bytemuck",
  "fearless_simd",
+ "guillotiere",
  "hashbrown 0.16.1",
  "libm",
  "log",
@@ -3986,6 +3987,7 @@ dependencies = [
  "roxmltree",
  "skrifa 0.40.0",
  "smallvec",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

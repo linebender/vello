@@ -20,11 +20,14 @@ targets = []
 bytemuck = { workspace = true, features = ["derive"] }
 peniko = { workspace = true, features = ["bytemuck"] }
 fearless_simd = { workspace = true }
+# TODO: guillotiere requires std (via euclid/num-traits); make no_std-compatible.
+guillotiere = { version = "0.6.2", optional = true }
 hashbrown = { workspace = true, features = ["raw-entry"] }
 png = { workspace = true, optional = true }
 roxmltree = { version = "0.20.0", optional = true }
 skrifa = { workspace = true, optional = true }
 smallvec = { workspace = true }
+thiserror = { workspace = true, default-features = false }
 libm = { version = "0.2.15", optional = true }
 log = { workspace = true }
 
@@ -32,7 +35,7 @@ log = { workspace = true }
 # If adding new features, also document in `src/lib.rs`
 default = ["std", "png", "text"]
 # Get floating point functions from the standard library (likely using your target's libc).
-std = ["peniko/std", "skrifa?/std", "fearless_simd/std"]
+std = ["peniko/std", "skrifa?/std", "fearless_simd/std", "dep:guillotiere"]
 # Use floating point implementations from libm.
 libm = ["peniko/libm", "skrifa?/libm", "dep:libm", "fearless_simd/libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
