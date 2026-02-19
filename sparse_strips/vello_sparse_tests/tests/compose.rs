@@ -27,67 +27,67 @@ fn compose_src_over(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcOver);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_xor(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Xor);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_clear(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Clear);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_copy(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Copy);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_dest(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Dest);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_dest_over(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestOver);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_src_in(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcIn);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_src_out(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcOut);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_dest_in(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestIn);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_dest_out(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestOut);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_src_atop(ctx: &mut impl Renderer) {
     compose(ctx, Compose::SrcAtop);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_dest_atop(ctx: &mut impl Renderer) {
     compose(ctx, Compose::DestAtop);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_plus(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Plus);
 }
 
-#[vello_test(height = 8, width = 100)]
+#[vello_test(height = 8, width = 100, uses_blends)]
 fn composed_layers_nesting(ctx: &mut impl Renderer) {
     ctx.push_blend_layer(BlendMode {
         mix: Mix::Normal,
@@ -111,7 +111,7 @@ fn composed_layers_nesting(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(height = 8, width = 100)]
+#[vello_test(height = 8, width = 100, uses_blends)]
 fn repeatedly_compose_to_bottom_layer(ctx: &mut impl Renderer) {
     ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::SrcOver));
     {
@@ -128,7 +128,7 @@ fn repeatedly_compose_to_bottom_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(width = 100, height = 100, transparent)]
+#[vello_test(width = 100, height = 100, transparent, uses_blends)]
 fn complex_composed_layers(ctx: &mut impl Renderer) {
     ctx.push_blend_layer(BlendMode {
         mix: Mix::Normal,
@@ -236,7 +236,8 @@ fn complex_composed_layers(ctx: &mut impl Renderer) {
     height = 100,
     transparent,
     cpu_u8_tolerance = 2,
-    hybrid_tolerance = 2
+    hybrid_tolerance = 2,
+    uses_blends
 )]
 fn deep_compose(ctx: &mut impl Renderer) {
     const INITIAL_RADIUS: f64 = 48.0;
@@ -292,7 +293,7 @@ fn deep_compose(ctx: &mut impl Renderer) {
 }
 
 // Ensure that compose and mix work together in the same blend layer.
-#[vello_test(width = 160, height = 160)]
+#[vello_test(width = 160, height = 160, uses_blends)]
 fn mix_compose_combined_test_matrix(ctx: &mut impl Renderer) {
     let mix_modes = [
         Mix::Normal,
@@ -379,67 +380,67 @@ fn compose_non_isolated(ctx: &mut impl Renderer, compose: Compose) {
     ctx.pop_layer();
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_src_over(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::SrcOver);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_xor(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Xor);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_clear(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Clear);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_copy(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Copy);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_dest(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Dest);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_dest_over(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::DestOver);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_src_in(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::SrcIn);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_src_out(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::SrcOut);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_dest_in(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::DestIn);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_dest_out(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::DestOut);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_src_atop(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::SrcAtop);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_dest_atop(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::DestAtop);
 }
 
-#[vello_test]
+#[vello_test(uses_blends)]
 fn compose_non_isolated_plus(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Plus);
 }

@@ -12,6 +12,7 @@ use crate::strip::Strip;
 use crate::tile::Tiles;
 use crate::{flatten, strip};
 use alloc::vec::Vec;
+use fearless_simd::{Simd, SimdFrom, dispatch, f32x4};
 use peniko::kurbo::StrokeCtx;
 
 /// A storage for storing strip-related data.
@@ -173,6 +174,33 @@ impl StripGenerator {
                 &self.line_buf,
             );
         }
+    }
+
+    /// Returns the screen-space bounding box of the last flattened path as `[x0, y0, x1, y1]`.
+    ///
+    /// Only valid immediately after [`Self::generate_filled_path`] or
+    /// [`Self::generate_stroked_path`].
+    #[inline(always)]
+    pub fn last_line_buf_bbox(&self) -> [f32; 4] {
+        dispatch!(self.level, simd => Self::line_buf_bbox_impl(simd, &self.line_buf))
+    }
+
+    #[inline(always)]
+    fn line_buf_bbox_impl<S: Simd>(s: S, line_buf: &[Line]) -> [f32; 4] {
+        let mut mins = f32x4::simd_from([f32::INFINITY; 4], s);
+        let mut maxs = f32x4::simd_from([f32::NEG_INFINITY; 4], s);
+        for line in line_buf {
+            let v = f32x4::simd_from([line.p0.x, line.p0.y, line.p1.x, line.p1.y], s);
+            mins = mins.min(v);
+            maxs = maxs.max(v);
+        }
+        // Fold lanes: mins = [min_p0x, min_p0y, min_p1x, min_p1y], same for maxs.
+        [
+            mins.val[0].min(mins.val[2]),
+            mins.val[1].min(mins.val[3]),
+            maxs.val[0].max(maxs.val[2]),
+            maxs.val[1].max(maxs.val[3]),
+        ]
     }
 
     /// Reset the strip generator.

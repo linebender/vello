@@ -62,7 +62,7 @@ pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
-pub use scene::{RenderSettings, Scene};
+pub use scene::{RenderHints, RenderSettings, Scene};
 pub use util::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;
 
@@ -71,6 +71,12 @@ use thiserror::Error;
 /// Errors that can occur during rendering.
 #[derive(Error, Debug)]
 pub enum RenderError {
+    /// Image resource not found.
+    ///
+    /// This error can occur if an image paint was registered with a different image
+    /// cache than the one used for the render.
+    #[error("Image resource not found")]
+    ImageResourceNotFound,
     /// No slots available for rendering.
     ///
     /// This error is likely to occur if a scene has an extreme number of nested layers

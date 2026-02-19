@@ -3,9 +3,15 @@
 
 //! Basic render operations.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "We ignore these because the casts because they only break in edge cases, and some of them are also only related to conversions from f64 to f32."
+)]
+
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
+use core::ops::Range;
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
@@ -15,7 +21,8 @@ use vello_common::filter_effects::Filter;
 use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{Paint, PaintType};
+use vello_common::paint::{ImageId, ImageSource, Paint, PaintType};
+use vello_common::peniko::Extend;
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
@@ -47,6 +54,8 @@ pub struct RenderSettings {
     /// Adjusting these settings can affect memory usage and rendering performance
     /// depending on your application's image usage patterns.
     pub atlas_config: AtlasConfig,
+    /// Render hints for the renderer.
+    pub render_hints: RenderHints,
 }
 
 impl Default for RenderSettings {
@@ -54,7 +63,45 @@ impl Default for RenderSettings {
         Self {
             level: Level::try_detect().unwrap_or(Level::fallback()),
             atlas_config: AtlasConfig::default(),
+            render_hints: RenderHints::new(),
         }
+    }
+}
+
+/// Hints provided to the renderer to optimize performance.
+#[derive(Copy, Clone, Debug)]
+pub struct RenderHints(u32);
+
+impl Default for RenderHints {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RenderHints {
+    const DEFAULT_BLENDING_ONLY: u32 = 1 << 0;
+
+    /// Create a new set of render hints.
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self(0)
+    }
+
+    /// ⚠️ Caller guarantees that the scene will only use the default blend mode (normal, source-over). ⚠️
+    ///
+    /// This enables the blit rect fast path.
+    ///
+    /// # Panics
+    ///
+    /// The renderer will panic if a non-default blend mode is used.
+    #[inline(always)]
+    pub fn expect_only_default_blending(self) -> Self {
+        Self(self.0 | Self::DEFAULT_BLENDING_ONLY)
+    }
+
+    #[inline(always)]
+    fn blit_rect_pipeline_enabled(&self) -> bool {
+        (self.0 & Self::DEFAULT_BLENDING_ONLY) != 0
     }
 }
 
@@ -84,6 +131,10 @@ struct RenderState {
 /// pipeline from paths to strips that can be rendered by the GPU.
 #[derive(Debug)]
 pub struct Scene {
+    /// SIMD level for dirty rect intersection checks.
+    level: Level,
+    /// Render hints for the renderer.
+    render_hints: RenderHints,
     /// Width of the rendering surface in pixels.
     pub(crate) width: u16,
     /// Height of the rendering surface in pixels.
@@ -111,6 +162,42 @@ pub struct Scene {
     pub(crate) strip_generator: StripGenerator,
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: RefCell<StripStorage>,
+    /// Flat buffer of strip commands to run for each tile per strip batch.
+    ///
+    /// This flat buffer is structured such that each strip batch contributes exactly
+    /// `wide.width_tiles() * wide.height_tiles()` entries in row-major order, recording the
+    /// command count for each tile for that strip batch.
+    ///
+    /// So, if there were 4 tiles and 3 strip batches, the buffer would look like this:
+    ///
+    /// ```text
+    /// [
+    ///     2, 2, 2, 2 // each tile advances to strip cmd index 2 in batch 0
+    ///     5, 5, 5, 5 // each tile advances to strip cmd index 5 in batch 1
+    ///
+    ///     // The third and last strip batch isn't explicitly recorded - instead, it's implied
+    ///     // that the last batch executes the rest of the strip commands for every tile.
+    /// ]
+    /// ```
+    pub(crate) strip_tile_batches: Vec<usize>,
+    //
+    // TODO: Create a variable to enable or disable blit rect batching.
+    //
+    /// Batches of blit rects to render between strip segments.
+    /// Each range indexes into [`Self::all_blits`].
+    pub(crate) blit_batches: Vec<Range<usize>>,
+    /// Flat buffer of blit rects across all blit batches.
+    pub(crate) all_blits: Vec<BlitRect>,
+    /// Whether the scene is currently accumulating blit rects (vs strip commands).
+    in_blit_mode: bool,
+    /// Screen-space bounding boxes of strip operations since the last blit batch.
+    /// Used by [`Self::can_batch_blit_aabb`] to determine whether a blit rect can be
+    /// folded into the previous blit batch without a pipeline switch.
+    strips_dirty_rects: DirtyRects,
+    /// Whether blit rect batching is enabled. When `false`, every blit rect
+    /// creates a new blit batch regardless of overlap. Useful for testing that
+    /// the dirty rect tracking is correct.
+    blit_batching_enabled: bool,
     /// Cache for rasterized glyphs to improve text rendering performance.
     #[cfg(feature = "text")]
     pub(crate) glyph_caches: Option<GlyphCaches>,
@@ -129,6 +216,8 @@ impl Scene {
         let render_state = Self::default_render_state();
         let render_graph = RenderGraph::new();
         Self {
+            level: settings.level,
+            render_hints: settings.render_hints,
             width,
             height,
             wide: Wide::<MODE_HYBRID>::new(width, height),
@@ -147,8 +236,16 @@ impl Scene {
             #[cfg(feature = "text")]
             glyph_caches: Some(GlyphCaches::default()),
             render_graph,
+            strip_tile_batches: vec![],
+            all_blits: vec![],
+            blit_batches: vec![],
+            in_blit_mode: false,
+            strips_dirty_rects: DirtyRects::new(),
+            blit_batching_enabled: true,
         }
     }
+
+    const DEFAULT_BLEND_MODE: BlendMode = BlendMode::new(Mix::Normal, Compose::SrcOver);
 
     /// Create default rendering state.
     fn default_render_state() -> RenderState {
@@ -163,14 +260,13 @@ impl Scene {
             end_cap: Cap::Butt,
             ..Default::default()
         };
-        let blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
         RenderState {
             transform,
             fill_rule,
             paint,
             paint_transform,
             stroke,
-            blend_mode,
+            blend_mode: Self::DEFAULT_BLEND_MODE,
         }
     }
 
@@ -210,6 +306,73 @@ impl Scene {
         );
     }
 
+    /// Transition from blit mode to strip mode.
+    ///
+    /// Must be called before any operation that modifies the [`Wide`] coarse rasterizer
+    /// (e.g. `fill_path_with`, `stroke_path_with`, `push_layer`, `pop_layer`).
+    #[inline(always)]
+    fn enter_strip_mode(&mut self) {
+        self.in_blit_mode = false;
+    }
+
+    /// Transition from strip mode to blit mode.
+    #[inline(always)]
+    fn enter_blit_mode(&mut self) {
+        self.in_blit_mode = true;
+    }
+
+    /// Check whether a blit rect can be batched into the previous blit batch
+    /// without creating a new pipeline switch.
+    ///
+    /// Returns `true` when either:
+    /// - We are already in blit mode
+    /// - A previous blit batch exists and the blit rect does not overlap any
+    ///   strip operations recorded since that blit batch
+    #[inline(always)]
+    fn can_batch_blit_aabb(&self, aabb_x0: f32, aabb_y0: f32, aabb_x1: f32, aabb_y1: f32) -> bool {
+        if !self.blit_batching_enabled {
+            return false;
+        }
+        if self.in_blit_mode {
+            return true;
+        }
+        if self.blit_batches.is_empty() {
+            // There's no batch to batch into yet. This occurs for the first blit rect. We need to
+            // flush the strips to create a new blit batch to batch into.
+            return false;
+        }
+        let blit_x0 = (aabb_x0.floor().max(0.0) as u32).min(u32::from(self.width)) as u16;
+        let blit_y0 = (aabb_y0.floor().max(0.0) as u32).min(u32::from(self.height)) as u16;
+        let blit_x1 = (aabb_x1.ceil().max(0.0) as u32).min(u32::from(self.width)) as u16;
+        let blit_y1 = (aabb_y1.ceil().max(0.0) as u32).min(u32::from(self.height)) as u16;
+        !self
+            .strips_dirty_rects
+            .any_overlap(blit_x0, blit_y0, blit_x1, blit_y1, self.level)
+    }
+
+    /// Record a screen-space bounding box as dirty for blit rect batching.
+    ///
+    /// `bbox` is `[x0, y0, x1, y1]` in screen-space f32 coordinates.
+    ///
+    /// In other words, if a blit wants to render over `bbox`, we must first flush the current strips.
+    #[inline(always)]
+    fn push_dirty_rect(&mut self, bbox: [f32; 4]) {
+        let w = u32::from(self.width);
+        let h = u32::from(self.height);
+        let x0 = (bbox[0].floor().max(0.0) as u32).min(w) as u16;
+        let y0 = (bbox[1].floor().max(0.0) as u32).min(h) as u16;
+        let x1 = (bbox[2].ceil().max(0.0) as u32).min(w) as u16;
+        let y1 = (bbox[3].ceil().max(0.0) as u32).min(h) as u16;
+        self.strips_dirty_rects.push(x0, y0, x1, y1);
+    }
+
+    /// The same as `push_dirty_rect`, but for the full viewport.
+    #[inline(always)]
+    fn push_dirty_viewport(&mut self) {
+        self.strips_dirty_rects.clear();
+        self.strips_dirty_rects.push(0, 0, self.width, self.height);
+    }
+
     /// Build strips for a filled path with the given properties.
     ///
     /// This is the internal implementation that generates strips from a path
@@ -224,17 +387,23 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let wide = &mut self.wide;
-        let strip_storage = &mut self.strip_storage.borrow_mut();
-        self.strip_generator.generate_filled_path(
-            path,
-            fill_rule,
-            transform,
-            aliasing_threshold,
-            strip_storage,
-            self.clip_context.get(),
-        );
-        wide.generate(
+        self.enter_strip_mode();
+        {
+            let strip_storage = &mut self.strip_storage.borrow_mut();
+            self.strip_generator.generate_filled_path(
+                path,
+                fill_rule,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                self.clip_context.get(),
+            );
+        }
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            self.push_dirty_rect(self.strip_generator.last_line_buf_bbox());
+        }
+        let strip_storage = self.strip_storage.borrow();
+        self.wide.generate(
             &strip_storage.strips,
             paint,
             self.blend_mode,
@@ -289,26 +458,33 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let wide = &mut self.wide;
-        let strip_storage = &mut self.strip_storage.borrow_mut();
+        self.enter_strip_mode();
 
-        self.strip_generator.generate_stroked_path(
-            path,
-            &self.stroke,
-            transform,
-            aliasing_threshold,
-            strip_storage,
-            self.clip_context.get(),
-        );
+        {
+            let strip_storage = &mut self.strip_storage.borrow_mut();
 
-        wide.generate(
-            &strip_storage.strips,
-            paint,
-            self.blend_mode,
-            0,
-            None,
-            &self.encoded_paints,
-        );
+            self.strip_generator.generate_stroked_path(
+                path,
+                &self.stroke,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                self.clip_context.get(),
+            );
+
+            self.wide.generate(
+                &strip_storage.strips,
+                paint,
+                self.blend_mode,
+                0,
+                None,
+                &self.encoded_paints,
+            );
+        }
+
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            self.push_dirty_rect(self.strip_generator.last_line_buf_bbox());
+        }
     }
 
     /// Set the aliasing threshold.
@@ -328,7 +504,177 @@ impl Scene {
 
     /// Fill a rectangle with the current paint and fill rule.
     pub fn fill_rect(&mut self, rect: &Rect) {
+        if self.try_blit_rect(rect) {
+            return;
+        }
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+    }
+
+    /// Attempt the fast-path blit rect pipeline. Returns `true` if the rect was
+    /// handled by the blit pipeline, `false` if it should fall through to the
+    /// strip pipeline.
+    #[inline(always)] // only one caller.
+    fn try_blit_rect(&mut self, rect: &Rect) -> bool {
+        if !self.render_hints.blit_rect_pipeline_enabled() {
+            return false;
+        }
+
+        if !self.paint_visible {
+            return true; // Invisible paint, nothing to draw either way.
+        }
+
+        // Condition 1: No active layers (clips or blends).
+        if self.wide.has_layers() {
+            return false;
+        }
+
+        // Condition 2: No active clip paths.
+        if self.clip_context.get().is_some() {
+            return false;
+        }
+
+        // Condition 3: Paint must be an image with an OpaqueId (atlas-backed)
+        // and a sampler compatible with the simple 1:1 blit pipeline.
+        let image_id = match &self.paint {
+            PaintType::Image(img) => {
+                if img.sampler.x_extend != Extend::Pad
+                    || img.sampler.y_extend != Extend::Pad
+                    || img.sampler.alpha != 1.0
+                {
+                    return false;
+                }
+                match &img.image {
+                    ImageSource::OpaqueId(id) => *id,
+                    _ => return false,
+                }
+            }
+            _ => return false,
+        };
+
+        // Condition 4: Blend mode must be default SrcOver.
+        const DEFAULT_BLEND: BlendMode = BlendMode::new(Mix::Normal, Compose::SrcOver);
+        if self.blend_mode != DEFAULT_BLEND {
+            return false;
+        }
+
+        // Condition 5: Geometry transform must not be zero-area or mirrored.
+        let geo_coeffs = self.transform.as_coeffs();
+        if geo_coeffs[0] * geo_coeffs[3] - geo_coeffs[1] * geo_coeffs[2] <= 0.0 {
+            return false;
+        }
+
+        // Condition 6: Paint transform must be a pure translation (no rotation,
+        // shear, or scale).
+        let paint_coeffs = self.paint_transform.as_coeffs();
+        if (paint_coeffs[1] as f32).abs() > f32::EPSILON
+            || (paint_coeffs[2] as f32).abs() > f32::EPSILON
+        {
+            return false;
+        }
+        if ((paint_coeffs[0] - 1.0) as f32).abs() > f32::EPSILON
+            || ((paint_coeffs[3] - 1.0) as f32).abs() > f32::EPSILON
+        {
+            return false;
+        }
+
+        // Compute the image-space origin: where the rect's top-left corner
+        // maps to in image coordinates, accounting for the paint transform.
+        //
+        // The paint transform goes from image space to geometry space:
+        //   geo = paint * image = image + (ptx, pty)
+        // So the inverse maps geometry to image space:
+        //   image = geo - (ptx, pty)
+        // At the rect's top-left corner (rect.x0, rect.y0):
+        let (ptx, pty) = (paint_coeffs[4], paint_coeffs[5]);
+        let img_origin_xy = [(rect.x0 - ptx) as f32, (rect.y0 - pty) as f32];
+
+        // Condition 7: Image origin must not require padding on the left/top
+        // edges. A negative origin means the rect extends before the image
+        // boundary, requiring Pad extend behaviour that the blit pipeline
+        // cannot provide (it only performs a plain texel copy).
+        //
+        // Note: we cannot verify right/bottom coverage without image
+        // dimensions (not available at scene-build time). The resolve step
+        // already clips to the visible region, so right/bottom overflow
+        // simply draws fewer pixels — acceptable for the common "image tile"
+        // case where the image is expected to fill the rect exactly.
+        if img_origin_xy[0] < 0.0 || img_origin_xy[1] < 0.0 {
+            return false;
+        }
+
+        // All conditions are met! We are rendering this blit in the fast path!
+
+        // Pre-transform rect dimensions in geometry space.
+        let rect_wh = [
+            pixel_snap(rect.x1 - rect.x0).max(0.0) as u16,
+            pixel_snap(rect.y1 - rect.y0).max(0.0) as u16,
+        ];
+
+        if rect_wh[0] == 0 || rect_wh[1] == 0 {
+            return true; // Zero-size rect, nothing to draw.
+        }
+
+        // Compute the screen-space quad via center + column vectors.
+        //
+        // See [`resolve_blit_rect`] for more details.
+        let [a, b, c, d, tx, ty] = geo_coeffs.map(|x| x as f32);
+        let w = rect_wh[0] as f32;
+        let h = rect_wh[1] as f32;
+
+        let col0 = [a * w, b * w];
+        let col1 = [c * h, d * h];
+
+        let cx = (rect.x0 + rect.x1) as f32 * 0.5;
+        let cy = (rect.y0 + rect.y1) as f32 * 0.5;
+        let center_xy = [a * cx + c * cy + tx, b * cx + d * cy + ty];
+
+        // Compute the axis-aligned bounding box of the rotated quad for
+        // dirty rect tracking.
+        let half_col0_x = col0[0] * 0.5;
+        let half_col0_y = col0[1] * 0.5;
+        let half_col1_x = col1[0] * 0.5;
+        let half_col1_y = col1[1] * 0.5;
+        let extent_x = half_col0_x.abs() + half_col1_x.abs();
+        let extent_y = half_col0_y.abs() + half_col1_y.abs();
+        let aabb_x0 = center_xy[0] - extent_x;
+        let aabb_y0 = center_xy[1] - extent_y;
+        let aabb_x1 = center_xy[0] + extent_x;
+        let aabb_y1 = center_xy[1] + extent_y;
+
+        // If the blit rect doesn't overlap any strip operations since the last blit batch,
+        // batch it into the previous blit batch instead of paying a pipeline switch.
+        if !self.can_batch_blit_aabb(aabb_x0, aabb_y0, aabb_x1, aabb_y1) {
+            // If we can't batch, then we need to flush the current strips before creating
+            // a new blit batch.
+
+            // Record the batch fence for the current strips.
+            let w = self.wide.width_tiles();
+            let h = self.wide.height_tiles();
+            for row in 0..h {
+                for col in 0..w {
+                    self.strip_tile_batches
+                        .push(self.wide.get(col, row).cmds.len());
+                }
+            }
+
+            // Create a new blit batch.
+            let blits_start = self.all_blits.len();
+            self.blit_batches.push(blits_start..blits_start); // The end is populated below.
+            self.strips_dirty_rects.clear();
+        }
+
+        self.enter_blit_mode();
+        self.all_blits.push(BlitRect {
+            center: center_xy,
+            col0,
+            col1,
+            rect_wh,
+            image_id,
+            img_origin: img_origin_xy,
+        });
+        self.blit_batches.last_mut().unwrap().end = self.all_blits.len();
+
+        true
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
@@ -354,6 +700,14 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
+        let blend_mode = blend_mode.unwrap_or(Self::DEFAULT_BLEND_MODE);
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            assert!(
+                blend_mode == Self::DEFAULT_BLEND_MODE,
+                "blit rect pipeline only supports default blending"
+            );
+        }
+        self.enter_strip_mode();
         if filter.is_some() {
             unimplemented!("Filter effects are not yet supported in vello_hybrid");
         }
@@ -383,7 +737,7 @@ impl Scene {
         self.wide.push_layer(
             0,
             clip,
-            blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
+            blend_mode,
             None,
             opacity.unwrap_or(1.),
             None,
@@ -427,17 +781,44 @@ impl Scene {
 
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
-        self.wide.pop_layer(&mut self.render_graph);
+        self.enter_strip_mode();
+        let layer_bbox = self.wide.pop_layer(&mut self.render_graph);
+        if self.render_hints.blit_rect_pipeline_enabled() && !layer_bbox.is_inverted() {
+            // Push the dirty rect for the layer to the dirty rects list.
+            let [x0, y0, x1, y1] = layer_bbox.pixel_bounds();
+            self.strips_dirty_rects
+                .push(x0 as u16, y0 as u16, x1 as u16, y1 as u16);
+        }
     }
 
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            assert!(
+                blend_mode == Self::DEFAULT_BLEND_MODE,
+                "blit rect pipeline only supports default blending"
+            );
+        }
         self.blend_mode = blend_mode;
     }
 
     /// Set the stroke settings for subsequent stroke operations.
     pub fn set_stroke(&mut self, stroke: Stroke) {
         self.stroke = stroke;
+    }
+
+    /// ⚠️ EXPOSED FOR TESTING ONLY ⚠️
+    ///
+    /// Enable or disable blit rect batching.
+    ///
+    /// When enabled (the default), blit rects that do not overlap any strip operations
+    /// since the last blit batch are batched into the previous blit batch to avoid
+    /// pipeline switches. When disabled, every blit rect creates a new blit batch.
+    ///
+    /// This is used to test that batching is working correctly.
+    #[doc(hidden)]
+    pub fn set_blit_batching(&mut self, enabled: bool) {
+        self.blit_batching_enabled = enabled;
     }
 
     /// Set the paint for subsequent rendering operations.
@@ -498,6 +879,11 @@ impl Scene {
         self.clip_context.reset();
         self.strip_storage.borrow_mut().clear();
         self.encoded_paints.clear();
+        self.strip_tile_batches.clear();
+        self.all_blits.clear();
+        self.blit_batches.clear();
+        self.in_blit_mode = false;
+        self.strips_dirty_rects.clear();
 
         let render_state = Self::default_render_state();
         self.transform = render_state.transform;
@@ -786,6 +1172,10 @@ impl Scene {
         range_index: usize,
         adjusted_strips: &[Strip],
     ) {
+        self.enter_strip_mode();
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            self.push_dirty_viewport();
+        }
         assert!(
             range_index < strip_start_indices.len(),
             "Strip range index out of bounds: range_index={}, strip_start_indices.len()={}",
@@ -863,5 +1253,379 @@ impl Scene {
         self.transform = state.transform;
         self.fill_rule = state.fill_rule;
         self.blend_mode = state.blend_mode;
+    }
+}
+
+/// A blit rect for the blit rect pipeline.
+///
+/// This struct exists because at scene-encode time, we do not have enough information
+/// to fully resolve a blit rect. Specifically, we are missing the `ImageResource` which
+/// contains the image dimensions and offset in the texture atlas.
+///
+/// Otherwise, this struct parallels the [`GpuBlitRect`](crate::render::common::GpuBlitRect) struct.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BlitRect {
+    /// Screen-space center of the quad (after geometry transform): [x, y].
+    pub center: [f32; 2],
+    /// `col0` in the [`resolve_blit_rect`](crate::render::common::resolve_blit_rect) formula. See [`resolve_blit_rect`](crate::render::common::resolve_blit_rect) for more details.
+    pub col0: [f32; 2],
+    /// `col1` in the [`resolve_blit_rect`](crate::render::common::resolve_blit_rect) formula. See [`resolve_blit_rect`](crate::render::common::resolve_blit_rect) for more details.
+    pub col1: [f32; 2],
+    /// Pre-transform rect dimensions in geometry space: [w, h].
+    pub rect_wh: [u16; 2],
+    /// Source image reference (resolved to atlas coords at render time).
+    pub image_id: ImageId,
+    /// Image-space origin: where the rect's top-left maps to in image coordinates: [x, y].
+    pub img_origin: [f32; 2],
+}
+
+/// Handles intersection checks for dirty screen-space bounding boxes.
+///
+/// Each rect is stored as 4 `u16` values: `[x0, y0, u16::MAX-x1, u16::MAX-y1]`. The negated
+/// upper bounds allow a single SIMD `lt` comparison to test all 4 overlap conditions simultaneously.
+///
+/// The buffer is always padded to a multiple of 8 `u16` values (2 rects) using sentinel
+/// values `[MAX; 4]` that can never satisfy the `lt` condition. We pad so as to keep the buffer
+/// SIMD aligned (without requiring us to execute a scalar pass on trailing values).
+#[derive(Debug)]
+struct DirtyRects {
+    /// We use a flat `u16` storage to enable easier SIMD processing.
+    data: Vec<u16>,
+    /// Number of actual rects (specifically, this excludes sentinel padding).
+    count: usize,
+}
+
+impl DirtyRects {
+    const VALS_PER_RECT: usize = 4;
+    /// Sentinel value that can never satisfy `sentinel < anything` being true.
+    const SENTINEL: u16 = u16::MAX;
+
+    #[inline(always)]
+    fn new() -> Self {
+        Self {
+            data: Vec::new(),
+            count: 0,
+        }
+    }
+
+    #[inline(always)]
+    fn clear(&mut self) {
+        self.data.clear();
+        self.count = 0;
+    }
+
+    /// Push a viewport-clamped dirty rect.
+    ///
+    /// Coordinates must satisfy `x0 <= x1` and `y0 <= y1`.
+    #[inline(always)]
+    fn push(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) {
+        // Remove previous sentinel padding if present.
+        if self.count & 1 != 0 {
+            // Odd count means the last 4 values are a sentinel; remove them.
+            self.data.truncate(self.count * Self::VALS_PER_RECT);
+        }
+        self.data
+            .extend_from_slice(&[x0, y0, u16::MAX - x1, u16::MAX - y1]);
+        self.count += 1;
+        // Re-pad to a multiple of 2 rects (8 u16 values) for SIMD processing.
+        if self.count & 1 != 0 {
+            self.data
+                .extend_from_slice(&[Self::SENTINEL; Self::VALS_PER_RECT]);
+        }
+    }
+
+    /// Check whether any stored dirty rect overlaps the given blit rect.
+    ///
+    /// Uses SIMD-accelerated comparison via `u16x8`, processing 2 rects per iteration.
+    #[inline(always)]
+    fn any_overlap(
+        &self,
+        blit_x0: u16,
+        blit_y0: u16,
+        blit_x1: u16,
+        blit_y1: u16,
+        level: Level,
+    ) -> bool {
+        if self.count == 0 {
+            return false;
+        }
+        use vello_common::fearless_simd::dispatch;
+        dispatch!(level, simd => Self::any_overlap_impl(simd, &self.data, blit_x0, blit_y0, blit_x1, blit_y1))
+    }
+
+    #[inline(always)]
+    fn any_overlap_impl<S: vello_common::fearless_simd::Simd>(
+        s: S,
+        data: &[u16],
+        blit_x0: u16,
+        blit_y0: u16,
+        blit_x1: u16,
+        blit_y1: u16,
+    ) -> bool {
+        use vello_common::fearless_simd::{SimdFrom, SimdInt, i16x8, u16x8};
+        // TODO: We could process 8 AABBs at once if we used an AoS approach instead of SoA.
+
+        let blit_cmp = u16x8::simd_from(
+            [
+                blit_x1,
+                blit_y1,
+                u16::MAX - blit_x0,
+                u16::MAX - blit_y0,
+                blit_x1,
+                blit_y1,
+                u16::MAX - blit_x0,
+                u16::MAX - blit_y0,
+            ],
+            s,
+        );
+
+        // Process 2 rects (of 4 u16 values each) per iteration.
+        for chunk in data.chunks_exact(8) {
+            let dirty_vec = u16x8::simd_from(
+                [
+                    chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
+                ],
+                s,
+            );
+
+            // Compare: each lane is all-ones (−1 as i16) when condition holds, else zero.
+            let mask = dirty_vec.simd_lt(blit_cmp);
+
+            // Reinterpret mask as i16x8 to get access to unzip.
+            let bits = i16x8 {
+                val: mask.val,
+                simd: s,
+            };
+
+            // Compute a pair and ([a0&a1, a2&a3, b0&b1, b2&b3, …])
+            let paired = bits.unzip_low(bits).and(bits.unzip_high(bits));
+
+            // Check if any pair is non-zero.
+            if (paired.val[0] & paired.val[1]) != 0 || (paired.val[2] & paired.val[3]) != 0 {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// Round to the nearest integer for pixel snapping.
+///
+/// On `wasm32-unknown-unknown`, [`f64::round`] compiles to a software `libm`
+/// call because its "round half away from zero" semantics don't match the
+/// WebAssembly `f64.nearest` instruction (which uses banker's rounding).
+/// In contrast, [`f64::floor`] maps directly to the native `f64.floor`
+/// instruction.
+///
+/// More information can be found here: <https://github.com/rust-lang/rust/issues/55107>
+///
+/// `(x + 0.5).floor()` gives identical results to [`f64::round`] for
+/// non-negative values and only differs at exactly half-integer negative
+/// values (e.g. `−2.5` → `−2` instead of `−3`), which is negligible for
+/// pixel snapping.
+// TODO: Move somewhere in vello_common?
+#[inline(always)]
+fn pixel_snap(x: f64) -> f64 {
+    (x + 0.5).floor()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vello_common::kurbo::{BezPath, Rect};
+    use vello_common::paint::ImageSource;
+    use vello_common::peniko::ImageSampler;
+
+    mod dirty_rects {
+        use super::*;
+
+        fn test_level() -> Level {
+            Level::try_detect().unwrap_or(Level::fallback())
+        }
+
+        #[test]
+        fn dirty_rects_empty_no_overlap() {
+            let dr = DirtyRects::new();
+            assert!(!dr.any_overlap(0, 0, 100, 100, test_level()));
+        }
+
+        #[test]
+        fn dirty_rects_single_overlap() {
+            let mut dr = DirtyRects::new();
+            dr.push(10, 10, 50, 50);
+            // Overlapping rect.
+            assert!(dr.any_overlap(20, 20, 60, 60, test_level()));
+            // Non-overlapping rect (to the right).
+            assert!(!dr.any_overlap(60, 10, 100, 50, test_level()));
+            // Non-overlapping rect (below).
+            assert!(!dr.any_overlap(10, 60, 50, 100, test_level()));
+        }
+
+        #[test]
+        fn dirty_rects_two_rects_no_false_union() {
+            let mut dr = DirtyRects::new();
+            // Two small rects at opposite corners of a 1000x1000 viewport.
+            dr.push(0, 0, 50, 50); // top-left
+            dr.push(950, 950, 1000, 1000); // bottom-right
+            // A rect in the centre should NOT overlap either (no union inflation).
+            assert!(!dr.any_overlap(400, 400, 600, 600, test_level()));
+            // But rects overlapping the corners should.
+            assert!(dr.any_overlap(0, 0, 30, 30, test_level()));
+            assert!(dr.any_overlap(960, 960, 1000, 1000, test_level()));
+        }
+
+        #[test]
+        fn dirty_rects_padding_sentinel_no_false_positive() {
+            let mut dr = DirtyRects::new();
+            // Push an odd number of rects so sentinel padding is present.
+            dr.push(10, 10, 20, 20);
+            assert_eq!(dr.count, 1);
+            // Data should be padded to 8 u16 values (2 rects).
+            assert_eq!(dr.data.len(), 8);
+            // A query far from the actual rect should not overlap, even though
+            // sentinel padding is present in the second slot.
+            assert!(!dr.any_overlap(500, 500, 600, 600, test_level()));
+            // The actual rect should still be detected.
+            assert!(dr.any_overlap(5, 5, 15, 15, test_level()));
+        }
+
+        #[test]
+        fn dirty_rects_clear_resets() {
+            let mut dr = DirtyRects::new();
+            dr.push(0, 0, 1000, 1000);
+            assert!(dr.any_overlap(500, 500, 600, 600, test_level()));
+            dr.clear();
+            assert!(!dr.any_overlap(500, 500, 600, 600, test_level()));
+        }
+
+        #[test]
+        fn dirty_rects_adjacent_no_overlap() {
+            let mut dr = DirtyRects::new();
+            dr.push(0, 0, 50, 50);
+            // Exactly adjacent (touching but not overlapping).
+            assert!(!dr.any_overlap(50, 0, 100, 50, test_level()));
+            assert!(!dr.any_overlap(0, 50, 50, 100, test_level()));
+        }
+    }
+
+    mod blit_batching {
+        use super::*;
+
+        /// Create a minimal scene and set an `OpaqueId` image paint so `try_blit_rect` succeeds.
+        fn scene_with_image_paint(width: u16, height: u16) -> Scene {
+            let render_hints = RenderHints::new().expect_only_default_blending();
+            let mut scene = Scene::new_with(
+                width,
+                height,
+                RenderSettings {
+                    render_hints,
+                    ..Default::default()
+                },
+            );
+            let image_id = ImageId::new(42);
+            scene.paint = PaintType::Image(vello_common::paint::Image {
+                image: ImageSource::OpaqueId(image_id),
+                sampler: ImageSampler::default(),
+            });
+            scene.paint_visible = true;
+            scene
+        }
+
+        #[test]
+        fn blit_batching_non_overlapping_reduces_blit_batches() {
+            let mut scene = scene_with_image_paint(1920, 1080);
+
+            // First image rect at left side.
+            scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+            assert_eq!(
+                scene.blit_batches.len(),
+                1,
+                "first blit creates a blit batch"
+            );
+
+            // A path drawn at the right side (non-overlapping).
+            let mut path = BezPath::new();
+            path.move_to((500.0, 0.0));
+            path.line_to((600.0, 0.0));
+            path.line_to((600.0, 100.0));
+            path.line_to((500.0, 100.0));
+            path.close_path();
+            scene.fill_path(&path);
+
+            // Second image rect back at the left side (non-overlapping with the path).
+            scene.fill_rect(&Rect::new(0.0, 110.0, 100.0, 210.0));
+
+            // Because the second blit doesn't overlap the path, it should be batched
+            // into the first blit batch (no new blit batch created).
+            assert_eq!(
+                scene.blit_batches.len(),
+                1,
+                "non-overlapping blit should be batched into existing blit batch"
+            );
+            assert_eq!(scene.all_blits.len(), 2, "both blits should be recorded");
+        }
+
+        #[test]
+        fn blit_batching_overlapping_creates_new_blit_batch() {
+            let mut scene = scene_with_image_paint(1920, 1080);
+
+            // First image rect.
+            scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+            assert_eq!(scene.blit_batches.len(), 1);
+
+            // A path drawn overlapping the next blit's region.
+            let mut path = BezPath::new();
+            path.move_to((0.0, 0.0));
+            path.line_to((200.0, 0.0));
+            path.line_to((200.0, 200.0));
+            path.line_to((0.0, 200.0));
+            path.close_path();
+            scene.fill_path(&path);
+
+            // Second image rect overlaps the path.
+            scene.fill_rect(&Rect::new(50.0, 50.0, 150.0, 150.0));
+
+            // Overlapping blit must create a new blit batch.
+            assert_eq!(
+                scene.blit_batches.len(),
+                2,
+                "overlapping blit must create a new blit batch"
+            );
+        }
+
+        #[test]
+        fn blit_batching_scattered_paths_center_blit_batches() {
+            let mut scene = scene_with_image_paint(1920, 1080);
+
+            // First blit at top-left.
+            scene.fill_rect(&Rect::new(0.0, 0.0, 50.0, 50.0));
+            assert_eq!(scene.blit_batches.len(), 1);
+
+            // Two paths at opposite corners.
+            let mut tl_path = BezPath::new();
+            tl_path.move_to((0.0, 100.0));
+            tl_path.line_to((40.0, 100.0));
+            tl_path.line_to((40.0, 140.0));
+            tl_path.line_to((0.0, 140.0));
+            tl_path.close_path();
+            scene.fill_path(&tl_path);
+
+            let mut br_path = BezPath::new();
+            br_path.move_to((1800.0, 1000.0));
+            br_path.line_to((1900.0, 1000.0));
+            br_path.line_to((1900.0, 1080.0));
+            br_path.line_to((1800.0, 1080.0));
+            br_path.close_path();
+            scene.fill_path(&br_path);
+
+            // A blit in the centre of the screen -- no overlap with either path.
+            scene.fill_rect(&Rect::new(900.0, 500.0, 1000.0, 600.0));
+
+            assert_eq!(
+                scene.blit_batches.len(),
+                1,
+                "centre blit should batch because it doesn't overlap either corner path"
+            );
+        }
     }
 }

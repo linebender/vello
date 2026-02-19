@@ -10,6 +10,8 @@
 
 use bytemuck::{Pod, Zeroable};
 
+use crate::{image_cache::ImageResource, scene::BlitRect};
+
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
 pub(crate) const GPU_ENCODED_IMAGE_SIZE_TEXELS: u32 = (size_of::<GpuEncodedImage>() / 16) as u32;
 pub(crate) const GPU_LINEAR_GRADIENT_SIZE_TEXELS: u32 =
@@ -63,6 +65,139 @@ pub struct GpuStrip {
     pub payload: u32,
     /// See `StripInstance::paint` documentation in `render_strips.wgsl`.
     pub paint: u32,
+}
+
+/// GPU instance data for the blit rect pipeline.
+///
+/// Each instance represents a (maybe rotated) image rectangle that copies a region
+/// from the image atlas directly to the screen.
+///
+/// To keep this struct lean for GPU upload, we use 2 column vectors to define the
+/// rect-to-screen transform:
+///
+/// ```txt
+///   vertex(x, y) = center + col0 * (x - 0.5) + col1 * (y - 0.5)
+/// ```
+///
+/// where `(x, y)` can be `(0, 0)`, `(1, 0)`, `(0, 1)`, or `(1, 1)` (i.e. each
+/// corner of a quad).
+///
+/// You can think of `col0` and `col1` as a pre-evaluated affine so that the shader
+/// need only do a weighted sum instead of matrix multiplication (and sending those
+/// additional bytes to the GPU).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub(crate) struct GpuBlitRect {
+    /// `col0` in the above formula. See [`resolve_blit_rect`] for more details.
+    pub col0: [f32; 2],
+    /// `col1` in the above formula. See [`resolve_blit_rect`] for more details.
+    pub col1: [f32; 2],
+    /// Screen-space center of the quad: [x, y].
+    pub center: [f32; 2],
+    /// Packed atlas source offset: u | (v << 16)
+    pub src_xy: u32,
+    /// Packed atlas source dimensions: w | (h << 16)
+    pub src_wh: u32,
+    /// Atlas layer index.
+    pub atlas_index: u32,
+}
+
+/// Resolve a [`BlitRect`] into a GPU-ready [`GpuBlitRect`] by looking up atlas
+/// coordinates and computing the visible image region.
+///
+/// Returns `None` if the visible region is empty.
+pub(crate) fn resolve_blit_rect(blit: &BlitRect, resource: &ImageResource) -> Option<GpuBlitRect> {
+    // TODO: During implementation, it was considered to do this work in the vertex shader directly.
+    // At implementation time, it appeared simpler to do this work in the CPU code and to consider GPU
+    // optimizations for this later. Note that the handful of operations performed below may be faster
+    // than needing to send more memory to the GPU.
+
+    // Within the image atlas, derive the coordinates of the region that actually needs to be sampled.
+    // Depending on `img_origin_[x|y]` and `rect[w|h]`, this could be a sub-region of the bounds of the
+    // image in the atlas.
+    //
+    // For example:
+    //
+    // ```
+    //    ┌─────────────────────┐
+    //    │ ┌────────────────┐  │
+    //    │ │   ┌───────────┐│  │
+    //    │ │   │           ││  │
+    //    │ │   │    src    ││  │
+    //    │ │   │           ││  │
+    //    │ │   └───────────┘│  │
+    //    │ │    Vis region  │  │
+    //    │ └────────────────┘  │
+    //    │  Image              │
+    //    └─────────────────────┘
+    //     Atlas
+    //
+    //
+    //    Edit/view: https://cascii.app/72401
+    // ```
+    //
+    // Note that we don't account for the image offset in the atlas until calculating `src_x` and `src_y` below.
+
+    let src_x0 = blit.img_origin[0].max(0.0);
+    let src_y0 = blit.img_origin[1].max(0.0);
+    let src_x1 = (blit.img_origin[0] + blit.rect_wh[0] as f32).min(resource.width as f32);
+    let src_y1 = (blit.img_origin[1] + blit.rect_wh[1] as f32).min(resource.height as f32);
+
+    let src_w = (src_x1 - src_x0).round() as u16;
+    let src_h = (src_y1 - src_y0).round() as u16;
+
+    if src_w == 0 || src_h == 0 {
+        return None;
+    }
+
+    // Not all images in the Atlas are in the top right. We need to apply their offset to
+    // get to their top left corner in the atlas.
+    let src_x = resource.offset[0] as u32 + src_x0.round() as u32;
+    let src_y = resource.offset[1] as u32 + src_y0.round() as u32;
+
+    // Calculate `col0`, `col1`, and `center`, which, when put together, can describe
+    // the screen-space quad for the visible sub-region.
+    //
+    // How to think about `col0` and `col1`?
+    //
+    // `col0` defines the vector to go from the center to the right edge of the rect.
+    // `col1` defines the vector to go from the center to the bottom edge of the rect.
+    //
+    // Thus, we can put them together with the below formula to get each vertex of a quad:
+    //
+    //   vertex(x, y) = center + col0 * (x - 0.5) + col1 * (y - 0.5)
+    let (col0, col1, center) = {
+        let rect_w = blit.rect_wh[0] as f32;
+        let rect_h = blit.rect_wh[1] as f32;
+        let frac_x0 = (src_x0 - blit.img_origin[0]) / rect_w;
+        let frac_x1 = (src_x1 - blit.img_origin[0]) / rect_w;
+        let frac_y0 = (src_y0 - blit.img_origin[1]) / rect_h;
+        let frac_y1 = (src_y1 - blit.img_origin[1]) / rect_h;
+
+        // Adjust vectors to the visible sub-region.
+        let src_scale_x = frac_x1 - frac_x0;
+        let src_scale_y = frac_y1 - frac_y0;
+        let col0 = [blit.col0[0] * src_scale_x, blit.col0[1] * src_scale_x];
+        let col1 = [blit.col1[0] * src_scale_y, blit.col1[1] * src_scale_y];
+
+        // Shift the center to the midpoint of the visible sub-region.
+        let mid_frac_x = (frac_x0 + frac_x1) * 0.5 - 0.5;
+        let mid_frac_y = (frac_y0 + frac_y1) * 0.5 - 0.5;
+        let center = [
+            blit.center[0] + blit.col0[0] * mid_frac_x + blit.col1[0] * mid_frac_y,
+            blit.center[1] + blit.col0[1] * mid_frac_x + blit.col1[1] * mid_frac_y,
+        ];
+        (col0, col1, center)
+    };
+
+    Some(GpuBlitRect {
+        col0,
+        col1,
+        center,
+        src_xy: src_x | (src_y << 16),
+        src_wh: (src_w as u32) | ((src_h as u32) << 16),
+        atlas_index: resource.atlas_id.as_u32(),
+    })
 }
 
 /// Different types of GPU encoded paints.

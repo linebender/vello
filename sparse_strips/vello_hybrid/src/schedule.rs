@@ -176,10 +176,10 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::{GpuStrip, RenderError, Scene};
+use crate::{GpuStrip, RenderError};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::{CommandAttrs, MODE_HYBRID};
+use vello_common::coarse::{CommandAttrs, MODE_HYBRID, Wide};
 use vello_common::peniko::{BlendMode, Compose, Mix};
 use vello_common::{
     coarse::{Cmd, LayerKind, WideTile},
@@ -481,20 +481,41 @@ impl Scheduler {
         Ok(slot)
     }
 
-    pub(crate) fn do_scene<R: RendererBackend>(
+    /// Process a batch of wide tile commands.
+    ///
+    /// The batch is defined as the commands between `cmd_starts` and `cmd_ends`. When:
+    ///  - `cmd_starts` is `None`, the batch starts at the first command in each wide tile.
+    ///  - `cmd_ends` is `None`, the batch ends at the last command in each wide tile.
+    pub(crate) fn do_scene_segment<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
         renderer: &mut R,
-        scene: &Scene,
+        wide: &Wide<MODE_HYBRID>,
+        encoded_paints: &[EncodedPaint],
         paint_idxs: &[u32],
+        cmd_starts: Option<&[usize]>,
+        cmd_ends: Option<&[usize]>,
+        is_first_segment: bool,
     ) -> Result<(), RenderError> {
-        let wide_tiles_per_row = scene.wide.width_tiles();
-        let wide_tiles_per_col = scene.wide.height_tiles();
+        let wide_tiles_per_row = wide.width_tiles();
+        let wide_tiles_per_col = wide.height_tiles();
 
         // Left to right, top to bottom iteration over wide tiles.
         for wide_tile_row in 0..wide_tiles_per_col {
             for wide_tile_col in 0..wide_tiles_per_row {
-                let wide_tile = scene.wide.get(wide_tile_col, wide_tile_row);
+                let wide_tile = wide.get(wide_tile_col, wide_tile_row);
+
+                let tile_idx = usize::from(wide_tile_row) * usize::from(wide_tiles_per_row)
+                    + usize::from(wide_tile_col);
+                let cmd_start = cmd_starts.map_or(0, |starts| starts[tile_idx]);
+                let cmd_end = cmd_ends
+                    .map(|ends| ends[tile_idx])
+                    .unwrap_or(wide_tile.cmds.len());
+
+                if cmd_start == cmd_end && !is_first_segment {
+                    continue; // No commands for this tile in this segment.
+                }
+
                 let wide_tile_x = wide_tile_col * WideTile::WIDTH;
                 let wide_tile_y = wide_tile_row * Tile::HEIGHT;
 
@@ -505,19 +526,22 @@ impl Scheduler {
                     wide_tile,
                     wide_tile_x,
                     wide_tile_y,
-                    scene,
+                    encoded_paints,
                     paint_idxs,
+                    is_first_segment,
                 );
-                prepare_cmds(&wide_tile.cmds, state);
+
+                let cmds = &wide_tile.cmds[cmd_start..cmd_end];
+                prepare_cmds(cmds, state);
                 self.do_tile(
                     state,
                     renderer,
-                    scene,
+                    encoded_paints,
                     wide_tile_x,
                     wide_tile_y,
-                    &wide_tile.cmds,
+                    cmds,
                     paint_idxs,
-                    &scene.wide.attrs,
+                    &wide.attrs,
                 )?;
             }
         }
@@ -618,8 +642,9 @@ impl Scheduler {
         tile: &WideTile<MODE_HYBRID>,
         wide_tile_x: u16,
         wide_tile_y: u16,
-        scene: &Scene,
+        encoded_paints: &[EncodedPaint],
         idxs: &[u32],
+        render_background: bool,
     ) {
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
         // commands to the final target.
@@ -631,13 +656,13 @@ impl Scheduler {
             round: self.round,
             opacity: 1.,
         });
-        {
+        if render_background {
             // If the background has a non-zero alpha then we need to render it.
             let bg = tile.bg.as_premul_rgba8().to_u32();
             if has_non_zero_alpha(bg) {
                 let (payload, paint) = Self::process_paint(
                     &Paint::Solid(tile.bg),
-                    scene,
+                    encoded_paints,
                     (wide_tile_x, wide_tile_y),
                     idxs,
                 );
@@ -659,7 +684,7 @@ impl Scheduler {
         &mut self,
         state: &mut SchedulerState,
         renderer: &mut R,
-        scene: &Scene,
+        encoded_paints: &[EncodedPaint],
         wide_tile_x: u16,
         wide_tile_y: u16,
         wide_tile_cmds: &[Cmd],
@@ -682,7 +707,7 @@ impl Scheduler {
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
                         &fill_attrs.paint,
-                        scene,
+                        encoded_paints,
                         (scene_strip_x, scene_strip_y),
                         paint_idxs,
                     );
@@ -710,7 +735,7 @@ impl Scheduler {
                     let (scene_strip_x, scene_strip_y) = (wide_tile_x + alpha_fill.x, wide_tile_y);
                     let (payload, paint) = Self::process_paint(
                         &fill_attrs.paint,
-                        scene,
+                        encoded_paints,
                         (scene_strip_x, scene_strip_y),
                         paint_idxs,
                     );
@@ -1020,7 +1045,7 @@ impl Scheduler {
     #[inline(always)]
     fn process_paint(
         paint: &Paint,
-        scene: &Scene,
+        encoded_paints: &[EncodedPaint],
         (scene_strip_x, scene_strip_y): (u16, u16),
         paint_idxs: &[u32],
     ) -> (u32, u32) {
@@ -1038,7 +1063,7 @@ impl Scheduler {
                 let paint_id = indexed_paint.index();
                 let paint_idx = paint_idxs.get(paint_id).copied().unwrap();
 
-                match scene.encoded_paints.get(paint_id) {
+                match encoded_paints.get(paint_id) {
                     Some(EncodedPaint::Image(encoded_image)) => match &encoded_image.source {
                         ImageSource::OpaqueId(_) => {
                             let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)

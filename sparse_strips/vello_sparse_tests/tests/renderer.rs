@@ -26,6 +26,7 @@ pub(crate) trait Renderer: Sized {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
+        use_blit_pipeline: bool,
     ) -> Self;
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
@@ -78,6 +79,7 @@ impl Renderer for RenderContext {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
+        _use_blit_pipeline: bool,
     ) -> Self {
         let settings = RenderSettings {
             level,
@@ -229,30 +231,19 @@ impl Renderer for RenderContext {
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-pub(crate) struct HybridRenderer {
-    scene: Scene,
+pub(crate) struct HybridContext {
     device: wgpu::Device,
     queue: wgpu::Queue,
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     renderer: RefCell<vello_hybrid::Renderer>,
+    width: u16,
+    height: u16,
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-impl Renderer for HybridRenderer {
-    type GlyphRenderer = Scene;
-
-    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
-        if num_threads != 0 {
-            panic!("hybrid renderer doesn't support multi-threading");
-        }
-
-        if !matches!(level, Level::Fallback(_)) {
-            panic!("hybrid renderer doesn't support SIMD");
-        }
-
-        let scene = Scene::new(width, height);
-        // Initialize wgpu device and queue for GPU rendering
+impl HybridContext {
+    pub(crate) fn new(width: u16, height: u16) -> Self {
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
@@ -282,10 +273,8 @@ impl Renderer for HybridRenderer {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Create renderer and render the scene to the texture
         let renderer = vello_hybrid::Renderer::new(
             &device,
             &vello_hybrid::RenderTargetConfig {
@@ -296,12 +285,162 @@ impl Renderer for HybridRenderer {
         );
 
         Self {
-            scene,
             device,
             queue,
             texture,
             texture_view,
             renderer: RefCell::new(renderer),
+            width,
+            height,
+        }
+    }
+
+    pub(crate) fn upload_image(&self, pixmap: &Pixmap) -> vello_common::paint::ImageId {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Upload Test Image"),
+            });
+        let id = self.renderer.borrow_mut().upload_image(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            pixmap,
+        );
+        self.queue.submit([encoder.finish()]);
+        id
+    }
+
+    pub(crate) fn render_scene(&self, scene: &Scene) -> Pixmap {
+        let width = self.width;
+        let height = self.height;
+
+        let render_size = vello_hybrid::RenderSize {
+            width: width.into(),
+            height: height.into(),
+        };
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render"),
+            });
+        self.renderer
+            .borrow_mut()
+            .render(
+                scene,
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                &render_size,
+                &self.texture_view,
+            )
+            .unwrap();
+
+        let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Output Buffer"),
+            size: u64::from(bytes_per_row) * u64::from(height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: None,
+                },
+            },
+            wgpu::Extent3d {
+                width: width.into(),
+                height: height.into(),
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit([encoder.finish()]);
+
+        buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                if result.is_err() {
+                    panic!("Failed to map texture for reading");
+                }
+            });
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+
+        let mut pixmap = Pixmap::new(width, height);
+        for (row, buf) in buffer
+            .slice(..)
+            .get_mapped_range()
+            .chunks_exact(bytes_per_row as usize)
+            .zip(
+                pixmap
+                    .data_as_u8_slice_mut()
+                    .chunks_exact_mut(width as usize * 4),
+            )
+        {
+            buf.copy_from_slice(&row[0..width as usize * 4]);
+        }
+        buffer.unmap();
+
+        pixmap
+    }
+}
+
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+pub(crate) struct HybridRenderer {
+    ctx: HybridContext,
+    scene: Scene,
+}
+
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+impl Renderer for HybridRenderer {
+    type GlyphRenderer = Scene;
+
+    fn new(
+        width: u16,
+        height: u16,
+        num_threads: u16,
+        level: Level,
+        _: RenderMode,
+        use_blit_pipeline: bool,
+    ) -> Self {
+        if num_threads != 0 {
+            panic!("hybrid renderer doesn't support multi-threading");
+        }
+
+        if !matches!(level, Level::Fallback(_)) {
+            panic!("hybrid renderer doesn't support SIMD");
+        }
+
+        let render_hints = if use_blit_pipeline {
+            vello_hybrid::RenderHints::new().expect_only_default_blending()
+        } else {
+            vello_hybrid::RenderHints::new()
+        };
+        let scene = Scene::new_with(
+            width,
+            height,
+            vello_hybrid::RenderSettings {
+                render_hints,
+                ..Default::default()
+            },
+        );
+
+        Self {
+            ctx: HybridContext::new(width, height),
+            scene,
         }
     }
 
@@ -416,9 +555,6 @@ impl Renderer for HybridRenderer {
         self.scene.reset_filter_effect();
     }
 
-    // This method creates device resources every time it is called. This does not matter much for
-    // testing, but should not be used as a basis for implementing something real. This would be a
-    // very bad example for that.
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
@@ -435,91 +571,10 @@ impl Renderer for HybridRenderer {
             M.lock().unwrap()
         };
 
-        let width = self.scene.width();
-        let height = self.scene.height();
-
-        // for image in image_cache.images {}
-
-        let render_size = vello_hybrid::RenderSize {
-            width: width.into(),
-            height: height.into(),
-        };
-        // Copy texture to buffer
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Vello Render To Buffer"),
-            });
-        self.renderer
-            .borrow_mut()
-            .render(
-                &self.scene,
-                &self.device,
-                &self.queue,
-                &mut encoder,
-                &render_size,
-                &self.texture_view,
-            )
-            .unwrap();
-
-        // Create a buffer to copy the texture data
-        let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
-        let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Output Buffer"),
-            size: u64::from(bytes_per_row) * u64::from(height),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &texture_copy_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(bytes_per_row),
-                    rows_per_image: None,
-                },
-            },
-            wgpu::Extent3d {
-                width: width.into(),
-                height: height.into(),
-                depth_or_array_layers: 1,
-            },
-        );
-        self.queue.submit([encoder.finish()]);
-
-        // Map the buffer for reading
-        texture_copy_buffer
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| {
-                if result.is_err() {
-                    panic!("Failed to map texture for reading");
-                }
-            });
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-
-        // Read back the pixel data
-        for (row, buf) in texture_copy_buffer
-            .slice(..)
-            .get_mapped_range()
-            .chunks_exact(bytes_per_row as usize)
-            .zip(
-                pixmap
-                    .data_as_u8_slice_mut()
-                    .chunks_exact_mut(width as usize * 4),
-            )
-        {
-            buf.copy_from_slice(&row[0..width as usize * 4]);
-        }
-        texture_copy_buffer.unmap();
+        let result = self.ctx.render_scene(&self.scene);
+        pixmap
+            .data_as_u8_slice_mut()
+            .copy_from_slice(result.data_as_u8_slice());
     }
 
     fn width(&self) -> u16 {
@@ -531,23 +586,7 @@ impl Renderer for HybridRenderer {
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Upload Test Image"),
-            });
-
-        // Upload image to cache and atlas in one step!
-        let image_id = self.renderer.borrow_mut().upload_image(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &pixmap,
-        );
-
-        self.queue.submit([encoder.finish()]);
-
-        ImageSource::OpaqueId(image_id)
+        ImageSource::OpaqueId(self.ctx.upload_image(&pixmap))
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
@@ -574,7 +613,14 @@ pub(crate) struct HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRenderer = Scene;
 
-    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
+    fn new(
+        width: u16,
+        height: u16,
+        num_threads: u16,
+        level: Level,
+        _: RenderMode,
+        use_blit_pipeline: bool,
+    ) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
 
@@ -586,7 +632,19 @@ impl Renderer for HybridRenderer {
             panic!("hybrid renderer doesn't support SIMD");
         }
 
-        let scene = Scene::new(width, height);
+        let render_hints = if use_blit_pipeline {
+            vello_hybrid::RenderHints::new().expect_only_default_blending()
+        } else {
+            vello_hybrid::RenderHints::new()
+        };
+        let scene = Scene::new_with(
+            width,
+            height,
+            vello_hybrid::RenderSettings {
+                render_hints,
+                ..Default::default()
+            },
+        );
 
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
