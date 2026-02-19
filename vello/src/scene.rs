@@ -661,6 +661,10 @@ impl<'a> DrawGlyphs<'a> {
         )
         .to_vec();
         let location = LocationRef::new(&coords);
+
+        let transform_scale = run_transform.determinant().abs().sqrt() as f32;
+        let scaled_font_size = self.run.font_size * transform_scale;
+
         loop {
             let ppem = self.run.font_size;
             let outline_glyphs = (&mut glyphs).take_while(|glyph| {
@@ -782,15 +786,16 @@ impl<'a> DrawGlyphs<'a> {
                         }
                     };
                     let image = ImageBrush::new(image).multiply_alpha(self.brush_alpha);
-                    // Split into multiple statements because rustfmt breaks
-                    let transform =
-                        run_transform.pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()));
+
+                    // Compute position in physical coordinates to handle scaled transforms correctly
+                    let glyph_physical_pos =
+                        run_transform * Point::new(glyph.x.into(), glyph.y.into());
 
                     // Logic copied from Skia without examination or careful understanding:
                     // https://github.com/google/skia/blob/61ac357e8e3338b90fb84983100d90768230797f/src/ports/SkTypeface_fontations.cpp#L664
 
-                    let image_scale_factor = self.run.font_size / bitmap.ppem_y;
-                    let font_units_to_size = self.run.font_size / upem;
+                    let image_scale_factor = scaled_font_size / bitmap.ppem_y;
+                    let font_units_to_size = scaled_font_size / upem;
 
                     // CoreText appears to special case Apple Color Emoji, adding
                     // a 100 font unit vertical offset. We do the same but only
@@ -805,7 +810,7 @@ impl<'a> DrawGlyphs<'a> {
                         bitmap.bearing_y
                     };
 
-                    let transform = transform
+                    let transform = Affine::translate(glyph_physical_pos.to_vec2())
                         .pre_translate(Vec2 {
                             x: (-bitmap.bearing_x * font_units_to_size).into(),
                             y: (bearing_y * font_units_to_size).into(),
