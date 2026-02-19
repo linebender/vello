@@ -21,7 +21,7 @@ pub fn coarse(c: &mut Criterion) {
     for item in get_data_items() {
         let (_alpha_buf, strip_buf) = item.strips();
 
-        g.bench_function(format!("{}", item.name), |b| {
+        g.bench_function(&item.name, |b| {
             let mut wide = Wide::<MODE_CPU>::new(item.width, item.height);
 
             b.iter(|| {
@@ -50,7 +50,7 @@ pub fn coarse_with_layer(c: &mut Criterion) {
     for item in get_data_items() {
         let (_alpha_buf, strip_buf) = item.strips();
 
-        g.bench_function(format!("{}", item.name), |b| {
+        g.bench_function(&item.name, |b| {
             let mut wide = Wide::<MODE_CPU>::new(item.width, item.height);
             let mut render_graph = RenderGraph::new();
 
@@ -124,7 +124,7 @@ pub fn coarse_with_layer_large_viewport(c: &mut Criterion) {
         const WIDTH_4K: u16 = 3840;
         const HEIGHT_4K: u16 = 2160;
 
-        g.bench_function(format!("{}", item.name), |b| {
+        g.bench_function(&item.name, |b| {
             let mut wide = Wide::<MODE_CPU>::new(WIDTH_4K, HEIGHT_4K);
             let mut render_graph = RenderGraph::new();
 
