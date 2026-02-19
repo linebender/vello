@@ -396,10 +396,12 @@ impl<const MODE: u8> Wide<MODE> {
             layer_bufs <= self.layers_needing_buf_stack.len,
             "tile `layer_buf_depth` exceeds active layer stack"
         );
-        // It may be quite likely that `needed` is zero: e.g. it may be common for some users to
-        // not push layers needing buffers at all, and a tile that has content may well have more
-        // than one call to `ensure_layer_stack_bufs`.
-        // layers at all, or where the same wide tile has multiple commadn
+        // It may be quite likely that no buffers need to be pushed: e.g. a tile that has content
+        // may well have more than one call to `ensure_layer_stack_bufs`, and layers needing
+        // buffers are not necessarily the most common case. As such, we keep this check inlined
+        // (because the function itself is inlined), and if buffers are needed do an explicit
+        // function call that is not inlined. That keeps the generated code size small at our call
+        // sites.
         (layer_bufs < self.layers_needing_buf_stack.len).then(
             #[inline(never)]
             || {
