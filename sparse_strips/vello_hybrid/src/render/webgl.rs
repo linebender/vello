@@ -1907,7 +1907,7 @@ fn initialize_blit_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) 
     debug_assert_eq!(stride, 36, "expected stride of 36");
 
     // Attributes 0-2: vec2<f32> (col0, col1, center) — 8 bytes each.
-    for i in 0..3u32 {
+    for i in 0..3_u32 {
         let offset = (i * 8) as i32;
         gl.enable_vertex_attrib_array(i);
         gl.vertex_attrib_pointer_with_i32(
@@ -1922,7 +1922,7 @@ fn initialize_blit_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) 
     }
 
     // Attributes 3-5: u32 (src_xy, src_wh, atlas_index) — 4 bytes each.
-    for i in 3..6u32 {
+    for i in 3..6_u32 {
         let offset = (24 + (i - 3) * 4) as i32;
         gl.enable_vertex_attrib_array(i);
         gl.vertex_attrib_i_pointer_with_i32(

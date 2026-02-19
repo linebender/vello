@@ -483,9 +483,9 @@ impl Scheduler {
 
     /// Process a batch of wide tile commands.
     ///
-    /// The batch is defined as the commands between [`cmd_starts`] and [`cmd_ends`]. When:
-    ///  - [`cmd_starts`] is `None`, the batch starts at the first command in each wide tile.
-    ///  - [`cmd_ends`] is `None`, the batch ends at the last command in each wide tile.
+    /// The batch is defined as the commands between `cmd_starts` and `cmd_ends`. When:
+    ///  - `cmd_starts` is `None`, the batch starts at the first command in each wide tile.
+    ///  - `cmd_ends` is `None`, the batch ends at the last command in each wide tile.
     pub(crate) fn do_scene_segment<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,

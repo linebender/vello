@@ -191,7 +191,7 @@ pub struct Scene {
     /// Whether the scene is currently accumulating blit rects (vs strip commands).
     in_blit_mode: bool,
     /// Screen-space bounding boxes of strip operations since the last blit batch.
-    /// Used by [`Self::can_batch_blit`] to determine whether a blit rect can be
+    /// Used by [`Self::can_batch_blit_aabb`] to determine whether a blit rect can be
     /// folded into the previous blit batch without a pipeline switch.
     strips_dirty_rects: DirtyRects,
     /// Whether blit rect batching is enabled. When `false`, every blit rect
@@ -1262,14 +1262,14 @@ impl Scene {
 /// to fully resolve a blit rect. Specifically, we are missing the `ImageResource` which
 /// contains the image dimensions and offset in the texture atlas.
 ///
-/// Otherwise, this struct parallels the [`GpuBlitRect`] struct.
+/// Otherwise, this struct parallels the [`GpuBlitRect`](crate::render::common::GpuBlitRect) struct.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BlitRect {
     /// Screen-space center of the quad (after geometry transform): [x, y].
     pub center: [f32; 2],
-    /// `col0` in the [`resolve_blit_rect`] formula. See [`resolve_blit_rect`] for more details.
+    /// `col0` in the [`resolve_blit_rect`](crate::render::common::resolve_blit_rect) formula. See [`resolve_blit_rect`](crate::render::common::resolve_blit_rect) for more details.
     pub col0: [f32; 2],
-    /// `col1` in the [`resolve_blit_rect`] formula. See [`resolve_blit_rect`] for more details.
+    /// `col1` in the [`resolve_blit_rect`](crate::render::common::resolve_blit_rect) formula. See [`resolve_blit_rect`](crate::render::common::resolve_blit_rect) for more details.
     pub col1: [f32; 2],
     /// Pre-transform rect dimensions in geometry space: [w, h].
     pub rect_wh: [u16; 2],
@@ -1511,7 +1511,7 @@ mod tests {
     mod blit_batching {
         use super::*;
 
-        /// Create a minimal scene and set an OpaqueId image paint so `try_blit_rect` succeeds.
+        /// Create a minimal scene and set an `OpaqueId` image paint so `try_blit_rect` succeeds.
         fn scene_with_image_paint(width: u16, height: u16) -> Scene {
             let mut scene = Scene::new(width, height);
             let image_id = ImageId::new(42);
