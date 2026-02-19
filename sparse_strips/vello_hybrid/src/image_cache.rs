@@ -21,6 +21,16 @@ pub(crate) struct ImageResource {
     atlas_alloc_id: AllocId,
 }
 
+impl ImageResource {
+    pub(crate) fn offsets(&self) -> [u32; 2] {
+        [self.offset[0] as u32, self.offset[1] as u32]
+    }
+
+    pub(crate) fn size(&self) -> [u32; 2] {
+        [self.width as u32, self.height as u32]
+    }
+}
+
 /// Manages image resources for the renderer.
 pub(crate) struct ImageCache {
     /// Multi-atlas manager for handling multiple texture atlases.

@@ -56,7 +56,7 @@ use vello_common::{
 };
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
-    Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment,
+    Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment, Sampler,
     RenderPassDescriptor, RenderPipeline, Texture, TextureView, TextureViewDescriptor,
     util::DeviceExt,
 };
@@ -596,7 +596,7 @@ struct GpuResources {
     /// Bind group for filter texture
     filter_base_bind_group: BindGroup,
     /// Linear sampler for filter bilinear texture sampling
-    filter_sampler: wgpu::Sampler,
+    filter_sampler: Sampler,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
@@ -2245,6 +2245,75 @@ impl RendererContext<'_> {
             render_pass.draw(0..4, 0..u32::try_from(slot_indices.len()).unwrap());
         }
     }
+
+    fn run_filter_pass(
+        &mut self,
+        label: &str,
+        pipeline_index: usize,
+        output_view: &TextureView,
+        extra_bind_groups: &[&BindGroup],
+    ) {
+        let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some(label),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: output_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        render_pass.set_pipeline(&self.programs.filter_pipelines[pipeline_index]);
+        render_pass.set_bind_group(0, &self.programs.resources.filter_base_bind_group, &[]);
+        for (i, bind_group) in extra_bind_groups.iter().enumerate() {
+            render_pass.set_bind_group((i + 1) as u32, *bind_group, &[]);
+        }
+        render_pass
+            .set_vertex_buffer(0, self.programs.resources.filter_instance_buffer.slice(..));
+        render_pass.draw(0..4, 0..1);
+    }
+}
+
+fn create_filter_input_bind_group(
+    device: &Device,
+    layout: &BindGroupLayout,
+    sampler: &Sampler,
+    texture_view: &TextureView,
+) -> BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Filter Input Bind Group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+
+fn create_atlas_layer_view(atlas: &Texture, label: &str, layer: u32) -> TextureView {
+    atlas.create_view(&TextureViewDescriptor {
+        label: Some(label),
+        format: None,
+        dimension: Some(wgpu::TextureViewDimension::D2),
+        aspect: wgpu::TextureAspect::All,
+        base_mip_level: 0,
+        mip_level_count: None,
+        base_array_layer: layer,
+        array_layer_count: Some(1),
+        usage: None,
+    })
 }
 
 impl RendererBackend for RendererContext<'_> {
@@ -2263,7 +2332,7 @@ impl RendererBackend for RendererContext<'_> {
     }
 
     fn apply_filter(&mut self, layer_id: LayerId) {
-        let filter_offset = self
+        let filter_layer_offset = self
             .filter_context
             .offsets()
             .get(&layer_id)
@@ -2273,20 +2342,18 @@ impl RendererBackend for RendererContext<'_> {
             .filter_context
             .get_filter_data(&layer_id)
             .is_some_and(|f| f.needs_scratch_buffer());
-        // 1. Get filter textures allocation from FilterContext
         let filter_textures = self
             .filter_context
             .filter_textures()
             .get(&layer_id)
-            .expect("Filter textures must exist");
+            .unwrap();
 
-        // 2. Get image resources from caches
-        let main_resource = self
+        let initial_image = self
             .filter_context
             .image_cache
             .get(filter_textures.initial_image_id)
             .expect("Main image must exist");
-        let dest_resource = self
+        let dest_image = self
             .image_cache
             .get(filter_textures.dest_image_id)
             .expect("Dest image must exist");
@@ -2307,19 +2374,16 @@ impl RendererBackend for RendererContext<'_> {
                 .get(scratch_id)
                 .expect("Scratch image must exist");
             (
-                [scratch.offset[0] as u32, scratch.offset[1] as u32],
-                [scratch.width as u32, scratch.height as u32],
+                scratch.offsets(),
+                scratch.size(),
                 scratch.atlas_id.as_u32(),
                 true, // scratch is in the filter atlas
             )
         } else {
             (
-                [
-                    dest_resource.offset[0] as u32,
-                    dest_resource.offset[1] as u32,
-                ],
-                [dest_resource.width as u32, dest_resource.height as u32],
-                dest_resource.atlas_id.as_u32(),
+                dest_image.offsets(),
+                dest_image.size(),
+                dest_image.atlas_id.as_u32(),
                 false,
             )
         };
@@ -2333,15 +2397,12 @@ impl RendererBackend for RendererContext<'_> {
 
         // 4. Build instance data and upload for first pass (main -> target)
         let instance_data = FilterInstanceData {
-            src_offset: [
-                main_resource.offset[0] as u32,
-                main_resource.offset[1] as u32,
-            ],
-            src_size: [main_resource.width as u32, main_resource.height as u32],
+            src_offset: initial_image.offsets(),
+            src_size: initial_image.size(),
             dest_offset: first_pass_dest_offset,
             dest_size: first_pass_dest_size,
             dest_atlas_size: [first_pass_atlas_size.width, first_pass_atlas_size.height],
-            filter_offset,
+            filter_offset: filter_layer_offset,
             _padding: 0,
             // Not used in pass 1.
             original_offset: [0, 0],
@@ -2352,71 +2413,34 @@ impl RendererBackend for RendererContext<'_> {
 
         // 5. Create views and bind groups for first pass
         let main_filter_texture = &self.programs.resources.filter_atlas_textures
-            [main_resource.atlas_id.as_u32() as usize];
+            [initial_image.atlas_id.as_u32() as usize];
         let main_texture_view = main_filter_texture.create_view(&TextureViewDescriptor::default());
 
-        let main_input_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Filter Input Bind Group"),
-            layout: &self.programs.filter_input_bind_group_layouts[0],
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&main_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(
-                        &self.programs.resources.filter_sampler,
-                    ),
-                },
-            ],
-        });
+        let main_input_bind_group = create_filter_input_bind_group(
+            self.device,
+            &self.programs.filter_input_bind_group_layouts[0],
+            &self.programs.resources.filter_sampler,
+            &main_texture_view,
+        );
 
         let first_pass_output_view = if first_pass_uses_filter_atlas {
             self.programs.resources.filter_atlas_textures[first_pass_dest_atlas_layer as usize]
                 .create_view(&TextureViewDescriptor::default())
         } else {
-            self.programs
-                .resources
-                .atlas_texture_array
-                .create_view(&TextureViewDescriptor {
-                    label: Some("Filter First Pass Output View"),
-                    format: None,
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    aspect: wgpu::TextureAspect::All,
-                    base_mip_level: 0,
-                    mip_level_count: None,
-                    base_array_layer: first_pass_dest_atlas_layer,
-                    array_layer_count: Some(1),
-                    usage: None,
-                })
+            create_atlas_layer_view(
+                &self.programs.resources.atlas_texture_array,
+                "Filter First Pass Output View",
+                first_pass_dest_atlas_layer,
+            )
         };
 
         // 5. First pass render
-        {
-            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Apply Filter Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &first_pass_output_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-
-            render_pass.set_pipeline(&self.programs.filter_pipelines[0]);
-            render_pass.set_bind_group(0, &self.programs.resources.filter_base_bind_group, &[]);
-            render_pass.set_bind_group(1, &main_input_bind_group, &[]);
-            render_pass
-                .set_vertex_buffer(0, self.programs.resources.filter_instance_buffer.slice(..));
-            render_pass.draw(0..4, 0..1);
-        }
+        self.run_filter_pass(
+            "Apply Filter Pass",
+            0,
+            &first_pass_output_view,
+            &[&main_input_bind_group],
+        );
 
         // 6. Second pass (only for multi-pass filters): scratch -> dest
         if uses_scratch {
@@ -2425,27 +2449,15 @@ impl RendererBackend for RendererContext<'_> {
 
             let dest_atlas_size = self.programs.resources.atlas_texture_array.size();
             let pass2_instance_data = FilterInstanceData {
-                src_offset: [
-                    scratch_resource.offset[0] as u32,
-                    scratch_resource.offset[1] as u32,
-                ],
-                src_size: [
-                    scratch_resource.width as u32,
-                    scratch_resource.height as u32,
-                ],
-                dest_offset: [
-                    dest_resource.offset[0] as u32,
-                    dest_resource.offset[1] as u32,
-                ],
-                dest_size: [dest_resource.width as u32, dest_resource.height as u32],
+                src_offset: scratch_resource.offsets(),
+                src_size: scratch_resource.size(),
+                dest_offset: dest_image.offsets(),
+                dest_size: dest_image.size(),
                 dest_atlas_size: [dest_atlas_size.width, dest_atlas_size.height],
-                filter_offset,
+                filter_offset: filter_layer_offset,
                 _padding: 0,
-                original_offset: [
-                    main_resource.offset[0] as u32,
-                    main_resource.offset[1] as u32,
-                ],
-                original_size: [main_resource.width as u32, main_resource.height as u32],
+                original_offset: initial_image.offsets(),
+                original_size: initial_image.size(),
             };
             self.programs
                 .upload_filter_instance(self.device, self.queue, &pass2_instance_data);
@@ -2454,23 +2466,12 @@ impl RendererBackend for RendererContext<'_> {
                 [scratch_resource.atlas_id.as_u32() as usize]
                 .create_view(&TextureViewDescriptor::default());
 
-            let scratch_input_bind_group =
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Filter Scratch Input Bind Group"),
-                    layout: &self.programs.filter_input_bind_group_layouts[0],
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&scratch_input_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(
-                                &self.programs.resources.filter_sampler,
-                            ),
-                        },
-                    ],
-                });
+            let scratch_input_bind_group = create_filter_input_bind_group(
+                self.device,
+                &self.programs.filter_input_bind_group_layouts[0],
+                &self.programs.resources.filter_sampler,
+                &scratch_input_view,
+            );
 
             // Bind group for original (unfiltered) content, used by drop shadow pass 2.
             // For non-drop-shadow filters this group is bound but not sampled by the shader.
@@ -2483,47 +2484,18 @@ impl RendererBackend for RendererContext<'_> {
                 }],
             });
 
-            let dest_texture_view =
-                self.programs
-                    .resources
-                    .atlas_texture_array
-                    .create_view(&TextureViewDescriptor {
-                        label: Some("Filter Dest Output View"),
-                        format: None,
-                        dimension: Some(wgpu::TextureViewDimension::D2),
-                        aspect: wgpu::TextureAspect::All,
-                        base_mip_level: 0,
-                        mip_level_count: None,
-                        base_array_layer: dest_resource.atlas_id.as_u32(),
-                        array_layer_count: Some(1),
-                        usage: None,
-                    });
+            let dest_texture_view = create_atlas_layer_view(
+                &self.programs.resources.atlas_texture_array,
+                "Filter Dest Output View",
+                dest_image.atlas_id.as_u32(),
+            );
 
-            {
-                let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("Apply Filter Pass - Vertical"),
-                    color_attachments: &[Some(RenderPassColorAttachment {
-                        view: &dest_texture_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                });
-
-                render_pass.set_pipeline(&self.programs.filter_pipelines[1]);
-                render_pass.set_bind_group(0, &self.programs.resources.filter_base_bind_group, &[]);
-                render_pass.set_bind_group(1, &scratch_input_bind_group, &[]);
-                render_pass.set_bind_group(2, &original_bind_group, &[]);
-                render_pass
-                    .set_vertex_buffer(0, self.programs.resources.filter_instance_buffer.slice(..));
-                render_pass.draw(0..4, 0..1);
-            }
+            self.run_filter_pass(
+                "Apply Filter Pass - Vertical",
+                1,
+                &dest_texture_view,
+                &[&scratch_input_bind_group, &original_bind_group],
+            );
         }
     }
 }
