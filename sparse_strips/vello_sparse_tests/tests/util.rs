@@ -143,7 +143,14 @@ pub(crate) fn get_ctx<T: Renderer>(
         _ => panic!("unknown level: {level}"),
     };
 
-    let mut ctx = T::new(width, height, num_threads, level, render_mode, use_blit_pipeline);
+    let mut ctx = T::new(
+        width,
+        height,
+        num_threads,
+        level,
+        render_mode,
+        use_blit_pipeline,
+    );
 
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);

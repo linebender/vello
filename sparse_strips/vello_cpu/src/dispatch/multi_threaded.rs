@@ -353,7 +353,9 @@ impl MultiThreadedDispatcher {
                                     thread_id,
                                 );
                             }
-                            CoarseTaskType::PopLayer => { self.wide.pop_layer(&mut self.render_graph); }
+                            CoarseTaskType::PopLayer => {
+                                self.wide.pop_layer(&mut self.render_graph);
+                            }
                         }
                     }
 
