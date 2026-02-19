@@ -197,7 +197,7 @@ impl WebGlRenderer {
         let mut batch_idx = 0;
 
         // Process interleaved strip segments and blit batches.
-        for blit_batch_range in scene.blit_batches.iter() {
+        for blit_batch in scene.blit_batches.iter() {
             let cmd_starts = (batch_idx > 0)
                 .then(|| &scene.strip_tile_batches[(batch_idx - 1) * n_tiles..batch_idx * n_tiles]);
             let cmd_ends =
@@ -223,7 +223,7 @@ impl WebGlRenderer {
 
             // Render blits for this batch.
             {
-                let blits = &scene.all_blits[blit_batch_range.clone()];
+                let blits = &scene.all_blits[blit_batch.clone()];
                 if blits.is_empty() {
                     continue;
                 }
@@ -590,7 +590,7 @@ struct WebGlPrograms {
     clear_uniforms: ClearUniforms,
     /// Program for instanced blit rect rendering.
     blit_program: WebGlProgram,
-    /// Uniform locations for the `blit_program`.
+    /// Uniform locations for `blit_program`.
     blit_uniforms: BlitUniforms,
     /// WebGL resources for rendering.
     resources: WebGlResources,
@@ -2163,8 +2163,7 @@ impl WebGlRendererContext<'_> {
         let height = self.programs.render_size.height;
         self.gl.viewport(0, 0, width as i32, height as i32);
 
-        // Enable premultiplied alpha blending (matches wgpu's PREMULTIPLIED_ALPHA_BLENDING).
-        // Image texels may contain semi-transparent pixels that must composite correctly.
+        // Image texels may contain semi-transparent pixels that must be composited correctly.
         self.gl.enable(WebGl2RenderingContext::BLEND);
         self.gl.blend_func_separate(
             WebGl2RenderingContext::ONE,

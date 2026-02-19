@@ -164,7 +164,7 @@ impl Renderer {
         let mut batch_idx = 0;
 
         // Process interleaved strip segments and blit batches.
-        for blit_batch_range in scene.blit_batches.iter() {
+        for blit_batch in scene.blit_batches.iter() {
             let cmd_starts = (batch_idx > 0)
                 .then(|| &scene.strip_tile_batches[(batch_idx - 1) * n_tiles..batch_idx * n_tiles]);
             let cmd_ends =
@@ -193,7 +193,7 @@ impl Renderer {
 
             // Render blits for this batch.
             {
-                let blits = &scene.all_blits[blit_batch_range.clone()];
+                let blits = &scene.all_blits[blit_batch.clone()];
                 if blits.is_empty() {
                     continue;
                 }
@@ -1915,7 +1915,7 @@ impl RendererContext<'_> {
                 0,
                 required_size.try_into().unwrap(),
             )
-            .expect("Capacity handled in creation");
+            .expect("capacity handled in creation");
         buffer.copy_from_slice(bytemuck::cast_slice(blit_rects));
 
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {

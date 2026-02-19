@@ -19,163 +19,10 @@ mod gpu_tests {
     use vello_common::pixmap::Pixmap;
     use vello_hybrid::Scene;
 
+    use crate::renderer::HybridContext;
+
     const WIDTH: u16 = 200;
     const HEIGHT: u16 = 200;
-
-    struct GpuContext {
-        device: wgpu::Device,
-        queue: wgpu::Queue,
-        renderer: vello_hybrid::Renderer,
-    }
-
-    impl GpuContext {
-        fn new(width: u16, height: u16) -> Self {
-            let instance = wgpu::Instance::default();
-            let adapter =
-                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::default(),
-                    force_fallback_adapter: false,
-                    compatible_surface: None,
-                }))
-                .expect("Failed to find an appropriate adapter");
-            let (device, queue) =
-                pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                    label: Some("Batching Test Device"),
-                    required_features: wgpu::Features::empty(),
-                    ..Default::default()
-                }))
-                .expect("Failed to create device");
-
-            let renderer = vello_hybrid::Renderer::new(
-                &device,
-                &vello_hybrid::RenderTargetConfig {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    width: width.into(),
-                    height: height.into(),
-                },
-            );
-
-            Self {
-                device,
-                queue,
-                renderer,
-            }
-        }
-
-        fn upload_image(&mut self, pixmap: &Pixmap) -> vello_common::paint::ImageId {
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Upload Image"),
-                });
-            let id = self
-                .renderer
-                .upload_image(&self.device, &self.queue, &mut encoder, pixmap);
-            self.queue.submit([encoder.finish()]);
-            id
-        }
-
-        fn render_scene(&mut self, scene: &Scene) -> Pixmap {
-            let width = scene.width();
-            let height = scene.height();
-
-            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Batching Test Render Target"),
-                size: wgpu::Extent3d {
-                    width: width.into(),
-                    height: height.into(),
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-                view_formats: &[],
-            });
-            let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-            let render_size = vello_hybrid::RenderSize {
-                width: width.into(),
-                height: height.into(),
-            };
-
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Batching Test Render"),
-                });
-            self.renderer
-                .render(
-                    scene,
-                    &self.device,
-                    &self.queue,
-                    &mut encoder,
-                    &render_size,
-                    &texture_view,
-                )
-                .unwrap();
-
-            let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
-            let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Batching Test Output Buffer"),
-                size: u64::from(bytes_per_row) * u64::from(height),
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-
-            encoder.copy_texture_to_buffer(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::TexelCopyBufferInfo {
-                    buffer: &texture_copy_buffer,
-                    layout: wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(bytes_per_row),
-                        rows_per_image: None,
-                    },
-                },
-                wgpu::Extent3d {
-                    width: width.into(),
-                    height: height.into(),
-                    depth_or_array_layers: 1,
-                },
-            );
-            self.queue.submit([encoder.finish()]);
-
-            texture_copy_buffer
-                .slice(..)
-                .map_async(wgpu::MapMode::Read, move |result| {
-                    if result.is_err() {
-                        panic!("Failed to map texture for reading");
-                    }
-                });
-            self.device
-                .poll(wgpu::PollType::wait_indefinitely())
-                .unwrap();
-
-            let mut pixmap = Pixmap::new(width, height);
-            for (row, buf) in texture_copy_buffer
-                .slice(..)
-                .get_mapped_range()
-                .chunks_exact(bytes_per_row as usize)
-                .zip(
-                    pixmap
-                        .data_as_u8_slice_mut()
-                        .chunks_exact_mut(width as usize * 4),
-                )
-            {
-                buf.copy_from_slice(&row[0..width as usize * 4]);
-            }
-            texture_copy_buffer.unmap();
-
-            pixmap
-        }
-    }
 
     /// Create a small solid-colour test image for use as a blit source.
     fn make_test_image() -> Pixmap {
@@ -195,15 +42,15 @@ mod gpu_tests {
     /// output to rendering the same scene with blit batching disabled.
     fn assert_batching_equivalent(build_scene: impl Fn(&mut Scene, ImageSource)) {
         let test_image = make_test_image();
-        let mut gpu = GpuContext::new(WIDTH, HEIGHT);
-        let image_id = gpu.upload_image(&test_image);
+        let ctx = HybridContext::new(WIDTH, HEIGHT);
+        let image_id = ctx.upload_image(&test_image);
         let img_src = ImageSource::OpaqueId(image_id);
 
         // Render with batching ON (default).
         let pixmap_on = {
             let mut scene = Scene::new(WIDTH, HEIGHT);
             build_scene(&mut scene, img_src.clone());
-            gpu.render_scene(&scene)
+            ctx.render_scene(&scene)
         };
 
         // Render with batching OFF.
@@ -211,7 +58,7 @@ mod gpu_tests {
             let mut scene = Scene::new(WIDTH, HEIGHT);
             scene.set_blit_batching(false);
             build_scene(&mut scene, img_src);
-            gpu.render_scene(&scene)
+            ctx.render_scene(&scene)
         };
 
         let data_on = pixmap_on.data_as_u8_slice();
@@ -252,7 +99,7 @@ mod gpu_tests {
     fn blit_survives_two_batches() {
         let _guard = GPU_MUTEX.lock().unwrap();
         let test_image = make_test_image();
-        let mut gpu = GpuContext::new(WIDTH, HEIGHT);
+        let gpu = HybridContext::new(WIDTH, HEIGHT);
         let image_id = gpu.upload_image(&test_image);
 
         let mut scene = Scene::new(WIDTH, HEIGHT);
@@ -307,7 +154,7 @@ mod gpu_tests {
     fn blit_survives_strip_batch() {
         let _guard = GPU_MUTEX.lock().unwrap();
         let test_image = make_test_image();
-        let mut gpu = GpuContext::new(WIDTH, HEIGHT);
+        let gpu = HybridContext::new(WIDTH, HEIGHT);
         let image_id = gpu.upload_image(&test_image);
 
         let mut scene = Scene::new(WIDTH, HEIGHT);
