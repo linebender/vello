@@ -1904,10 +1904,8 @@ impl RendererContext<'_> {
 
         // Upload blit rect instance data, reusing the buffer if it's large enough.
         let required_size = size_of_val(blit_rects) as u64;
-        if self.programs.resources.blit_buffer.size() < required_size {
-            self.programs.resources.blit_buffer =
-                Programs::create_blit_buffer(self.device, required_size);
-        }
+        self.programs.resources.blit_buffer =
+            Programs::create_blit_buffer(self.device, required_size);
         let mut buffer = self
             .queue
             .write_buffer_with(
