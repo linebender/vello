@@ -163,6 +163,7 @@ impl WebGlRenderer {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             gradient_cache,
+            filter_context: FilterContext::new(settings.atlas_config),
         }
     }
 

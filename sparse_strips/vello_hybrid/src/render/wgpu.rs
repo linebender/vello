@@ -23,7 +23,7 @@ use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, num::NonZeroU64};
 
 use crate::AtlasConfig;
-use crate::filter::FilterContext;
+use crate::filter::{FilterContext, FilterInstanceData};
 use crate::multi_atlas::{AtlasError, AtlasId};
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
@@ -630,30 +630,6 @@ struct ClearSlotsConfig {
     pub texture_height: u32,
     /// Padding for 16-byte alignment
     pub _padding: u32,
-}
-
-/// Per-instance vertex data for filter rendering
-#[repr(C, align(16))]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-struct FilterInstanceData {
-    /// Top-left pixel offset of the source region in `in_tex` of the atlas texture it lives in.
-    src_offset: [u32; 2],
-    /// Width and height (in pixels) of the source region in `in_tex`.
-    src_size: [u32; 2],
-    /// Top-left pixel offset of the destination region in the output atlas.
-    dest_offset: [u32; 2],
-    /// Width and height (in pixels) of the destination region.
-    dest_size: [u32; 2],
-    /// Full dimensions of the destination atlas texture (used for NDC conversion).
-    dest_atlas_size: [u32; 2],
-    /// Texel offset into `filter_data` where this filter's parameters begin.
-    filter_data_offset: u32,
-    /// Top-left pixel offset of the original texture in `original_tex` of the atlas texture it lives in.
-    original_offset: [u32; 2],
-    /// Width and height (in pixels) of the original content region.
-    original_size: [u32; 2],
-    /// Padding for 16-byte alignment.
-    _padding: u32,
 }
 
 impl GpuStrip {
@@ -1715,21 +1691,17 @@ impl Programs {
         max_texture_dimension_2d: u32,
         filter_context: &FilterContext,
     ) {
-        let required_texels = filter_context.total_texels();
-        if required_texels == 0 {
+        let Some(required_filter_height) =
+            filter_context.required_filter_data_height(max_texture_dimension_2d)
+        else {
             return;
-        }
-        let required_filter_height = required_texels.div_ceil(max_texture_dimension_2d);
+        };
         debug_assert!(
             self.resources.filter_data_texture.width() == max_texture_dimension_2d,
             "Filter texture width must match max texture dimensions"
         );
         let current_filter_height = self.resources.filter_data_texture.height();
         if required_filter_height > current_filter_height {
-            assert!(
-                required_filter_height <= max_texture_dimension_2d,
-                "Filter texture height exceeds max texture dimensions"
-            );
             let required_filter_size = (max_texture_dimension_2d * required_filter_height) << 4;
             self.filter_data.resize(required_filter_size as usize, 0);
 
@@ -2331,71 +2303,27 @@ impl RendererBackend for RendererContext<'_> {
     }
 
     fn apply_filter(&mut self, layer_id: LayerId) {
-        let filter_data_offset = self
-            .filter_context
-            .offsets()
-            .get(&layer_id)
-            .copied()
-            .unwrap();
-        let uses_scratch = self
-            .filter_context
-            .get_filter_data(&layer_id)
-            .is_some_and(|f| f.needs_scratch_buffer());
-        let filter_textures = self
-            .filter_context
-            .filter_textures()
-            .get(&layer_id)
-            .unwrap();
+        let pass_data = self.filter_context.build_filter_pass_data(
+            &layer_id,
+            self.image_cache,
+            |atlas_idx| {
+                let tex = &self.programs.resources.filter_atlas_textures[atlas_idx as usize];
+                let size = tex.size();
+                [size.width, size.height]
+            },
+            || {
+                let size = self.programs.resources.atlas_texture_array.size();
+                [size.width, size.height]
+            },
+        );
 
-        let initial_image = self
-            .filter_context
-            .image_cache
-            .get(filter_textures.initial_image_id)
-            .expect("Main image must exist");
-        let dest_image = self
-            .image_cache
-            .get(filter_textures.dest_image_id)
-            .expect("Dest image must exist");
+        // Prepare for the first filter pass.
 
-        let (first_pass_dest_offset, first_pass_dest_size, first_pass_dest_atlas_layer) =
-            if uses_scratch {
-                // Render into scratch buffer.
-                let scratch_id = filter_textures.scratch_image_id.unwrap();
-                let scratch = self.filter_context.image_cache.get(scratch_id).unwrap();
-                (scratch.offsets(), scratch.size(), scratch.atlas_id.as_u32())
-            } else {
-                // Render into final output target.
-                (
-                    dest_image.offsets(),
-                    dest_image.size(),
-                    dest_image.atlas_id.as_u32(),
-                )
-            };
-
-        let dest_texture: &Texture = if uses_scratch {
-            &self.programs.resources.filter_atlas_textures[first_pass_dest_atlas_layer as usize]
-        } else {
-            &self.programs.resources.atlas_texture_array
-        };
-        let atlas_size = dest_texture.size();
-
-        let instance_data = FilterInstanceData {
-            src_offset: initial_image.offsets(),
-            src_size: initial_image.size(),
-            dest_offset: first_pass_dest_offset,
-            dest_size: first_pass_dest_size,
-            dest_atlas_size: [atlas_size.width, atlas_size.height],
-            filter_data_offset,
-            _padding: 0,
-            // Unused in the first filter pass.
-            original_offset: [0, 0],
-            original_size: [0, 0],
-        };
         self.programs
-            .upload_filter_instance(self.device, self.queue, &instance_data);
+            .upload_filter_instance(self.device, self.queue, &pass_data.pass_1);
 
-        let input_texture = &self.programs.resources.filter_atlas_textures
-            [initial_image.atlas_id.as_u32() as usize];
+        let input_texture =
+            &self.programs.resources.filter_atlas_textures[pass_data.input_atlas_idx as usize];
         let input_view = input_texture.create_view(&TextureViewDescriptor::default());
 
         let input_bind_group = create_filter_input_bind_group(
@@ -2405,42 +2333,28 @@ impl RendererBackend for RendererContext<'_> {
             &input_view,
         );
 
-        let output_view = if uses_scratch {
-            self.programs.resources.filter_atlas_textures[first_pass_dest_atlas_layer as usize]
+        let output_view = if pass_data.pass_1_output_is_filter_atlas {
+            self.programs.resources.filter_atlas_textures
+                [pass_data.pass_1_output_atlas_idx as usize]
                 .create_view(&TextureViewDescriptor::default())
         } else {
             create_atlas_layer_view(
                 &self.programs.resources.atlas_texture_array,
                 "Filter First Pass Output View",
-                first_pass_dest_atlas_layer,
+                pass_data.pass_1_output_atlas_idx,
             )
         };
 
         // Run the first filter pass.
         self.run_filter_pass("Apply Filter Pass 1", 0, &output_view, &[&input_bind_group]);
 
-        // If we used the scratch buffer, we need to run a second pass.
-        if uses_scratch {
-            let scratch_id = filter_textures.scratch_image_id.unwrap();
-            let scratch_resource = self.filter_context.image_cache.get(scratch_id).unwrap();
-
-            let dest_atlas_size = self.programs.resources.atlas_texture_array.size();
-            let instance_data = FilterInstanceData {
-                src_offset: scratch_resource.offsets(),
-                src_size: scratch_resource.size(),
-                dest_offset: dest_image.offsets(),
-                dest_size: dest_image.size(),
-                dest_atlas_size: [dest_atlas_size.width, dest_atlas_size.height],
-                filter_data_offset,
-                _padding: 0,
-                original_offset: initial_image.offsets(),
-                original_size: initial_image.size(),
-            };
+        // Prepare the sceond filter pass, if one is necessary.
+        if let Some(pass_2) = &pass_data.pass_2 {
             self.programs
-                .upload_filter_instance(self.device, self.queue, &instance_data);
+                .upload_filter_instance(self.device, self.queue, &pass_2.instance);
 
             let scratch_view = self.programs.resources.filter_atlas_textures
-                [scratch_resource.atlas_id.as_u32() as usize]
+                [pass_2.scratch_atlas_idx as usize]
                 .create_view(&TextureViewDescriptor::default());
 
             let main_bind_group = create_filter_input_bind_group(
@@ -2450,20 +2364,24 @@ impl RendererBackend for RendererContext<'_> {
                 &scratch_view,
             );
 
+            let original_view = self.programs.resources.filter_atlas_textures
+                [pass_2.original_atlas_idx as usize]
+                .create_view(&TextureViewDescriptor::default());
+
             // Contains the original image.
             let second_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
                 layout: &self.programs.filter_input_bind_group_layouts[1],
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&input_view),
+                    resource: wgpu::BindingResource::TextureView(&original_view),
                 }],
             });
 
             let dest_view = create_atlas_layer_view(
                 &self.programs.resources.atlas_texture_array,
                 "Filter Dest Output View",
-                dest_image.atlas_id.as_u32(),
+                pass_2.dest_atlas_idx,
             );
 
             self.run_filter_pass(

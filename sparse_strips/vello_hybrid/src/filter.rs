@@ -320,6 +320,58 @@ impl From<&InstantiatedFilter> for GpuFilterData {
     }
 }
 
+/// Per-instance vertex data for filter rendering.
+#[repr(C, align(16))]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub(crate) struct FilterInstanceData {
+    /// Top-left pixel offset of the source region in `in_tex` of the atlas texture it lives in.
+    pub src_offset: [u32; 2],
+    /// Width and height (in pixels) of the source region in `in_tex`.
+    pub src_size: [u32; 2],
+    /// Top-left pixel offset of the destination region in the output atlas.
+    pub dest_offset: [u32; 2],
+    /// Width and height (in pixels) of the destination region.
+    pub dest_size: [u32; 2],
+    /// Full dimensions of the destination atlas texture.
+    pub dest_atlas_size: [u32; 2],
+    /// Texel offset into `filter_data` where this filter's parameters begin.
+    pub filter_data_offset: u32,
+    /// Top-left pixel offset of the original texture in `original_tex` of the atlas texture it lives in.
+    pub original_offset: [u32; 2],
+    /// Width and height (in pixels) of the original content region.
+    pub original_size: [u32; 2],
+    /// Padding for 16-byte alignment.
+    pub _padding: u32,
+}
+
+/// Describes the resources and instance data needed to execute the second filter pass.
+pub(crate) struct FilterPass2Data {
+    /// Instance data for the second filter pass.
+    pub instance: FilterInstanceData,
+    /// Atlas index of the scratch texture to read from (in `filter_context.image_cache`).
+    pub scratch_atlas_idx: u32,
+    /// Atlas index of the original input texture (in `filter_context.image_cache`).
+    pub original_atlas_idx: u32,
+    /// Atlas index of the final destination (in the main `image_cache`).
+    pub dest_atlas_idx: u32,
+}
+
+/// Describes the resources and instance data needed to execute filter passes.
+/// Built by `FilterContext`, consumed by backend-specific renderers.
+pub(crate) struct FilterPassData {
+    /// Instance data for the first filter pass.
+    pub pass_1: FilterInstanceData,
+    /// Atlas index of the input texture (in `filter_context.image_cache`).
+    pub input_atlas_idx: u32,
+    /// Atlas index of the first pass output texture.
+    pub pass_1_output_atlas_idx: u32,
+    /// Whether the first pass output goes to a filter atlas texture (true)
+    /// or the main atlas texture array (false).
+    pub pass_1_output_is_filter_atlas: bool,
+    /// Instance data for the second filter pass, if it exists.
+    pub pass_2: Option<FilterPass2Data>,
+}
+
 /// Context used for keeping track of state necessary for filter rendering.
 #[derive(Debug)]
 pub(crate) struct FilterContext {
@@ -477,14 +529,6 @@ impl FilterContext {
         self.filters.is_empty()
     }
 
-    pub(crate) fn offsets(&self) -> &HashMap<LayerId, u32> {
-        &self.offsets
-    }
-
-    pub(crate) fn filter_textures(&self) -> &HashMap<LayerId, FilterLayerData> {
-        &self.filter_textures
-    }
-
     #[expect(
         clippy::cast_possible_truncation,
         reason = "filter count won't exceed u32"
@@ -503,6 +547,119 @@ impl FilterContext {
     pub(crate) fn serialize_to_buffer(&self, buffer: &mut [u8]) {
         let src = bytemuck::cast_slice::<GpuFilterData, u8>(&self.filters);
         buffer[..src.len()].copy_from_slice(src);
+    }
+
+    /// Calculate the required height for the filter data texture.
+    /// Returns `None` if no filters are present.
+    pub(crate) fn required_filter_data_height(&self, max_texture_dimension_2d: u32) -> Option<u32> {
+        let required_texels = self.total_texels();
+
+        if required_texels == 0 {
+            return None;
+        }
+        let height = required_texels.div_ceil(max_texture_dimension_2d);
+        assert!(
+            height <= max_texture_dimension_2d,
+            "Filter texture height exceeds max texture dimensions"
+        );
+
+        Some(height)
+    }
+
+    /// Build backend-agnostic filter pass data for a given layer.
+    ///
+    /// `dest_image_cache` is the main renderer's image cache (for `dest_image` lookups).
+    /// `get_filter_atlas_size` returns the (width, height) of a filter atlas texture.
+    /// `get_main_atlas_size` returns the (width, height) of the main atlas texture array.
+    pub(crate) fn build_filter_pass_data(
+        &self,
+        layer_id: &LayerId,
+        dest_image_cache: &ImageCache,
+        get_filter_atlas_size: impl Fn(u32) -> [u32; 2],
+        get_main_atlas_size: impl Fn() -> [u32; 2],
+    ) -> FilterPassData {
+        let filter_data_offset = self.offsets.get(layer_id).copied().unwrap();
+        let uses_scratch = self
+            .get_filter_data(layer_id)
+            .is_some_and(|f| f.needs_scratch_buffer());
+        let filter_textures = self.filter_textures.get(layer_id).unwrap();
+
+        let initial_image = self
+            .image_cache
+            .get(filter_textures.initial_image_id)
+            .expect("Main image must exist");
+        let dest_image = dest_image_cache
+            .get(filter_textures.dest_image_id)
+            .expect("Dest image must exist");
+
+        let input_atlas_idx = initial_image.atlas_id.as_u32();
+
+        let (first_pass_dest_offset, first_pass_dest_size, first_pass_dest_atlas_idx) =
+            if uses_scratch {
+                let scratch_id = filter_textures.scratch_image_id.unwrap();
+                let scratch = self.image_cache.get(scratch_id).unwrap();
+                (scratch.offsets(), scratch.size(), scratch.atlas_id.as_u32())
+            } else {
+                (
+                    dest_image.offsets(),
+                    dest_image.size(),
+                    dest_image.atlas_id.as_u32(),
+                )
+            };
+
+        let dest_atlas_size = if uses_scratch {
+            get_filter_atlas_size(first_pass_dest_atlas_idx)
+        } else {
+            get_main_atlas_size()
+        };
+
+        let pass_1 = FilterInstanceData {
+            src_offset: initial_image.offsets(),
+            src_size: initial_image.size(),
+            dest_offset: first_pass_dest_offset,
+            dest_size: first_pass_dest_size,
+            dest_atlas_size,
+            filter_data_offset,
+            _padding: 0,
+            // Unused in the first filter pass.
+            original_offset: [0, 0],
+            original_size: [0, 0],
+        };
+
+        let pass_2 = if uses_scratch {
+            let scratch_id = filter_textures.scratch_image_id.unwrap();
+            let scratch_resource = self.image_cache.get(scratch_id).unwrap();
+            let main_atlas_size = get_main_atlas_size();
+
+            let instance = FilterInstanceData {
+                src_offset: scratch_resource.offsets(),
+                src_size: scratch_resource.size(),
+                dest_offset: dest_image.offsets(),
+                dest_size: dest_image.size(),
+                dest_atlas_size: main_atlas_size,
+                filter_data_offset,
+                _padding: 0,
+                original_offset: initial_image.offsets(),
+                original_size: initial_image.size(),
+            };
+
+            Some(FilterPass2Data {
+                instance,
+                scratch_atlas_idx: scratch_resource.atlas_id.as_u32(),
+                original_atlas_idx: input_atlas_idx,
+                dest_atlas_idx: dest_image.atlas_id.as_u32(),
+            })
+        } else {
+            None
+        };
+
+        FilterPassData {
+            pass_1,
+            input_atlas_idx,
+            pass_1_output_atlas_idx: first_pass_dest_atlas_idx,
+            pass_1_output_is_filter_atlas: uses_scratch,
+            pass_2,
+        }
     }
 }
 
