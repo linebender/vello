@@ -347,7 +347,7 @@ pub(crate) enum AtlasError {
 
 /// Unique identifier for an atlas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct AtlasId(pub u32);
+pub struct AtlasId(pub u32);
 
 impl AtlasId {
     /// Create a new atlas ID.

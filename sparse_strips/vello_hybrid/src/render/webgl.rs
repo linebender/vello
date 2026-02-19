@@ -87,7 +87,7 @@ pub struct WebGlRenderer {
     /// WebGL context.
     gl: WebGl2RenderingContext,
     /// Image cache for storing images atlas allocations.
-    image_cache: ImageCache,
+    pub(crate) image_cache: ImageCache,
     /// Encoded paints for storing encoded paints.
     encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
@@ -188,6 +188,7 @@ impl WebGlRenderer {
             render_size,
             &self.paint_idxs,
         );
+        self.programs.clear_view_framebuffer(&self.gl);
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
@@ -256,6 +257,97 @@ impl WebGlRenderer {
         Ok(())
     }
 
+    /// Render a `scene` directly into an atlas layer.
+    ///
+    /// This renders the scene's content into the specified atlas layer, which can then
+    /// be sampled as an image in subsequent render passes. This is useful for rendering
+    /// vector content (e.g., glyphs) into the atlas for later use as cached images.
+    ///
+    /// The scene should be sized to the atlas layer dimensions
+    /// ([`AtlasConfig::atlas_size`]), with content positioned at the allocated offset
+    /// coordinates from `ImageCache::allocate`.
+    ///
+    /// This method creates its own command encoder and submits immediately,
+    /// ensuring atlas content is committed before any subsequent
+    /// [`render`](Self::render) call (the two methods share GPU resources that
+    /// are staged by `queue.write_*` and only applied on the next `queue.submit`).
+    pub fn render_to_atlas(&mut self, scene: &Scene, atlas_id: AtlasId) -> Result<(), RenderError> {
+        self.programs
+            .maybe_resize_atlas_texture_array(&self.gl, self.image_cache.atlas_count() as u32);
+
+        let atlas_size = self.programs.resources.atlas_texture_array.size();
+        let atlas_render_size = RenderSize {
+            width: atlas_size.width,
+            height: atlas_size.height,
+        };
+
+        self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        self.programs.prepare(
+            &self.gl,
+            &mut self.gradient_cache,
+            &self.encoded_paints,
+            &mut scene.strip_storage.borrow_mut().alphas,
+            &atlas_render_size,
+            &self.paint_idxs,
+        );
+
+        let atlas_framebuffer = self.gl.create_framebuffer().unwrap();
+        self.gl.bind_framebuffer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            Some(&atlas_framebuffer),
+        );
+        self.gl.framebuffer_texture_layer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            WebGl2RenderingContext::COLOR_ATTACHMENT0,
+            Some(&self.programs.resources.atlas_texture_array.texture),
+            0,
+            atlas_id.as_u32() as i32,
+        );
+
+        // Swap the view framebuffer and render size so the scheduler renders to the
+        // atlas layer instead of the normal view.
+        let saved_framebuffer = core::mem::replace(
+            &mut self.programs.resources.view_framebuffer,
+            atlas_framebuffer,
+        );
+        let saved_render_size =
+            core::mem::replace(&mut self.programs.render_size, atlas_render_size);
+
+        // Swap in the stub atlas texture array to avoid binding the real atlas
+        // texture as a shader input while it is also the render target.
+        core::mem::swap(
+            &mut self.programs.resources.atlas_texture_array,
+            &mut self.programs.resources.stub_atlas_texture_array,
+        );
+
+        // Run the scheduler targeting the atlas layer.
+        let mut ctx = WebGlRendererContext {
+            programs: &mut self.programs,
+            gl: &self.gl,
+        };
+        let result =
+            self.scheduler
+                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs);
+        self.gradient_cache.maintain();
+
+        // Restore the real atlas texture array.
+        core::mem::swap(
+            &mut self.programs.resources.atlas_texture_array,
+            &mut self.programs.resources.stub_atlas_texture_array,
+        );
+
+        // Restore the original view framebuffer.
+        let atlas_fb = core::mem::replace(
+            &mut self.programs.resources.view_framebuffer,
+            saved_framebuffer,
+        );
+        self.gl.delete_framebuffer(Some(&atlas_fb));
+
+        self.programs.render_size = saved_render_size;
+
+        result
+    }
+
     /// Get a reference to the underlying WebGL context.
     ///
     /// This allows direct access to WebGL operations for advanced use cases like texture creation.
@@ -274,6 +366,25 @@ impl WebGlRenderer {
         let width = writer.width();
         let height = writer.height();
         let image_id = self.image_cache.allocate(width, height).unwrap();
+        self.write_to_atlas(image_id, writer, None);
+        image_id
+    }
+
+    /// Write pixel data to an existing atlas allocation.
+    ///
+    /// Unlike [`upload_image`](Self::upload_image), this does not allocate space in the image
+    /// cache. The `image_id` must have been previously allocated (e.g. via
+    /// `ImageCache::allocate`). This is useful for uploading CPU-side pixel data (such as
+    /// bitmap font glyphs) to a pre-allocated atlas region.
+    ///
+    /// If `offset_override` is `Some`, the provided offset is used instead of the
+    /// allocator-assigned position. Pass `None` to use the default atlas offset.
+    pub fn write_to_atlas<T: WebGlAtlasWriter>(
+        &mut self,
+        image_id: vello_common::paint::ImageId,
+        writer: &T,
+        offset_override: Option<[u32; 2]>,
+    ) {
         let image_resource = self
             .image_cache
             .get(image_id)
@@ -281,21 +392,18 @@ impl WebGlRenderer {
 
         self.programs
             .maybe_resize_atlas_texture_array(&self.gl, self.image_cache.atlas_count() as u32);
-        let offset = [
+        let offset = offset_override.unwrap_or([
             image_resource.offset[0] as u32,
             image_resource.offset[1] as u32,
-        ];
-        // Write to the appropriate layer in the atlas texture array
+        ]);
         writer.write_to_atlas_layer(
             &self.gl,
             &self.programs.resources.atlas_texture_array.texture,
             image_resource.atlas_id.as_u32(),
             offset,
-            width,
-            height,
+            writer.width(),
+            writer.height(),
         );
-
-        image_id
     }
 
     /// Destroy an image from the cache and clear the allocated slot in the atlas.
@@ -311,6 +419,15 @@ impl WebGlRenderer {
                 image_resource.height as u32,
             );
         }
+    }
+
+    /// Returns a reference to the underlying atlas texture array.
+    ///
+    /// This is a 2D array texture (`TextureViewDimension::D2Array`) containing all
+    /// atlas layers used by the image cache. Each layer holds cached image data
+    /// (e.g., rasterised glyphs) that the renderer samples during draw calls.
+    pub fn atlas_texture(&self) -> &WebGlTexture {
+        &self.programs.resources.atlas_texture_array.texture
     }
 
     /// Clear a specific region of the atlas texture array.
@@ -589,6 +706,10 @@ struct WebGlResources {
     /// Cached result from querying `WebGl2RenderingContext::MAX_TEXTURE_SIZE` which is a blocking
     /// WebGL call.
     max_texture_dimension_2d: u32,
+
+    /// Placeholder 1x1 atlas texture array, used during `render_to_atlas` to avoid
+    /// binding the real atlas texture while it is also the render target.
+    stub_atlas_texture_array: WebGlTextureArray,
 }
 
 /// Config for the clear slots pipeline.
@@ -673,8 +794,6 @@ impl WebGlPrograms {
             self.upload_gradient_texture(gl, gradient_cache);
             gradient_cache.mark_synced();
         }
-
-        self.clear_view_framebuffer(gl);
     }
 
     /// Resize atlas texture array to accommodate more atlases.
@@ -1405,6 +1524,10 @@ fn create_webgl_resources(
     let atlas_texture_array =
         create_atlas_texture_array(gl, *atlas_width, *atlas_height, *initial_atlas_count as u32);
 
+    // Create a 1x1 stub atlas texture array for use during render_to_atlas.
+    // This avoids binding the real atlas as a shader input while it is the render target.
+    let stub_atlas_texture_array = create_atlas_texture_array(gl, 1, 1, 1);
+
     // Create and configure encoded paints texture.
     let encoded_paints_texture = gl.create_texture().unwrap();
     {
@@ -1524,6 +1647,7 @@ fn create_webgl_resources(
         view_texture,
         view_framebuffer,
         max_texture_dimension_2d,
+        stub_atlas_texture_array,
     }
 }
 

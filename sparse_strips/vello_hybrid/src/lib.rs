@@ -55,7 +55,7 @@ mod schedule;
 pub mod api;
 pub mod util;
 
-pub use multi_atlas::{AllocationStrategy, AtlasConfig};
+pub use multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};
