@@ -61,7 +61,7 @@ pub use render::{Config, GpuStrip, RenderSize};
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 pub use scene::{RenderSettings, Scene, SceneConstraints};
 pub use util::DimensionConstraints;
-pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig};
+pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};
 pub use vello_common::pixmap::Pixmap;
 
 use thiserror::Error;

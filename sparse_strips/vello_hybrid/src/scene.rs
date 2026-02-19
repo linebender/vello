@@ -646,6 +646,10 @@ impl Scene {
         self.tint = None;
     }
 
+    /// Get the current paint.
+    pub fn paint(&self) -> &PaintType {
+        &self.paint
+    }
     /// Set the current paint transform.
     ///
     /// The paint transform is applied to the paint after the transform of the geometry the paint
