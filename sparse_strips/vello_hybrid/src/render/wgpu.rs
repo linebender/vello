@@ -56,8 +56,8 @@ use vello_common::{
 };
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
-    Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment, Sampler,
-    RenderPassDescriptor, RenderPipeline, Texture, TextureView, TextureViewDescriptor,
+    Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment,
+    RenderPassDescriptor, RenderPipeline, Sampler, Texture, TextureView, TextureViewDescriptor,
     util::DeviceExt,
 };
 
@@ -2274,8 +2274,7 @@ impl RendererContext<'_> {
         for (i, bind_group) in extra_bind_groups.iter().enumerate() {
             render_pass.set_bind_group((i + 1) as u32, *bind_group, &[]);
         }
-        render_pass
-            .set_vertex_buffer(0, self.programs.resources.filter_instance_buffer.slice(..));
+        render_pass.set_vertex_buffer(0, self.programs.resources.filter_instance_buffer.slice(..));
         render_pass.draw(0..4, 0..1);
     }
 }
