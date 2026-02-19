@@ -388,7 +388,7 @@ impl<const MODE: u8> Wide<MODE> {
     /// wide tile ensures all layer stack buffers are pushed for the wide tile. Calling this
     /// multiple times won't push additional buffers beyond the first call (until the layer stack
     /// changes).
-    #[inline]
+    #[inline(always)]
     fn ensure_layer_stack_bufs(&mut self, tile_idx: usize) {
         let tile = &mut self.tiles[tile_idx];
         let layer_bufs = tile.n_bufs - tile.n_clip;
@@ -396,12 +396,22 @@ impl<const MODE: u8> Wide<MODE> {
             layer_bufs <= self.layers_needing_buf_stack.len,
             "tile `layer_buf_depth` exceeds active layer stack"
         );
-        for idx in layer_bufs..self.layers_needing_buf_stack.len {
-            self.layers_needing_buf_stack.stack[idx]
-                .occupied_tiles
-                .push(tile_idx);
-            tile.push_buf(self.layers_needing_buf_stack.stack[idx].kind);
-        }
+        // It may be quite likely that `needed` is zero: e.g. it may be common for some users to
+        // not push layers needing buffers at all, and a tile that has content may well have more
+        // than one call to `ensure_layer_stack_bufs`.
+        // layers at all, or where the same wide tile has multiple commadn
+        (layer_bufs < self.layers_needing_buf_stack.len).then(
+            #[inline(never)]
+            || {
+                let needed = self.layers_needing_buf_stack.len - layer_bufs;
+                for idx in (layer_bufs..).take(needed) {
+                    self.layers_needing_buf_stack.stack[idx]
+                        .occupied_tiles
+                        .push(tile_idx);
+                    tile.push_buf(self.layers_needing_buf_stack.stack[idx].kind);
+                }
+            },
+        );
     }
 
     /// Whether there are any existing layers that haven't been popped yet.
