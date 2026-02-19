@@ -3,6 +3,11 @@
 
 //! Basic render operations.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "We ignore these because the casts because they only break in edge cases, and some of them are also only related to conversions from f64 to f32."
+)]
+
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -64,6 +69,12 @@ impl Default for RenderSettings {
 /// Hints provided to the renderer to optimize performance.
 #[derive(Copy, Clone, Debug)]
 pub struct RenderHints(u32);
+
+impl Default for RenderHints {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RenderHints {
     const NO_BLENDS: u32 = 1 << 0;
@@ -224,6 +235,8 @@ impl Scene {
         }
     }
 
+    const DEFAULT_BLEND_MODE: BlendMode = BlendMode::new(Mix::Normal, Compose::SrcOver);
+
     /// Create default rendering state.
     fn default_render_state() -> RenderState {
         let transform = Affine::IDENTITY;
@@ -237,14 +250,13 @@ impl Scene {
             end_cap: Cap::Butt,
             ..Default::default()
         };
-        let blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
         RenderState {
             transform,
             fill_rule,
             paint,
             paint_transform,
             stroke,
-            blend_mode,
+            blend_mode: Self::DEFAULT_BLEND_MODE,
         }
     }
 
@@ -671,10 +683,12 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
-        const DEFAULT_BLEND_MODE: BlendMode = BlendMode::new(Mix::Normal, Compose::SrcOver);
-        let blend_mode = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
+        let blend_mode = blend_mode.unwrap_or(Self::DEFAULT_BLEND_MODE);
         if self.render_hints.blit_rect_pipeline_enabled() {
-            assert!(blend_mode == DEFAULT_BLEND_MODE);
+            assert!(
+                blend_mode == Self::DEFAULT_BLEND_MODE,
+                "blit rect pipeline only supports default blending"
+            );
         }
         self.enter_strip_mode();
         if filter.is_some() {
@@ -762,7 +776,12 @@ impl Scene {
 
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        assert!(!self.render_hints.blit_rect_pipeline_enabled());
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            assert!(
+                blend_mode == Self::DEFAULT_BLEND_MODE,
+                "blit rect pipeline only supports default blending"
+            );
+        }
         self.blend_mode = blend_mode;
     }
 
@@ -1362,7 +1381,7 @@ impl DirtyRects {
 /// In contrast, [`f64::floor`] maps directly to the native `f64.floor`
 /// instruction.
 ///
-/// More information can be found here: https://github.com/rust-lang/rust/issues/55107
+/// More information can be found here: <https://github.com/rust-lang/rust/issues/55107>
 ///
 /// `(x + 0.5).floor()` gives identical results to [`f64::round`] for
 /// non-negative values and only differs at exactly half-integer negative

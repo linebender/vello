@@ -41,7 +41,7 @@ struct Arguments {
     no_ref: bool,
     /// Whether the test uses non-default blend modes (anything other than
     /// `Mix::Normal` + `Compose::SrcOver`). When set, the `hybrid_blit` variant
-    /// is skipped because the blit pipeline doesn't yet support blends.
+    /// is skipped because the blit pipeline doesn't support blends.
     uses_blends: bool,
     /// A reason for ignoring a test.
     ignore_reason: Option<String>,

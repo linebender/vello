@@ -17,7 +17,9 @@ use vello_common::{
     paint::{ImageId, ImageSource},
 };
 use vello_example_scenes::{AnyScene, image::ImageScene};
-use vello_hybrid::{AtlasConfig, Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene};
+use vello_hybrid::{
+    AtlasConfig, Pixmap, RenderHints, RenderSettings, RenderTargetConfig, Renderer, Scene,
+};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
@@ -90,6 +92,7 @@ impl RendererWrapper {
                     atlas_size: (max_texture_dimension_2d, max_texture_dimension_2d),
                     ..AtlasConfig::default()
                 },
+                render_hints: RenderHints::new(),
             },
         );
 
