@@ -530,7 +530,7 @@ impl Renderer {
 #[derive(Debug)]
 struct Programs {
     /// Pipelines for rendering wide tile commands.
-    /// Index 0: native surface format (for final view and slot textures).
+    /// Index 0: Native surface format (for final view and slot textures).
     /// Index 1: `Rgba8Unorm` (for filter intermediate textures).
     strip_pipelines: [RenderPipeline; 2],
     /// Bind group layout for strip draws
@@ -541,8 +541,7 @@ struct Programs {
     gradient_bind_group_layout: BindGroupLayout,
     /// Bind group layout for atlas textures
     atlas_bind_group_layout: BindGroupLayout,
-    /// Bind group layout for filter texture
-    // TODO: Consider unifying with encoded_paints_bind_group_layout since they have identical structure
+    /// Bind group layout for filter textures
     filter_bind_group_layout: BindGroupLayout,
     /// Pipelines for applying filter effects to intermediate textures.
     /// Index 0 uses `fs_pass_1` (single-pass or first pass), index 1 uses `fs_pass_2` (second pass).
@@ -730,7 +729,7 @@ impl Programs {
                 }],
             });
 
-        let encoded_paints_bind_group_layout =
+        let paint_or_filter_bind_group = |name: &str| {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Encoded Paints Bind Group Layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
@@ -744,22 +743,12 @@ impl Programs {
                     },
                     count: None,
                 }],
-            });
+            })
+        };
 
-        let filter_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Filter Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Uint,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                }],
-            });
+        let encoded_paints_bind_group_layout =
+            paint_or_filter_bind_group("Encoded Paints Bind Group Layout");
+        let filter_bind_group_layout = paint_or_filter_bind_group("Filter Bind Group Layout");
 
         let gradient_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
