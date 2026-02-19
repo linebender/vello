@@ -192,7 +192,7 @@ use vello_common::strip_generator::StripStorage;
 use vello_common::{
     coarse::{Cmd, WideTile},
     encode::EncodedPaint,
-    paint::{ImageSource, Paint},
+    paint::Paint,
     tile::Tile,
 };
 
@@ -1595,16 +1595,13 @@ impl Scheduler {
         scene_strip_y: u16,
     ) -> (u32, u32) {
         match encoded_paint {
-            EncodedPaint::Image(encoded_image) => match &encoded_image.source {
-                ImageSource::OpaqueId { .. } => {
-                    let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
-                        | (PAINT_TYPE_IMAGE << 26)
-                        | (paint_idx & 0x03FF_FFFF);
-                    let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
-                    (scene_strip_xy, paint_packed)
-                }
-                _ => unimplemented!("Unsupported image source"),
-            },
+            EncodedPaint::Image(_) => {
+                let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
+                    | (PAINT_TYPE_IMAGE << 26)
+                    | (paint_idx & 0x03FF_FFFF);
+                let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                (scene_strip_xy, paint_packed)
+            }
             EncodedPaint::Gradient(gradient) => {
                 use vello_common::encode::EncodedKind;
                 let gradient_paint_type = match &gradient.kind {

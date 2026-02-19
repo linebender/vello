@@ -8,7 +8,10 @@
 
 use crate::multi_atlas::{AllocId, AtlasConfig, AtlasError, AtlasId, MultiAtlasManager};
 use crate::paint::ImageId;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use hashbrown::HashMap;
+use crate::pixmap::Pixmap;
 
 /// Represents an image resource for rendering.
 #[derive(Debug)]
@@ -37,6 +40,150 @@ impl ImageResource {
     /// Returns the size as `[u32; 2]`.
     pub fn size(&self) -> [u32; 2] {
         [self.width as u32, self.height as u32]
+    }
+}
+
+/// An image that has been allocated in the [`ImageCache`] but not yet uploaded to the GPU.
+///
+/// After [`ImageCache::allocate`], the atlas slot and offset are reserved,
+/// but the pixel data hasn't been written yet. The renderer should iterate
+/// pending uploads and write each pixmap to the atlas before rendering.
+#[derive(Debug)]
+pub struct PendingImageUpload {
+    /// The image ID (use [`ImageCache::get`] with this id for `atlas_id` + offset).
+    pub image_id: ImageId,
+    /// The pixel data to upload.
+    pub pixmap: Arc<Pixmap>,
+}
+
+/// A registered pixmap entry with its last-used frame serial.
+#[derive(Debug, Clone, Copy)]
+struct PixmapEntry {
+    image_id: ImageId,
+    /// Frame serial when this entry was last referenced.
+    serial: u32,
+}
+
+/// Configuration for [`PixmapRegister`] eviction behaviour.
+#[derive(Clone, Debug)]
+pub struct PixmapRegisterConfig {
+    /// Maximum age (in frames) before an unused entry is evicted.
+    pub max_entry_age: u32,
+    /// How often (in frames) to run the eviction pass.
+    pub eviction_frequency: u32,
+}
+
+impl Default for PixmapRegisterConfig {
+    fn default() -> Self {
+        Self {
+            max_entry_age: 64,
+            eviction_frequency: 64,
+        }
+    }
+}
+
+/// Registry that maps `Arc<Pixmap>` pointer addresses to [`ImageId`]s.
+///
+/// This enables deduplication: the same `Arc<Pixmap>` (by pointer identity)
+/// is only allocated and uploaded once. Entries persist across frames so
+/// that a pixmap reused in consecutive frames doesn't get re-uploaded.
+///
+/// Stale entries (not referenced for
+/// [`max_entry_age`](PixmapRegisterConfig::max_entry_age) frames) are
+/// periodically evicted via [`maintain`](Self::maintain), which also
+/// deallocates their atlas space from the [`ImageCache`].
+#[derive(Debug)]
+pub struct PixmapRegister {
+    /// Maps `Arc<Pixmap>` pointer address to its entry.
+    map: HashMap<usize, PixmapEntry>,
+    /// Current frame counter, incremented each frame via [`tick`](Self::tick).
+    serial: u32,
+    /// Serial at which we last ran eviction.
+    last_eviction_serial: u32,
+    /// Eviction configuration.
+    config: PixmapRegisterConfig,
+}
+
+impl Default for PixmapRegister {
+    fn default() -> Self {
+        Self::new(PixmapRegisterConfig::default())
+    }
+}
+
+impl PixmapRegister {
+    /// Create a new register with the given eviction configuration.
+    pub fn new(config: PixmapRegisterConfig) -> Self {
+        Self {
+            map: HashMap::default(),
+            serial: 0,
+            last_eviction_serial: 0,
+            config,
+        }
+    }
+
+    /// Look up an `Arc<Pixmap>` by pointer identity.
+    ///
+    /// Returns the previously allocated [`ImageId`] if this exact `Arc` has
+    /// been registered before, or `None` if it hasn't. The entry's serial
+    /// is updated to mark it as recently used.
+    pub fn get(&mut self, pixmap: &Arc<Pixmap>) -> Option<ImageId> {
+        let ptr_key = Arc::as_ptr(pixmap) as usize;
+        if let Some(entry) = self.map.get_mut(&ptr_key) {
+            entry.serial = self.serial;
+            Some(entry.image_id)
+        } else {
+            None
+        }
+    }
+
+    /// Register a mapping from an `Arc<Pixmap>` pointer to an [`ImageId`].
+    pub fn insert(&mut self, pixmap: &Arc<Pixmap>, image_id: ImageId) {
+        let ptr_key = Arc::as_ptr(pixmap) as usize;
+        self.map.insert(
+            ptr_key,
+            PixmapEntry {
+                image_id,
+                serial: self.serial,
+            },
+        );
+    }
+
+    /// Advance the frame counter and potentially evict old entries.
+    ///
+    /// Should be called once per frame after rendering. Entries that haven't
+    /// been referenced for [`max_entry_age`](PixmapRegisterConfig::max_entry_age)
+    /// frames are removed and their atlas allocations are freed.
+    pub fn maintain(&mut self, image_cache: &mut ImageCache) {
+        self.tick();
+
+        let frames_since_eviction = self.serial.wrapping_sub(self.last_eviction_serial);
+        if frames_since_eviction < self.config.eviction_frequency {
+            return;
+        }
+
+        self.last_eviction_serial = self.serial;
+        self.evict_old_entries(image_cache);
+    }
+
+    /// Advance the frame counter.
+    fn tick(&mut self) {
+        self.serial = self.serial.wrapping_add(1);
+    }
+
+    /// Evict entries that haven't been used recently.
+    fn evict_old_entries(&mut self, image_cache: &mut ImageCache) {
+        let serial = self.serial;
+        let max_entry_age = self.config.max_entry_age;
+
+        self.map.retain(|_, entry| {
+            let age = serial.wrapping_sub(entry.serial);
+            if age > max_entry_age {
+                image_cache.deallocate(entry.image_id);
+                false
+            } else {
+                true
+            }
+        });
     }
 }
 
