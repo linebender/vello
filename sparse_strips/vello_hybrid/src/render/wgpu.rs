@@ -144,6 +144,7 @@ impl Renderer {
 
     fn prepare_filter_textures(
         &mut self,
+        device: &Device,
         render_graph: &RenderGraph,
         encoder: &mut CommandEncoder,
         encoded_paints: &mut Vec<EncodedPaint>,
@@ -177,7 +178,23 @@ impl Renderer {
 
         // Allocate textures and build encoded paints for the new frame.
         self.filter_context
-            .prepare(render_graph, &mut self.image_cache, encoded_paints)
+            .prepare(render_graph, &mut self.image_cache, encoded_paints)?;
+
+        // Resize if necessary.
+        Programs::maybe_resize_atlas_texture_array(
+            device,
+            encoder,
+            &mut self.programs.resources,
+            &self.programs.atlas_bind_group_layout,
+            self.image_cache.atlas_count() as u32,
+        );
+        Programs::maybe_grow_filter_atlas_textures(
+            device,
+            &mut self.programs.resources,
+            self.filter_context.image_cache.atlas_count() as u32,
+        );
+
+        Ok(())
     }
 
     /// Render `scene` into the provided command encoder.
@@ -196,20 +213,8 @@ impl Renderer {
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let scene_paint_count = encoded_paints.len();
 
-        self.prepare_filter_textures(&scene.render_graph, encoder, &mut encoded_paints)
+        self.prepare_filter_textures(device, &scene.render_graph, encoder, &mut encoded_paints)
             .map_err(|_| RenderError::AtlasError)?;
-        Programs::maybe_resize_atlas_texture_array(
-            device,
-            encoder,
-            &mut self.programs.resources,
-            &self.programs.atlas_bind_group_layout,
-            self.image_cache.atlas_count() as u32,
-        );
-        Programs::maybe_grow_filter_atlas_textures(
-            device,
-            &mut self.programs.resources,
-            self.filter_context.image_cache.atlas_count() as u32,
-        );
         self.prepare_gpu_encoded_paints(&encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
