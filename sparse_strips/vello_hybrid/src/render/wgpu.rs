@@ -546,8 +546,8 @@ struct Programs {
     /// Pipelines for applying filter effects to intermediate textures.
     /// Index 0 uses `fs_pass_1` (single-pass or first pass), index 1 uses `fs_pass_2` (second pass).
     filter_pipelines: [RenderPipeline; 2],
-    /// Bind group layout for the filter pipeline.
-    filter_input_bind_group_layout: BindGroupLayout,
+    /// Bind group layouts for filter input, per pass.
+    filter_input_bind_group_layouts: [BindGroupLayout; 2],
     /// Pipeline for clearing slots in slot textures.
     clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
@@ -810,14 +810,13 @@ impl Programs {
                 push_constant_ranges: &[],
             });
 
+        // When rendering into the main canvas, we need to use the native format. However, when
+        // rendering filter layers into their texture, the format is RGBA. Therefore, we need two
+        // pipelines.
         let strip_formats = [render_target_config.format, wgpu::TextureFormat::Rgba8Unorm];
         let strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(if i == 0 {
-                    "Strip Pipeline"
-                } else {
-                    "Strip Pipeline Rgba8"
-                }),
+                label: Some("Strip Pipeline"),
                 layout: Some(&strip_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &strip_shader,
@@ -925,20 +924,28 @@ impl Programs {
             cache: None,
         });
 
-        let filter_input_bind_group_layout =
+        let filter_texture_entry = wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+
+        // We have two different layout for the (up to 2) passes.
+        // In the first pass, we simply pass the input texture.
+        // In the second pass, apart from providing the texture from the first
+        // pass, we also provide the original texture. This is needed because the
+        // drop shadow filter needs to composite the original shape on top of the
+        // shadow.
+        let filter_input_bind_group_layouts = [
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Filter Input Bind Group Layout"),
+                label: Some("Filter Input Bind Group Layout (Pass 1)"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
+                    filter_texture_entry,
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -946,29 +953,37 @@ impl Programs {
                         count: None,
                     },
                 ],
-            });
+            }),
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Filter Input Bind Group Layout (Pass 2)"),
+                entries: &[filter_texture_entry],
+            }),
+        ];
 
         let filter_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Filter Shader"),
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::FILTERS.into()),
         });
 
-        // Pass 1 layout: group 0 = filter data, group 1 = input texture
+        // Pass 1 layout: group 0 = filter data, group 1 = input texture + sampler
         let filter_pipeline_layout_pass1 =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Filter Pipeline Layout Pass 1"),
-                bind_group_layouts: &[&filter_bind_group_layout, &filter_input_bind_group_layout],
+                bind_group_layouts: &[
+                    &filter_bind_group_layout,
+                    &filter_input_bind_group_layouts[0],
+                ],
                 push_constant_ranges: &[],
             });
 
-        // Pass 2 layout: group 0 = filter data, group 1 = input texture, group 2 = original texture
+        // Pass 2 layout: group 0 = filter data, group 1 = input texture + sampler, group 2 = original texture
         let filter_pipeline_layout_pass2 =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Filter Pipeline Layout Pass 2"),
                 bind_group_layouts: &[
                     &filter_bind_group_layout,
-                    &filter_input_bind_group_layout,
-                    &filter_input_bind_group_layout,
+                    &filter_input_bind_group_layouts[0],
+                    &filter_input_bind_group_layouts[1],
                 ],
                 push_constant_ranges: &[],
             });
@@ -1220,7 +1235,7 @@ impl Programs {
             atlas_bind_group_layout,
             filter_bind_group_layout,
             filter_pipelines,
-            filter_input_bind_group_layout,
+            filter_input_bind_group_layouts,
             resources,
             encoded_paints_data,
             filter_data,
@@ -2348,7 +2363,7 @@ impl RendererBackend for RendererContext<'_> {
 
         let main_input_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Filter Input Bind Group"),
-            layout: &self.programs.filter_input_bind_group_layout,
+            layout: &self.programs.filter_input_bind_group_layouts[0],
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -2448,7 +2463,7 @@ impl RendererBackend for RendererContext<'_> {
             let scratch_input_bind_group =
                 self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Filter Scratch Input Bind Group"),
-                    layout: &self.programs.filter_input_bind_group_layout,
+                    layout: &self.programs.filter_input_bind_group_layouts[0],
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
@@ -2467,19 +2482,11 @@ impl RendererBackend for RendererContext<'_> {
             // For non-drop-shadow filters this group is bound but not sampled by the shader.
             let original_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Filter Original Input Bind Group"),
-                layout: &self.programs.filter_input_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&main_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            &self.programs.resources.filter_sampler,
-                        ),
-                    },
-                ],
+                layout: &self.programs.filter_input_bind_group_layouts[1],
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&main_texture_view),
+                }],
             });
 
             let dest_texture_view =
