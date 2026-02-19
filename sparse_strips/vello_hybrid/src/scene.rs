@@ -1513,7 +1513,15 @@ mod tests {
 
         /// Create a minimal scene and set an `OpaqueId` image paint so `try_blit_rect` succeeds.
         fn scene_with_image_paint(width: u16, height: u16) -> Scene {
-            let mut scene = Scene::new(width, height);
+            let render_hints = RenderHints::new().expect_only_default_blending();
+            let mut scene = Scene::new_with(
+                width,
+                height,
+                RenderSettings {
+                    render_hints,
+                    ..Default::default()
+                },
+            );
             let image_id = ImageId::new(42);
             scene.paint = PaintType::Image(vello_common::paint::Image {
                 image: ImageSource::OpaqueId(image_id),
