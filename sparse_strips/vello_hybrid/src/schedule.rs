@@ -838,7 +838,7 @@ impl Scheduler {
                 Cmd::Blend(mode) => {
                     self.do_blend(state, wide_tile_x, wide_tile_y, mode);
                 }
-                _ => unimplemented!(),
+                _ => unreachable!(),
             }
         }
         if surface_is_blend_target {
