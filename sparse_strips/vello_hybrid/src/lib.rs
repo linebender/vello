@@ -24,6 +24,7 @@
 //!
 //! - `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
 //! - `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
+//! - `text` (enabled by default): Enables glyph rendering ([`Scene::glyph_run`]).
 //! - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL shaders for compatibility.
 //!
 //! If you need to customize the set of enabled wgpu features, disable this crate's default features then enable its `wgpu` feature.

@@ -11,10 +11,12 @@ use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
+#[cfg(feature = "text")]
 use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{Paint, PaintType};
+#[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
@@ -110,6 +112,7 @@ pub struct Scene {
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: RefCell<StripStorage>,
     /// Cache for rasterized glyphs to improve text rendering performance.
+    #[cfg(feature = "text")]
     pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
@@ -141,6 +144,7 @@ impl Scene {
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
             blend_mode: render_state.blend_mode,
+            #[cfg(feature = "text")]
             glyph_caches: Some(GlyphCaches::default()),
             render_graph,
         }
@@ -333,6 +337,7 @@ impl Scene {
     }
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
+    #[cfg(feature = "text")]
     pub fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
         GlyphRunBuilder::new(font.clone(), self.transform, self)
     }
@@ -502,6 +507,7 @@ impl Scene {
         self.stroke = render_state.stroke;
         self.blend_mode = render_state.blend_mode;
 
+        #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();
     }
 
@@ -516,6 +522,7 @@ impl Scene {
     }
 }
 
+#[cfg(feature = "text")]
 impl GlyphRenderer for Scene {
     fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
         match prepared_glyph.glyph_type {
@@ -564,9 +571,17 @@ impl Recordable for Scene {
     where
         F: FnOnce(&mut Recorder<'_>),
     {
-        let mut recorder = Recorder::new(recording, self.transform, self.take_glyph_caches());
+        let mut recorder = Recorder::new(
+            recording,
+            self.transform,
+            #[cfg(feature = "text")]
+            self.take_glyph_caches(),
+        );
         f(&mut recorder);
-        self.glyph_caches = Some(recorder.take_glyph_caches());
+        #[cfg(feature = "text")]
+        {
+            self.glyph_caches = Some(recorder.take_glyph_caches());
+        }
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
@@ -590,9 +605,16 @@ impl Recordable for Scene {
                 RenderCommand::FillPath(_)
                 | RenderCommand::StrokePath(_)
                 | RenderCommand::FillRect(_)
-                | RenderCommand::StrokeRect(_)
-                | RenderCommand::FillOutlineGlyph(_)
-                | RenderCommand::StrokeOutlineGlyph(_) => {
+                | RenderCommand::StrokeRect(_) => {
+                    self.process_geometry_command(
+                        strip_start_indices,
+                        range_index,
+                        &adjusted_strips,
+                    );
+                    range_index += 1;
+                }
+                #[cfg(feature = "text")]
+                RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
                     self.process_geometry_command(
                         strip_start_indices,
                         range_index,
@@ -715,6 +737,7 @@ impl Scene {
                     );
                     strip_start_indices.push(start_index);
                 }
+                #[cfg(feature = "text")]
                 RenderCommand::FillOutlineGlyph((path, glyph_transform)) => {
                     self.strip_generator.generate_filled_path(
                         path,
@@ -726,6 +749,7 @@ impl Scene {
                     );
                     strip_start_indices.push(start_index);
                 }
+                #[cfg(feature = "text")]
                 RenderCommand::StrokeOutlineGlyph((path, glyph_transform)) => {
                     self.strip_generator.generate_stroked_path(
                         path,

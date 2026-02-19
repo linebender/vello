@@ -325,6 +325,10 @@ impl<const MODE: u8> Wide<MODE> {
             tile.bg = PremulColor::from_alpha_color(TRANSPARENT);
             tile.cmds.clear();
             tile.cmds.push(Cmd::Start(false));
+            tile.n_zero_clip = 0;
+            tile.n_clip = 0;
+            tile.n_bufs = 0;
+            tile.in_clipped_filter_layer = false;
             tile.layer_ids.truncate(1);
             tile.layer_cmd_ranges.clear();
             tile.layer_cmd_ranges
@@ -712,6 +716,8 @@ impl<const MODE: u8> Wide<MODE> {
         let mut layer = self.layer_stack.pop().unwrap();
 
         if let Some(filter) = &layer.filter {
+            let mut final_bbox = WideTilesBbox::inverted();
+
             // Update render graph node with final bounding box
             if let Some(node_id) = self.filter_node_stack.pop() {
                 // Get the transform from the FilterLayer node and scale the expansion by it
@@ -731,7 +737,7 @@ impl<const MODE: u8> Wide<MODE> {
                         self.height_tiles(),
                     );
                     let clip_bbox = self.active_bbox();
-                    let final_bbox = expanded_bbox.intersect(clip_bbox);
+                    final_bbox = expanded_bbox.intersect(clip_bbox);
 
                     // Update both the local layer and the render graph node
                     layer.wtile_bbox = final_bbox;
@@ -743,8 +749,8 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Generate filter commands for each tile (used for non-graph path rendering)
             // Apply filter BEFORE clipping (per SVG spec: filter → clip → mask → opacity → blend)
-            for x in 0..self.width_tiles() {
-                for y in 0..self.height_tiles() {
+            for x in final_bbox.x0()..final_bbox.x1() {
+                for y in final_bbox.y0()..final_bbox.y1() {
                     self.get_mut(x, y).filter(layer.layer_id, filter.clone());
                 }
             }
@@ -971,17 +977,21 @@ impl<const MODE: u8> Wide<MODE> {
         } = self.clip_stack.pop().unwrap();
         let n_strips = strips.len();
 
-        if n_strips == 0 {
-            return;
-        }
-
         // Compute base alpha index and create shared clip attributes
-        let alpha_base_idx = strips[0].alpha_idx();
+        // Note: It's possible that the clip-path has zero strips. However, we cannot exit early
+        // in this case because we need to potentially pop zero clips further below. Therefore,
+        // we simply use a dummy alpha index of 0 in this case.
         let clip_attrs_idx = self.attrs.clip.len() as u32;
-        self.attrs.clip.push(ClipAttrs {
-            thread_idx,
-            alpha_base_idx,
-        });
+        let alpha_base_idx;
+        if n_strips == 0 {
+            alpha_base_idx = 0;
+        } else {
+            alpha_base_idx = strips[0].alpha_idx();
+            self.attrs.clip.push(ClipAttrs {
+                thread_idx,
+                alpha_base_idx,
+            });
+        };
 
         let mut cur_wtile_x = clip_bbox.x0();
         let mut cur_wtile_y = clip_bbox.y0();
@@ -2039,10 +2049,12 @@ mod tests {
 
         assert_eq!(wide.layer_stack.len(), 2);
         assert_eq!(wide.clip_stack.len(), 1);
+        assert_eq!(wide.tiles[0].n_bufs, 2);
 
         wide.reset();
 
         assert_eq!(wide.layer_stack.len(), 0);
         assert_eq!(wide.clip_stack.len(), 0);
+        assert_eq!(wide.tiles[0].n_bufs, 0);
     }
 }
