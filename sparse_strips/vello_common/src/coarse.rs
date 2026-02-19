@@ -1943,7 +1943,7 @@ impl LayerCommandRanges {
 
 #[cfg(test)]
 mod tests {
-    use crate::coarse::{FillHint, LayerKind, MODE_CPU, Wide, WideTile, Cmd};
+    use crate::coarse::{Cmd, FillHint, LayerKind, MODE_CPU, Wide, WideTile};
     use crate::kurbo::Affine;
     use crate::peniko::{BlendMode, Compose, Mix};
     use crate::render_graph::RenderGraph;
