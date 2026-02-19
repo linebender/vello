@@ -316,7 +316,7 @@ impl Scene {
         }
         if self.blit_batches.is_empty() {
             // There's no batch to batch into yet. This occurs for the first blit rect. We need to
-            // `flush_strips` to create a new blit batch to batch into.
+            // flush the strips to create a new blit batch to batch into.
             return false;
         }
         let blit_x0 = (aabb_x0.floor().max(0.0) as u32).min(u32::from(self.width)) as u16;
