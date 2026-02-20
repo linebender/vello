@@ -42,7 +42,7 @@ pub fn render_strips(c: &mut Criterion) {
         // Commenting this out by default since SIMD is what we care about most.
         // strip_single!(item, Level::baseline(), "fallback");
         let simd_level = Level::new();
-        if !matches!(simd_level, Level::Fallback(_)) {
+        if !simd_level.is_fallback() {
             strip_single!(item, simd_level, "simd");
         }
     }
