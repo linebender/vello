@@ -6,8 +6,10 @@ use crate::fine::{PosExt, Splat4thExt, u8_to_f32};
 use crate::kurbo::Point;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4};
+use vello_common::paint::TintMode;
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::element_wise_splat;
+use vello_common::util::f32_to_u8;
 
 /// A painter for nearest-neighbor images with no skewing.
 #[derive(Debug)]
@@ -76,7 +78,7 @@ impl<S: Simd> Iterator for PlainNNImagePainter<'_, S> {
 
         self.cur_x_pos += self.advance;
 
-        Some(samples)
+        Some(apply_tint_u8(self.simd, samples, &self.data))
     }
 }
 
@@ -137,7 +139,7 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
 
         self.data.cur_pos += self.data.image.x_advance;
 
-        Some(samples)
+        Some(apply_tint_u8(self.simd, samples, &self.data))
     }
 }
 
@@ -325,7 +327,7 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
 
         self.data.cur_pos += self.data.image.x_advance;
 
-        Some(interpolated_color)
+        Some(apply_tint_f32(self.simd, interpolated_color, &self.data))
     }
 }
 
@@ -333,6 +335,57 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
 f32x16_painter!(FilteredImagePainter<'_, S, 1>);
 // Bicubic
 f32x16_painter!(FilteredImagePainter<'_, S, 2>);
+
+/// Apply tint color to u8x16 samples (used by nearest-neighbor painters).
+///
+/// Supports two tint modes:
+/// - [`TintMode::AlphaMask`]: `tint * source.alpha` — uses source alpha as coverage mask.
+/// - [`TintMode::Multiply`]: `source * tint` — component-wise multiply.
+///
+/// When no tint is set, returns the samples unchanged.
+#[inline(always)]
+pub(crate) fn apply_tint_u8<S: Simd>(
+    simd: S,
+    samples: u8x16<S>,
+    data: &ImagePainterData<'_, S>,
+) -> u8x16<S> {
+    if data.has_tint {
+        let samples_f = u8_to_f32(samples);
+        let tinted = match data.tint_mode {
+            TintMode::AlphaMask => {
+                let alphas = samples_f.splat_4th();
+                data.tint * alphas
+            }
+            TintMode::Multiply => samples_f * data.tint,
+        };
+        f32_to_u8(tinted + f32x16::splat(simd, 0.5))
+    } else {
+        samples
+    }
+}
+
+/// Apply tint color to f32x16 samples (used by filtered painters).
+///
+/// Supports two tint modes:
+/// - [`TintMode::AlphaMask`]: `tint * source.alpha` — uses source alpha as coverage mask.
+/// - [`TintMode::Multiply`]: `source * tint` — component-wise multiply.
+///
+/// When no tint is set, returns the color unchanged.
+#[inline(always)]
+fn apply_tint_f32<S: Simd>(simd: S, color: f32x16<S>, data: &ImagePainterData<'_, S>) -> f32x16<S> {
+    if data.has_tint {
+        match data.tint_mode {
+            TintMode::AlphaMask => {
+                let alphas = color.splat_4th();
+                data.tint * alphas
+            }
+            TintMode::Multiply => color * data.tint,
+        }
+    } else {
+        let _ = simd;
+        color
+    }
+}
 
 /// Computes the positive fractional part of a value: `val - val.floor()`.
 ///
@@ -356,6 +409,28 @@ pub(crate) struct ImagePainterData<'a, S: Simd> {
     pub(crate) width: f32x4<S>,
     pub(crate) width_inv: f32x4<S>,
     pub(crate) width_u32: u32x4<S>,
+    /// Premultiplied tint color splatted as [R, G, B, A] × 4 pixels, values in \[0, 1\].
+    pub(crate) tint: f32x16<S>,
+    /// Whether a non-identity tint is applied.
+    pub(crate) has_tint: bool,
+    /// How the tint should be applied. Only meaningful when `has_tint` is `true`.
+    pub(crate) tint_mode: TintMode,
+}
+
+impl<S: Simd> ImagePainterData<'_, S> {
+    /// Read from [`EncodedImage::tint`] and return the SIMD-friendly splat
+    /// plus a boolean indicating whether a tint is active.
+    fn unpack_tint(simd: S, image: &EncodedImage) -> (f32x16<S>, bool, TintMode) {
+        match image.tint {
+            Some(t) => {
+                let premul = t.color.premultiply();
+                let [r, g, b, a] = premul.components;
+                let pixel = f32x4::from_slice(simd, &[r, g, b, a]);
+                (f32x16::block_splat(pixel), true, t.mode)
+            }
+            None => (f32x16::splat(simd, 1.0), false, TintMode::Multiply),
+        }
+    }
 }
 
 impl<'a, S: Simd> ImagePainterData<'a, S> {
@@ -379,6 +454,8 @@ impl<'a, S: Simd> ImagePainterData<'a, S> {
         let x_advances = (image.x_advance.x as f32, image.x_advance.y as f32);
         let y_advances = (image.y_advance.x as f32, image.y_advance.y as f32);
 
+        let (tint, has_tint, tint_mode) = Self::unpack_tint(simd, image);
+
         Self {
             cur_pos: start_pos,
             pixmap,
@@ -390,6 +467,9 @@ impl<'a, S: Simd> ImagePainterData<'a, S> {
             width_u32,
             width_inv,
             height_inv,
+            tint,
+            has_tint,
+            tint_mode,
         }
     }
 }

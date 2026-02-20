@@ -16,7 +16,7 @@ use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
-use vello_common::paint::{Paint, PaintType};
+use vello_common::paint::{Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
@@ -97,6 +97,8 @@ pub struct Scene {
     pub(crate) aliasing_threshold: Option<u8>,
     /// Storage for encoded gradient and image paint data.
     pub(crate) encoded_paints: Vec<EncodedPaint>,
+    /// Optional tint applied to image paints.
+    pub(crate) tint: Option<Tint>,
     /// Whether the current paint is visible (e.g., alpha > 0).
     paint_visible: bool,
     /// Current stroke style for path stroking operations.
@@ -137,6 +139,7 @@ impl Scene {
             paint: render_state.paint,
             paint_transform: render_state.paint_transform,
             encoded_paints: vec![],
+            tint: None,
             paint_visible: true,
             stroke: render_state.stroke,
             strip_generator: StripGenerator::new(width, height, settings.level),
@@ -186,10 +189,12 @@ impl Scene {
             PaintType::Gradient(g) => g.encode_into(
                 &mut self.encoded_paints,
                 self.transform * self.paint_transform,
+                None,
             ),
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints,
                 self.transform * self.paint_transform,
+                self.tint,
             ),
         }
     }
@@ -494,6 +499,16 @@ impl Scene {
         };
     }
 
+    /// Set the tint for subsequent image paint operations.
+    pub fn set_tint(&mut self, tint: Option<Tint>) {
+        self.tint = tint;
+    }
+
+    /// Clear the tint, so subsequent image paints are drawn without tinting.
+    pub fn reset_tint(&mut self) {
+        self.tint = None;
+    }
+
     /// Set the current paint transform.
     ///
     /// The paint transform is applied to the paint after the transform of the geometry the paint
@@ -548,6 +563,7 @@ impl Scene {
         self.paint = render_state.paint;
         self.stroke = render_state.stroke;
         self.blend_mode = render_state.blend_mode;
+        self.tint = None;
 
         #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();
@@ -681,6 +697,9 @@ impl Recordable for Scene {
                 }
                 RenderCommand::SetStroke(stroke) => {
                     self.set_stroke(stroke.clone());
+                }
+                RenderCommand::SetTint(tint) => {
+                    self.set_tint(*tint);
                 }
                 RenderCommand::SetFilterEffect(filter) => {
                     self.set_filter_effect(filter.clone());

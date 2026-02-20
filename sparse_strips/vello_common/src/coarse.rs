@@ -543,6 +543,7 @@ impl<const MODE: u8> Wide<MODE> {
                             if let Some(EncodedPaint::Image(img)) = encoded_paints.get(idx.index())
                                 && !img.may_have_opacities
                                 && img.sampler.alpha == 1.0
+                                && img.tint.is_none_or(|t| t.color.components[3] >= 1.0)
                             {
                                 FillHint::OpaqueImage
                             } else {

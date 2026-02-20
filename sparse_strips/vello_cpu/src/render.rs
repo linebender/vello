@@ -23,7 +23,7 @@ use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use vello_common::mask::Mask;
 #[cfg(feature = "text")]
 use vello_common::paint::{Image, ImageSource};
-use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType};
+use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::Pixmap;
@@ -68,6 +68,8 @@ pub struct RenderContext {
     /// Optional threshold for aliasing.
     pub(crate) aliasing_threshold: Option<u8>,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
+    /// Optional tint applied to image paints.
+    pub(crate) tint: Option<Tint>,
     pub(crate) filter: Option<Filter>,
     #[cfg_attr(
         not(feature = "text"),
@@ -171,6 +173,7 @@ impl RenderContext {
             stroke,
             temp_path,
             encoded_paints,
+            tint: None,
             filter: None,
             #[cfg(feature = "text")]
             glyph_caches: Some(GlyphCaches::default()),
@@ -186,11 +189,13 @@ impl RenderContext {
                 g.encode_into(
                     &mut self.encoded_paints,
                     self.transform * self.paint_transform,
+                    None,
                 )
             }
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints,
                 self.transform * self.paint_transform,
+                self.tint,
             ),
         }
     }
@@ -330,7 +335,7 @@ impl RenderContext {
 
         self.rect_to_temp_path(&inflated_rect);
 
-        let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform);
+        let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform, None);
         self.dispatcher.fill_path(
             &self.temp_path,
             Fill::NonZero,
@@ -466,6 +471,16 @@ impl RenderContext {
         &self.paint
     }
 
+    /// Set the tint for subsequent image paint operations.
+    pub fn set_tint(&mut self, tint: Option<Tint>) {
+        self.tint = tint;
+    }
+
+    /// Clear the tint, so subsequent image paints are drawn without tinting.
+    pub fn reset_tint(&mut self) {
+        self.tint = None;
+    }
+
     /// Set the blend mode that should be used when drawing objects.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
         self.blend_mode = blend_mode;
@@ -558,6 +573,7 @@ impl RenderContext {
         #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();
         self.blend_mode = BlendMode::default();
+        self.tint = None;
         self.clear_images();
     }
 
@@ -1006,6 +1022,9 @@ impl Recordable for RenderContext {
                 }
                 RenderCommand::SetStroke(stroke) => {
                     self.set_stroke(stroke.clone());
+                }
+                RenderCommand::SetTint(tint) => {
+                    self.set_tint(*tint);
                 }
                 RenderCommand::SetFilterEffect(filter) => {
                     self.set_filter_effect(filter.clone());
