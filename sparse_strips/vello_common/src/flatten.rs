@@ -200,6 +200,10 @@ pub fn fill_impl<S: Simd>(
     height: u16,
 ) {
     line_buf.clear();
+    let iter = path.into_iter().map(
+        #[inline(always)]
+        |el| affine * el,
+    );
 
     let mut lb = FlattenerCallback {
         line_buf,
@@ -208,7 +212,7 @@ pub fn fill_impl<S: Simd>(
         is_nan: false,
     };
 
-    crate::flatten_simd::flatten(simd, affine, path, &mut lb, flatten_ctx, width, height);
+    crate::flatten_simd::flatten(simd, iter, &mut lb, flatten_ctx, width, height);
 
     // A path that contains NaN is ill-defined, so ignore it.
     if lb.is_nan {

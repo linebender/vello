@@ -8,7 +8,7 @@
 use crate::flatten::{SQRT_TOL, TOL, TOL_2};
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
-use crate::kurbo::{Affine, CubicBez, Line, ParamCurve, ParamCurveNearest, PathEl, Point, QuadBez};
+use crate::kurbo::{CubicBez, Line, ParamCurve, ParamCurveNearest, PathEl, Point, QuadBez};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
@@ -43,7 +43,6 @@ pub(crate) trait Callback {
 #[inline(always)]
 pub(crate) fn flatten<S: Simd>(
     simd: S,
-    affine: Affine,
     path: impl IntoIterator<Item = PathEl>,
     callback: &mut impl Callback,
     flatten_ctx: &mut FlattenCtx,
@@ -60,8 +59,6 @@ pub(crate) fn flatten<S: Simd>(
     let mut last_pt = Point::ZERO;
 
     for el in path {
-        let el = affine * el;
-
         match el {
             PathEl::MoveTo(p) => {
                 if !closed && last_pt != start_pt {
