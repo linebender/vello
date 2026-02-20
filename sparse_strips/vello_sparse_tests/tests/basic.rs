@@ -466,7 +466,7 @@ fn test_cmd_size(_: &mut impl Renderer) {
 #[test]
 fn composite_to_pixmap_at_offset() {
     let settings = RenderSettings {
-        level: Level::try_detect().unwrap_or(Level::fallback()),
+        level: Level::try_detect().unwrap_or(Level::baseline()),
         num_threads: 0,
         render_mode: RenderMode::OptimizeQuality,
     };

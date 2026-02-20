@@ -109,14 +109,14 @@ pub(crate) fn get_ctx<T: Renderer>(
         #[cfg(target_arch = "aarch64")]
         "neon" => Level::Neon(
             Level::try_detect()
-                .unwrap_or(Level::fallback())
+                .unwrap_or(Level::baseline())
                 .as_neon()
                 .expect("neon should be available"),
         ),
         #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
         "wasm_simd128" => Level::WasmSimd128(
             Level::try_detect()
-                .unwrap_or(Level::fallback())
+                .unwrap_or(Level::baseline())
                 .as_wasm_simd128()
                 .expect("wasm simd128 should be available"),
         ),
@@ -138,7 +138,7 @@ pub(crate) fn get_ctx<T: Renderer>(
                 panic!("avx2 or fma feature not detected");
             }
         }
-        "fallback" => Level::fallback(),
+        "baseline" => Level::baseline(),
         _ => panic!("unknown level: {level}"),
     };
 

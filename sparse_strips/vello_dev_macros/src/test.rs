@@ -280,7 +280,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let wasm_simd_level = quote! {if cfg!(target_feature = "simd128") {
             "wasm_simd128"
         } else {
-            "fallback"
+            "baseline"
         }
     };
 
@@ -290,7 +290,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_u8_tolerance_scalar,
         false,
         0,
-        quote! {"fallback"},
+        quote! {"baseline"},
         skip_cpu,
         quote! { RenderMode::OptimizeSpeed },
     );
@@ -300,7 +300,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_f32_tolerance_scalar,
         true,
         0,
-        quote! {"fallback"},
+        quote! {"baseline"},
         skip_cpu,
         quote! { RenderMode::OptimizeQuality },
     );
@@ -330,7 +330,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         cpu_f32_tolerance_scalar,
         false,
         3,
-        quote! {"fallback"},
+        quote! {"baseline"},
         skip_cpu | skip_multithreaded,
         quote! { RenderMode::OptimizeQuality },
     );
@@ -437,7 +437,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "baseline", RenderMode::OptimizeSpeed);
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
@@ -455,7 +455,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "baseline", RenderMode::OptimizeSpeed);
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {

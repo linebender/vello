@@ -259,7 +259,7 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
                         let color_sample = sample(x_positions, y_positions);
                         let w = element_wise_splat(self.simd, cx[x_idx] * cy[y_idx]);
 
-                        interpolated_color = w.madd(color_sample, interpolated_color);
+                        interpolated_color = w.mul_add(color_sample, interpolated_color);
                     }
                 }
 
@@ -299,7 +299,7 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
                         let color_sample = sample(x_positions, y_positions);
                         let w = element_wise_splat(self.simd, cx[x_idx] * cy[y_idx]);
 
-                        interpolated_color = w.madd(color_sample, interpolated_color);
+                        interpolated_color = w.mul_add(color_sample, interpolated_color);
                     }
                 }
 
@@ -430,7 +430,7 @@ pub(crate) fn extend<S: Simd>(
         crate::peniko::Extend::Pad => val.min(max - 1.0).max(f32x4::splat(simd, 0.0)),
         crate::peniko::Extend::Repeat => {
             // floor := (val * inv_max).floor() * max is the nearest multiple of `max` below val.
-            max.madd(-(val * inv_max).floor(), val)
+            max.mul_add(-(val * inv_max).floor(), val)
                 // In certain edge cases, we might still end up with a higher number.
                 .min(max - 1.0)
         }
@@ -507,7 +507,7 @@ fn single_weight<S: Simd>(
     c: f32x4<S>,
     d: f32x4<S>,
 ) -> f32x4<S> {
-    t.madd(d, c).madd(t, b).madd(t, a)
+    t.mul_add(d, c).mul_add(t, b).mul_add(t, a)
 }
 
 /// Mitchell filter with the variables B = 1/3 and C = 1/3.

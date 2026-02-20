@@ -71,11 +71,11 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
 
         let fx = f32_to_u8(element_wise_splat(
             self.simd,
-            fract_floor(x_positions + 0.5).madd(255.0, 0.5),
+            fract_floor(x_positions + 0.5).mul_add(255.0, 0.5),
         ));
         let fy = f32_to_u8(element_wise_splat(
             self.simd,
-            fract_floor(y_positions + 0.5).madd(255.0, 0.5),
+            fract_floor(y_positions + 0.5).mul_add(255.0, 0.5),
         ));
 
         let fx = self.simd.widen_u8x16(fx);
@@ -172,7 +172,7 @@ impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
         // Pre-compute y interpolation weights
         let fy = f32_to_u8(element_wise_splat(
             simd,
-            fract_floor(y_positions + 0.5).madd(255.0, 0.5),
+            fract_floor(y_positions + 0.5).mul_add(255.0, 0.5),
         ));
         let fy = simd.widen_u8x16(fy);
         let fy_inv = u16x16::splat(simd, 255) - fy;
@@ -224,7 +224,7 @@ impl<S: Simd> Iterator for PlainBilinearImagePainter<'_, S> {
         // Compute x interpolation weights
         let fx = f32_to_u8(element_wise_splat(
             self.simd,
-            fract_floor(x_plus_half).madd(255.0, 0.5),
+            fract_floor(x_plus_half).mul_add(255.0, 0.5),
         ));
         let fx = self.simd.widen_u8x16(fx);
         let fx_inv = u16x16::splat(self.simd, 255) - fx;

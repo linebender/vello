@@ -550,9 +550,9 @@ fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32
 
     let to_u8 = |val1: f32x16<S>, val2: f32x16<S>| {
         let val1 =
-            f32_to_u8(f32x16::splat(val1.simd, 255.0).madd(val1, f32x16::splat(val1.simd, 0.5)));
+            f32_to_u8(f32x16::splat(val1.simd, 255.0).mul_add(val1, f32x16::splat(val1.simd, 0.5)));
         let val2 =
-            f32_to_u8(f32x16::splat(val2.simd, 255.0).madd(val2, f32x16::splat(val2.simd, 0.5)));
+            f32_to_u8(f32x16::splat(val2.simd, 255.0).mul_add(val2, f32x16::splat(val2.simd, 0.5)));
 
         val1.simd.combine_u8x16(val1, val2)
     };
@@ -726,7 +726,7 @@ mod tests {
 
     #[test]
     fn pack_block_unpack_block_roundtrip() {
-        dispatch!(Level::try_detect().unwrap_or(Level::fallback()), simd => {
+        dispatch!(Level::try_detect().unwrap_or(Level::baseline()), simd => {
             test_pack_unpack_roundtrip(
                 |region, buf| simd.vectorize(|| pack_block(simd, region, buf)),
                 |region, buf| simd.vectorize(|| unpack_block(simd, region, buf)),

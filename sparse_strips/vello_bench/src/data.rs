@@ -156,7 +156,7 @@ impl DataItem {
         let tiles = self.sorted_tiles();
 
         strip::render(
-            Level::fallback(),
+            Level::baseline(),
             &tiles,
             &mut strip_buf,
             &mut alpha_buf,
