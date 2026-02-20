@@ -167,7 +167,7 @@ pub(crate) fn flatten<S: Simd>(
                 //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
-                else if [p0, p1, p2].into_iter().all(|p| p.x < 0.)
+                else if [p0, p1, p2, p3].into_iter().all(|p| p.x < 0.)
                     || f64::max(
                         line.nearest(p1, 0.).distance_sq,
                         line.nearest(p2, 0.).distance_sq,
