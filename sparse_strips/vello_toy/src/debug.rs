@@ -49,6 +49,8 @@ fn main() {
                 Affine::IDENTITY,
                 &mut line_buf,
                 &mut FlattenCtx::default(),
+                args.width,
+                args.height,
             );
         } else {
             let stroke = Stroke {
@@ -66,6 +68,8 @@ fn main() {
                 &mut line_buf,
                 &mut FlattenCtx::default(),
                 &mut StrokeCtx::default(),
+                args.width,
+                args.height,
             );
         }
     }

@@ -1251,6 +1251,9 @@ mod tests {
 
     #[test]
     fn vertical_path_on_the_right_of_viewport() {
+        const VIEWPORT_WIDTH: u16 = 10;
+        const VIEWPORT_HEIGHT: u16 = 10;
+
         let path = BezPath::from_svg("M261,0 L78848,0 L78848,4 L261,4 Z").unwrap();
         let mut line_buf = vec![];
         fill(
@@ -1259,10 +1262,12 @@ mod tests {
             Affine::IDENTITY,
             &mut line_buf,
             &mut FlattenCtx::default(),
+            VIEWPORT_WIDTH,
+            VIEWPORT_HEIGHT,
         );
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::fallback()));
-        tiles.assert_tiles_match(&line_buf, 10, 10, &[]);
+        tiles.assert_tiles_match(&line_buf, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, &[]);
     }
 
     #[test]

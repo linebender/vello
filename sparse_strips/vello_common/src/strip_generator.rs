@@ -102,6 +102,8 @@ impl StripGenerator {
             transform,
             &mut self.line_buf,
             &mut self.flatten_ctx,
+            self.width,
+            self.height,
         );
 
         self.generate_with_clip(aliasing_threshold, strip_storage, fill_rule, clip_path);
@@ -125,6 +127,8 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
             &mut self.stroke_ctx,
+            self.width,
+            self.height,
         );
         self.generate_with_clip(aliasing_threshold, strip_storage, Fill::NonZero, clip_path);
     }
