@@ -398,17 +398,36 @@ fn render_impl<S: Simd>(
             // right edge.
             //
             // We know `ymin` and `ymax` are finite. We require the `max` operation to pick `ymin`
-            // if its first operand is NaN. Under a strict reading of `fearless_simd`'s `max` and
-            // `max_precise` semantics, that requires using `max_precise`, which chooses the
-            // non-NaN operand (regardless of whether it's the first or second). For `min`, we then
-            // know both operands are finite, so we can use the relaxed version.
+            // if its first operand is NaN. On x86, that's precisely the semantics of `_mm_max_ps`,
+            // which `f32x4::max` emits. For AArch64, we do require the `f32x4::max_precise`
+            // semantics (as `max` returns NaN if either operand is NaN); however, the precise
+            // version should be comparatively less expensive than on x86. For `min`, we then know
+            // both operands are finite, so we can unambigously use the relaxed version. If this
+            // ever breaks, tests should fail loudly, because NaNs happen a lot here!
+            trait F32x4MaxExt {
+                fn max_if_nan_take_second(self, rhs: Self) -> Self;
+            }
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            impl<S: Simd> F32x4MaxExt for f32x4<S> {
+                #[inline(always)]
+                fn max_if_nan_take_second(self, rhs: Self) -> Self {
+                    self.max(rhs)
+                }
+            }
+            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+            impl<S: Simd> F32x4MaxExt for f32x4<S> {
+                #[inline(always)]
+                fn max_if_nan_take_second(self, rhs: Self) -> Self {
+                    self.max_precise(rhs)
+                }
+            }
             let line_px_left_y = (px_left_x - line_top_x)
                 .mul_add(y_slope, line_top_y)
-                .max_precise(ymin)
+                .max_if_nan_take_second(ymin)
                 .min(ymax);
             let line_px_right_y = (px_right_x - line_top_x)
                 .mul_add(y_slope, line_top_y)
-                .max_precise(ymin)
+                .max_if_nan_take_second(ymin)
                 .min(ymax);
 
             // For each pixel we calculate the x-coordinates of the left- and rightmost points on
