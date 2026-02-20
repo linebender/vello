@@ -395,15 +395,21 @@ fn render_impl<S: Simd>(
             // x-position (collinear), the line belongs to the pixel on whose _left_ edge it is
             // situated. The resulting slope calculation for the edge the line is situated on
             // will be NaN, as `0 * inf` results in NaN. This is true for both the left and
-            // right edge. In both cases, the call to `f32::max` will set this to `ymin`.
+            // right edge.
+            //
+            // We know `ymin` and `ymax` are finite. We require the `max` operation to pick `ymin`
+            // if its first operand is NaN. Under a strict reading of `fearless_simd`'s `max` and
+            // `max_precise` semantics, that requires using `max_precise`, which chooses the
+            // non-NaN operand (regardless of whether it's the first or second). For `min`, we then
+            // know both operands are finite, so we can use the relaxed version.
             let line_px_left_y = (px_left_x - line_top_x)
                 .mul_add(y_slope, line_top_y)
                 .max_precise(ymin)
-                .min_precise(ymax);
+                .min(ymax);
             let line_px_right_y = (px_right_x - line_top_x)
                 .mul_add(y_slope, line_top_y)
                 .max_precise(ymin)
-                .min_precise(ymax);
+                .min(ymax);
 
             // For each pixel we calculate the x-coordinates of the left- and rightmost points on
             // the line segment within that pixel. We do this based on the y-offsets of those two
