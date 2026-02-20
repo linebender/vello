@@ -2196,7 +2196,6 @@ mod tests {
 
         assert_eq!(wide.layer_stack.len(), 2);
         assert_eq!(wide.clip_stack.len(), 1);
-        // With lazy buffer pushing, n_bufs is 0 until content is actually drawn
         assert_eq!(wide.tiles[0].n_bufs, 0);
 
         wide.reset();
