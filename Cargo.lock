@@ -972,11 +972,10 @@ dependencies = [
 
 [[package]]
 name = "fearless_simd"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fb2907d1f08b2b316b9223ced5b0e89d87028ba8deae9764741dba8ff7f3903"
+checksum = "76258897e51fd156ee03b6246ea53f3e0eb395d0b327e9961c4fc4c8b2fa151a"
 dependencies = [
- "bytemuck",
  "libm",
 ]
 
@@ -4110,6 +4109,7 @@ name = "vello_sparse_tests"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
+ "fearless_simd",
  "image",
  "oxipng",
  "pollster",

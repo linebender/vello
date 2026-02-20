@@ -247,7 +247,7 @@ impl Renderer for HybridRenderer {
             panic!("hybrid renderer doesn't support multi-threading");
         }
 
-        if !matches!(level, Level::Fallback(_)) {
+        if !level.is_fallback() {
             panic!("hybrid renderer doesn't support SIMD");
         }
 
@@ -582,7 +582,7 @@ impl Renderer for HybridRenderer {
             panic!("hybrid renderer doesn't support multi-threading");
         }
 
-        if !matches!(level, Level::Fallback(_)) {
+        if !level.is_fallback() {
             panic!("hybrid renderer doesn't support SIMD");
         }
 

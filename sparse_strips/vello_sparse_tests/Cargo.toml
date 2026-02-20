@@ -19,6 +19,9 @@ vello_api = { workspace = true }
 vello_common = { workspace = true, features = ["std"] }
 vello_cpu = { workspace = true, features = ["multithreading", "std", "f32_pipeline"] }
 vello_hybrid = { workspace = true }
+fearless_simd = { workspace = true, features = [
+    "force_support_fallback", # We require the `force_support_callback` feature to test the fallback path.
+] }
 wgpu = { workspace = true, default-features = true }
 pollster = { workspace = true }
 vello_dev_macros = { workspace = true }

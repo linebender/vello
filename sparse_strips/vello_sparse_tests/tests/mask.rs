@@ -17,7 +17,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
     let mut mask_pix = Pixmap::new(100, 100);
     // TODO: Would be nice to take the settings from the current test context.
     let settings = RenderSettings {
-        level: Level::fallback(),
+        level: Level::baseline(),
         num_threads: 0,
         render_mode: RenderMode::OptimizeSpeed,
     };
