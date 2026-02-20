@@ -74,7 +74,9 @@ pub enum ImageSource {
     /// Pixmap pixels travel with the scene packet.
     Pixmap(Arc<Pixmap>),
     /// Pixmap pixels were registered earlier; this is just a handle.
-    OpaqueId(ImageId),
+    ///
+    /// The `bool` indicates whether the image may contain non-opaque pixels.
+    OpaqueId(ImageId, bool),
 }
 
 impl ImageSource {

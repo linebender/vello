@@ -396,8 +396,8 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         .unwrap();
 
     let scenes = vello_example_scenes::get_example_scenes(vec![
-        ImageSource::OpaqueId(ImageId::new(0)),
-        ImageSource::OpaqueId(ImageId::new(1)),
+        ImageSource::OpaqueId(ImageId::new(0), true),
+        ImageSource::OpaqueId(ImageId::new(1), true),
     ]);
 
     let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes).await));

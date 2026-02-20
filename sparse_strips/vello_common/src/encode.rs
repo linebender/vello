@@ -507,12 +507,10 @@ impl EncodeExt for Image {
                 x_advance,
                 y_advance,
             },
-            ImageSource::OpaqueId(image) => EncodedImage {
-                source: ImageSource::OpaqueId(*image),
+            ImageSource::OpaqueId(image, may_have_opacities) => EncodedImage {
+                source: ImageSource::OpaqueId(*image, *may_have_opacities),
                 sampler,
-                // Safe fallback: we don't have access to pixel data for externally
-                // registered images, so we conservatively assume they have opacities.
-                may_have_opacities: true,
+                may_have_opacities: *may_have_opacities,
                 transform,
                 x_advance,
                 y_advance,

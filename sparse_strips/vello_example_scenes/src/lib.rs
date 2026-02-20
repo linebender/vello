@@ -8,6 +8,7 @@ pub mod clip;
 pub mod filter;
 pub mod gradient;
 pub mod image;
+pub mod multi_image;
 pub mod path;
 pub mod simple;
 pub mod svg;
@@ -32,6 +33,11 @@ use vello_hybrid::Scene;
 pub trait RenderingContext: Sized {
     /// The glyph renderer type.
     type GlyphRenderer: GlyphRenderer;
+
+    /// Width of the render target in pixels.
+    fn width(&self) -> u16;
+    /// Height of the render target in pixels.
+    fn height(&self) -> u16;
 
     /// Set the current transform.
     fn set_transform(&mut self, transform: Affine);
@@ -85,6 +91,14 @@ pub trait RenderingContext: Sized {
 #[cfg(feature = "cpu")]
 impl RenderingContext for RenderContext {
     type GlyphRenderer = Self;
+
+    fn width(&self) -> u16 {
+        self.width()
+    }
+
+    fn height(&self) -> u16 {
+        self.height()
+    }
 
     fn set_transform(&mut self, transform: Affine) {
         self.set_transform(transform);
@@ -176,6 +190,14 @@ impl RenderingContext for RenderContext {
 
 impl RenderingContext for Scene {
     type GlyphRenderer = Self;
+
+    fn width(&self) -> u16 {
+        self.width()
+    }
+
+    fn height(&self) -> u16 {
+        self.height()
+    }
 
     fn set_transform(&mut self, transform: Affine) {
         self.set_transform(transform);
@@ -275,6 +297,11 @@ pub trait ExampleScene {
     fn handle_key(&mut self, _key: &str) -> bool {
         false
     }
+
+    /// Optional status string shown in the window title (e.g. element count).
+    fn status(&self) -> Option<String> {
+        None
+    }
 }
 
 /// A type-erased example scene.
@@ -283,6 +310,8 @@ pub struct AnyScene<T> {
     render_fn: RenderFn<T>,
     /// The key handler function.
     key_handler_fn: KeyHandlerFn,
+    /// The status query function.
+    status_fn: StatusFn,
     /// Whether to show the wide tile columns overlay.
     show_widetile_columns: bool,
 }
@@ -292,6 +321,9 @@ type RenderFn<T> = Box<dyn FnMut(&mut T, Affine)>;
 
 /// A type-erased key handler function.
 type KeyHandlerFn = Box<dyn FnMut(&str) -> bool>;
+
+/// A type-erased status function.
+type StatusFn = Box<dyn Fn() -> Option<String>>;
 
 impl<T> std::fmt::Debug for AnyScene<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -306,10 +338,12 @@ impl<T: RenderingContext> AnyScene<T> {
     pub fn new<S: ExampleScene + 'static>(scene: S) -> Self {
         let scene = std::rc::Rc::new(std::cell::RefCell::new(scene));
         let scene_clone = scene.clone();
+        let scene_status = scene.clone();
 
         Self {
             render_fn: Box::new(move |s, transform| scene.borrow_mut().render(s, transform)),
             key_handler_fn: Box::new(move |key| scene_clone.borrow_mut().handle_key(key)),
+            status_fn: Box::new(move || scene_status.borrow().status()),
             show_widetile_columns: false,
         }
     }
@@ -341,6 +375,11 @@ impl<T: RenderingContext> AnyScene<T> {
         (self.key_handler_fn)(key)
     }
 
+    /// Get an optional status string from the scene.
+    pub fn status(&self) -> Option<String> {
+        (self.status_fn)()
+    }
+
     /// Toggle the tile grid overlay.
     pub fn toggle_tile_grid(&mut self) {
         self.show_widetile_columns = !self.show_widetile_columns;
@@ -353,18 +392,13 @@ impl<T: RenderingContext> AnyScene<T> {
         ctx.set_transform(Affine::IDENTITY);
         ctx.set_paint(WHITE);
 
-        // Draw lines across the entire scene
-        let max_width = 2000.0;
-        let max_height = 2000.0;
+        let vw = ctx.width() as f64;
+        let vh = ctx.height() as f64;
 
         let mut tile_x = 0.0;
         let line_width = 1.0;
-        while tile_x <= max_width {
-            // Draw a thin vertical line
-            ctx.fill_rect(&Rect::from_points(
-                (tile_x, 0.0),
-                (tile_x + line_width, max_height),
-            ));
+        while tile_x <= vw {
+            ctx.fill_rect(&Rect::from_points((tile_x, 0.0), (tile_x + line_width, vh)));
             tile_x += WideTile::WIDTH as f64;
         }
     }
@@ -396,7 +430,11 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     #[cfg(feature = "cpu")]
     scenes.push(AnyScene::new(filter::FilterScene::new()));
     scenes.push(AnyScene::new(blend::BlendScene::new()));
+    let flower_source = img_sources[0].clone();
     scenes.push(AnyScene::new(image::ImageScene::new(img_sources)));
+    scenes.push(AnyScene::new(multi_image::MultiImageScene::new(
+        flower_source,
+    )));
     scenes.push(AnyScene::new(gradient::GradientExtendScene::new()));
     scenes.push(AnyScene::new(gradient::RadialScene::new()));
     scenes.push(AnyScene::new(path::FillTypesScene::new()));
@@ -423,7 +461,8 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
         AnyScene::new(filter::FilterScene::new()),
         AnyScene::new(clip::ClipScene::new()),
         AnyScene::new(blend::BlendScene::new()),
-        AnyScene::new(image::ImageScene::new(img_sources)),
+        AnyScene::new(image::ImageScene::new(img_sources.clone())),
+        AnyScene::new(multi_image::MultiImageScene::new(img_sources[0].clone())),
         AnyScene::new(gradient::GradientExtendScene::new()),
         AnyScene::new(gradient::RadialScene::new()),
         AnyScene::new(path::FillTypesScene::new()),

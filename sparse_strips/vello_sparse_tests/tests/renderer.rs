@@ -552,7 +552,7 @@ impl Renderer for HybridRenderer {
 
         self.queue.submit([encoder.finish()]);
 
-        ImageSource::OpaqueId(image_id)
+        ImageSource::OpaqueId(image_id, pixmap.may_have_opacities())
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
@@ -793,7 +793,7 @@ impl Renderer for HybridRenderer {
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         let image_id = self.renderer.borrow_mut().upload_image(&pixmap);
-        ImageSource::OpaqueId(image_id)
+        ImageSource::OpaqueId(image_id, pixmap.may_have_opacities())
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
