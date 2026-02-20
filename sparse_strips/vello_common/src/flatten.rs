@@ -36,9 +36,9 @@ impl Point {
     }
 }
 
-impl From<crate::kurbo::Point> for Point {
+impl From<kurbo::Point> for Point {
     #[inline(always)]
-    fn from(value: crate::kurbo::Point) -> Self {
+    fn from(value: kurbo::Point) -> Self {
         Self {
             x: value.x as f32,
             y: value.y as f32,
